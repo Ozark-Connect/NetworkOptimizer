@@ -36,6 +36,7 @@ public class SnmpDetectionService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<SnmpDetectionService> _logger;
+    private static readonly SemaphoreSlim _settingsLock = new(1, 1);
 
     public SnmpDetectionService(
         UniFiConnectionService connectionService,
@@ -154,25 +155,36 @@ public class SnmpDetectionService
 
     public async Task<MonitoringSettings> GetOrCreateSettingsAsync(CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
-        if (settings != null) return settings;
+        await _settingsLock.WaitAsync(ct);
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+            if (settings != null) return settings;
 
-        settings = new MonitoringSettings();
-        db.MonitoringSettings.Add(settings);
-        await db.SaveChangesAsync(ct);
-        return settings;
+            settings = new MonitoringSettings();
+            db.MonitoringSettings.Add(settings);
+            await db.SaveChangesAsync(ct);
+            return settings;
+        }
+        finally
+        {
+            _settingsLock.Release();
+        }
     }
 
     public async Task SaveDetectionResultAsync(SnmpDetectionResult result, CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
-        if (settings == null)
+        await _settingsLock.WaitAsync(ct);
+        try
         {
-            settings = new MonitoringSettings();
-            db.MonitoringSettings.Add(settings);
-        }
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+            if (settings == null)
+            {
+                settings = new MonitoringSettings();
+                db.MonitoringSettings.Add(settings);
+            }
 
         settings.SnmpDetectionState = result.DetectionState;
         settings.LastSnmpDetection = DateTime.UtcNow;
@@ -198,7 +210,12 @@ public class SnmpDetectionService
                 : null;
         }
 
-        settings.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+        finally
+        {
+            _settingsLock.Release();
+        }
     }
 }
