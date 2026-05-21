@@ -94,8 +94,18 @@ public class MonitoringCollectionAgent : BackgroundService
             LatencyTierCollectAsync,
             TimeSpan.FromSeconds(20),
             stoppingToken);
+        // Periodic InfluxDB health revalidation. The Test button on the Monitoring page
+        // is fine for the user-initiated case, but we want the persisted status to flip
+        // automatically when the token gets revoked or buckets get deleted out from
+        // under us. Every 60s the agent calls CheckHealthAsync, which now exercises the
+        // bucket via a Flux query instead of just /ping (see MonitoringInfluxClient).
+        var healthTask = RunTierAsync("health",
+            _ => TimeSpan.FromSeconds(60),
+            HealthTierCollectAsync,
+            TimeSpan.FromSeconds(25),
+            stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask);
         _logger.LogInformation("Monitoring collection agent stopped");
     }
 
@@ -438,6 +448,26 @@ public class MonitoringCollectionAgent : BackgroundService
             }
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    // ---- Health revalidation tier ----
+
+    /// <summary>
+    /// Background InfluxDB health probe. CheckHealthAsync now hits the bucket via a
+    /// Flux query (not just /ping), so this catches the case where the user revokes
+    /// the token or deletes the buckets without having to click the Test button on
+    /// the dashboard. Results are persisted to MonitoringSettings for the UI to read.
+    /// </summary>
+    private async Task HealthTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
+    {
+        try
+        {
+            await _influx.CheckHealthAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Background health probe failed");
+        }
     }
 
     // ---- Latency / loss tier ----
