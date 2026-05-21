@@ -159,6 +159,35 @@ public static class DefaultAlertRules
             Source = "wan",
             MinSeverity = AlertSeverity.Error,
             CooldownSeconds = 86400 // 24 hours
+        },
+
+        // --- Monitoring (enabled by default - users opted into monitoring by configuring it) ---
+        new AlertRule
+        {
+            Name = "Monitoring: Target Offline",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.target_offline",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 600 // 10 minutes - flapping suppression is in the evaluator
+        },
+        new AlertRule
+        {
+            Name = "Monitoring: Target Recovered",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.target_recovered",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - recoveries are paired with offline events
+        },
+        new AlertRule
+        {
+            Name = "Monitoring: Sustained Packet Loss",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.target_sustained_loss",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
         }
     ];
 }

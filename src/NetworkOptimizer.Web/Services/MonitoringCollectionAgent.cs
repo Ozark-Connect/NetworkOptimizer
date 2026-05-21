@@ -37,6 +37,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly MonitoringLiveStats _liveStats;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
 
@@ -60,6 +61,7 @@ public class MonitoringCollectionAgent : BackgroundService
         MonitoringLiveStats liveStats,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
+        NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator alertEvaluator,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger)
     {
@@ -69,6 +71,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _liveStats = liveStats;
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
+        _alertEvaluator = alertEvaluator;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -705,6 +708,11 @@ public class MonitoringCollectionAgent : BackgroundService
             // Always record per-target stats so the targets table can show latest results
             // regardless of target type.
             _liveStats.RecordTargetProbe(target.TargetId, ping.RttAvgMs, ping.LossPercent, ping.Success, ping.Timestamp);
+
+            // State-change evaluation: publish AlertEvents on up→down, down→up, and
+            // sustained packet loss transitions. Cheap, in-memory state machine.
+            try { await _alertEvaluator.EvaluateAsync(target, ping, ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Alert evaluator failed for target {Target}", target.TargetId); }
 
             if (ping.Success)
             {
