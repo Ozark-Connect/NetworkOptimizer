@@ -45,6 +45,14 @@ public class MonitoringCollectionAgent : BackgroundService
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
 
+    // SNMP gating. If a device fails SNMP repeatedly while being reachable on ICMP
+    // (so we know it's online), assume it doesn't speak SNMP and stop polling it for
+    // the lifetime of this app. Cheap, bounded, and avoids constantly hammering a
+    // device that's just not going to answer (USW-Flex-Mini, for example).
+    private readonly ConcurrentDictionary<string, int> _snmpFailures = new();
+    private readonly ConcurrentDictionary<string, byte> _snmpExcluded = new();
+    private const int SnmpFailureThreshold = 3;
+
     public MonitoringCollectionAgent(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
@@ -189,6 +197,14 @@ public class MonitoringCollectionAgent : BackgroundService
 
         var deviceTasks = devices.Select(async device =>
         {
+            var mac = NormalizeMac(device.Mac);
+            if (_snmpExcluded.ContainsKey(mac))
+            {
+                // Device was previously determined to not support SNMP. Skip silently;
+                // rate data for this device will come from its parent switch port
+                // (for APs) or be absent.
+                return;
+            }
             try
             {
                 if (!IPAddress.TryParse(device.Ip, out var ip)) return;
@@ -213,11 +229,21 @@ public class MonitoringCollectionAgent : BackgroundService
                     // APs below using the parent switch port's counter, which is what
                     // spec 5.6 calls for since AP SNMP rates can double-count wireless.
                     _liveStats.RecordInterfaceAggregate(device.Mac, aggregateInBps, aggregateOutBps, now);
+                    // Successful SNMP poll - reset the failure counter.
+                    _snmpFailures.TryRemove(mac, out _);
+                }
+                else
+                {
+                    // SNMP returned no usable data. If the device is otherwise reachable
+                    // (recent fabric ping succeeded), it likely doesn't support SNMP;
+                    // count the failure and maybe exclude it.
+                    NoteSnmpFailure(mac);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Fast-tier interface poll failed for {Device}", device.Mac);
+                NoteSnmpFailure(mac);
             }
         });
         await Task.WhenAll(deviceTasks);
@@ -311,6 +337,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         var deviceTasks = devices.Select(async device =>
         {
+            if (_snmpExcluded.ContainsKey(NormalizeMac(device.Mac))) return;
             try
             {
                 if (!IPAddress.TryParse(device.Ip, out var ip)) return;
@@ -364,6 +391,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         foreach (var device in devices)
         {
+            if (_snmpExcluded.ContainsKey(NormalizeMac(device.Mac))) continue;
             try
             {
                 if (!IPAddress.TryParse(device.Ip, out var ip)) continue;
@@ -478,6 +506,8 @@ public class MonitoringCollectionAgent : BackgroundService
                 jitterMs: ping.JitterMs,
                 lossPercent: ping.LossPercent,
                 success: ping.Success,
+                sent: ping.Sent,
+                received: ping.Received,
                 timestamp: ping.Timestamp);
 
             // Surface fabric probe results on the dashboard's device cards (5.6). Other
@@ -855,6 +885,39 @@ public class MonitoringCollectionAgent : BackgroundService
         }
         return false;
     }
+
+    /// <summary>
+    /// Record an SNMP failure for a device. If we hit the threshold AND the device's
+    /// fabric ping has succeeded recently, mark it as "no SNMP" for the rest of this
+    /// app lifecycle. Pingable + repeatedly SNMP-failing is strong evidence the
+    /// device just doesn't speak SNMP (USW-Flex-Mini is the canonical case).
+    /// </summary>
+    private void NoteSnmpFailure(string normalizedMac)
+    {
+        if (string.IsNullOrEmpty(normalizedMac)) return;
+        if (_snmpExcluded.ContainsKey(normalizedMac)) return;
+
+        var count = _snmpFailures.AddOrUpdate(normalizedMac, 1, (_, prev) => prev + 1);
+        if (count < SnmpFailureThreshold) return;
+
+        // Only exclude when the device is actually reachable. If our fabric ping has
+        // returned at least once in the last 2 minutes, we know it's online; otherwise
+        // it might just be down, and we'll re-try SNMP when it comes back.
+        var liveStats = _liveStats.GetForDevice(normalizedMac);
+        if (liveStats == null || !liveStats.LastLatencyUpdate.HasValue) return;
+        if (DateTime.UtcNow - liveStats.LastLatencyUpdate.Value > TimeSpan.FromMinutes(2)) return;
+        if (!(liveStats.LatestRttMs.HasValue && liveStats.LatestRttMs.Value >= 0)) return;
+
+        if (_snmpExcluded.TryAdd(normalizedMac, 0))
+        {
+            _logger.LogInformation(
+                "Excluding {Mac} from SNMP polling for this app lifecycle - {Count} consecutive failures despite being reachable on ICMP. Device likely doesn't support SNMP.",
+                normalizedMac, count);
+        }
+    }
+
+    /// <summary>Tells the dashboard which devices were dropped from SNMP polling.</summary>
+    public IReadOnlyCollection<string> GetSnmpExcludedDevices() => _snmpExcluded.Keys.ToList();
 
     private static string NormalizeMac(string mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');

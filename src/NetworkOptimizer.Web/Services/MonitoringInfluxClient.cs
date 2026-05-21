@@ -289,6 +289,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? jitterMs,
         double lossPercent,
         bool success,
+        int sent,
+        int received,
         DateTime timestamp)
     {
         if (!IsConfigured) return Task.CompletedTask;
@@ -298,6 +300,11 @@ public class MonitoringInfluxClient : IAsyncDisposable
             .Tag("target_type", targetType.ToString().ToLowerInvariant())
             .Field("loss_percent", lossPercent)
             .Field("success", success)
+            // Raw burst counts: sent + received per probe burst. Lets dashboards
+            // reconstruct "total probes sent" and verify the burst configuration
+            // independent of the loss_percent field (STM parity).
+            .Field("sent", sent)
+            .Field("received", received)
             .Field("probe_mode", probeMode.ToString().ToLowerInvariant())
             .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
 
