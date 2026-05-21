@@ -14148,3 +14148,87 @@ a.affected-client:hover {
     background: rgba(231, 150, 19, 0.15);
     color: var(--warning-color);
 }
+.lan-flow-map-labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+.lan-flow-map-label {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: rgba(16, 24, 32, 0.78);
+    color: var(--text-primary);
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: none;
+}
+.lan-flow-map-label.is-visible {
+    display: block;
+}
+.lan-flow-map-label-name {
+    font-weight: 500;
+}
+.lan-flow-map-label-rates {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+    font-size: 0.7rem;
+}
+.lan-flow-map-label-rates .down {
+    color: var(--speed-download-color);
+}
+.lan-flow-map-label-rates .up {
+    color: var(--speed-upload-color);
+}
+.lan-flow-map-wan-pill {
+    position: absolute;
+    transform: translate(-50%, 100%);
+    background: rgba(36, 188, 112, 0.12);
+    color: var(--success-color);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(36, 188, 112, 0.3);
+    margin-top: 4px;
+    display: none;
+}
+.lan-flow-map-wan-pill.is-visible {
+    display: block;
+}
+.lan-flow-map-tooltip {
+    position: absolute;
+    background: rgba(16, 24, 32, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--text-primary);
+    pointer-events: none;
+    z-index: 5;
+    display: none;
+    max-width: 260px;
+}
+.lan-flow-map-tooltip.is-visible {
+    display: block;
+}
+.lan-flow-map-tooltip-title {
+    font-weight: 500;
+    margin-bottom: 0.2rem;
+}
+.lan-flow-map-tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+.lan-flow-map-tooltip-row .v {
+    color: var(--text-primary);
+}

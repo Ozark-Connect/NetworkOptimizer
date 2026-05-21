@@ -104,6 +104,13 @@ export class LanFlowMap {
         this._historicAt = null;  // Date when in historic mode
 
         this._panels = {};        // DOM refs for overlay UI
+        this._floatingLabels = new Map();  // nodeId -> { el, nameEl, rateEl }
+        this._wanPills = new Map();        // wanNodeId -> el
+        this._latestSpeedTestByWan = new Map();  // wanInterface -> SpeedTestOverlayItem
+        this._raycaster = new THREE.Raycaster();
+        this._pointerNdc = new THREE.Vector2();
+        this._pointerScreen = { x: 0, y: 0 };
+        this._hoverTarget = null;
 
         this._raf = null;
         this._pollTimer = null;
@@ -175,6 +182,11 @@ export class LanFlowMap {
     _initInteractions() {
         this._resizeObserver = new ResizeObserver(() => this._handleResize());
         this._resizeObserver.observe(this.canvas.parentElement || this.canvas);
+
+        // Hover tooltip lives outside the labels container so it can sit above the
+        // canvas (which the labels container is pointer-events: none).
+        this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
+        this.canvas.addEventListener('pointerleave', () => this._clearHover());
     }
 
     _handleResize() {
@@ -247,6 +259,7 @@ export class LanFlowMap {
             this._buildNodes(snap);
             this._buildLinks(snap);
             this._buildClouds(snap);
+            this._buildFloatingLabels(snap);
             this._applyLiveRates(snap.liveRates || {});
         } catch (err) {
             this.onError(err);
@@ -638,6 +651,7 @@ export class LanFlowMap {
     // ------------------------------------------------------------------------
 
     _applyLiveRates(rates) {
+        this._currentRates = rates;
         for (const [linkId, link] of this._linkMeshes) {
             const r = rates[linkId];
             if (!r) {
@@ -658,6 +672,8 @@ export class LanFlowMap {
             const util = Math.min(peak / capacity, 1.0);
             this._setPipeHealth(link.pipe, util);
         }
+        // Refresh the device-rate text on the floating DOM labels.
+        this._refreshDeviceLabelRates();
     }
 
     _setPipeHealth(pipe, utilization) {
@@ -695,6 +711,9 @@ export class LanFlowMap {
                 link.up.advance(dt);
             }
             this.renderer.render(this.scene, this.camera);
+            // After the render we have up-to-date matrixWorld for every node group;
+            // project them to screen space for the floating DOM labels and WAN pills.
+            this._updateFloatingLabels();
             this._raf = requestAnimationFrame(tick);
         };
         this._lastFrame = performance.now();
@@ -861,6 +880,23 @@ export class LanFlowMap {
         } catch {
             this._speedTests = [];
         }
+
+        // Build the per-WAN lookup. Tests whose WanNetworkGroup is set get keyed to
+        // that interface. WAN tests without a group default to the primary WAN per
+        // user direction; we use a "*wan*" wildcard key the pill lookup falls back to.
+        this._latestSpeedTestByWan.clear();
+        for (const t of (this._speedTests || [])) {
+            if (t.testType !== 'wan') continue;
+            const key = t.wanNetworkGroup
+                ? t.wanNetworkGroup.toLowerCase()
+                : '*wan*';
+            const existing = this._latestSpeedTestByWan.get(key);
+            if (!existing || new Date(t.testTime) > new Date(existing.testTime)) {
+                this._latestSpeedTestByWan.set(key, t);
+            }
+        }
+        this._refreshWanPills();
+
         if (this._overlays.speedTests) this._renderSpeedTestOverlay();
     }
 
@@ -974,6 +1010,217 @@ export class LanFlowMap {
             // Surface but don't crash the rendering loop.
         }
     }
+
+    // ------------------------------------------------------------------------
+    // Floating DOM labels (per-device rates) + WAN speed test pill + hover tooltip
+    // ------------------------------------------------------------------------
+
+    _ensureLabelsLayer() {
+        if (this._labelsLayer) return;
+        const layer = document.createElement('div');
+        layer.className = 'lan-flow-map-labels';
+        this.stage.appendChild(layer);
+        this._labelsLayer = layer;
+
+        const tip = document.createElement('div');
+        tip.className = 'lan-flow-map-tooltip';
+        this.stage.appendChild(tip);
+        this._tooltipEl = tip;
+    }
+
+    _buildFloatingLabels(snap) {
+        this._ensureLabelsLayer();
+        // Clear previous labels.
+        for (const { el } of this._floatingLabels.values()) el.remove();
+        this._floatingLabels.clear();
+        for (const el of this._wanPills.values()) el.remove();
+        this._wanPills.clear();
+
+        // Device labels: gateway, switch, AP - clients get name only via the existing
+        // sprite labels to keep DOM count reasonable (clients can number in the hundreds).
+        for (const node of snap.nodes) {
+            if (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient) continue;
+            if (node.kind === NODE_KIND.Cloud) continue;
+            const el = document.createElement('div');
+            el.className = 'lan-flow-map-label';
+            const nameEl = document.createElement('div');
+            nameEl.className = 'lan-flow-map-label-name';
+            nameEl.textContent = node.name || (node.mac || '');
+            const rateEl = document.createElement('div');
+            rateEl.className = 'lan-flow-map-label-rates';
+            rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
+            el.appendChild(nameEl);
+            el.appendChild(rateEl);
+            this._labelsLayer.appendChild(el);
+            this._floatingLabels.set(node.id, { el, nameEl, rateEl });
+        }
+
+        // WAN speed test pills: positioned below each WAN node when there's a recent test.
+        for (const node of snap.nodes) {
+            if (node.kind !== NODE_KIND.Cloud) continue;
+            if (!node.id.startsWith('wan-iface-')) continue;
+            const pill = document.createElement('div');
+            pill.className = 'lan-flow-map-wan-pill';
+            this._labelsLayer.appendChild(pill);
+            this._wanPills.set(node.id, pill);
+        }
+
+        // Hide the existing 3D sprite labels for devices we now show via DOM (keeps
+        // the scene from double-labeling them).
+        for (const [id, sprite] of this._labelSprites) {
+            const node = snap.nodes.find((n) => n.id === id);
+            if (!node) continue;
+            if (node.kind !== NODE_KIND.WiredClient && node.kind !== NODE_KIND.WifiClient
+                && node.kind !== NODE_KIND.Cloud) {
+                sprite.visible = false;
+            }
+        }
+    }
+
+    _updateFloatingLabels() {
+        if (!this._labelsLayer) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const halfW = rect.width / 2;
+        const halfH = rect.height / 2;
+        const tmp = new THREE.Vector3();
+
+        for (const [nodeId, { el }] of this._floatingLabels) {
+            const group = this._nodeMeshes.get(nodeId);
+            if (!group) { el.classList.remove('is-visible'); continue; }
+            if (!group.visible) { el.classList.remove('is-visible'); continue; }
+            tmp.setFromMatrixPosition(group.matrixWorld);
+            tmp.y += 1.8;  // anchor above the node sphere
+            tmp.project(this.camera);
+            if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
+            const x = (tmp.x * halfW) + halfW;
+            const y = -(tmp.y * halfH) + halfH;
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
+            el.classList.add('is-visible');
+        }
+
+        for (const [nodeId, pill] of this._wanPills) {
+            const group = this._nodeMeshes.get(nodeId);
+            if (!group) { pill.classList.remove('is-visible'); continue; }
+            tmp.setFromMatrixPosition(group.matrixWorld);
+            tmp.y -= 1.0;
+            tmp.project(this.camera);
+            if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
+            const x = (tmp.x * halfW) + halfW;
+            const y = -(tmp.y * halfH) + halfH;
+            pill.style.left = `${x}px`;
+            pill.style.top = `${y}px`;
+        }
+    }
+
+    _refreshDeviceLabelRates() {
+        // Called whenever liveRates is applied. Reads aggregate down/up rates from the
+        // device's adjacent links and writes the formatted text into each label.
+        for (const [nodeId, { rateEl }] of this._floatingLabels) {
+            let downBps = 0;
+            let upBps = 0;
+            let anyData = false;
+            // Sum across links incident to this node.
+            for (const [linkId, link] of this._linkMeshes) {
+                if (link.link.fromNodeId !== nodeId && link.link.toNodeId !== nodeId) continue;
+                const r = this._currentRates?.[linkId];
+                if (!r) continue;
+                anyData = true;
+                if (link.link.fromNodeId === nodeId) {
+                    // Outgoing toward leaf from this node = node is the upstream device.
+                    upBps += r.upstreamBps || 0;
+                    downBps += r.downstreamBps || 0;
+                } else {
+                    // Incoming - this node is the leaf side.
+                    downBps += r.downstreamBps || 0;
+                    upBps += r.upstreamBps || 0;
+                }
+            }
+            if (!anyData) {
+                rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
+                continue;
+            }
+            rateEl.innerHTML =
+                `<span class="down">↓ ${formatBps(downBps)}</span> &nbsp; ` +
+                `<span class="up">↑ ${formatBps(upBps)}</span>`;
+        }
+    }
+
+    _refreshWanPills() {
+        for (const [nodeId, pill] of this._wanPills) {
+            const wanIface = nodeId.substring('wan-iface-'.length);
+            const test = this._latestSpeedTestByWan.get(wanIface)
+                ?? this._latestSpeedTestByWan.get('*wan*');
+            if (!test) { pill.classList.remove('is-visible'); continue; }
+            const dl = test.downloadMbps ?? 0;
+            const ul = test.uploadMbps ?? 0;
+            const ageMs = Date.now() - new Date(test.testTime).getTime();
+            const ageLabel = formatAge(ageMs);
+            pill.textContent = `Last test: ${dl.toFixed(0)} / ${ul.toFixed(0)} Mbps  ·  ${ageLabel}`;
+            pill.classList.add('is-visible');
+        }
+    }
+
+    _onPointerMove(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        this._pointerScreen.x = e.clientX - rect.left;
+        this._pointerScreen.y = e.clientY - rect.top;
+        this._pointerNdc.x = (this._pointerScreen.x / rect.width) * 2 - 1;
+        this._pointerNdc.y = -(this._pointerScreen.y / rect.height) * 2 + 1;
+        this._raycaster.setFromCamera(this._pointerNdc, this.camera);
+        // Raycast against device node spheres - cheap, ~tens of meshes.
+        const candidates = [];
+        for (const group of this._nodeMeshes.values()) {
+            if (!group.visible) continue;
+            for (const child of group.children) {
+                if (child.isMesh) candidates.push(child);
+            }
+        }
+        const hits = this._raycaster.intersectObjects(candidates, false);
+        if (hits.length === 0) { this._clearHover(); return; }
+        const hit = hits[0].object;
+        // Walk up to find the group with userData.node.
+        let g = hit;
+        while (g && !(g.userData && g.userData.node)) g = g.parent;
+        if (!g) { this._clearHover(); return; }
+        this._showHover(g.userData.node);
+    }
+
+    _showHover(node) {
+        if (!this._tooltipEl) return;
+        const rows = [];
+        if (node.mac) rows.push(['MAC', node.mac]);
+        if (node.model) rows.push(['Model', node.model]);
+        if (node.band) rows.push(['Band', `${node.band} GHz`]);
+        if (node.ssid) rows.push(['SSID', node.ssid]);
+        if (node.signalDbm) rows.push(['Signal', `${node.signalDbm} dBm`]);
+        // Aggregate rate (from adjacent links)
+        let dn = 0, up = 0, any = false;
+        for (const [, link] of this._linkMeshes) {
+            if (link.link.fromNodeId !== node.id && link.link.toNodeId !== node.id) continue;
+            const r = this._currentRates?.[link.link.id];
+            if (!r) continue;
+            any = true;
+            dn += r.downstreamBps || 0;
+            up += r.upstreamBps || 0;
+        }
+        if (any) {
+            rows.push(['Download', formatBps(dn)]);
+            rows.push(['Upload', formatBps(up)]);
+        }
+        const html = `<div class="lan-flow-map-tooltip-title">${escapeHtml(node.name || node.mac || '')}</div>` +
+            rows.map(([k, v]) => `<div class="lan-flow-map-tooltip-row"><span>${k}</span><span class="v">${escapeHtml(String(v))}</span></div>`).join('');
+        this._tooltipEl.innerHTML = html;
+        this._tooltipEl.style.left = `${this._pointerScreen.x + 14}px`;
+        this._tooltipEl.style.top = `${this._pointerScreen.y + 14}px`;
+        this._tooltipEl.classList.add('is-visible');
+        this._hoverTarget = node;
+    }
+
+    _clearHover() {
+        if (this._tooltipEl) this._tooltipEl.classList.remove('is-visible');
+        this._hoverTarget = null;
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -1083,6 +1330,35 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
     ctx.fill();
+}
+
+function formatBps(bps) {
+    if (!Number.isFinite(bps) || bps <= 0) return '0 bps';
+    const units = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'];
+    let i = 0;
+    let v = bps;
+    while (v >= 1000 && i < units.length - 1) { v /= 1000; i += 1; }
+    return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}
+
+function formatAge(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return 'just now';
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
+}
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function lerpColor(a, b, t) {
