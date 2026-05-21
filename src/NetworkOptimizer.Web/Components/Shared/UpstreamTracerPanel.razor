@@ -1,7 +1,9 @@
+@using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 @inject UpstreamTracerService Tracer
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 
 <div class="card">
     <div class="card-header">
@@ -9,6 +11,15 @@
         <span class="status-badge @StateBadgeClass(_state.Step)">@StateLabel(_state.Step)</span>
     </div>
     <div class="card-body">
+        @if (_needsReview && _state.Step != TracerStep.ReviewingResults && _state.Step != TracerStep.Done)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>Upstream path may have changed.</strong>
+                The scheduled 7-day re-discovery found a different set of hops or ASNs
+                than what's currently committed. Run discovery to see what changed and
+                update your targets.
+            </div>
+        }
         @if (_state.Step == TracerStep.Idle)
         {
             <p class="section-description">
@@ -97,7 +108,7 @@
                                     {
                                         <tr>
                                             <td>@trace.CdnLabel <span class="text-muted">(@trace.CdnEndpoint)</span></td>
-                                            <td>@trace.Mode.ToString().ToUpperInvariant()</td>
+                                            <td>@trace.Mode.ToDisplayName()</td>
                                             <td>@trace.HopsResponding / @trace.HopsRecorded</td>
                                             <td>
                                                 @if (trace.Reached)
@@ -152,7 +163,7 @@
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@hop.HopNumber</td>
-                                            <td>@hop.Role</td>
+                                            <td>@hop.Role.ToDisplayName()</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -197,7 +208,7 @@
                                                     <span class="text-muted">-</span>
                                                 }
                                             </td>
-                                            <td>@asn.Method</td>
+                                            <td>@asn.Method.ToDisplayName()</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -243,17 +254,43 @@
 @code {
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
+    private bool _needsReview;
+    private DateTime _lastReviewCheck = DateTime.MinValue;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _state = Tracer.State;
+        await RefreshReviewFlagAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
-        // runs in the background and the UI just observes.
+        // runs in the background and the UI just observes. Re-check the rediscovery
+        // review flag less often (every minute) since it only changes from the
+        // background scheduler.
         _pollTimer = new System.Threading.Timer(_ =>
         {
-            try { _ = InvokeAsync(() => { _state = Tracer.State; StateHasChanged(); }); }
+            try
+            {
+                _ = InvokeAsync(async () =>
+                {
+                    _state = Tracer.State;
+                    if (DateTime.UtcNow - _lastReviewCheck > TimeSpan.FromMinutes(1))
+                        await RefreshReviewFlagAsync();
+                    StateHasChanged();
+                });
+            }
             catch { }
         }, null, TimeSpan.FromSeconds(1.5), TimeSpan.FromSeconds(1.5));
+    }
+
+    private async Task RefreshReviewFlagAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
+            _needsReview = settings?.UpstreamDiscoveryNeedsReview == true;
+            _lastReviewCheck = DateTime.UtcNow;
+        }
+        catch { _needsReview = false; }
     }
 
     private async Task StartAsync()

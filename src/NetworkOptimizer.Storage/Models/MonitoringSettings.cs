@@ -85,6 +85,13 @@ public class MonitoringSettings
     [MaxLength(200)]
     public string? WanNeighborOui { get; set; }
 
+    // Upstream tracer state. LastUpstreamDiscoveryAt is set on commit. The auto
+    // re-discovery scheduler re-runs discovery every 7 days and flips
+    // UpstreamDiscoveryNeedsReview = true when it finds a different set of
+    // candidates than what's currently committed. UI shows a banner; user confirms.
+    public DateTime? LastUpstreamDiscoveryAt { get; set; }
+    public bool UpstreamDiscoveryNeedsReview { get; set; }
+
     // InfluxDB health
     public bool? InfluxDbReachable { get; set; }
     public DateTime? LastInfluxDbCheck { get; set; }

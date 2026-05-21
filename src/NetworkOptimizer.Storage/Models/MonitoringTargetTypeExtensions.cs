@@ -62,4 +62,13 @@ public static class MonitoringEnumDisplay
         InterfaceDirection.Wan => "WAN",
         _ => d.ToString()
     };
+
+    public static string ToDisplayName(this DiscoveryMethod m) => m switch
+    {
+        DiscoveryMethod.DirectRouter => "Router probe",
+        DiscoveryMethod.PathProxy => "Path-end",
+        DiscoveryMethod.UserProvided => "User-added",
+        DiscoveryMethod.Unresolved => "Unresolved",
+        _ => m.ToString()
+    };
 }

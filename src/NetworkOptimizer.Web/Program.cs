@@ -350,6 +350,8 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecuto
 // Idle while monitoring is disabled or unconfigured; activates once both SNMP detection
 // succeeds and InfluxDB is reachable.
 builder.Services.AddHostedService<MonitoringCollectionAgent>();
+// Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
+builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();

@@ -95,6 +95,15 @@ public class UpstreamTracerService
         }
     }
 
+    /// <summary>Awaits the in-flight discovery task. Returns immediately if no run is active.</summary>
+    public Task WaitForCompletionAsync() => _runningTask ?? Task.CompletedTask;
+
+    /// <summary>Resets state back to Idle. Used by the re-discovery scheduler when a sweep matched committed targets.</summary>
+    public void ResetToIdle()
+    {
+        State = new UpstreamTracerState { Step = TracerStep.Idle };
+    }
+
     private async Task RunAsync(CancellationToken ct)
     {
         try
@@ -462,15 +471,14 @@ public class UpstreamTracerService
         var candidates = new List<TransitAsnCandidate>();
         foreach (var group in transitGroups)
         {
-            // Per-ASN fallback ladder per locked Gate 2 decision 2: the parallel sweep
-            // already captured every hop that responded to either ICMP or UDP, so step 1
-            // is just "pick the lowest-hop responding entry in this ASN". Step 2 (TCP
-            // probe on non-responding hop IPs) is deferred to iteration 3 since it
-            // requires per-IP TCP probes against potentially-non-routed router IPs,
-            // which is a different code path. Step 3 (CDN path-proxy fallback) only
-            // kicks in when there are *zero* responding hops, which would mean the
-            // ASN didn't appear in our merged hop set at all - so by construction
-            // we're already on the first-responder path.
+            // Per-ASN selection: the parallel ICMP+UDP sweep already captured every
+            // hop that responded, so the chosen target is just the lowest-hop entry
+            // in this ASN. TCP/443 probing was considered as a fallback for ASNs with
+            // no responders but rejected: (1) we have 10k+ users and SYN-probing
+            // transit routers looks like scanning to NOCs; (2) transit routers don't
+            // serve 443 so a RST doesn't reflect anything real; (3) ACLs drop most
+            // of them silently anyway. The path-proxy block below covers unenumerated
+            // transit ASNs cleanly by monitoring the CDN destination instead.
             var asn = group.First().Asn!;
             var hopsInOrder = group.OrderBy(h => h.HopNumber).Take(3).ToList();
             var chosen = hopsInOrder.First(); // already filtered to "responded" by attribution
@@ -490,36 +498,41 @@ public class UpstreamTracerService
 
         State.TransitAsns = candidates;
 
-        // Hyperscale-direct edge case per locked decision 9: if we successfully reached
-        // a CDN endpoint but found zero transit ASNs between us and it, render a
-        // "direct peering" pseudo-cloud labeled with the destination ASN.
-        if (candidates.Count == 0)
+        // Path-proxy fallback: for every reached CDN, attribute the destination ASN
+        // and add it as a path-end monitoring target. Catches degradation in transit
+        // ASNs we couldn't enumerate - i.e. trace gaps where hops returned `*` and so
+        // the ASN never surfaced in _mergedHops. Covers locked decision 9 (hyperscale
+        // direct peering) as a natural subset: when zero transit ASNs were identified,
+        // these path-end targets become the entire upstream cloud picture.
+        var pathProxyAsnsSeen = new HashSet<int>(candidates.Select(c => c.AsnNumber));
+        var reachedTraces = State.Traces.Where(t => t.Reached).ToList();
+        foreach (var reached in reachedTraces)
         {
-            var reachedTrace = State.Traces.FirstOrDefault(t => t.Reached);
-            if (reachedTrace != null)
+            var destAsn = await _asnResolution.ResolveAsync(reached.CdnEndpoint, ct);
+            if (destAsn == null) continue;
+            if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
+            if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;     // dedupe across CDNs
+
+            candidates.Add(new TransitAsnCandidate
             {
-                var destAsn = await _asnResolution.ResolveAsync(reachedTrace.CdnEndpoint, ct);
-                if (destAsn != null && !accessAsnNumbers.Contains(destAsn.Asn))
-                {
-                    candidates.Add(new TransitAsnCandidate
-                    {
-                        AsnNumber = destAsn.Asn,
-                        AsnName = $"{destAsn.Name} (direct peering)",
-                        Method = DiscoveryMethod.DirectRouter,
-                        TargetId = $"direct-as{destAsn.Asn}",
-                        HopAddress = reachedTrace.CdnEndpoint,
-                        RespondedTo = ProbeMode.Icmp,
-                        Enabled = true
-                    });
-                    State.TransitAsns = candidates;
-                }
-            }
+                AsnNumber = destAsn.Asn,
+                AsnName = destAsn.Name,
+                Method = DiscoveryMethod.PathProxy,
+                TargetId = $"path-{reached.CdnLabel.ToLowerInvariant()}-as{destAsn.Asn}",
+                HopAddress = reached.CdnEndpoint,
+                PathProxyTarget = reached.CdnEndpoint,
+                RespondedTo = ProbeMode.Icmp,
+                Enabled = true
+            });
         }
 
-        await Task.CompletedTask;
+        State.TransitAsns = candidates;
+
+        var transitCount = candidates.Count(c => c.Method == DiscoveryMethod.DirectRouter);
+        var proxyCount = candidates.Count(c => c.Method == DiscoveryMethod.PathProxy);
         State.CurrentActivity = candidates.Count > 0
-            ? $"Discovered {candidates.Count} transit ASN(s): {string.Join(", ", candidates.Select(c => "AS" + c.AsnNumber))}"
-            : "No transit ASNs detected on the traced paths.";
+            ? $"Discovered {transitCount} transit ASN(s) and {proxyCount} path-end target(s)."
+            : "No transit ASNs or path-end targets identified.";
     }
 
     /// <summary>
@@ -596,6 +609,16 @@ public class UpstreamTracerService
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
             await UpsertTransitTargetAsync(db, transit, ct);
+        }
+
+        // Record the discovery timestamp and clear any pending review flag from the
+        // auto re-discovery scheduler. This commit is what it was waiting on.
+        var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+        if (settings != null)
+        {
+            settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
+            settings.UpstreamDiscoveryNeedsReview = false;
+            settings.UpdatedAt = DateTime.UtcNow;
         }
 
         await db.SaveChangesAsync(ct);

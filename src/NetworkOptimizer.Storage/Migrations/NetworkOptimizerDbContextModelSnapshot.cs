@@ -705,6 +705,12 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<DateTime?>("LastSnmpSuccess")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("LastUpstreamDiscoveryAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("UpstreamDiscoveryNeedsReview")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("MediumPollIntervalSeconds")
                         .HasColumnType("INTEGER");
 
