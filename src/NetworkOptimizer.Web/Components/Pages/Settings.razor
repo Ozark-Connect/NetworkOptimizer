@@ -28,6 +28,7 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
+@inject SnmpDetectionService SnmpDetection
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -1795,6 +1796,91 @@
         </div>
     </div>
 
+    <!-- Monitoring Configuration -->
+    <div class="card" id="monitoring">
+        <div class="card-header">
+            <h2 class="card-title">Monitoring</h2>
+            @if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV2c || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV3Only || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Working)
+            {
+                <span class="status-badge status-connected">@(_monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV2c ? "v2c" : _monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")</span>
+            }
+            else if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Disabled)
+            {
+                <span class="status-badge status-disconnected">Disabled</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">SNMP monitoring configuration. SNMP credentials are auto-detected from your UniFi Console settings.</p>
+
+            <div class="form-group">
+                <label class="form-label">SNMP Status</label>
+                <div class="form-value">
+                    @switch (_monitoringSettings?.SnmpDetectionState)
+                    {
+                        case SnmpDetectionState.EnabledV2c:
+                            <span class="status-indicator status-active"></span>
+                            <span>Configured (v2c)</span>
+                            break;
+                        case SnmpDetectionState.EnabledV3Only:
+                            <span class="status-indicator status-active"></span>
+                            <span>Configured (v3)</span>
+                            break;
+                        case SnmpDetectionState.Working:
+                            <span class="status-indicator status-active"></span>
+                            <span>Active</span>
+                            break;
+                        case SnmpDetectionState.PollFailing:
+                            <span class="status-indicator status-danger"></span>
+                            <span>Poll failures</span>
+                            break;
+                        case SnmpDetectionState.Disabled:
+                            <span class="status-indicator status-inactive"></span>
+                            <span>SNMP not enabled on UniFi Console</span>
+                            break;
+                        default:
+                            <span class="status-indicator status-inactive"></span>
+                            <span>Not checked</span>
+                            break;
+                    }
+                </div>
+            </div>
+
+            @if (_monitoringSettings?.LastSnmpDetection != null)
+            {
+                <div class="form-group">
+                    <label class="form-label">Last Detected</label>
+                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToString("g")</div>
+                </div>
+            }
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB URL</label>
+                <div class="form-value">@(_monitoringSettings?.InfluxDbUrl ?? "http://localhost:8087")</div>
+            </div>
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-secondary" @onclick="RedetectSnmp" disabled="@_redetectingSnmp">
+                    @if (_redetectingSnmp)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Detecting...</span>
+                    }
+                    else
+                    {
+                        <span>Re-detect SNMP</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_monitoringMessage))
+            {
+                <div class="alert alert-@_monitoringMessageClass" style="margin-top: 1rem;">
+                    @_monitoringMessage
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- 12. Data Management -->
     <div class="card">
         <div class="card-header">
@@ -2146,6 +2232,12 @@
     private string maxmindMessage = "";
     private string maxmindMessageClass = "";
 
+    // Monitoring Settings
+    private MonitoringSettings? _monitoringSettings;
+    private bool _redetectingSnmp = false;
+    private string? _monitoringMessage;
+    private string _monitoringMessageClass = "success";
+
     // CrowdSec Settings
     private bool crowdsecEnabled = false;
     private string crowdsecApiKey = "";
@@ -2187,6 +2279,7 @@
         await LoadAuditSettings();
         await LoadAlertChannels();
         await LoadThreatSettings();
+        await LoadMonitoringSettings();
     }
 
     private async Task LoadIperf3Settings()
@@ -4475,6 +4568,51 @@
         finally
         {
             testingCrowdsec = false;
+        }
+    }
+
+    private async Task LoadMonitoringSettings()
+    {
+        try
+        {
+            _monitoringSettings = await SnmpDetection.GetOrCreateSettingsAsync();
+        }
+        catch
+        {
+            _monitoringSettings = null;
+        }
+    }
+
+    private async Task RedetectSnmp()
+    {
+        _redetectingSnmp = true;
+        _monitoringMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var result = await SnmpDetection.DetectSnmpSettingsAsync();
+            if (result.Success)
+            {
+                await SnmpDetection.SaveDetectionResultAsync(result);
+                await LoadMonitoringSettings();
+                _monitoringMessage = $"SNMP detection complete: {_monitoringSettings?.SnmpDetectionState}";
+                _monitoringMessageClass = "success";
+            }
+            else
+            {
+                _monitoringMessage = result.ErrorMessage ?? "Detection failed";
+                _monitoringMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _monitoringMessage = $"Error: {ex.Message}";
+            _monitoringMessageClass = "danger";
+        }
+        finally
+        {
+            _redetectingSnmp = false;
         }
     }
 }
