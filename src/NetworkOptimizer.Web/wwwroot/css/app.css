@@ -13932,52 +13932,10 @@ a.affected-client:hover {
 
 /* ==================== Monitoring ==================== */
 
-.detected-config {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.config-row {
+.form-value {
+    font-size: 0.875rem;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
-    gap: 12px;
-}
-
-.config-row .detail-label {
-    min-width: 160px;
-}
-
-.setup-steps {
-    margin-top: 16px;
-}
-
-.setup-steps h3 {
-    margin: 0 0 8px;
-    color: var(--text-primary);
-    font-size: 1rem;
-}
-
-.setup-recommendation {
-    margin-top: 12px;
-    padding: 12px 16px;
-    background: var(--bg-tertiary);
-    border-radius: 8px;
-    border-left: 3px solid var(--info-color);
-}
-
-.setup-recommendation h4 {
-    margin: 0 0 8px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-}
-
-.setup-recommendation ul {
-    margin: 0;
-    padding-left: 20px;
-}
-
-.setup-recommendation li {
-    margin-bottom: 4px;
-    color: var(--text-secondary);
+    gap: 0.5rem;
 }
