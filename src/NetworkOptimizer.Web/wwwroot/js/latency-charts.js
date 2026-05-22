@@ -80,14 +80,6 @@ function buildLossOpts() {
                 type: 'gradient',
                 gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
             },
-            tooltip: {
-                theme: 'dark',
-                shared: true,
-                x: { format: 'MMM dd, HH:mm:ss' },
-                y: {
-                    formatter: (v) => v != null && v > 0 ? v.toFixed(1) + '%' : null,
-                },
-            },
         });
 }
 
