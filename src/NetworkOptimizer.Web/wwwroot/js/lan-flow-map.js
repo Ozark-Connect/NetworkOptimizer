@@ -344,9 +344,12 @@ export class LanFlowMap {
 
     _layoutNodes(snap) {
         const bounds = snap.bounds || { radius: 1.0, anchorCount: 0 };
-        // Normalize anchor coordinates to a scene-sized sphere (~30 unit radius).
+        // Normalize anchor coordinates to a scene-sized sphere (~30 unit radius)
+        // and then spread by ANCHOR_SPREAD_FACTOR so interpolated / unanchored
+        // devices have room to settle between the pinned APs without crowding.
         const sceneRadius = 30.0;
-        const scale = sceneRadius / Math.max(bounds.radius, 1.0);
+        const ANCHOR_SPREAD_FACTOR = 2.0;
+        const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
 
         const positions = new Map();
         const anchors = new Map();
