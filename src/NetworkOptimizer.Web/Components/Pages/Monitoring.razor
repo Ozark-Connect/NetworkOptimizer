@@ -264,19 +264,15 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         @foreach (var sfp in _monitoredSfps.OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName))
                         {
                             var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
+                            var deviceName = ResolveDeviceName(sfp.DeviceMac);
+                            var portLabel = !string.IsNullOrEmpty(sfp.FriendlyName) ? sfp.FriendlyName : $"port {sfp.PortName}";
                             <tr>
                                 <td>
-                                    @if (!string.IsNullOrEmpty(sfp.FriendlyName))
-                                    {
-                                        <span>@sfp.FriendlyName</span>
-                                    }
-                                    else
-                                    {
-                                        <span><code>@sfp.DeviceMac</code> port @sfp.PortName</span>
-                                    }
+                                    <div><strong>@deviceName</strong></div>
+                                    <div class="text-muted" style="font-size: 0.8rem;">@portLabel</div>
                                     @if (sfp.IsPon)
                                     {
-                                        <span class="status-badge status-active" style="margin-left: 0.5rem;">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
+                                        <span class="status-badge status-active" style="margin-top: 0.25rem;">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
                                     }
                                 </td>
                                 <td>
@@ -751,6 +747,20 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         if (v >= -27 && v <= -3) return "";              // healthy range
         if (v >= -30 && v <= -1) return "signal-fair";
         return "signal-poor";
+    }
+
+    // Resolves a device MAC to its friendly UniFi device name via the fabric
+    // monitoring targets (which carry both). Falls back to the MAC so the user
+    // always sees *something*, never an empty cell.
+    private string ResolveDeviceName(string deviceMac)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return deviceMac;
+        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        var target = _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
+        return !string.IsNullOrEmpty(target?.Name) ? target.Name : deviceMac;
     }
 
     private static string PonVariantLabel(string? sfpPart, string? sfpVendor)

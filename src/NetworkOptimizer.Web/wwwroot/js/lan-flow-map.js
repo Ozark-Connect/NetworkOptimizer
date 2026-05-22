@@ -573,19 +573,55 @@ export class LanFlowMap {
     }
 
     _buildClouds(snap) {
-        // Place clouds outboard from the LAN's center of mass, beyond the gateway,
-        // so the gateway -> WAN link doesn't cross over LAN devices. We use the
-        // gateway's settled position as the outbound direction reference; if the
-        // gateway has no position yet we fall back to +X.
+        // Place clouds along the bisector of the widest XZ angular gap between
+        // LAN-fabric vertices as seen from the gateway, so the WAN link is
+        // equidistant from the two nearest fabric nodes on either side. This
+        // avoids crossings over LAN devices regardless of how the force solver
+        // settled the topology. Vertical (Y) is ignored - the gap math is
+        // purely on the horizontal plane.
         const gatewayNode = (snap.nodes || []).find((n) => n.kind === NODE_KIND.Gateway);
         const gwPos = gatewayNode ? this._positions.get(gatewayNode.id) : null;
-        let dirX = 1, dirZ = 0;
         let gwX = 0, gwY = 0, gwZ = 0;
-        if (gwPos) {
-            gwX = gwPos.x; gwY = gwPos.y; gwZ = gwPos.z;
-            const len = Math.hypot(gwPos.x, gwPos.z);
-            if (len > 0.1) { dirX = gwPos.x / len; dirZ = gwPos.z / len; }
+        if (gwPos) { gwX = gwPos.x; gwY = gwPos.y; gwZ = gwPos.z; }
+
+        // Collect bearings of every other fabric vertex (switch + AP) from
+        // the gateway. Exclude clients - they're leaves and don't constrain
+        // the trunk lines visually.
+        const bearings = [];
+        for (const n of snap.nodes || []) {
+            if (n.id === gatewayNode?.id) continue;
+            if (n.kind !== NODE_KIND.Switch && n.kind !== NODE_KIND.AccessPoint) continue;
+            const p = this._positions.get(n.id);
+            if (!p) continue;
+            const dx = p.x - gwX, dz = p.z - gwZ;
+            if (Math.hypot(dx, dz) < 0.5) continue;
+            bearings.push(Math.atan2(dz, dx));
         }
+
+        let outBearing = 0;
+        if (bearings.length === 0) {
+            // No fabric to dodge - default to +X.
+            outBearing = 0;
+        } else if (bearings.length === 1) {
+            // Single peer - put the cloud diametrically opposite it.
+            outBearing = bearings[0] + Math.PI;
+        } else {
+            bearings.sort((a, b) => a - b);
+            let maxGap = -Infinity;
+            for (let i = 0; i < bearings.length; i++) {
+                const next = i === bearings.length - 1
+                    ? bearings[0] + 2 * Math.PI
+                    : bearings[i + 1];
+                const gap = next - bearings[i];
+                if (gap > maxGap) {
+                    maxGap = gap;
+                    outBearing = (bearings[i] + next) / 2;
+                }
+            }
+        }
+        const dirX = Math.cos(outBearing);
+        const dirZ = Math.sin(outBearing);
+
         // First cloud sits this far beyond the gateway along the outbound axis;
         // each subsequent transit cloud adds another step. Lateral jitter (perp
         // axis) keeps multi-cloud chains from stacking on top of each other.

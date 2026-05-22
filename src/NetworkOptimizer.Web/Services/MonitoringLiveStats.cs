@@ -208,6 +208,12 @@ public class MonitoringLiveStats
     public void Prune(TimeSpan maxAge)
     {
         var cutoff = DateTime.UtcNow - maxAge;
+        // SFP polls on the slow tier (~5min). If the SFP cutoff matches the
+        // poll interval, every Prune tick between polls races the SFP entry
+        // off the cache and the UI flashes blank ("-") for a few seconds
+        // until the next slow poll repopulates. Give SFP a generous window
+        // (3x the regular cache) so it survives one missed/late slow tick.
+        var sfpCutoff = DateTime.UtcNow - TimeSpan.FromTicks(maxAge.Ticks * 3);
         foreach (var kvp in _stats)
         {
             var newest = kvp.Value.LastRateUpdate ?? kvp.Value.LastLatencyUpdate;
@@ -216,7 +222,7 @@ public class MonitoringLiveStats
         }
         foreach (var kvp in _sfpStats)
         {
-            if (kvp.Value.LastUpdate < cutoff)
+            if (kvp.Value.LastUpdate < sfpCutoff)
                 _sfpStats.TryRemove(kvp.Key, out _);
         }
         foreach (var kvp in _targetStats)
