@@ -263,6 +263,12 @@ public class NodeLiveBadge
 {
     public double? AggregateInBps { get; set; }
     public double? AggregateOutBps { get; set; }
+    /// <summary>Switch fabric sum(rx)/sum(tx) across every port_table entry.
+    /// Populated only for switches; the 3D map's node label prefers these
+    /// over the trunk-only Aggregate{In,Out}Bps so multi-trunk switches
+    /// don't under-count egress.</summary>
+    public double? FabricIngressBps { get; set; }
+    public double? FabricEgressBps { get; set; }
     public bool Online { get; set; }
 }
 

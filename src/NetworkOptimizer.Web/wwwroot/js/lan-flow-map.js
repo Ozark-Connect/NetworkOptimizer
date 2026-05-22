@@ -1623,13 +1623,19 @@ export class LanFlowMap {
             let upBps = 0;
             let anyData = false;
             // Prefer the per-device aggregate badge if the server published one.
-            // The badge reflects the trunk/uplink port rate (gateway WAN port
-            // for the gateway), which is the actual boundary throughput - far
-            // better than summing every adjacent link, which double-counts any
-            // flow that traverses the device (e.g. client A -> switch -> uplink
-            // shows up once on the access link and again on the uplink).
+            // For switches the server emits fabric ingress/egress (sum across
+            // every port_table entry) so multi-trunk switches don't under-
+            // count egress. Other fabric devices use the trunk-port rate.
+            // Either way it's better than summing adjacent links, which
+            // double-counts any flow that traverses the device.
             const badge = this._currentBadges?.[nodeId];
-            if (badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null)) {
+            const hasFabric = badge && (badge.fabricIngressBps != null || badge.fabricEgressBps != null);
+            const hasAggregate = badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null);
+            if (hasFabric) {
+                downBps = badge.fabricIngressBps || 0;
+                upBps = badge.fabricEgressBps || 0;
+                anyData = (downBps > 0 || upBps > 0);
+            } else if (hasAggregate) {
                 downBps = badge.aggregateInBps || 0;
                 upBps = badge.aggregateOutBps || 0;
                 anyData = (downBps > 0 || upBps > 0);
@@ -1730,7 +1736,11 @@ export class LanFlowMap {
         let ingressBps = 0, egressBps = 0, anyData = false;
         if (isFabric) {
             const badge = this._currentBadges?.[node.id];
-            if (badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null)) {
+            if (badge && (badge.fabricIngressBps != null || badge.fabricEgressBps != null)) {
+                ingressBps = badge.fabricIngressBps || 0;
+                egressBps = badge.fabricEgressBps || 0;
+                anyData = (ingressBps > 0 || egressBps > 0);
+            } else if (badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null)) {
                 ingressBps = badge.aggregateInBps || 0;
                 egressBps = badge.aggregateOutBps || 0;
                 anyData = (ingressBps > 0 || egressBps > 0);

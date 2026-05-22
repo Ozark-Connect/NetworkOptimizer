@@ -45,6 +45,31 @@ public class MonitoringLiveStats
     }
 
     /// <summary>
+    /// Fabric ingress/egress sum across the device's port_table. Stored
+    /// alongside the trunk-port rate so the 3D map's node-aggregate badge
+    /// can show "what this switch is moving across all ports" without
+    /// clobbering the direction-aware trunk rate that the trunk LINK
+    /// renderer relies on.
+    /// </summary>
+    public void RecordFabricSum(string deviceMac, double ingressBps, double egressBps, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return;
+        _stats.AddOrUpdate(Normalize(deviceMac),
+            _ => new DeviceLiveStats
+            {
+                FabricIngressBps = ingressBps,
+                FabricEgressBps = egressBps,
+                LastRateUpdate = timestamp
+            },
+            (_, existing) => existing with
+            {
+                FabricIngressBps = ingressBps,
+                FabricEgressBps = egressBps,
+                LastRateUpdate = timestamp
+            });
+    }
+
+    /// <summary>
     /// Apply the latest fabric latency probe result. The card uses this for the "ping ~3 ms"
     /// display; full-hour aggregates come from InfluxDB on the diagnostic view (5.8).
     /// </summary>
@@ -350,6 +375,13 @@ public record DeviceLiveStats
     public double? RateInBps { get; init; }
     public double? RateOutBps { get; init; }
     public DateTime? LastRateUpdate { get; init; }
+
+    /// <summary>Fabric ingress/egress for switches - sum of every port_table
+    /// RX/TX delta. Separate from Rate{In,Out}Bps which carries the trunk-
+    /// port-only direction-aware rate that the trunk link's per-link
+    /// renderer relies on.</summary>
+    public double? FabricIngressBps { get; init; }
+    public double? FabricEgressBps { get; init; }
 
     public double? LatestRttMs { get; init; }
     public double LatestLossPercent { get; init; }

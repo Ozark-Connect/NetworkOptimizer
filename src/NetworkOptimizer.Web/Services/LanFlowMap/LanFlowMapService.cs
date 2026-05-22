@@ -229,6 +229,8 @@ public class LanFlowMapService
             {
                 AggregateInBps = dev.RateInBps,
                 AggregateOutBps = dev.RateOutBps,
+                FabricIngressBps = dev.FabricIngressBps,
+                FabricEgressBps = dev.FabricEgressBps,
                 Online = node.Online,
             };
         }

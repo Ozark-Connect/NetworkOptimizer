@@ -297,22 +297,13 @@ public class MonitoringCollectionAgent : BackgroundService
                                                    || d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)))
         {
             var devMac = NormalizeMac(dev.Mac);
-            // Switches: fabric ingress/egress = sum(rx)/sum(tx) across the
-            // device's own port_table. Trunk-only undercounts egress because
-            // a multi-trunk switch fans out to multiple uplinks/downlinks.
-            if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
-                && _devicePortSumLatest.TryGetValue(devMac, out var fabric))
-            {
-                _liveStats.RecordInterfaceAggregate(dev.Mac, fabric.RxBps, fabric.TxBps, nowOverride);
-                continue;
-            }
-
-            // APs: parent switch port byte delta is the canonical rate. The
-            // port counter is read from the SWITCH's perspective (TX = toward
-            // child) so direction matches the live-stats convention.
             var parentMac = NormalizeMac(dev.Uplink!.UplinkMac);
             var portIdx = dev.Uplink.UplinkRemotePort;
             (double DownBps, double UpBps)? rate = null;
+
+            // Primary path: parent switch port byte delta. Works for wired-uplinked APs
+            // and switches. Direction matches live-stats convention since the port
+            // counter is read from the SWITCH's perspective (TX = toward child).
             if (portIdx > 0)
                 rate = ComputePortRate(parentMac, portIdx, nowOverride);
 
@@ -329,6 +320,17 @@ public class MonitoringCollectionAgent : BackgroundService
                 var devRate = ComputeDeviceRate(devMac);
                 if (devRate.HasValue)
                     _liveStats.RecordInterfaceAggregate(dev.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
+            }
+
+            // Switches: also publish the fabric sum (sum(rx) / sum(tx)
+            // across the device's own port_table) on a separate field so the
+            // 3D map's node aggregate badge reflects total fabric throughput
+            // rather than trunk-only. Doesn't clobber the direction-aware
+            // trunk rate above; the trunk LINK renderer still reads that.
+            if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
+                && _devicePortSumLatest.TryGetValue(devMac, out var fabric))
+            {
+                _liveStats.RecordFabricSum(dev.Mac, fabric.RxBps, fabric.TxBps, nowOverride);
             }
         }
 
