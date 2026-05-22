@@ -494,7 +494,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
-                    <input type="text" class="form-control" @bind="wan1Config.Name" @bind:event="onchange" @bind:after="() => wan1Config.Name = SanitizeWanName(wan1Config.Name)" placeholder="e.g., Yelcot, Comcast" />
+                    <input type="text" class="form-control" @bind="wan1Config.Name" @bind:event="onchange" @bind:after="() => wan1Config.Name = SanitizeWanName(wan1Config.Name)" placeholder="e.g., Comcast, Starlink" />
                 </div>
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>

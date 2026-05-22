@@ -352,7 +352,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             // Fallback: UniFi device-level tx_bytes / rx_bytes delta. Used when the
             // gateway's WAN-side is a bond/LAG (Linux bond0 aggregating eth4+eth5
-            // for the "Yelcot Fiber" port, etc.) and PortTable.PortIdx doesn't
+            // for a named WAN port, etc.) and PortTable.PortIdx doesn't
             // align with any single physical SNMP ifIndex. ComputeDeviceRate
             // returns (down, up) in our convention.
             var devRate = ComputeDeviceRate(gwMac);

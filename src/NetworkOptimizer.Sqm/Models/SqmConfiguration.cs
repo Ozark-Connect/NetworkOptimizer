@@ -11,7 +11,7 @@ public class SqmConfiguration
     public ConnectionType ConnectionType { get; set; } = ConnectionType.DocsisCable;
 
     /// <summary>
-    /// Friendly name for this connection (e.g., "Yelcot", "Starlink")
+    /// Friendly name for this connection (e.g., "Starlink", "Comcast")
     /// </summary>
     public string ConnectionName { get; set; } = "";
 

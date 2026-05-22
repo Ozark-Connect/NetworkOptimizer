@@ -452,7 +452,7 @@ public class LocalProbeExecutor : IProbeExecutor
             ProbeMode.Tcp => $"-T -p {target.Port ?? 80}",
             _ => string.Empty // default UDP
         };
-        // PTR resolution stays ON — hostnames like "cr1.stl1.yelcot.net" are gold for the
+        // PTR resolution stays ON — hostnames like "cr1.stl1.example.net" are gold for the
         // wizard's hop-labelling logic (spec 5.5). Linux's resolver times out fast, so the
         // cost is bounded by the per-probe deadline anyway.
         var args = $"-m {maxHops} -w {wait} {protoFlag} {target.Address}".Trim();

@@ -978,11 +978,18 @@ export class LanFlowMap {
             const next = Math.min(1000, cur + unitsPerTick);
             range.value = next;
             this._onScrubberInput(next);
-            if (next >= 1000) {
-                this._stopHistoricPlayback();
-                this._onScrubberChange(1000);
-            } else {
-                this._onScrubberChange(next);
+            // Mark playback-driven so _onScrubberChange skips its user-scrub
+            // auto-pause and we don't kill our own playback loop.
+            this._playbackAdvancing = true;
+            try {
+                if (next >= 1000) {
+                    this._stopHistoricPlayback();
+                    this._onScrubberChange(1000);
+                } else {
+                    this._onScrubberChange(next);
+                }
+            } finally {
+                this._playbackAdvancing = false;
             }
         }, tickMs);
     }
@@ -1320,14 +1327,16 @@ export class LanFlowMap {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
         }
-        // Scrubbing back into historic always lands in paused state - we want
-        // the user inspecting the point they picked, not auto-rolling forward.
-        // They press play explicitly to start playback.
-        if (!this._paused) {
+        // Scrubbing back into historic by the user lands paused so they can
+        // inspect the point they picked. The playback timer also calls this
+        // method on every tick (to load the historic snapshot for the new
+        // slider position); skip the auto-pause in that case or playback
+        // would stop after one tick.
+        if (!this._playbackAdvancing && !this._paused) {
             this._paused = true;
             this._syncPlayPauseIcon();
+            this._stopHistoricPlayback();
         }
-        this._stopHistoricPlayback();
         await this._loadHistoric(at);
     }
 

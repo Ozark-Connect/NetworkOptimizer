@@ -423,15 +423,18 @@ public class UpstreamTracerService
         var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
-        // Access hops: the first 1-3 hops attributable to that ASN, per spec 5.5.
-        // When accessAsn is null (no public hop reachable - e.g. fully filtered
-        // carrier), we fall back to private/CGNAT first hops since they're
-        // still the literal access path. The gateway IP filter above keeps our
-        // own CPE out of that fallback.
-        _accessHopsResolved = candidateHops
-            .Where(h => h.Asn?.Asn == accessAsn)
-            .Take(3)
-            .ToList();
+        // Access hops walk: take in hop order until the ASN changes from
+        // accessAsn, capped at 3. The original .Where(... == accessAsn).Take(3)
+        // skipped non-matching hops instead of stopping at them, so a transit
+        // ASN router landing on the same number after a temporary mismatch
+        // could still get included. takeWhile semantics is what we want.
+        _accessHopsResolved = new List<AttributedHop>();
+        foreach (var h in candidateHops)
+        {
+            if (_accessHopsResolved.Count >= 3) break;
+            if (h.Asn?.Asn != accessAsn) break;
+            _accessHopsResolved.Add(h);
+        }
 
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
@@ -565,14 +568,14 @@ public class UpstreamTracerService
     /// <summary>
     /// Hop label priority per spec 5.5: PTR hostname > role inference > bare IP +
     /// ISP name. Combines the chosen identifier with the ASN name when available
-    /// ("cr1.stl1 - Yelcot").
+    /// ("cr1.stl1 - ExampleISP").
     /// </summary>
     private static string LabelAccessHop(AttributedHop hop)
     {
         var ispName = hop.Asn?.Name;
         if (!string.IsNullOrEmpty(hop.Hostname))
         {
-            // Shorten "cr1.stl1.yelcot.net" -> "cr1.stl1" for compactness, drop the
+            // Shorten "cr1.stl1.example.net" -> "cr1.stl1" for compactness, drop the
             // ISP domain since we'll append the ASN name separately.
             var shortName = hop.Hostname;
             var firstDot = hop.Hostname.IndexOf('.');

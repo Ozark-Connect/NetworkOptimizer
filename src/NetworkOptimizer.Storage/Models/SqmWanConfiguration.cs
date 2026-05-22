@@ -21,7 +21,7 @@ public class SqmWanConfiguration
     /// <summary>Connection type as int (maps to NetworkOptimizer.Sqm.Models.ConnectionType enum)</summary>
     public int ConnectionType { get; set; } = 0;
 
-    /// <summary>Friendly name for this connection (e.g., "Yelcot", "Starlink")</summary>
+    /// <summary>Friendly name for this connection (e.g., "Comcast", "Starlink")</summary>
     [MaxLength(100)]
     public string Name { get; set; } = "";
 

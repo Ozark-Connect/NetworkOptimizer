@@ -38,7 +38,7 @@ public class ConnectionProfile
     public ConnectionType Type { get; set; }
 
     /// <summary>
-    /// Friendly name for the connection (e.g., "Yelcot", "Starlink")
+    /// Friendly name for the connection (e.g., "Starlink", "Comcast")
     /// </summary>
     public string Name { get; set; } = "";
 
