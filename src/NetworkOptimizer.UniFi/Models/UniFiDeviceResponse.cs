@@ -455,6 +455,14 @@ public class SwitchPort
     [JsonPropertyName("network_name")]
     public string? NetworkName { get; set; }
 
+    /// <summary>
+    /// OS-level interface name backing this port (e.g., "ethN" or "ethN.M"
+    /// for VLAN-tagged uplinks). UniFi populates this on uplink entries in
+    /// port_table so callers don't have to guess the kernel device name.
+    /// </summary>
+    [JsonPropertyName("uplink_ifname")]
+    public string? UplinkIfName { get; set; }
+
     // VLAN trunk configuration fields
 
     /// <summary>

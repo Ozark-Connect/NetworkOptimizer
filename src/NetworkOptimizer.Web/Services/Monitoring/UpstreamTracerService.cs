@@ -43,6 +43,13 @@ public class UpstreamTracerService
     // DetectPublicIpAsync from the gateway's port_table.
     private readonly HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
 
+    // The OS-level interface name backing the WAN port (e.g. "ethN" or
+    // "ethN.M" for VLAN-tagged uplinks), read straight from UniFi's
+    // port_table.uplink_ifname during DetectPublicIpAsync. The L2-neighbor
+    // step uses this to target `ip neigh show dev <iface>` correctly even
+    // when the WAN sits on a sub-interface.
+    private string? _wanUplinkIfName;
+
     public UpstreamTracerState State { get; private set; } = new();
 
     // CDN / anycast rotation. Every entry must be a globally anycast IP that
@@ -199,6 +206,7 @@ public class UpstreamTracerService
         }
 
         State.WanInterface = wanPort.NetworkName ?? "wan";
+        _wanUplinkIfName = wanPort.UplinkIfName;
 
         // Snapshot every IP the gateway carries (LAN, WAN, management VLAN) so
         // we can filter our own gateway out of the access-hop classification
@@ -278,12 +286,31 @@ public class UpstreamTracerService
         State.Step = TracerStep.DiscoveringL2Neighbor;
         State.CurrentActivity = "Identifying the first device upstream of your gateway...";
 
-        // We need the gateway's actual WAN interface device name (eth0, eth4, etc.)
-        // for `ip neigh`. The UniFi port_table's network_name ("wan") isn't the OS
-        // device name, but the port_idx + UniFi device-naming convention usually maps
-        // cleanly. For iteration 1 we try the common candidates; iteration 2 can read
-        // the gateway's network config more precisely if needed.
-        var candidates = new[] { "eth0", "eth1", "eth4", "eth5", "wan", "wan0" };
+        // Build the OS interface candidate list. UniFi's port_table puts the
+        // kernel device name directly on the uplink entry as `uplink_ifname`,
+        // correct for VLAN-tagged WANs too - that's the authoritative source.
+        // Fall back to default-route discovery only if uplink_ifname is missing
+        // (older firmware, weird config). No hardcoded ethN guessing - that
+        // grabbed the first interface with any neighbor entry and returned
+        // garbage for setups that didn't match the assumption.
+        var candidates = new List<string>();
+        if (!string.IsNullOrEmpty(_wanUplinkIfName))
+        {
+            candidates.Add(_wanUplinkIfName);
+        }
+        else
+        {
+            var (routeOk, routeOut) = await _gatewaySsh.RunCommandAsync(
+                "ip -4 route show default 2>/dev/null", TimeSpan.FromSeconds(5), ct);
+            if (routeOk && !string.IsNullOrWhiteSpace(routeOut))
+            {
+                foreach (Match m in Regex.Matches(routeOut, @"\bdev\s+(?<iface>\S+)"))
+                {
+                    var iface = m.Groups["iface"].Value;
+                    if (!candidates.Contains(iface)) candidates.Add(iface);
+                }
+            }
+        }
 
         string? neighborMac = null;
         string? wanDevice = null;
