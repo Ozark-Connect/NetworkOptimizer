@@ -237,9 +237,12 @@
             }
             else if (_state.Step == TracerStep.Done)
             {
-                <div class="alert alert-success">
-                    Targets saved. The monitor will start probing them shortly.
-                </div>
+                @if (_justSaved)
+                {
+                    <div class="alert alert-success">
+                        Targets saved. The monitor will start probing them shortly.
+                    </div>
+                }
                 <div class="action-buttons">
                     <button class="btn btn-secondary" @onclick="StartAsync">Run discovery again</button>
                 </div>
@@ -260,6 +263,10 @@
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
     private DateTime _lastReviewCheck = DateTime.MinValue;
+    // True only for the session-tab where the user just clicked Save; the
+    // "Targets saved" alert is gated on this so it doesn't show after a
+    // page refresh / app restart that rehydrated Done state from the DB.
+    private bool _justSaved;
 
     protected override async Task OnInitializedAsync()
     {
@@ -303,6 +310,7 @@
 
     private async Task StartAsync()
     {
+        _justSaved = false;
         await Tracer.StartDiscoveryAsync();
         _state = Tracer.State;
         StateHasChanged();
@@ -312,6 +320,7 @@
     {
         await Tracer.CommitResultsAsync();
         _state = Tracer.State;
+        _justSaved = true;
         StateHasChanged();
 
         // Server side: invalidate the cached map snapshot so the next read

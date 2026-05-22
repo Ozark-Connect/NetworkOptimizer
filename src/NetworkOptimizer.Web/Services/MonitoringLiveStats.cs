@@ -176,11 +176,45 @@ public class MonitoringLiveStats
     public void RecordWifiClient(WifiClientLiveSnapshot snapshot)
     {
         if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
-        _wifiClients[Normalize(snapshot.ClientMac)] = snapshot with
+        var key = Normalize(snapshot.ClientMac);
+        var fresh = snapshot with
         {
-            ClientMac = Normalize(snapshot.ClientMac),
-            ApMac = Normalize(snapshot.ApMac)
+            ClientMac = key,
+            ApMac = Normalize(snapshot.ApMac),
+            ConsecutiveZeroPolls = 0,
         };
+        _wifiClients.AddOrUpdate(key, fresh, (_, prior) =>
+        {
+            var newTx = fresh.TxThroughputBps ?? 0;
+            var newRx = fresh.RxThroughputBps ?? 0;
+            var priorTx = prior.TxThroughputBps ?? 0;
+            var priorRx = prior.RxThroughputBps ?? 0;
+            // UniFi's per-client stat poll often reports 0/0 throughput for one
+            // sample between active samples even on a busy client. Hold the
+            // prior non-zero rates through a single zero poll; two consecutive
+            // zero polls accept the new value as genuinely idle.
+            if (newTx == 0 && newRx == 0 && (priorTx > 0 || priorRx > 0) && prior.ConsecutiveZeroPolls < 1)
+            {
+                return prior with
+                {
+                    ApMac = fresh.ApMac,
+                    Band = fresh.Band,
+                    Channel = fresh.Channel,
+                    ChannelWidth = fresh.ChannelWidth,
+                    SignalDbm = fresh.SignalDbm,
+                    NoiseDbm = fresh.NoiseDbm,
+                    TxRateKbps = fresh.TxRateKbps,
+                    RxRateKbps = fresh.RxRateKbps,
+                    Satisfaction = fresh.Satisfaction,
+                    Rssi = fresh.Rssi,
+                    IsMlo = fresh.IsMlo,
+                    Hostname = fresh.Hostname,
+                    LastUpdate = fresh.LastUpdate,
+                    ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
+                };
+            }
+            return fresh;
+        });
     }
 
     /// <summary>Latest snapshot for a specific client MAC, or null if unknown / stale.</summary>
@@ -278,6 +312,10 @@ public record WifiClientLiveSnapshot
     public bool IsMlo { get; init; }
     public string? Hostname { get; init; }
     public DateTime LastUpdate { get; init; }
+
+    /// <summary>Internal: tracks consecutive 0/0 throughput polls so a single
+    /// transient zero between active samples doesn't blink the UI to silent.</summary>
+    public int ConsecutiveZeroPolls { get; init; }
 }
 
 public record TargetLiveStats
