@@ -1130,6 +1130,8 @@ Network Optimizer's monitoring feature (SNMP polling, port counters, latency pro
 
 **You do not need InfluxDB for any other Network Optimizer feature.** It is only required if you want to use the Monitoring page.
 
+**Disk space:** Plan for at least 20 GB of free disk space for InfluxDB on a medium-sized network (10-25 devices, 20-50 clients) with the default 90-day retention. Larger networks or shorter polling intervals will use more. Data grows at roughly 50-100 MB per day depending on device count and client activity.
+
 ### Option A: Docker Compose (Recommended)
 
 A ready-to-use compose file is included at [`docker/influxdb/docker-compose.yml`](influxdb/docker-compose.yml):
