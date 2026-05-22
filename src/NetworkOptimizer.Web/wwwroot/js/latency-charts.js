@@ -238,8 +238,32 @@ function shiftWindow(direction) {
         if (windowOffset > 0) windowOffset = 0;
     }
 
+    const container = document.getElementById(containerId);
+    if (container) {
+        syncPopoverInputs(container);
+        updateCustomLabel(container);
+    }
+
     loadAndUpdate();
     startPoll();
+}
+
+function syncPopoverInputs(container) {
+    const fromInput = container.querySelector('[data-input="from"]');
+    const toInput = container.querySelector('[data-input="to"]');
+    if (!fromInput || !toInput) return;
+
+    if (isCustomRange && customFrom && customTo) {
+        fromInput.value = toLocalDatetimeString(customFrom);
+        toInput.value = toLocalDatetimeString(customTo);
+    } else if (windowOffset !== 0) {
+        const now = Date.now();
+        const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
+        const to = new Date(now + windowOffset);
+        const from = new Date(to.getTime() - rangeMs);
+        fromInput.value = toLocalDatetimeString(from);
+        toInput.value = toLocalDatetimeString(to);
+    }
 }
 
 function toLocalDatetimeString(d) {
@@ -250,21 +274,39 @@ function toLocalDatetimeString(d) {
 function updateCustomLabel(container) {
     const btn = container.querySelector('.custom-range-btn');
     if (!btn) return;
-    const label = btn.querySelector('.latency-custom-label');
-    if (isCustomRange && customFrom && customTo) {
+    let label = btn.querySelector('.custom-range-label');
+    const showLabel = (isCustomRange || windowOffset !== 0) && getEffectiveFrom() && getEffectiveTo();
+    if (showLabel) {
+        const from = getEffectiveFrom();
+        const to = getEffectiveTo();
         const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const text = `${fmt(from)} - ${fmt(to)}`;
         if (label) {
-            label.textContent = `${fmt(customFrom)} - ${fmt(customTo)}`;
+            label.textContent = text;
         } else {
-            const span = document.createElement('span');
-            span.className = 'latency-custom-label';
-            span.style.cssText = 'font-size: 0.75rem; margin-left: 0.25rem;';
-            span.textContent = `${fmt(customFrom)} - ${fmt(customTo)}`;
-            btn.appendChild(span);
+            label = document.createElement('span');
+            label.className = 'custom-range-label';
+            label.textContent = text;
+            btn.appendChild(label);
         }
     } else if (label) {
         label.remove();
     }
+}
+
+function getEffectiveFrom() {
+    if (isCustomRange && customFrom) return customFrom;
+    if (windowOffset !== 0) {
+        const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
+        return new Date(Date.now() + windowOffset - rangeMs);
+    }
+    return null;
+}
+
+function getEffectiveTo() {
+    if (isCustomRange && customTo) return customTo;
+    if (windowOffset !== 0) return new Date(Date.now() + windowOffset);
+    return null;
 }
 
 export async function mount(elId) {

@@ -323,20 +323,17 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         <button class="time-btn" data-category="Transit">Transit</button>
                         <button class="time-btn" data-category="InternetService">Internet</button>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.25rem; position: relative;">
-                        <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
-                        <div class="time-range-selector">
-                            <button class="time-btn" data-range="0">15m</button>
-                            <button class="time-btn active" data-range="1">1h</button>
-                            <button class="time-btn" data-range="6">6h</button>
-                            <button class="time-btn" data-range="24">24h</button>
-                            <button class="time-btn" data-range="168">7d</button>
-                            <button class="time-btn" data-range="720">30d</button>
-                            <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                            </button>
-                        </div>
-                        <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
+                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                    <div class="time-range-selector" style="position: relative;">
+                        <button class="time-btn" data-range="0">15m</button>
+                        <button class="time-btn active" data-range="1">1h</button>
+                        <button class="time-btn" data-range="6">6h</button>
+                        <button class="time-btn" data-range="24">24h</button>
+                        <button class="time-btn" data-range="168">7d</button>
+                        <button class="time-btn" data-range="720">30d</button>
+                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </button>
                         <div class="custom-range-popover" data-popover="custom-range">
                             <div class="custom-range-form">
                                 <div class="custom-range-title">Custom Range</div>
@@ -355,6 +352,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                             </div>
                         </div>
                     </div>
+                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                 </div>
             </div>
             <div class="card-body">

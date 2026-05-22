@@ -8000,6 +8000,11 @@ a.path-hop.hop-clickable:hover {
     border-color: var(--primary-color);
 }
 
+.custom-range-label {
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
+}
+
 /* Use secondary background when inside nested cards */
 .card .card .pill-selector,
 .card .card .time-range-selector,
