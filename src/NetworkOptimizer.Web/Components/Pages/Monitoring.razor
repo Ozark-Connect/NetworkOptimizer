@@ -618,18 +618,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         if (_monitoringEnabled && _influxConfigured)
         {
             await LoadLatencyChartsAsync();
-            _latencyChartTimer = new System.Threading.Timer(async _ =>
-            {
-                try
-                {
-                    await InvokeAsync(async () =>
-                    {
-                        await LoadLatencyChartsAsync();
-                        StateHasChanged();
-                    });
-                }
-                catch { }
-            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            StartLatencyPollTimer();
         }
 
         // Refresh the targets list periodically so LastVerified updates show movement
@@ -1030,17 +1019,44 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         _ => "No targets in this category."
     };
 
+    private TimeSpan LatencyPollInterval => _latencyRangeHours switch
+    {
+        0 or 1 => TimeSpan.FromSeconds(5),
+        6 => TimeSpan.FromSeconds(10),
+        _ => TimeSpan.FromSeconds(30)
+    };
+
+    private void StartLatencyPollTimer()
+    {
+        _latencyChartTimer?.Dispose();
+        var interval = LatencyPollInterval;
+        _latencyChartTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadLatencyChartsAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { }
+        }, null, interval, interval);
+    }
+
     private async Task SelectLatencyCategoryAsync(MonitoringTargetType type)
     {
         _latencyCategory = type;
         _latencyVisibility.Clear();
         await LoadLatencyChartsAsync();
+        StartLatencyPollTimer();
     }
 
     private async Task SelectLatencyRangeAsync(int hours)
     {
         _latencyRangeHours = hours;
         await LoadLatencyChartsAsync();
+        StartLatencyPollTimer();
     }
 
     private async Task LoadLatencyChartsAsync()
