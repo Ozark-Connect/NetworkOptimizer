@@ -493,8 +493,23 @@ public class UpstreamTracerService
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
 
+        // Also drop any ASN that's a CDN destination - the CDN's own edge routers
+        // respond to traceroute from inside the CDN's ASN, so without this filter
+        // Cloudflare/Google/Akamai/Apple/Meta would each show up as a "transit"
+        // entry. They belong on the path-proxy / path-end target list below, not
+        // as transit-router candidates. Resolve each rotation endpoint's ASN once;
+        // most are already in the cache from the merged-hops attribution pass.
+        var destinationAsns = new HashSet<int>();
+        foreach (var endpoint in CdnRotation)
+        {
+            var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
+            if (destAsn != null) destinationAsns.Add(destAsn.Asn);
+        }
+
         var transitGroups = _mergedHops
-            .Where(h => h.Asn != null && !accessAsnNumbers.Contains(h.Asn.Asn))
+            .Where(h => h.Asn != null
+                        && !accessAsnNumbers.Contains(h.Asn.Asn)
+                        && !destinationAsns.Contains(h.Asn.Asn))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
@@ -585,7 +600,10 @@ public class UpstreamTracerService
                 if (afterFirst > 0)
                     shortName = hop.Hostname.Substring(0, afterFirst);
             }
-            return string.IsNullOrEmpty(ispName) ? shortName : $"{shortName} - {ispName}";
+            // When we have a PTR-derived shortName, the FQDN already carries the
+            // ISP identifier (e.g. "...example.net"). Appending "- EXAMPLE INC"
+            // is just visual noise, so the shortName stands on its own.
+            return shortName;
         }
         return string.IsNullOrEmpty(ispName) ? hop.Address : $"{hop.Address} - {ispName}";
     }
