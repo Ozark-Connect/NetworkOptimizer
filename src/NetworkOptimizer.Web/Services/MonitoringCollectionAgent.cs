@@ -521,16 +521,23 @@ public class MonitoringCollectionAgent : BackgroundService
                         long deltaRx = current.RxBytes - prev.RxBytes;
                         if (deltaTx >= 0 && deltaRx >= 0)
                         {
-                            // From the switch's perspective:
-                            // TX out the port = downstream toward the connected device
-                            // RX from the port = upstream from the connected device
-                            // That matches MonitoringLiveStats' (RateIn=down, RateOut=up).
-                            _portRateLatest[key] = (deltaTx * 8.0 / elapsed, deltaRx * 8.0 / elapsed);
-                            // NOTE: do NOT mirror into _liveStats per-port cache here.
-                            // UniFi PortTable byte counters update server-side ~30s,
-                            // which at our 5s poll cadence yields 5-6 zero deltas then
-                            // one burst. The SNMP fast tier (WriteInterfaceCounters)
-                            // is the writer for _liveStats.RecordPortRate.
+                            // Tuple convention is aligned with the SNMP writer
+                            // at WriteInterfaceCounters so downstream consumers
+                            // see stable directions whether SNMP or this UniFi
+                            // PortTable writer was the one that ran last on a
+                            // given cycle: tuple = (rateIn=RX, rateOut=TX).
+                            //   - DownBps slot holds ifInOctets-style rate (RX,
+                            //     i.e. bytes received on this port; for a
+                            //     parent's port toward a child that's uploads
+                            //     coming up from the child).
+                            //   - UpBps slot holds ifOutOctets-style rate (TX,
+                            //     bytes transmitted; downloads toward the child).
+                            // NOTE: do NOT mirror into _liveStats per-port cache
+                            // here. UniFi PortTable byte counters update server-
+                            // side ~30s; at our 5s poll cadence that yields a
+                            // burst-then-zeros pattern that would clobber the
+                            // SNMP-fed _liveStats.RecordPortRate writes.
+                            _portRateLatest[key] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
                         }
                     }
                 }
