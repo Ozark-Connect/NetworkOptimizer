@@ -360,31 +360,9 @@ export class LanFlowMap {
             const update = await res.json();
             this._currentBadges = update.nodeBadges || {};
             this._applyLiveRates(update.linkRates || {});
-            this._heartbeatWifiInterest();
         } catch (err) {
             // Keep ticking; transient network errors are fine.
         }
-    }
-
-    _heartbeatWifiInterest() {
-        const macs = [];
-        for (const group of this._nodeMeshes.values()) {
-            const n = group.userData?.node;
-            if (n && n.kind === NODE_KIND.WifiClient && n.mac && group.visible !== false) {
-                macs.push(n.mac);
-            }
-        }
-        if (macs.length === 0) {
-            console.debug('[wifi-interest] no visible wifi clients found, nodeMeshes size:', this._nodeMeshes.size);
-            return;
-        }
-        console.debug('[wifi-interest] heartbeat', macs.length, 'clients');
-        fetch('/api/monitoring/wifi-interest', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientMacs: macs }),
-        }).catch(() => {});
     }
 
     // ------------------------------------------------------------------------

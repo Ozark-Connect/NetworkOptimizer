@@ -53,8 +53,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ConcurrentDictionary<string, byte> _snmpExcluded = new();
     private const int SnmpFailureThreshold = 3;
 
-    private readonly Monitoring.WifiClientInterestTracker _wifiInterest;
-
     public MonitoringCollectionAgent(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
@@ -63,7 +61,6 @@ public class MonitoringCollectionAgent : BackgroundService
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator alertEvaluator,
-        Monitoring.WifiClientInterestTracker wifiInterest,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger)
     {
@@ -74,7 +71,6 @@ public class MonitoringCollectionAgent : BackgroundService
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         _alertEvaluator = alertEvaluator;
-        _wifiInterest = wifiInterest;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -115,20 +111,12 @@ public class MonitoringCollectionAgent : BackgroundService
         // in InfluxDB's wifi_client measurement for timeline / drill-down. Cardinality
         // control: AP MAC + band are tags, client MAC is a field.
         var wifiTask = RunTierAsync("wifi",
-            _ => TimeSpan.FromSeconds(30),
-            WifiClientTierCollectAsync,
-            TimeSpan.FromSeconds(30),
-            stoppingToken);
-        // Enhanced WiFi: per-client WiFiMan polling for clients actively visible on
-        // the 3D map. Only runs when the interest tracker has clients. Top 25 by
-        // throughput, polled in parallel.
-        var wifiEnhancedTask = RunTierAsync("wifi-enhanced",
             _ => TimeSpan.FromSeconds(5),
-            EnhancedWifiClientTierAsync,
-            TimeSpan.FromSeconds(10),
+            WifiClientTierCollectAsync,
+            TimeSpan.FromSeconds(5),
             stoppingToken);
 
-        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask, wifiEnhancedTask);
+        await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask);
         _logger.LogInformation("Monitoring collection agent stopped");
     }
 
@@ -788,79 +776,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ConcurrentDictionary<string, ClientByteSnapshot> _wifiByteCache = new();
     private readonly record struct ClientByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
 
-    private async Task EnhancedWifiClientTierAsync(MonitoringSettings settings, CancellationToken ct)
-    {
-        if (!_wifiInterest.HasActiveClients) return;
-        if (!_connectionService.IsConnected || _connectionService.Client == null) return;
-
-        var interested = _wifiInterest.GetActiveClients();
-        // Select top 25 by current throughput (most active clients first).
-        var candidates = interested
-            .Select(mac => _liveStats.GetWifiClient(mac))
-            .Where(s => s != null && !string.IsNullOrEmpty(s.ClientIp))
-            .OrderByDescending(s => Math.Max(s!.TxThroughputBps ?? 0, s.RxThroughputBps ?? 0))
-            .Take(25)
-            .ToList();
-
-        if (candidates.Count == 0) return;
-
-        using var concurrency = new SemaphoreSlim(10);
-        var tasks = candidates.Select(async snap =>
-        {
-            await concurrency.WaitAsync(ct);
-            try
-            {
-                var wm = await _connectionService.Client.GetWiFiManClientAsync(snap!.ClientIp!, ct);
-                if (wm == null) return;
-
-                // WiFiMan link rates are client-perspective: download = client RX, upload = client TX.
-                // For the AP-perspective snapshot: AP TX = client download, AP RX = client upload.
-                var txThroughputBps = wm.LinkDownloadRateKbps.HasValue ? wm.LinkDownloadRateKbps.Value * 1000.0 : snap.TxThroughputBps;
-                var rxThroughputBps = wm.LinkUploadRateKbps.HasValue ? wm.LinkUploadRateKbps.Value * 1000.0 : snap.RxThroughputBps;
-
-                var enhanced = snap with
-                {
-                    SignalDbm = wm.Signal ?? snap.SignalDbm,
-                    NoiseDbm = wm.Noise ?? snap.NoiseDbm,
-                    Channel = wm.Channel ?? snap.Channel,
-                    ChannelWidth = wm.ChannelWidth ?? snap.ChannelWidth,
-                    TxThroughputBps = txThroughputBps,
-                    RxThroughputBps = rxThroughputBps,
-                    Satisfaction = wm.WiFiExperience ?? snap.Satisfaction,
-                    LastUpdate = DateTime.UtcNow
-                };
-
-                _liveStats.RecordWifiClient(enhanced);
-
-                _ = _influx.WriteWifiClientAsync(
-                    apMac: enhanced.ApMac,
-                    band: enhanced.Band,
-                    clientMac: enhanced.ClientMac,
-                    signalDbm: enhanced.SignalDbm,
-                    noiseDbm: enhanced.NoiseDbm,
-                    txRateKbps: enhanced.TxRateKbps,
-                    rxRateKbps: enhanced.RxRateKbps,
-                    channel: enhanced.Channel,
-                    channelWidth: enhanced.ChannelWidth,
-                    satisfaction: enhanced.Satisfaction,
-                    rssi: enhanced.Rssi,
-                    txBytes: 0,
-                    rxBytes: 0,
-                    txThroughputBps: enhanced.TxThroughputBps,
-                    rxThroughputBps: enhanced.RxThroughputBps,
-                    isMlo: enhanced.IsMlo,
-                    timestamp: DateTime.UtcNow);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Enhanced WiFi poll failed for {Ip}", snap!.ClientIp);
-            }
-            finally { concurrency.Release(); }
-        });
-
-        await Task.WhenAll(tasks);
-    }
-
     private async Task WifiClientTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null) return;
@@ -932,7 +847,6 @@ public class MonitoringCollectionAgent : BackgroundService
                 Rssi = c.Rssi,
                 IsMlo = c.IsMlo ?? false,
                 Hostname = string.IsNullOrEmpty(c.Name) ? (string.IsNullOrEmpty(c.Hostname) ? null : c.Hostname) : c.Name,
-                ClientIp = string.IsNullOrEmpty(c.Ip) ? null : c.Ip,
                 LastUpdate = now
             };
             _liveStats.RecordWifiClient(snapshot);
