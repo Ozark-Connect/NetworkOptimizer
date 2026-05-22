@@ -360,9 +360,28 @@ export class LanFlowMap {
             const update = await res.json();
             this._currentBadges = update.nodeBadges || {};
             this._applyLiveRates(update.linkRates || {});
+            this._heartbeatWifiInterest();
         } catch (err) {
             // Keep ticking; transient network errors are fine.
         }
+    }
+
+    _heartbeatWifiInterest() {
+        const macs = [];
+        if (this._nodes) {
+            for (const n of this._nodes.values()) {
+                if (n.kind === NODE_KIND.WifiClient && n.mac && n.group?.visible !== false) {
+                    macs.push(n.mac);
+                }
+            }
+        }
+        if (macs.length === 0) return;
+        fetch('/api/monitoring/wifi-interest', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientMacs: macs }),
+        }).catch(() => {});
     }
 
     // ------------------------------------------------------------------------

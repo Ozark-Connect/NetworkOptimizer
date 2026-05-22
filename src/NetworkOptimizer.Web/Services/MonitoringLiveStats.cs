@@ -336,6 +336,7 @@ public record WifiClientLiveSnapshot
     public int? Rssi { get; init; }
     public bool IsMlo { get; init; }
     public string? Hostname { get; init; }
+    public string? ClientIp { get; init; }
     public DateTime LastUpdate { get; init; }
 
     /// <summary>Internal: tracks consecutive 0/0 throughput polls so a single

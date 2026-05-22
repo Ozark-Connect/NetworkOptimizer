@@ -358,6 +358,7 @@ builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.Upstr
 // Cache is Singleton (TTL-based topology); service is Scoped so it can consume scoped deps.
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WifiClientInterestTracker>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
@@ -1486,6 +1487,7 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 // New API endpoints go in Endpoints/*.cs, not inline here.
 LanFlowMapEndpoints.Map(app);
 MonitoringChartEndpoints.Map(app);
+WifiInterestEndpoints.Map(app);
 
 app.Run();
 
