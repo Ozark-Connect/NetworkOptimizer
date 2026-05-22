@@ -3,7 +3,6 @@ using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -659,10 +658,10 @@ from(bucket: ""{_bucket}"")
         // Aim for ~120 points across the range — enough for a smooth chart, light enough
         // that InfluxDB doesn't return tens of thousands of rows on long windows.
         if (range <= TimeSpan.FromMinutes(15)) return TimeSpan.FromSeconds(5);
-        if (range <= TimeSpan.FromHours(1))   return TimeSpan.FromSeconds(30);
-        if (range <= TimeSpan.FromHours(6))   return TimeSpan.FromMinutes(3);
-        if (range <= TimeSpan.FromHours(24))  return TimeSpan.FromMinutes(15);
-        if (range <= TimeSpan.FromDays(7))    return TimeSpan.FromHours(1);
+        if (range <= TimeSpan.FromHours(1)) return TimeSpan.FromSeconds(30);
+        if (range <= TimeSpan.FromHours(6)) return TimeSpan.FromMinutes(3);
+        if (range <= TimeSpan.FromHours(24)) return TimeSpan.FromMinutes(15);
+        if (range <= TimeSpan.FromDays(7)) return TimeSpan.FromHours(1);
         return TimeSpan.FromHours(6);
     }
 
@@ -802,16 +801,17 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
-    /// Trim latency data from the shutdown edge: probes that timed out while the app was
-    /// stopping produce artificial 100% loss points. Find the last data timestamp, then
-    /// delete the preceding window where loss was 100% across all targets.
+    /// Trim latency data from the shutdown edge. When the app stops, in-flight probes
+    /// time out and produce artificial 100% loss. Delete the last 30s of latency data
+    /// from the previous session so those points don't pollute charts.
+    /// InfluxDB delete predicates only support tags (not fields), so we delete all
+    /// latency points in the window rather than filtering on loss_percent.
     /// </summary>
     public async Task TrimShutdownEdgeAsync(CancellationToken ct = default)
     {
         if (!IsConfigured || _client == null || string.IsNullOrEmpty(_org)) return;
         try
         {
-            // Find the timestamp of the most recent latency point.
             var lastFlux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: -1h)
@@ -829,12 +829,9 @@ from(bucket: ""{_bucket}"")
             }
             if (!lastTime.HasValue) return;
 
-            // Look back 60s from that last point: if there was a clean shutdown, the tail
-            // end will be 100% loss bursts where probes timed out. Delete only points in
-            // that window with loss_percent == 100 and success == false.
-            var edgeStart = lastTime.Value.AddSeconds(-60);
+            var edgeStart = lastTime.Value.AddSeconds(-30);
             var edgeStop = lastTime.Value.AddSeconds(1);
-            var predicate = @"_measurement=""latency"" AND loss_percent=100 AND success=false";
+            var predicate = @"_measurement=""latency""";
             var deleteApi = _client.GetDeleteApi();
             await deleteApi.Delete(edgeStart, edgeStop, predicate, _bucket, _org, ct);
             _logger.LogInformation(
