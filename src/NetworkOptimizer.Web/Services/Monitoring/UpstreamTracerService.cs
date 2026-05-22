@@ -52,20 +52,29 @@ public class UpstreamTracerService
     // 163.70.128.35 -> Paris) which produced transpacific/transatlantic paths
     // and misleading transit attribution. The list is a typed collection so
     // IPv6 endpoints can be added later without restructuring (decision 5b).
+    // Endpoints split into two intents:
+    //   - DestinationProbe (default): we use this address to monitor the
+    //     destination service end-to-end. Its ASN is excluded from the
+    //     transit-router pool because intermediate hops in the dest's own
+    //     ASN are just last-mile-to-dest, not real transit.
+    //   - TransitProbe: chosen specifically because tracing to it forces
+    //     the path through that ASN's network. We WANT that ASN to surface
+    //     as a transit-router candidate, and we don't treat the endpoint
+    //     itself as a path-end monitoring target.
     private static readonly TraceEndpoint[] CdnRotation =
     {
-        new("Cloudflare", "1.1.1.1"),       // AS13335
-        new("Google", "8.8.8.8"),           // AS15169
-        new("Quad9", "9.9.9.9"),            // AS19281 - PCH-anycast
-        new("OpenDNS", "208.67.222.222"),   // AS36692 - Cisco Umbrella
-        new("Lumen", "4.2.2.1"),            // AS3356  - surfaces Lumen even when it's a backup transit
-        new("Apple", "17.253.144.10"),      // AS714
-        new("Microsoft", "13.107.42.14"),   // AS8068  - M365 SharePoint anycast
-        new("Fastly", "151.101.1.69"),      // AS54113 - reaches local PoP via anycast
-        new("Akamai", "23.0.0.1")           // AS20940 - lo1.global.netarch.akamai.com anycast
+        new("Cloudflare", "1.1.1.1"),                                // AS13335
+        new("Google", "8.8.8.8"),                                    // AS15169
+        new("Quad9", "9.9.9.9"),                                     // AS19281 - PCH-anycast
+        new("OpenDNS", "208.67.222.222"),                            // AS36692 - Cisco Umbrella
+        new("Lumen", "4.2.2.1", IsTransitProbe: true),               // AS3356  - probe to surface Lumen as transit
+        new("Apple", "17.253.144.10"),                               // AS714
+        new("Microsoft", "13.107.42.14"),                            // AS8068  - M365 SharePoint anycast
+        new("Fastly", "151.101.1.69"),                               // AS54113 - reaches local PoP via anycast
+        new("Akamai", "23.0.0.1")                                    // AS20940 - global netarch anycast loopback
     };
 
-    private record TraceEndpoint(string Label, string Address);
+    private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false);
 
     public UpstreamTracerService(
         UniFiConnectionService connectionService,
@@ -503,13 +512,15 @@ public class UpstreamTracerService
 
         // Also drop any ASN that's a CDN destination - the CDN's own edge routers
         // respond to traceroute from inside the CDN's ASN, so without this filter
-        // Cloudflare/Google/Akamai/Apple/Meta would each show up as a "transit"
-        // entry. They belong on the path-proxy / path-end target list below, not
-        // as transit-router candidates. Resolve each rotation endpoint's ASN once;
-        // most are already in the cache from the merged-hops attribution pass.
+        // major destination ASNs would each show up as a "transit" entry. They
+        // belong on the path-proxy / path-end target list below, not as transit-
+        // router candidates. TransitProbe endpoints (like Lumen 4.2.2.1) are
+        // skipped here on purpose - the whole point of probing them is to
+        // surface their ASN as transit.
         var destinationAsns = new HashSet<int>();
         foreach (var endpoint in CdnRotation)
         {
+            if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
             if (destAsn != null) destinationAsns.Add(destAsn.Asn);
         }
@@ -564,6 +575,10 @@ public class UpstreamTracerService
             .Select(h => h.Asn!.Asn));
         foreach (var endpoint in CdnRotation)
         {
+            // TransitProbe endpoints aren't destinations to monitor - their job
+            // was to surface their ASN as transit (handled above). Skip the
+            // path-end registration for them.
+            if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
             if (destAsn == null) continue;
             if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
