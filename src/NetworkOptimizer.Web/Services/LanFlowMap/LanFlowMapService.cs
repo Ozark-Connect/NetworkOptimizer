@@ -955,7 +955,12 @@ public class LanFlowMapService
             var item = new SpeedTestOverlayItem
             {
                 Id = r.Id,
-                TestTime = r.TestTime,
+                // SQLite/EF Core returns DateTime with Kind=Unspecified, which JSON
+                // serializes without a Z suffix; the browser then treats it as
+                // local time and the WAN pill's "Last test: ... · 2h ago" age math
+                // comes out as future-dated ("just now"). Tag it as Utc so the
+                // client parses it correctly.
+                TestTime = DateTime.SpecifyKind(r.TestTime, DateTimeKind.Utc),
                 TestType = IsWanDirection(r.Direction) ? "wan" : "lan",
                 WanNetworkGroup = r.WanNetworkGroup,
                 DownloadMbps = r.DownloadMbps,

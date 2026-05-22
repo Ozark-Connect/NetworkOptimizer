@@ -272,6 +272,7 @@ export class LanFlowMap {
         this._destroyed = true;
         if (this._raf) cancelAnimationFrame(this._raf);
         if (this._pollTimer) clearInterval(this._pollTimer);
+        if (this._historicPlaybackTimer) clearInterval(this._historicPlaybackTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         this.controls?.dispose();
         this.renderer?.dispose();
@@ -348,7 +349,7 @@ export class LanFlowMap {
         // and then spread by ANCHOR_SPREAD_FACTOR so interpolated / unanchored
         // devices have room to settle between the pinned APs without crowding.
         const sceneRadius = 30.0;
-        const ANCHOR_SPREAD_FACTOR = 2.0;
+        const ANCHOR_SPREAD_FACTOR = 1.5;
         const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
 
         const positions = new Map();
@@ -572,13 +573,31 @@ export class LanFlowMap {
     }
 
     _buildClouds(snap) {
+        // Place clouds outboard from the LAN's center of mass, beyond the gateway,
+        // so the gateway -> WAN link doesn't cross over LAN devices. We use the
+        // gateway's settled position as the outbound direction reference; if the
+        // gateway has no position yet we fall back to +X.
+        const gatewayNode = (snap.nodes || []).find((n) => n.kind === NODE_KIND.Gateway);
+        const gwPos = gatewayNode ? this._positions.get(gatewayNode.id) : null;
+        let dirX = 1, dirZ = 0;
+        let gwX = 0, gwY = 0, gwZ = 0;
+        if (gwPos) {
+            gwX = gwPos.x; gwY = gwPos.y; gwZ = gwPos.z;
+            const len = Math.hypot(gwPos.x, gwPos.z);
+            if (len > 0.1) { dirX = gwPos.x / len; dirZ = gwPos.z / len; }
+        }
+        // First cloud sits this far beyond the gateway along the outbound axis;
+        // each subsequent transit cloud adds another step. Lateral jitter (perp
+        // axis) keeps multi-cloud chains from stacking on top of each other.
+        const cloudBaseOffset = 40;
+        const cloudStep = 22;
+        const perpX = -dirZ, perpZ = dirX;
         for (const cloud of snap.clouds || []) {
-            const node = (snap.nodes || []).find((n) => n.id === cloud.id) || null;
-            // Clouds may not have their own LanNode (the data is in LanCloud), so position
-            // them outboard along +X by their Order.
-            const x = 60 + cloud.order * 22;
-            const y = 4 + (cloud.order % 2) * 4;
-            const z = -8 + cloud.order * 5;
+            const along = cloudBaseOffset + cloud.order * cloudStep;
+            const lateral = (cloud.order % 2 === 0 ? 0 : 6) * (cloud.order > 1 ? 1 : 0);
+            const x = gwX + dirX * along + perpX * lateral;
+            const y = gwY + 4 + (cloud.order % 2) * 3;
+            const z = gwZ + dirZ * along + perpZ * lateral;
             const pos = { x, y, z, pinned: true };
             this._positions.set(cloud.id, pos);
 
@@ -879,8 +898,54 @@ export class LanFlowMap {
     _startPolling() {
         if (this._pollTimer) clearInterval(this._pollTimer);
         this._pollTimer = setInterval(() => {
-            if (this._mode === 'live') this._pollLive();
+            if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
+    }
+
+    // Play/Pause: in Live mode, pause freezes rates by skipping the poll. In
+    // Historic mode, play advances the scrubber forward over time so the user
+    // can watch the recent window roll back into Live.
+    _togglePlayPause() {
+        this._paused = !this._paused;
+        const btn = this._panels.scrubberPlayPause;
+        if (btn) {
+            btn.textContent = this._paused ? '▶' : '⏸';
+            btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
+        }
+        if (this._paused) {
+            this._stopHistoricPlayback();
+            return;
+        }
+        if (this._mode === 'historic') this._startHistoricPlayback();
+        else this._pollLive();
+    }
+
+    _startHistoricPlayback() {
+        if (this._historicPlaybackTimer) return;
+        // ~250ms tick advancing 6 units (out of 1000 = full 24h), so playback
+        // takes ~40s end-to-end. Good rhythm for inspecting a few hours back.
+        this._historicPlaybackTimer = setInterval(() => {
+            if (this._paused) return;
+            const range = this._panels.scrubberRange;
+            if (!range) return;
+            const cur = Number(range.value);
+            const next = Math.min(1000, cur + 6);
+            range.value = next;
+            this._onScrubberInput(next);
+            if (next >= 1000) {
+                this._stopHistoricPlayback();
+                this._onScrubberChange(1000);
+            } else {
+                this._onScrubberChange(next);
+            }
+        }, 250);
+    }
+
+    _stopHistoricPlayback() {
+        if (this._historicPlaybackTimer) {
+            clearInterval(this._historicPlaybackTimer);
+            this._historicPlaybackTimer = null;
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -1008,11 +1073,15 @@ export class LanFlowMap {
         this._panels.status = status;
         this._panels.modeBadge = modeBadge;
 
-        // Timeline scrubber (bottom center)
+        // Timeline scrubber (bottom center). The right-side label swaps between
+        // "Live" and a long locale datetime as you scrub; without a min-width on
+        // that span the row reflows and the slider thumb jumps the moment you
+        // approach the right edge, making it almost impossible to land on Live.
         const scrubber = document.createElement('div');
         scrubber.className = 'lan-flow-map-scrubber';
         scrubber.innerHTML = `
             <div class="lan-flow-map-scrubber-row">
+                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
                 <span data-role="left">-24h</span>
                 <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
                 <span data-role="right">Live</span>
@@ -1021,11 +1090,17 @@ export class LanFlowMap {
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
         range.addEventListener('input', (e) => this._onScrubberInput(Number(e.target.value)));
         range.addEventListener('change', (e) => this._onScrubberChange(Number(e.target.value)));
+        // User grabbing the thumb implicitly cancels any active historic playback.
+        range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
+        const playPause = scrubber.querySelector('[data-role="playpause"]');
+        playPause.addEventListener('click', () => this._togglePlayPause());
         this.stage.appendChild(scrubber);
         this._panels.scrubber = scrubber;
         this._panels.scrubberRange = range;
         this._panels.scrubberLeft = scrubber.querySelector('[data-role="left"]');
         this._panels.scrubberRight = scrubber.querySelector('[data-role="right"]');
+        this._panels.scrubberPlayPause = playPause;
+        this._paused = false;
     }
 
     _makePanel(extraClass) {
