@@ -245,9 +245,10 @@ export class LanFlowMap {
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
         this._keys = {};
         this._onKeyDown = (e) => {
+            const tag = e.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
             if (['w','a','s','d'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
-                e.preventDefault();
             }
         };
         this._onKeyUp = (e) => {
@@ -812,6 +813,11 @@ export class LanFlowMap {
     }
 
     _makeLabelSprite(text, subText = null) {
+        const dm = window.DemoMask;
+        if (dm?.isEnabled()) {
+            text = dm.maskString?.(text) ?? text;
+            if (subText) subText = dm.maskString?.(subText) ?? subText;
+        }
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const fontSize = 36;
@@ -986,14 +992,31 @@ export class LanFlowMap {
                 this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
                 this.camera.lookAt(0, 0, 0);
             } else {
-                // WASD: W/S zoom, A/D orbit
-                if (this._keys && this.controls) {
-                    const speed = 40 * dt;
-                    const orbitSpeed = 1.2 * dt;
-                    if (this._keys['w']) this.controls.dollyIn(1 + speed * 0.05);
-                    if (this._keys['s']) this.controls.dollyOut(1 + speed * 0.05);
-                    if (this._keys['a']) this.controls.rotateLeft(orbitSpeed);
-                    if (this._keys['d']) this.controls.rotateRight(orbitSpeed);
+                // WASD: W/S zoom, A/D orbit around target
+                if (this._keys) {
+                    const cam = this.camera;
+                    const target = this.controls.target;
+                    const offset = cam.position.clone().sub(target);
+                    const dist = offset.length();
+                    const zoomStep = dist * 0.03;
+                    const orbitStep = 1.5 * dt;
+
+                    if (this._keys['w'] && dist > this.controls.minDistance + zoomStep) {
+                        offset.multiplyScalar(1 - zoomStep / dist);
+                        cam.position.copy(target).add(offset);
+                    }
+                    if (this._keys['s'] && dist < this.controls.maxDistance - zoomStep) {
+                        offset.multiplyScalar(1 + zoomStep / dist);
+                        cam.position.copy(target).add(offset);
+                    }
+                    if (this._keys['a'] || this._keys['d']) {
+                        const angle = this._keys['a'] ? orbitStep : -orbitStep;
+                        const spherical = new THREE.Spherical().setFromVector3(offset);
+                        spherical.theta += angle;
+                        offset.setFromSpherical(spherical);
+                        cam.position.copy(target).add(offset);
+                        cam.lookAt(target);
+                    }
                 }
                 this.controls?.update();
             }

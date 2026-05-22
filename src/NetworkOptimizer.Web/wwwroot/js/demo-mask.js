@@ -301,6 +301,7 @@
             maskElement(document.body);
             maskAllFormFields();
         },
-        isEnabled: () => isEnabled
+        isEnabled: () => isEnabled,
+        maskString: (text) => maskString(text)
     };
 })();
