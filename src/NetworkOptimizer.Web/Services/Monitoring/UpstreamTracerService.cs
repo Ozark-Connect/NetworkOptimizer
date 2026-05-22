@@ -45,16 +45,24 @@ public class UpstreamTracerService
 
     public UpstreamTracerState State { get; private set; } = new();
 
-    // CDN rotation per locked Gate 2 decision 5: five hardcoded endpoints across major
-    // operators with distinct peering footprints. The list is a typed collection so
+    // CDN / anycast rotation. Every entry must be a globally anycast IP that
+    // routes to a local PoP from anywhere on the public internet - that's the
+    // only way one hardcoded address gives every install a useful trace. The
+    // old list mixed in regional unicast (Akamai 23.218.94.94 -> Tokyo, Meta
+    // 163.70.128.35 -> Paris) which produced transpacific/transatlantic paths
+    // and misleading transit attribution. The list is a typed collection so
     // IPv6 endpoints can be added later without restructuring (decision 5b).
     private static readonly TraceEndpoint[] CdnRotation =
     {
-        new("Cloudflare", "1.1.1.1"),
-        new("Google", "8.8.8.8"),
-        new("Akamai", "23.218.94.94"),
-        new("Meta", "163.70.128.35"),
-        new("Apple", "17.253.144.10")
+        new("Cloudflare", "1.1.1.1"),       // AS13335
+        new("Google", "8.8.8.8"),           // AS15169
+        new("Quad9", "9.9.9.9"),            // AS19281 - PCH-anycast
+        new("OpenDNS", "208.67.222.222"),   // AS36692 - Cisco Umbrella
+        new("Lumen", "4.2.2.1"),            // AS3356  - surfaces Lumen even when it's a backup transit
+        new("Apple", "17.253.144.10"),      // AS714
+        new("Microsoft", "13.107.42.14"),   // AS8068  - M365 SharePoint anycast
+        new("Fastly", "151.101.1.69"),      // AS54113 - reaches local PoP via anycast
+        new("Akamai", "23.0.0.1")           // AS20940 - lo1.global.netarch.akamai.com anycast
     };
 
     private record TraceEndpoint(string Label, string Address);
