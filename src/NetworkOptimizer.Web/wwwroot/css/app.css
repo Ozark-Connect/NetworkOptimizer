@@ -8037,6 +8037,9 @@ a.path-hop.hop-clickable:hover {
 
 .custom-range-btn {
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .custom-range-clear {
