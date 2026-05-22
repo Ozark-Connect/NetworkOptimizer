@@ -274,23 +274,21 @@ function toLocalDatetimeString(d) {
 function updateCustomLabel(container) {
     const btn = container.querySelector('.custom-range-btn');
     if (!btn) return;
-    let label = btn.querySelector('.custom-range-label');
-    const showLabel = (isCustomRange || windowOffset !== 0) && getEffectiveFrom() && getEffectiveTo();
-    if (showLabel) {
+    const label = btn.querySelector('.custom-range-label');
+    if (label) label.remove();
+
+    const active = isCustomRange || windowOffset !== 0;
+    if (active) {
+        btn.classList.add('active');
         const from = getEffectiveFrom();
         const to = getEffectiveTo();
-        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const text = `${fmt(from)} - ${fmt(to)}`;
-        if (label) {
-            label.textContent = text;
-        } else {
-            label = document.createElement('span');
-            label.className = 'custom-range-label';
-            label.textContent = text;
-            btn.appendChild(label);
+        if (from && to) {
+            const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
         }
-    } else if (label) {
-        label.remove();
+    } else {
+        btn.classList.remove('active');
+        btn.setAttribute('data-tooltip', 'Custom date range');
     }
 }
 
