@@ -312,6 +312,14 @@ public class MonitoringCollectionAgent : BackgroundService
             if (portIdx > 0)
                 rate = ComputePortRate(parentMac, portIdx, nowOverride);
 
+            bool isFrontYard = dev.Name?.IndexOf("front yard", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isFrontYard)
+            {
+                _logger.LogInformation(
+                    "[diag] First-pass for {Name}: type={UplinkType} parent={Parent} portIdx={Port} rate={HasRate}",
+                    dev.Name, dev.Uplink?.Type, parentMac, portIdx, rate.HasValue);
+            }
+
             if (rate.HasValue)
             {
                 _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
@@ -323,6 +331,10 @@ public class MonitoringCollectionAgent : BackgroundService
                 // poll, so this is the next-best honest number - same one UniFi's own
                 // UI shows. ComputeDeviceRate already returns (down, up) in our convention.
                 var devRate = ComputeDeviceRate(devMac);
+                if (isFrontYard)
+                {
+                    _logger.LogInformation("[diag] First-pass {Name} ComputeDeviceRate={DevRate}", dev.Name, devRate.HasValue ? $"({devRate.Value.DownBps:F0},{devRate.Value.UpBps:F0})" : "null");
+                }
                 if (devRate.HasValue)
                     _liveStats.RecordInterfaceAggregate(dev.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
@@ -387,6 +399,15 @@ public class MonitoringCollectionAgent : BackgroundService
                     sumOut += tx;
                     anyContribution = true;
                 }
+            }
+
+            bool isFrontYardMesh = meshAp.Name?.IndexOf("front yard", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isFrontYardMesh)
+            {
+                int wifiClientCount = _liveStats.GetWifiClientsForAp(meshAp.Mac).Count;
+                _logger.LogInformation(
+                    "[diag] Second-pass mesh {Name}: anyContribution={Any} sumIn={In:F0} sumOut={Out:F0} wifiClients={Wc}",
+                    meshAp.Name, anyContribution, sumIn, sumOut, wifiClientCount);
             }
 
             if (anyContribution)
