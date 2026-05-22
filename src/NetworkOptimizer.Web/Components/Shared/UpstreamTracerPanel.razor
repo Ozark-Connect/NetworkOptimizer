@@ -16,7 +16,7 @@
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
                 <strong>Upstream path may have changed.</strong>
                 The scheduled 7-day re-discovery found a different set of hops or ASNs
-                than what's currently committed. Run discovery to see what changed and
+                than the targets currently saved. Run discovery to see what changed and
                 update your targets.
             </div>
         }
@@ -136,7 +136,7 @@
                 {
                     <div class="form-group">
                         <label class="form-label">Access ISP hops</label>
-                        <p class="section-description">First-mile hops on @AccessAsnDisplay(). Rename or disable any row before committing.</p>
+                        <p class="section-description">First-mile hops on @AccessAsnDisplay(). Rename or disable any row before saving.</p>
                         <div class="table-responsive">
                             <table class="data-table">
                                 <thead>
@@ -175,8 +175,8 @@
                 @if (_state.TransitAsns.Count > 0)
                 {
                     <div class="form-group">
-                        <label class="form-label">Transit ASNs</label>
-                        <p class="section-description">Distinct ASNs between your access ISP and the destinations.</p>
+                        <label class="form-label">Transit networks</label>
+                        <p class="section-description">Distinct networks between your ISP and the destinations (each one's ASN shown for reference).</p>
                         <div class="table-responsive">
                             <table class="data-table">
                                 <thead>
@@ -229,15 +229,14 @@
                     <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
                     @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled))
                     {
-                        <button class="btn btn-primary" @onclick="CommitAsync">Commit</button>
+                        <button class="btn btn-primary" @onclick="CommitAsync">Save monitoring targets</button>
                     }
                 </div>
             }
             else if (_state.Step == TracerStep.Done)
             {
                 <div class="alert alert-success">
-                    Discovery committed. The agent will start probing the new targets
-                    on the next latency-tier cycle.
+                    Targets saved. The monitor will start probing them shortly.
                 </div>
             }
             else
@@ -312,8 +311,8 @@
         TracerStep.Idle => "Ready",
         TracerStep.DetectingPublicIp => "Detecting public IP",
         TracerStep.DiscoveringL2Neighbor => "Discovering L2 neighbor",
-        TracerStep.TracingAccessIsp => "Tracing access ISP",
-        TracerStep.TracingTransitAsns => "Tracing transit ASNs",
+        TracerStep.TracingAccessIsp => "Tracing your ISP",
+        TracerStep.TracingTransitAsns => "Tracing intermediate networks",
         TracerStep.ReviewingResults => "Review",
         TracerStep.Done => "Done",
         TracerStep.Failed => "Stopped",

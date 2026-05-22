@@ -900,9 +900,14 @@ export class LanFlowMap {
                 this.controls?.update();
             }
 
-            for (const link of this._linkMeshes.values()) {
-                link.down.advance(dt);
-                link.up.advance(dt);
+            // Freeze particle motion while paused (Live or Historic) so the
+            // dots visibly stop with the polling; otherwise they keep flowing
+            // off whatever the last rate snapshot was.
+            if (!this._paused) {
+                for (const link of this._linkMeshes.values()) {
+                    link.down.advance(dt);
+                    link.up.advance(dt);
+                }
             }
             // Subtle node breathing: every infrastructure node's emissive intensity
             // oscillates around its base value on a ~3 s cycle. Idle, traffic-less
@@ -943,11 +948,7 @@ export class LanFlowMap {
     // can watch the recent window roll back into Live.
     _togglePlayPause() {
         this._paused = !this._paused;
-        const btn = this._panels.scrubberPlayPause;
-        if (btn) {
-            btn.textContent = this._paused ? '▶' : '⏸';
-            btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
-        }
+        this._syncPlayPauseIcon();
         if (this._paused) {
             this._stopHistoricPlayback();
             return;
@@ -958,14 +959,23 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        // ~250ms tick advancing 6 units (out of 1000 = full 24h), so playback
-        // takes ~40s end-to-end. Good rhythm for inspecting a few hours back.
+        // 10x real-time: 10 sec of real time per 1 sec of playback. Range is
+        // 0..1000 mapped to 24h = 86400 real sec, so 1 unit = 86.4 real sec.
+        // At 250ms tick, advance 2.5 real sec / 86.4 = ~0.029 units. Way too
+        // slow. Instead use a much higher real-time multiplier appropriate
+        // for a 24h window: 10 *minutes* of real time per 1 sec of playback.
+        // That puts a full 24h pass at ~2.4 min, which actually reads.
+        const realSecPerPlaybackSec = 600; // 10 minutes per second
+        const tickMs = 250;
+        const realSecPerTick = realSecPerPlaybackSec * (tickMs / 1000);
+        const unitsPerSec = 1000 / (24 * 60 * 60);
+        const unitsPerTick = Math.max(1, Math.round(realSecPerTick * unitsPerSec));
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
             const range = this._panels.scrubberRange;
             if (!range) return;
             const cur = Number(range.value);
-            const next = Math.min(1000, cur + 6);
+            const next = Math.min(1000, cur + unitsPerTick);
             range.value = next;
             this._onScrubberInput(next);
             if (next >= 1000) {
@@ -974,7 +984,7 @@ export class LanFlowMap {
             } else {
                 this._onScrubberChange(next);
             }
-        }, 250);
+        }, tickMs);
     }
 
     _stopHistoricPlayback() {
@@ -1296,6 +1306,10 @@ export class LanFlowMap {
                 this._panels.modeBadge.textContent = 'Live';
                 this._panels.modeBadge.classList.remove('is-historic');
             }
+            // Returning to live resumes polling; clear the paused state so the
+            // play button reflects "playing" again.
+            this._paused = false;
+            this._syncPlayPauseIcon();
             await this._pollLive();
             return;
         }
@@ -1306,7 +1320,22 @@ export class LanFlowMap {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
         }
+        // Scrubbing back into historic always lands in paused state - we want
+        // the user inspecting the point they picked, not auto-rolling forward.
+        // They press play explicitly to start playback.
+        if (!this._paused) {
+            this._paused = true;
+            this._syncPlayPauseIcon();
+        }
+        this._stopHistoricPlayback();
         await this._loadHistoric(at);
+    }
+
+    _syncPlayPauseIcon() {
+        const btn = this._panels.scrubberPlayPause;
+        if (!btn) return;
+        btn.textContent = this._paused ? '▶' : '⏸';
+        btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
     }
 
     _scrubberValueToTime(value) {
