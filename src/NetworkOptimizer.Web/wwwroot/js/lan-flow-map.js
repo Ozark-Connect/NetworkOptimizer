@@ -1717,35 +1717,44 @@ export class LanFlowMap {
         // upload-from-client, so we keep the friendlier Download / Upload
         // wording for them.
         //
-        // Direction resolve per adjacent link:
-        //   - WAN/uplink/wifi: post-swap, r.upstreamBps = download-direction
-        //     (toward leaves), r.downstreamBps = upload-direction (toward internet).
-        //   - WiredClient: no swap; r.downstreamBps = download-direction (toward
-        //     leaf), r.upstreamBps = upload-direction (from leaf).
-        // Then map to ingress/egress based on which side of the link this node
-        // sits on (upstream FromNodeId vs downstream ToNodeId).
+        // Fabric devices (gateway/switch/AP): use the per-device badge so the
+        // tooltip numbers match the floating label exactly. The badge is the
+        // boundary throughput from the trunk/uplink port (or gateway WAN
+        // port), single-counted. Summing every adjacent link instead
+        // double-counts any flow that traverses the device.
+        // Client devices: the leaf link is the only adjacent rate, no
+        // double-count risk - sum the single link with direction resolved.
+        const isFabric = node.kind === NODE_KIND.Gateway
+            || node.kind === NODE_KIND.Switch
+            || node.kind === NODE_KIND.AccessPoint;
         let ingressBps = 0, egressBps = 0, anyData = false;
-        for (const [, link] of this._linkMeshes) {
-            if (link.link.fromNodeId !== node.id && link.link.toNodeId !== node.id) continue;
-            const r = this._currentRates?.[link.link.id];
-            if (!r) continue;
-            anyData = true;
-            const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
-                || link.link.kind === LINK_KIND.WifiClient;
-            const dl = (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
-            const ul = (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
-            if (link.link.toNodeId === node.id) {
-                ingressBps += dl;
-                egressBps += ul;
-            } else {
-                ingressBps += ul;
-                egressBps += dl;
+        if (isFabric) {
+            const badge = this._currentBadges?.[node.id];
+            if (badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null)) {
+                ingressBps = badge.aggregateInBps || 0;
+                egressBps = badge.aggregateOutBps || 0;
+                anyData = (ingressBps > 0 || egressBps > 0);
+            }
+        } else {
+            for (const [, link] of this._linkMeshes) {
+                if (link.link.fromNodeId !== node.id && link.link.toNodeId !== node.id) continue;
+                const r = this._currentRates?.[link.link.id];
+                if (!r) continue;
+                anyData = true;
+                const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
+                    || link.link.kind === LINK_KIND.WifiClient;
+                const dl = (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
+                const ul = (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
+                if (link.link.toNodeId === node.id) {
+                    ingressBps += dl;
+                    egressBps += ul;
+                } else {
+                    ingressBps += ul;
+                    egressBps += dl;
+                }
             }
         }
         if (anyData) {
-            const isFabric = node.kind === NODE_KIND.Gateway
-                || node.kind === NODE_KIND.Switch
-                || node.kind === NODE_KIND.AccessPoint;
             if (isFabric) {
                 rows.push(['Ingress', formatBps(ingressBps)]);
                 rows.push(['Egress', formatBps(egressBps)]);

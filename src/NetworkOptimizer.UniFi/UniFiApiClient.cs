@@ -475,7 +475,7 @@ public class UniFiApiClient : IDisposable
             // For standalone controllers
             url = $"{_controllerUrl}/api/s/{_site}/{endpoint}";
         }
-        _logger.LogDebug("BuildApiPath: _isUniFiOs={IsUniFiOs}, endpoint={Endpoint}, url={Url}", _isUniFiOs, endpoint, url);
+        _logger.LogTrace("BuildApiPath: _isUniFiOs={IsUniFiOs}, endpoint={Endpoint}, url={Url}", _isUniFiOs, endpoint, url);
         return url;
     }
 
@@ -624,7 +624,7 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public async Task<List<UniFiDeviceResponse>> GetDevicesAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching all devices from site {Site}", _site);
+        _logger.LogTrace("Fetching all devices from site {Site}", _site);
 
         var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiDeviceResponse>>(
             () => _httpClient!.GetAsync(BuildApiPath("stat/device"), cancellationToken),
@@ -632,7 +632,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} devices", response.Data.Count);
+            _logger.LogTrace("Retrieved {Count} devices", response.Data.Count);
             return response.Data;
         }
 
@@ -720,7 +720,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        _logger.LogDebug("Fetching all device types (v2 API) from site {Site}", _site);
+        _logger.LogTrace("Fetching all device types (v2 API) from site {Site}", _site);
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -740,7 +740,7 @@ public class UniFiApiClient : IDisposable
                 {
                     var protectCount = result.ProtectDevices?.Count ?? 0;
                     var networkCount = result.NetworkDevices?.Count ?? 0;
-                    _logger.LogInformation("Retrieved {NetworkCount} network devices and {ProtectCount} Protect devices (v2 API)",
+                    _logger.LogTrace("Retrieved {NetworkCount} network devices and {ProtectCount} Protect devices (v2 API)",
                         networkCount, protectCount);
                 }
                 return result;
@@ -1165,7 +1165,7 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public async Task<List<UniFiNetworkConfig>> GetNetworkConfigsAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching network configs from site {Site}", _site);
+        _logger.LogTrace("Fetching network configs from site {Site}", _site);
 
         var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiNetworkConfig>>(
             () => _httpClient!.GetAsync(BuildApiPath("rest/networkconf"), cancellationToken),
@@ -1173,7 +1173,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Meta.Rc == "ok")
         {
-            _logger.LogInformation("Retrieved {Count} network configs", response.Data.Count);
+            _logger.LogTrace("Retrieved {Count} network configs", response.Data.Count);
             return response.Data;
         }
 
@@ -2387,7 +2387,7 @@ public class UniFiApiClient : IDisposable
         int limit = 3000,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching IPS events from {Start} to {End}", start, end);
+        _logger.LogTrace("Fetching IPS events from {Start} to {End}", start, end);
 
         var body = new
         {
@@ -2409,7 +2409,7 @@ public class UniFiApiClient : IDisposable
 
         if (response?.Data != null)
         {
-            _logger.LogDebug("Found {Count} IPS events", response.Data.Count);
+            _logger.LogTrace("Found {Count} IPS events", response.Data.Count);
             return response.Data;
         }
 
@@ -2428,7 +2428,7 @@ public class UniFiApiClient : IDisposable
         int pageSize = 500,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching threat log events from {Start} to {End}, page {Page}", start, end, pageNumber);
+        _logger.LogTrace("Fetching threat log events from {Start} to {End}, page {Page}", start, end, pageNumber);
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -2493,7 +2493,7 @@ public class UniFiApiClient : IDisposable
         string[]? directionFilter = null,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
+        _logger.LogTrace("Fetching traffic flows from {Start} to {End}, page {Page}", start, end, pageNumber);
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
