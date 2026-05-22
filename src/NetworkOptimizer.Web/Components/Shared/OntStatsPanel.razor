@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject UniFiConnectionService ConnectionService
 
 @if (_isLoading)
 {
@@ -110,7 +111,17 @@ else
                 {
                     <div class="metric-row">
                         <span class="metric-label">Link:</span>
-                        <span class="metric-value">@FormatLinkSpeed(current.LinkSpeedMbps.Value)</span>
+                        <span class="metric-value">
+                            @FormatLinkSpeed(current.LinkSpeedMbps.Value)
+                            @if (current.LinkSpeedMbps <= 1000
+                                && PonVariantLabel(current.SfpPart, current.SfpVendor) == "GPON"
+                                && IsUpgradableGateway())
+                            {
+                                <a href="/perf-tweaks" class="tooltip-icon tooltip-icon-sm"
+                                   data-tooltip="Most GPON SFP ONTs support 2.5 Gbps on this gateway. Check Performance Tweaks."
+                                   style="margin-left: 0.35rem;">?</a>
+                            }
+                        </span>
                     </div>
                 }
                 <div class="metric-row">
@@ -182,6 +193,16 @@ else
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric)
                 .ToListAsync();
             if (_currentIndex >= _monitoredOnts.Count) _currentIndex = 0;
+
+            try
+            {
+                var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+                _isUpgradableGateway = devices.Any(d =>
+                    d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                    && (d.Model?.Contains("UXG-Fiber", StringComparison.OrdinalIgnoreCase) == true
+                        || d.Model?.Contains("UCG-Fiber", StringComparison.OrdinalIgnoreCase) == true));
+            }
+            catch { }
         }
         catch { _monitoredOnts = new List<MonitoredSfp>(); }
         finally { _isLoading = false; }
@@ -234,6 +255,10 @@ else
 
     private static string PonVariantLabel(string? sfpPart, string? sfpVendor) =>
         NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfpPart, sfpVendor);
+
+    private bool _isUpgradableGateway;
+
+    private bool IsUpgradableGateway() => _isUpgradableGateway;
 
     private static string FormatLinkSpeed(int mbps) => mbps >= 1000
         ? $"{mbps / 1000.0:0.##} Gbps"
