@@ -1119,6 +1119,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         finally { _latencyLoading = false; }
 
         _latencyChartKey++;
+        StateHasChanged();
     }
 
     private static ApexChartOptions<LatencyChartPoint> BuildRttChartOptions() => new()
