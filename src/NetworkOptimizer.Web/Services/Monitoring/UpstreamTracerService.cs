@@ -397,10 +397,17 @@ public class UpstreamTracerService
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
         // Access hops: the first 1-3 hops attributable to that ASN, per spec 5.5.
-        _accessHopsResolved = _mergedHops
-            .Where(h => h.Asn?.Asn == accessAsn)
-            .Take(3)
-            .ToList();
+        // Require Asn != null on the candidate (not just `h.Asn?.Asn == accessAsn`)
+        // otherwise when accessAsn itself is null the equality matches every
+        // private/CGNAT hop too - including our own gateway at 192.168.x.1 -
+        // and they get committed as "first-mile" access targets. If no public
+        // hop responded, leave the access hop list empty.
+        _accessHopsResolved = accessAsn.HasValue
+            ? _mergedHops
+                .Where(h => h.Asn != null && h.Asn.Asn == accessAsn.Value)
+                .Take(3)
+                .ToList()
+            : new List<AttributedHop>();
 
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
