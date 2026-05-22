@@ -27,6 +27,8 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
+        markers: { size: 0 },
+        dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
             labels: {
@@ -51,6 +53,8 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             x: { format: 'MMM dd, HH:mm:ss' },
         },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
+        markers: { size: 0 },
+        dataLabels: { enabled: false },
         ...extraOpts,
     };
 }
@@ -75,6 +79,14 @@ function buildLossOpts() {
             fill: {
                 type: 'gradient',
                 gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
+            },
+            tooltip: {
+                theme: 'dark',
+                shared: true,
+                x: { format: 'MMM dd, HH:mm:ss' },
+                y: {
+                    formatter: (v) => v != null && v > 0 ? v.toFixed(1) + '%' : null,
+                },
             },
         });
 }
@@ -160,9 +172,7 @@ async function loadAndUpdate() {
     const lossSeries = data.targets.map((t, i) => ({
         name: t.name,
         color: PALETTE[i % PALETTE.length],
-        data: (t.loss || [])
-            .filter(p => p.value != null && p.value > 0)
-            .map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+        data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
     if (rttChart) {
