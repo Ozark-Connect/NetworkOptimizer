@@ -355,6 +355,7 @@ export class LanFlowMap {
             const res = await fetch(`${this.apiBase}/live`, { credentials: 'same-origin' });
             if (!res.ok) return;
             const update = await res.json();
+            this._currentBadges = update.nodeBadges || {};
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
             // Keep ticking; transient network errors are fine.
@@ -1621,15 +1622,28 @@ export class LanFlowMap {
             let downBps = 0;
             let upBps = 0;
             let anyData = false;
-            for (const [linkId, link] of this._linkMeshes) {
-                if (link.link.fromNodeId !== nodeId && link.link.toNodeId !== nodeId) continue;
-                const r = this._currentRates?.[linkId];
-                if (!r) continue;
-                anyData = true;
-                const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
-                    || link.link.kind === LINK_KIND.WifiClient;
-                downBps += (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
-                upBps += (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
+            // Prefer the per-device aggregate badge if the server published one.
+            // The badge reflects the trunk/uplink port rate (gateway WAN port
+            // for the gateway), which is the actual boundary throughput - far
+            // better than summing every adjacent link, which double-counts any
+            // flow that traverses the device (e.g. client A -> switch -> uplink
+            // shows up once on the access link and again on the uplink).
+            const badge = this._currentBadges?.[nodeId];
+            if (badge && (badge.aggregateInBps != null || badge.aggregateOutBps != null)) {
+                downBps = badge.aggregateInBps || 0;
+                upBps = badge.aggregateOutBps || 0;
+                anyData = (downBps > 0 || upBps > 0);
+            } else {
+                for (const [linkId, link] of this._linkMeshes) {
+                    if (link.link.fromNodeId !== nodeId && link.link.toNodeId !== nodeId) continue;
+                    const r = this._currentRates?.[linkId];
+                    if (!r) continue;
+                    anyData = true;
+                    const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
+                        || link.link.kind === LINK_KIND.WifiClient;
+                    downBps += (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
+                    upBps += (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
+                }
             }
             if (!anyData) {
                 rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
