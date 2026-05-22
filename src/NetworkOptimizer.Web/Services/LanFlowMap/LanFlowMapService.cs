@@ -225,10 +225,33 @@ public class LanFlowMapService
             if (string.IsNullOrEmpty(node.Mac)) continue;
             var dev = _liveStats.GetForDevice(node.Mac);
             if (dev == null) continue;
+
+            // For SNMP-free switches the only aggregate we have is the parent
+            // switch's port rate (RateIn/RateOut), and parent-port direction
+            // doesn't always map cleanly to the child's fabric ingress/egress
+            // (LAGs, multiple uplinks, port_table direction quirks). Switches
+            // WITH SNMP write FabricIngress/Egress directly from sum(rx)/sum(tx)
+            // and don't hit this fallback. Show magnitude on both axes so the
+            // floating label says "this much is moving, direction unknown"
+            // instead of confidently flipping ingress and egress. The trunk
+            // LINK rate keeps its direction-aware values - those are read from
+            // dev.RateInBps/RateOutBps before they reach this clamp.
+            var aggIn = dev.RateInBps;
+            var aggOut = dev.RateOutBps;
+            if (node.Kind == LanNodeKind.Switch
+                && !dev.FabricIngressBps.HasValue
+                && !dev.FabricEgressBps.HasValue
+                && aggIn.HasValue && aggOut.HasValue)
+            {
+                var mag = Math.Max(aggIn.Value, aggOut.Value);
+                aggIn = mag;
+                aggOut = mag;
+            }
+
             update.NodeBadges[node.Id] = new NodeLiveBadge
             {
-                AggregateInBps = dev.RateInBps,
-                AggregateOutBps = dev.RateOutBps,
+                AggregateInBps = aggIn,
+                AggregateOutBps = aggOut,
                 FabricIngressBps = dev.FabricIngressBps,
                 FabricEgressBps = dev.FabricEgressBps,
                 Online = node.Online,

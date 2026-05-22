@@ -311,23 +311,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             if (rate.HasValue)
             {
-                if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)
-                {
-                    // SNMP-free switches fall through to this UniFi parent-port
-                    // delta, but the trunk direction at the parent doesn't always
-                    // map to the child's fabric ingress/egress reliably (LAGs,
-                    // multiple uplinks, switches plugged into a port the controller
-                    // labels backwards). Rather than display a confidently-wrong
-                    // direction, publish the magnitude on both axes - the label
-                    // shows "this much is moving, direction unknown" instead of
-                    // a flipped ingress/egress pair.
-                    var mag = Math.Max(rate.Value.DownBps, rate.Value.UpBps);
-                    _liveStats.RecordInterfaceAggregate(dev.Mac, mag, mag, nowOverride);
-                }
-                else
-                {
-                    _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
-                }
+                _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
             }
             else if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint)
             {
