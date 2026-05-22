@@ -1334,30 +1334,44 @@ export class LanFlowMap {
     }
 
     _refreshDeviceLabelRates() {
-        // Called whenever liveRates is applied. Reads aggregate down/up rates from the
-        // device's adjacent links and writes the formatted text into each label.
+        // Floating labels render only on infrastructure (gateway / switch / AP).
+        // "Download / upload" doesn't fit a forwarding device, so we surface
+        // ingress (bytes into the device, across every port) and egress (bytes
+        // out, across every port) instead.
+        //
+        // Mapping: backend's link rates after the display-layer swap are
+        //   r.upstreamBps   = download-direction (gateway -> leaves)
+        //   r.downstreamBps = upload-direction (leaves -> gateway)
+        // For a link where this device is the ToNodeId, the link is its uplink
+        // to a parent, so download-direction flows INTO the device. For a link
+        // where this device is the FromNodeId, the link is a downlink, so the
+        // upload-direction flows INTO the device.
         for (const [nodeId, { rateEl }] of this._floatingLabels) {
-            let downBps = 0;
-            let upBps = 0;
+            let ingressBps = 0;
+            let egressBps = 0;
             let anyData = false;
-            // Sum across links incident to this node. Same internet-centric swap
-            // as _refreshLinkLabels: backend's UpstreamBps holds the
-            // download-direction bytes and vice versa.
             for (const [linkId, link] of this._linkMeshes) {
                 if (link.link.fromNodeId !== nodeId && link.link.toNodeId !== nodeId) continue;
                 const r = this._currentRates?.[linkId];
                 if (!r) continue;
                 anyData = true;
-                downBps += r.upstreamBps || 0;
-                upBps += r.downstreamBps || 0;
+                const dl = r.upstreamBps || 0;
+                const ul = r.downstreamBps || 0;
+                if (link.link.toNodeId === nodeId) {
+                    ingressBps += dl;
+                    egressBps += ul;
+                } else {
+                    ingressBps += ul;
+                    egressBps += dl;
+                }
             }
             if (!anyData) {
-                rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
+                rateEl.innerHTML = `<span class="down">In -</span> &nbsp; <span class="up">Out -</span>`;
                 continue;
             }
             rateEl.innerHTML =
-                `<span class="down">↓ ${formatBps(downBps)}</span> &nbsp; ` +
-                `<span class="up">↑ ${formatBps(upBps)}</span>`;
+                `<span class="down">In ${formatBps(ingressBps)}</span> &nbsp; ` +
+                `<span class="up">Out ${formatBps(egressBps)}</span>`;
         }
     }
 

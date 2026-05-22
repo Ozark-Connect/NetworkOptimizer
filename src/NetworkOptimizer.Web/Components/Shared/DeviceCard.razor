@@ -68,11 +68,11 @@
                     @if (Device.LiveRateInBps.HasValue || Device.LiveRateOutBps.HasValue)
                     {
                         <div class="device-rate">
-                            <span class="rate-down" title="From upstream (downstream traffic)">
-                                ↓ @FormatBps(Device.LiveRateInBps)
+                            <span class="rate-down" title="Ingress (bytes received by the device)">
+                                In @FormatBps(Device.LiveRateInBps)
                             </span>
-                            <span class="rate-up" title="To upstream (upstream traffic)">
-                                ↑ @FormatBps(Device.LiveRateOutBps)
+                            <span class="rate-up" title="Egress (bytes transmitted by the device)">
+                                Out @FormatBps(Device.LiveRateOutBps)
                             </span>
                         </div>
                     }
