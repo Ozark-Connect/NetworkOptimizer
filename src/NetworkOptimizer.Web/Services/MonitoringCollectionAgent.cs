@@ -316,8 +316,11 @@ public class MonitoringCollectionAgent : BackgroundService
             if (isFrontYard)
             {
                 _logger.LogInformation(
-                    "[diag] First-pass for {Name}: type={UplinkType} parent={Parent} portIdx={Port} rate={HasRate}",
-                    dev.Name, dev.Uplink?.Type, parentMac, portIdx, rate.HasValue);
+                    "[diag] First-pass for {Name}: type={UplinkType} parent={Parent} portIdx={Port} rate={HasRate} Stats={HasStats} Tx={Tx} Rx={Rx} BytePrev={HasPrev} ByteLatest={HasLatest}",
+                    dev.Name, dev.Uplink?.Type, parentMac, portIdx, rate.HasValue,
+                    dev.Stats != null,
+                    dev.Stats?.TxBytes, dev.Stats?.RxBytes,
+                    _deviceBytePrev.ContainsKey(devMac), _deviceByteRateLatest.ContainsKey(devMac));
             }
 
             if (rate.HasValue)
