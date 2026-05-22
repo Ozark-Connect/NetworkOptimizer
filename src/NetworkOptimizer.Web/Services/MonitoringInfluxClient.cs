@@ -522,7 +522,9 @@ from(bucket: ""{_bucket}"")
         CancellationToken ct = default)
     {
         var ids = targetIds.ToList();
-        if (!IsConfigured || ids.Count == 0) return new Dictionary<string, List<LatencyPoint>>();
+        if (ids.Count == 0) return new Dictionary<string, List<LatencyPoint>>();
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<LatencyPoint>>();
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var setLiteral = string.Join(", ", ids.Select(id => $@"""{id}"""));
 
