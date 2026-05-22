@@ -1483,38 +1483,9 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
     return Results.Ok(new { message = "Pending backup cancelled" });
 });
 
-// 3D LAN flow map (spec 5.7) data endpoints. The JS layer fetches the snapshot
-// when the map mounts, then polls the live endpoint at a 1-2 s cadence. Historic
-// mode targets a single instant via the timeline scrubber.
-app.MapGet("/api/monitoring/lan-flow-map/snapshot",
-    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, CancellationToken ct) =>
-    {
-        var snap = await svc.BuildSnapshotAsync(ct);
-        return Results.Ok(snap);
-    });
-
-app.MapGet("/api/monitoring/lan-flow-map/live",
-    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, CancellationToken ct) =>
-    {
-        var update = await svc.GetLiveUpdateAsync(ct);
-        return Results.Ok(update);
-    });
-
-app.MapGet("/api/monitoring/lan-flow-map/history",
-    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, DateTime at, CancellationToken ct) =>
-    {
-        var update = await svc.GetHistoricUpdateAsync(at, ct);
-        return Results.Ok(update);
-    });
-
-app.MapGet("/api/monitoring/lan-flow-map/speed-tests",
-    async (NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService svc, DateTime? since, DateTime? until, CancellationToken ct) =>
-    {
-        var fromT = since ?? DateTime.UtcNow.AddHours(-24);
-        var toT = until ?? DateTime.UtcNow;
-        var items = await svc.BuildSpeedTestOverlayAsync(fromT, toT, limitPerKind: 10, ct: ct);
-        return Results.Ok(items);
-    });
+// New API endpoints go in Endpoints/*.cs, not inline here.
+LanFlowMapEndpoints.Map(app);
+MonitoringChartEndpoints.Map(app);
 
 app.Run();
 
