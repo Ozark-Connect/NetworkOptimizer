@@ -334,6 +334,67 @@ public class MonitoringCollectionAgent : BackgroundService
             // would produce a one-burst / many-zeroes pattern here).
         }
 
+        // Second pass: mesh-uplinked APs need a custom aggregate because
+        // UniFi's device-level stat.tx_bytes / rx_bytes doesn't reliably
+        // include traffic shuttled across the wireless backhaul - the
+        // AP-fallback above can read low or zero even when the AP is
+        // relaying a lot of traffic for downstream gear and its own
+        // wireless clients. Wired APs don't need this: their parent
+        // switch port already sees every byte (wireless clients included)
+        // because that traffic exits the AP via Ethernet. Mesh APs have
+        // no such port to read, so we synthesize the aggregate from two
+        // contributors:
+        //   (a) downstream UniFi devices (switch or another AP plugged
+        //       into the mesh AP's Ethernet downlink) - their boundary
+        //       aggregates were just written in the first pass.
+        //   (b) wireless clients directly associated to this mesh AP -
+        //       their TX/RX throughput maps onto the backhaul flow.
+        // NetworkPathAnalyzer treats device.Uplink.Type == "wireless" as
+        // the mesh marker; mirror that here for consistency with how the
+        // speed-test path tracer identifies mesh hops.
+        foreach (var meshAp in devices.Where(d =>
+            d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
+            && d.Uplink != null
+            && string.Equals(d.Uplink.Type, "wireless", StringComparison.OrdinalIgnoreCase)))
+        {
+            var meshMac = NormalizeMac(meshAp.Mac);
+            double sumIn = 0, sumOut = 0;
+            bool anyContribution = false;
+
+            // (a) downstream UniFi children on the Ethernet downlink.
+            foreach (var child in devices)
+            {
+                if (child.Uplink == null || string.IsNullOrEmpty(child.Uplink.UplinkMac)) continue;
+                if (!string.Equals(NormalizeMac(child.Uplink.UplinkMac), meshMac, StringComparison.OrdinalIgnoreCase)) continue;
+                var stats = _liveStats.GetForDevice(child.Mac);
+                if (stats == null || !stats.LastRateUpdate.HasValue) continue;
+                sumIn += stats.RateInBps ?? 0;
+                sumOut += stats.RateOutBps ?? 0;
+                anyContribution = true;
+            }
+
+            // (b) wireless clients on the mesh AP itself. TxThroughputBps
+            // is AP -> client (downloads, gateway-relative), Rx is the
+            // reverse (uploads). Sum onto the same RateIn / RateOut sides
+            // the children write so the totals stay direction-consistent.
+            foreach (var wc in _liveStats.GetWifiClientsForAp(meshAp.Mac))
+            {
+                var rx = wc.RxThroughputBps ?? 0;
+                var tx = wc.TxThroughputBps ?? 0;
+                if (rx > 0 || tx > 0)
+                {
+                    sumIn += rx;
+                    sumOut += tx;
+                    anyContribution = true;
+                }
+            }
+
+            if (anyContribution)
+            {
+                _liveStats.RecordInterfaceAggregate(meshAp.Mac, sumIn, sumOut, nowOverride);
+            }
+        }
+
         // Gateways are the top of the topology - no parent switch to read their
         // uplink rate from. Fall back to the SNMP rate on the gateway's own WAN
         // interface (which is what the topology view's gateway pipe actually
