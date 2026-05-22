@@ -1455,6 +1455,12 @@ export class LanFlowMap {
             if (!cloud.wanInterface) continue;
             const pill = document.createElement('div');
             pill.className = 'lan-flow-map-wan-pill';
+            // Park offscreen until the first projection update places it. Without
+            // this the pill briefly shows at top-left (CSS default 0,0) the moment
+            // _refreshWanPills adds is-visible but before _updateFloatingLabels
+            // has projected the access cloud's screen coords.
+            pill.style.left = '-9999px';
+            pill.style.top = '-9999px';
             this._labelsLayer.appendChild(pill);
             this._wanPills.set(cloud.wanInterface, pill);
         }
