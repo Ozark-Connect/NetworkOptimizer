@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
@@ -9,7 +10,6 @@ using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 using AuditModels = NetworkOptimizer.Audit.Models;
@@ -2002,8 +2002,8 @@ public class AuditService
         foreach (var part in raw.Split(new[] { ',', ';', '\n', '\r', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var trimmed = part.Trim();
-            if (System.Net.IPAddress.TryParse(trimmed, out _))
-                ips.Add(trimmed);
+            if (System.Net.IPAddress.TryParse(trimmed, out var parsed))
+                ips.Add(parsed.ToString());
         }
         return ips.Count > 0 ? ips : null;
     }
