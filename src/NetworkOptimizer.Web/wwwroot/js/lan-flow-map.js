@@ -1636,8 +1636,23 @@ export class LanFlowMap {
                 upBps = badge.fabricEgressBps || 0;
                 anyData = (downBps > 0 || upBps > 0);
             } else if (hasAggregate) {
-                downBps = badge.aggregateInBps || 0;
-                upBps = badge.aggregateOutBps || 0;
+                // For APs the aggregate badge comes from the parent switch's
+                // port_table TX/RX, which UniFi reports from the connected
+                // device's perspective (port TX = bytes the AP sent up,
+                // RX = bytes the AP received). The tooltip's "Ingress"
+                // (= aggregateInBps) reads naturally as "client data
+                // arriving at the AP" under that convention. The floating
+                // label is gateway-relative though - blue down arrow is
+                // always data flowing FROM the gateway - so for APs the
+                // mapping has to swap.
+                const node = this._nodeMeshes.get(nodeId)?.userData?.node;
+                if (node?.kind === NODE_KIND.AccessPoint) {
+                    downBps = badge.aggregateOutBps || 0;
+                    upBps = badge.aggregateInBps || 0;
+                } else {
+                    downBps = badge.aggregateInBps || 0;
+                    upBps = badge.aggregateOutBps || 0;
+                }
                 anyData = (downBps > 0 || upBps > 0);
             } else {
                 for (const [linkId, link] of this._linkMeshes) {
