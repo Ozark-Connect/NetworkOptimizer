@@ -975,6 +975,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
             var ping = await _localProbe.PingAsync(probeTarget, count: Math.Max(3, Math.Min(target.PingCount, 20)), perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
 
+            if (ct.IsCancellationRequested) return;
+
             await _influx.WriteLatencyAsync(
                 targetId: target.TargetId,
                 vantagePoint: vantage,

@@ -615,6 +615,23 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         LoadInfluxStateFromSettings(settings);
         await LoadTargetsAsync();
 
+        if (_monitoringEnabled && _influxConfigured)
+        {
+            await LoadLatencyChartsAsync();
+            _latencyChartTimer = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadLatencyChartsAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch { }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+
         // Refresh the targets list periodically so LastVerified updates show movement
         // without requiring a full page reload.
         _refreshTimer = new System.Threading.Timer(async _ =>
@@ -1149,25 +1166,6 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_monitoringEnabled && _influxConfigured && !_latencyChartsInitialized)
-        {
-            _latencyChartsInitialized = true;
-            await LoadLatencyChartsAsync();
-            _latencyChartTimer = new System.Threading.Timer(async _ =>
-            {
-                try
-                {
-                    await InvokeAsync(async () =>
-                    {
-                        await LoadLatencyChartsAsync();
-                        StateHasChanged();
-                    });
-                }
-                catch { }
-            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
-            StateHasChanged();
-        }
-
         // Mount the 3D map once the canvas is in the DOM and monitoring is active.
         // Idempotent: the JS module unmounts any previous instance on re-mount.
         if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
