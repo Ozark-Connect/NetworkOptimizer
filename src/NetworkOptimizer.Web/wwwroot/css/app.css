@@ -14357,7 +14357,10 @@ a.affected-client:hover {
     right: 0;
     bottom: 0;
     z-index: 9999;
+    height: 100% !important;
+    max-height: none !important;
     background: var(--bg-primary);
+    border-radius: 0;
 }
 
 .lan-flow-map-labels {
