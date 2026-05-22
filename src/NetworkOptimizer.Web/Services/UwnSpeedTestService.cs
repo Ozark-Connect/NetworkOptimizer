@@ -403,7 +403,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             var conntrackOutput = output[(separatorIdx + "---CONNTRACK---".Length)..];
 
             // Build WAN public IP → interface mapping
-            // Format: "2: eth2    inet 67.209.42.120/25 ..."
+            // Format: "2: eth2    inet 198.51.100.10/24 ..."
             var wanIpToIface = new Dictionary<string, string>();
             foreach (Match match in Regex.Matches(ipAddrOutput, @"\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)/"))
             {
