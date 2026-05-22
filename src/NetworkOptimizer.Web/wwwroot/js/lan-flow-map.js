@@ -1784,6 +1784,7 @@ export class LanFlowMap {
     _showHover(node) {
         if (!this._tooltipEl) return;
         const rows = [];
+        if (node.ip) rows.push(['IP', node.ip]);
         if (node.mac) rows.push(['MAC', node.mac]);
         if (node.model) rows.push(['Model', node.model]);
         if (node.band) rows.push(['Band', `${node.band} GHz`]);

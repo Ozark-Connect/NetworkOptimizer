@@ -494,9 +494,7 @@ public class LanFlowMapService
                 Id = nodeId,
                 Kind = c.IsWired ? LanNodeKind.WiredClient : LanNodeKind.WifiClient,
                 Mac = clientMac,
-                // Canonical client label chain (matches audit module): user-set Name
-                // wins over device-reported Hostname; fall back to MAC as last resort
-                // so the label is never blank.
+                Ip = string.IsNullOrEmpty(c.IpAddress) ? null : c.IpAddress,
                 Name = ResolveClientLabel(c),
                 ParentId = "dev-" + parentMac,
                 Network = c.Network,

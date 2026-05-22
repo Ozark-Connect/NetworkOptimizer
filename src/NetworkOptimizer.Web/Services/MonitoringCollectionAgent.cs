@@ -111,9 +111,9 @@ public class MonitoringCollectionAgent : BackgroundService
         // in InfluxDB's wifi_client measurement for timeline / drill-down. Cardinality
         // control: AP MAC + band are tags, client MAC is a field.
         var wifiTask = RunTierAsync("wifi",
-            _ => TimeSpan.FromSeconds(5),
+            _ => TimeSpan.FromSeconds(30),
             WifiClientTierCollectAsync,
-            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(30),
             stoppingToken);
 
         await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask);
