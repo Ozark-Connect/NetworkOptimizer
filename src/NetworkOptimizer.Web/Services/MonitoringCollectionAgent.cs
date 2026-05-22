@@ -245,9 +245,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     var (rateIn, rateOut) = WriteInterfaceCounters(device, iface, now);
                     if (rateIn.HasValue && rateOut.HasValue)
                     {
-                        aggregateInBps += rateIn.Value;
-                        aggregateOutBps += rateOut.Value;
                         anyRate = true;
+                        if (IncludeInFabricSum(device.DeviceType, iface.Description))
+                        {
+                            aggregateInBps += rateIn.Value;
+                            aggregateOutBps += rateOut.Value;
+                        }
                     }
                 }
                 if (anyRate)
@@ -468,6 +471,22 @@ public class MonitoringCollectionAgent : BackgroundService
     // fallback when no parent switch port rate is available.
     private readonly ConcurrentDictionary<string, PortByteSnapshot> _deviceBytePrev = new();
     private readonly ConcurrentDictionary<string, (double DownBps, double UpBps)> _deviceByteRateLatest = new();
+
+    /// <summary>
+    /// Whether an SNMP interface should contribute to the device's fabric ingress/
+    /// egress sum. Switches expose only physical "Port N" entries so they're safe
+    /// to sum wholesale. Gateways expose a zoo of pseudo-interfaces (VLAN sub-
+    /// interfaces like eth5.200, bridges br0/br200/..., bond0, the internal
+    /// switch-chip alias switch0[.X], honeypot*, wgclt*, gre*, *_vti, etc.) that
+    /// all alias counters carried by a physical eth port. Summing those gives
+    /// 3-4x the real total, so we restrict gateway fabric sum to plain ethN.
+    /// </summary>
+    private static bool IncludeInFabricSum(NetworkOptimizer.Core.Enums.DeviceType type, string ifDescr)
+    {
+        if (type == NetworkOptimizer.Core.Enums.DeviceType.Gateway)
+            return System.Text.RegularExpressions.Regex.IsMatch(ifDescr, @"^eth\d+$");
+        return true;
+    }
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
