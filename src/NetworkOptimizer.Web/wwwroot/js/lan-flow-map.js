@@ -1028,8 +1028,8 @@ export class LanFlowMap {
                     const target = this.controls.target;
                     const offset = cam.position.clone().sub(target);
                     const dist = offset.length();
-                    const zoomStep = dist * 0.03;
-                    const orbitStep = 1.5 * dt;
+                    const zoomStep = dist * 0.0225;
+                    const panDist = dist * 0.012;
 
                     if (this._keys['w'] && dist > this.controls.minDistance + zoomStep) {
                         offset.multiplyScalar(1 - zoomStep / dist);
@@ -1043,7 +1043,6 @@ export class LanFlowMap {
                         const right = new THREE.Vector3();
                         cam.getWorldDirection(right);
                         right.cross(cam.up).normalize();
-                        const panDist = dist * 0.02;
                         const panOffset = right.multiplyScalar(this._keys['a'] ? -panDist : panDist);
                         cam.position.add(panOffset);
                         target.add(panOffset);
