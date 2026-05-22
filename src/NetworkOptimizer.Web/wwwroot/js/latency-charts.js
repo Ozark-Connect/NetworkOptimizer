@@ -1,6 +1,8 @@
 // Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
 // Mounted from Blazor the same way as lan-flow-map.js.
 
+import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
 
