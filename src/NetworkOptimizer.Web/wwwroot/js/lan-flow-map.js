@@ -374,7 +374,11 @@ export class LanFlowMap {
                 macs.push(n.mac);
             }
         }
-        if (macs.length === 0) return;
+        if (macs.length === 0) {
+            console.debug('[wifi-interest] no visible wifi clients found, nodeMeshes size:', this._nodeMeshes.size);
+            return;
+        }
+        console.debug('[wifi-interest] heartbeat', macs.length, 'clients');
         fetch('/api/monitoring/wifi-interest', {
             method: 'POST',
             credentials: 'same-origin',
