@@ -241,6 +241,7 @@ export class LanFlowMap {
 
         this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
         this.canvas.addEventListener('pointerleave', () => this._clearHover());
+        this.canvas.addEventListener('dblclick', (e) => this._onDoubleClick(e));
 
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
         this._keys = {};
@@ -1286,7 +1287,8 @@ export class LanFlowMap {
                 <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
                 <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
                 <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
-                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over node</span></div>
+                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
+                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
             </div>
         `;
@@ -1872,6 +1874,32 @@ export class LanFlowMap {
         while (g && !(g.userData && g.userData.node)) g = g.parent;
         if (!g) { this._clearHover(); return; }
         this._showHover(g.userData.node);
+    }
+
+    _onDoubleClick(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        this._raycaster.setFromCamera(ndc, this.camera);
+        const candidates = [];
+        for (const group of this._nodeMeshes.values()) {
+            if (!group.visible) continue;
+            for (const child of group.children) {
+                if (child.isMesh) candidates.push(child);
+            }
+        }
+        const hits = this._raycaster.intersectObjects(candidates, false);
+        if (hits.length === 0) return;
+        let g = hits[0].object;
+        while (g && !(g.userData?.node)) g = g.parent;
+        if (!g) return;
+        const node = g.userData.node;
+        if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient) return;
+        const ip = node.ip;
+        if (!ip) return;
+        window.location.href = `/client-dashboard?ip=${encodeURIComponent(ip)}`;
     }
 
     _showHover(node) {
