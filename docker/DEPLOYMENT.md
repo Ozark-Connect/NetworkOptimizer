@@ -23,7 +23,7 @@ Deploy on any Linux server using Docker Compose. This is the recommended approac
 **Requirements:**
 - Docker 20.10+ and Docker Compose 2.0+
 - 2GB RAM minimum (4GB recommended)
-- 10GB disk space
+- 10 GB disk space (30 GB recommended if using InfluxDB monitoring with 90-day retention on a medium-sized network)
 - Ubuntu 20.04+, Debian 11+, RHEL/CentOS 8+, or compatible
 
 #### Quick Start
@@ -165,7 +165,7 @@ The interactive script will:
 
 **Requirements:**
 - Proxmox VE 7.0 or later
-- 10GB disk space, 2GB RAM minimum
+- 10 GB disk space (30 GB recommended if using InfluxDB monitoring with 90-day retention on a medium-sized network), 2GB RAM minimum
 - Internet access for downloading images
 
 **After Installation:**
@@ -241,7 +241,7 @@ For the initial admin password, check the add-on's **Log** tab instead of using 
 ## Pre-Deployment Checklist
 
 - [ ] Docker and Docker Compose installed
-- [ ] Sufficient disk space (10GB minimum)
+- [ ] Sufficient disk space (10 GB minimum, 30 GB if using InfluxDB monitoring)
 - [ ] Network access to UniFi Controller
 - [ ] Firewall rules configured (if applicable)
 - [ ] `.env` file configured with secure passwords
