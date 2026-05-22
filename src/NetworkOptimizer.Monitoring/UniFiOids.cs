@@ -387,6 +387,12 @@ public static class UniFiOids
     /// </summary>
     public const string UniFiTemperature = "1.3.6.1.4.1.41112.1.6.1.2.1.5";
 
+    /// <summary>
+    /// LM-SENSORS-MIB (UCD-SNMP extension): CPU die temperature in millidegrees.
+    /// Index 4 = "temp-cpu". Works on gateways (UXG, UCG, UDM).
+    /// </summary>
+    public const string LmSensorsCpuTemp = "1.3.6.1.4.1.2021.13.16.2.1.3.4";
+
     #endregion
 
     #region Entity MIB (Physical sensors)

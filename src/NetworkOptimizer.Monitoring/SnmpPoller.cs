@@ -302,7 +302,6 @@ public class SnmpPoller : ISnmpPoller
 
     private async Task GetResourceMetrics(IPAddress ip, DeviceMetrics metrics)
     {
-        // Try UCD-SNMP CPU metrics first
         var cpuIdle = await GetAsync<double>(ip, UniFiOids.SsCpuIdle);
         if (cpuIdle > 0)
         {
@@ -310,11 +309,18 @@ public class SnmpPoller : ISnmpPoller
         }
         else
         {
-            // Try Host Resources CPU
-            var cpuLoad = await GetAsync<double>(ip, UniFiOids.HrProcessorLoad);
-            if (cpuLoad > 0)
+            // APs don't support UCD-SNMP ssCpuIdle. Walk hrProcessorLoad
+            // (one row per core) and average.
+            var cores = await WalkAsync(ip, UniFiOids.HrProcessorLoad);
+            if (cores.Count > 0)
             {
-                metrics.CpuUsage = cpuLoad;
+                var sum = 0.0;
+                foreach (var v in cores)
+                {
+                    if (int.TryParse(v.Data.ToString(), out var load))
+                        sum += load;
+                }
+                metrics.CpuUsage = sum / cores.Count;
             }
         }
 
@@ -343,10 +349,20 @@ public class SnmpPoller : ISnmpPoller
         metrics.FirmwareVersion = await GetAsync<string>(ip, UniFiOids.UniFiFirmwareVersion) ?? string.Empty;
         metrics.MacAddress = await GetAsync<string>(ip, UniFiOids.UniFiMacAddress) ?? string.Empty;
 
-        var temp = await GetAsync<double>(ip, UniFiOids.UniFiTemperature);
-        if (temp > 0 && temp < 200) // Sanity check
+        // LM-SENSORS-MIB (UCD-SNMP extension): index 4 = "temp-cpu" in millidegrees.
+        // Works on gateways. Falls back to the UniFi-specific OID for other devices.
+        var lmTemp = await GetAsync<double>(ip, UniFiOids.LmSensorsCpuTemp);
+        if (lmTemp > 0)
         {
-            metrics.Temperature = temp;
+            metrics.Temperature = lmTemp / 1000.0;
+        }
+        else
+        {
+            var temp = await GetAsync<double>(ip, UniFiOids.UniFiTemperature);
+            if (temp > 0 && temp < 200)
+            {
+                metrics.Temperature = temp;
+            }
         }
 
         // Determine device type from model or description

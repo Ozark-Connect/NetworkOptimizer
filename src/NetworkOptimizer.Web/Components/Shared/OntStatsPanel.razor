@@ -251,7 +251,7 @@ else
     }
 
     private static string FormatLinkSpeed(int mbps) => mbps >= 1000
-        ? $"{mbps / 1000} Gbps"
+        ? $"{mbps / 1000.0:0.##} Gbps"
         : $"{mbps} Mbps";
 
     public void Dispose() => _refreshTimer?.Dispose();
