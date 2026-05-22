@@ -2,14 +2,14 @@
   "wan_interfaces": {
     "fiber": {
       "interface": "eth4",
-      "gateway": "207.66.100.1",
+      "gateway": "192.0.2.1",
       "route_table": "201.eth4",
       "fwmark": "0x1a0000",
       "health_target": "1.1.1.1"
     },
     "cable": {
       "interface": "eth2",
-      "gateway": "67.209.42.1",
+      "gateway": "198.51.100.1",
       "route_table": "182.eth2",
       "fwmark": "0x720000",
       "health_target": "8.8.8.8"
