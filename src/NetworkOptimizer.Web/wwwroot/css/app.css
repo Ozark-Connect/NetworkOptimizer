@@ -14373,3 +14373,58 @@ a.affected-client:hover {
 .lan-flow-map-tooltip-row .v {
     color: var(--text-primary);
 }
+.lan-flow-map-panel-body[hidden] {
+    display: none;
+}
+.lan-flow-map-panel-title-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+.lan-flow-map-panel-title-toggle::after {
+    content: "▼";
+    float: right;
+    font-size: 0.65rem;
+    opacity: 0.6;
+}
+.lan-flow-map-panel-title-toggle.is-expanded::after {
+    content: "▲";
+}
+@media (max-width: 768px) {
+    .lan-flow-map-stage {
+        height: clamp(300px, 55vh, 480px);
+    }
+    .lan-flow-map-filter,
+    .lan-flow-map-controls {
+        min-width: 0;
+        max-width: 46%;
+        font-size: 0.78rem;
+    }
+    .lan-flow-map-filter {
+        left: 0.5rem;
+        top: 0.5rem;
+    }
+    .lan-flow-map-controls {
+        right: 0.5rem;
+        top: 0.5rem;
+    }
+    .lan-flow-map-legend {
+        bottom: 0.5rem;
+        right: 0.5rem;
+        font-size: 0.7rem;
+        padding: 0.35rem 0.5rem;
+    }
+    .lan-flow-map-status {
+        bottom: 0.5rem;
+        left: 0.5rem;
+    }
+    .lan-flow-map-help {
+        display: none;
+    }
+    .lan-flow-map-scrubber {
+        position: static;
+        transform: none;
+        width: 100%;
+        border-radius: 0 0 8px 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+}

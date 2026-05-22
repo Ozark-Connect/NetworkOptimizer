@@ -312,6 +312,123 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             </div>
         </div>
 
+        <!-- Latency time-series charts. Four categories matching target types, with
+             per-target drill-down via filter badges. -->
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <h2 class="card-title">Latency &amp; Packet Loss</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div class="tab-bar">
+                        @foreach (var cat in _latencyCategories)
+                        {
+                            <button class="tab-btn @(_latencyCategory == cat.Type ? "active" : "")"
+                                    @onclick="() => SelectLatencyCategoryAsync(cat.Type)">
+                                @cat.Label
+                            </button>
+                        }
+                    </div>
+                    <div class="time-range-selector">
+                        @foreach (var r in _latencyTimeRanges)
+                        {
+                            <button class="time-btn @(_latencyRangeHours == r.Hours ? "active" : "")"
+                                    @onclick="() => SelectLatencyRangeAsync(r.Hours)">
+                                @r.Label
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                @{ var categoryTargets = GetCategoryTargets(); }
+                @if (categoryTargets.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>@EmptyStateMessage()</p>
+                    </div>
+                }
+                else
+                {
+                    @if (categoryTargets.Count > 1)
+                    {
+                        <div class="wan-filter-badges">
+                            @foreach (var t in categoryTargets)
+                            {
+                                var color = GetTargetColor(t.TargetId);
+                                var visible = IsTargetVisible(t.TargetId);
+                                <button class="wan-filter-badge @(visible ? "active" : "")"
+                                        @onclick="() => ToggleTargetVisibility(t.TargetId)">
+                                    <span class="wan-filter-dot" style="background: @color;"></span>
+                                    <span>@t.Name</span>
+                                </button>
+                            }
+                        </div>
+                    }
+
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3 class="chart-title">Round-trip time</h3>
+                        </div>
+                        @if (_latencyRttSeries.Count == 0 && !_latencyLoading)
+                        {
+                            <div class="empty-state" style="padding: 2rem 0;">
+                                <p>No data in this time range.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <ApexChart @ref="_rttChart"
+                                       TItem="LatencyChartPoint"
+                                       Options="_rttChartOptions"
+                                       Height="@("260px")">
+                                @foreach (var series in _latencyRttSeries)
+                                {
+                                    <ApexPointSeries TItem="LatencyChartPoint"
+                                                     Items="@(IsTargetVisible(series.TargetId) ? series.Points : _emptyLatencyPoints)"
+                                                     Name="@series.Name"
+                                                     SeriesType="SeriesType.Line"
+                                                     XValue="e => e.Time"
+                                                     YValue="e => (decimal?)e.Value"
+                                                     OrderBy="e => e.X"
+                                                     Color="@series.Color" />
+                                }
+                            </ApexChart>
+                        }
+                    </div>
+
+                    <div class="chart-card" style="margin-top: 1rem;">
+                        <div class="chart-header">
+                            <h3 class="chart-title">Packet loss</h3>
+                        </div>
+                        @if (_latencyLossSeries.Count == 0 && !_latencyLoading)
+                        {
+                            <div class="empty-state" style="padding: 2rem 0;">
+                                <p>No data in this time range.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <ApexChart @ref="_lossChart"
+                                       TItem="LatencyChartPoint"
+                                       Options="_lossChartOptions"
+                                       Height="@("200px")">
+                                @foreach (var series in _latencyLossSeries)
+                                {
+                                    <ApexPointSeries TItem="LatencyChartPoint"
+                                                     Items="@(IsTargetVisible(series.TargetId) ? series.Points : _emptyLatencyPoints)"
+                                                     Name="@series.Name"
+                                                     SeriesType="SeriesType.Area"
+                                                     XValue="e => e.Time"
+                                                     YValue="e => (decimal?)e.Value"
+                                                     OrderBy="e => e.X"
+                                                     Color="@series.Color" />
+                                }
+                            </ApexChart>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
         <!-- Upstream tracer wizard (Build #10). User-initiated discovery of the access
              ISP path + transit ASN clouds; output populates AccessIsp / Transit
              MonitoringTarget rows for the agent's latency tier to probe. -->
@@ -787,6 +904,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         MonitoringTargetType.Wan => "status-active",
         MonitoringTargetType.AccessIsp => "status-active",
         MonitoringTargetType.Transit => "status-active",
+        MonitoringTargetType.InternetService => "status-active",
         _ => "status-disconnected"
     };
 
@@ -801,8 +919,248 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         return $"{(int)delta.TotalDays}d ago";
     }
 
+    // --- Latency charts ---
+    private static readonly string[] LatencyPalette = { "#2ba89a", "#3b82f6", "#a78bfa", "#ef5858", "#f59e0b", "#10b981" };
+
+    private record LatencyCategoryDef(MonitoringTargetType Type, string Label);
+    private static readonly LatencyCategoryDef[] _latencyCategories =
+    {
+        new(MonitoringTargetType.Fabric, "LAN"),
+        new(MonitoringTargetType.AccessIsp, "ISP"),
+        new(MonitoringTargetType.Transit, "Transit"),
+        new(MonitoringTargetType.InternetService, "Internet")
+    };
+
+    private record TimeRangeDef(int Hours, string Label);
+    private static readonly TimeRangeDef[] _latencyTimeRanges =
+    {
+        new(0, "15m"), new(1, "1h"), new(6, "6h"), new(24, "24h"), new(168, "7d"), new(720, "30d")
+    };
+
+    private MonitoringTargetType _latencyCategory = MonitoringTargetType.Fabric;
+    private int _latencyRangeHours = 1;
+    private bool _latencyLoading;
+    private List<LatencySeriesInfo> _latencyRttSeries = new();
+    private List<LatencySeriesInfo> _latencyLossSeries = new();
+    private Dictionary<string, bool> _latencyVisibility = new();
+    private List<LatencyChartPoint> _emptyLatencyPoints = new();
+    private ApexChart<LatencyChartPoint>? _rttChart;
+    private ApexChart<LatencyChartPoint>? _lossChart;
+    private ApexChartOptions<LatencyChartPoint> _rttChartOptions = BuildRttChartOptions();
+    private ApexChartOptions<LatencyChartPoint> _lossChartOptions = BuildLossChartOptions();
+    private System.Threading.Timer? _latencyChartTimer;
+    private bool _latencyChartsInitialized;
+
+    public class LatencyChartPoint
+    {
+        public DateTime Time { get; set; }
+        public double? Value { get; set; }
+        public long X => Time.Ticks;
+    }
+
+    public class LatencySeriesInfo
+    {
+        public required string TargetId { get; init; }
+        public required string Name { get; init; }
+        public required string Color { get; init; }
+        public List<LatencyChartPoint> Points { get; set; } = new();
+    }
+
+    private List<MonitoringTarget> GetCategoryTargets() =>
+        _targets.Where(t => t.TargetType == _latencyCategory && t.Enabled).OrderBy(t => t.Name).ToList();
+
+    private string GetTargetColor(string targetId)
+    {
+        var targets = GetCategoryTargets();
+        var idx = targets.FindIndex(t => t.TargetId == targetId);
+        return idx >= 0 ? LatencyPalette[idx % LatencyPalette.Length] : LatencyPalette[0];
+    }
+
+    private bool IsTargetVisible(string targetId) =>
+        !_latencyVisibility.TryGetValue(targetId, out var v) || v;
+
+    private async Task ToggleTargetVisibility(string targetId)
+    {
+        _latencyVisibility[targetId] = !IsTargetVisible(targetId);
+        try
+        {
+            if (_rttChart != null) await _rttChart.RenderAsync();
+            if (_lossChart != null) await _lossChart.RenderAsync();
+        }
+        catch { }
+    }
+
+    private string EmptyStateMessage() => _latencyCategory switch
+    {
+        MonitoringTargetType.Fabric => "No LAN fabric targets yet. They appear once the agent discovers your network devices.",
+        MonitoringTargetType.AccessIsp => "No ISP targets configured. Run upstream path discovery below to identify your access ISP hops.",
+        MonitoringTargetType.Transit => "No transit targets configured. Run upstream path discovery below to identify intermediate networks.",
+        MonitoringTargetType.InternetService => "No internet service targets yet. They appear once monitoring starts (Cloudflare, Google) or after upstream path discovery.",
+        _ => "No targets in this category."
+    };
+
+    private async Task SelectLatencyCategoryAsync(MonitoringTargetType type)
+    {
+        _latencyCategory = type;
+        _latencyVisibility.Clear();
+        await LoadLatencyChartsAsync();
+        StateHasChanged();
+    }
+
+    private async Task SelectLatencyRangeAsync(int hours)
+    {
+        _latencyRangeHours = hours;
+        await LoadLatencyChartsAsync();
+        StateHasChanged();
+    }
+
+    private async Task LoadLatencyChartsAsync()
+    {
+        var targets = GetCategoryTargets();
+        if (targets.Count == 0)
+        {
+            _latencyRttSeries = new();
+            _latencyLossSeries = new();
+            return;
+        }
+
+        _latencyLoading = true;
+        try
+        {
+            var now = DateTime.UtcNow;
+            var from = _latencyRangeHours == 0 ? now.AddMinutes(-15) : now.AddHours(-_latencyRangeHours);
+            var ids = targets.Select(t => t.TargetId);
+            var data = await InfluxClient.QueryLatencyMultiTargetAsync(ids, from, now);
+
+            var rttSeries = new List<LatencySeriesInfo>();
+            var lossSeries = new List<LatencySeriesInfo>();
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                var t = targets[i];
+                var color = LatencyPalette[i % LatencyPalette.Length];
+                data.TryGetValue(t.TargetId, out var points);
+                var pts = points ?? new List<MonitoringInfluxClient.LatencyPoint>();
+
+                rttSeries.Add(new LatencySeriesInfo
+                {
+                    TargetId = t.TargetId,
+                    Name = t.Name,
+                    Color = color,
+                    Points = pts.Select(p => new LatencyChartPoint
+                    {
+                        Time = DateTime.SpecifyKind(p.Time, DateTimeKind.Utc),
+                        Value = p.RttAvgMs
+                    }).ToList()
+                });
+
+                lossSeries.Add(new LatencySeriesInfo
+                {
+                    TargetId = t.TargetId,
+                    Name = t.Name,
+                    Color = color,
+                    Points = pts.Select(p => new LatencyChartPoint
+                    {
+                        Time = DateTime.SpecifyKind(p.Time, DateTimeKind.Utc),
+                        Value = p.LossPercent
+                    }).ToList()
+                });
+            }
+
+            _latencyRttSeries = rttSeries;
+            _latencyLossSeries = lossSeries;
+        }
+        catch { }
+        finally { _latencyLoading = false; }
+
+        try
+        {
+            if (_rttChart != null) await _rttChart.RenderAsync();
+            if (_lossChart != null) await _lossChart.RenderAsync();
+        }
+        catch { }
+    }
+
+    private static ApexChartOptions<LatencyChartPoint> BuildRttChartOptions() => new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            Toolbar = new Toolbar { Show = false },
+            Zoom = new Zoom { Enabled = false },
+            Animations = new Animations { Enabled = false }
+        },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis
+        {
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels
+            {
+                Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                DatetimeUTC = false,
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+            }
+        },
+        Yaxis = new List<YAxis>
+        {
+            new() { Min = 0, Title = new AxisTitle { Text = "ms" }, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" }, Formatter = @"function(v) { return v != null ? v.toFixed(1) : ''; }" } }
+        },
+        Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
+    };
+
+    private static ApexChartOptions<LatencyChartPoint> BuildLossChartOptions() => new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            Toolbar = new Toolbar { Show = false },
+            Zoom = new Zoom { Enabled = false },
+            Animations = new Animations { Enabled = false }
+        },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Fill = new Fill { Type = new List<FillType> { FillType.Gradient }, Gradient = new FillGradient { ShadeIntensity = 0.3, OpacityFrom = 0.4, OpacityTo = 0.05 } },
+        Xaxis = new XAxis
+        {
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels
+            {
+                Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                DatetimeUTC = false,
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+            }
+        },
+        Yaxis = new List<YAxis>
+        {
+            new() { Min = 0, Max = 100, Title = new AxisTitle { Text = "% loss" }, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" }, Formatter = @"function(v) { return v != null ? v.toFixed(1) + '%' : ''; }" } }
+        },
+        Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
+    };
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_monitoringEnabled && _influxReachable == true && !_latencyChartsInitialized)
+        {
+            _latencyChartsInitialized = true;
+            await LoadLatencyChartsAsync();
+            _latencyChartTimer = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadLatencyChartsAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch { }
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            StateHasChanged();
+        }
+
         // Mount the 3D map once the canvas is in the DOM and monitoring is active.
         // Idempotent: the JS module unmounts any previous instance on re-mount.
         if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
@@ -833,6 +1191,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
+        _latencyChartTimer?.Dispose();
         if (_mapMounted)
         {
             try

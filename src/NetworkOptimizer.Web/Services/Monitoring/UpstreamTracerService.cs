@@ -930,6 +930,24 @@ public class UpstreamTracerService
     private static async Task UpsertTransitTargetAsync(NetworkOptimizerDbContext db, TransitAsnCandidate transit, string wanInterface, CancellationToken ct)
     {
         if (transit.Method == DiscoveryMethod.Unresolved || string.IsNullOrEmpty(transit.TargetId)) return;
+
+        var targetType = transit.Method == DiscoveryMethod.PathProxy
+            ? MonitoringTargetType.InternetService
+            : MonitoringTargetType.Transit;
+
+        // PathProxy targets probe the same endpoints as the default WAN targets
+        // (e.g. Cloudflare 1.1.1.1). Skip if one already exists for this address.
+        if (transit.Method == DiscoveryMethod.PathProxy)
+        {
+            var address = transit.HopAddress ?? transit.PathProxyTarget;
+            if (!string.IsNullOrEmpty(address))
+            {
+                var duplicate = await db.MonitoringTargets.AnyAsync(
+                    t => t.Address == address && t.TargetId != transit.TargetId, ct);
+                if (duplicate) return;
+            }
+        }
+
         var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == transit.TargetId, ct);
         if (existing == null)
         {
@@ -940,7 +958,7 @@ public class UpstreamTracerService
                 Address = transit.HopAddress ?? transit.PathProxyTarget ?? "0.0.0.0",
                 ProbeMode = transit.RespondedTo ?? NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
                 DiscoveredProbeMode = transit.RespondedTo,
-                TargetType = MonitoringTargetType.Transit,
+                TargetType = targetType,
                 AsnNumber = transit.AsnNumber,
                 AsnName = transit.AsnName,
                 VantagePoint = "server",

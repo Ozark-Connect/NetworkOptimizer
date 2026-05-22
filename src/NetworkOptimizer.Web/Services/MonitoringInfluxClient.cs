@@ -514,6 +514,47 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
+    public async Task<Dictionary<string, List<LatencyPoint>>> QueryLatencyMultiTargetAsync(
+        IEnumerable<string> targetIds,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        var ids = targetIds.ToList();
+        if (!IsConfigured || ids.Count == 0) return new Dictionary<string, List<LatencyPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var setLiteral = string.Join(", ", ids.Select(id => $@"""{id}"""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => contains(value: r.target_id, set: [{setLiteral}]))
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<LatencyPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var targetId = record.GetValueByKey("target_id") as string;
+            if (string.IsNullOrEmpty(targetId)) continue;
+            if (!results.TryGetValue(targetId, out var list))
+            {
+                list = new List<LatencyPoint>();
+                results[targetId] = list;
+            }
+            list.Add(new LatencyPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
+                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
+            });
+        }
+        return results;
+    }
+
     /// <summary>Time-series of RTT and loss for a single monitoring target.</summary>
     public async Task<IReadOnlyList<LatencyPoint>> QueryLatencyAsync(
         string targetId,

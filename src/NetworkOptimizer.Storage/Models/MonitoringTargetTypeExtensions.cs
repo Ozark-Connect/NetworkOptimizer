@@ -15,6 +15,7 @@ public static class MonitoringEnumDisplay
         MonitoringTargetType.AccessIsp => "Access ISP",
         MonitoringTargetType.Transit => "Transit",
         MonitoringTargetType.Custom => "Custom",
+        MonitoringTargetType.InternetService => "Internet",
         _ => t.ToString()
     };
 

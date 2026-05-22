@@ -157,6 +157,7 @@ public class MonitoringAlertEvaluator
     private static AlertSeverity TargetSeverity(MonitoringTargetType type, bool isOffline) => type switch
     {
         MonitoringTargetType.Wan => isOffline ? AlertSeverity.Critical : AlertSeverity.Warning,
+        MonitoringTargetType.InternetService => isOffline ? AlertSeverity.Critical : AlertSeverity.Warning,
         MonitoringTargetType.AccessIsp => isOffline ? AlertSeverity.Critical : AlertSeverity.Warning,
         MonitoringTargetType.Transit => isOffline ? AlertSeverity.Warning : AlertSeverity.Info,
         MonitoringTargetType.Fabric => AlertSeverity.Warning,

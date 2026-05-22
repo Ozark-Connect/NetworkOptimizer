@@ -8,10 +8,15 @@
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache FlowMapCache
 
 <div class="card">
-    <div class="card-header">
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <h2 class="card-title">Upstream path discovery</h2>
-        <span class="status-badge @StateBadgeClass(_state.Step)">@StateLabel(_state.Step)</span>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="status-badge @StateBadgeClass(_state.Step)" @onclick:stopPropagation="true">@StateLabel(_state.Step)</span>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
     </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
     <div class="card-body">
         @if (_needsReview && _state.Step != TracerStep.ReviewingResults && _state.Step != TracerStep.Done)
         {
@@ -256,25 +261,23 @@
             }
         }
     </div>
+        </div>
+    </div>
 </div>
 
 @code {
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
+    private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;
-    // True only for the session-tab where the user just clicked Save; the
-    // "Targets saved" alert is gated on this so it doesn't show after a
-    // page refresh / app restart that rehydrated Done state from the DB.
     private bool _justSaved;
 
     protected override async Task OnInitializedAsync()
     {
-        // After a process restart Tracer.State is Idle in memory even if the
-        // user already committed targets. Rehydrate from DB so the panel
-        // shows the Done state with prior results instead of "Ready".
         await Tracer.RehydrateFromDbAsync();
         _state = Tracer.State;
+        _collapsed = _state.Step == TracerStep.Done;
         await RefreshReviewFlagAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
         // runs in the background and the UI just observes. Re-check the rediscovery
@@ -359,6 +362,8 @@
         TracerStep.Idle => "status-disconnected",
         _ => "status-active"
     };
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
 
     private string AccessAsnDisplay()
     {

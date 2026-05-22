@@ -1080,10 +1080,18 @@ export class LanFlowMap {
     _buildOverlayUI() {
         if (!this.stage) return;
 
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
         // Filter panel (top-left)
         const filter = this._makePanel('lan-flow-map-filter');
-        filter.innerHTML = `
-            <div class="lan-flow-map-panel-title">Filter clients</div>
+        const filterTitle = document.createElement('div');
+        filterTitle.className = 'lan-flow-map-panel-title';
+        filterTitle.textContent = isMobile ? 'Filter' : 'Filter clients';
+        if (isMobile) filterTitle.classList.add('lan-flow-map-panel-title-toggle');
+        filter.appendChild(filterTitle);
+        const filterBody = document.createElement('div');
+        filterBody.className = 'lan-flow-map-panel-body';
+        filterBody.innerHTML = `
             <input class="lan-flow-map-search" type="search" placeholder="Search by name or MAC" />
             <div class="lan-flow-map-chips" data-chip-group="band">
                 <span class="lan-flow-map-chip is-on" data-band="2.4">2.4 GHz</span>
@@ -1091,29 +1099,28 @@ export class LanFlowMap {
                 <span class="lan-flow-map-chip is-on" data-band="6">6 GHz</span>
             </div>
         `;
-        const search = filter.querySelector('.lan-flow-map-search');
+        if (isMobile) filterBody.hidden = true;
+        filter.appendChild(filterBody);
+        if (isMobile) {
+            filterTitle.addEventListener('click', () => this._toggleMobilePanel('filter'));
+        }
+        const search = filterBody.querySelector('.lan-flow-map-search');
         search.addEventListener('input', (e) => {
             this._filter.text = (e.target.value || '').toLowerCase().trim();
             this._applyFilter();
         });
-        const bandChips = Array.from(filter.querySelectorAll('.lan-flow-map-chip'));
+        const bandChips = Array.from(filterBody.querySelectorAll('.lan-flow-map-chip'));
         bandChips.forEach((chip) => {
             chip.addEventListener('click', () => {
                 const b = chip.dataset.band;
                 const allOn = bandChips.every((c) => this._filter.bands[c.dataset.band]);
                 if (allOn) {
-                    // Default state: all on. Click "focuses" - select only this band.
-                    // Matches the common case of "I want to look at just 5 GHz right now"
-                    // without making the user click two chips to deselect first.
                     for (const c of bandChips) {
                         const cb = c.dataset.band;
                         this._filter.bands[cb] = (cb === b);
                         c.classList.toggle('is-on', this._filter.bands[cb]);
                     }
                 } else {
-                    // Subsequent clicks toggle the chip into / out of the current
-                    // selection set, except clicking the only-selected band re-
-                    // expands back to "all on" so the user can recover the default.
                     const onlyThisOn = this._filter.bands[b]
                         && bandChips.every((c) => c.dataset.band === b || !this._filter.bands[c.dataset.band]);
                     if (onlyThisOn) {
@@ -1130,12 +1137,22 @@ export class LanFlowMap {
             });
         });
         this._panels.filter = filter;
+        this._panels.filterBody = filterBody;
 
         // Controls panel (top-right) - overlay toggles
         const controls = this._makePanel('lan-flow-map-controls');
-        controls.innerHTML = `
-            <div class="lan-flow-map-panel-title">Overlays</div>
-        `;
+        const controlsTitle = document.createElement('div');
+        controlsTitle.className = 'lan-flow-map-panel-title';
+        controlsTitle.textContent = 'Overlays';
+        if (isMobile) controlsTitle.classList.add('lan-flow-map-panel-title-toggle');
+        controls.appendChild(controlsTitle);
+        const controlsBody = document.createElement('div');
+        controlsBody.className = 'lan-flow-map-panel-body';
+        if (isMobile) controlsBody.hidden = true;
+        controls.appendChild(controlsBody);
+        if (isMobile) {
+            controlsTitle.addEventListener('click', () => this._toggleMobilePanel('controls'));
+        }
         const overlayDefs = [
             ['wifiClients', 'Wi-Fi clients'],
             ['wiredClients', 'Wired clients'],
@@ -1152,9 +1169,10 @@ export class LanFlowMap {
                 this._applyOverlayVisibility();
                 if (key === 'speedTests') this._renderSpeedTestOverlay();
             });
-            controls.appendChild(row);
+            controlsBody.appendChild(row);
         }
         this._panels.controls = controls;
+        this._panels.controlsBody = controlsBody;
 
         // Legend (bottom-right)
         const legend = this._makePanel('lan-flow-map-legend');
@@ -1219,7 +1237,11 @@ export class LanFlowMap {
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
         playPause.addEventListener('click', () => this._togglePlayPause());
-        this.stage.appendChild(scrubber);
+        if (isMobile) {
+            this.stage.parentElement.insertBefore(scrubber, this.stage.nextSibling);
+        } else {
+            this.stage.appendChild(scrubber);
+        }
         this._panels.scrubber = scrubber;
         this._panels.scrubberRange = range;
         this._panels.scrubberLeft = scrubber.querySelector('[data-role="left"]');
@@ -1233,6 +1255,22 @@ export class LanFlowMap {
         el.className = `lan-flow-map-panel ${extraClass}`;
         this.stage.appendChild(el);
         return el;
+    }
+
+    _toggleMobilePanel(panelKey) {
+        const panels = { filter: this._panels.filterBody, controls: this._panels.controlsBody };
+        const target = panels[panelKey];
+        if (!target) return;
+        const wasHidden = target.hidden;
+        for (const [key, body] of Object.entries(panels)) {
+            if (!body) continue;
+            body.hidden = true;
+            this._panels[key]?.querySelector('.lan-flow-map-panel-title-toggle')?.classList.remove('is-expanded');
+        }
+        if (wasHidden) {
+            target.hidden = false;
+            this._panels[panelKey]?.querySelector('.lan-flow-map-panel-title-toggle')?.classList.add('is-expanded');
+        }
     }
 
     _applyFilter() {

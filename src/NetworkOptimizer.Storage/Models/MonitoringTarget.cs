@@ -9,7 +9,8 @@ public enum MonitoringTargetType
     Wan = 1,
     AccessIsp = 2,
     Transit = 3,
-    Custom = 4
+    Custom = 4,
+    InternetService = 5
 }
 
 public enum DiscoveryMethod
