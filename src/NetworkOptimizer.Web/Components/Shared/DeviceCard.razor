@@ -1,5 +1,7 @@
 @if (Device != null)
 {
+    // TODO: Implement per-device detail pages (MonitoringDevice.razor) with
+    // individual health/latency/throughput charts, then link here by MAC.
     var deviceHref = "/monitoring#device-health-charts-container";
     <a href="@deviceHref" class="device-card device-card-link device-@Device.Status.ToLower()">
         <div class="device-header">
