@@ -1861,15 +1861,44 @@ class ParticleStream {
         for (let i = 0; i < MAX; i += 1) {
             t[i] = -1;  // inactive
         }
+        // Per-particle size attribute. Each dot keeps the size it was
+        // emitted at, so a burst of heavy traffic doesn't retroactively
+        // bloat dots that were already in flight when the link was idle.
+        const sizes = new Float32Array(MAX);
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const material = new THREE.PointsMaterial({
-            color,
-            size: 0.55,
-            map: _getDotTexture(),
-            alphaTest: 0.01,
+        geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+        // Custom shader that mimics PointsMaterial(sizeAttenuation=true) but
+        // reads gl_PointSize from a per-vertex attribute. Three.js's
+        // PointsMaterial has no per-vertex size hook, so we re-implement the
+        // size-attenuation formula here. The scale factor mirrors what the
+        // stock shader uses: canvas drawing-buffer height in pixels, with a
+        // perspective falloff of (scale / -mvPosition.z).
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                color: { value: new THREE.Color(color) },
+                map: { value: _getDotTexture() },
+                scale: { value: 600.0 },
+            },
+            vertexShader: `
+                attribute float size;
+                uniform float scale;
+                void main() {
+                    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                    gl_PointSize = size * (scale / max(-mv.z, 1.0));
+                    gl_Position = projectionMatrix * mv;
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                uniform sampler2D map;
+                void main() {
+                    vec4 tex = texture2D(map, gl_PointCoord);
+                    if (tex.a < 0.01) discard;
+                    gl_FragColor = vec4(color, tex.a * 0.92);
+                }
+            `,
             transparent: true,
-            opacity: 0.92,
             depthWrite: false,
             depthTest: false, // additive dots should always blend on top - the pipe's
                               // transparent geometry was occluding them from the side
@@ -1877,6 +1906,7 @@ class ParticleStream {
             blending: THREE.AdditiveBlending,
         });
         this._material = material;
+        this._sizes = sizes;
         this.mesh = new THREE.Points(geometry, material);
         // Disable frustum culling: parking inactive particles outside the camera
         // far plane (above) means the auto-computed bounding sphere centers at the
@@ -1891,6 +1921,10 @@ class ParticleStream {
         this._spawnAccumulator = 0;
         this._density = 0;     // 0..1 (fraction of MAX)
         this._velocity = 0.4;  // units/sec along the link
+        // Size that NEW particles will be born at - written into the size
+        // attribute when the particle spawns. Existing in-flight particles
+        // keep whatever size they were emitted with.
+        this._currentSize = 0.05;
     }
 
     setRate(bps) {
@@ -1908,7 +1942,10 @@ class ParticleStream {
         //   10Mbps  -> ~0.75   (mid)
         //   1Gbps   -> ~1.23   (chunky)
         //   100Gbps -> 1.80    (max)
-        if (this._material) this._material.size = 0.05 + (intensity * intensity) * 1.75;
+        // Stored for use at spawn time only - particles already in flight
+        // keep their birth size so a sudden rate change doesn't visually
+        // resize dots that have already left the sender.
+        this._currentSize = 0.05 + (intensity * intensity) * 1.75;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
@@ -1923,17 +1960,26 @@ class ParticleStream {
         // at the same rate (matching the bitrate) and are spaced the same
         // absolute distance apart whether the link is short or long.
         //
-        // EMIT_PER_SEC at density=1 (saturated traffic) is tuned to look
-        // like a thick steady stream; at density~0.5 (Mbps range) it's a
-        // visible trickle; near density=0 it's nearly silent.
-        const EMIT_PER_SEC = 8;
-        this._spawnAccumulator += this._density * EMIT_PER_SEC * dt;
+        // Emission rate scales non-linearly with the log-mapped density so
+        // visible spacing differs noticeably across rate decades:
+        //   density 0.25 (~Kbps)  -> ~0.75 dots/sec, big gaps
+        //   density 0.5  (~Mbps)  -> ~3 dots/sec, breezy stream
+        //   density 0.75 (~Gbps)  -> ~6.75 dots/sec, busy stream
+        //   density 1.0  (saturat)-> ~12 dots/sec, thick stream
+        // Each emission interval is jittered ±40% so the stream looks like
+        // organic packet traffic rather than a metronome of dots.
+        const EMIT_PER_SEC_MAX = 12;
+        this._spawnAccumulator += this._density * this._density * EMIT_PER_SEC_MAX * dt;
+        let sizesDirty = false;
         while (this._spawnAccumulator >= 1) {
-            this._spawnAccumulator -= 1;
+            this._spawnAccumulator -= (0.6 + Math.random() * 0.8);
             for (let i = 0; i < this._max; i += 1) {
                 if (this._t[i] < 0) {
-                    // Spawn at the sender end of the link.
+                    // Spawn at the sender end of the link and freeze the
+                    // size at the rate observed AT THIS INSTANT.
                     this._t[i] = 0;
+                    this._sizes[i] = this._currentSize;
+                    sizesDirty = true;
                     break;
                 }
             }
@@ -1952,6 +1998,10 @@ class ParticleStream {
                 this._positions[i * 3 + 0] = this._park;
                 this._positions[i * 3 + 1] = this._park;
                 this._positions[i * 3 + 2] = this._park;
+                // Zero the slot's size so a stale uniform doesn't bleed a
+                // dot at the park location if anything ever renders it.
+                this._sizes[i] = 0;
+                sizesDirty = true;
                 continue;
             }
             const lerpX = this._from.x + (this._to.x - this._from.x) * this._t[i];
@@ -1962,6 +2012,7 @@ class ParticleStream {
             this._positions[i * 3 + 2] = lerpZ;
         }
         this.mesh.geometry.attributes.position.needsUpdate = true;
+        if (sizesDirty) this.mesh.geometry.attributes.size.needsUpdate = true;
     }
 }
 
