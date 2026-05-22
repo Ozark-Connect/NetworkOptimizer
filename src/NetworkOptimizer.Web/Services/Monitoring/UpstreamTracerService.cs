@@ -440,16 +440,29 @@ public class UpstreamTracerService
         var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
-        // Access hops walk: take in hop order until the ASN changes from
-        // accessAsn, capped at 3. The original .Where(... == accessAsn).Take(3)
-        // skipped non-matching hops instead of stopping at them, so a transit
-        // ASN router landing on the same number after a temporary mismatch
-        // could still get included. takeWhile semantics is what we want.
+        // Access hops walk, capped at 3. Two cases:
+        //   - accessAsn known: skip any null-Asn hops in the prefix (a private
+        //     intermediate like an upstream modem at 192.168.x.x that survived
+        //     the gateway-IP filter); only break when we hit a hop with a
+        //     different non-null ASN. Without the skip, an AT&T-style setup
+        //     where the UniFi sits behind a residential gateway aborts the
+        //     access classification before reaching the first AT&T hop.
+        //   - accessAsn null (no public hop in the trace at all - fully
+        //     filtered carrier, all-CGNAT): take the first private hops as
+        //     access until a public ASN unexpectedly appears.
         _accessHopsResolved = new List<AttributedHop>();
         foreach (var h in candidateHops)
         {
             if (_accessHopsResolved.Count >= 3) break;
-            if (h.Asn?.Asn != accessAsn) break;
+            if (accessAsn.HasValue)
+            {
+                if (h.Asn == null) continue;
+                if (h.Asn.Asn != accessAsn.Value) break;
+            }
+            else
+            {
+                if (h.Asn != null) break;
+            }
             _accessHopsResolved.Add(h);
         }
 
@@ -785,11 +798,16 @@ public class UpstreamTracerService
         else
         {
             // Re-validation: keep target_id stable, update mode if it changed (history
-            // preservation per locked decision 6b).
+            // preservation per locked decision 6b). Backfill ASN fields whenever a
+            // current run resolves them - rows committed before the GeoLite2 fix
+            // landed have nulls and never refreshed without this.
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
             existing.WanInterface = wanInterface;
             existing.Name = string.IsNullOrEmpty(existing.Name) ? hop.Label : existing.Name; // don't stomp user-renamed labels
+            if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
+            if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = hop.AsnName;
+            if (!string.IsNullOrEmpty(hop.PtrHostname)) existing.PtrHostname = hop.PtrHostname;
             existing.LastVerified = DateTime.UtcNow;
         }
     }
@@ -827,6 +845,10 @@ public class UpstreamTracerService
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
             existing.DiscoveryMethod = transit.Method;
             existing.WanInterface = wanInterface;
+            // Refresh ASN bookkeeping in case the resolver picked up a name now
+            // (legacy rows from before the GeoLite2 path landed had nulls).
+            if (transit.AsnNumber > 0) existing.AsnNumber = transit.AsnNumber;
+            if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
             existing.LastVerified = DateTime.UtcNow;
         }
     }

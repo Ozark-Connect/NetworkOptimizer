@@ -27,6 +27,13 @@ public class LocalProbeExecutor : IProbeExecutor
     private readonly SemaphoreSlim _capabilityLock = new(1, 1);
     private bool _tracerouteBinaryAvailable;
 
+    // Throttle native Process.Start traceroutes. Spawning 18 concurrent
+    // processes (9 CDN endpoints * 2 modes from the upstream tracer) tripped
+    // a .NET 10 AccessViolation in SafePipeHandle.CreatePipeSocket on macOS,
+    // crashing the whole host with Abort trap: 6. 4-wide stays under the
+    // race and a full sweep still finishes inside the 10s deadline.
+    private readonly SemaphoreSlim _processLaunchLimiter = new(4, 4);
+
     public LocalProbeExecutor(ILogger<LocalProbeExecutor> logger)
     {
         _logger = logger;
@@ -148,6 +155,7 @@ public class LocalProbeExecutor : IProbeExecutor
             CreateNoWindow = true
         };
 
+        await _processLaunchLimiter.WaitAsync(ct);
         try
         {
             using var proc = Process.Start(psi);
@@ -176,6 +184,10 @@ public class LocalProbeExecutor : IProbeExecutor
         {
             _logger.LogDebug(ex, "Native ping invocation failed; falling back to managed Ping");
             return await ManagedPingAsync(target, count, timeout, ct);
+        }
+        finally
+        {
+            _processLaunchLimiter.Release();
         }
     }
 
@@ -325,6 +337,7 @@ public class LocalProbeExecutor : IProbeExecutor
 
         var (exe, args) = BuildTracerouteCommand(target, maxHops, perHopTimeout);
         ct = probeCt;
+        await _processLaunchLimiter.WaitAsync(ct);
         try
         {
             var psi = new ProcessStartInfo(exe, args)
@@ -381,6 +394,10 @@ public class LocalProbeExecutor : IProbeExecutor
                 ErrorMessage = ex.Message,
                 Timestamp = DateTime.UtcNow
             };
+        }
+        finally
+        {
+            _processLaunchLimiter.Release();
         }
     }
 

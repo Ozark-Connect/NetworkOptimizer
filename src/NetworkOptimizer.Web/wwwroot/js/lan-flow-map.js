@@ -622,20 +622,45 @@ export class LanFlowMap {
         const dirX = Math.cos(outBearing);
         const dirZ = Math.sin(outBearing);
 
-        // First cloud sits this far beyond the gateway along the outbound axis;
-        // each subsequent transit cloud adds another step. Lateral jitter (perp
-        // axis) keeps multi-cloud chains from stacking on top of each other.
-        const cloudBaseOffset = 40;
-        const cloudStep = 22;
-        const perpX = -dirZ, perpZ = dirX;
-        for (const cloud of snap.clouds || []) {
-            const along = cloudBaseOffset + cloud.order * cloudStep;
-            const lateral = (cloud.order % 2 === 0 ? 0 : 6) * (cloud.order > 1 ? 1 : 0);
-            const x = gwX + dirX * along + perpX * lateral;
-            const y = gwY + 4 + (cloud.order % 2) * 3;
-            const z = gwZ + dirZ * along + perpZ * lateral;
+        // Access cloud sits on the outbound axis. All other clouds (transits +
+        // path-ends) hang off as siblings, fanned in an arc beyond the access
+        // cloud so they don't stack in a tight line. Arc widens with sibling
+        // count so a single sibling stays centered, 6 fan ~120 deg, 12 fan
+        // ~160 deg. Y is staggered slightly so labels don't overlap.
+        const accessRadius = 40;
+        const siblingRadius = 70;
+        const allClouds = snap.clouds || [];
+        const accessClouds = allClouds.filter((c) => c.order === 0);
+        const siblings = allClouds.filter((c) => c.order > 0);
+        const fanRad = Math.min(Math.PI * 0.9, (siblings.length || 1) * (Math.PI / 12));
+        const arcStep = siblings.length > 1 ? fanRad / (siblings.length - 1) : 0;
+        const arcStart = -fanRad / 2;
+
+        const placeCloud = (cloud, x, y, z) => {
             const pos = { x, y, z, pinned: true };
             this._positions.set(cloud.id, pos);
+            return pos;
+        };
+
+        const cloudPositions = new Map();
+        for (const cloud of accessClouds) {
+            const x = gwX + dirX * accessRadius;
+            const y = gwY + 4;
+            const z = gwZ + dirZ * accessRadius;
+            cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
+        }
+        for (let i = 0; i < siblings.length; i++) {
+            const cloud = siblings[i];
+            const angle = outBearing + arcStart + arcStep * i;
+            const x = gwX + Math.cos(angle) * siblingRadius;
+            const y = gwY + 4 + (i % 3) * 3;
+            const z = gwZ + Math.sin(angle) * siblingRadius;
+            cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
+        }
+
+        for (const cloud of allClouds) {
+            const pos = cloudPositions.get(cloud.id);
+            if (!pos) continue;
 
             const group = new THREE.Group();
             // Tier (DiscoveryMethod) drives the visual posture:
