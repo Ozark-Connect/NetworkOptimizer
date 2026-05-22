@@ -44,7 +44,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ConcurrentDictionary<string, CounterSnapshot> _counterCache = new();
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
-    private readonly DateTime _agentStartedAt = DateTime.UtcNow;
     private bool _shutdownEdgeTrimmed;
 
     // SNMP gating. If a device fails SNMP repeatedly while being reachable on ICMP
@@ -983,15 +982,6 @@ public class MonitoringCollectionAgent : BackgroundService
             }
 
             var ping = await _localProbe.PingAsync(probeTarget, count: Math.Max(3, Math.Min(target.PingCount, 20)), perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
-
-            // Discard results from the warmup window — probes during the first 30s after
-            // startup often show false loss while connections/DNS/ARP stabilize.
-            // Still update live stats so the UI shows current state, just don't persist.
-            if (DateTime.UtcNow - _agentStartedAt < TimeSpan.FromSeconds(30))
-            {
-                _liveStats.RecordTargetProbe(target.TargetId, ping.RttAvgMs, ping.LossPercent, ping.Success, ping.Timestamp);
-                return;
-            }
 
             await _influx.WriteLatencyAsync(
                 targetId: target.TargetId,
