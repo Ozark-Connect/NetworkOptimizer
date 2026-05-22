@@ -296,13 +296,23 @@ public class MonitoringCollectionAgent : BackgroundService
                                                && (d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
                                                    || d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)))
         {
+            var devMac = NormalizeMac(dev.Mac);
+            // Switches: fabric ingress/egress = sum(rx)/sum(tx) across the
+            // device's own port_table. Trunk-only undercounts egress because
+            // a multi-trunk switch fans out to multiple uplinks/downlinks.
+            if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
+                && _devicePortSumLatest.TryGetValue(devMac, out var fabric))
+            {
+                _liveStats.RecordInterfaceAggregate(dev.Mac, fabric.RxBps, fabric.TxBps, nowOverride);
+                continue;
+            }
+
+            // APs: parent switch port byte delta is the canonical rate. The
+            // port counter is read from the SWITCH's perspective (TX = toward
+            // child) so direction matches the live-stats convention.
             var parentMac = NormalizeMac(dev.Uplink!.UplinkMac);
             var portIdx = dev.Uplink.UplinkRemotePort;
             (double DownBps, double UpBps)? rate = null;
-
-            // Primary path: parent switch port byte delta. Works for wired-uplinked APs
-            // and switches. Direction matches live-stats convention since the port
-            // counter is read from the SWITCH's perspective (TX = toward child).
             if (portIdx > 0)
                 rate = ComputePortRate(parentMac, portIdx, nowOverride);
 
@@ -316,7 +326,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 // rx_bytes delta. The wireless backhaul has no parent switch port to
                 // poll, so this is the next-best honest number - same one UniFi's own
                 // UI shows. ComputeDeviceRate already returns (down, up) in our convention.
-                var devRate = ComputeDeviceRate(NormalizeMac(dev.Mac));
+                var devRate = ComputeDeviceRate(devMac);
                 if (devRate.HasValue)
                     _liveStats.RecordInterfaceAggregate(dev.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
@@ -377,6 +387,9 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
             var mac = NormalizeMac(device.Mac);
+            // Accumulate per-device fabric totals while we walk the port_table.
+            double sumDeltaRxBps = 0, sumDeltaTxBps = 0;
+            bool anyValidDelta = false;
             foreach (var port in device.PortTable)
             {
                 if (port.PortIdx <= 0) continue;
@@ -396,6 +409,9 @@ public class MonitoringCollectionAgent : BackgroundService
                             // RX from the port = upstream from the connected device
                             // That matches MonitoringLiveStats' (RateIn=down, RateOut=up).
                             _portRateLatest[key] = (deltaTx * 8.0 / elapsed, deltaRx * 8.0 / elapsed);
+                            sumDeltaRxBps += deltaRx * 8.0 / elapsed;
+                            sumDeltaTxBps += deltaTx * 8.0 / elapsed;
+                            anyValidDelta = true;
                             // NOTE: do NOT mirror into _liveStats per-port cache here.
                             // UniFi PortTable byte counters update server-side ~30s,
                             // which at our 5s poll cadence yields 5-6 zero deltas then
@@ -405,6 +421,10 @@ public class MonitoringCollectionAgent : BackgroundService
                     }
                 }
                 _portBytePrev[key] = current;
+            }
+            if (anyValidDelta)
+            {
+                _devicePortSumLatest[mac] = (sumDeltaRxBps, sumDeltaTxBps);
             }
 
             // Device-level aggregate: UniFi's stat.tx_bytes / rx_bytes is the
@@ -458,6 +478,10 @@ public class MonitoringCollectionAgent : BackgroundService
     // fallback when no parent switch port rate is available.
     private readonly ConcurrentDictionary<string, PortByteSnapshot> _deviceBytePrev = new();
     private readonly ConcurrentDictionary<string, (double DownBps, double UpBps)> _deviceByteRateLatest = new();
+    // Fabric-summed ingress/egress for switches: sum of every port's RX/TX
+    // delta on the device's own port_table. Stored as (RxBps, TxBps) i.e.
+    // (ingress, egress) by literal switching-fabric definition.
+    private readonly ConcurrentDictionary<string, (double RxBps, double TxBps)> _devicePortSumLatest = new();
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
