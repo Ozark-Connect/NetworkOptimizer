@@ -774,17 +774,20 @@ export class LanFlowMap {
 
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
-        for (const [linkId, { el }] of this._linkLabels) {
+        for (const [linkId, { el, kind }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
             // Internet-centric convention applied uniformly:
             //   ↓ (blue)  = download from the internet toward an end device
             //   ↑ (green) = upload from an end device toward the internet
-            // Backend's DownstreamBps / UpstreamBps fields are actually populated
-            // in the opposite direction (DownstreamBps holds the upload-direction
-            // bytes for every kind because the rate cache tuple is named from
-            // the leaf-side perspective). Swap at the display layer.
-            const down = r?.upstreamBps || 0;
-            const up = r?.downstreamBps || 0;
+            // Backend's DownstreamBps / UpstreamBps are populated in the opposite
+            // direction for WAN, uplink/trunk, and wifi links (DownstreamBps holds
+            // the upload-direction bytes), so we swap at the display layer.
+            // WiredClient leaves are the exception: the SNMP per-port writer
+            // already maps DownBps = port TX = toward leaf, so backend's
+            // DownstreamBps is the correct download direction and we do NOT swap.
+            const isWiredClient = kind === LINK_KIND.WiredClient;
+            const down = (isWiredClient ? r?.downstreamBps : r?.upstreamBps) || 0;
+            const up = (isWiredClient ? r?.upstreamBps : r?.downstreamBps) || 0;
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
                 continue;
@@ -1245,7 +1248,7 @@ export class LanFlowMap {
             const el = document.createElement('div');
             el.className = 'lan-flow-map-link-label';
             this._labelsLayer.appendChild(el);
-            this._linkLabels.set(link.id, { el });
+            this._linkLabels.set(link.id, { el, kind: link.kind });
         }
 
         // Device labels: gateway, switch, AP - clients get name only via the existing
@@ -1396,8 +1399,10 @@ export class LanFlowMap {
         // Aggregate across adjacent links using internet-centric direction:
         //   blue down arrow  = download-direction sum (data flowing toward leaves)
         //   green up arrow   = upload-direction sum (data flowing toward internet)
-        // Backend's UpstreamBps holds the download-direction value after the
-        // display-layer swap and DownstreamBps holds the upload-direction value.
+        // For WAN/uplink/wifi links the backend's UpstreamBps holds the
+        // download-direction value (display-layer swap). WiredClient links are
+        // the exception: backend's DownstreamBps already holds the
+        // download-direction value (SNMP port TX = toward leaf), so no swap.
         for (const [nodeId, { rateEl }] of this._floatingLabels) {
             let downBps = 0;
             let upBps = 0;
@@ -1407,8 +1412,9 @@ export class LanFlowMap {
                 const r = this._currentRates?.[linkId];
                 if (!r) continue;
                 anyData = true;
-                downBps += r.upstreamBps || 0;
-                upBps += r.downstreamBps || 0;
+                const isWiredClient = link.link.kind === LINK_KIND.WiredClient;
+                downBps += (isWiredClient ? r.downstreamBps : r.upstreamBps) || 0;
+                upBps += (isWiredClient ? r.upstreamBps : r.downstreamBps) || 0;
             }
             if (!anyData) {
                 rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
@@ -1482,19 +1488,22 @@ export class LanFlowMap {
         // upload-from-client, so we keep the friendlier Download / Upload
         // wording for them.
         //
-        // Post-swap, r.upstreamBps holds download-direction (toward leaves)
-        // and r.downstreamBps holds upload-direction (toward internet). For
-        // each adjacent link, which direction is "into this device" depends
-        // on whether the device sits on the upstream (FromNodeId) or
-        // downstream (ToNodeId) side of the link.
+        // Direction resolve per adjacent link:
+        //   - WAN/uplink/wifi: post-swap, r.upstreamBps = download-direction
+        //     (toward leaves), r.downstreamBps = upload-direction (toward internet).
+        //   - WiredClient: no swap; r.downstreamBps = download-direction (toward
+        //     leaf), r.upstreamBps = upload-direction (from leaf).
+        // Then map to ingress/egress based on which side of the link this node
+        // sits on (upstream FromNodeId vs downstream ToNodeId).
         let ingressBps = 0, egressBps = 0, anyData = false;
         for (const [, link] of this._linkMeshes) {
             if (link.link.fromNodeId !== node.id && link.link.toNodeId !== node.id) continue;
             const r = this._currentRates?.[link.link.id];
             if (!r) continue;
             anyData = true;
-            const dl = r.upstreamBps || 0;
-            const ul = r.downstreamBps || 0;
+            const isWiredClient = link.link.kind === LINK_KIND.WiredClient;
+            const dl = (isWiredClient ? r.downstreamBps : r.upstreamBps) || 0;
+            const ul = (isWiredClient ? r.upstreamBps : r.downstreamBps) || 0;
             if (link.link.toNodeId === node.id) {
                 ingressBps += dl;
                 egressBps += ul;
