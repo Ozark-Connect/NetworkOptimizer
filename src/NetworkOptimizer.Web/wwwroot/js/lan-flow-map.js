@@ -1427,6 +1427,11 @@ export class LanFlowMap {
         for (const link of snap.links || []) {
             const el = document.createElement('div');
             el.className = 'lan-flow-map-link-label';
+            // Park offscreen until the first projection update positions it so
+            // a stray is-visible flash doesn't render the label at canvas
+            // top-left (CSS default 0,0).
+            el.style.left = '-9999px';
+            el.style.top = '-9999px';
             this._labelsLayer.appendChild(el);
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
@@ -1438,6 +1443,9 @@ export class LanFlowMap {
             if (node.kind === NODE_KIND.Cloud) continue;
             const el = document.createElement('div');
             el.className = 'lan-flow-map-label';
+            // Same offscreen park as link labels and WAN pills.
+            el.style.left = '-9999px';
+            el.style.top = '-9999px';
             const nameEl = document.createElement('div');
             nameEl.className = 'lan-flow-map-label-name';
             nameEl.textContent = node.name || (node.mac || '');
