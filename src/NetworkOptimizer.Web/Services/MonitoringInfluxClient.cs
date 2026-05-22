@@ -528,28 +528,14 @@ from(bucket: ""{_bucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var setLiteral = string.Join(", ", ids.Select(id => $@"""{id}"""));
 
-        // Single query: union RTT (mean) and loss (max) with two-stage aggregation,
-        // then pivot into one row per timestamp. Avoids the O(n^2) merge of two queries.
         var flux = $@"
-rtt = from(bucket: ""{_bucket}"")
+from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => contains(value: r.target_id, set: [{setLiteral}]))
-  |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
-  |> aggregateWindow(every: 5s, fn: mean, createEmpty: false)
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-
-loss = from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => contains(value: r.target_id, set: [{setLiteral}]))
-  |> filter(fn: (r) => r._field == ""loss_percent"")
-  |> aggregateWindow(every: 5s, fn: max, createEmpty: false)
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: max, createEmpty: false)
-
-union(tables: [rtt, loss])
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> sort(columns: [""_time""])
 ";
         var results = new Dictionary<string, List<LatencyPoint>>();
         await foreach (var record in QueryFluxAsync(flux, ct))
