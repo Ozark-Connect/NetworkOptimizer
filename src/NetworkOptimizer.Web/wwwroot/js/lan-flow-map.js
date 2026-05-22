@@ -888,17 +888,17 @@ export class LanFlowMap {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
         for (const [linkId, { el }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
-            // Backend now emits DownstreamBps = downloads (gateway -> leaf) and
-            // UpstreamBps = uploads (leaf -> gateway) uniformly across every link
-            // kind, so the display layer never has to second-guess direction.
             const down = r?.downstreamBps || 0;
             const up = r?.upstreamBps || 0;
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
+                el._hasData = false;
                 continue;
             }
             el.innerHTML = `<span class="down">↓ ${formatBps(down)}</span><span class="up">↑ ${formatBps(up)}</span>`;
-            el.classList.add('is-visible');
+            // Don't add is-visible here — _updateFloatingLabels will add it
+            // after positioning, so the label never flashes at a stale position.
+            el._hasData = true;
         }
     }
 
@@ -1639,7 +1639,7 @@ export class LanFlowMap {
         const midB = new THREE.Vector3();
         for (const [linkId, { el }] of this._linkLabels) {
             const link = this._linkMeshes.get(linkId);
-            if (!link || !el.classList.contains('is-visible')) continue;
+            if (!link || !el._hasData) { el.classList.remove('is-visible'); continue; }
             const fromPos = this._positions.get(link.link.fromNodeId);
             const toPos = this._positions.get(link.link.toNodeId);
             if (!fromPos || !toPos) continue;
@@ -1667,6 +1667,7 @@ export class LanFlowMap {
             el.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
             el.style.left = `${x}px`;
             el.style.top = `${y}px`;
+            el.classList.add('is-visible');
         }
     }
 
