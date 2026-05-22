@@ -14052,7 +14052,7 @@ a.affected-client:hover {
     margin-bottom: 0.45rem;
 }
 .lan-flow-map-controls {
-    top: 0.75rem;
+    top: 2.75rem;
     right: 0.75rem;
     min-width: 178px;
     display: flex;
@@ -14329,24 +14329,6 @@ a.affected-client:hover {
     background: rgba(231, 150, 19, 0.15);
     color: var(--warning-color);
 }
-.lan-flow-map-fullscreen {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 9999;
-    border-radius: 0;
-}
-
-.lan-flow-map-fullscreen .card-header {
-    display: none;
-}
-
-.lan-flow-map-fullscreen .lan-flow-map-body {
-    height: 100vh;
-}
-
 .lan-flow-map-fullscreen-btn {
     position: absolute;
     z-index: 6;
@@ -14368,9 +14350,14 @@ a.affected-client:hover {
     background: rgba(16, 24, 32, 0.92);
 }
 
-.lan-flow-map-fullscreen .lan-flow-map-fullscreen-btn {
-    top: 0.75rem;
-    right: 13rem;
+.lan-flow-map-fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: var(--bg-primary);
 }
 
 .lan-flow-map-labels {
