@@ -252,19 +252,21 @@ public class MonitoringCollectionAgent : BackgroundService
                 }
                 if (anyRate)
                 {
-                    // Successful SNMP poll - reset the failure counter. We deliberately
-                    // do NOT record a device aggregate from the SNMP interface sum here:
-                    //  - APs expose their wireless radios as SNMP interfaces with
-                    //    massively inflated octet counters (beacons, retries, MIMO
-                    //    duplicates count toward the bytes total).
-                    //  - Gateways expose VLAN sub-interfaces that alias the parent LAN
-                    //    counter, so the sum double/triple-counts every VLAN's worth.
-                    //  - Switches double-count any frame that's bridged port-to-port.
-                    // The post-process loop below writes the device aggregate from the
-                    // parent-uplink port's byte delta (which IS the meaningful
-                    // boundary flow for the topology). If no parent rate is available
-                    // the device just has no aggregate - better than a wildly wrong one.
+                    // Successful SNMP poll - reset the failure counter. The
+                    // direction-aware device aggregate (RateInBps/RateOutBps,
+                    // used by the trunk LINK renderer) is written by the
+                    // post-process loop below from the parent-uplink port.
+                    // APs / gateways are NOT good candidates for an interface-
+                    // sum aggregate (AP radios over-count beacons + retries;
+                    // gateway VLAN sub-interfaces alias the parent LAN), so
+                    // those skip the fabric sum. Switches are clean: each
+                    // physical port's rx is counted once, tx is counted once,
+                    // so sum(rx) and sum(tx) are coherent fabric I/O totals.
                     _snmpFailures.TryRemove(mac, out _);
+                    if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)
+                    {
+                        _liveStats.RecordFabricSum(device.Mac, aggregateInBps, aggregateOutBps, now);
+                    }
                 }
                 else
                 {
@@ -322,16 +324,11 @@ public class MonitoringCollectionAgent : BackgroundService
                     _liveStats.RecordInterfaceAggregate(dev.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
 
-            // Switches: also publish the fabric sum (sum(rx) / sum(tx)
-            // across the device's own port_table) on a separate field so the
-            // 3D map's node aggregate badge reflects total fabric throughput
-            // rather than trunk-only. Doesn't clobber the direction-aware
-            // trunk rate above; the trunk LINK renderer still reads that.
-            if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
-                && _devicePortSumLatest.TryGetValue(devMac, out var fabric))
-            {
-                _liveStats.RecordFabricSum(dev.Mac, fabric.RxBps, fabric.TxBps, nowOverride);
-            }
+            // Switch fabric sum (sum(rx) / sum(tx)) is written by the SNMP
+            // fast tier directly into _liveStats.FabricIngressBps/EgressBps,
+            // since the SNMP per-interface rates are on a clean 5s cadence
+            // (UniFi's PortTable byte counters refresh server-side ~30s and
+            // would produce a one-burst / many-zeroes pattern here).
         }
 
         // Gateways are the top of the topology - no parent switch to read their
@@ -390,8 +387,6 @@ public class MonitoringCollectionAgent : BackgroundService
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
             var mac = NormalizeMac(device.Mac);
             // Accumulate per-device fabric totals while we walk the port_table.
-            double sumDeltaRxBps = 0, sumDeltaTxBps = 0;
-            bool anyValidDelta = false;
             foreach (var port in device.PortTable)
             {
                 if (port.PortIdx <= 0) continue;
@@ -411,9 +406,6 @@ public class MonitoringCollectionAgent : BackgroundService
                             // RX from the port = upstream from the connected device
                             // That matches MonitoringLiveStats' (RateIn=down, RateOut=up).
                             _portRateLatest[key] = (deltaTx * 8.0 / elapsed, deltaRx * 8.0 / elapsed);
-                            sumDeltaRxBps += deltaRx * 8.0 / elapsed;
-                            sumDeltaTxBps += deltaTx * 8.0 / elapsed;
-                            anyValidDelta = true;
                             // NOTE: do NOT mirror into _liveStats per-port cache here.
                             // UniFi PortTable byte counters update server-side ~30s,
                             // which at our 5s poll cadence yields 5-6 zero deltas then
@@ -423,10 +415,6 @@ public class MonitoringCollectionAgent : BackgroundService
                     }
                 }
                 _portBytePrev[key] = current;
-            }
-            if (anyValidDelta)
-            {
-                _devicePortSumLatest[mac] = (sumDeltaRxBps, sumDeltaTxBps);
             }
 
             // Device-level aggregate: UniFi's stat.tx_bytes / rx_bytes is the
@@ -480,10 +468,6 @@ public class MonitoringCollectionAgent : BackgroundService
     // fallback when no parent switch port rate is available.
     private readonly ConcurrentDictionary<string, PortByteSnapshot> _deviceBytePrev = new();
     private readonly ConcurrentDictionary<string, (double DownBps, double UpBps)> _deviceByteRateLatest = new();
-    // Fabric-summed ingress/egress for switches: sum of every port's RX/TX
-    // delta on the device's own port_table. Stored as (RxBps, TxBps) i.e.
-    // (ingress, egress) by literal switching-fabric definition.
-    private readonly ConcurrentDictionary<string, (double RxBps, double TxBps)> _devicePortSumLatest = new();
 
     private async Task MediumTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
