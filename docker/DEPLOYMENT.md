@@ -46,7 +46,7 @@ cd /opt/network-optimizer
 curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 cp .env.example .env
-nano .env  # Set timezone and other options (optional)
+nano .env  # Set timezone, reverse proxy hostname, and other options
 docker compose up -d
 ```
 
@@ -289,6 +289,8 @@ nano .env
 TZ=America/Chicago
 ```
 
+If you're placing Network Optimizer behind a reverse proxy, you'll also need to configure the hostname and proxy-related variables in `.env`. See [HTTPS with Reverse Proxy](#https-with-reverse-proxy) and [`.env.example`](.env.example) for details.
+
 **Admin Password:**
 
 On first run, an auto-generated password is displayed in the logs. After logging in,
@@ -331,13 +333,30 @@ network-optimizer             Up (healthy)
 
 ### HTTPS with Reverse Proxy
 
-Use nginx, Caddy, or Traefik for SSL termination.
+Network Optimizer works behind any reverse proxy (nginx, Caddy, Traefik, SWAG, etc.) for SSL termination. Setting up the proxy itself is only half the story though - you also need to tell the app it's being proxied so it builds the correct URLs for things like speed test result reporting and canonical redirects.
 
-**If the reverse proxy is on the same host**, add to your `.env`:
+#### Configuring Your .env for Reverse Proxy
+
+Open your `.env` and set these variables to match your proxy setup:
+
+```env
+# The hostname your reverse proxy serves (this is how users will access the app)
+REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+
+# If you're also proxying the speed test behind a separate hostname
+OPENSPEEDTEST_HOST=speedtest.example.com
+OPENSPEEDTEST_HTTPS=true
+```
+
+`REVERSE_PROXIED_HOST_NAME` is the important one. When set, the app knows to use `https://` URLs and your proxy's hostname instead of `http://server-ip:8042`. This affects canonical URL enforcement, CORS headers, and where the speed test posts its results.
+
+See [`.env.example`](.env.example) for the full list of variables and detailed explanations of what each one does.
+
+**If the reverse proxy is on the same host**, also add:
 ```env
 BIND_LOCALHOST_ONLY=true
 ```
-This binds the app to `127.0.0.1:8042` instead of all interfaces, so only the local proxy can access it.
+This binds the app to `127.0.0.1:8042` instead of all interfaces, so only the local proxy can reach it directly.
 
 #### Traefik (Recommended for Speed Testing)
 
