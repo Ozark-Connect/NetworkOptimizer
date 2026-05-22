@@ -763,14 +763,14 @@ export class LanFlowMap {
         for (const [linkId, { el }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
             // Internet-centric convention applied uniformly:
-            //   ↓ = traffic flowing DOWN from the internet toward an end device
-            //   ↑ = traffic flowing UP from an end device toward the internet
-            // A camera uploading 4.4 Mbps reads as ↑ 4.4 on its leaf link, on
-            // every trunk it crosses, and on the gateway's WAN link. The
-            // backend already emits DownstreamBps = download-direction and
-            // UpstreamBps = upload-direction; no per-kind flip in this layer.
-            const down = r?.downstreamBps || 0;
-            const up = r?.upstreamBps || 0;
+            //   ↓ (blue)  = download from the internet toward an end device
+            //   ↑ (green) = upload from an end device toward the internet
+            // Backend's DownstreamBps / UpstreamBps fields are actually populated
+            // in the opposite direction (DownstreamBps holds the upload-direction
+            // bytes for every kind because the rate cache tuple is named from
+            // the leaf-side perspective). Swap at the display layer.
+            const down = r?.upstreamBps || 0;
+            const up = r?.downstreamBps || 0;
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
                 continue;
@@ -1340,21 +1340,16 @@ export class LanFlowMap {
             let downBps = 0;
             let upBps = 0;
             let anyData = false;
-            // Sum across links incident to this node.
+            // Sum across links incident to this node. Same internet-centric swap
+            // as _refreshLinkLabels: backend's UpstreamBps holds the
+            // download-direction bytes and vice versa.
             for (const [linkId, link] of this._linkMeshes) {
                 if (link.link.fromNodeId !== nodeId && link.link.toNodeId !== nodeId) continue;
                 const r = this._currentRates?.[linkId];
                 if (!r) continue;
                 anyData = true;
-                if (link.link.fromNodeId === nodeId) {
-                    // Outgoing toward leaf from this node = node is the upstream device.
-                    upBps += r.upstreamBps || 0;
-                    downBps += r.downstreamBps || 0;
-                } else {
-                    // Incoming - this node is the leaf side.
-                    downBps += r.downstreamBps || 0;
-                    upBps += r.upstreamBps || 0;
-                }
+                downBps += r.upstreamBps || 0;
+                upBps += r.downstreamBps || 0;
             }
             if (!anyData) {
                 rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
