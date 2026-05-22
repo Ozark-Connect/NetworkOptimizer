@@ -245,8 +245,7 @@ export class LanFlowMap {
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
         this._keys = {};
         this._onKeyDown = (e) => {
-            const tag = e.target?.tagName;
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if (!this._shouldAcceptKeys()) return;
             if (['w','a','s','d'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
             }
@@ -256,6 +255,20 @@ export class LanFlowMap {
         };
         document.addEventListener('keydown', this._onKeyDown);
         document.addEventListener('keyup', this._onKeyUp);
+    }
+
+    _shouldAcceptKeys() {
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+        // Global opt-in registry: any component can claim keyboard focus by
+        // adding a key to this Set. When non-empty, the 3D map yields.
+        // Usage: window.__keyboardFocusClaims.add('my-component');
+        //        window.__keyboardFocusClaims.delete('my-component');
+        if (window.__keyboardFocusClaims?.size > 0) return false;
+        // Only accept keys when the canvas is in the viewport.
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
+        return true;
     }
 
     _handleResize() {
@@ -1010,12 +1023,13 @@ export class LanFlowMap {
                         cam.position.copy(target).add(offset);
                     }
                     if (this._keys['a'] || this._keys['d']) {
-                        const angle = this._keys['a'] ? orbitStep : -orbitStep;
-                        const spherical = new THREE.Spherical().setFromVector3(offset);
-                        spherical.theta += angle;
-                        offset.setFromSpherical(spherical);
-                        cam.position.copy(target).add(offset);
-                        cam.lookAt(target);
+                        const right = new THREE.Vector3();
+                        cam.getWorldDirection(right);
+                        right.cross(cam.up).normalize();
+                        const panDist = dist * 0.02;
+                        const panOffset = right.multiplyScalar(this._keys['a'] ? -panDist : panDist);
+                        cam.position.add(panOffset);
+                        target.add(panOffset);
                     }
                 }
                 this.controls?.update();
