@@ -8035,13 +8035,25 @@ a.path-hop.hop-clickable:hover {
     justify-content: flex-end;
 }
 
+.custom-range-btn {
+    position: relative;
+}
+
 .custom-range-clear {
-    margin-left: 0.25rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    opacity: 0.7;
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 14px;
+    height: 14px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    background: var(--danger-color);
+    color: #fff;
+    border-radius: 50%;
     cursor: pointer;
-    line-height: 1;
+    opacity: 0.85;
 }
 
 .custom-range-clear:hover {
