@@ -1,5 +1,8 @@
 // Latency & Packet Loss charts — pure JS ApexCharts, fed by /api/monitoring/chart-data.
 // Mounted from Blazor the same way as lan-flow-map.js.
+// TODO: Extract time-range controls (presets, shift arrows, custom range popover,
+// filter badges, poll interval scaling) into a shared module so latency-charts,
+// device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
