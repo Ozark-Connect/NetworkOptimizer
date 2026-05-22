@@ -1845,13 +1845,6 @@ class ParticleStream {
 
         const MAX = 200;
         this._max = MAX;
-        // Particles-per-world-unit at full saturation (density=1). Multiplied
-        // by link length to derive `desired` so a short link and a long link
-        // carrying the same bitrate render at the same visual particles-
-        // per-unit-length. Capped at MAX to keep the per-stream buffer bounded
-        // for unusually long links (e.g. a wireless mesh backhaul reaching
-        // across the map).
-        this._particlesPerUnit = 6;
         // Inactive particles are parked outside the camera's far plane (1000 units)
         // so they don't render. Without this, all 80 vertices start at (0, 0, 0) -
         // with additive blending + bloom across every stream, that piles into a
@@ -1922,27 +1915,25 @@ class ParticleStream {
     }
 
     advance(dt) {
-        // Scale desired particle count by link length so density-per-unit-
-        // length stays constant at a given bitrate. Two links carrying the
-        // same throughput now render with the same visual particle density
-        // whether they're a 1m switch-to-AP hop or a long mesh backhaul.
-        const desired = Math.min(this._max,
-            this._density * this._length * this._particlesPerUnit);
-        // Spawn new particles to maintain desired density.
-        let active = 0;
-        for (let i = 0; i < this._max; i += 1) {
-            if (this._t[i] >= 0) active += 1;
-        }
-        const need = Math.max(0, desired - active);
-        // Higher spawn rate gets the stream to its desired density faster - was 2.5x
-        // which took ~3-4s to ramp on a typical link. 8x makes new traffic visible
-        // within ~1s.
-        this._spawnAccumulator += need * dt * 8.0;
+        // Model dot emission like the sender pushing bytes onto the wire:
+        // a constant per-second emission rate proportional to bitrate,
+        // independent of link length. Link length only changes how long
+        // each dot lives in flight, so a longer link naturally accumulates
+        // more dots at steady state - but the dots arrive at the receiver
+        // at the same rate (matching the bitrate) and are spaced the same
+        // absolute distance apart whether the link is short or long.
+        //
+        // EMIT_PER_SEC at density=1 (saturated traffic) is tuned to look
+        // like a thick steady stream; at density~0.5 (Mbps range) it's a
+        // visible trickle; near density=0 it's nearly silent.
+        const EMIT_PER_SEC = 25;
+        this._spawnAccumulator += this._density * EMIT_PER_SEC * dt;
         while (this._spawnAccumulator >= 1) {
             this._spawnAccumulator -= 1;
             for (let i = 0; i < this._max; i += 1) {
                 if (this._t[i] < 0) {
-                    this._t[i] = Math.random() * 0.15;
+                    // Spawn at the sender end of the link.
+                    this._t[i] = 0;
                     break;
                 }
             }
