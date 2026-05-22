@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -134,8 +133,14 @@ public class LocalProbeExecutor : IProbeExecutor
         var interval = Math.Max(0.2, Math.Round(rawInterval, 2));
         var timeoutSeconds = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
 
+        // Two BSD-vs-iputils gotchas: ping has no -4 on macOS (it aborts with
+        // "invalid option"; IPv4 is the default for an IPv4 literal anyway),
+        // and -W is in SECONDS on Linux iputils but MILLISECONDS on BSD ping.
+        var waitArg = OperatingSystem.IsMacOS()
+            ? $"-W {timeoutSeconds * 1000}"
+            : $"-W {timeoutSeconds}";
         var psi = new ProcessStartInfo("ping",
-            $"-4 -c {safeCount} -i {interval.ToString(System.Globalization.CultureInfo.InvariantCulture)} -W {timeoutSeconds} {target.Address}")
+            $"-c {safeCount} -i {interval.ToString(System.Globalization.CultureInfo.InvariantCulture)} {waitArg} {target.Address}")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
