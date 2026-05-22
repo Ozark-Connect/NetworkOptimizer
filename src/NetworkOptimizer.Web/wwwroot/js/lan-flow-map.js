@@ -929,20 +929,9 @@ export class LanFlowMap {
         this._flyInTargetCam = new THREE.Vector3(40, 25, 40);
         this._flyInStartCam = this.camera.position.clone();
 
-        // Cap at 60 fps. requestAnimationFrame fires at the display refresh
-        // rate, so on a 144 Hz or 240 Hz monitor we'd otherwise burn GPU
-        // re-rendering an essentially-static scene. 60 fps is plenty smooth
-        // for particle flow + camera orbit and saves ~3-4x render work on
-        // high-refresh displays.
-        const FRAME_MS = 1000 / 60;
         const tick = (now) => {
             if (this._destroyed) return;
-            const elapsed = now - this._lastFrame;
-            if (elapsed < FRAME_MS) {
-                this._raf = requestAnimationFrame(tick);
-                return;
-            }
-            const dt = Math.min(elapsed / 1000, 0.1);
+            const dt = Math.min((now - this._lastFrame) / 1000, 0.1);
             this._lastFrame = now;
 
             // Camera fly-in (easeOutCubic) on first ~1.3 s.
