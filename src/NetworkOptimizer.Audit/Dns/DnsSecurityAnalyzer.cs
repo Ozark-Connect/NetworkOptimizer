@@ -74,7 +74,8 @@ public class DnsSecurityAnalyzer
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
     /// <param name="zoneLookup">Optional firewall zone lookup for DMZ/Hotspot network identification</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null)
+    /// <param name="trustedDnsRedirectTargets">Optional additional IPs to accept as valid DNAT redirect targets (e.g., keepalived VIPs)</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null, Services.FirewallZoneLookup? zoneLookup = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, string? customDnsManagementUrl = null, List<UniFiNetworkConfig>? networkConfigs = null, List<string>? trustedDnsRedirectTargets = null)
     {
         var result = new DnsSecurityResult();
 
@@ -143,7 +144,7 @@ public class DnsSecurityAnalyzer
         // Analyze DNAT DNS rules (alternative to firewall blocking)
         if (natRulesData.HasValue && networks?.Any() == true)
         {
-            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds, firewallGroups);
+            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds, firewallGroups, trustedDnsRedirectTargets);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -2371,7 +2372,7 @@ public class DnsSecurityAnalyzer
     /// DNAT rules that redirect UDP port 53 to a trusted DNS server (gateway, Pi-hole)
     /// can be an alternative to firewall blocking when DoH or third-party DNS is configured.
     /// </summary>
-    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null)
+    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null, Dictionary<string, UniFiFirewallGroup>? firewallGroups = null, List<string>? trustedDnsRedirectTargets = null)
     {
         var dnatAnalyzer = new DnatDnsAnalyzer();
         var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks, excludedVlanIds, firewallGroups);
@@ -2406,7 +2407,7 @@ public class DnsSecurityAnalyzer
         }
 
         // Validate redirect destinations
-        ValidateDnatRedirectTargets(coverageResult, result, networks);
+        ValidateDnatRedirectTargets(coverageResult, result, networks, trustedDnsRedirectTargets);
 
         // Validate destination filters (should be Any or inverted)
         ValidateDnatDestinationFilters(coverageResult, result);
@@ -2421,7 +2422,8 @@ public class DnsSecurityAnalyzer
     private void ValidateDnatRedirectTargets(
         DnatCoverageResult coverageResult,
         DnsSecurityResult result,
-        List<NetworkInfo> networks)
+        List<NetworkInfo> networks,
+        List<string>? trustedDnsRedirectTargets = null)
     {
         if (!coverageResult.HasDnatDnsRules)
             return;
@@ -2446,6 +2448,13 @@ public class DnsSecurityAnalyzer
                         validDestinations.Add(dnsServer);
                     }
                 }
+            }
+
+            // User-configured trusted DNS redirect targets (VIPs, anycast, etc.)
+            if (trustedDnsRedirectTargets != null)
+            {
+                foreach (var ip in trustedDnsRedirectTargets.Where(s => !string.IsNullOrWhiteSpace(s)))
+                    validDestinations.Add(ip.Trim());
             }
 
             result.ExpectedDnatDestinations.AddRange(validDestinations);
@@ -2521,6 +2530,17 @@ public class DnsSecurityAnalyzer
                         }
                     }
                     // else: No DHCP DNS and no DoH - skip validation for this rule
+                }
+
+                // User-configured trusted DNS redirect targets (VIPs, anycast, etc.).
+                // Added per-rule so a rule with no per-network DHCP DNS still validates against trusted IPs.
+                if (trustedDnsRedirectTargets != null)
+                {
+                    foreach (var ip in trustedDnsRedirectTargets.Where(s => !string.IsNullOrWhiteSpace(s)))
+                    {
+                        ruleValidDestinations.Add(ip.Trim());
+                        allValidDestinations.Add(ip.Trim());
+                    }
                 }
 
                 if (ruleValidDestinations.Count == 0)

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
@@ -9,7 +10,6 @@ using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Threats.Interfaces;
 using NetworkOptimizer.Threats.Models;
 using AuditModels = NetworkOptimizer.Audit.Models;
@@ -180,6 +180,7 @@ public class AuditService
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
             var dnatExcludedVlans = await _settingsService.GetAsync("audit:dnatExcludedVlans");
             var piholeEndpoint = await _settingsService.GetAsync("audit:piholeManagementPort");
+            var trustedDnsTargets = await _settingsService.GetAsync("audit:trustedDnsRedirectTargets");
             var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
 
@@ -201,6 +202,8 @@ public class AuditService
             {
                 options.PiholeManagementUrl = piholeEndpoint;
             }
+            // Trusted DNS redirect targets (VIPs, anycast IPs not in LAN DNS config)
+            options.TrustedDnsRedirectTargets = ParseIpList(trustedDnsTargets);
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
@@ -1446,6 +1449,7 @@ public class AuditService
                 DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,
                 PiholeManagementUrl = options.PiholeManagementUrl,
+                TrustedDnsRedirectTargets = options.TrustedDnsRedirectTargets,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
                 NetworkConfigs = networkConfigs,
@@ -1987,6 +1991,24 @@ public class AuditService
     }
 
     /// <summary>
+    /// Parse a comma/space/semicolon/newline separated list of IP addresses.
+    /// Invalid entries are silently dropped. Returns null if no valid IPs found.
+    /// </summary>
+    private static List<string>? ParseIpList(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+        var ips = new List<string>();
+        foreach (var part in raw.Split(new[] { ',', ';', '\n', '\r', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = part.Trim();
+            if (System.Net.IPAddress.TryParse(trimmed, out var parsed))
+                ips.Add(parsed.ToString());
+        }
+        return ips.Count > 0 ? ips : null;
+    }
+
+    /// <summary>
     /// Check if a firewall API response contains actual data.
     /// Returns false for null, empty arrays, or empty objects.
     /// </summary>
@@ -2066,6 +2088,7 @@ public class AuditOptions
     public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
     public string? PiholeManagementUrl { get; set; }
+    public List<string>? TrustedDnsRedirectTargets { get; set; }
 
     // Unused port detection thresholds
     public int UnusedPortInactivityDays { get; set; } = 15;

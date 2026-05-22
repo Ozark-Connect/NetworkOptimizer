@@ -4754,6 +4754,64 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_DnatWithPiholeAndVip_RedirectsToTrustedVip_NoIssue()
+    {
+        // Arrange - Pi-hole pair with a keepalived VIP. DNAT points at the VIP,
+        // which is not in DhcpDns. TrustedDnsRedirectTargets allowlists the VIP.
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5", "192.168.1.6" }
+            }
+        };
+        var switches = new List<SwitchInfo>();
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.4")); // VIP, not in DhcpDns
+        var trusted = new List<string> { "192.168.1.4" };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            null, null, switches, networks, null, null, natRules,
+            dnatExcludedVlanIds: null, externalZoneId: null, zoneLookup: null,
+            firewallGroups: null, customDnsManagementUrl: null, networkConfigs: null,
+            trustedDnsRedirectTargets: trusted);
+
+        // Assert
+        result.IsSiteWideThirdPartyDns.Should().BeTrue();
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.InvalidDnatRules.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithPiholeAndVip_NoTrustedList_RaisesIssue()
+    {
+        // Sanity: same setup without the trusted list still raises the issue (no regression).
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5", "192.168.1.6" }
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.4"));
+
+        var result = await _analyzer.AnalyzeAsync(null, null, new List<SwitchInfo>(), networks, null, null, natRules);
+
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.InvalidDnatRules.Should().NotBeEmpty();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
     public async Task Analyze_DnatWithDoH_RedirectsToGateway_NoIssue()
     {
         // Arrange - DoH configured, DNAT correctly points to gateway
