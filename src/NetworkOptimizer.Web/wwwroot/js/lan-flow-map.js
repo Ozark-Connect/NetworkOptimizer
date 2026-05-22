@@ -887,15 +887,13 @@ export class LanFlowMap {
             // Internet-centric convention applied uniformly:
             //   ↓ (blue)  = download from the internet toward an end device
             //   ↑ (green) = upload from an end device toward the internet
-            // Backend's DownstreamBps / UpstreamBps are populated in the opposite
-            // direction for WAN, uplink/trunk, and wifi links (DownstreamBps holds
-            // the upload-direction bytes), so we swap at the display layer.
-            // WiredClient leaves are the exception: the SNMP per-port writer
-            // already maps DownBps = port TX = toward leaf, so backend's
-            // DownstreamBps is the correct download direction and we do NOT swap.
-            const isWiredClient = kind === LINK_KIND.WiredClient;
-            const down = (isWiredClient ? r?.downstreamBps : r?.upstreamBps) || 0;
-            const up = (isWiredClient ? r?.upstreamBps : r?.downstreamBps) || 0;
+            // Backend's DownstreamBps holds the upload-direction value for
+            // WAN/uplink/trunk links, so those get a display-layer swap.
+            // Client leaves (wired and wifi) come from a writer that already
+            // maps DownstreamBps = toward-leaf direction, so NO swap.
+            const isClientLeaf = kind === LINK_KIND.WiredClient || kind === LINK_KIND.WifiClient;
+            const down = (isClientLeaf ? r?.downstreamBps : r?.upstreamBps) || 0;
+            const up = (isClientLeaf ? r?.upstreamBps : r?.downstreamBps) || 0;
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
                 continue;
@@ -1628,9 +1626,10 @@ export class LanFlowMap {
                 const r = this._currentRates?.[linkId];
                 if (!r) continue;
                 anyData = true;
-                const isWiredClient = link.link.kind === LINK_KIND.WiredClient;
-                downBps += (isWiredClient ? r.downstreamBps : r.upstreamBps) || 0;
-                upBps += (isWiredClient ? r.upstreamBps : r.downstreamBps) || 0;
+                const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
+                    || link.link.kind === LINK_KIND.WifiClient;
+                downBps += (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
+                upBps += (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
             }
             if (!anyData) {
                 rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
@@ -1717,9 +1716,10 @@ export class LanFlowMap {
             const r = this._currentRates?.[link.link.id];
             if (!r) continue;
             anyData = true;
-            const isWiredClient = link.link.kind === LINK_KIND.WiredClient;
-            const dl = (isWiredClient ? r.downstreamBps : r.upstreamBps) || 0;
-            const ul = (isWiredClient ? r.upstreamBps : r.downstreamBps) || 0;
+            const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
+                || link.link.kind === LINK_KIND.WifiClient;
+            const dl = (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
+            const ul = (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
             if (link.link.toNodeId === node.id) {
                 ingressBps += dl;
                 egressBps += ul;
@@ -1846,17 +1846,20 @@ class ParticleStream {
 
     setRate(bps) {
         this._rateBps = Math.max(bps, 0);
-        // Log scale "intensity" from rate. Floor at 10kbps (housekeeping noise
-        // disappears), max at 100Gbps (top-end fabric saturates the curve).
-        // Both particle COUNT and particle SIZE scale off this value so heavier
-        // traffic visually compounds - more dots and chunkier dots together,
-        // which reads more dramatic than density alone.
+        // Unfloored log intensity: full range 1bps -> 100Gbps (log10 0..11)
+        // mapped to 0..1. No threshold below which the stream goes dark, so
+        // even tiny housekeeping traffic shows a wisp of flow.
         const intensity = Math.max(0, Math.min(1,
-            (Math.log10(Math.max(this._rateBps, 1)) - 4) / 7));
+            Math.log10(Math.max(this._rateBps, 1)) / 11));
         this._density = intensity;
-        // Particle size: thin idle dots (0.3) -> chunky high-traffic dots (3.0).
-        // Wide range so the size change is unambiguous as traffic ramps.
-        if (this._material) this._material.size = 0.3 + intensity * 2.7;
+        // Particle size on a squared curve so the low end collapses to
+        // pinprick wisps and heavy traffic blooms to chunky dots:
+        //   100bps  -> ~0.13   (tiny)
+        //   100kbps -> ~0.74   (small)
+        //   10Mbps  -> ~1.50   (mid)
+        //   1Gbps   -> ~2.45   (chunky)
+        //   100Gbps -> 3.60    (max)
+        if (this._material) this._material.size = 0.1 + (intensity * intensity) * 3.5;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
