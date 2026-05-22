@@ -344,23 +344,22 @@ public class MonitoringCollectionAgent : BackgroundService
                      && dev.Uplink?.PortIdx is int localUpIdx)
             {
                 // Parent didn't expose a usable port_table rate (common when
-                // the parent is a mesh AP - its eth0 isn't reported in
-                // port_table). Fall back to this switch's OWN uplink port,
-                // which IS in its port_table and reachable via SNMP.
-                var localUpPort = dev.PortTable?.FirstOrDefault(p => p.PortIdx == localUpIdx);
-                if (localUpPort != null && !string.IsNullOrEmpty(localUpPort.IfName))
+                // the parent is a mesh AP, whose Ethernet downlink isn't in
+                // its port_table). Read this switch's OWN port_table entry
+                // for its uplink port instead - UniFi populates tx/rx_bytes
+                // on the switch's side of that link too.
+                var ownRate = ComputePortRate(NormalizeMac(dev.Mac), localUpIdx, nowOverride);
+                if (ownRate.HasValue)
                 {
-                    var portRate = _liveStats.GetPortRate(dev.Mac, localUpPort.IfName);
-                    if (portRate != null)
-                    {
-                        // portRate.DownBps comes from RecordPortRate(.., rateOut, rateIn)
-                        // so it's SNMP ifOutOctets-rate = bytes the switch transmitted
-                        // out its uplink port = uploads heading toward the parent.
-                        // portRate.UpBps = ifInOctets-rate = downloads from parent.
-                        // Record using the same (DownBps, UpBps) order the primary
-                        // path uses; downstream consumers swap on read.
-                        _liveStats.RecordInterfaceAggregate(dev.Mac, portRate.DownBps, portRate.UpBps, nowOverride);
-                    }
+                    // Direction note: parent.port.tx_bytes captures "bytes the
+                    // connected device transmitted" so the parent-path stores
+                    // child.RateInBps = uploads-from-child. The switch's OWN
+                    // uplink port observes the same physical wire from the
+                    // other side, so its tx_bytes = bytes the PARENT
+                    // transmitted = downloads to this switch. Swap the
+                    // (DownBps, UpBps) args so RateInBps remains "uploads"
+                    // and stays consistent with the primary path.
+                    _liveStats.RecordInterfaceAggregate(dev.Mac, ownRate.Value.UpBps, ownRate.Value.DownBps, nowOverride);
                 }
             }
             else if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint)

@@ -145,10 +145,16 @@ public class LanFlowMapService
                     : null;
                 if (wanIface != null && wanByInterface.TryGetValue(wanIface, out var wan))
                 {
+                    // Per the empirical convention shared with the rest of the
+                    // post-process (see the AP badge / trunk-link work):
+                    // LiveRateInBps is uploads, LiveRateOutBps is downloads.
+                    // The WAN link is oriented cloud (From) -> gateway (To),
+                    // so DownstreamBps = downloads (cloud -> gateway) and
+                    // UpstreamBps = uploads (gateway -> cloud).
                     rates = new LinkLiveRates
                     {
-                        DownstreamBps = wan.LiveRateInBps ?? 0,
-                        UpstreamBps = wan.LiveRateOutBps ?? 0,
+                        DownstreamBps = wan.LiveRateOutBps ?? 0,
+                        UpstreamBps = wan.LiveRateInBps ?? 0,
                         AsOf = update.AsOf,
                     };
                 }
@@ -722,8 +728,8 @@ public class LanFlowMapService
             {
                 snapshot.LiveRates[wanLink.Id] = new LinkLiveRates
                 {
-                    DownstreamBps = wan.LiveRateInBps ?? 0,
-                    UpstreamBps = wan.LiveRateOutBps ?? 0,
+                    DownstreamBps = wan.LiveRateOutBps ?? 0,
+                    UpstreamBps = wan.LiveRateInBps ?? 0,
                     AsOf = DateTime.UtcNow,
                 };
             }
