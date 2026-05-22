@@ -622,17 +622,19 @@ export class LanFlowMap {
         const dirX = Math.cos(outBearing);
         const dirZ = Math.sin(outBearing);
 
-        // Access cloud sits on the outbound axis. All other clouds (transits +
-        // path-ends) hang off as siblings, fanned in an arc beyond the access
-        // cloud so they don't stack in a tight line. Arc widens with sibling
-        // count so a single sibling stays centered, 6 fan ~120 deg, 12 fan
-        // ~160 deg. Y is staggered slightly so labels don't overlap.
+        // Access cloud on the outbound axis; all other clouds (transits +
+        // path-ends) fan out around it in an arc. Arc grows with sibling
+        // count up to a near-full 270 deg so 10-12 clouds clearly form a
+        // half-bowl around the access cloud rather than stacking. Stagger
+        // both radius (alternating inner/outer ring) and Y so the labels
+        // don't pile up.
         const accessRadius = 40;
-        const siblingRadius = 70;
+        const innerRadius = 80;
+        const outerRadius = 100;
         const allClouds = snap.clouds || [];
         const accessClouds = allClouds.filter((c) => c.order === 0);
         const siblings = allClouds.filter((c) => c.order > 0);
-        const fanRad = Math.min(Math.PI * 0.9, (siblings.length || 1) * (Math.PI / 12));
+        const fanRad = Math.min(Math.PI * 1.5, Math.max(Math.PI * 0.5, siblings.length * (Math.PI / 8)));
         const arcStep = siblings.length > 1 ? fanRad / (siblings.length - 1) : 0;
         const arcStart = -fanRad / 2;
 
@@ -652,9 +654,10 @@ export class LanFlowMap {
         for (let i = 0; i < siblings.length; i++) {
             const cloud = siblings[i];
             const angle = outBearing + arcStart + arcStep * i;
-            const x = gwX + Math.cos(angle) * siblingRadius;
-            const y = gwY + 4 + (i % 3) * 3;
-            const z = gwZ + Math.sin(angle) * siblingRadius;
+            const r = (i % 2 === 0) ? innerRadius : outerRadius;
+            const x = gwX + Math.cos(angle) * r;
+            const y = gwY + 4 + (i % 3) * 4;
+            const z = gwZ + Math.sin(angle) * r;
             cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
         }
 
