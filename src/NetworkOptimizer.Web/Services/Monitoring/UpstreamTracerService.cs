@@ -259,7 +259,7 @@ public class UpstreamTracerService
     private async Task<bool> DiscoverL2NeighborAsync(CancellationToken ct)
     {
         State.Step = TracerStep.DiscoveringL2Neighbor;
-        State.CurrentActivity = "Reading WAN L2 neighbor (the first-mile device)...";
+        State.CurrentActivity = "Identifying the first device upstream of your gateway...";
 
         // We need the gateway's actual WAN interface device name (eth0, eth4, etc.)
         // for `ip neigh`. The UniFi port_table's network_name ("wan") isn't the OS
@@ -293,7 +293,7 @@ public class UpstreamTracerService
             // Not fatal - we can still trace upstream without knowing the L2 neighbor.
             // We just lose the first-mile-device labeling enrichment.
             _logger.LogDebug("Tracer: no L2 neighbor MAC found via ip neigh on any common WAN candidate");
-            State.CurrentActivity = "Couldn't identify L2 neighbor MAC. Proceeding anyway; access cloud labels will fall back to PTR / position.";
+            State.CurrentActivity = "Couldn't identify the first upstream device. Continuing; ISP labels will fall back to hostname lookup.";
             return true;
         }
 
@@ -354,7 +354,7 @@ public class UpstreamTracerService
     private async Task TraceAccessIspAsync(CancellationToken ct)
     {
         State.Step = TracerStep.TracingAccessIsp;
-        State.CurrentActivity = "Running parallel ICMP + UDP traceroutes to the CDN rotation...";
+        State.CurrentActivity = "Running parallel traceroutes to major internet endpoints...";
         State.Traces = new List<TraceSummary>();
 
         // Spawn 10 traceroutes (5 endpoints × 2 modes) in parallel and merge once
