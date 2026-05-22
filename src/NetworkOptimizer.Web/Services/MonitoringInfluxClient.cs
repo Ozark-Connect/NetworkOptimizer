@@ -801,6 +801,52 @@ from(bucket: ""{_bucket}"")
         }
     }
 
+    /// <summary>
+    /// Trim latency data from the shutdown edge: probes that timed out while the app was
+    /// stopping produce artificial 100% loss points. Find the last data timestamp, then
+    /// delete the preceding window where loss was 100% across all targets.
+    /// </summary>
+    public async Task TrimShutdownEdgeAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured || _client == null || string.IsNullOrEmpty(_org)) return;
+        try
+        {
+            // Find the timestamp of the most recent latency point.
+            var lastFlux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> last()
+  |> keep(columns: [""_time""])
+";
+            DateTime? lastTime = null;
+            await foreach (var record in QueryFluxAsync(lastFlux, ct))
+            {
+                var t = record.GetTimeInDateTime();
+                if (t.HasValue && (!lastTime.HasValue || t.Value > lastTime.Value))
+                    lastTime = t;
+            }
+            if (!lastTime.HasValue) return;
+
+            // Look back 60s from that last point: if there was a clean shutdown, the tail
+            // end will be 100% loss bursts where probes timed out. Delete only points in
+            // that window with loss_percent == 100 and success == false.
+            var edgeStart = lastTime.Value.AddSeconds(-60);
+            var edgeStop = lastTime.Value.AddSeconds(1);
+            var predicate = @"_measurement=""latency"" AND loss_percent=100 AND success=false";
+            var deleteApi = _client.GetDeleteApi();
+            await deleteApi.Delete(edgeStart, edgeStop, predicate, _bucket, _org, ct);
+            _logger.LogInformation(
+                "Trimmed shutdown-edge latency data ({Start:HH:mm:ss} to {Stop:HH:mm:ss})",
+                edgeStart, edgeStop);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Shutdown-edge trim failed (non-fatal)");
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;

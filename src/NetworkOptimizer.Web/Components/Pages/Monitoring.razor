@@ -318,10 +318,10 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                    <div class="tab-bar">
+                    <div class="time-range-selector">
                         @foreach (var cat in _latencyCategories)
                         {
-                            <button class="tab-btn @(_latencyCategory == cat.Type ? "active" : "")"
+                            <button class="time-btn @(_latencyCategory == cat.Type ? "active" : "")"
                                     @onclick="() => SelectLatencyCategoryAsync(cat.Type)">
                                 @cat.Label
                             </button>
@@ -981,7 +981,25 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     private async Task ToggleTargetVisibility(string targetId)
     {
-        _latencyVisibility[targetId] = !IsTargetVisible(targetId);
+        var targets = GetCategoryTargets();
+        var allVisible = targets.All(t => IsTargetVisible(t.TargetId));
+        var onlyThisVisible = _latencyVisibility.TryGetValue(targetId, out var vis) && vis
+            && targets.Where(t => t.TargetId != targetId).All(t => !IsTargetVisible(t.TargetId));
+
+        if (onlyThisVisible)
+        {
+            _latencyVisibility.Clear();
+        }
+        else if (allVisible)
+        {
+            foreach (var t in targets)
+                _latencyVisibility[t.TargetId] = t.TargetId == targetId;
+        }
+        else
+        {
+            _latencyVisibility[targetId] = !IsTargetVisible(targetId);
+        }
+
         try
         {
             if (_rttChart != null) await _rttChart.RenderAsync();
@@ -1003,6 +1021,11 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     {
         _latencyCategory = type;
         _latencyVisibility.Clear();
+        _rttChart = null;
+        _lossChart = null;
+        _latencyRttSeries = new();
+        _latencyLossSeries = new();
+        StateHasChanged();
         await LoadLatencyChartsAsync();
         StateHasChanged();
     }
@@ -1010,6 +1033,9 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private async Task SelectLatencyRangeAsync(int hours)
     {
         _latencyRangeHours = hours;
+        _latencyRttSeries = new();
+        _latencyLossSeries = new();
+        StateHasChanged();
         await LoadLatencyChartsAsync();
         StateHasChanged();
     }
@@ -1106,7 +1132,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             new() { Min = 0, Title = new AxisTitle { Text = "ms" }, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" }, Formatter = @"function(v) { return v != null ? v.toFixed(1) : ''; }" } }
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
-        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Legend = new Legend { Show = false },
         Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
     };
 
@@ -1136,7 +1162,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             new() { Min = 0, Max = 100, Title = new AxisTitle { Text = "% loss" }, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" }, Formatter = @"function(v) { return v != null ? v.toFixed(1) + '%' : ''; }" } }
         },
         Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
-        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Legend = new Legend { Show = false },
         Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
     };
 

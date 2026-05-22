@@ -84,6 +84,11 @@ public class MonitoringCollectionAgent : BackgroundService
         try { await SeedDefaultTargetsAsync(stoppingToken); }
         catch (Exception ex) { _logger.LogWarning(ex, "Default target seeding failed"); }
 
+        // Clean up artificial 100% loss data from the previous shutdown where probes
+        // timed out while the app was stopping.
+        try { await _influx.TrimShutdownEdgeAsync(stoppingToken); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Shutdown-edge trim skipped"); }
+
         // Four independent loops, slightly staggered to avoid burst overlap.
         var fastTask = RunTierAsync("fast", GetFastInterval, FastTierCollectAsync, TimeSpan.FromSeconds(5), stoppingToken);
         var mediumTask = RunTierAsync("medium", GetMediumInterval, MediumTierCollectAsync, TimeSpan.FromSeconds(10), stoppingToken);
