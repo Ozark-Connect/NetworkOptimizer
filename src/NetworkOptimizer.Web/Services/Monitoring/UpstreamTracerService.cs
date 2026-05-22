@@ -543,19 +543,26 @@ public class UpstreamTracerService
 
         State.TransitAsns = candidates;
 
-        // Path-proxy fallback: for every reached CDN, attribute the destination ASN
-        // and add it as a path-end monitoring target. Catches degradation in transit
-        // ASNs we couldn't enumerate - i.e. trace gaps where hops returned `*` and so
-        // the ASN never surfaced in _mergedHops. Covers locked decision 9 (hyperscale
-        // direct peering) as a natural subset: when zero transit ASNs were identified,
-        // these path-end targets become the entire upstream cloud picture.
+        // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
+        // trace - not just traces that reached the literal endpoint - add the
+        // endpoint as a path-end monitoring target. The previous "only if Reached"
+        // gate missed destinations like Akamai whose anycast endpoints often
+        // don't respond to ICMP/UDP probes even though the trace clearly entered
+        // their network. Seeing the destination ASN attributed to any hop is a
+        // strong signal the path-end is monitorable.
         var pathProxyAsnsSeen = new HashSet<int>(candidates.Select(c => c.AsnNumber));
-        var reachedTraces = State.Traces.Where(t => t.Reached).ToList();
-        foreach (var reached in reachedTraces)
+        var asnsInTrace = new HashSet<int>(_mergedHops
+            .Where(h => h.Asn != null)
+            .Select(h => h.Asn!.Asn));
+        foreach (var endpoint in CdnRotation)
         {
-            var destAsn = await _asnResolution.ResolveAsync(reached.CdnEndpoint, ct);
+            var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
             if (destAsn == null) continue;
             if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
+            var trace = State.Traces.FirstOrDefault(t =>
+                string.Equals(t.CdnEndpoint, endpoint.Address, StringComparison.OrdinalIgnoreCase));
+            bool reachedOrTraversed = (trace?.Reached ?? false) || asnsInTrace.Contains(destAsn.Asn);
+            if (!reachedOrTraversed) continue;
             if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;     // dedupe across CDNs
 
             candidates.Add(new TransitAsnCandidate
@@ -563,9 +570,9 @@ public class UpstreamTracerService
                 AsnNumber = destAsn.Asn,
                 AsnName = destAsn.Name,
                 Method = DiscoveryMethod.PathProxy,
-                TargetId = $"path-{reached.CdnLabel.ToLowerInvariant()}-as{destAsn.Asn}",
-                HopAddress = reached.CdnEndpoint,
-                PathProxyTarget = reached.CdnEndpoint,
+                TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
+                HopAddress = endpoint.Address,
+                PathProxyTarget = endpoint.Address,
                 RespondedTo = ProbeMode.Icmp,
                 Enabled = true
             });
@@ -582,30 +589,61 @@ public class UpstreamTracerService
 
     /// <summary>
     /// Hop label priority per spec 5.5: PTR hostname > role inference > bare IP +
-    /// ISP name. Combines the chosen identifier with the ASN name when available
-    /// ("cr1.stl1 - ExampleISP").
+    /// ISP name. PTRs that just encode the IP (e.g.
+    /// "h121.217.134.40.static.ip.windstream.net") fall through to bare IP since
+    /// the encoded form is useless as a label. Otherwise we strip the trailing
+    /// two labels (the registrable ISP domain like "windstream.net" or
+    /// "twelve99.net") so the kept portion is the router-identifying head
+    /// ("ae6-0.agr01.ltrk01-ar.us" rather than "ae6-0.agr01").
     /// </summary>
     private static string LabelAccessHop(AttributedHop hop)
     {
         var ispName = hop.Asn?.Name;
         if (!string.IsNullOrEmpty(hop.Hostname))
         {
-            // Shorten "cr1.stl1.example.net" -> "cr1.stl1" for compactness, drop the
-            // ISP domain since we'll append the ASN name separately.
-            var shortName = hop.Hostname;
-            var firstDot = hop.Hostname.IndexOf('.');
-            if (firstDot > 0 && firstDot < hop.Hostname.Length - 1)
+            var parts = hop.Hostname.Split('.');
+            if (!IsIpDerivedHostname(parts, hop.Address))
             {
-                var afterFirst = hop.Hostname.IndexOf('.', firstDot + 1);
-                if (afterFirst > 0)
-                    shortName = hop.Hostname.Substring(0, afterFirst);
+                // Keep everything except the last two labels (the ISP's registrable
+                // domain). If the hostname has <=2 labels, just return it whole.
+                return parts.Length > 2
+                    ? string.Join('.', parts.Take(parts.Length - 2))
+                    : hop.Hostname;
             }
-            // When we have a PTR-derived shortName, the FQDN already carries the
-            // ISP identifier (e.g. "...example.net"). Appending "- EXAMPLE INC"
-            // is just visual noise, so the shortName stands on its own.
-            return shortName;
+            // IP-encoded PTR; fall through to the bare-IP branch below.
         }
         return string.IsNullOrEmpty(ispName) ? hop.Address : $"{hop.Address} - {ispName}";
+    }
+
+    /// <summary>
+    /// True when the hostname looks like an automated IP-encoded reverse DNS entry
+    /// (the kind ISPs generate by default for unrouted IPs) rather than a
+    /// human-labelled router name. Detected by counting how many of the IP's
+    /// octets appear as standalone labels or embedded in the first few labels.
+    /// </summary>
+    private static bool IsIpDerivedHostname(string[] hostnameParts, string ipAddress)
+    {
+        if (string.IsNullOrEmpty(ipAddress)) return false;
+        var ipOctets = ipAddress.Split('.');
+        if (ipOctets.Length != 4) return false;
+
+        int octetMatches = 0;
+        foreach (var part in hostnameParts)
+        {
+            foreach (var octet in ipOctets)
+            {
+                if (string.Equals(part, octet, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(part, "h" + octet, StringComparison.OrdinalIgnoreCase)
+                    || part.Contains("-" + octet + "-")
+                    || part.StartsWith(octet + "-") || part.EndsWith("-" + octet))
+                {
+                    octetMatches++;
+                    break;
+                }
+            }
+            if (octetMatches >= 2) return true;
+        }
+        return false;
     }
 
     /// <summary>
