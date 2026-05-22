@@ -26,6 +26,9 @@ public static class MonitoringChartEndpoints
             var now = DateTime.UtcNow;
             var from = hours == 0 ? now.AddMinutes(-15) : now.AddHours(-hours);
 
+            // Target names come from SQLite; time-series data from InfluxDB via
+            // the target_type tag (indexed, ~10ms) instead of contains() on
+            // target_id set (full scan, ~400ms+).
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == targetType && t.Enabled)
@@ -36,8 +39,8 @@ public static class MonitoringChartEndpoints
             if (targets.Count == 0)
                 return Results.Ok(new { targets = Array.Empty<object>() });
 
-            var ids = targets.Select(t => t.TargetId);
-            var data = await influx.QueryLatencyMultiTargetAsync(ids, from, now, ct: ct);
+            var targetLookup = targets.ToDictionary(t => t.TargetId, t => t.Name);
+            var data = await influx.QueryLatencyByTargetTypeAsync(targetType, from, now, ct: ct);
 
             var result = targets.Select(t =>
             {

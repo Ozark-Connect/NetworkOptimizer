@@ -514,25 +514,27 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
-    public async Task<Dictionary<string, List<LatencyPoint>>> QueryLatencyMultiTargetAsync(
-        IEnumerable<string> targetIds,
+    public async Task<Dictionary<string, List<LatencyPoint>>> QueryLatencyByTargetTypeAsync(
+        MonitoringTargetType targetType,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
         CancellationToken ct = default)
     {
-        var ids = targetIds.ToList();
-        if (ids.Count == 0) return new Dictionary<string, List<LatencyPoint>>();
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return new Dictionary<string, List<LatencyPoint>>();
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
-        var setLiteral = string.Join(", ", ids.Select(id => $@"""{id}"""));
+        var typeTag = targetType.ToString().ToLowerInvariant();
+        // InternetService replaced Wan — old data has target_type=wan, new has internetservice.
+        var typeFilter = targetType == MonitoringTargetType.InternetService
+            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+            : $@"r.target_type == ""{typeTag}""";
 
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => contains(value: r.target_id, set: [{setLiteral}]))
+  |> filter(fn: (r) => {typeFilter})
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
