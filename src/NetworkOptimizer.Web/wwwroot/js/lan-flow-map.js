@@ -214,7 +214,7 @@ export class LanFlowMap {
         this.controls.dampingFactor = 0.08;
         this.controls.rotateSpeed = 0.65;
         this.controls.zoomSpeed = 0.75;
-        this.controls.minDistance = 1;
+        this.controls.minDistance = 5;
         this.controls.maxDistance = 220;
         this.controls.target.set(0, 0, 0);
 
@@ -245,6 +245,13 @@ export class LanFlowMap {
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
         this._keys = {};
         this._onKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                const card = this.stage?.closest('.card');
+                if (card?.classList.contains('lan-flow-map-fullscreen')) {
+                    this._toggleFullscreen();
+                    return;
+                }
+            }
             if (!this._shouldAcceptKeys()) return;
             if (['w','a','s','d'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
@@ -260,6 +267,25 @@ export class LanFlowMap {
     _shouldAcceptKeys() {
         const rect = this.canvas.getBoundingClientRect();
         return rect.bottom > 0 && rect.top < window.innerHeight;
+    }
+
+    _toggleFullscreen() {
+        const card = this.stage.closest('.card') || this.stage;
+        const isFs = card.classList.contains('lan-flow-map-fullscreen');
+        if (isFs) {
+            card.classList.remove('lan-flow-map-fullscreen');
+            this._panels.fullscreenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline>
+                <polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>`;
+            this._panels.fullscreenBtn.setAttribute('data-tooltip', 'Fullscreen');
+        } else {
+            card.classList.add('lan-flow-map-fullscreen');
+            this._panels.fullscreenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 10 10 10 10 4"></polyline><polyline points="14 4 14 10 20 10"></polyline>
+                <polyline points="20 14 14 14 14 20"></polyline><polyline points="10 20 10 14 4 14"></polyline></svg>`;
+            this._panels.fullscreenBtn.setAttribute('data-tooltip', 'Exit fullscreen');
+        }
+        setTimeout(() => this._handleResize(), 50);
     }
 
     _handleResize() {
@@ -1224,6 +1250,21 @@ export class LanFlowMap {
         }
         this._panels.controls = controls;
         this._panels.controlsBody = controlsBody;
+
+        // Fullscreen toggle
+        const fsBtn = document.createElement('button');
+        fsBtn.className = 'lan-flow-map-fullscreen-btn';
+        fsBtn.setAttribute('data-tooltip', 'Fullscreen');
+        fsBtn.setAttribute('data-tooltip-hover-only', '');
+        fsBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 8 3 3 8 3"></polyline>
+            <polyline points="16 3 21 3 21 8"></polyline>
+            <polyline points="21 16 21 21 16 21"></polyline>
+            <polyline points="8 21 3 21 3 16"></polyline>
+        </svg>`;
+        fsBtn.addEventListener('click', () => this._toggleFullscreen());
+        this.stage.appendChild(fsBtn);
+        this._panels.fullscreenBtn = fsBtn;
 
         // Legend (bottom-right)
         const legend = this._makePanel('lan-flow-map-legend');
