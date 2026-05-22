@@ -1854,12 +1854,12 @@ class ParticleStream {
         this._density = intensity;
         // Particle size on a squared curve so the low end collapses to
         // pinprick wisps and heavy traffic blooms to chunky dots:
-        //   100bps  -> ~0.13   (tiny)
-        //   100kbps -> ~0.74   (small)
-        //   10Mbps  -> ~1.50   (mid)
-        //   1Gbps   -> ~2.45   (chunky)
-        //   100Gbps -> 3.60    (max)
-        if (this._material) this._material.size = 0.1 + (intensity * intensity) * 3.5;
+        //   100bps  -> ~0.07   (tiny)
+        //   100kbps -> ~0.37   (small)
+        //   10Mbps  -> ~0.75   (mid)
+        //   1Gbps   -> ~1.23   (chunky)
+        //   100Gbps -> 1.80    (max)
+        if (this._material) this._material.size = 0.05 + (intensity * intensity) * 1.75;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
