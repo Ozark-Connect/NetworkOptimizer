@@ -270,6 +270,9 @@ export class LanFlowMap {
 
     dispose() {
         this._destroyed = true;
+        // The render loop registered via setAnimationLoop checks _destroyed
+        // and tears itself down. Belt-and-suspenders null it here too.
+        this.renderer?.setAnimationLoop(null);
         if (this._raf) cancelAnimationFrame(this._raf);
         if (this._pollTimer) clearInterval(this._pollTimer);
         if (this._historicPlaybackTimer) clearInterval(this._historicPlaybackTimer);
@@ -929,10 +932,34 @@ export class LanFlowMap {
         this._flyInTargetCam = new THREE.Vector3(40, 25, 40);
         this._flyInStartCam = this.camera.position.clone();
 
-        const tick = (now) => {
-            if (this._destroyed) return;
-            const dt = Math.min((now - this._lastFrame) / 1000, 0.1);
-            this._lastFrame = now;
+        // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
+        // entry point (also required for WebXR). We accumulate elapsed time
+        // and only do the render+update work once per frameInterval, so on
+        // 240+ Hz monitors we run at 120 instead of burning GPU for an
+        // essentially-static scene. 120 over the more usual 60 because the
+        // particle streams look noticeably smoother at the higher cap.
+        const TARGET_FPS = 120;
+        const FRAME_MS = 1000 / TARGET_FPS;
+        let lastTickMs = 0;
+        let accumulator = 0;
+
+        this.renderer.setAnimationLoop((now) => {
+            if (this._destroyed) {
+                this.renderer.setAnimationLoop(null);
+                return;
+            }
+            // Clamp delta so a backgrounded tab (which throttles RAF to ~1 Hz)
+            // doesn't dump multiple seconds of accumulated dt into the particle
+            // physics when the tab regains focus.
+            const rawDelta = lastTickMs ? Math.min(now - lastTickMs, 100) : 0;
+            lastTickMs = now;
+            accumulator += rawDelta;
+            if (accumulator < FRAME_MS) return;
+            // Use modulo (not reset) to preserve leftover time and avoid drift
+            // that would settle the effective cap below the target.
+            accumulator = accumulator % FRAME_MS;
+
+            const dt = Math.min(rawDelta / 1000, 0.1);
 
             // Camera fly-in (easeOutCubic) on first ~1.3 s.
             if (now < this._flyInUntil) {
@@ -963,10 +990,7 @@ export class LanFlowMap {
             // After the render we have up-to-date matrixWorld for every node group;
             // project them to screen space for the floating DOM labels and WAN pills.
             this._updateFloatingLabels();
-            this._raf = requestAnimationFrame(tick);
-        };
-        this._lastFrame = performance.now();
-        this._raf = requestAnimationFrame(tick);
+        });
     }
 
     _pulseNodes(nowMs) {
