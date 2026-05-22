@@ -202,6 +202,11 @@ function selectPresetRange(container, hours) {
     container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
     const btn = container.querySelector(`[data-range="${hours}"]`);
     if (btn) btn.classList.add('active');
+    const fromInput = container.querySelector('[data-input="from"]');
+    const toInput = container.querySelector('[data-input="to"]');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+    container.querySelector('[data-popover="custom-range"]')?.classList.remove('open');
     updateCustomLabel(container);
     loadAndUpdate();
     startPoll();
