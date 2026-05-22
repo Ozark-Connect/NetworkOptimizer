@@ -395,7 +395,13 @@ public class MonitoringCollectionAgent : BackgroundService
                             // TX out the port = downstream toward the connected device
                             // RX from the port = upstream from the connected device
                             // That matches MonitoringLiveStats' (RateIn=down, RateOut=up).
-                            _portRateLatest[key] = (deltaTx * 8.0 / elapsed, deltaRx * 8.0 / elapsed);
+                            var downBps = deltaTx * 8.0 / elapsed;
+                            var upBps = deltaRx * 8.0 / elapsed;
+                            _portRateLatest[key] = (downBps, upBps);
+                            // Mirror into the read-side cache so the 3D map's live
+                            // tick can refresh wired client leaf rates (which have
+                            // no device-level stats of their own to pull from).
+                            _liveStats.RecordPortRate(mac, port.PortIdx, downBps, upBps, now);
                         }
                     }
                 }

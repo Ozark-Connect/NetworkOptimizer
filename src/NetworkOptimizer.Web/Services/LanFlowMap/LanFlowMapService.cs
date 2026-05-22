@@ -191,10 +191,33 @@ public class LanFlowMapService
                     }
                 }
             }
-            // WiredClient + Transit links: keep the snapshot's seeded rates. Wired client
-            // per-port rates come from the cached snapshot (refreshed on snapshot rebuild
-            // every TopologyRefreshInterval) - acceptable since wired clients tend to be
-            // steady-state. Transit cloud-to-cloud edges don't have SNMP data.
+            else if (link.Kind == LanLinkKind.WiredClient && link.PortIdx.HasValue)
+            {
+                // Wired client leaves don't have device-level monitoring stats - their
+                // throughput lives on the parent switch port. The agent mirrors every
+                // per-port byte-delta into MonitoringLiveStats.PortRates so the live
+                // tick can refresh without waiting for a snapshot rebuild. Without
+                // this branch, leaf rates stayed pinned at the values seeded at the
+                // last snapshot build (~60s stale; spikes got stuck).
+                var parentMac = ExtractParentMacFromLink(link);
+                if (!string.IsNullOrEmpty(parentMac))
+                {
+                    var portRate = _liveStats.GetPortRate(parentMac, link.PortIdx.Value);
+                    if (portRate != null)
+                    {
+                        // Direction mapping mirrors MapPortToLinkRates for an internal
+                        // (non-WAN) link: parent port TX (DownBps) = data toward leaf,
+                        // RX (UpBps) = data from leaf.
+                        rates = new LinkLiveRates
+                        {
+                            DownstreamBps = portRate.DownBps,
+                            UpstreamBps = portRate.UpBps,
+                            AsOf = portRate.LastUpdate,
+                        };
+                    }
+                }
+            }
+            // Transit cloud-to-cloud edges don't have SNMP data; they keep snapshot rates.
 
             if (rates != null) update.LinkRates[link.Id] = rates;
         }
@@ -410,6 +433,7 @@ public class LanFlowMapService
             // Resolve ifName via UniFi port number -> InterfaceNameMap (3.7 chain).
             if (!isWirelessBackhaul && d.UplinkPort.HasValue && d.UplinkPort.Value > 0)
             {
+                link.PortIdx = d.UplinkPort.Value;
                 if (nameMaps.TryGetValue((parentMac, d.UplinkPort.Value), out var nameMap))
                 {
                     link.PortKey = PortKey(parentMac, nameMap.IfName);
@@ -467,6 +491,7 @@ public class LanFlowMapService
 
             if (c.IsWired && c.SwitchPort.HasValue)
             {
+                link.PortIdx = c.SwitchPort.Value;
                 // Primary: SNMP-derived InterfaceNameMap. Gives us ifName for the
                 // SNMP-keyed _portRateLatest path + speed from sysSpeed.
                 if (nameMaps.TryGetValue((parentMac, c.SwitchPort.Value), out var nameMap))
@@ -993,6 +1018,18 @@ public class LanFlowMapService
         const string prefix = "uplink-";
         return linkId.StartsWith(prefix, StringComparison.Ordinal)
             ? linkId.Substring(prefix.Length)
+            : null;
+    }
+
+    /// <summary>
+    /// FromNodeId is always the upstream side of a link by convention; strip the
+    /// "dev-" prefix to recover the parent device MAC for per-port rate lookups.
+    /// </summary>
+    private static string? ExtractParentMacFromLink(LanLink link)
+    {
+        const string prefix = "dev-";
+        return link.FromNodeId.StartsWith(prefix, StringComparison.Ordinal)
+            ? link.FromNodeId.Substring(prefix.Length)
             : null;
     }
 

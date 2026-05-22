@@ -115,6 +115,12 @@ public class LanLink
 
     /// <summary>Stable correlation key for wired throughput chain: device MAC + ifName (spec 3.7).</summary>
     public string? PortKey { get; set; }
+
+    /// <summary>UniFi port_idx on the parent device for live per-port rate lookup
+    /// against MonitoringLiveStats. Set wherever PortKey is set. Server-only;
+    /// not consumed by the JS layer (and excluded from JSON if needed).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int? PortIdx { get; set; }
 }
 
 public enum LanCloudKind

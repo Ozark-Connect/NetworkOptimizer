@@ -69,6 +69,29 @@ public class MonitoringLiveStats
     private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
     private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
+    // Per-port rate cache. Keyed by (deviceMac, portIdx) - same shape as the
+    // agent's internal _portRateLatest, exposed here so the 3D map's live-tick
+    // path can refresh wired client leaf rates without rebuilding the snapshot.
+    // Tuple direction matches the agent: DownBps = parent-port TX delta (data
+    // toward the leaf), UpBps = parent-port RX delta (data from the leaf).
+    private readonly ConcurrentDictionary<(string DeviceMac, int PortIdx), PortLiveRate> _portRates = new();
+
+    public void RecordPortRate(string deviceMac, int portIdx, double downBps, double upBps, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || portIdx <= 0) return;
+        _portRates[(Normalize(deviceMac), portIdx)] = new PortLiveRate
+        {
+            DownBps = downBps,
+            UpBps = upBps,
+            LastUpdate = timestamp
+        };
+    }
+
+    public PortLiveRate? GetPortRate(string deviceMac, int portIdx)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || portIdx <= 0) return null;
+        return _portRates.TryGetValue((Normalize(deviceMac), portIdx), out var v) ? v : null;
+    }
 
     /// <summary>Latest probe result for a specific monitoring target ID.</summary>
     public TargetLiveStats? GetTargetStats(string targetId)
@@ -205,6 +228,11 @@ public class MonitoringLiveStats
             if (kvp.Value.LastUpdate < cutoff)
                 _wifiClients.TryRemove(kvp.Key, out _);
         }
+        foreach (var kvp in _portRates)
+        {
+            if (kvp.Value.LastUpdate < cutoff)
+                _portRates.TryRemove(kvp.Key, out _);
+        }
     }
 
     private static string Normalize(string mac) =>
@@ -260,6 +288,15 @@ public record SfpLiveStats
     public double? BiasMa { get; init; }
     public double? TemperatureC { get; init; }
     public double? VoltageV { get; init; }
+    public DateTime LastUpdate { get; init; }
+}
+
+public record PortLiveRate
+{
+    /// <summary>Downstream-toward-leaf direction rate (parent port TX delta) in bps.</summary>
+    public double DownBps { get; init; }
+    /// <summary>Upstream-from-leaf direction rate (parent port RX delta) in bps.</summary>
+    public double UpBps { get; init; }
     public DateTime LastUpdate { get; init; }
 }
 
