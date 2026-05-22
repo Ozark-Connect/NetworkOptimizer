@@ -1526,19 +1526,15 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private static bool IsPonModule(string? part, string? vendor, string? compliance)
     {
-        var combined = $"{part} {vendor} {compliance}";
-        if (combined.Contains("PON", StringComparison.OrdinalIgnoreCase)) return true;
-        if (combined.Contains("WAS", StringComparison.OrdinalIgnoreCase)) return true;
+        // PonVariantLabel returns "PON" only when nothing matches at all.
+        // Any specific result (GPON, XGS-PON, etc.) means it's a PON module.
+        var variant = Core.Helpers.NetworkFormatHelpers.PonVariantLabel(part, vendor);
+        if (variant != "PON") return true;
 
-        if (!string.IsNullOrEmpty(vendor))
-        {
-            var v = vendor!.Replace("&", "").Replace("-", "").Replace("_", "").Trim();
-            if (v.StartsWith("Calix", StringComparison.OrdinalIgnoreCase)) return true;
-            if (v.StartsWith("Zyxel", StringComparison.OrdinalIgnoreCase)) return true;
-            if (v.StartsWith("Nokia", StringComparison.OrdinalIgnoreCase)) return true;
-            if (v.StartsWith("Leox", StringComparison.OrdinalIgnoreCase)) return true;
-            if (v.StartsWith("TW", StringComparison.OrdinalIgnoreCase)) return true;
-        }
+        // Compliance string as final fallback
+        if (!string.IsNullOrEmpty(compliance)
+            && compliance!.Contains("PON", StringComparison.OrdinalIgnoreCase))
+            return true;
 
         return false;
     }

@@ -856,17 +856,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         return !string.IsNullOrEmpty(target?.Name) ? target.Name : deviceMac;
     }
 
-    private static string PonVariantLabel(string? sfpPart, string? sfpVendor)
-    {
-        var s = $"{sfpPart} {sfpVendor}";
-        if (s.Contains("XGS-PON", StringComparison.OrdinalIgnoreCase)
-            || s.Contains("XGSPON", StringComparison.OrdinalIgnoreCase)) return "XGS-PON";
-        if (s.Contains("XG-PON", StringComparison.OrdinalIgnoreCase)) return "XG-PON";
-        if (s.Contains("GPON", StringComparison.OrdinalIgnoreCase)) return "GPON";
-        if (s.Contains("EPON", StringComparison.OrdinalIgnoreCase)) return "EPON";
-        if (s.Contains("NG-PON", StringComparison.OrdinalIgnoreCase)) return "NG-PON";
-        return "PON";
-    }
+    private static string PonVariantLabel(string? sfpPart, string? sfpVendor) =>
+        NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfpPart, sfpVendor);
 
     private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
     {
