@@ -6,32 +6,33 @@ using Xunit;
 namespace NetworkOptimizer.Monitoring.Tests.Probes;
 
 /// <summary>
-/// Verifies the traceroute parser against actual output captured from real Linux
-/// traceroute runs (Debian on NAS Docker host). Pins behavior we depend on for the
-/// upstream tracer wizard's hop-labelling logic — most importantly, that hostname/IP
-/// pairs from PTR resolution land in TraceHop.Hostname and TraceHop.Address respectively.
+/// Verifies the traceroute parser against output shaped like real Linux traceroute
+/// runs. Pins behavior we depend on for the upstream tracer wizard's hop-labelling
+/// logic - most importantly, that hostname/IP pairs from PTR resolution land in
+/// TraceHop.Hostname and TraceHop.Address respectively. All addresses and PTR
+/// names below are synthetic (RFC 5737 / RFC 2606 spaces) so the fixtures don't
+/// embed any specific operator's network.
 /// </summary>
 public class RealWorldTracerouteTests
 {
     [Fact]
-    public void Parse_RealNasTracerouteOutput_PreservesHostnamesAndIps()
+    public void Parse_PtrAndStarHops_PreservesHostnamesAndIps()
     {
-        // Captured from `ssh root@nas "traceroute -m 8 -w 1 1.1.1.1"` 2026-05-21
         var output = """
-            traceroute to 1.1.1.1 (1.1.1.1), 8 hops max, 60 byte packets
+            traceroute to 192.0.2.1 (192.0.2.1), 8 hops max, 60 byte packets
              1  _gateway (192.168.1.1)  0.201 ms  0.231 ms  0.172 ms
-             2  gassville-bng-pon.yelcot.net (216.134.230.1)  3.449 ms  2.907 ms  3.062 ms
-             3  gassville-border.yelcot.net (216.134.229.145)  3.462 ms  3.431 ms  3.463 ms
+             2  edge1.example.net (198.51.100.1)  3.449 ms  2.907 ms  3.062 ms
+             3  border1.example.net (198.51.100.2)  3.462 ms  3.431 ms  3.463 ms
              4  * * *
              5  * * *
-             6  mcibbrj01.rd.ks.cox.net (68.1.1.83)  13.217 ms  12.577 ms  12.929 ms
-             7  98.171.221.235 (98.171.221.235)  13.154 ms  13.955 ms  13.980 ms
-             8  172.68.148.6 (172.68.148.6)  13.555 ms  13.651 ms  13.350 ms
+             6  core1.transit.example.com (203.0.113.1)  13.217 ms  12.577 ms  12.929 ms
+             7  203.0.113.50 (203.0.113.50)  13.154 ms  13.955 ms  13.980 ms
+             8  203.0.113.99 (203.0.113.99)  13.555 ms  13.651 ms  13.350 ms
             """;
 
         var r = TracerouteOutputParser.Parse(
             output,
-            new ProbeTarget("1.1.1.1", ProbeMode.Icmp),
+            new ProbeTarget("192.0.2.1", ProbeMode.Icmp),
             ProbeVantage.Server,
             ProbeMode.Icmp);
 
@@ -41,69 +42,66 @@ public class RealWorldTracerouteTests
         r.Hops[0].Address.Should().Be("192.168.1.1");
 
         // The key wizard signal: ISP-attributable hostnames preserved
-        r.Hops[1].Hostname.Should().Be("gassville-bng-pon.yelcot.net");
-        r.Hops[1].Address.Should().Be("216.134.230.1");
+        r.Hops[1].Hostname.Should().Be("edge1.example.net");
+        r.Hops[1].Address.Should().Be("198.51.100.1");
 
-        r.Hops[2].Hostname.Should().Be("gassville-border.yelcot.net");
-        r.Hops[2].Address.Should().Be("216.134.229.145");
+        r.Hops[2].Hostname.Should().Be("border1.example.net");
+        r.Hops[2].Address.Should().Be("198.51.100.2");
 
         // Non-responding hops
         r.Hops[3].Responded.Should().BeFalse();
         r.Hops[4].Responded.Should().BeFalse();
 
-        // Transit ISP hostname (Cox)
-        r.Hops[5].Hostname.Should().Be("mcibbrj01.rd.ks.cox.net");
-        r.Hops[5].Address.Should().Be("68.1.1.83");
+        // Transit-style hostname
+        r.Hops[5].Hostname.Should().Be("core1.transit.example.com");
+        r.Hops[5].Address.Should().Be("203.0.113.1");
 
-        // Hops where PTR == IP — hostname capture still records the IP form
-        r.Hops[6].Address.Should().Be("98.171.221.235");
-        r.Hops[7].Address.Should().Be("172.68.148.6");
+        // Hops where PTR == IP - hostname capture still records the IP form
+        r.Hops[6].Address.Should().Be("203.0.113.50");
+        r.Hops[7].Address.Should().Be("203.0.113.99");
 
-        // We didn't see the actual target (1.1.1.1) so Reached should be false
+        // We didn't see the actual target (192.0.2.1) so Reached should be false
         r.Reached.Should().BeFalse();
     }
 
     [Fact]
-    public void Parse_RealMacOSTracerouteOutput_ReachesTargetAndCapturesPtr()
+    public void Parse_EcmpSplayAndTargetReached_CapturesPtrAndReached()
     {
-        // Captured from `ssh noel@192.168.50.10 "traceroute -m 8 -w 1 1.1.1.1"` 2026-05-21
-        // Includes an ECMP edge case (hop 7) and a PTR-named final hop.
+        // Hop 7 exercises the ECMP edge case (the parser currently captures only the
+        // first IP per hop; continuation lines aren't picked up by the hop-line regex,
+        // which is acceptable for the MVP - first-responder semantics are what the
+        // wizard's per-hop labelling needs).
         var output = """
-            traceroute to 1.1.1.1 (1.1.1.1), 8 hops max, 40 byte packets
-             1  unifi (192.168.50.1)  1.062 ms  0.808 ms  0.342 ms
+            traceroute to 192.0.2.1 (192.0.2.1), 8 hops max, 40 byte packets
+             1  router (192.168.50.1)  1.062 ms  0.808 ms  0.342 ms
              2  192.168.1.254 (192.168.1.254)  1.334 ms  1.346 ms  0.826 ms
-             3  108-232-152-1.lightspeed.tukrga.sbcglobal.net (108.232.152.1)  2.265 ms  2.378 ms  2.267 ms
-             4  107.212.168.36 (107.212.168.36)  2.053 ms  2.127 ms  2.047 ms
-             5  12.242.113.40 (12.242.113.40)  2.371 ms  2.741 ms  2.319 ms
+             3  edge1.example.com (198.51.100.10)  2.265 ms  2.378 ms  2.267 ms
+             4  198.51.100.11 (198.51.100.11)  2.053 ms  2.127 ms  2.047 ms
+             5  203.0.113.20 (203.0.113.20)  2.371 ms  2.741 ms  2.319 ms
              6  * * *
-             7  108.162.235.87 (108.162.235.87)  5.055 ms
-                108.162.235.59 (108.162.235.59)  3.302 ms
-                108.162.235.121 (108.162.235.121)  14.629 ms
-             8  one.one.one.one (1.1.1.1)  6.351 ms  3.592 ms  3.311 ms
+             7  203.0.113.21 (203.0.113.21)  5.055 ms
+                203.0.113.22 (203.0.113.22)  3.302 ms
+                203.0.113.23 (203.0.113.23)  14.629 ms
+             8  target.example.com (192.0.2.1)  6.351 ms  3.592 ms  3.311 ms
             """;
 
         var r = TracerouteOutputParser.Parse(
             output,
-            new ProbeTarget("1.1.1.1", ProbeMode.Icmp),
+            new ProbeTarget("192.0.2.1", ProbeMode.Icmp),
             ProbeVantage.Server,
             ProbeMode.Icmp);
 
-        // ECMP splay: the parser currently captures only the first IP per hop. The other
-        // two ECMP responses on hop 7 land on continuation lines which our hop-line regex
-        // doesn't pick up. Acceptable for the MVP — the first-responder semantics are
-        // what the wizard's per-hop labelling needs.
         r.Hops.Should().HaveCountGreaterThanOrEqualTo(7);
 
-        // Hop 1: SBC-attributable PTR
-        r.Hops[2].Hostname.Should().Be("108-232-152-1.lightspeed.tukrga.sbcglobal.net");
-        r.Hops[2].Address.Should().Be("108.232.152.1");
+        // Hop with a real PTR survives the parse
+        r.Hops[2].Hostname.Should().Be("edge1.example.com");
+        r.Hops[2].Address.Should().Be("198.51.100.10");
 
-        // Final hop reaches the target and carries Cloudflare's identity hostname
+        // Final hop reaches the target and carries an identity PTR
         var lastHop = r.Hops.Last(h => h.HopNumber == 8);
-        lastHop.Hostname.Should().Be("one.one.one.one");
-        lastHop.Address.Should().Be("1.1.1.1");
+        lastHop.Hostname.Should().Be("target.example.com");
+        lastHop.Address.Should().Be("192.0.2.1");
 
-        // Target was reached
         r.Reached.Should().BeTrue();
     }
 }

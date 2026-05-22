@@ -597,12 +597,10 @@ public class UpstreamTracerService
 
     /// <summary>
     /// Hop label priority per spec 5.5: PTR hostname > role inference > bare IP +
-    /// ISP name. PTRs that just encode the IP (e.g.
-    /// "h121.217.134.40.static.ip.windstream.net") fall through to bare IP since
-    /// the encoded form is useless as a label. Otherwise we strip the trailing
-    /// two labels (the registrable ISP domain like "windstream.net" or
-    /// "twelve99.net") so the kept portion is the router-identifying head
-    /// ("ae6-0.agr01.ltrk01-ar.us" rather than "ae6-0.agr01").
+    /// ISP name. PTRs that just encode the IP (e.g. "h1.2.3.4.static.ip.example.net")
+    /// fall through to bare IP since the encoded form is useless as a label.
+    /// Otherwise we strip just the trailing TLD label so the ISP-identifying SLD
+    /// stays in the label ("router-name.example" rather than "router-name").
     /// </summary>
     private static string LabelAccessHop(AttributedHop hop)
     {
@@ -612,10 +610,11 @@ public class UpstreamTracerService
             var parts = hop.Hostname.Split('.');
             if (!IsIpDerivedHostname(parts, hop.Address))
             {
-                // Keep everything except the last two labels (the ISP's registrable
-                // domain). If the hostname has <=2 labels, just return it whole.
-                return parts.Length > 2
-                    ? string.Join('.', parts.Take(parts.Length - 2))
+                // Strip only the final TLD label (.net/.com/...) so the SLD that
+                // names the ISP is preserved. If the hostname has only one label
+                // (e.g. "_gateway") just return it whole.
+                return parts.Length > 1
+                    ? string.Join('.', parts.Take(parts.Length - 1))
                     : hop.Hostname;
             }
             // IP-encoded PTR; fall through to the bare-IP branch below.
