@@ -4,6 +4,8 @@
 @implements IDisposable
 @inject UpstreamTracerService Tracer
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject IJSRuntime JS
+@inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache FlowMapCache
 
 <div class="card">
     <div class="card-header">
@@ -307,6 +309,20 @@
         await Tracer.CommitResultsAsync();
         _state = Tracer.State;
         StateHasChanged();
+
+        // Server side: invalidate the cached map snapshot so the next read
+        // rebuilds with the freshly committed monitoring targets. Client
+        // side: ask the LAN flow map module to re-fetch its snapshot and
+        // tear down + rebuild the scene so the new access cloud labels
+        // appear immediately without waiting for the cache TTL.
+        FlowMapCache.Invalidate();
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "eval",
+                "if (window.__lanFlowMap?.reload) { window.__lanFlowMap.reload(); }");
+        }
+        catch { /* map not mounted on this page, fine */ }
     }
 
     private static string StateLabel(TracerStep step) => step switch

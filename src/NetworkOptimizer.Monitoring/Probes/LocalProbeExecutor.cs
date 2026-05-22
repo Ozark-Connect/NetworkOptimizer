@@ -315,14 +315,6 @@ public class LocalProbeExecutor : IProbeExecutor
     {
         await GetCapabilityAsync(ct);
 
-        // Cap the whole probe by an absolute deadline — some hops silently discard probes
-        // and a per-hop * 30 hops worst case can stretch past a minute, which is too long
-        // for a UI button or scheduled probe.
-        var deadline = totalDeadline ?? TimeSpan.FromSeconds(10);
-        using var deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadlineCts.CancelAfter(deadline);
-        var probeCt = deadlineCts.Token;
-
         // Prefer the native traceroute binary on Linux/macOS for every mode (including
         // ICMP — `traceroute -I`). The binary ships setuid / with proper capabilities so
         // it doesn't need CAP_NET_RAW on the calling process, and it captures PTR records
@@ -330,14 +322,24 @@ public class LocalProbeExecutor : IProbeExecutor
         // isn't available and tracert.exe's output is a different format, so we fall back
         // to the managed Ping-with-TTL implementation only there (or as a last-resort
         // fallback when traceroute is genuinely missing).
+        var deadlineDuration = totalDeadline ?? TimeSpan.FromSeconds(10);
         if (!_tracerouteBinaryAvailable || OperatingSystem.IsWindows())
         {
-            return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, probeCt);
+            using var managedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            managedCts.CancelAfter(deadlineDuration);
+            return await _managedTraceroute.RunAsync(target, Vantage, maxHops, perHopTimeout, 3, managedCts.Token);
         }
 
         var (exe, args) = BuildTracerouteCommand(target, maxHops, perHopTimeout);
-        ct = probeCt;
+        // Acquire the throttle FIRST, THEN start the per-trace deadline. The
+        // deadline must bound process execution, not time spent queued behind
+        // the semaphore - otherwise queued traces in a big sweep (18 in the
+        // wizard) burn their entire budget waiting and exit with no output.
         await _processLaunchLimiter.WaitAsync(ct);
+        using var deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadlineCts.CancelAfter(deadlineDuration);
+        var probeCt = deadlineCts.Token;
+        ct = probeCt;
         try
         {
             var psi = new ProcessStartInfo(exe, args)

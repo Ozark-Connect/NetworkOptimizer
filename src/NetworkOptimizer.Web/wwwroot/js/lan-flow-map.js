@@ -307,6 +307,28 @@ export class LanFlowMap {
     // Data loading
     // ------------------------------------------------------------------------
 
+    /// External reload: tear down the scene meshes + DOM labels + bookkeeping
+    /// state, then re-fetch the snapshot. Used by the wizard panel after the
+    /// user saves new monitoring targets so the map picks up the change
+    /// without a full page reload.
+    async _reloadSnapshot() {
+        this._disposeScene();
+        this._nodeMeshes.clear();
+        this._linkMeshes.clear();
+        this._cloudMeshes.clear();
+        this._positions.clear();
+        this._currentRates = {};
+        if (this._labelsLayer) {
+            for (const { el } of this._floatingLabels.values()) el.remove();
+            for (const { el } of this._linkLabels.values()) el.remove();
+            for (const el of this._wanPills.values()) el.remove();
+        }
+        this._floatingLabels.clear();
+        this._linkLabels.clear();
+        this._wanPills.clear();
+        await this._loadSnapshot();
+    }
+
     async _loadSnapshot() {
         try {
             const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
@@ -993,7 +1015,7 @@ export class LanFlowMap {
         // slow. Instead use a much higher real-time multiplier appropriate
         // for a 24h window: 10 *minutes* of real time per 1 sec of playback.
         // That puts a full 24h pass at ~2.4 min, which actually reads.
-        const realSecPerPlaybackSec = 600; // 10 minutes per second
+        const realSecPerPlaybackSec = 300; // 5 minutes per second
         const tickMs = 250;
         const realSecPerTick = realSecPerPlaybackSec * (tickMs / 1000);
         const unitsPerSec = 1000 / (24 * 60 * 60);
@@ -1964,4 +1986,12 @@ export function unmount() {
         _instance.dispose();
         _instance = null;
     }
+}
+
+// Re-fetch the snapshot and rebuild the scene from scratch. Used by the
+// upstream tracer wizard after committing new monitoring targets so the
+// map picks up the freshly committed clouds without needing a page reload.
+export async function reload() {
+    if (!_instance) return;
+    await _instance._reloadSnapshot();
 }
