@@ -1,8 +1,7 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Storage.Models;
+using System.Net.Sockets;
+using System.Text;
+using NetworkOptimizer.Threats.Enrichment;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
@@ -11,46 +10,41 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// for every traceroute hop to identify which transit ASN it belongs to and to label
 /// the resulting cloud.
 ///
-/// Iteration 1 uses bgp.tools' DNS-based bulk lookup endpoint (lightweight, no API key)
-/// plus in-memory caching with a 30-day-ish TTL. A future iteration will bundle the
-/// iptoasn.com dataset for offline / first-mile resolution before the live API is
-/// reachable. The interface is stable across that change.
+/// Primary source is the offline GeoLite2-ASN MaxMind database (already loaded by
+/// <see cref="GeoEnrichmentService"/> for threat enrichment). In-memory lookup, no
+/// network dependency, no rate limit, covers essentially every routed IPv4 prefix.
 ///
-/// All requests respect a soft rate limit so a dense traceroute (30 hops) doesn't burst
-/// 30 lookups simultaneously.
+/// Fallback is bgp.tools' bulk WHOIS service on TCP/43 (the only programmatic IP-to-ASN
+/// interface they actually publish - https://bgp.tools/kb/api). Used when GeoLite2
+/// can't answer (very new prefix, or the bundled DB hasn't refreshed) or hasn't been
+/// loaded at all.
 /// </summary>
 public class AsnResolutionService
 {
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly GeoEnrichmentService _geo;
     private readonly ILogger<AsnResolutionService> _logger;
 
-    // Short-lived process cache to bound live API calls during a single tracer run.
-    // A traceroute can produce 20+ lookups in seconds; without caching we'd hammer the
-    // upstream service.
+    // Per-process cache - a single tracer run can produce 20+ lookups in seconds.
     private readonly ConcurrentDictionary<string, AsnLookup?> _cache = new();
-    private readonly SemaphoreSlim _rateLimiter = new(2, 2); // max 2 concurrent lookups
 
-    public AsnResolutionService(
-        IHttpClientFactory httpClientFactory,
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        ILogger<AsnResolutionService> logger)
+    // Soft rate limiter on the whois fallback. The TCP/43 service has no documented
+    // limit, but we still don't want a 30-hop trace bursting 30 concurrent sockets.
+    private readonly SemaphoreSlim _whoisLimiter = new(2, 2);
+
+    public AsnResolutionService(GeoEnrichmentService geo, ILogger<AsnResolutionService> logger)
     {
-        _httpClientFactory = httpClientFactory;
-        _dbFactory = dbFactory;
+        _geo = geo;
         _logger = logger;
     }
 
     /// <summary>
     /// Look up the ASN + name for an IP address. Returns null if the IP is private,
-    /// CGNAT, or the lookup fails. The caller is expected to handle null gracefully -
-    /// not every traceroute hop is publicly attributable.
+    /// CGNAT, or both the offline DB and online fallback fail. The caller is expected
+    /// to handle null gracefully - not every traceroute hop is publicly attributable.
     /// </summary>
     public async Task<AsnLookup?> ResolveAsync(string ipAddress, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(ipAddress)) return null;
-
-        // Process cache - cheapest possible hit
         if (_cache.TryGetValue(ipAddress, out var cached)) return cached;
 
         // Skip non-public addresses - they can't have ASN attribution and we'd just
@@ -64,82 +58,77 @@ public class AsnResolutionService
             return null;
         }
 
-        await _rateLimiter.WaitAsync(ct);
+        // Primary: offline GeoLite2-ASN. In-memory, free of rate-limit / network risk.
+        if (_geo.IsAsnAvailable)
+        {
+            var enriched = _geo.Enrich(ipAddress);
+            if (enriched.Asn.HasValue && enriched.Asn.Value > 0)
+            {
+                var hit = new AsnLookup(enriched.Asn.Value, enriched.AsnOrg ?? $"AS{enriched.Asn.Value}");
+                _cache[ipAddress] = hit;
+                return hit;
+            }
+        }
+
+        // Fallback: bgp.tools whois on TCP/43.
+        await _whoisLimiter.WaitAsync(ct);
         try
         {
-            // Re-check the cache in case another concurrent lookup populated it.
             if (_cache.TryGetValue(ipAddress, out cached)) return cached;
-
-            var result = await QueryBgpToolsAsync(ipAddress, ct);
+            var result = await QueryBgpToolsWhoisAsync(ipAddress, ct);
             _cache[ipAddress] = result;
             return result;
         }
         finally
         {
-            _rateLimiter.Release();
+            _whoisLimiter.Release();
         }
     }
 
     /// <summary>
-    /// bgp.tools exposes a simple DNS-based bulk lookup at whois.bgp.tools (TCP/43).
-    /// For an HTTP-based wrapper, we use their REST endpoint which returns JSON. No
-    /// API key required, just a User-Agent identifying ourselves per their guidelines.
+    /// Query bgp.tools' single-IP whois (TCP/43). Sends " -v &lt;ip&gt;" (leading space
+    /// matters - the dash isn't a CLI flag, it's part of the wire payload) and parses
+    /// the pipe-delimited row.
+    /// Example response:
+    ///   AS      | IP       | BGP Prefix  | CC | Registry | Allocated  | AS Name
+    ///   13335   | 1.1.1.1  | 1.1.1.0/24  | US | arin     | 2010-07-14 | CLOUDFLARENET
     /// </summary>
-    private async Task<AsnLookup?> QueryBgpToolsAsync(string ipAddress, CancellationToken ct)
+    private async Task<AsnLookup?> QueryBgpToolsWhoisAsync(string ipAddress, CancellationToken ct)
     {
         try
         {
-            using var http = _httpClientFactory.CreateClient();
-            http.Timeout = TimeSpan.FromSeconds(5);
-            http.DefaultRequestHeaders.UserAgent.ParseAdd(
-                "NetworkOptimizer/1.0 (https://github.com/Ozark-Connect/NetworkOptimizer; tjvc4@users.noreply.github.com)");
+            using var tcp = new TcpClient();
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(5));
+            await tcp.ConnectAsync("bgp.tools", 43, connectCts.Token);
 
-            var url = $"https://bgp.tools/json/lookup/ip/{ipAddress}";
-            using var response = await http.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode)
+            using var stream = tcp.GetStream();
+            var query = Encoding.ASCII.GetBytes($" -v {ipAddress}\r\n");
+            await stream.WriteAsync(query, ct);
+
+            using var reader = new StreamReader(stream, Encoding.ASCII);
+            string? line;
+            // Skip the header line; first data row carries the answer.
+            bool headerSkipped = false;
+            while ((line = await reader.ReadLineAsync(ct)) != null)
             {
-                _logger.LogDebug("bgp.tools lookup for {Ip} returned HTTP {Status}",
-                    ipAddress, (int)response.StatusCode);
-                return null;
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                if (!headerSkipped)
+                {
+                    headerSkipped = true;
+                    continue;
+                }
+                var parts = line.Split('|');
+                if (parts.Length < 7) continue;
+                if (!int.TryParse(parts[0].Trim(), out var asn) || asn <= 0) continue;
+                var name = parts[6].Trim();
+                return new AsnLookup(asn, string.IsNullOrEmpty(name) ? $"AS{asn}" : name);
             }
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            // bgp.tools responds with an array of ASN entries (often just one for a
-            // specific IP). Pick the first entry's ASN + name.
-            JsonElement entry;
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                if (root.GetArrayLength() == 0) return null;
-                entry = root[0];
-            }
-            else
-            {
-                entry = root;
-            }
-
-            int asn = 0;
-            string? name = null;
-
-            if (entry.TryGetProperty("asn", out var asnEl))
-            {
-                asn = asnEl.ValueKind == JsonValueKind.Number ? asnEl.GetInt32()
-                    : int.TryParse(asnEl.GetString(), out var parsed) ? parsed : 0;
-            }
-
-            if (entry.TryGetProperty("name", out var nameEl))
-                name = nameEl.GetString();
-            else if (entry.TryGetProperty("as_name", out var asNameEl))
-                name = asNameEl.GetString();
-
-            if (asn == 0) return null;
-            return new AsnLookup(asn, name ?? $"AS{asn}");
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "bgp.tools lookup failed for {Ip}", ipAddress);
+            _logger.LogDebug(ex, "bgp.tools whois lookup failed for {Ip}", ipAddress);
             return null;
         }
     }
