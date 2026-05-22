@@ -1926,7 +1926,7 @@ class ParticleStream {
         // EMIT_PER_SEC at density=1 (saturated traffic) is tuned to look
         // like a thick steady stream; at density~0.5 (Mbps range) it's a
         // visible trickle; near density=0 it's nearly silent.
-        const EMIT_PER_SEC = 25;
+        const EMIT_PER_SEC = 8;
         this._spawnAccumulator += this._density * EMIT_PER_SEC * dt;
         while (this._spawnAccumulator >= 1) {
             this._spawnAccumulator -= 1;
