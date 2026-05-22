@@ -1,10 +1,8 @@
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
-using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services.LanFlowMap;
@@ -697,7 +695,14 @@ public class LanFlowMapService
 
             if (!upstream.IsPrimary) continue;
 
-            string prevCloudId = accessCloud.Id;
+            // Each upstream cloud (transit-router ASN or path-end service) hangs
+            // off the access cloud as a sibling. The old code daisy-chained them
+            // (access -> transit1 -> transit2 -> ... -> path-end-N) which falsely
+            // implied a single linear path through every ASN we discovered. In
+            // reality the trace data is a flat set of distinct ASNs seen across
+            // many destinations' parallel paths - we don't have per-destination
+            // chain ordering, so a star topology from the access cloud is the
+            // most accurate thing to draw.
             int order = 1;
             foreach (var t in upstream.Transits)
             {
@@ -725,12 +730,11 @@ public class LanFlowMapService
                 snapshot.Clouds.Add(cloud);
                 snapshot.Links.Add(new LanLink
                 {
-                    Id = $"transit-link-{prevCloudId}-{cloud.Id}",
-                    FromNodeId = prevCloudId,
+                    Id = $"transit-link-{accessCloud.Id}-{cloud.Id}",
+                    FromNodeId = accessCloud.Id,
                     ToNodeId = cloud.Id,
                     Kind = LanLinkKind.Transit,
                 });
-                prevCloudId = cloud.Id;
             }
         }
     }
