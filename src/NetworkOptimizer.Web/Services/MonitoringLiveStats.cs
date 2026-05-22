@@ -91,6 +91,28 @@ public class MonitoringLiveStats
             });
     }
 
+    public void RecordHealth(string deviceMac, double? cpuPercent, double? memoryUsedPercent, double? temperatureC, long? uptimeSeconds, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return;
+        _stats.AddOrUpdate(Normalize(deviceMac),
+            _ => new DeviceLiveStats
+            {
+                CpuPercent = cpuPercent,
+                MemoryUsedPercent = memoryUsedPercent,
+                TemperatureC = temperatureC,
+                UptimeSeconds = uptimeSeconds,
+                LastHealthUpdate = timestamp
+            },
+            (_, existing) => existing with
+            {
+                CpuPercent = cpuPercent ?? existing.CpuPercent,
+                MemoryUsedPercent = memoryUsedPercent ?? existing.MemoryUsedPercent,
+                TemperatureC = temperatureC ?? existing.TemperatureC,
+                UptimeSeconds = uptimeSeconds ?? existing.UptimeSeconds,
+                LastHealthUpdate = timestamp
+            });
+    }
+
     private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
     private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
@@ -386,6 +408,12 @@ public record DeviceLiveStats
     public double? LatestRttMs { get; init; }
     public double LatestLossPercent { get; init; }
     public DateTime? LastLatencyUpdate { get; init; }
+
+    public double? CpuPercent { get; init; }
+    public double? MemoryUsedPercent { get; init; }
+    public double? TemperatureC { get; init; }
+    public long? UptimeSeconds { get; init; }
+    public DateTime? LastHealthUpdate { get; init; }
 
     /// <summary>True if any data has landed for this device, within the freshness window.</summary>
     public bool HasFreshData(TimeSpan maxAge)

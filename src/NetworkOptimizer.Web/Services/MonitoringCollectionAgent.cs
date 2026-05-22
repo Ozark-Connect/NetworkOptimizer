@@ -632,16 +632,23 @@ public class MonitoringCollectionAgent : BackgroundService
                 var metrics = await poller.GetDeviceMetricsAsync(ip, device.Name);
                 if (!metrics.IsReachable) return;
 
+                var cpu = metrics.CpuUsage > 0 ? metrics.CpuUsage : (double?)null;
+                var memPct = metrics.MemoryUsage > 0 ? metrics.MemoryUsage : (double?)null;
+                var temp = metrics.Temperature > 0 ? metrics.Temperature : (double?)null;
+                var uptime = metrics.Uptime > 0 ? metrics.Uptime / 100 : (long?)null;
+
                 await _influx.WriteDeviceHealthAsync(
                     deviceMac: device.Mac,
                     deviceType: DescribeDeviceType(device.DeviceType),
-                    cpuPercent: metrics.CpuUsage > 0 ? metrics.CpuUsage : null,
+                    cpuPercent: cpu,
                     memoryTotalKb: metrics.TotalMemory > 0 ? metrics.TotalMemory / 1024 : null,
                     memoryUsedKb: metrics.UsedMemory > 0 ? metrics.UsedMemory / 1024 : null,
-                    memoryUsedPercent: metrics.MemoryUsage > 0 ? metrics.MemoryUsage : null,
-                    temperatureC: metrics.Temperature > 0 ? metrics.Temperature : null,
-                    uptimeSeconds: metrics.Uptime > 0 ? metrics.Uptime / 100 : null,
+                    memoryUsedPercent: memPct,
+                    temperatureC: temp,
+                    uptimeSeconds: uptime,
                     timestamp: DateTime.UtcNow);
+
+                _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
             }
             catch (Exception ex)
             {

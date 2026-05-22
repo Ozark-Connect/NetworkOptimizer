@@ -88,6 +88,9 @@ public class DashboardService : IDashboardService
                         info.LiveRateOutBps = live.RateOutBps;
                         info.LiveLatencyMs = live.LatestRttMs;
                         info.LiveLossPercent = live.LatestLossPercent;
+                        info.LiveCpuPercent = live.CpuPercent;
+                        info.LiveMemoryPercent = live.MemoryUsedPercent;
+                        info.LiveTemperatureC = live.TemperatureC;
                     }
                     return info;
                 })
@@ -278,6 +281,9 @@ public class DeviceInfo
     public double? LiveRateOutBps { get; set; }
     public double? LiveLatencyMs { get; set; }
     public double? LiveLossPercent { get; set; }
+    public double? LiveCpuPercent { get; set; }
+    public double? LiveMemoryPercent { get; set; }
+    public double? LiveTemperatureC { get; set; }
 
     /// <summary>
     /// Get display name for the device type

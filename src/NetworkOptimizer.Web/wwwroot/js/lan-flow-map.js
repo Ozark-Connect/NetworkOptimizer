@@ -1913,6 +1913,16 @@ export class LanFlowMap {
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
         if (node.wiredLinkSpeedMbps) rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
         if (node.network) rows.push(['Network', node.network]);
+        // Device health from NodeLiveBadge (infrastructure nodes only)
+        const badge = this._currentBadges?.[node.id];
+        if (badge?.cpuPercent != null) rows.push(['CPU', `${badge.cpuPercent.toFixed(0)}%`]);
+        if (badge?.memoryUsedPercent != null) rows.push(['Memory', `${badge.memoryUsedPercent.toFixed(0)}%`]);
+        if (badge?.temperatureC != null) rows.push(['Temp', `${badge.temperatureC.toFixed(0)} °C`]);
+        if (badge?.uptimeSeconds != null) {
+            const d = Math.floor(badge.uptimeSeconds / 86400);
+            const h = Math.floor((badge.uptimeSeconds % 86400) / 3600);
+            rows.push(['Uptime', d > 0 ? `${d}d ${h}h` : `${h}h`]);
+        }
         // Aggregate rate across adjacent links. For fabric devices (gateway /
         // switch / AP) we show ingress (data flowing INTO the device across
         // every port) and egress (data flowing OUT). For client nodes the

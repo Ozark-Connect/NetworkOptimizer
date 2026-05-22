@@ -1486,6 +1486,7 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 // New API endpoints go in Endpoints/*.cs, not inline here.
 LanFlowMapEndpoints.Map(app);
 MonitoringChartEndpoints.Map(app);
+DeviceHealthChartEndpoints.Map(app);
 
 app.Run();
 

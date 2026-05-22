@@ -271,6 +271,10 @@ public class NodeLiveBadge
     public double? FabricIngressBps { get; set; }
     public double? FabricEgressBps { get; set; }
     public bool Online { get; set; }
+    public double? CpuPercent { get; set; }
+    public double? MemoryUsedPercent { get; set; }
+    public double? TemperatureC { get; set; }
+    public long? UptimeSeconds { get; set; }
 }
 
 public class CloudLiveStats

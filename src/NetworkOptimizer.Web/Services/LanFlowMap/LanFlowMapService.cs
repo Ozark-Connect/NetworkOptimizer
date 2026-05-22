@@ -265,6 +265,10 @@ public class LanFlowMapService
                 FabricIngressBps = dev.FabricIngressBps,
                 FabricEgressBps = dev.FabricEgressBps,
                 Online = node.Online,
+                CpuPercent = dev.CpuPercent,
+                MemoryUsedPercent = dev.MemoryUsedPercent,
+                TemperatureC = dev.TemperatureC,
+                UptimeSeconds = dev.UptimeSeconds,
             };
         }
 

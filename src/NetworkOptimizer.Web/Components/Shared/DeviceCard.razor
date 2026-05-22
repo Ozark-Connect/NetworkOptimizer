@@ -87,6 +87,23 @@
                             }
                         </div>
                     }
+                    @if (Device.LiveCpuPercent.HasValue || Device.LiveMemoryPercent.HasValue || Device.LiveTemperatureC.HasValue)
+                    {
+                        <div class="device-health-stats">
+                            @if (Device.LiveCpuPercent.HasValue)
+                            {
+                                <span>CPU @($"{Device.LiveCpuPercent.Value:0}%")</span>
+                            }
+                            @if (Device.LiveMemoryPercent.HasValue)
+                            {
+                                <span>Mem @($"{Device.LiveMemoryPercent.Value:0}%")</span>
+                            }
+                            @if (Device.LiveTemperatureC.HasValue)
+                            {
+                                <span>@($"{Device.LiveTemperatureC.Value:0} °C")</span>
+                            }
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -146,6 +163,12 @@
         color: var(--danger-color);
         margin-left: 0.25rem;
     }
+    .device-health-stats {
+        display: flex;
+        gap: 0.75rem;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
 </style>
 
 @using NetworkOptimizer.Web.Services
@@ -159,7 +182,8 @@
     private bool HasLiveData => Device != null
         && (Device.LiveRateInBps.HasValue
             || Device.LiveRateOutBps.HasValue
-            || Device.LiveLatencyMs.HasValue);
+            || Device.LiveLatencyMs.HasValue
+            || Device.LiveCpuPercent.HasValue);
 
     private static string FormatBps(double? bps)
     {

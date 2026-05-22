@@ -369,6 +369,32 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             </div>
         </div>
 
+        <!-- Device health charts - temperature + CPU/memory for network devices -->
+        <div class="card" style="margin-top: 1.5rem;" id="device-health-charts-container">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <h2 class="card-title">Device Health</h2>
+                <div class="time-range-selector">
+                    <button class="time-btn" data-range="0">15m</button>
+                    <button class="time-btn active" data-range="1">1h</button>
+                    <button class="time-btn" data-range="6">6h</button>
+                    <button class="time-btn" data-range="24">24h</button>
+                    <button class="time-btn" data-range="168">7d</button>
+                    <button class="time-btn" data-range="720">30d</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="health-filter-badges wan-filter-badges"></div>
+                <div class="chart-card">
+                    <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
+                    <div class="health-temp-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">CPU &amp; Memory</h3></div>
+                    <div class="health-cpumem-chart"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Upstream tracer wizard (Build #10). User-initiated discovery of the access
              ISP path + transit ASN clouds; output populates AccessIsp / Transit
              MonitoringTarget rows for the agent's latency tier to probe. -->
@@ -860,6 +886,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     }
 
     private bool _latencyChartsMounted;
+    private bool _healthChartsMounted;
 
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
@@ -875,6 +902,18 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); }})();");
             }
             catch { _latencyChartsMounted = false; }
+        }
+
+        if (_monitoringEnabled && _influxConfigured && !_healthChartsMounted)
+        {
+            _healthChartsMounted = true;
+            try
+            {
+                var healthUrl = VersionedJs("/js/device-health-charts.js");
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); }})();");
+            }
+            catch { _healthChartsMounted = false; }
         }
 
         if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
@@ -908,6 +947,11 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_healthChartsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__healthCharts?.unmount();").AsTask(); }
             catch { }
         }
         if (_mapMounted)
