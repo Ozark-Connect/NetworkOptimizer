@@ -214,7 +214,7 @@ export class LanFlowMap {
         this.controls.dampingFactor = 0.08;
         this.controls.rotateSpeed = 0.65;
         this.controls.zoomSpeed = 0.75;
-        this.controls.minDistance = 8;
+        this.controls.minDistance = 1;
         this.controls.maxDistance = 220;
         this.controls.target.set(0, 0, 0);
 
