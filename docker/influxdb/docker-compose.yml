@@ -1,0 +1,25 @@
+# InfluxDB 2.x for Network Optimizer Monitoring
+#
+# Run:  docker compose up -d
+# UI:   http://localhost:8086
+#
+# After first start, open the UI to create an admin user and
+# an all-access API token. Then paste the token into Network
+# Optimizer's monitoring setup wizard.
+
+services:
+  influxdb:
+    image: influxdb:2
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    environment:
+      - TZ=${TZ:-UTC}
+
+volumes:
+  influxdb-data:
+  influxdb-config:

@@ -1124,6 +1124,52 @@ IPERF3_SERVER_ENABLED=false
 # or use a custom override file
 ```
 
+## InfluxDB for Monitoring (Optional)
+
+Network Optimizer's monitoring feature (SNMP polling, port counters, latency probes, SFP optical levels) stores time-series data in InfluxDB 2.x. You provide the InfluxDB instance - Network Optimizer's setup wizard handles bucket and token provisioning automatically.
+
+**You do not need InfluxDB for any other Network Optimizer feature.** It is only required if you want to use the Monitoring page.
+
+### Option A: Docker Compose (Recommended)
+
+A ready-to-use compose file is included at [`docker/influxdb/docker-compose.yml`](influxdb/docker-compose.yml):
+
+```bash
+cd /opt/network-optimizer/docker/influxdb   # or wherever you deployed
+docker compose up -d
+```
+
+InfluxDB will be available at `http://localhost:8086`. Open the UI to create an admin user and an all-access API token, then go to Network Optimizer's Monitoring page to finish setup.
+
+### Option B: Proxmox LXC
+
+The [Proxmox community scripts](https://community-scripts.github.io/ProxmoxVE/scripts?id=influxdb) project has an InfluxDB LXC helper. Run on your Proxmox host:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/influxdb.sh)"
+```
+
+The script is interactive - choose **InfluxDB v2** when prompted. It creates a lightweight Debian LXC with InfluxDB pre-installed (default: 2 cores, 2 GB RAM, 8 GB disk).
+
+### Option C: macOS (Homebrew)
+
+```bash
+brew install influxdb@2
+brew services start influxdb@2
+```
+
+### Option D: Other Platforms
+
+See the [official InfluxDB 2.x install docs](https://docs.influxdata.com/influxdb/v2/install/).
+
+### After Installation
+
+1. Open InfluxDB at `http://<influxdb-host>:8086`
+2. Complete the initial setup (create admin user, org, and bucket - the bucket name doesn't matter, Network Optimizer creates its own)
+3. Create an **All Access API Token** (Load Data > API Tokens > Generate)
+4. In Network Optimizer, go to **Monitoring** and follow the setup wizard
+5. Paste your all-access token - the wizard provisions two buckets (`network_monitoring` at 90-day retention, `network_monitoring_longterm` at 365-day) and mints a least-privilege scoped token for ongoing use. Your all-access token is never stored.
+
 ## Next Steps
 
 After deployment:
@@ -1133,5 +1179,6 @@ After deployment:
 4. Run security audit
 5. Configure SQM settings (if applicable)
 6. Set up client speed testing (optional, see above)
+7. Set up InfluxDB for monitoring (optional, see above)
 
 See main documentation for feature guides.

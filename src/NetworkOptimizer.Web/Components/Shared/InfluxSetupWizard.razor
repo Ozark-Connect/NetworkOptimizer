@@ -45,11 +45,11 @@
                 <details class="setup-guide" open>
                     <summary>Install InfluxDB</summary>
                     <div class="setup-guide-content">
-                        <p><strong>Docker</strong> (recommended for NAS / Linux hosts):</p>
-                        <pre><code>docker run -d --name influxdb -p 8086:8086 \
-  -v influxdb-data:/var/lib/influxdb2 \
+                        <p><strong>Docker</strong> (recommended for NAS / Linux hosts, or see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#influxdb-for-monitoring-optional" target="_blank" rel="noopener">Deployment Guide</a> for a companion Docker Compose config):</p>
+                        <pre><code>docker run -d --name influxdb --restart unless-stopped \
+  -p 8086:8086 -v influxdb-data:/var/lib/influxdb2 \
   influxdb:2</code></pre>
-                        <p><strong>macOS</strong>: <code>brew install influxdb && brew services start influxdb</code></p>
+                        <p><strong>macOS</strong>: <code>brew install influxdb@2 && brew services start influxdb@2</code></p>
                         <p><strong>Other</strong>: see the <a href="https://docs.influxdata.com/influxdb/v2/install/" target="_blank" rel="noopener">InfluxDB install docs</a>.</p>
                         <p>Once it's running, finish the initial setup at <code>http://localhost:8086</code> to create an admin user and an all-access API token, then come back here.</p>
                     </div>
