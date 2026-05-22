@@ -530,18 +530,27 @@ public class UpstreamTracerService
         // router candidates. TransitProbe endpoints (like Lumen 4.2.2.1) are
         // skipped here on purpose - the whole point of probing them is to
         // surface their ASN as transit.
+        //
+        // We also collect the destination org *names* so that sibling ASNs of
+        // the same org get excluded (e.g. probing Microsoft 13.107.42.14 lives
+        // in AS8068 but the trace traverses Microsoft's AS8075 backbone too -
+        // both are Microsoft, neither belongs in the transit list).
         var destinationAsns = new HashSet<int>();
+        var destinationOrgs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var endpoint in CdnRotation)
         {
             if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
-            if (destAsn != null) destinationAsns.Add(destAsn.Asn);
+            if (destAsn == null) continue;
+            destinationAsns.Add(destAsn.Asn);
+            if (!string.IsNullOrWhiteSpace(destAsn.Name)) destinationOrgs.Add(destAsn.Name.Trim());
         }
 
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
                         && !accessAsnNumbers.Contains(h.Asn.Asn)
-                        && !destinationAsns.Contains(h.Asn.Asn))
+                        && !destinationAsns.Contains(h.Asn.Asn)
+                        && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim())))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
