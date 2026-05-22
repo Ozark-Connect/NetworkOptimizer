@@ -258,17 +258,8 @@ export class LanFlowMap {
     }
 
     _shouldAcceptKeys() {
-        const tag = document.activeElement?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
-        // Global opt-in registry: any component can claim keyboard focus by
-        // adding a key to this Set. When non-empty, the 3D map yields.
-        // Usage: window.__keyboardFocusClaims.add('my-component');
-        //        window.__keyboardFocusClaims.delete('my-component');
-        if (window.__keyboardFocusClaims?.size > 0) return false;
-        // Only accept keys when the canvas is in the viewport.
         const rect = this.canvas.getBoundingClientRect();
-        if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
-        return true;
+        return rect.bottom > 0 && rect.top < window.innerHeight;
     }
 
     _handleResize() {
