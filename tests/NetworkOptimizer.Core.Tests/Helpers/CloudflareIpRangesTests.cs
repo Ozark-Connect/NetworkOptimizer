@@ -99,9 +99,9 @@ public class CloudflareIpRangesTests
     {
         // Real-world case: CF ranges plus a few static IPs for friends/family access
         var list = CloudflareIpRanges.IPv4Ranges.ToList();
-        list.Add("204.228.140.228");
-        list.Add("216.134.237.155");
-        list.Add("70.251.208.5");
+        list.Add("203.0.113.10");
+        list.Add("203.0.113.20");
+        list.Add("203.0.113.30");
         CloudflareIpRanges.IsCloudflareOnly(list).Should().BeTrue();
     }
 
@@ -133,7 +133,7 @@ public class CloudflareIpRangesTests
     public void IsCloudflareOnly_OnlyManagementIPsNoCf_ReturnsFalse()
     {
         // Individual IPs without any CF ranges is not a CF list
-        var list = new[] { "204.228.140.228", "216.134.237.155" };
+        var list = new[] { "203.0.113.10", "203.0.113.20" };
         CloudflareIpRanges.IsCloudflareOnly(list).Should().BeFalse();
     }
 
