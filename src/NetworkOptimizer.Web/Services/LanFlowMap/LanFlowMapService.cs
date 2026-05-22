@@ -695,47 +695,47 @@ public class LanFlowMapService
 
             if (!upstream.IsPrimary) continue;
 
-            // Each upstream cloud (transit-router ASN or path-end service) hangs
-            // off the access cloud as a sibling. The old code daisy-chained them
-            // (access -> transit1 -> transit2 -> ... -> path-end-N) which falsely
-            // implied a single linear path through every ASN we discovered. In
-            // reality the trace data is a flat set of distinct ASNs seen across
-            // many destinations' parallel paths - we don't have per-destination
-            // chain ordering, so a star topology from the access cloud is the
-            // most accurate thing to draw.
-            int order = 1;
-            foreach (var t in upstream.Transits)
-            {
-                var cloud = new LanCloud
-                {
-                    Id = $"cloud-transit-{wan.WanInterface}-{t.AsnNumber}",
-                    Kind = LanCloudKind.Transit,
-                    Asn = t.AsnNumber,
-                    AsnName = t.AsnName,
-                    Name = t.AsnName,
-                    Order = order++,
-                    WanInterface = wan.WanInterface,
-                    Tier = t.Method switch
-                    {
-                        DiscoveryMethod.PathProxy => LanCloudTier.PathProxy,
-                        DiscoveryMethod.DirectRouter => LanCloudTier.Solid,
-                        _ => LanCloudTier.Unresolved,
-                    },
-                };
-                if (t.Live != null && t.Live.Success)
-                {
-                    cloud.RttAvgMs = t.Live.RttAvgMs;
-                    cloud.LossPercent = t.Live.LossPercent;
-                }
-                snapshot.Clouds.Add(cloud);
-                snapshot.Links.Add(new LanLink
-                {
-                    Id = $"transit-link-{accessCloud.Id}-{cloud.Id}",
-                    FromNodeId = accessCloud.Id,
-                    ToNodeId = cloud.Id,
-                    Kind = LanLinkKind.Transit,
-                });
-            }
+            // Transit + path-end clouds disabled for now. The visualization
+            // wasn't conveying anything meaningful (clouds clustering even
+            // with the fan layout, no per-trace chain info to draw real
+            // adjacency). Keeping only the access cloud per WAN until the
+            // map-driven trace loop / live graph design is settled. The
+            // underlying monitoring targets are still committed by the
+            // wizard and probed by the agent - just not rendered.
+            //
+            // int order = 1;
+            // foreach (var t in upstream.Transits)
+            // {
+            //     var cloud = new LanCloud
+            //     {
+            //         Id = $"cloud-transit-{wan.WanInterface}-{t.AsnNumber}",
+            //         Kind = LanCloudKind.Transit,
+            //         Asn = t.AsnNumber,
+            //         AsnName = t.AsnName,
+            //         Name = t.AsnName,
+            //         Order = order++,
+            //         WanInterface = wan.WanInterface,
+            //         Tier = t.Method switch
+            //         {
+            //             DiscoveryMethod.PathProxy => LanCloudTier.PathProxy,
+            //             DiscoveryMethod.DirectRouter => LanCloudTier.Solid,
+            //             _ => LanCloudTier.Unresolved,
+            //         },
+            //     };
+            //     if (t.Live != null && t.Live.Success)
+            //     {
+            //         cloud.RttAvgMs = t.Live.RttAvgMs;
+            //         cloud.LossPercent = t.Live.LossPercent;
+            //     }
+            //     snapshot.Clouds.Add(cloud);
+            //     snapshot.Links.Add(new LanLink
+            //     {
+            //         Id = $"transit-link-{accessCloud.Id}-{cloud.Id}",
+            //         FromNodeId = accessCloud.Id,
+            //         ToNodeId = cloud.Id,
+            //         Kind = LanLinkKind.Transit,
+            //     });
+            // }
         }
     }
 
