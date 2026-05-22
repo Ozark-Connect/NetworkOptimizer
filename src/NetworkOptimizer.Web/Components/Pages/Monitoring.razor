@@ -376,7 +376,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         }
                         else
                         {
-                            <ApexChart @ref="_rttChart"
+                            <ApexChart @ref="_rttChart" @key="@_latencyChartKey"
                                        TItem="LatencyChartPoint"
                                        Options="_rttChartOptions"
                                        Height="@("260px")">
@@ -407,7 +407,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         }
                         else
                         {
-                            <ApexChart @ref="_lossChart"
+                            <ApexChart @ref="_lossChart" @key="@_latencyChartKey"
                                        TItem="LatencyChartPoint"
                                        Options="_lossChartOptions"
                                        Height="@("200px")">
@@ -950,6 +950,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private ApexChartOptions<LatencyChartPoint> _lossChartOptions = BuildLossChartOptions();
     private System.Threading.Timer? _latencyChartTimer;
     private bool _latencyChartsInitialized;
+    private int _latencyChartKey;
 
     public class LatencyChartPoint
     {
@@ -979,7 +980,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool IsTargetVisible(string targetId) =>
         !_latencyVisibility.TryGetValue(targetId, out var v) || v;
 
-    private async Task ToggleTargetVisibility(string targetId)
+    private void ToggleTargetVisibility(string targetId)
     {
         var targets = GetCategoryTargets();
         var allVisible = targets.All(t => IsTargetVisible(t.TargetId));
@@ -1000,12 +1001,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             _latencyVisibility[targetId] = !IsTargetVisible(targetId);
         }
 
-        try
-        {
-            if (_rttChart != null) await _rttChart.RenderAsync();
-            if (_lossChart != null) await _lossChart.RenderAsync();
-        }
-        catch { }
+        _latencyChartKey++;
     }
 
     private string EmptyStateMessage() => _latencyCategory switch
@@ -1021,23 +1017,13 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     {
         _latencyCategory = type;
         _latencyVisibility.Clear();
-        _rttChart = null;
-        _lossChart = null;
-        _latencyRttSeries = new();
-        _latencyLossSeries = new();
-        StateHasChanged();
         await LoadLatencyChartsAsync();
-        StateHasChanged();
     }
 
     private async Task SelectLatencyRangeAsync(int hours)
     {
         _latencyRangeHours = hours;
-        _latencyRttSeries = new();
-        _latencyLossSeries = new();
-        StateHasChanged();
         await LoadLatencyChartsAsync();
-        StateHasChanged();
     }
 
     private async Task LoadLatencyChartsAsync()
