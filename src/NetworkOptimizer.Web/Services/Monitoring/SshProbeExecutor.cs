@@ -121,8 +121,18 @@ public class SshProbeExecutor : IProbeExecutor
         var port = target.Port ?? 443;
         var timeoutSec = Math.Max(1, (int)(timeout?.TotalSeconds ?? 2));
 
-        // Use a portable shell construct: try nc, then /dev/tcp redirect, otherwise report
-        // that TCP probe isn't available on this vantage.
+        if (!System.Net.IPAddress.TryParse(target.Address, out _))
+        {
+            return new TcpProbeResult
+            {
+                Target = target,
+                Vantage = new NetworkOptimizer.Monitoring.Probes.ProbeVantage(_connection.Host ?? "unknown", NetworkOptimizer.Monitoring.Probes.VantageKind.SshDevice, _connection.Host),
+                Connected = false,
+                Timestamp = DateTime.UtcNow,
+                ErrorMessage = "Invalid IP address"
+            };
+        }
+
         var cmd = $"timeout {timeoutSec} bash -c '(echo > /dev/tcp/{ShellEscape(target.Address)}/{port}) 2>/dev/null && echo OK || echo FAIL'";
         var result = await _ssh.ExecuteCommandAsync(_connection, cmd, TimeSpan.FromSeconds(timeoutSec + 5), ct);
         var output = (result.Output ?? string.Empty).Trim();

@@ -43,6 +43,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private int _flushIntervalSeconds = 5;
     private bool _disposed;
     private bool _initialized;
+    private string? _tokenHash;
 
     public MonitoringInfluxClient(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -114,12 +115,16 @@ public class MonitoringInfluxClient : IAsyncDisposable
             return false;
         }
 
-        // Avoid pointless reconnects if nothing changed
+        var currentTokenHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(plainToken)))[..16];
+
         if (_initialized &&
             _url == url &&
             _org == org &&
             _bucket == bucket &&
-            _longtermBucket == longterm)
+            _longtermBucket == longterm &&
+            _tokenHash == currentTokenHash)
         {
             return true;
         }
@@ -137,9 +142,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
             _client = new InfluxDBClient(options);
             _writeApi = _client.GetWriteApiAsync();
             _url = url;
-            _org = org;
-            _bucket = bucket;
-            _longtermBucket = string.IsNullOrWhiteSpace(longterm) ? bucket : longterm;
+            _org = SanitizeFluxString(org);
+            _bucket = SanitizeFluxString(bucket);
+            _longtermBucket = SanitizeFluxString(string.IsNullOrWhiteSpace(longterm) ? bucket : longterm);
+            _tokenHash = currentTokenHash;
             _initialized = true;
 
             _flushTimer = new PeriodicTimer(TimeSpan.FromSeconds(_flushIntervalSeconds));
@@ -681,6 +687,9 @@ from(bucket: ""{_bucket}"")
         return $"{Math.Max(1, (int)window.TotalSeconds)}s";
     }
 
+    private static string SanitizeFluxString(string value) =>
+        value.Replace("\"", "").Replace("\\", "").Replace(")", "").Replace("|>", "");
+
     private static DateTime ToUtc(DateTime t) =>
         t.Kind == DateTimeKind.Utc ? t : DateTime.SpecifyKind(t, DateTimeKind.Utc);
 
@@ -780,7 +789,7 @@ from(bucket: ""{_bucket}"")
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to flush monitoring points to InfluxDB");
+            _logger.LogError(ex, "Failed to flush monitoring points to InfluxDB — points dropped");
         }
         finally
         {
