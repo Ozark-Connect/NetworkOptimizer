@@ -883,18 +883,13 @@ export class LanFlowMap {
 
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
-        for (const [linkId, { el, kind }] of this._linkLabels) {
+        for (const [linkId, { el }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
-            // Internet-centric convention applied uniformly:
-            //   ↓ (blue)  = download from the internet toward an end device
-            //   ↑ (green) = upload from an end device toward the internet
-            // Backend's DownstreamBps holds the upload-direction value for
-            // WAN/uplink/trunk links, so those get a display-layer swap.
-            // Client leaves (wired and wifi) come from a writer that already
-            // maps DownstreamBps = toward-leaf direction, so NO swap.
-            const isClientLeaf = kind === LINK_KIND.WiredClient || kind === LINK_KIND.WifiClient;
-            const down = (isClientLeaf ? r?.downstreamBps : r?.upstreamBps) || 0;
-            const up = (isClientLeaf ? r?.upstreamBps : r?.downstreamBps) || 0;
+            // Backend now emits DownstreamBps = downloads (gateway -> leaf) and
+            // UpstreamBps = uploads (leaf -> gateway) uniformly across every link
+            // kind, so the display layer never has to second-guess direction.
+            const down = r?.downstreamBps || 0;
+            const up = r?.upstreamBps || 0;
             if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
                 el.classList.remove('is-visible');
                 continue;
@@ -1660,10 +1655,10 @@ export class LanFlowMap {
                     const r = this._currentRates?.[linkId];
                     if (!r) continue;
                     anyData = true;
-                    const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
-                        || link.link.kind === LINK_KIND.WifiClient;
-                    downBps += (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
-                    upBps += (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
+                    // Backend emits DownstreamBps = downloads, UpstreamBps =
+                    // uploads on every link kind, so no leaf/non-leaf swap.
+                    downBps += r.downstreamBps || 0;
+                    upBps += r.upstreamBps || 0;
                 }
             }
             if (!anyData) {
@@ -1766,14 +1761,20 @@ export class LanFlowMap {
                 const r = this._currentRates?.[link.link.id];
                 if (!r) continue;
                 anyData = true;
-                const isClientLeaf = link.link.kind === LINK_KIND.WiredClient
-                    || link.link.kind === LINK_KIND.WifiClient;
-                const dl = (isClientLeaf ? r.downstreamBps : r.upstreamBps) || 0;
-                const ul = (isClientLeaf ? r.upstreamBps : r.downstreamBps) || 0;
+                // Backend emits DownstreamBps = downloads (parent -> child)
+                // and UpstreamBps = uploads (child -> parent) uniformly.
+                const dl = r.downstreamBps || 0;
+                const ul = r.upstreamBps || 0;
                 if (link.link.toNodeId === node.id) {
+                    // This node sits at the "leaf" end of the link, so the
+                    // downstream flow arrives at us (ingress) and the upstream
+                    // flow leaves us (egress).
                     ingressBps += dl;
                     egressBps += ul;
                 } else {
+                    // This node is the "parent" end of the link, so uploads
+                    // arrive from the leaf (ingress) and downloads leave us
+                    // toward the leaf (egress).
                     ingressBps += ul;
                     egressBps += dl;
                 }

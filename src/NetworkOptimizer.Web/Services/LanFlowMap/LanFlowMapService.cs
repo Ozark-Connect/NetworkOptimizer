@@ -697,8 +697,14 @@ public class LanFlowMapService
             var wanLink = new LanLink
             {
                 Id = $"wan-link-{wan.WanInterface}",
-                FromNodeId = gwId,
-                ToNodeId = accessCloud.Id,
+                // Orient WAN like every other infra link: From = upstream end
+                // (the ISP cloud), To = downstream end (the gateway). The JS
+                // particle layer maps the From->To direction to the blue
+                // downstream stream, so this makes blue downloads flow cloud
+                // -> gateway and green uploads flow gateway -> cloud, matching
+                // the rest of the topology.
+                FromNodeId = accessCloud.Id,
+                ToNodeId = gwId,
                 Kind = LanLinkKind.Wan,
                 CapacityBps = wan.LinkSpeedMbps.HasValue ? (long)wan.LinkSpeedMbps.Value * 1_000_000L : null,
             };
