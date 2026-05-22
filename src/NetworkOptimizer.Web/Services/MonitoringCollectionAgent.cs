@@ -44,6 +44,8 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ConcurrentDictionary<string, CounterSnapshot> _counterCache = new();
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
+    private readonly DateTime _agentStartedAt = DateTime.UtcNow;
+    private bool _shutdownEdgeTrimmed;
 
     // SNMP gating. If a device fails SNMP repeatedly while being reachable on ICMP
     // (so we know it's online), assume it doesn't speak SNMP and stop polling it for
@@ -83,11 +85,6 @@ public class MonitoringCollectionAgent : BackgroundService
         // before the upstream wizard runs. Safe to call repeatedly — only inserts if absent.
         try { await SeedDefaultTargetsAsync(stoppingToken); }
         catch (Exception ex) { _logger.LogWarning(ex, "Default target seeding failed"); }
-
-        // Clean up artificial 100% loss data from the previous shutdown where probes
-        // timed out while the app was stopping.
-        try { await _influx.TrimShutdownEdgeAsync(stoppingToken); }
-        catch (Exception ex) { _logger.LogDebug(ex, "Shutdown-edge trim skipped"); }
 
         // Four independent loops, slightly staggered to avoid burst overlap.
         var fastTask = RunTierAsync("fast", GetFastInterval, FastTierCollectAsync, TimeSpan.FromSeconds(5), stoppingToken);
@@ -931,6 +928,13 @@ public class MonitoringCollectionAgent : BackgroundService
     {
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
 
+        if (!_shutdownEdgeTrimmed && _influx.IsConfigured)
+        {
+            _shutdownEdgeTrimmed = true;
+            try { await _influx.TrimShutdownEdgeAsync(ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Shutdown-edge trim skipped"); }
+        }
+
         // Reconcile fabric targets with the live device list — gateways, switches, and APs
         // should each have a `fabric` target on their management IP (spec 5.4). New devices
         // add a target; deleted devices leave their targets untouched (history preserved).
@@ -979,6 +983,15 @@ public class MonitoringCollectionAgent : BackgroundService
             }
 
             var ping = await _localProbe.PingAsync(probeTarget, count: Math.Max(3, Math.Min(target.PingCount, 20)), perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
+
+            // Discard results from the warmup window — probes during the first 30s after
+            // startup often show false loss while connections/DNS/ARP stabilize.
+            // Still update live stats so the UI shows current state, just don't persist.
+            if (DateTime.UtcNow - _agentStartedAt < TimeSpan.FromSeconds(30))
+            {
+                _liveStats.RecordTargetProbe(target.TargetId, ping.RttAvgMs, ping.LossPercent, ping.Success, ping.Timestamp);
+                return;
+            }
 
             await _influx.WriteLatencyAsync(
                 targetId: target.TargetId,
