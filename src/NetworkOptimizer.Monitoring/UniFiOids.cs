@@ -358,6 +358,9 @@ public static class UniFiOids
     /// </summary>
     public const string MemAvailSwap = "1.3.6.1.4.1.2021.4.4.0";
 
+    /// <summary>Memory used for caching - memCached (.1.3.6.1.4.1.2021.4.15.0)</summary>
+    public const string MemCached = "1.3.6.1.4.1.2021.4.15.0";
+
     #endregion
 
     #region UniFi-Specific OIDs (Ubiquiti Enterprise MIB)
@@ -386,6 +389,12 @@ public static class UniFiOids
     /// UniFi device temperature (if available) - varies by device
     /// </summary>
     public const string UniFiTemperature = "1.3.6.1.4.1.41112.1.6.1.2.1.5";
+
+    /// <summary>
+    /// LM-SENSORS-MIB (UCD-SNMP extension): CPU die temperature in millidegrees.
+    /// Index 4 = "temp-cpu". Works on gateways (UXG, UCG, UDM).
+    /// </summary>
+    public const string LmSensorsCpuTemp = "1.3.6.1.4.1.2021.13.16.2.1.3.4";
 
     #endregion
 

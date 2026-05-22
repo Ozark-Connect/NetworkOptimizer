@@ -333,6 +333,32 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// Monitoring subsystem
+builder.Services.AddScoped<SnmpDetectionService>();
+builder.Services.AddSingleton<MonitoringInfluxClient>();
+builder.Services.AddSingleton<MonitoringLiveStats>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
+builder.Services.AddScoped<InfluxDbProvisioningService>();
+// Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
+// vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
+builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>();
+builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>(
+    sp => sp.GetRequiredService<NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor>());
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
+// Collection agent — drives SNMP polling on the three-tier cadence, writes to InfluxDB.
+// Idle while monitoring is disabled or unconfigured; activates once both SNMP detection
+// succeeds and InfluxDB is reachable.
+builder.Services.AddHostedService<MonitoringCollectionAgent>();
+// Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
+builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
+// 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
+// Cache is Singleton (TTL-based topology); service is Scoped so it can consume scoped deps.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache>();
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
+
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<DashboardLayoutService>();
@@ -1456,6 +1482,11 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
     service.CancelPendingImport();
     return Results.Ok(new { message = "Pending backup cancelled" });
 });
+
+// New API endpoints go in Endpoints/*.cs, not inline here.
+LanFlowMapEndpoints.Map(app);
+MonitoringChartEndpoints.Map(app);
+DeviceHealthChartEndpoints.Map(app);
 
 app.Run();
 

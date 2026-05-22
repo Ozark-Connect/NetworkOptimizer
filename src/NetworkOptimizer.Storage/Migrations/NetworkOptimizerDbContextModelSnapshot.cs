@@ -647,6 +647,416 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("ModemConfigurations", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.MonitoringSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AccessTechnology")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FastPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InfluxDbBucket")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbLongtermBucket")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbOrg")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("InfluxDbReachable")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("InfluxDbToken")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InfluxDbUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastInfluxDbCheck")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastInfluxDbError")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSnmpDetection")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastSnmpSuccess")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUpstreamDiscoveryAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("UpstreamDiscoveryNeedsReview")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MediumPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SlowPollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SnmpCommunity")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SnmpDetectionState")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SnmpV3AuthPassword")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnmpV3Username")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SnmpVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WanNeighborMac")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WanNeighborOui")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MonitoringSettings", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.MonitoringTarget", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AsnNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AsnName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AutoLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("AutoDiscovered")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceMac")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DiscoveryMethod")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("DiscoveredProbeMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastVerified")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PingCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PollIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ProbeMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PtrHostname")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TargetType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("VantagePoint")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Enabled");
+
+                    b.HasIndex("TargetId")
+                        .IsUnique();
+
+                    b.HasIndex("TargetType");
+
+                    b.HasIndex("WanInterface");
+
+                    b.ToTable("MonitoringTargets", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanDiscoveryContext", b =>
+                {
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AccessTechnology")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<System.DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("L2NeighborMac")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("L2NeighborOui")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<System.DateTime?>("LastDiscoveryAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<System.DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("WanInterface");
+
+                    b.ToTable("WanDiscoveryContexts", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.InterfaceNameMap", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Direction")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("IfIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("IfAlias")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IfName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsWan")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastUpdated")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PortNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("SpeedMbps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WanName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceMac");
+
+                    b.HasIndex("DeviceMac", "IfName")
+                        .IsUnique();
+
+                    b.ToTable("InterfaceNameMaps", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.UpstreamDiscovery", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AsnNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AsnName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HopIp")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("HopNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastTracerouteAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastValidated")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("MonitoringTargetId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WanInterface")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AsnNumber");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("MonitoringTargetId");
+
+                    b.ToTable("UpstreamDiscoveries", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.MonitoredSfp", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceMac")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsPon")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsMonitoredOnt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PortName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SfpPart")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SfpVendor")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsMonitoredOnt");
+
+                    b.HasIndex("DeviceMac", "PortName")
+                        .IsUnique();
+
+                    b.ToTable("MonitoredSfps", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.OuiVendor", b =>
+                {
+                    b.Property<string>("OuiPrefix")
+                        .HasMaxLength(8)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastUpdated")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VendorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("OuiPrefix");
+
+                    b.ToTable("OuiVendors", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.DeviceSshConfiguration", b =>
                 {
                     b.Property<int>("Id")

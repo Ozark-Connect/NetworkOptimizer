@@ -387,6 +387,48 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Classify how routable an IPv4 address actually is. The monitoring subsystem's
+    /// upstream tracer (spec 5.5) uses this to honestly surface CGNAT, double-NAT, and
+    /// non-globally-routed "public" space rather than silently mis-handling them.
+    /// </summary>
+    public static PublicAddressClass ClassifyPublicAddress(string? ipAddress)
+    {
+        if (string.IsNullOrEmpty(ipAddress)) return PublicAddressClass.Unknown;
+        if (!IPAddress.TryParse(ipAddress, out var ip)) return PublicAddressClass.Unknown;
+        return ClassifyPublicAddress(ip);
+    }
+
+    public static PublicAddressClass ClassifyPublicAddress(IPAddress ip)
+    {
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+            return PublicAddressClass.IPv6;
+        if (ip.AddressFamily != AddressFamily.InterNetwork)
+            return PublicAddressClass.Unknown;
+
+        var b = ip.GetAddressBytes();
+
+        // 100.64.0.0/10 - CGNAT
+        if (b[0] == 100 && b[1] >= 64 && b[1] <= 127)
+            return PublicAddressClass.Cgnat;
+
+        // RFC1918 ranges on what's supposed to be a WAN: double-NAT scenario.
+        if (b[0] == 10) return PublicAddressClass.DoubleNat;
+        if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return PublicAddressClass.DoubleNat;
+        if (b[0] == 192 && b[1] == 168) return PublicAddressClass.DoubleNat;
+
+        // Loopback / link-local: shouldn't appear as a WAN IP. Mark as misconfigured.
+        if (b[0] == 127) return PublicAddressClass.Misconfigured;
+        if (b[0] == 169 && b[1] == 254) return PublicAddressClass.Misconfigured;
+
+        // 0.0.0.0/8 and the multicast / experimental / reserved upper ranges - "public"
+        // looking but not globally routed.
+        if (b[0] == 0) return PublicAddressClass.NonGloballyRouted;
+        if (b[0] >= 224) return PublicAddressClass.NonGloballyRouted;
+
+        return PublicAddressClass.PublicIPv4;
+    }
+
+    /// <summary>
     /// Check if a CIDR block completely covers another subnet.
     /// Supports both IPv4 and IPv6.
     /// </summary>

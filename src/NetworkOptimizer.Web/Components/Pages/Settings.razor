@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
+@using Microsoft.EntityFrameworkCore
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
@@ -28,6 +29,9 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
+@inject SnmpDetectionService SnmpDetection
+@inject MonitoringInfluxClient InfluxClient
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
 
@@ -1801,6 +1805,159 @@
         </div>
     </div>
 
+    <!-- Monitoring Configuration -->
+    <div class="card" id="monitoring">
+        <div class="card-header">
+            <h2 class="card-title">Monitoring</h2>
+            @if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV2c || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV3Only || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Working)
+            {
+                <span class="status-badge status-connected">@(_monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV2c ? "v2c" : _monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")</span>
+            }
+            else if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Disabled)
+            {
+                <span class="status-badge status-disconnected">Disabled</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Network Optimizer collects per-port SNMP counters and per-device health to
+                drive the dashboard's live device cards, the upcoming diagnostic views, and
+                the 3D LAN map. SNMP credentials are read directly from your UniFi Console,
+                so you don't need to copy them by hand. InfluxDB stores the time-series data;
+                use your existing instance if you already run one.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">SNMP Status</label>
+                <div class="form-value">
+                    @switch (_monitoringSettings?.SnmpDetectionState)
+                    {
+                        case SnmpDetectionState.EnabledV2c:
+                            <span class="status-indicator status-active"></span>
+                            <span>Configured (v2c)</span>
+                            break;
+                        case SnmpDetectionState.EnabledV3Only:
+                            <span class="status-indicator status-active"></span>
+                            <span>Configured (v3)</span>
+                            break;
+                        case SnmpDetectionState.Working:
+                            <span class="status-indicator status-active"></span>
+                            <span>Active</span>
+                            break;
+                        case SnmpDetectionState.PollFailing:
+                            <span class="status-indicator status-danger"></span>
+                            <span>Poll failures</span>
+                            break;
+                        case SnmpDetectionState.Disabled:
+                            <span class="status-indicator status-inactive"></span>
+                            <span>SNMP not enabled on UniFi Console</span>
+                            break;
+                        default:
+                            <span class="status-indicator status-inactive"></span>
+                            <span>Not checked</span>
+                            break;
+                    }
+                </div>
+            </div>
+
+            @if (_monitoringSettings?.LastSnmpDetection != null)
+            {
+                <div class="form-group">
+                    <label class="form-label">Last Detected</label>
+                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToString("g")</div>
+                </div>
+            }
+
+            <h3 style="margin-top: 1.5rem;">InfluxDB</h3>
+            <p class="section-description">
+                Time-series storage for monitoring data. If you don't already run InfluxDB,
+                the easiest path is the setup helper on the
+                <a href="/monitoring">Monitoring</a> page; it'll detect what's available,
+                install InfluxDB if needed, and provision the buckets and an API token for
+                you. If you already run InfluxDB (e.g. for Grafana), point this at it; the
+                bucket names below are NO-specific so they can't collide with other data.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB Status</label>
+                <div class="form-value">
+                    @if (_monitoringSettings?.InfluxDbReachable == true)
+                    {
+                        <span class="status-indicator status-active"></span>
+                        <span>Connected</span>
+                    }
+                    else if (_monitoringSettings?.InfluxDbReachable == false)
+                    {
+                        <span class="status-indicator status-danger"></span>
+                        <span>@(_monitoringSettings?.LastInfluxDbError ?? "Not reachable")</span>
+                    }
+                    else
+                    {
+                        <span class="status-indicator status-inactive"></span>
+                        <span>Not configured</span>
+                    }
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB URL</label>
+                <input type="text" class="form-control" @bind="_influxUrl" placeholder="http://localhost:8086" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">API Token</label>
+                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Organization</label>
+                <input type="text" class="form-control" @bind="_influxOrg" placeholder="network-optimizer" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Primary Bucket</label>
+                <input type="text" class="form-control" @bind="_influxBucket" placeholder="network_monitoring" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Long-term Bucket</label>
+                <input type="text" class="form-control" @bind="_influxLongtermBucket" placeholder="network_monitoring_longterm" />
+            </div>
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-secondary" @onclick="RedetectSnmp" disabled="@_redetectingSnmp">
+                    @if (_redetectingSnmp)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Detecting...</span>
+                    }
+                    else
+                    {
+                        <span>Re-detect SNMP</span>
+                    }
+                </button>
+                <button class="btn btn-primary" @onclick="SaveInfluxSettings" disabled="@_savingInflux">
+                    @if (_savingInflux)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save &amp; Test InfluxDB</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_monitoringMessage))
+            {
+                <div class="alert alert-@_monitoringMessageClass" style="margin-top: 1rem;">
+                    @_monitoringMessage
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- 12. Data Management -->
     <div class="card">
         <div class="card-header">
@@ -2153,6 +2310,21 @@
     private string maxmindMessage = "";
     private string maxmindMessageClass = "";
 
+    // Monitoring Settings
+    private MonitoringSettings? _monitoringSettings;
+    private bool _redetectingSnmp = false;
+    private string? _monitoringMessage;
+    private string _monitoringMessageClass = "success";
+
+    // Editable InfluxDB connection inputs (loaded from MonitoringSettings)
+    private string _influxUrl = "http://localhost:8087";
+    private string _influxToken = string.Empty;
+    private bool _influxTokenIsSet = false;
+    private string _influxOrg = "network-optimizer";
+    private string _influxBucket = "network_monitoring";
+    private string _influxLongtermBucket = "network_monitoring_longterm";
+    private bool _savingInflux = false;
+
     // CrowdSec Settings
     private bool crowdsecEnabled = false;
     private string crowdsecApiKey = "";
@@ -2194,6 +2366,7 @@
         await LoadAuditSettings();
         await LoadAlertChannels();
         await LoadThreatSettings();
+        await LoadMonitoringSettings();
     }
 
     private async Task LoadIperf3Settings()
@@ -4486,6 +4659,119 @@
         finally
         {
             testingCrowdsec = false;
+        }
+    }
+
+    private async Task LoadMonitoringSettings()
+    {
+        try
+        {
+            _monitoringSettings = await SnmpDetection.GetOrCreateSettingsAsync();
+            if (_monitoringSettings != null)
+            {
+                _influxUrl = _monitoringSettings.InfluxDbUrl ?? "http://localhost:8087";
+                _influxOrg = _monitoringSettings.InfluxDbOrg ?? "network-optimizer";
+                _influxBucket = _monitoringSettings.InfluxDbBucket ?? "network_monitoring";
+                _influxLongtermBucket = _monitoringSettings.InfluxDbLongtermBucket ?? "network_monitoring_longterm";
+                _influxTokenIsSet = !string.IsNullOrEmpty(_monitoringSettings.InfluxDbToken);
+                _influxToken = string.Empty;
+            }
+        }
+        catch
+        {
+            _monitoringSettings = null;
+        }
+    }
+
+    private async Task SaveInfluxSettings()
+    {
+        _savingInflux = true;
+        _monitoringMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            // Make sure the row exists (handles first-run when MonitoringSettings is empty)
+            await SnmpDetection.GetOrCreateSettingsAsync();
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstAsync();
+            settings.InfluxDbUrl = (_influxUrl ?? "").Trim();
+            settings.InfluxDbOrg = string.IsNullOrWhiteSpace(_influxOrg) ? "network-optimizer" : _influxOrg.Trim();
+            settings.InfluxDbBucket = string.IsNullOrWhiteSpace(_influxBucket) ? "network_monitoring" : _influxBucket.Trim();
+            settings.InfluxDbLongtermBucket = string.IsNullOrWhiteSpace(_influxLongtermBucket) ? "network_monitoring_longterm" : _influxLongtermBucket.Trim();
+
+            // Only update the token if the user typed a new value
+            if (!string.IsNullOrEmpty(_influxToken))
+            {
+                settings.InfluxDbToken = CredentialService.Encrypt(_influxToken);
+            }
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            await InfluxClient.ReconfigureAsync();
+            var health = await InfluxClient.CheckHealthAsync();
+
+            await LoadMonitoringSettings();
+
+            if (health.Reachable)
+            {
+                _monitoringMessage = "InfluxDB settings saved; connection successful.";
+                _monitoringMessageClass = "success";
+            }
+            else
+            {
+                _monitoringMessage = $"Saved, but InfluxDB is unreachable: {health.Error}";
+                _monitoringMessageClass = "warning";
+            }
+        }
+        catch (Exception ex)
+        {
+            _monitoringMessage = $"Error saving InfluxDB settings: {ex.Message}";
+            _monitoringMessageClass = "danger";
+        }
+        finally
+        {
+            _savingInflux = false;
+        }
+    }
+
+    private async Task RedetectSnmp()
+    {
+        _redetectingSnmp = true;
+        _monitoringMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var result = await SnmpDetection.DetectSnmpSettingsAsync();
+            if (result.Success)
+            {
+                await SnmpDetection.SaveDetectionResultAsync(result);
+                await LoadMonitoringSettings();
+                _monitoringMessage = _monitoringSettings?.SnmpDetectionState switch
+                {
+                    SnmpDetectionState.EnabledV2c => "SNMP v2c detected and saved.",
+                    SnmpDetectionState.EnabledV3Only => "SNMPv3 detected and saved.",
+                    SnmpDetectionState.Disabled => "SNMP is not enabled on your UniFi Console.",
+                    _ => "SNMP detection complete."
+                };
+                _monitoringMessageClass = "success";
+            }
+            else
+            {
+                _monitoringMessage = result.ErrorMessage ?? "Detection failed";
+                _monitoringMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _monitoringMessage = $"Error: {ex.Message}";
+            _monitoringMessageClass = "danger";
+        }
+        finally
+        {
+            _redetectingSnmp = false;
         }
     }
 }

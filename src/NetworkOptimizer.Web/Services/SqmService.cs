@@ -205,7 +205,7 @@ public class SqmService : ISqmService
 
     /// <summary>
     /// Get WAN interface configurations from the UniFi controller
-    /// Returns a mapping of interface name to friendly name (e.g., "eth4" -> "Yelcot")
+    /// Returns a mapping of interface name to friendly name (e.g., "eth4" -> "Comcast")
     /// </summary>
     public async Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync()
     {
@@ -563,8 +563,6 @@ public class SqmService : ISqmService
         // Known ISP patterns
         if (lower.Contains("starlink"))
             return "Starlink";
-        if (lower.Contains("yelcot"))
-            return "Yelcot";
         if (lower.Contains("comcast") || lower.Contains("xfinity"))
             return "Xfinity";
         if (lower.Contains("spectrum") || lower.Contains("charter"))
@@ -586,7 +584,7 @@ public class SqmService : ISqmService
         var parts = hostname.Split('.');
         if (parts.Length >= 2)
         {
-            // Get the second-to-last part (e.g., "yelcot" from "yellville-cmts.yelcot.net")
+            // Get the second-to-last part (e.g., "examplenet" from "town-cmts.examplenet.net")
             var ispPart = parts[^2];
             if (ispPart.Length >= 3 && ispPart != "com" && ispPart != "net" && ispPart != "org")
             {
@@ -647,7 +645,7 @@ public class SqmService : ISqmService
         }
 
         // Generate interface configuration in the format expected by tc-monitor
-        // Format: "ifbeth4:Yelcot ifbeth0:Starlink"
+        // Format: "ifbeth4:Comcast ifbeth0:Starlink"
         var config = string.Join(" ", wans
             .Where(w => !string.IsNullOrEmpty(w.TcInterface))
             .Select(w => $"{w.TcInterface}:{w.Name}"));
@@ -758,7 +756,7 @@ public class BaselineStats
 /// </summary>
 public class WanInterfaceInfo
 {
-    /// <summary>Friendly name from controller (e.g., "Yelcot", "Starlink")</summary>
+    /// <summary>Friendly name from controller (e.g., "Comcast", "Starlink")</summary>
     public string Name { get; set; } = "";
 
     /// <summary>Physical interface name (e.g., "eth4", "eth0")</summary>

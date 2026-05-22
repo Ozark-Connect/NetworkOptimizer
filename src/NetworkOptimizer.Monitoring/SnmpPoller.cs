@@ -127,7 +127,10 @@ public class SnmpPoller : ISnmpPoller
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SNMP Get failed for {Ip}:{Oid}", ip, oid);
+                // Per-OID SNMP failure is a normal, expected condition - one unreachable
+                // device shouldn't fill logs with errors. The agent layer aggregates and
+                // surfaces health state via MonitoringSettings.SnmpDetectionState.
+                _logger.LogDebug(ex, "SNMP Get failed for {Ip}:{Oid}", ip, oid);
                 return default;
             }
         });
@@ -172,7 +175,7 @@ public class SnmpPoller : ISnmpPoller
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "SNMP Walk failed for {Ip}:{Oid}", ip, oid);
+                _logger.LogDebug(ex, "SNMP Walk failed for {Ip}:{Oid}", ip, oid);
                 return new List<Variable>();
             }
         });
@@ -213,7 +216,7 @@ public class SnmpPoller : ISnmpPoller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get device metrics for {Ip}", ip);
+            _logger.LogDebug(ex, "Failed to get device metrics for {Ip}", ip);
             metrics.IsReachable = false;
             metrics.ErrorMessage = ex.Message;
         }
@@ -234,7 +237,7 @@ public class SnmpPoller : ISnmpPoller
             var ifNumber = await GetAsync<int>(ip, UniFiOids.IfNumber);
             if (ifNumber <= 0)
             {
-                _logger.LogWarning("No interfaces found on device {Ip}", ip);
+                _logger.LogDebug("No interfaces found on device {Ip}", ip);
                 return interfaces;
             }
 
@@ -257,7 +260,7 @@ public class SnmpPoller : ISnmpPoller
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to get metrics for interface on {Ip}", ip);
+                    _logger.LogDebug(ex, "Failed to get metrics for interface on {Ip}", ip);
                 }
             }
 
@@ -265,7 +268,7 @@ public class SnmpPoller : ISnmpPoller
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get interface metrics for {Ip}", ip);
+            _logger.LogDebug(ex, "Failed to get interface metrics for {Ip}", ip);
         }
 
         return interfaces;
@@ -299,7 +302,6 @@ public class SnmpPoller : ISnmpPoller
 
     private async Task GetResourceMetrics(IPAddress ip, DeviceMetrics metrics)
     {
-        // Try UCD-SNMP CPU metrics first
         var cpuIdle = await GetAsync<double>(ip, UniFiOids.SsCpuIdle);
         if (cpuIdle > 0)
         {
@@ -307,23 +309,33 @@ public class SnmpPoller : ISnmpPoller
         }
         else
         {
-            // Try Host Resources CPU
-            var cpuLoad = await GetAsync<double>(ip, UniFiOids.HrProcessorLoad);
-            if (cpuLoad > 0)
+            // APs don't support UCD-SNMP ssCpuIdle. Walk hrProcessorLoad
+            // (one row per core) and average.
+            var cores = await WalkAsync(ip, UniFiOids.HrProcessorLoad);
+            if (cores.Count > 0)
             {
-                metrics.CpuUsage = cpuLoad;
+                var sum = 0.0;
+                foreach (var v in cores)
+                {
+                    if (int.TryParse(v.Data.ToString(), out var load))
+                        sum += load;
+                }
+                metrics.CpuUsage = sum / cores.Count;
             }
         }
 
-        // Try UCD-SNMP memory metrics
+        // UCD-SNMP memory: subtract cached from used so cache doesn't inflate
+        // the percentage. Matches STM's formula: used = total - available - cached.
         var totalMem = await GetAsync<long>(ip, UniFiOids.MemTotalReal);
         var availMem = await GetAsync<long>(ip, UniFiOids.MemAvailReal);
+        var cachedMem = await GetAsync<long>(ip, UniFiOids.MemCached);
 
         if (totalMem > 0)
         {
-            metrics.TotalMemory = totalMem * 1024; // Convert KB to bytes
+            metrics.TotalMemory = totalMem * 1024;
             metrics.FreeMemory = availMem * 1024;
-            metrics.UsedMemory = metrics.TotalMemory - metrics.FreeMemory;
+            var actualUsedKb = totalMem - availMem - Math.Max(0, cachedMem);
+            metrics.UsedMemory = Math.Max(0, actualUsedKb) * 1024;
             metrics.MemoryUsage = (double)metrics.UsedMemory / metrics.TotalMemory * 100.0;
         }
         else
@@ -340,10 +352,20 @@ public class SnmpPoller : ISnmpPoller
         metrics.FirmwareVersion = await GetAsync<string>(ip, UniFiOids.UniFiFirmwareVersion) ?? string.Empty;
         metrics.MacAddress = await GetAsync<string>(ip, UniFiOids.UniFiMacAddress) ?? string.Empty;
 
-        var temp = await GetAsync<double>(ip, UniFiOids.UniFiTemperature);
-        if (temp > 0 && temp < 200) // Sanity check
+        // LM-SENSORS-MIB (UCD-SNMP extension): index 4 = "temp-cpu" in millidegrees.
+        // Works on gateways. Falls back to the UniFi-specific OID for other devices.
+        var lmTemp = await GetAsync<double>(ip, UniFiOids.LmSensorsCpuTemp);
+        if (lmTemp > 0)
         {
-            metrics.Temperature = temp;
+            metrics.Temperature = lmTemp / 1000.0;
+        }
+        else
+        {
+            var temp = await GetAsync<double>(ip, UniFiOids.UniFiTemperature);
+            if (temp > 0 && temp < 200)
+            {
+                metrics.Temperature = temp;
+            }
         }
 
         // Determine device type from model or description

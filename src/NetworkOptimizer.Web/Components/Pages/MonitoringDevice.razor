@@ -1,0 +1,489 @@
+@page "/monitoring/device/{Mac}"
+@rendermode InteractiveServer
+@implements IDisposable
+@using ApexCharts
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject MonitoringLiveStats LiveStats
+@inject MonitoringInfluxClient Influx
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+<PageTitle>Device @Mac - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <a href="/" class="page-back-link back-link">← Back to Dashboard</a>
+    <h1>@(_displayName ?? Mac)</h1>
+    <p class="page-description">
+        Per-device diagnostic view. Aggregate throughput, latency to the device's fabric
+        target, and live per-port snapshots - all on a shared time axis. Brushing,
+        per-port drill-down, event annotations, and A/B comparison land in iterations.
+    </p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Live snapshot</h2>
+        @if (_stats?.HasFreshData(TimeSpan.FromMinutes(2)) == true)
+        {
+            <span class="status-badge status-active">Live</span>
+        }
+        else
+        {
+            <span class="status-badge status-disconnected">No data yet</span>
+        }
+    </div>
+    <div class="card-body">
+        @if (_stats == null || !_stats.HasFreshData(TimeSpan.FromMinutes(2)))
+        {
+            <div class="empty-state">
+                <p>No fresh monitoring data for this device yet. The agent may not have
+                completed its first cycle, or this device isn't being polled.</p>
+                <p style="margin-top: 0.5rem;">
+                    <a href="/monitoring">Open Monitoring</a> to verify the agent is enabled.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="form-label">Throughput</label>
+                <div class="form-value">
+                    <span style="color: var(--speed-download-color);">↓ @FormatBps(_stats.RateInBps)</span>
+                    &nbsp;&nbsp;
+                    <span style="color: var(--speed-upload-color);">↑ @FormatBps(_stats.RateOutBps)</span>
+                </div>
+            </div>
+            @if (_stats.LatestRttMs.HasValue)
+            {
+                <div class="form-group">
+                    <label class="form-label">Latest fabric ping</label>
+                    <div class="form-value">
+                        @($"{_stats.LatestRttMs:0.##} ms")
+                        @if (_stats.LatestLossPercent > 0)
+                        {
+                            <span style="color: var(--danger-color); margin-left: 0.5rem;">
+                                @($"{_stats.LatestLossPercent:0.#}% loss")
+                            </span>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header">
+        <h2 class="card-title">Time-series</h2>
+        <div class="time-range-selector">
+            @foreach (var range in TimeRanges)
+            {
+                <button class="time-btn @(range.Window == _selectedRange ? "active" : "")"
+                        @onclick="() => SelectRangeAsync(range.Window)">
+                    @range.Label
+                </button>
+            }
+        </div>
+    </div>
+    <div class="card-body">
+        @if (!Influx.IsConfigured)
+        {
+            <div class="alert alert-info">
+                InfluxDB isn't configured yet - <a href="/monitoring">finish setup</a> to see
+                history charts.
+            </div>
+        }
+        else
+        {
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Aggregate throughput</h3>
+                </div>
+                <ApexChart @ref="_rateChart"
+                           TItem="RatePoint"
+                           Options="_rateChartOptions"
+                           Height="@("260px")">
+                    <ApexPointSeries TItem="RatePoint"
+                                     Items="_rateSeries"
+                                     Name="↓ Downstream"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                     YValue="e => (decimal?)(e.RateInBps)"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="RatePoint"
+                                     Items="_rateSeries"
+                                     Name="↑ Upstream"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                     YValue="e => (decimal?)(e.RateOutBps)"
+                                     OrderBy="e => e.X" />
+                </ApexChart>
+            </div>
+
+            <div class="chart-card" style="margin-top: 1rem;">
+                <div class="chart-header">
+                    <h3 class="chart-title">Latency (fabric target)</h3>
+                </div>
+                @if (_latencySeries.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No fabric latency target exists yet for this device. It'll appear
+                        once the agent's next reconciliation cycle adds one.</p>
+                    </div>
+                }
+                else
+                {
+                    <ApexChart @ref="_latencyChart"
+                               TItem="LatencyPlotPoint"
+                               Options="_latencyChartOptions"
+                               Height="@("220px")">
+                        <ApexPointSeries TItem="LatencyPlotPoint"
+                                         Items="_latencySeries"
+                                         Name="RTT (ms)"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         YValue="e => (decimal?)e.RttMs"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="LatencyPlotPoint"
+                                         Items="_latencySeries"
+                                         Name="Loss %"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         YValue="e => (decimal?)e.LossPercent"
+                                         OrderBy="e => e.X" />
+                    </ApexChart>
+                }
+            </div>
+
+            @if (_healthSeries.Count > 0)
+            {
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header">
+                        <h3 class="chart-title">Device health</h3>
+                    </div>
+                    <ApexChart @ref="_healthChart"
+                               TItem="HealthPlotPoint"
+                               Options="_healthChartOptions"
+                               Height="@("220px")">
+                        <ApexPointSeries TItem="HealthPlotPoint"
+                                         Items="_healthSeries"
+                                         Name="CPU %"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         YValue="e => (decimal?)e.CpuPercent"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="HealthPlotPoint"
+                                         Items="_healthSeries"
+                                         Name="Memory %"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         YValue="e => (decimal?)e.MemoryUsedPercent"
+                                         OrderBy="e => e.X" />
+                        <ApexPointSeries TItem="HealthPlotPoint"
+                                         Items="_healthSeries"
+                                         Name="Temp °C"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="e => DateTime.SpecifyKind(e.Time, DateTimeKind.Utc)"
+                                         YValue="e => (decimal?)e.TemperatureC"
+                                         OrderBy="e => e.X" />
+                    </ApexChart>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Mac { get; set; } = string.Empty;
+
+    private DeviceLiveStats? _stats;
+    private string? _displayName;
+    private System.Threading.Timer? _refreshTimer;
+    private System.Threading.Timer? _chartRefreshTimer;
+    private TimeSpan _selectedRange = TimeSpan.FromHours(1);
+    private string? _fabricTargetId;
+
+    // Series fields (per the ApexCharts memory: use fields, not computed properties that
+    // return new lists each render - that would force chart destruction).
+    private List<RatePoint> _rateSeries = new();
+    private List<LatencyPlotPoint> _latencySeries = new();
+    private List<HealthPlotPoint> _healthSeries = new();
+
+    private ApexChart<RatePoint>? _rateChart;
+    private ApexChart<LatencyPlotPoint>? _latencyChart;
+    private ApexChart<HealthPlotPoint>? _healthChart;
+
+    private ApexChartOptions<RatePoint> _rateChartOptions = BuildRateOptions();
+    private ApexChartOptions<LatencyPlotPoint> _latencyChartOptions = BuildLatencyOptions();
+    private ApexChartOptions<HealthPlotPoint> _healthChartOptions = BuildHealthOptions();
+
+    private static readonly (string Label, TimeSpan Window)[] TimeRanges =
+    {
+        ("5m", TimeSpan.FromMinutes(5)),
+        ("15m", TimeSpan.FromMinutes(15)),
+        ("1h", TimeSpan.FromHours(1)),
+        ("6h", TimeSpan.FromHours(6)),
+        ("24h", TimeSpan.FromHours(24))
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        Refresh();
+        await LoadDisplayNameAsync();
+        await LoadChartsAsync();
+
+        // Snapshot card refreshes from the in-memory cache every 5s.
+        _refreshTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(() => { Refresh(); StateHasChanged(); }); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+
+        // Charts reload from InfluxDB on a longer cadence to limit query load. The user can
+        // also tap a different time-range button to refresh immediately.
+        _chartRefreshTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(LoadChartsAsync); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private void Refresh()
+    {
+        _stats = LiveStats.GetForDevice(Mac);
+    }
+
+    private async Task LoadDisplayNameAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var fabric = await db.MonitoringTargets
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric
+                            && t.DeviceMac != null && t.DeviceMac.ToLower() == NormalizeMac(Mac))
+                .Select(t => new { t.Name, t.TargetId })
+                .FirstOrDefaultAsync();
+            if (fabric != null)
+            {
+                _displayName = fabric.Name;
+                _fabricTargetId = fabric.TargetId;
+            }
+        }
+        catch { /* fall back to MAC */ }
+    }
+
+    private async Task SelectRangeAsync(TimeSpan window)
+    {
+        _selectedRange = window;
+        await LoadChartsAsync();
+    }
+
+    private async Task LoadChartsAsync()
+    {
+        if (!Influx.IsConfigured) return;
+
+        var to = DateTime.UtcNow;
+        var from = to - _selectedRange;
+        try
+        {
+            // Aggregate rates from per-port records.
+            var rates = await Influx.QueryInterfaceRatesAsync(Mac, from, to);
+            _rateSeries = rates
+                .GroupBy(r => r.Time)
+                .Select(g => new RatePoint
+                {
+                    Time = g.Key,
+                    RateInBps = g.Sum(p => p.RateInBps ?? 0),
+                    RateOutBps = g.Sum(p => p.RateOutBps ?? 0)
+                })
+                .OrderBy(r => r.Time)
+                .ToList();
+
+            // Health.
+            var health = await Influx.QueryDeviceHealthAsync(Mac, from, to);
+            _healthSeries = health
+                .Select(h => new HealthPlotPoint
+                {
+                    Time = h.Time,
+                    CpuPercent = h.CpuPercent,
+                    MemoryUsedPercent = h.MemoryUsedPercent,
+                    TemperatureC = h.TemperatureC
+                })
+                .OrderBy(h => h.Time)
+                .ToList();
+
+            // Latency (fabric target only - WAN/transit lives on the WAN view).
+            if (!string.IsNullOrEmpty(_fabricTargetId))
+            {
+                var lat = await Influx.QueryLatencyAsync(_fabricTargetId, from, to);
+                _latencySeries = lat
+                    .Select(p => new LatencyPlotPoint
+                    {
+                        Time = p.Time,
+                        RttMs = p.RttAvgMs,
+                        LossPercent = p.LossPercent
+                    })
+                    .OrderBy(p => p.Time)
+                    .ToList();
+            }
+            else
+            {
+                _latencySeries = new();
+            }
+        }
+        catch (Exception)
+        {
+            // Don't blank the UI on a transient InfluxDB hiccup - keep last data.
+        }
+
+        StateHasChanged();
+        // Multi-series ApexCharts need RenderAsync (per the project memory note -
+        // UpdateSeriesAsync silently fails on multi-series).
+        try { if (_rateChart != null) await _rateChart.RenderAsync(); } catch { }
+        try { if (_latencyChart != null) await _latencyChart.RenderAsync(); } catch { }
+        try { if (_healthChart != null) await _healthChart.RenderAsync(); } catch { }
+    }
+
+    private static string FormatBps(double? bps)
+    {
+        if (!bps.HasValue) return "-";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.##} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.##} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.##} Kbps";
+        return $"{v:0} bps";
+    }
+
+    private static string NormalizeMac(string mac) =>
+        string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
+
+    private static ApexChartOptions<RatePoint> BuildRateOptions() => new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            Toolbar = new Toolbar { Show = false },
+            Zoom = new Zoom { Enabled = false },
+            Animations = new Animations { Enabled = false }
+        },
+        Colors = new List<string> { "#3385d6", "#24bc70" }, // downstream blue, upstream green
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Fill = new Fill { Type = new List<FillType> { FillType.Solid }, Opacity = new List<double> { 0.18, 0.18 } },
+        Xaxis = new XAxis
+        {
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels
+            {
+                Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                DatetimeUTC = false,
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+            },
+            AxisBorder = new AxisBorder { Show = false }
+        },
+        Yaxis = new List<YAxis>
+        {
+            new()
+            {
+                Min = 0,
+                Labels = new YAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    Formatter = @"function(v) { if (v == null) return ''; if (v >= 1e9) return (v/1e9).toFixed(2)+' Gbps'; if (v >= 1e6) return (v/1e6).toFixed(2)+' Mbps'; if (v >= 1e3) return (v/1e3).toFixed(0)+' Kbps'; return v.toFixed(0)+' bps'; }"
+                }
+            }
+        },
+        Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true, X = new TooltipX { Format = "MMM dd, HH:mm:ss" } }
+    };
+
+    private static ApexChartOptions<LatencyPlotPoint> BuildLatencyOptions() => new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            Toolbar = new Toolbar { Show = false },
+            Zoom = new Zoom { Enabled = false },
+            Animations = new Animations { Enabled = false }
+        },
+        Colors = new List<string> { "#2ba89a", "#ef5858" },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis
+        {
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels
+            {
+                Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                DatetimeUTC = false,
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+            }
+        },
+        Yaxis = new List<YAxis>
+        {
+            new() { Min = 0, Title = new AxisTitle { Text = "ms" }, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" } } },
+            new() { Min = 0, Max = 100, Opposite = true, Title = new AxisTitle { Text = "% loss" }, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" } } }
+        },
+        Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true }
+    };
+
+    private static ApexChartOptions<HealthPlotPoint> BuildHealthOptions() => new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            Toolbar = new Toolbar { Show = false },
+            Zoom = new Zoom { Enabled = false },
+            Animations = new Animations { Enabled = false }
+        },
+        Colors = new List<string> { "#3b82f6", "#a78bfa", "#f59e0b" },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Xaxis = new XAxis
+        {
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels
+            {
+                Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                DatetimeUTC = false,
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "MMM dd" }
+            }
+        },
+        Yaxis = new List<YAxis>
+        {
+            new() { Min = 0, Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#9ca3af" } } }
+        },
+        Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+        Legend = new Legend { Show = true, Labels = new LegendLabels { Colors = new Color("#cbd5e1") } },
+        Tooltip = new Tooltip { Theme = Mode.Dark, Shared = true }
+    };
+
+    public class RatePoint
+    {
+        public DateTime Time { get; set; }
+        public double RateInBps { get; set; }
+        public double RateOutBps { get; set; }
+    }
+
+    public class LatencyPlotPoint
+    {
+        public DateTime Time { get; set; }
+        public double? RttMs { get; set; }
+        public double? LossPercent { get; set; }
+    }
+
+    public class HealthPlotPoint
+    {
+        public DateTime Time { get; set; }
+        public double? CpuPercent { get; set; }
+        public double? MemoryUsedPercent { get; set; }
+        public double? TemperatureC { get; set; }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        _chartRefreshTimer?.Dispose();
+    }
+}

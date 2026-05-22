@@ -25,6 +25,12 @@
     --purple-color: #a855f7;
     --purple-light: #c084fc;
 
+    /* WiFi band palette - canonical across WiFi Optimizer, audit views, 3D map.
+     * Use these instead of hardcoding #fbbf24 / #3b82f6 / #a855f7 inline. */
+    --band-24-color: #fbbf24;
+    --band-5-color:  #3b82f6;
+    --band-6-color:  #a855f7;
+
     /* Dark Mode Backgrounds - neutral dark, Linear/Vercel inspired */
     --bg-primary: #0f0f11;
     --bg-secondary: #161618;
@@ -2161,8 +2167,10 @@ select.form-control {
     padding: 1rem;
     border-radius: var(--border-radius);
     margin-top: 1rem;
+    margin-bottom: 1rem;
     font-size: 0.875rem;
 }
+
 
 .alert-success {
     background: rgba(36, 188, 112, 0.1);
@@ -7990,6 +7998,69 @@ a.path-hop.hop-clickable:hover {
 .custom-range-input:focus {
     outline: none;
     border-color: var(--primary-color);
+}
+
+.custom-range-label {
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
+}
+
+.custom-range-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.custom-range-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.custom-range-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.custom-range-field label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.custom-range-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.custom-range-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.custom-range-clear {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 14px;
+    height: 14px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    background: var(--danger-color);
+    color: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.custom-range-clear:hover {
+    opacity: 1;
 }
 
 /* Use secondary background when inside nested cards */
@@ -13928,4 +13999,540 @@ a.affected-client:hover {
 
 .event-type-key-list span {
     color: var(--text-secondary);
+}
+
+/* ==================== Monitoring ==================== */
+
+.form-value {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* 3D LAN Flow Map (spec 5.7) */
+.lan-flow-map-body {
+    padding: 0;
+}
+.lan-flow-map-stage {
+    position: relative;
+    width: 100%;
+    height: clamp(520px, 70vh, 820px);
+    background: var(--bg-primary);
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+.lan-flow-map-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-primary);
+    outline: none;
+}
+.lan-flow-map-panel {
+    position: absolute;
+    z-index: 5;
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    color: var(--text-primary);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+    line-height: 1.3;
+    pointer-events: auto;
+}
+.lan-flow-map-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.lan-flow-map-filter .lan-flow-map-panel-body {
+    gap: 0.25rem;
+} 
+.lan-flow-map-panel-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.45rem;
+}
+.lan-flow-map-controls {
+    top: 2.75rem;
+    right: 0.75rem;
+    min-width: 178px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.lan-flow-map-filter {
+    top: 0.75rem;
+    left: 0.75rem;
+    min-width: 220px;
+}
+.lan-flow-map-legend {
+    bottom: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.78rem;
+}
+.lan-flow-map-help {
+    top: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0;
+    font-size: 0.78rem;
+}
+.lan-flow-map-help-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.7rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+}
+.lan-flow-map-help-toggle:hover { color: var(--text-primary); }
+.lan-flow-map-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.72rem;
+}
+.lan-flow-map-help-body {
+    padding: 0.55rem 0.75rem;
+    border-top: 1px solid var(--bg-tertiary);
+    display: grid;
+    gap: 0.3rem;
+    min-width: 180px;
+}
+.lan-flow-map-help-body[hidden] {
+    display: none;
+}
+.lan-flow-map-help-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+.lan-flow-map-help-row .kbd {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.72rem;
+}
+.lan-flow-map-status {
+    bottom: 0.75rem;
+    left: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.lan-flow-map-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.32rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-secondary);
+    transition: background 0.15s ease;
+}
+.lan-flow-map-toggle:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.lan-flow-map-toggle.is-on {
+    color: var(--text-primary);
+    background: rgba(51, 133, 214, 0.12);
+}
+.lan-flow-map-toggle-pill {
+    width: 28px;
+    height: 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+.lan-flow-map-toggle-pill::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    transition: transform 0.15s ease;
+}
+.lan-flow-map-toggle.is-on .lan-flow-map-toggle-pill {
+    background: var(--speed-download-color, #3385d6);
+}
+.lan-flow-map-toggle.is-on .lan-flow-map-toggle-pill::after {
+    transform: translateX(12px);
+}
+.lan-flow-map-search {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.32rem 0.5rem;
+    font-size: 0.82rem;
+}
+.lan-flow-map-search::placeholder {
+    color: var(--text-muted);
+}
+.lan-flow-map-search:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+.lan-flow-map-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.45rem;
+}
+.lan-flow-map-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    cursor: pointer;
+    user-select: none;
+}
+.lan-flow-map-chip.is-on {
+    color: var(--text-primary);
+    border-color: rgba(51, 133, 214, 0.45);
+    background: rgba(51, 133, 214, 0.15);
+}
+/* WiFi band pills use the canonical band palette (matches WiFi Optimizer). */
+.lan-flow-map-chip[data-band="2.4"].is-on {
+    border-color: var(--band-24-color);
+    background: color-mix(in srgb, var(--band-24-color) 18%, transparent);
+}
+.lan-flow-map-chip[data-band="5"].is-on {
+    border-color: var(--band-5-color);
+    background: color-mix(in srgb, var(--band-5-color) 18%, transparent);
+}
+.lan-flow-map-chip[data-band="6"].is-on {
+    border-color: var(--band-6-color);
+    background: color-mix(in srgb, var(--band-6-color) 18%, transparent);
+}
+.lan-flow-map-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.lan-flow-map-legend-dot.down {
+    background: var(--speed-download-color, #3385d6);
+}
+.lan-flow-map-legend-dot.up {
+    background: var(--speed-upload-color, #24bc70);
+}
+.lan-flow-map-scrubber {
+    position: absolute;
+    z-index: 5;
+    left: 50%;
+    bottom: 0.75rem;
+    transform: translateX(-50%);
+    width: min(640px, calc(100% - 22rem));
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 0.55rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.lan-flow-map-scrubber-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+.lan-flow-map-scrubber-range {
+    flex: 1;
+    accent-color: var(--speed-download-color, #3385d6);
+}
+/* Right label swaps between "Live" and a long locale datetime as the user
+   scrubs; without a min-width the flex row reflows and the slider thumb
+   jumps right under the cursor as it approaches the live edge. */
+.lan-flow-map-scrubber-row [data-role="right"] {
+    display: inline-block;
+    min-width: 9.5rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.lan-flow-map-scrubber-row [data-role="left"] {
+    white-space: nowrap;
+}
+.lan-flow-map-scrubber-playpause {
+    background: transparent;
+    border: 1px solid var(--border-color, #334155);
+    color: var(--text-secondary);
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    padding: 0;
+    flex-shrink: 0;
+}
+.lan-flow-map-scrubber-playpause:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+/* SFP/Optical table device + port cell. Inline so device name, port label,
+   and PON badge sit on one row vertically centered, evenly spaced. */
+.sfp-port-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.sfp-port-cell .text-muted {
+    font-size: 0.85rem;
+}
+.lan-flow-map-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(36, 188, 112, 0.15);
+    color: var(--success-color);
+}
+.lan-flow-map-mode.is-historic {
+    background: rgba(231, 150, 19, 0.15);
+    color: var(--warning-color);
+}
+.lan-flow-map-fullscreen-btn {
+    position: absolute;
+    z-index: 6;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    padding: 5px 7px;
+    cursor: pointer;
+    line-height: 0;
+    pointer-events: auto;
+}
+
+.lan-flow-map-fullscreen-btn:hover {
+    color: var(--text-primary);
+    background: rgba(16, 24, 32, 0.92);
+}
+
+.lan-flow-map-fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    height: 100% !important;
+    max-height: none !important;
+    background: var(--bg-primary);
+    border-radius: 0;
+}
+
+.lan-flow-map-labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 1;
+}
+.lan-flow-map-label {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    background: rgba(16, 24, 32, 0.78);
+    color: var(--text-primary);
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: none;
+}
+.lan-flow-map-label.is-visible {
+    display: block;
+}
+.lan-flow-map-label-name {
+    font-weight: 500;
+}
+.lan-flow-map-label-rates {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+    font-size: 0.7rem;
+}
+.lan-flow-map-label-rates .down {
+    color: var(--speed-download-color);
+}
+.lan-flow-map-label-rates .up {
+    color: var(--speed-upload-color);
+}
+.lan-flow-map-link-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    background: rgba(16, 24, 32, 0.82);
+    color: var(--text-primary);
+    padding: 0.12rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-variant-numeric: tabular-nums;
+    display: none;
+    pointer-events: none;
+}
+.lan-flow-map-link-label.is-visible {
+    display: inline-flex;
+    gap: 0.55rem;
+}
+.lan-flow-map-link-label .down {
+    color: var(--speed-download-color);
+}
+.lan-flow-map-link-label .up {
+    color: var(--speed-upload-color);
+}
+.lan-flow-map-wan-pill {
+    position: absolute;
+    transform: translate(-50%, 100%);
+    background: rgba(36, 188, 112, 0.12);
+    color: var(--success-color);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(36, 188, 112, 0.3);
+    margin-top: 4px;
+    display: none;
+}
+.lan-flow-map-wan-pill.is-visible {
+    display: block;
+}
+.lan-flow-map-tooltip {
+    position: absolute;
+    background: rgba(16, 24, 32, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--text-primary);
+    pointer-events: none;
+    z-index: 10;
+    display: none;
+    max-width: 260px;
+}
+.lan-flow-map-tooltip.is-visible {
+    display: block;
+}
+.lan-flow-map-tooltip-title {
+    font-weight: 500;
+    margin-bottom: 0.2rem;
+}
+.lan-flow-map-tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+.lan-flow-map-tooltip-row .v {
+    color: var(--text-primary);
+}
+.lan-flow-map-panel-body[hidden] {
+    display: none;
+}
+.lan-flow-map-panel-title-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+.lan-flow-map-panel-title-toggle::after {
+    content: "▼";
+    float: right;
+    font-size: 0.65rem;
+    opacity: 0.6;
+}
+.lan-flow-map-panel-title-toggle.is-expanded::after {
+    content: "▲";
+}
+@media (max-width: 768px) {
+    .lan-flow-map-stage {
+        height: clamp(300px, 55vh, 480px);
+    }
+    .lan-flow-map-filter,
+    .lan-flow-map-controls {
+        min-width: 0;
+        max-width: 46%;
+        font-size: 0.78rem;
+    }
+    .lan-flow-map-filter {
+        left: 0.5rem;
+        top: 0.5rem;
+    }
+    .lan-flow-map-controls {
+        right: 2.5rem;
+        top: 0.5rem;
+    }
+    .lan-flow-map-legend {
+        bottom: 0.5rem;
+        right: 0.5rem;
+        font-size: 0.7rem;
+        padding: 0.35rem 0.5rem;
+    }
+    .lan-flow-map-status {
+        bottom: 0.5rem;
+        left: 0.5rem;
+    }
+    .lan-flow-map-help {
+        display: none;
+    }
+    .lan-flow-map-scrubber {
+        position: static;
+        transform: none;
+        width: 100%;
+        border-radius: 0 0 8px 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
 }

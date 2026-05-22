@@ -42,7 +42,7 @@ public interface ISqmDeploymentService
     /// Exposes all SQM data (TC rates, speedtest results, ping data) via HTTP.
     /// </summary>
     /// <param name="wan1Interface">Physical interface name for WAN1 (e.g., "ifbeth4").</param>
-    /// <param name="wan1Name">Friendly name for WAN1 (e.g., "Yelcot").</param>
+    /// <param name="wan1Name">Friendly name for WAN1 (e.g., "Comcast").</param>
     /// <param name="wan2Interface">Physical interface name for WAN2 (e.g., "ifbeth0").</param>
     /// <param name="wan2Name">Friendly name for WAN2 (e.g., "Starlink").</param>
     /// <returns>A tuple with success status and optional warning message if the service didn't start correctly.</returns>

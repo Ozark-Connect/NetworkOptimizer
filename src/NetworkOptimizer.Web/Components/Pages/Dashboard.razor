@@ -226,6 +226,7 @@
         DashboardCards.SqmStatus => RenderSqmStatus,
         DashboardCards.ThreatTrends => RenderThreatTrends,
         DashboardCards.CellularStats => RenderCellularStats,
+        DashboardCards.OntStats => RenderOntStats,
         DashboardCards.SpeedTests => RenderSpeedTests,
         DashboardCards.WiFiOptimizer => RenderWiFiOptimizer,
         DashboardCards.RecentAlerts => RenderRecentAlerts,
@@ -517,6 +518,21 @@
             </div>
             <div class="card-body">
                 <CellularStatsPanel />
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderOntStats => __builder =>
+    {
+        // The panel renders its own empty-state when no monitored ONT exists, so the
+        // card stays on the dashboard but tells the user how to enable it. Mirrors the
+        // CellularStats card's "configure" affordance.
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">ONT Stats (GPON / XGS-PON)</h2>
+            </div>
+            <div class="card-body">
+                <OntStatsPanel />
             </div>
         </div>
     };

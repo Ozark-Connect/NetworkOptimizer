@@ -18,6 +18,7 @@ public class DashboardService : IDashboardService
     private readonly TcMonitorClient _tcMonitorClient;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly WiFiOptimizerService _wifiOptimizerService;
+    private readonly MonitoringLiveStats _liveStats;
 
     public DashboardService(
         ILogger<DashboardService> logger,
@@ -26,7 +27,8 @@ public class DashboardService : IDashboardService
         GatewaySpeedTestService gatewayService,
         TcMonitorClient tcMonitorClient,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        WiFiOptimizerService wifiOptimizerService)
+        WiFiOptimizerService wifiOptimizerService,
+        MonitoringLiveStats liveStats)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -35,6 +37,7 @@ public class DashboardService : IDashboardService
         _tcMonitorClient = tcMonitorClient;
         _dbFactory = dbFactory;
         _wifiOptimizerService = wifiOptimizerService;
+        _liveStats = liveStats;
     }
 
     /// <summary>
@@ -63,15 +66,33 @@ public class DashboardService : IDashboardService
             if (devices != null)
             {
                 data.DeviceCount = devices.Count;
-                data.Devices = devices.Select(d => new DeviceInfo
+                data.Devices = devices.Select(d =>
                 {
-                    Name = d.Name ?? d.Mac ?? "Unknown",
-                    Type = d.Type,
-                    Status = d.State == 1 ? "Online" : "Offline",
-                    IpAddress = d.DisplayIpAddress ?? "",
-                    Model = d.FriendlyModelName,
-                    Firmware = d.Firmware,
-                    Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
+                    var info = new DeviceInfo
+                    {
+                        Name = d.Name ?? d.Mac ?? "Unknown",
+                        Mac = d.Mac ?? string.Empty,
+                        Type = d.Type,
+                        Status = d.State == 1 ? "Online" : "Offline",
+                        IpAddress = d.DisplayIpAddress ?? "",
+                        Model = d.FriendlyModelName,
+                        Firmware = d.Firmware,
+                        Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
+                    };
+                    // Merge live monitoring data when available. Stale data is dropped by the
+                    // cache's prune step; here we just ignore an entry if no fresh values landed.
+                    var live = string.IsNullOrEmpty(d.Mac) ? null : _liveStats.GetForDevice(d.Mac);
+                    if (live != null && live.HasFreshData(TimeSpan.FromMinutes(2)))
+                    {
+                        info.LiveRateInBps = live.RateInBps;
+                        info.LiveRateOutBps = live.RateOutBps;
+                        info.LiveLatencyMs = live.LatestRttMs;
+                        info.LiveLossPercent = live.LatestLossPercent;
+                        info.LiveCpuPercent = live.CpuPercent;
+                        info.LiveMemoryPercent = live.MemoryUsedPercent;
+                        info.LiveTemperatureC = live.TemperatureC;
+                    }
+                    return info;
                 })
                 .OrderBy(d => ParseIpForSorting(d.IpAddress))
                 .ToList();
@@ -246,6 +267,7 @@ public class DashboardData
 public class DeviceInfo
 {
     public string Name { get; set; } = "";
+    public string Mac { get; set; } = "";
     public DeviceType Type { get; set; }
     public string Status { get; set; } = "";
     public string IpAddress { get; set; } = "";
@@ -253,6 +275,15 @@ public class DeviceInfo
     public string? Firmware { get; set; }
     public string? Uptime { get; set; }
     public int? ClientCount { get; set; }
+
+    // Live monitoring data (populated from MonitoringLiveStats when available).
+    public double? LiveRateInBps { get; set; }
+    public double? LiveRateOutBps { get; set; }
+    public double? LiveLatencyMs { get; set; }
+    public double? LiveLossPercent { get; set; }
+    public double? LiveCpuPercent { get; set; }
+    public double? LiveMemoryPercent { get; set; }
+    public double? LiveTemperatureC { get; set; }
 
     /// <summary>
     /// Get display name for the device type

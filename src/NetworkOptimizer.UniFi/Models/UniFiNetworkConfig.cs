@@ -103,6 +103,39 @@ public class FlexibleIntConverter : JsonConverter<int?>
 }
 
 /// <summary>
+/// Tolerant nullable-double parser for UniFi API fields that may arrive as a number, a
+/// stringified number, or an empty string. Mirrors FlexibleIntConverter but for floating
+/// point. SFP DDM values (rxpower, current, temperature, voltage) are the primary case;
+/// some firmwares stringify them.
+/// </summary>
+public class FlexibleDoubleConverter : JsonConverter<double?>
+{
+    public override double? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.Number => reader.GetDouble(),
+            JsonTokenType.String when double.TryParse(
+                reader.GetString(),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value) => value,
+            JsonTokenType.String => null, // Empty / non-numeric string
+            JsonTokenType.Null => null,
+            _ => null
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, double? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteNumberValue(value.Value);
+        else
+            writer.WriteNullValue();
+    }
+}
+
+/// <summary>
 /// Response from GET /api/s/{site}/rest/networkconf
 /// Represents a network/VLAN configuration
 /// </summary>

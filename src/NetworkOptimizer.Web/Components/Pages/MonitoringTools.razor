@@ -1,0 +1,370 @@
+@page "/monitoring/tools"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Monitoring
+@using NetworkOptimizer.Monitoring.Probes
+@using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.UniFi
+@using NetworkOptimizer.UniFi.Models
+@inject NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor LocalProbe
+@inject ProbeExecutorFactory ExecutorFactory
+@inject UniFiConnectionService ConnectionService
+
+<PageTitle>Network Tools - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <a href="/monitoring" class="page-back-link back-link">← Back to Monitoring</a>
+    <h1>Network Tools</h1>
+    <p class="page-description">
+        Run ping or traceroute from any vantage to any target. Picking a UniFi device
+        as the source runs the probe over SSH on that device, which lets you isolate
+        whether a problem is on the server's path or on a specific link of your LAN.
+    </p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Run a probe</h2>
+    </div>
+    <div class="card-body">
+        <div class="form-group">
+            <label class="form-label">From (vantage)</label>
+            <select class="form-control" @bind="_fromKey">
+                <option value="server">Network Optimizer server</option>
+                @foreach (var d in _devices)
+                {
+                    <option value="@($"device:{d.Mac}")">@LabelForDevice(d)</option>
+                }
+            </select>
+            @if (_fromKey == "server")
+            {
+                <p class="page-description" style="margin-top: 0.5rem;">
+                    Probes from this server. Capabilities: @_localCapabilities.
+                </p>
+            }
+            else if (_sshCredentialsMissing)
+            {
+                <div class="alert alert-warning">
+                    Network Optimizer doesn't have working SSH credentials for this device
+                    yet. Configure them in <a href="/settings#unifi-ssh">Settings &gt; UniFi SSH</a>
+                    to run probes from this vantage.
+                </div>
+            }
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">To (target)</label>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <select class="form-control" style="max-width: 320px;"
+                        @onchange="OnTargetPresetChange">
+                    <option value="">Custom address</option>
+                    <optgroup label="External">
+                        <option value="ext:1.1.1.1">Cloudflare DNS (1.1.1.1)</option>
+                        <option value="ext:8.8.8.8">Google DNS (8.8.8.8)</option>
+                    </optgroup>
+                    @if (_devices.Any())
+                    {
+                        <optgroup label="Infrastructure">
+                            @foreach (var d in _devices)
+                            {
+                                <option value="@($"dev:{d.Mac}")">@LabelForDevice(d)</option>
+                            }
+                        </optgroup>
+                    }
+                </select>
+                <input type="text" class="form-control" @bind="_targetAddress"
+                       placeholder="hostname or IP" style="flex: 1; min-width: 180px;" />
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Probe Mode</label>
+            <select class="form-control" @bind="_probeMode">
+                <option value="@ProbeMode.Icmp">ICMP</option>
+                <option value="@ProbeMode.Tcp">TCP (connect)</option>
+                <option value="@ProbeMode.Udp">UDP (traceroute only)</option>
+            </select>
+        </div>
+
+        @if (_probeMode == ProbeMode.Tcp)
+        {
+            <div class="form-group">
+                <label class="form-label">TCP Port</label>
+                <input type="number" class="form-control" @bind="_port" min="1" max="65535" />
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_runError))
+        {
+            <div class="alert alert-danger">@_runError</div>
+        }
+
+        <div class="action-buttons" style="margin-top: 1rem;">
+            <button class="btn btn-primary" @onclick="RunPing" disabled="@(_running || !CanRun)">
+                @if (_running && _runningKind == "ping") { <span class="spinner-sm"></span> <span>Pinging...</span> }
+                else { <span>Ping</span> }
+            </button>
+            <button class="btn btn-secondary" @onclick="RunTraceroute" disabled="@(_running || !CanRun)">
+                @if (_running && _runningKind == "trace") { <span class="spinner-sm"></span> <span>Tracing...</span> }
+                else { <span>Traceroute</span> }
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (_pingResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">Ping result</h2>
+            <span class="status-badge @(_pingResult.Success ? "status-connected" : "status-error")">
+                @($"{_pingResult.Received}/{_pingResult.Sent}")
+                · @($"{_pingResult.LossPercent:0.#}% loss")
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">From</label>
+                <div class="form-value">@_pingResult.Vantage.Id</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Target</label>
+                <div class="form-value">@_pingResult.Target</div>
+            </div>
+            @if (_pingResult.RttAvgMs.HasValue)
+            {
+                <div class="form-group">
+                    <label class="form-label">RTT min / avg / max / jitter</label>
+                    <div class="form-value">
+                        @($"{_pingResult.RttMinMs:0.000}") / @($"{_pingResult.RttAvgMs:0.000}") /
+                        @($"{_pingResult.RttMaxMs:0.000}") /
+                        @(_pingResult.JitterMs.HasValue ? $"{_pingResult.JitterMs:0.000}" : "-") ms
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_pingResult.ErrorMessage))
+            {
+                <div class="alert alert-warning">@_pingResult.ErrorMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@if (_traceResult != null)
+{
+    <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+            <h2 class="card-title">Traceroute result</h2>
+            <span class="status-badge @(_traceResult.Reached ? "status-connected" : "status-error")">
+                @(_traceResult.Reached ? "Target reached" : "Did not reach target")
+                · @_traceResult.ModeUsed.ToString().ToUpperInvariant()
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">From</label>
+                <div class="form-value">@_traceResult.Vantage.Id</div>
+            </div>
+            <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Hop</th>
+                        <th>Address</th>
+                        <th>RTT avg (ms)</th>
+                        <th>Responses</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var hop in _traceResult.Hops)
+                    {
+                        <tr>
+                            <td>@hop.HopNumber</td>
+                            <td>
+                                @if (hop.Responded)
+                                {
+                                    @if (!string.IsNullOrEmpty(hop.Hostname))
+                                    { <span>@hop.Hostname (@hop.Address)</span> }
+                                    else
+                                    { <span>@hop.Address</span> }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">* * *</span>
+                                }
+                            </td>
+                            <td>@(hop.RttAvgMs.HasValue ? $"{hop.RttAvgMs:0.0}" : "-")</td>
+                            <td>@hop.Responses / @hop.Probes</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+            @if (!string.IsNullOrEmpty(_traceResult.ErrorMessage))
+            {
+                <div class="alert alert-warning">@_traceResult.ErrorMessage</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string _fromKey = "server"; // "server" or "device:{mac}"
+    private string _targetAddress = "1.1.1.1";
+    private ProbeMode _probeMode = ProbeMode.Icmp;
+    private int _port = 443;
+    private bool _running;
+    private string _runningKind = string.Empty;
+    private string _localCapabilities = "detecting...";
+    private string? _runError;
+    private bool _sshCredentialsMissing;
+
+    private List<DiscoveredDevice> _devices = new();
+
+    private PingProbeResult? _pingResult;
+    private TracerouteResult? _traceResult;
+
+    private bool CanRun => !string.IsNullOrWhiteSpace(_targetAddress) && !_sshCredentialsMissing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var cap = await LocalProbe.GetCapabilityAsync();
+        _localCapabilities = cap.Describe();
+        await LoadDevicesAsync();
+    }
+
+    private async Task LoadDevicesAsync()
+    {
+        try
+        {
+            if (!ConnectionService.IsConnected) return;
+            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+            _devices = devices?
+                .Where(d => !string.IsNullOrEmpty(d.Mac) && !string.IsNullOrEmpty(d.DisplayIpAddress))
+                .OrderBy(d => d.Type)
+                .ThenBy(d => d.Name)
+                .ToList() ?? new();
+        }
+        catch { _devices = new(); }
+    }
+
+    private void OnTargetPresetChange(ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrEmpty(v)) return;
+        if (v.StartsWith("ext:"))
+        {
+            _targetAddress = v.Substring(4);
+            _probeMode = ProbeMode.Icmp;
+        }
+        else if (v.StartsWith("dev:"))
+        {
+            var mac = v.Substring(4);
+            var match = _devices.FirstOrDefault(d => d.Mac == mac);
+            if (match != null && !string.IsNullOrEmpty(match.DisplayIpAddress))
+            {
+                _targetAddress = match.DisplayIpAddress;
+                _probeMode = ProbeMode.Icmp;
+            }
+        }
+    }
+
+    private async Task<IProbeExecutor?> ResolveExecutorAsync()
+    {
+        _sshCredentialsMissing = false;
+        if (_fromKey == "server") return ExecutorFactory.GetServer();
+        if (_fromKey.StartsWith("device:"))
+        {
+            var mac = _fromKey.Substring("device:".Length);
+            var exec = await ExecutorFactory.ForDeviceAsync(mac);
+            if (exec == null)
+            {
+                _sshCredentialsMissing = true;
+                return null;
+            }
+            return exec;
+        }
+        return ExecutorFactory.GetServer();
+    }
+
+    private async Task RunPing()
+    {
+        _running = true;
+        _runningKind = "ping";
+        _pingResult = null;
+        _traceResult = null;
+        _runError = null;
+        StateHasChanged();
+        try
+        {
+            var executor = await ResolveExecutorAsync();
+            if (executor == null)
+            {
+                _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
+                return;
+            }
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null);
+            _pingResult = await executor.PingAsync(target, count: 5);
+        }
+        catch (Exception ex)
+        {
+            _runError = $"Probe failed: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+            _runningKind = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunTraceroute()
+    {
+        _running = true;
+        _runningKind = "trace";
+        _pingResult = null;
+        _traceResult = null;
+        _runError = null;
+        StateHasChanged();
+        try
+        {
+            var executor = await ResolveExecutorAsync();
+            if (executor == null)
+            {
+                _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
+                return;
+            }
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null);
+            _traceResult = await executor.TracerouteAsync(
+                target,
+                maxHops: 30,
+                perHopTimeout: TimeSpan.FromSeconds(2),
+                totalDeadline: TimeSpan.FromSeconds(10));
+        }
+        catch (Exception ex)
+        {
+            _runError = $"Traceroute failed: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+            _runningKind = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private static string LabelForDevice(DiscoveredDevice d)
+    {
+        var type = d.Type switch
+        {
+            DeviceType.Gateway => "Gateway",
+            DeviceType.Switch => "Switch",
+            DeviceType.AccessPoint => "AP",
+            _ => d.Type.ToString()
+        };
+        var name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name;
+        return string.IsNullOrEmpty(d.DisplayIpAddress)
+            ? $"{type}: {name}"
+            : $"{type}: {name} ({d.DisplayIpAddress})";
+    }
+}

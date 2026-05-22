@@ -1,0 +1,383 @@
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Monitoring
+@implements IDisposable
+@inject UpstreamTracerService Tracer
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject IJSRuntime JS
+@inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache FlowMapCache
+
+<div class="card">
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+        <h2 class="card-title">Upstream path discovery</h2>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="status-badge @StateBadgeClass(_state.Step)" @onclick:stopPropagation="true">@StateLabel(_state.Step)</span>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
+    </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+    <div class="card-body">
+        @if (_needsReview && _state.Step != TracerStep.ReviewingResults && _state.Step != TracerStep.Done)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>Upstream path may have changed.</strong>
+                The scheduled 7-day re-discovery found a different set of hops or ASNs
+                than the targets currently saved. Run discovery to see what changed and
+                update your targets.
+            </div>
+        }
+        @if (_state.Step == TracerStep.Idle)
+        {
+            <p class="section-description">
+                Trace your network's path from the gateway to common internet destinations
+                so we can monitor each upstream ISP and transit ASN for outages or path
+                changes. The wizard runs traceroutes in both ICMP and UDP modes,
+                identifies your access ISP's first-mile device, attributes each transit
+                hop to an ASN, and proposes monitoring targets for review.
+            </p>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="StartAsync">Discover upstream path</button>
+            </div>
+        }
+        else if (_state.Step == TracerStep.Failed)
+        {
+            <div class="alert alert-warning">
+                <strong>Discovery stopped.</strong>
+                @_state.FailureMessage
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="StartAsync">Try again</button>
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="form-label">Step</label>
+                <div class="form-value">@StateLabel(_state.Step)</div>
+            </div>
+            @if (!string.IsNullOrEmpty(_state.CurrentActivity))
+            {
+                <div class="form-group">
+                    <label class="form-label">Activity</label>
+                    <div class="form-value">@_state.CurrentActivity</div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_state.WanIpAddress))
+            {
+                <div class="form-group">
+                    <label class="form-label">WAN IP</label>
+                    <div class="form-value">
+                        <code>@_state.WanIpAddress</code>
+                        @if (_state.IsCgnat)
+                        {
+                            <span class="status-badge status-active" style="margin-left: 0.5rem;">CGNAT</span>
+                        }
+                        @if (_state.IsDoubleNat)
+                        {
+                            <span class="status-badge status-disconnected" style="margin-left: 0.5rem;">Double-NAT</span>
+                        }
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_state.WanNeighborMac))
+            {
+                <div class="form-group">
+                    <label class="form-label">L2 neighbor</label>
+                    <div class="form-value">
+                        <code>@_state.WanNeighborMac</code>
+                        @if (!string.IsNullOrEmpty(_state.WanNeighborOuiVendor))
+                        {
+                            <span style="margin-left: 0.5rem;">@_state.WanNeighborOuiVendor</span>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (_state.Step == TracerStep.ReviewingResults)
+            {
+                @if (_state.Traces.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Trace results</label>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Destination</th>
+                                        <th>Mode</th>
+                                        <th>Hops</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var trace in _state.Traces)
+                                    {
+                                        <tr>
+                                            <td>@trace.CdnLabel <span class="text-muted">(@trace.CdnEndpoint)</span></td>
+                                            <td>@trace.Mode.ToDisplayName()</td>
+                                            <td>@trace.HopsResponding / @trace.HopsRecorded</td>
+                                            <td>
+                                                @if (trace.Reached)
+                                                {
+                                                    <span class="status-badge status-connected">Reached</span>
+                                                }
+                                                else if (trace.HopsResponding > 0)
+                                                {
+                                                    <span class="status-badge status-active">Partial</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="status-badge status-disconnected">No reply</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (_state.AccessHops.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Access ISP hops</label>
+                        <p class="section-description">First-mile hops on @AccessAsnDisplay(). Rename or disable any row before saving.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"></th>
+                                        <th>Label</th>
+                                        <th>Address</th>
+                                        <th>Hop</th>
+                                        <th>Role</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var hop in _state.AccessHops)
+                                    {
+                                        <tr class="@(hop.Enabled ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@hop.Enabled"
+                                                       @onchange="e => hop.Enabled = (bool)e.Value!" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="form-input form-input-sm"
+                                                       value="@hop.Label"
+                                                       @onchange="e => hop.Label = (string)e.Value!" />
+                                            </td>
+                                            <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
+                                            <td>@hop.HopNumber</td>
+                                            <td>@hop.Role.ToDisplayName()</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (_state.TransitAsns.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Transit networks</label>
+                        <p class="section-description">Distinct networks between your ISP and the destinations (each one's ASN shown for reference).</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"></th>
+                                        <th>ASN</th>
+                                        <th>Name</th>
+                                        <th>Target hop</th>
+                                        <th>Method</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var asn in _state.TransitAsns)
+                                    {
+                                        <tr class="@(asn.Enabled ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@asn.Enabled"
+                                                       @onchange="e => asn.Enabled = (bool)e.Value!" />
+                                            </td>
+                                            <td><code>AS@(asn.AsnNumber)</code></td>
+                                            <td>@asn.AsnName</td>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(asn.HopAddress))
+                                                {
+                                                    <code>@asn.HopAddress</code>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td>@asn.Method.ToDisplayName()</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0)
+                {
+                    <div class="alert alert-info">
+                        No upstream hops responded to either ICMP or UDP traceroute. Your
+                        ISP may be filtering trace probes; nothing to commit on this run.
+                    </div>
+                }
+
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
+                    @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled))
+                    {
+                        <button class="btn btn-primary" @onclick="CommitAsync">Save monitoring targets</button>
+                    }
+                </div>
+            }
+            else if (_state.Step == TracerStep.Done)
+            {
+                @if (_justSaved)
+                {
+                    <div class="alert alert-success">
+                        Targets saved. The monitor will start probing them shortly.
+                    </div>
+                }
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="StartAsync">Run discovery again</button>
+                </div>
+            }
+            else
+            {
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Running...</span>
+                </div>
+            }
+        }
+    </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private UpstreamTracerState _state = new();
+    private System.Threading.Timer? _pollTimer;
+    private bool _needsReview;
+    private bool _collapsed;
+    private DateTime _lastReviewCheck = DateTime.MinValue;
+    private bool _justSaved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Tracer.RehydrateFromDbAsync();
+        _state = Tracer.State;
+        _collapsed = _state.Step == TracerStep.Done;
+        await RefreshReviewFlagAsync();
+        // Poll the tracer state every 1.5s while a run is active; the state machine
+        // runs in the background and the UI just observes. Re-check the rediscovery
+        // review flag less often (every minute) since it only changes from the
+        // background scheduler.
+        _pollTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                _ = InvokeAsync(async () =>
+                {
+                    _state = Tracer.State;
+                    if (DateTime.UtcNow - _lastReviewCheck > TimeSpan.FromMinutes(1))
+                        await RefreshReviewFlagAsync();
+                    StateHasChanged();
+                });
+            }
+            catch { }
+        }, null, TimeSpan.FromSeconds(1.5), TimeSpan.FromSeconds(1.5));
+    }
+
+    private async Task RefreshReviewFlagAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
+            _needsReview = settings?.UpstreamDiscoveryNeedsReview == true;
+            _lastReviewCheck = DateTime.UtcNow;
+        }
+        catch { _needsReview = false; }
+    }
+
+    private async Task StartAsync()
+    {
+        _justSaved = false;
+        await Tracer.StartDiscoveryAsync();
+        _state = Tracer.State;
+        StateHasChanged();
+    }
+
+    private async Task CommitAsync()
+    {
+        await Tracer.CommitResultsAsync();
+        _state = Tracer.State;
+        _justSaved = true;
+        StateHasChanged();
+
+        // Server side: invalidate the cached map snapshot so the next read
+        // rebuilds with the freshly committed monitoring targets. Client
+        // side: ask the LAN flow map module to re-fetch its snapshot and
+        // tear down + rebuild the scene so the new access cloud labels
+        // appear immediately without waiting for the cache TTL.
+        FlowMapCache.Invalidate();
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "eval",
+                "if (window.__lanFlowMap?.reload) { window.__lanFlowMap.reload(); }");
+        }
+        catch { /* map not mounted on this page, fine */ }
+    }
+
+    private static string StateLabel(TracerStep step) => step switch
+    {
+        TracerStep.Idle => "Ready",
+        TracerStep.DetectingPublicIp => "Detecting public IP",
+        TracerStep.DiscoveringL2Neighbor => "Discovering L2 neighbor",
+        TracerStep.TracingAccessIsp => "Tracing your ISP",
+        TracerStep.TracingTransitAsns => "Tracing intermediate networks",
+        TracerStep.ReviewingResults => "Review",
+        TracerStep.Done => "Done",
+        TracerStep.Failed => "Stopped",
+        _ => step.ToString()
+    };
+
+    private static string StateBadgeClass(TracerStep step) => step switch
+    {
+        TracerStep.Done => "status-connected",
+        TracerStep.ReviewingResults => "status-active",
+        TracerStep.Failed => "status-disconnected",
+        TracerStep.Idle => "status-disconnected",
+        _ => "status-active"
+    };
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    private string AccessAsnDisplay()
+    {
+        var first = _state.AccessHops.FirstOrDefault(h => h.AsnNumber.HasValue);
+        if (first == null) return "your access ISP";
+        return string.IsNullOrEmpty(first.AsnName)
+            ? $"AS{first.AsnNumber}"
+            : $"AS{first.AsnNumber} ({first.AsnName})";
+    }
+
+    public void Dispose() => _pollTimer?.Dispose();
+}
+
+<style>
+    .row-disabled { opacity: 0.45; }
+    .form-input-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+</style>

@@ -1,0 +1,26 @@
+@page "/monitoring/setup-influxdb"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+
+<PageTitle>Set up InfluxDB - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <a href="/monitoring" class="page-back-link back-link">← Back to Monitoring</a>
+    <h1>Set up InfluxDB</h1>
+    <p class="page-description">
+        Network Optimizer needs an InfluxDB instance to store time-series monitoring data.
+        This wizard detects what's available, creates a dedicated org and buckets, and
+        issues a least-privilege token for ongoing use. <strong>Your admin API token is
+        used only during this setup - Network Optimizer never stores it.</strong>
+    </p>
+</div>
+
+<InfluxSetupWizard TitlePrefix="" OnProvisioned="OnProvisioned" />
+
+@code {
+    private void OnProvisioned()
+    {
+        // Bounce back to Monitoring so the user lands on the live status view after setup.
+        Nav.NavigateTo("/monitoring");
+    }
+}

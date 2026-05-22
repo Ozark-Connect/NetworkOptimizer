@@ -103,10 +103,18 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     iputils-ping \
+    traceroute \
+    libcap2-bin \
     libssl3 \
     gosu \
     sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # ICMP traceroute (`traceroute -I`) opens a raw socket and requires
+    # CAP_NET_RAW. The app process runs unprivileged (USER app, UID 1654),
+    # so without the file capability the Network Tools ICMP trace and the
+    # upstream tracer both fail with "Operation not permitted". UDP
+    # traceroute works without elevated caps and stays unaffected.
+    && setcap cap_net_raw+ep /usr/bin/traceroute.db
 
 # Copy iperf3 from build stage
 COPY --from=iperf-build /usr/local/bin/iperf3 /usr/local/bin/

@@ -30,7 +30,7 @@ public interface ISqmService
 
     /// <summary>
     /// Get WAN interface configurations from the UniFi controller.
-    /// Returns a mapping of interface name to friendly name (e.g., "eth4" -> "Yelcot").
+    /// Returns a mapping of interface name to friendly name (e.g., "eth4" -> "Comcast").
     /// </summary>
     /// <returns>A list of <see cref="WanInterfaceInfo"/> objects with WAN interface details.</returns>
     Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync();
@@ -39,7 +39,7 @@ public interface ISqmService
     /// Generate the tc-monitor configuration content based on controller WAN settings.
     /// This can be used to deploy the correct interface mapping to gateways.
     /// </summary>
-    /// <returns>Configuration string in the format expected by tc-monitor (e.g., "ifbeth4:Yelcot ifbeth0:Starlink").</returns>
+    /// <returns>Configuration string in the format expected by tc-monitor (e.g., "ifbeth4:Comcast ifbeth0:Starlink").</returns>
     Task<string> GenerateTcMonitorConfigAsync();
 
     /// <summary>

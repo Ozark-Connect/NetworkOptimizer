@@ -10,6 +10,18 @@
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/monitoring">
+                <img src="/icons/monitoring.svg" alt="" class="nav-icon-img" />
+                <span class="nav-text">Monitoring</span>
+            </NavLink>
+        </li>
+        <li class="nav-item nav-sub-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/monitoring/tools">
+                <span class="nav-sub-icon">└</span>
+                <span class="nav-text">Network Tools</span>
+            </NavLink>
+        </li>
+        <li class="nav-item" @onclick="HandleNavClick">
             <NavLink class="nav-link" href="/config-optimizer">
                 <img src="/icons/tools.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Config Optimizer</span>

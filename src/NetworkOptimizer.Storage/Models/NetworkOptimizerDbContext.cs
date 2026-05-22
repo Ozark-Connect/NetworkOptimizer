@@ -49,6 +49,13 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<WanSteerTrafficClass> WanSteerTrafficClasses { get; set; }
     public DbSet<ExternalSpeedTestServer> ExternalSpeedTestServers { get; set; }
     public DbSet<PerfTweakSetting> PerfTweakSettings { get; set; }
+    public DbSet<MonitoringSettings> MonitoringSettings { get; set; }
+    public DbSet<MonitoringTarget> MonitoringTargets { get; set; }
+    public DbSet<WanDiscoveryContext> WanDiscoveryContexts { get; set; }
+    public DbSet<InterfaceNameMap> InterfaceNameMaps { get; set; }
+    public DbSet<UpstreamDiscovery> UpstreamDiscoveries { get; set; }
+    public DbSet<MonitoredSfp> MonitoredSfps { get; set; }
+    public DbSet<OuiVendor> OuiVendors { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,6 +185,70 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<AdminSettings>(entity =>
         {
             entity.ToTable("AdminSettings");
+        });
+
+        // MonitoringSettings configuration (singleton - only one row)
+        modelBuilder.Entity<MonitoringSettings>(entity =>
+        {
+            entity.ToTable("MonitoringSettings");
+            entity.Property(e => e.SnmpVersion).HasConversion<int>();
+            entity.Property(e => e.SnmpDetectionState).HasConversion<int>();
+            entity.Property(e => e.AccessTechnology).HasConversion<int>();
+        });
+
+        // MonitoringTarget configuration
+        modelBuilder.Entity<MonitoringTarget>(entity =>
+        {
+            entity.ToTable("MonitoringTargets");
+            entity.HasIndex(e => e.TargetId).IsUnique();
+            entity.HasIndex(e => e.TargetType);
+            entity.HasIndex(e => e.Enabled);
+            entity.HasIndex(e => e.WanInterface);
+            entity.Property(e => e.ProbeMode).HasConversion<int>();
+            entity.Property(e => e.TargetType).HasConversion<int>();
+            entity.Property(e => e.DiscoveryMethod).HasConversion<int>();
+        });
+
+        // WanDiscoveryContext configuration — one row per WAN with the per-WAN tracer state.
+        modelBuilder.Entity<WanDiscoveryContext>(entity =>
+        {
+            entity.ToTable("WanDiscoveryContexts");
+            entity.HasKey(e => e.WanInterface);
+            entity.Property(e => e.AccessTechnology).HasConversion<int>();
+        });
+
+        // InterfaceNameMap configuration
+        modelBuilder.Entity<InterfaceNameMap>(entity =>
+        {
+            entity.ToTable("InterfaceNameMaps");
+            entity.HasIndex(e => new { e.DeviceMac, e.IfName }).IsUnique();
+            entity.HasIndex(e => e.DeviceMac);
+            entity.Property(e => e.Direction).HasConversion<int>();
+        });
+
+        // UpstreamDiscovery configuration
+        modelBuilder.Entity<UpstreamDiscovery>(entity =>
+        {
+            entity.ToTable("UpstreamDiscoveries");
+            entity.HasIndex(e => e.AsnNumber);
+            entity.HasIndex(e => e.IsActive);
+            entity.HasIndex(e => e.MonitoringTargetId);
+            entity.Property(e => e.Role).HasConversion<int>();
+        });
+
+        // MonitoredSfp configuration
+        modelBuilder.Entity<MonitoredSfp>(entity =>
+        {
+            entity.ToTable("MonitoredSfps");
+            entity.HasIndex(e => new { e.DeviceMac, e.PortName }).IsUnique();
+            entity.HasIndex(e => e.IsMonitoredOnt);
+        });
+
+        // OuiVendor configuration (lookup cache, primary key on OUI prefix)
+        modelBuilder.Entity<OuiVendor>(entity =>
+        {
+            entity.ToTable("OuiVendors");
+            entity.HasKey(e => e.OuiPrefix);
         });
 
         // UpnpNote configuration

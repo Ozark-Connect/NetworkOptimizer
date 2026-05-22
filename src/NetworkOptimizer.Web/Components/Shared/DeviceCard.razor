@@ -1,6 +1,9 @@
 @if (Device != null)
 {
-    <div class="device-card device-@Device.Status.ToLower()">
+    // TODO: Implement per-device detail pages (MonitoringDevice.razor) with
+    // individual health/latency/throughput charts, then link here by MAC.
+    var deviceHref = "/monitoring#device-health-charts-container";
+    <a href="@deviceHref" class="device-card device-card-link device-@Device.Status.ToLower()">
         <div class="device-header">
             <div class="device-icon">
                 @{
@@ -59,8 +62,52 @@
                     <span class="detail-value">@Device.ClientCount</span>
                 </div>
             }
+            @if (HasLiveData)
+            {
+                <div class="device-live-stats">
+                    @if (Device.LiveCpuPercent.HasValue || Device.LiveMemoryPercent.HasValue || Device.LiveTemperatureC.HasValue)
+                    {
+                        <div class="device-health-stats">
+                            @if (Device.LiveCpuPercent.HasValue)
+                            {
+                                <span>CPU @($"{Device.LiveCpuPercent.Value:0}%")</span>
+                            }
+                            @if (Device.LiveMemoryPercent.HasValue)
+                            {
+                                <span>Mem @($"{Device.LiveMemoryPercent.Value:0}%")</span>
+                            }
+                            @if (Device.LiveTemperatureC.HasValue)
+                            {
+                                <span>@($"{Device.LiveTemperatureC.Value:0} °C")</span>
+                            }
+                        </div>
+                    }
+                    @if (Device.LiveLatencyMs.HasValue)
+                    {
+                        <div class="device-latency @(Device.LiveLossPercent > 5 ? "latency-degraded" : "")">
+                            <span class="latency-label">Ping</span>
+                            <span class="latency-value">@($"{Device.LiveLatencyMs.Value:0.000} ms")</span>
+                            @if (Device.LiveLossPercent > 0)
+                            {
+                                <span class="latency-loss">@($"{Device.LiveLossPercent:0.#}% loss")</span>
+                            }
+                        </div>
+                    }
+                    @if (Device.LiveRateInBps.HasValue || Device.LiveRateOutBps.HasValue)
+                    {
+                        <div class="device-rate">
+                            <span class="rate-down" title="Ingress (bytes received by the device)">
+                                In @FormatBps(Device.LiveRateInBps)
+                            </span>
+                            <span class="rate-up" title="Egress (bytes transmitted by the device)">
+                                Out @FormatBps(Device.LiveRateOutBps)
+                            </span>
+                        </div>
+                    }
+                </div>
+            }
         </div>
-    </div>
+    </a>
 }
 
 <style>
@@ -73,6 +120,55 @@
     .device-emoji {
         font-size: 2rem;
     }
+
+    .device-card-link {
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+    .device-card-link:hover {
+        border-color: var(--primary-color);
+    }
+
+    .device-live-stats {
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--bg-tertiary);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        font-size: 0.85rem;
+    }
+    .device-rate {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .device-rate .rate-down {
+        color: var(--speed-download-color);
+    }
+    .device-rate .rate-up {
+        color: var(--speed-upload-color);
+    }
+    .device-latency {
+        color: var(--text-secondary);
+    }
+    .device-latency.latency-degraded {
+        color: var(--warning-color);
+    }
+    .device-latency .latency-label {
+        color: var(--text-muted);
+        margin-right: 0.25rem;
+    }
+    .device-latency .latency-loss {
+        color: var(--danger-color);
+        margin-left: 0.25rem;
+    }
+    .device-health-stats {
+        display: flex;
+        gap: 0.75rem;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
 </style>
 
 @using NetworkOptimizer.Web.Services
@@ -82,6 +178,22 @@
 @code {
     [Parameter]
     public DeviceInfo? Device { get; set; }
+
+    private bool HasLiveData => Device != null
+        && (Device.LiveRateInBps.HasValue
+            || Device.LiveRateOutBps.HasValue
+            || Device.LiveLatencyMs.HasValue
+            || Device.LiveCpuPercent.HasValue);
+
+    private static string FormatBps(double? bps)
+    {
+        if (!bps.HasValue) return "-";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.##} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.##} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.##} Kbps";
+        return $"{v:0} bps";
+    }
 
     private string? GetDeviceImagePath(string? model)
     {

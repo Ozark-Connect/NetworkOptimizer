@@ -26,7 +26,7 @@ public class UniFiDiscovery
     /// </summary>
     public async Task<List<DiscoveredDevice>> DiscoverDevicesAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Starting UniFi device discovery via API");
+        _logger.LogTrace("Starting UniFi device discovery via API");
 
         // Fetch devices and network configs in parallel
         var devicesTask = _apiClient.GetDevicesAsync(cancellationToken);
@@ -43,7 +43,7 @@ public class UniFiDiscovery
             return new List<DiscoveredDevice>();
         }
 
-        _logger.LogInformation("Discovered {Count} UniFi devices", devices.Count);
+        _logger.LogTrace("Discovered {Count} UniFi devices", devices.Count);
 
         // Find the default LAN network gateway IP for gateways
         var defaultLanGatewayIp = GetDefaultLanGatewayIp(networks);
@@ -115,7 +115,7 @@ public class UniFiDiscovery
         // Log wireless uplink details for debugging
         foreach (var d in devices.Where(d => d.Uplink?.Type == "wireless"))
         {
-            _logger.LogDebug("Wireless uplink for {Name}: Radio={Radio}, TxRate={Tx}Kbps, RxRate={Rx}Kbps, Channel={Ch}, IsMlo={Mlo}",
+            _logger.LogTrace("Wireless uplink for {Name}: Radio={Radio}, TxRate={Tx}Kbps, RxRate={Rx}Kbps, Channel={Ch}, IsMlo={Mlo}",
                 d.Name, d.Uplink?.RadioBand ?? "null", d.Uplink?.TxRate, d.Uplink?.RxRate, d.Uplink?.Channel, d.Uplink?.IsMlo);
         }
 
@@ -176,7 +176,7 @@ public class UniFiDiscovery
         // First try DhcpdGateway (explicitly configured gateway IP)
         if (!string.IsNullOrEmpty(defaultLan.DhcpdGateway))
         {
-            _logger.LogDebug("Gateway LAN IP from DhcpdGateway: {Ip}", defaultLan.DhcpdGateway);
+            _logger.LogTrace("Gateway LAN IP from DhcpdGateway: {Ip}", defaultLan.DhcpdGateway);
             return defaultLan.DhcpdGateway;
         }
 
@@ -184,7 +184,7 @@ public class UniFiDiscovery
         if (!string.IsNullOrEmpty(defaultLan.IpSubnet))
         {
             var ip = defaultLan.IpSubnet.Split('/')[0];
-            _logger.LogDebug("Gateway LAN IP from IpSubnet: {Ip}", ip);
+            _logger.LogTrace("Gateway LAN IP from IpSubnet: {Ip}", ip);
             return ip;
         }
 
@@ -468,7 +468,7 @@ public class UniFiDiscovery
                                       allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
 
         // Log classification details for gateway-class devices (UDR, UX, UDM, etc.)
-        logger.LogInformation(
+        logger.LogTrace(
             "Gateway-class device: {Name} ({Model}) - API type={ApiType}, IP={Ip}, " +
             "UplinkMac={UplinkMac}, UplinkToUniFi={HasUplinkToUniFi}, HasConfigNetworkLan={HasLan}",
             device.Name,

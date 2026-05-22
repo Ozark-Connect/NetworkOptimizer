@@ -1,0 +1,406 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Services
+@using NetworkOptimizer.Web.Services
+@using Microsoft.EntityFrameworkCore
+@inject InfluxDbProvisioningService Provisioner
+@inject MonitoringInfluxClient InfluxClient
+@inject ICredentialProtectionService CredentialService
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+@switch (_state)
+{
+    case Step.Detecting:
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">@TitlePrefix InfluxDB</h2>
+            </div>
+            <div class="card-body">
+                <div class="empty-state">
+                    <span class="spinner"></span>
+                    <p>Looking for InfluxDB on this network...</p>
+                </div>
+            </div>
+        </div>
+        break;
+
+    case Step.UrlNotFound:
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">@TitlePrefix InfluxDB</h2>
+                <span class="status-badge status-disconnected">Not reachable</span>
+            </div>
+            <div class="card-body">
+                <p class="section-description">
+                    Network Optimizer needs InfluxDB to store time-series monitoring data
+                    (port counters, latency probes, SFP optical levels). We tried these
+                    URLs but none responded:
+                </p>
+                @if (_probe?.CandidatesTried != null)
+                {
+                    <ul style="margin: 0 0 1rem 1.25rem;">
+                        @foreach (var c in _probe.CandidatesTried) { <li><code>@c</code></li> }
+                    </ul>
+                }
+
+                <details class="setup-guide" open>
+                    <summary>Install InfluxDB</summary>
+                    <div class="setup-guide-content">
+                        <p><strong>Docker</strong> (recommended for NAS / Linux hosts, or see the <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#influxdb-for-monitoring-optional" target="_blank" rel="noopener">Deployment Guide</a> for a companion Docker Compose config):</p>
+                        <pre><code>docker run -d --name influxdb --restart unless-stopped \
+  -p 8086:8086 -v influxdb-data:/var/lib/influxdb2 \
+  influxdb:2</code></pre>
+                        <p><strong>macOS</strong>: <code>brew install influxdb@2 && brew services start influxdb@2</code></p>
+                        <p><strong>Other</strong>: see the <a href="https://docs.influxdata.com/influxdb/v2/install/" target="_blank" rel="noopener">InfluxDB install docs</a>.</p>
+                        <p>Once it's running, finish the initial setup at <code>http://localhost:8086</code> to create an admin user and an all-access API token, then come back here.</p>
+                    </div>
+                </details>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label class="form-label">Or enter a URL manually</label>
+                    <input type="text" class="form-control" @bind="_manualUrl" placeholder="http://localhost:8086" />
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Detect again</button>
+                    <button class="btn btn-primary" @onclick="UseManualUrlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_manualUrl))">Use this URL</button>
+                </div>
+            </div>
+        </div>
+        break;
+
+    case Step.UrlFound:
+    case Step.PickOrg:
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">@TitlePrefix InfluxDB</h2>
+                <span class="status-badge status-connected">
+                    Found at @_probe?.Url
+                    @if (!string.IsNullOrEmpty(_probe?.Version)) { <span> (@_probe.Version)</span> }
+                </span>
+            </div>
+            <div class="card-body">
+                <p class="section-description">
+                    Provide an <strong>all-access API token</strong> for the InfluxDB org
+                    you want Network Optimizer's data to live in. We'll use it just for
+                    this setup, to create the two NO buckets in that org and mint a
+                    least-privilege token for ongoing use. <strong>Your all-access token
+                    is held in memory only for this request and discarded immediately
+                    after, it's never saved to disk.</strong>
+                </p>
+
+                <div class="form-group">
+                    <label class="form-label">All-access API token</label>
+                    <input type="password" class="form-control" @bind="_adminToken" placeholder="Paste your InfluxDB all-access token" />
+                </div>
+
+                @if (_state == Step.PickOrg)
+                {
+                    <div class="form-group">
+                        @if (_orgs.Count == 0)
+                        {
+                            <label class="form-label">Which org should Network Optimizer use?</label>
+                            <div class="alert alert-warning">
+                                No orgs are visible to this token. Use an all-access token
+                                scoped to your target org, or an operator token.
+                            </div>
+                        }
+                        else if (_orgs.Count == 1)
+                        {
+                            <label class="form-label">Network Optimizer's data will live in</label>
+                            <div class="form-value">
+                                <code>@_orgs[0].Name</code>
+                            </div>
+                            <p class="section-description" style="margin-top: 0.5rem;">
+                                NO creates two buckets in this org: <code>network_monitoring</code>
+                                (90-day retention) and <code>network_monitoring_longterm</code>
+                                (365-day). The bucket names are NO-specific so they can't
+                                collide with anything else in this org.
+                            </p>
+                        }
+                        else
+                        {
+                            <label class="form-label">Which org should Network Optimizer use?</label>
+                            <select class="form-control" @bind="_selectedOrgId" style="max-width: 320px;">
+                                <option value="">- Pick an org -</option>
+                                @foreach (var org in _orgs)
+                                {
+                                    <option value="@org.Id">@org.Name</option>
+                                }
+                            </select>
+                            <p class="section-description" style="margin-top: 0.5rem;">
+                                NO creates two buckets in this org: <code>network_monitoring</code>
+                                (90-day retention) and <code>network_monitoring_longterm</code>
+                                (365-day). The bucket names are NO-specific so they can't
+                                collide with anything else in this org.
+                            </p>
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_message))
+                {
+                    <div class="alert alert-@_messageClass">@_message</div>
+                }
+
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
+                    <button class="btn btn-primary" @onclick="OnPrimaryActionAsync"
+                            disabled="@(_busy || !CanPrimaryAction)">
+                        @if (_busy) { <span class="spinner-sm"></span> <span>@PrimaryBusyLabel</span> }
+                        else { <span>@PrimaryLabel</span> }
+                    </button>
+                </div>
+            </div>
+        </div>
+        break;
+
+    case Step.Done:
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">InfluxDB ready</h2>
+                <span class="status-badge status-connected">Set up</span>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-success">
+                    Buckets created and a scoped token has been saved. You can now enable
+                    monitoring.
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" @onclick="DismissAsync">Continue</button>
+                </div>
+            </div>
+        </div>
+        break;
+}
+
+@code {
+    /// <summary>
+    /// Optional title prefix. Set to "Set up" when used standalone, or leave empty when
+    /// already embedded under a "Monitoring Setup" header.
+    /// </summary>
+    [Parameter] public string TitlePrefix { get; set; } = "Set up ";
+
+    /// <summary>Invoked once provisioning succeeds, so the host page can refresh its state.</summary>
+    [Parameter] public EventCallback OnProvisioned { get; set; }
+
+    private Step _state = Step.Detecting;
+    private InfluxDbProvisioningService.UrlProbeResult? _probe;
+    private string _manualUrl = string.Empty;
+    private string _adminToken = string.Empty;
+    private string? _authedAs;
+    private List<InfluxDbProvisioningService.InfluxOrg> _orgs = new();
+    private string? _selectedOrgId;
+    private bool _busy;
+    private string? _message;
+    private string _messageClass = "info";
+
+    // Primary action is two-stage: first press validates the token and loads orgs
+    // (the user has to see and pick one, we never auto-pick). Second press, once an
+    // org is selected, provisions the buckets and mints the scoped token.
+    private bool CanPrimaryAction
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_adminToken)) return false;
+            if (_state != Step.PickOrg) return true; // first click: validate + list
+            return !string.IsNullOrEmpty(_selectedOrgId);
+        }
+    }
+
+    private string PrimaryLabel =>
+        _state != Step.PickOrg ? "List orgs" : "Provision buckets and token";
+
+    private string PrimaryBusyLabel =>
+        _state != Step.PickOrg ? "Loading orgs..." : "Provisioning...";
+
+    private async Task OnPrimaryActionAsync()
+    {
+        if (_state != Step.PickOrg)
+        {
+            await ValidateTokenAsync();
+            return;
+        }
+        await ProvisionAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await DetectAgainAsync();
+    }
+
+    private async Task DetectAgainAsync()
+    {
+        _state = Step.Detecting;
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            _probe = await Provisioner.AutoDetectUrlAsync();
+            _state = _probe.Reachable ? Step.UrlFound : Step.UrlNotFound;
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task UseManualUrlAsync()
+    {
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            _probe = await Provisioner.ProbeAsync(_manualUrl.Trim());
+            if (_probe.Reachable)
+            {
+                _state = Step.UrlFound;
+            }
+            else
+            {
+                _message = $"Couldn't reach {_manualUrl}: {_probe.Error}";
+                _messageClass = "warning";
+            }
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ValidateTokenAsync()
+    {
+        if (_probe == null || string.IsNullOrEmpty(_probe.Url)) return;
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            var result = await Provisioner.ValidateAdminTokenAsync(_probe.Url, _adminToken.Trim());
+            if (!result.Valid)
+            {
+                _message = result.Error ?? "Token validation failed";
+                _messageClass = "danger";
+                return;
+            }
+            _authedAs = result.UserName;
+
+            try
+            {
+                _orgs = (await Provisioner.ListOrgsAsync(_probe.Url, _adminToken.Trim())).ToList();
+            }
+            catch (Exception ex)
+            {
+                _message = $"Authenticated, but couldn't list orgs: {ex.Message}";
+                _messageClass = "warning";
+                _orgs = new();
+            }
+
+            // In current InfluxDB 2.x, an all-access token is scoped to exactly one org,
+            // so the list usually has one entry. Auto-select when there's just one (the
+            // UI shows the org name as confirmation rather than a single-item dropdown).
+            // When there are multiple (operator token / future multi-org architecture),
+            // prefer one named "network-optimizer" if present, otherwise leave blank so
+            // the user picks deliberately.
+            if (_orgs.Count == 1)
+            {
+                _selectedOrgId = _orgs[0].Id;
+            }
+            else
+            {
+                var preferred = _orgs.FirstOrDefault(o =>
+                    string.Equals(o.Name, "network-optimizer", StringComparison.OrdinalIgnoreCase));
+                _selectedOrgId = preferred?.Id;
+            }
+            _state = Step.PickOrg;
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProvisionAsync()
+    {
+        if (_probe == null || string.IsNullOrEmpty(_selectedOrgId)) return;
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            var url = _probe.Url;
+            var adminToken = _adminToken.Trim();
+
+            var org = _orgs.First(o => o.Id == _selectedOrgId);
+            if (string.IsNullOrEmpty(org.Id))
+                throw new InvalidOperationException("Org has no ID");
+
+            var settings = await GetOrCreateSettingsRowAsync();
+            var primaryName = string.IsNullOrWhiteSpace(settings.InfluxDbBucket) ? "network_monitoring" : settings.InfluxDbBucket;
+            var longtermName = string.IsNullOrWhiteSpace(settings.InfluxDbLongtermBucket) ? "network_monitoring_longterm" : settings.InfluxDbLongtermBucket;
+            var bucketResult = await Provisioner.EnsureBucketsAsync(url, adminToken, org.Id, primaryName, longtermName);
+
+            var scoped = await Provisioner.CreateScopedTokenAsync(url, adminToken, org.Id, bucketResult.PrimaryBucketId, bucketResult.LongtermBucketId);
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringSettings.FirstAsync();
+            row.InfluxDbUrl = url;
+            row.InfluxDbOrg = org.Name ?? string.Empty;
+            row.InfluxDbBucket = bucketResult.PrimaryBucketName;
+            row.InfluxDbLongtermBucket = bucketResult.LongtermBucketName;
+            row.InfluxDbToken = CredentialService.Encrypt(scoped.Token);
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            _adminToken = string.Empty; // drop the admin token explicitly
+
+            await InfluxClient.ReconfigureAsync();
+            await InfluxClient.CheckHealthAsync();
+
+            _state = Step.Done;
+            // Don't fire OnProvisioned immediately, otherwise the host page hides the
+            // wizard and the user never sees the "InfluxDB ready" confirmation. The
+            // callback fires when the user clicks Continue.
+        }
+        catch (Exception ex)
+        {
+            _message = $"Provisioning failed: {ex.Message}";
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DismissAsync()
+    {
+        if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
+    }
+
+    private async Task<MonitoringSettings> GetOrCreateSettingsRowAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var row = await db.MonitoringSettings.FirstOrDefaultAsync();
+        if (row == null)
+        {
+            row = new MonitoringSettings();
+            db.MonitoringSettings.Add(row);
+            await db.SaveChangesAsync();
+        }
+        return row;
+    }
+
+    public enum Step
+    {
+        Detecting,
+        UrlNotFound,
+        UrlFound,
+        PickOrg,
+        Done
+    }
+}
