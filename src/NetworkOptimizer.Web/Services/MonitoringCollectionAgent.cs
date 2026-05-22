@@ -252,18 +252,18 @@ public class MonitoringCollectionAgent : BackgroundService
                 }
                 if (anyRate)
                 {
-                    // Successful SNMP poll - reset the failure counter. The
-                    // direction-aware device aggregate (RateInBps/RateOutBps,
-                    // used by the trunk LINK renderer) is written by the
-                    // post-process loop below from the parent-uplink port.
-                    // APs / gateways are NOT good candidates for an interface-
-                    // sum aggregate (AP radios over-count beacons + retries;
-                    // gateway VLAN sub-interfaces alias the parent LAN), so
-                    // those skip the fabric sum. Switches are clean: each
-                    // physical port's rx is counted once, tx is counted once,
-                    // so sum(rx) and sum(tx) are coherent fabric I/O totals.
+                    // Successful SNMP poll - reset the failure counter. APs are
+                    // the only fabric-sum holdout: their radio "interfaces"
+                    // over-count beacons / retries / MIMO duplicates so the sum
+                    // doesn't represent useful payload. Switches, gateways and
+                    // cellular modems all see sum(rx)/sum(tx) as a coherent
+                    // fabric I/O total - ShouldMonitor() already strips loopback,
+                    // tunnels and bridges, so the surviving interfaces are
+                    // physical ports.
                     _snmpFailures.TryRemove(mac, out _);
-                    if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)
+                    if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
+                        || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                        || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.CellularModem)
                     {
                         _liveStats.RecordFabricSum(device.Mac, aggregateInBps, aggregateOutBps, now);
                     }
@@ -311,7 +311,23 @@ public class MonitoringCollectionAgent : BackgroundService
 
             if (rate.HasValue)
             {
-                _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
+                if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch)
+                {
+                    // SNMP-free switches fall through to this UniFi parent-port
+                    // delta, but the trunk direction at the parent doesn't always
+                    // map to the child's fabric ingress/egress reliably (LAGs,
+                    // multiple uplinks, switches plugged into a port the controller
+                    // labels backwards). Rather than display a confidently-wrong
+                    // direction, publish the magnitude on both axes - the label
+                    // shows "this much is moving, direction unknown" instead of
+                    // a flipped ingress/egress pair.
+                    var mag = Math.Max(rate.Value.DownBps, rate.Value.UpBps);
+                    _liveStats.RecordInterfaceAggregate(dev.Mac, mag, mag, nowOverride);
+                }
+                else
+                {
+                    _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
+                }
             }
             else if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint)
             {
