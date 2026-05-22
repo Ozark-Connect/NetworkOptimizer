@@ -1843,8 +1843,15 @@ class ParticleStream {
         this._length = this._direction.length();
         this._direction.normalize();
 
-        const MAX = 80;
+        const MAX = 200;
         this._max = MAX;
+        // Particles-per-world-unit at full saturation (density=1). Multiplied
+        // by link length to derive `desired` so a short link and a long link
+        // carrying the same bitrate render at the same visual particles-
+        // per-unit-length. Capped at MAX to keep the per-stream buffer bounded
+        // for unusually long links (e.g. a wireless mesh backhaul reaching
+        // across the map).
+        this._particlesPerUnit = 6;
         // Inactive particles are parked outside the camera's far plane (1000 units)
         // so they don't render. Without this, all 80 vertices start at (0, 0, 0) -
         // with additive blending + bloom across every stream, that piles into a
@@ -1915,7 +1922,12 @@ class ParticleStream {
     }
 
     advance(dt) {
-        const desired = this._density * this._max;
+        // Scale desired particle count by link length so density-per-unit-
+        // length stays constant at a given bitrate. Two links carrying the
+        // same throughput now render with the same visual particle density
+        // whether they're a 1m switch-to-AP hop or a long mesh backhaul.
+        const desired = Math.min(this._max,
+            this._density * this._length * this._particlesPerUnit);
         // Spawn new particles to maintain desired density.
         let active = 0;
         for (let i = 0; i < this._max; i += 1) {
