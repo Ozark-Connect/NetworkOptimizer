@@ -286,29 +286,25 @@ public class UpstreamTracerService
         State.Step = TracerStep.DiscoveringL2Neighbor;
         State.CurrentActivity = "Identifying the first device upstream of your gateway...";
 
-        // Build the OS interface candidate list. UniFi's port_table puts the
-        // kernel device name directly on the uplink entry as `uplink_ifname`,
-        // correct for VLAN-tagged WANs too - that's the authoritative source.
-        // Fall back to default-route discovery only if uplink_ifname is missing
-        // (older firmware, weird config). No hardcoded ethN guessing - that
-        // grabbed the first interface with any neighbor entry and returned
-        // garbage for setups that didn't match the assumption.
+        // OS interface candidates, authoritative-first:
+        //  1) port_table.uplink_ifname - UniFi's kernel device name for
+        //     the uplink, correct for VLAN-tagged sub-interfaces too.
+        //  2) `ip -o -4 addr show` line owning the known WAN IP.
+        // No default-route lookup: UniFi gateways run policy routing with
+        // per-WAN tables, so the default isn't in the main table.
         var candidates = new List<string>();
         if (!string.IsNullOrEmpty(_wanUplinkIfName))
         {
             candidates.Add(_wanUplinkIfName);
         }
-        else
+        if (candidates.Count == 0 && !string.IsNullOrEmpty(State.WanIpAddress))
         {
-            var (routeOk, routeOut) = await _gatewaySsh.RunCommandAsync(
-                "ip -4 route show default 2>/dev/null", TimeSpan.FromSeconds(5), ct);
-            if (routeOk && !string.IsNullOrWhiteSpace(routeOut))
+            var addrCmd = $"ip -o -4 addr show | grep -F ' {State.WanIpAddress}/' | head -1";
+            var (addrOk, addrOut) = await _gatewaySsh.RunCommandAsync(addrCmd, TimeSpan.FromSeconds(5), ct);
+            if (addrOk && !string.IsNullOrWhiteSpace(addrOut))
             {
-                foreach (Match m in Regex.Matches(routeOut, @"\bdev\s+(?<iface>\S+)"))
-                {
-                    var iface = m.Groups["iface"].Value;
-                    if (!candidates.Contains(iface)) candidates.Add(iface);
-                }
+                var m = Regex.Match(addrOut, @"^\s*\d+:\s+(?<iface>\S+)\s+inet\s+", RegexOptions.Multiline);
+                if (m.Success) candidates.Add(m.Groups["iface"].Value);
             }
         }
 
