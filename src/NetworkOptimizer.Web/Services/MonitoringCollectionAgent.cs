@@ -240,6 +240,13 @@ public class MonitoringCollectionAgent : BackgroundService
                 double aggregateInBps = 0;
                 double aggregateOutBps = 0;
                 bool anyRate = false;
+                // For mesh APs, the "vwiresta*" SNMP interface is the virtual
+                // wireless station - the AP acting as a client to its parent.
+                // Every byte the AP shuttles over the wireless backhaul flows
+                // through this interface, so its ifInOctets / ifOutOctets is
+                // the most direct boundary measurement we can get.
+                double? apMeshUplinkInBps = null;
+                double? apMeshUplinkOutBps = null;
                 foreach (var iface in interfaces)
                 {
                     var (rateIn, rateOut) = WriteInterfaceCounters(device, iface, now);
@@ -250,6 +257,14 @@ public class MonitoringCollectionAgent : BackgroundService
                         {
                             aggregateInBps += rateIn.Value;
                             aggregateOutBps += rateOut.Value;
+                        }
+                        if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
+                            && !string.IsNullOrEmpty(iface.Description)
+                            && iface.Description.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
+                            && !iface.Description.Contains('.'))
+                        {
+                            apMeshUplinkInBps = rateIn.Value;
+                            apMeshUplinkOutBps = rateOut.Value;
                         }
                     }
                 }
@@ -269,6 +284,15 @@ public class MonitoringCollectionAgent : BackgroundService
                         || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.CellularModem)
                     {
                         _liveStats.RecordFabricSum(device.Mac, aggregateInBps, aggregateOutBps, now);
+                    }
+                    if (apMeshUplinkInBps.HasValue && apMeshUplinkOutBps.HasValue)
+                    {
+                        // vwiresta rateIn (ifInOctets) = bytes received over the mesh
+                        // backhaul = downloads. rateOut = bytes transmitted = uploads.
+                        // Our aggregate convention (per AP tooltip semantics: "Ingress"
+                        // = bytes the AP receives from its wifi clients = uploads) puts
+                        // uploads on aggregateInBps and downloads on aggregateOutBps.
+                        _liveStats.RecordInterfaceAggregate(device.Mac, apMeshUplinkOutBps.Value, apMeshUplinkInBps.Value, now);
                     }
                 }
                 else
@@ -312,32 +336,18 @@ public class MonitoringCollectionAgent : BackgroundService
             if (portIdx > 0)
                 rate = ComputePortRate(parentMac, portIdx, nowOverride);
 
-            bool isFrontYard = dev.Name?.IndexOf("front yard", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (isFrontYard)
-            {
-                _logger.LogInformation(
-                    "[diag] First-pass for {Name}: type={UplinkType} parent={Parent} portIdx={Port} rate={HasRate} Stats={HasStats} Tx={Tx} Rx={Rx} BytePrev={HasPrev} ByteLatest={HasLatest}",
-                    dev.Name, dev.Uplink?.Type, parentMac, portIdx, rate.HasValue,
-                    dev.Stats != null,
-                    dev.Stats?.TxBytes, dev.Stats?.RxBytes,
-                    _deviceBytePrev.ContainsKey(devMac), _deviceByteRateLatest.ContainsKey(devMac));
-            }
-
             if (rate.HasValue)
             {
                 _liveStats.RecordInterfaceAggregate(dev.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
             }
             else if (dev.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint)
             {
-                // Fallback for mesh-uplinked APs: UniFi's device-level tx_bytes /
-                // rx_bytes delta. The wireless backhaul has no parent switch port to
-                // poll, so this is the next-best honest number - same one UniFi's own
-                // UI shows. ComputeDeviceRate already returns (down, up) in our convention.
+                // Wired APs without a usable parent-port rate fall back to UniFi's
+                // device-level tx_bytes / rx_bytes delta. Mesh APs get their
+                // aggregate from the SNMP vwiresta interface in the fast-tier
+                // task above; if SNMP failed, this fallback fires for them too.
+                // ComputeDeviceRate returns (down, up) in our convention.
                 var devRate = ComputeDeviceRate(devMac);
-                if (isFrontYard)
-                {
-                    _logger.LogInformation("[diag] First-pass {Name} ComputeDeviceRate={DevRate}", dev.Name, devRate.HasValue ? $"({devRate.Value.DownBps:F0},{devRate.Value.UpBps:F0})" : "null");
-                }
                 if (devRate.HasValue)
                     _liveStats.RecordInterfaceAggregate(dev.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
@@ -404,18 +414,18 @@ public class MonitoringCollectionAgent : BackgroundService
                 }
             }
 
-            bool isFrontYardMesh = meshAp.Name?.IndexOf("front yard", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (isFrontYardMesh)
-            {
-                int wifiClientCount = _liveStats.GetWifiClientsForAp(meshAp.Mac).Count;
-                _logger.LogInformation(
-                    "[diag] Second-pass mesh {Name}: anyContribution={Any} sumIn={In:F0} sumOut={Out:F0} wifiClients={Wc}",
-                    meshAp.Name, anyContribution, sumIn, sumOut, wifiClientCount);
-            }
-
+            // SNMP first-pass (vwiresta) is the most accurate source. Only
+            // overwrite if SNMP didn't get a chance (e.g. AP unreachable via
+            // SNMP) - i.e. the live-stats entry has no aggregate yet.
             if (anyContribution)
             {
-                _liveStats.RecordInterfaceAggregate(meshAp.Mac, sumIn, sumOut, nowOverride);
+                var existing = _liveStats.GetForDevice(meshAp.Mac);
+                bool snmpAlreadySet = existing?.RateInBps.HasValue == true
+                                      || existing?.RateOutBps.HasValue == true;
+                if (!snmpAlreadySet)
+                {
+                    _liveStats.RecordInterfaceAggregate(meshAp.Mac, sumIn, sumOut, nowOverride);
+                }
             }
         }
 
