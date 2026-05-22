@@ -28,6 +28,12 @@ public enum LanNodeKind
     WiredClient = 3,
     WifiClient = 4,
     Cloud = 5,
+    /// <summary>Synthetic grouping node inserted when multiple wired clients share
+    /// one physical switch port (e.g. a server exposing many VLAN sub-interfaces,
+    /// each with its own MAC). The hub absorbs the port link from the parent
+    /// switch (so the port's rate flows through it) and the member clients hang
+    /// off it as zero-rate logical leaves.</summary>
+    VirtualHub = 6,
 }
 
 public enum LanPlacementSource
@@ -113,14 +119,9 @@ public class LanLink
     /// <summary>Wireless band ("2.4"/"5"/"6") for wifi-client and mesh links.</summary>
     public string? Band { get; set; }
 
-    /// <summary>Stable correlation key for wired throughput chain: device MAC + ifName (spec 3.7).</summary>
+    /// <summary>Stable correlation key for wired throughput chain: device MAC + ifName (spec 3.7).
+    /// Also the lookup key for MonitoringLiveStats.GetPortRate per-port live tick refreshes.</summary>
     public string? PortKey { get; set; }
-
-    /// <summary>UniFi port_idx on the parent device for live per-port rate lookup
-    /// against MonitoringLiveStats. Set wherever PortKey is set. Server-only;
-    /// not consumed by the JS layer (and excluded from JSON if needed).</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    public int? PortIdx { get; set; }
 }
 
 public enum LanCloudKind

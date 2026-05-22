@@ -24,6 +24,9 @@ const COLORS = {
     wifiClient: 0xe2e8f0,
     cloud: 0x4d556b,
     accent: 0x2ba89a,
+    // Virtual hub: dim neutral so it reads as "logical, not a real device"
+    // and visually clusters its member leaves without competing for attention.
+    virtualHub: 0x6b7785,
 
     // Direction palette (locked, spec 5.7.1)
     downstream: 0x3385d6,   // var(--speed-download-color)
@@ -57,6 +60,7 @@ const NODE_RADIUS = {
     wiredClient: 0.45,
     wifiClient: 0.45,
     cloud: 2.4,
+    virtualHub: 0.55,
 };
 
 const LINK_KIND = {
@@ -75,6 +79,10 @@ const NODE_KIND = {
     WiredClient: 3,
     WifiClient: 4,
     Cloud: 5,
+    // Synthetic grouping node when several wired clients share one physical
+    // switch port (server with VLAN sub-interfaces, etc.). Server inserts it
+    // and reparents the members so the leaves don't fan out.
+    VirtualHub: 6,
 };
 
 // Threshold below which link rate labels stay hidden. Keeps idle topology clean;
@@ -527,6 +535,10 @@ export class LanFlowMap {
             case NODE_KIND.WifiClient:
                 geo = new THREE.OctahedronGeometry(radius * 0.95, 0);
                 break;
+            case NODE_KIND.VirtualHub:
+                // Squat torus reads as "junction / fanout", not a device.
+                geo = new THREE.TorusGeometry(radius * 0.85, radius * 0.25, 12, 24);
+                break;
             default:
                 geo = new THREE.SphereGeometry(radius, 24, 18);
         }
@@ -656,6 +668,7 @@ export class LanFlowMap {
             case NODE_KIND.AccessPoint: return NODE_RADIUS.ap;
             case NODE_KIND.WiredClient: return NODE_RADIUS.wiredClient;
             case NODE_KIND.WifiClient: return NODE_RADIUS.wifiClient;
+            case NODE_KIND.VirtualHub: return NODE_RADIUS.virtualHub;
             default: return 0.6;
         }
     }
@@ -667,6 +680,7 @@ export class LanFlowMap {
             case NODE_KIND.AccessPoint: return COLORS.ap;
             case NODE_KIND.WiredClient: return COLORS.wiredClient;
             case NODE_KIND.WifiClient: return COLORS.wifiClient;
+            case NODE_KIND.VirtualHub: return COLORS.virtualHub;
             default: return COLORS.accent;
         }
     }
@@ -886,11 +900,36 @@ export class LanFlowMap {
             this._filter.text = (e.target.value || '').toLowerCase().trim();
             this._applyFilter();
         });
-        filter.querySelectorAll('.lan-flow-map-chip').forEach((chip) => {
+        const bandChips = Array.from(filter.querySelectorAll('.lan-flow-map-chip'));
+        bandChips.forEach((chip) => {
             chip.addEventListener('click', () => {
                 const b = chip.dataset.band;
-                this._filter.bands[b] = !this._filter.bands[b];
-                chip.classList.toggle('is-on', this._filter.bands[b]);
+                const allOn = bandChips.every((c) => this._filter.bands[c.dataset.band]);
+                if (allOn) {
+                    // Default state: all on. Click "focuses" - select only this band.
+                    // Matches the common case of "I want to look at just 5 GHz right now"
+                    // without making the user click two chips to deselect first.
+                    for (const c of bandChips) {
+                        const cb = c.dataset.band;
+                        this._filter.bands[cb] = (cb === b);
+                        c.classList.toggle('is-on', this._filter.bands[cb]);
+                    }
+                } else {
+                    // Subsequent clicks toggle the chip into / out of the current
+                    // selection set, except clicking the only-selected band re-
+                    // expands back to "all on" so the user can recover the default.
+                    const onlyThisOn = this._filter.bands[b]
+                        && bandChips.every((c) => c.dataset.band === b || !this._filter.bands[c.dataset.band]);
+                    if (onlyThisOn) {
+                        for (const c of bandChips) {
+                            this._filter.bands[c.dataset.band] = true;
+                            c.classList.add('is-on');
+                        }
+                    } else {
+                        this._filter.bands[b] = !this._filter.bands[b];
+                        chip.classList.toggle('is-on', this._filter.bands[b]);
+                    }
+                }
                 this._applyFilter();
             });
         });
@@ -1300,10 +1339,23 @@ export class LanFlowMap {
         // Link rate pills: positioned at the link midpoint. Visibility + text is
         // driven by _refreshLinkLabels (set is-visible class only when above
         // threshold). Per-frame we project the position + scale, and apply a
-        // camera-distance gate: leaf links (wired / wifi client) only show
-        // their label when zoomed close, while trunk and WAN labels stay
-        // visible at any distance so the user can read aggregate flow at a
-        // glance.
+        // camera-distance gate: leaf links (wired / wifi client) hide their
+        // label when zoomed out, unless a filter has reduced the parent
+        // switch's visible-leaf count to <= 25% - in that sparsely-filtered
+        // case we always show, since clutter is no longer a concern.
+        // Pre-compute visible-leaf ratio per parent so the inner loop is O(1).
+        const leafByParent = new Map();
+        for (const [, { link }] of this._linkMeshes) {
+            const k = link.kind;
+            if (k !== LINK_KIND.WiredClient && k !== LINK_KIND.WifiClient) continue;
+            const parentId = link.fromNodeId;
+            let counts = leafByParent.get(parentId);
+            if (!counts) { counts = { total: 0, visible: 0 }; leafByParent.set(parentId, counts); }
+            counts.total++;
+            const leafGroup = this._nodeMeshes.get(link.toNodeId);
+            if (leafGroup && leafGroup.visible) counts.visible++;
+        }
+
         const midA = new THREE.Vector3();
         const midB = new THREE.Vector3();
         for (const [linkId, { el }] of this._linkLabels) {
@@ -1319,8 +1371,14 @@ export class LanFlowMap {
             const kind = link.link.kind;
             const isLeaf = kind === LINK_KIND.WiredClient || kind === LINK_KIND.WifiClient;
             if (isLeaf && dist > LEAF_LABEL_MAX_DIST) {
-                el.classList.remove('is-visible');
-                continue;
+                const counts = leafByParent.get(link.link.fromNodeId);
+                const sparselyFiltered = counts && counts.total > 0
+                    && counts.visible > 0
+                    && (counts.visible / counts.total) <= 0.25;
+                if (!sparselyFiltered) {
+                    el.classList.remove('is-visible');
+                    continue;
+                }
             }
             tmp.project(this.camera);
             if (tmp.z > 1) { el.classList.remove('is-visible'); continue; }
@@ -1335,43 +1393,30 @@ export class LanFlowMap {
 
     _refreshDeviceLabelRates() {
         // Floating labels render only on infrastructure (gateway / switch / AP).
-        // "Download / upload" doesn't fit a forwarding device, so we surface
-        // ingress (bytes into the device, across every port) and egress (bytes
-        // out, across every port) instead.
-        //
-        // Mapping: backend's link rates after the display-layer swap are
-        //   r.upstreamBps   = download-direction (gateway -> leaves)
-        //   r.downstreamBps = upload-direction (leaves -> gateway)
-        // For a link where this device is the ToNodeId, the link is its uplink
-        // to a parent, so download-direction flows INTO the device. For a link
-        // where this device is the FromNodeId, the link is a downlink, so the
-        // upload-direction flows INTO the device.
+        // Aggregate across adjacent links using internet-centric direction:
+        //   blue down arrow  = download-direction sum (data flowing toward leaves)
+        //   green up arrow   = upload-direction sum (data flowing toward internet)
+        // Backend's UpstreamBps holds the download-direction value after the
+        // display-layer swap and DownstreamBps holds the upload-direction value.
         for (const [nodeId, { rateEl }] of this._floatingLabels) {
-            let ingressBps = 0;
-            let egressBps = 0;
+            let downBps = 0;
+            let upBps = 0;
             let anyData = false;
             for (const [linkId, link] of this._linkMeshes) {
                 if (link.link.fromNodeId !== nodeId && link.link.toNodeId !== nodeId) continue;
                 const r = this._currentRates?.[linkId];
                 if (!r) continue;
                 anyData = true;
-                const dl = r.upstreamBps || 0;
-                const ul = r.downstreamBps || 0;
-                if (link.link.toNodeId === nodeId) {
-                    ingressBps += dl;
-                    egressBps += ul;
-                } else {
-                    ingressBps += ul;
-                    egressBps += dl;
-                }
+                downBps += r.upstreamBps || 0;
+                upBps += r.downstreamBps || 0;
             }
             if (!anyData) {
-                rateEl.innerHTML = `<span class="down">In -</span> &nbsp; <span class="up">Out -</span>`;
+                rateEl.innerHTML = `<span class="down">↓ -</span> &nbsp; <span class="up">↑ -</span>`;
                 continue;
             }
             rateEl.innerHTML =
-                `<span class="down">In ${formatBps(ingressBps)}</span> &nbsp; ` +
-                `<span class="up">Out ${formatBps(egressBps)}</span>`;
+                `<span class="down">↓ ${formatBps(downBps)}</span> &nbsp; ` +
+                `<span class="up">↑ ${formatBps(upBps)}</span>`;
         }
     }
 
@@ -1430,19 +1475,45 @@ export class LanFlowMap {
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
         if (node.wiredLinkSpeedMbps) rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
         if (node.network) rows.push(['Network', node.network]);
-        // Aggregate rate (from adjacent links)
-        let dn = 0, up = 0, any = false;
+        // Aggregate rate across adjacent links. For fabric devices (gateway /
+        // switch / AP) we show ingress (data flowing INTO the device across
+        // every port) and egress (data flowing OUT). For client nodes the
+        // single leaf link makes ingress == download-to-client and egress ==
+        // upload-from-client, so we keep the friendlier Download / Upload
+        // wording for them.
+        //
+        // Post-swap, r.upstreamBps holds download-direction (toward leaves)
+        // and r.downstreamBps holds upload-direction (toward internet). For
+        // each adjacent link, which direction is "into this device" depends
+        // on whether the device sits on the upstream (FromNodeId) or
+        // downstream (ToNodeId) side of the link.
+        let ingressBps = 0, egressBps = 0, anyData = false;
         for (const [, link] of this._linkMeshes) {
             if (link.link.fromNodeId !== node.id && link.link.toNodeId !== node.id) continue;
             const r = this._currentRates?.[link.link.id];
             if (!r) continue;
-            any = true;
-            dn += r.downstreamBps || 0;
-            up += r.upstreamBps || 0;
+            anyData = true;
+            const dl = r.upstreamBps || 0;
+            const ul = r.downstreamBps || 0;
+            if (link.link.toNodeId === node.id) {
+                ingressBps += dl;
+                egressBps += ul;
+            } else {
+                ingressBps += ul;
+                egressBps += dl;
+            }
         }
-        if (any) {
-            rows.push(['Download', formatBps(dn)]);
-            rows.push(['Upload', formatBps(up)]);
+        if (anyData) {
+            const isFabric = node.kind === NODE_KIND.Gateway
+                || node.kind === NODE_KIND.Switch
+                || node.kind === NODE_KIND.AccessPoint;
+            if (isFabric) {
+                rows.push(['Ingress', formatBps(ingressBps)]);
+                rows.push(['Egress', formatBps(egressBps)]);
+            } else {
+                rows.push(['Download', formatBps(ingressBps)]);
+                rows.push(['Upload', formatBps(egressBps)]);
+            }
         }
         const html = `<div class="lan-flow-map-tooltip-title">${escapeHtml(node.name || node.mac || '')}</div>` +
             rows.map(([k, v]) => `<div class="lan-flow-map-tooltip-row"><span>${k}</span><span class="v">${escapeHtml(String(v))}</span></div>`).join('');

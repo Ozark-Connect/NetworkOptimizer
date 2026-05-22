@@ -69,17 +69,18 @@ public class MonitoringLiveStats
     private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
     private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
-    // Per-port rate cache. Keyed by (deviceMac, portIdx) - same shape as the
-    // agent's internal _portRateLatest, exposed here so the 3D map's live-tick
-    // path can refresh wired client leaf rates without rebuilding the snapshot.
-    // Tuple direction matches the agent: DownBps = parent-port TX delta (data
-    // toward the leaf), UpBps = parent-port RX delta (data from the leaf).
-    private readonly ConcurrentDictionary<(string DeviceMac, int PortIdx), PortLiveRate> _portRates = new();
+    // Per-port rate cache. Keyed by (deviceMac, ifName) so the SNMP fast tier
+    // (clean 5s cadence) is the writer - the UniFi PortTable byte counters lag
+    // ~30s server-side, so polling them every 5s yields a burst-then-zeros
+    // pattern that would overwrite snapshot-seeded rates with stale zeros.
+    // Direction: DownBps = port TX (data leaving this port toward the connected
+    // leaf), UpBps = port RX (data arriving on this port from the leaf).
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), PortLiveRate> _portRates = new();
 
-    public void RecordPortRate(string deviceMac, int portIdx, double downBps, double upBps, DateTime timestamp)
+    public void RecordPortRate(string deviceMac, string ifName, double downBps, double upBps, DateTime timestamp)
     {
-        if (string.IsNullOrEmpty(deviceMac) || portIdx <= 0) return;
-        _portRates[(Normalize(deviceMac), portIdx)] = new PortLiveRate
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return;
+        _portRates[(Normalize(deviceMac), ifName)] = new PortLiveRate
         {
             DownBps = downBps,
             UpBps = upBps,
@@ -87,10 +88,10 @@ public class MonitoringLiveStats
         };
     }
 
-    public PortLiveRate? GetPortRate(string deviceMac, int portIdx)
+    public PortLiveRate? GetPortRate(string deviceMac, string ifName)
     {
-        if (string.IsNullOrEmpty(deviceMac) || portIdx <= 0) return null;
-        return _portRates.TryGetValue((Normalize(deviceMac), portIdx), out var v) ? v : null;
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        return _portRates.TryGetValue((Normalize(deviceMac), ifName), out var v) ? v : null;
     }
 
     /// <summary>Latest probe result for a specific monitoring target ID.</summary>

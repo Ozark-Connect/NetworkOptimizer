@@ -101,6 +101,7 @@ public class LanFlowMapService
 
         BuildInfrastructureGraph(topology, anchors, snapshot, nameMaps);
         BuildClientLeaves(topology, snapshot, nameMaps, rawByMac);
+        GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);
 
         var portRates = await SeedPortRatesAsync(snapshot, ct);
@@ -191,23 +192,21 @@ public class LanFlowMapService
                     }
                 }
             }
-            else if (link.Kind == LanLinkKind.WiredClient && link.PortIdx.HasValue)
+            else if (link.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(link.PortKey))
             {
                 // Wired client leaves don't have device-level monitoring stats - their
-                // throughput lives on the parent switch port. The agent mirrors every
-                // per-port byte-delta into MonitoringLiveStats.PortRates so the live
-                // tick can refresh without waiting for a snapshot rebuild. Without
-                // this branch, leaf rates stayed pinned at the values seeded at the
-                // last snapshot build (~60s stale; spikes got stuck).
-                var parentMac = ExtractParentMacFromLink(link);
-                if (!string.IsNullOrEmpty(parentMac))
+                // throughput lives on the parent switch port, which the SNMP fast tier
+                // writes into MonitoringLiveStats.PortRates every ~5s. Look up by the
+                // (parentMac, ifName) key already encoded in link.PortKey.
+                var (parentMac, ifName) = ParsePortKey(link.PortKey);
+                if (!string.IsNullOrEmpty(parentMac) && !string.IsNullOrEmpty(ifName))
                 {
-                    var portRate = _liveStats.GetPortRate(parentMac, link.PortIdx.Value);
+                    var portRate = _liveStats.GetPortRate(parentMac, ifName);
                     if (portRate != null)
                     {
                         // Direction mapping mirrors MapPortToLinkRates for an internal
-                        // (non-WAN) link: parent port TX (DownBps) = data toward leaf,
-                        // RX (UpBps) = data from leaf.
+                        // (non-WAN) link: port TX (DownBps) = data toward leaf,
+                        // port RX (UpBps) = data from leaf.
                         rates = new LinkLiveRates
                         {
                             DownstreamBps = portRate.DownBps,
@@ -433,7 +432,6 @@ public class LanFlowMapService
             // Resolve ifName via UniFi port number -> InterfaceNameMap (3.7 chain).
             if (!isWirelessBackhaul && d.UplinkPort.HasValue && d.UplinkPort.Value > 0)
             {
-                link.PortIdx = d.UplinkPort.Value;
                 if (nameMaps.TryGetValue((parentMac, d.UplinkPort.Value), out var nameMap))
                 {
                     link.PortKey = PortKey(parentMac, nameMap.IfName);
@@ -491,7 +489,6 @@ public class LanFlowMapService
 
             if (c.IsWired && c.SwitchPort.HasValue)
             {
-                link.PortIdx = c.SwitchPort.Value;
                 // Primary: SNMP-derived InterfaceNameMap. Gives us ifName for the
                 // SNMP-keyed _portRateLatest path + speed from sysSpeed.
                 if (nameMaps.TryGetValue((parentMac, c.SwitchPort.Value), out var nameMap))
@@ -533,6 +530,84 @@ public class LanFlowMapService
 
             snapshot.Nodes.Add(node);
             snapshot.Links.Add(link);
+        }
+    }
+
+    /// <summary>
+    /// Detect wired clients that share a single physical switch port (e.g. a
+    /// server with many VLAN sub-interfaces, each with its own MAC) and roll
+    /// them up under a synthetic VirtualHub node. Without grouping the map
+    /// fans out one fat parent-port link into N identical-looking leaves with
+    /// the same throughput, which clutters the view and double-renders the
+    /// port rate. With grouping, the parent's port link terminates at the
+    /// hub (carrying the real port rate) and the members hang off the hub
+    /// as zero-rate logical leaves.
+    /// </summary>
+    private void GroupMultiClientPorts(LanFlowMapSnapshot snapshot)
+    {
+        var leafLinkByNodeId = snapshot.Links
+            .Where(l => l.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(l.PortKey))
+            .ToDictionary(l => l.ToNodeId);
+
+        // Group wired clients by (parentNodeId, PortKey). Only PortKey-tagged
+        // leaves can be grouped - without a PortKey we don't know which
+        // physical port the client sits on.
+        var groups = snapshot.Nodes
+            .Where(n => n.Kind == LanNodeKind.WiredClient
+                && leafLinkByNodeId.ContainsKey(n.Id))
+            .Select(n => (Node: n, Link: leafLinkByNodeId[n.Id]))
+            .GroupBy(x => (Parent: x.Link.FromNodeId, PortKey: x.Link.PortKey!))
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        foreach (var grp in groups)
+        {
+            var parentId = grp.Key.Parent;
+            var portKey = grp.Key.PortKey;
+            var members = grp.ToList();
+            var representativeLink = members[0].Link;
+
+            // Hub node sits where the port would otherwise terminate. Mac
+            // is left null - the hub is synthetic, not a real device.
+            var hubId = $"hub-{parentId}-{portKey}";
+            var portName = members.Select(m => m.Node.SwitchPortName).FirstOrDefault(s => !string.IsNullOrEmpty(s));
+            var hubNode = new LanNode
+            {
+                Id = hubId,
+                Kind = LanNodeKind.VirtualHub,
+                Name = string.IsNullOrEmpty(portName)
+                    ? $"{members.Count} interfaces"
+                    : $"{portName} ({members.Count})",
+                ParentId = parentId,
+                SwitchPortName = portName,
+                WiredLinkSpeedMbps = representativeLink.CapacityBps.HasValue
+                    ? (int)(representativeLink.CapacityBps.Value / 1_000_000L)
+                    : (int?)null,
+            };
+            snapshot.Nodes.Add(hubNode);
+
+            // Parent switch -> hub link. Takes over the PortKey + capacity so
+            // the live tick reads the port rate here, not on each member.
+            snapshot.Links.Add(new LanLink
+            {
+                Id = $"hub-link-{hubId}",
+                FromNodeId = parentId,
+                ToNodeId = hubId,
+                Kind = LanLinkKind.WiredClient,
+                PortKey = portKey,
+                CapacityBps = representativeLink.CapacityBps,
+            });
+
+            // Reparent each member: leaf link now goes hub -> client, with
+            // no PortKey or capacity (it's a synthetic split of the shared
+            // physical port, no measurable per-MAC rate).
+            foreach (var (node, leafLink) in members)
+            {
+                leafLink.FromNodeId = hubId;
+                leafLink.PortKey = null;
+                leafLink.CapacityBps = null;
+                node.ParentId = hubId;
+            }
         }
     }
 
@@ -1021,17 +1096,6 @@ public class LanFlowMapService
             : null;
     }
 
-    /// <summary>
-    /// FromNodeId is always the upstream side of a link by convention; strip the
-    /// "dev-" prefix to recover the parent device MAC for per-port rate lookups.
-    /// </summary>
-    private static string? ExtractParentMacFromLink(LanLink link)
-    {
-        const string prefix = "dev-";
-        return link.FromNodeId.StartsWith(prefix, StringComparison.Ordinal)
-            ? link.FromNodeId.Substring(prefix.Length)
-            : null;
-    }
 
     private static bool IsWanDirection(SpeedTestDirection dir) => dir switch
     {
