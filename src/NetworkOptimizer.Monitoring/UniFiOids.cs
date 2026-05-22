@@ -358,6 +358,9 @@ public static class UniFiOids
     /// </summary>
     public const string MemAvailSwap = "1.3.6.1.4.1.2021.4.4.0";
 
+    /// <summary>Memory used for caching - memCached (.1.3.6.1.4.1.2021.4.15.0)</summary>
+    public const string MemCached = "1.3.6.1.4.1.2021.4.15.0";
+
     #endregion
 
     #region UniFi-Specific OIDs (Ubiquiti Enterprise MIB)

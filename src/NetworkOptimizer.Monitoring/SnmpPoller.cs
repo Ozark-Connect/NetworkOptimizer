@@ -324,15 +324,18 @@ public class SnmpPoller : ISnmpPoller
             }
         }
 
-        // Try UCD-SNMP memory metrics
+        // UCD-SNMP memory: subtract cached from used so cache doesn't inflate
+        // the percentage. Matches STM's formula: used = total - available - cached.
         var totalMem = await GetAsync<long>(ip, UniFiOids.MemTotalReal);
         var availMem = await GetAsync<long>(ip, UniFiOids.MemAvailReal);
+        var cachedMem = await GetAsync<long>(ip, UniFiOids.MemCached);
 
         if (totalMem > 0)
         {
-            metrics.TotalMemory = totalMem * 1024; // Convert KB to bytes
+            metrics.TotalMemory = totalMem * 1024;
             metrics.FreeMemory = availMem * 1024;
-            metrics.UsedMemory = metrics.TotalMemory - metrics.FreeMemory;
+            var actualUsedKb = totalMem - availMem - Math.Max(0, cachedMem);
+            metrics.UsedMemory = Math.Max(0, actualUsedKb) * 1024;
             metrics.MemoryUsage = (double)metrics.UsedMemory / metrics.TotalMemory * 100.0;
         }
         else
