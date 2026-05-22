@@ -165,6 +165,7 @@
                 <label class="form-label">From</label>
                 <div class="form-value">@_traceResult.Vantage.Id</div>
             </div>
+            <div class="table-responsive">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -198,6 +199,7 @@
                     }
                 </tbody>
             </table>
+            </div>
             @if (!string.IsNullOrEmpty(_traceResult.ErrorMessage))
             {
                 <div class="alert alert-warning">@_traceResult.ErrorMessage</div>
