@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using NetworkOptimizer.Threats.Enrichment;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -64,7 +65,8 @@ public class AsnResolutionService
             var enriched = _geo.Enrich(ipAddress);
             if (enriched.Asn.HasValue && enriched.Asn.Value > 0)
             {
-                var hit = new AsnLookup(enriched.Asn.Value, enriched.AsnOrg ?? $"AS{enriched.Asn.Value}");
+                var name = AsnNameCleanup.Clean(enriched.AsnOrg) ?? $"AS{enriched.Asn.Value}";
+                var hit = new AsnLookup(enriched.Asn.Value, name);
                 _cache[ipAddress] = hit;
                 return hit;
             }
@@ -121,7 +123,7 @@ public class AsnResolutionService
                 var parts = line.Split('|');
                 if (parts.Length < 7) continue;
                 if (!int.TryParse(parts[0].Trim(), out var asn) || asn <= 0) continue;
-                var name = parts[6].Trim();
+                var name = AsnNameCleanup.Clean(parts[6]);
                 return new AsnLookup(asn, string.IsNullOrEmpty(name) ? $"AS{asn}" : name);
             }
             return null;
@@ -135,3 +137,28 @@ public class AsnResolutionService
 }
 
 public record AsnLookup(int Asn, string Name);
+
+internal static class AsnNameCleanup
+{
+    // Strip the most common corporate-form suffixes off the tail of an ASN name
+    // ("Cloudflare, Inc." -> "Cloudflare", "Akamai International B.V." -> "Akamai
+    // International"). Handles a trailing comma before the suffix and the most
+    // common US / EU / UK / Nordic forms. Run iteratively because some names
+    // have stacked suffixes (e.g. "Foo Holdings Ltd LLC").
+    private static readonly Regex SuffixPattern = new(
+        @"\s*,?\s+(LLC|L\.L\.C\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|Limited|B\.V\.?|BV|AB|AG|GmbH|S\.A\.?S?\.?|S\.r\.l\.?|SA|PLC|Pte\.?|N\.V\.?|NV|OY|OYJ)\.?\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public static string? Clean(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+        var s = raw.Trim();
+        for (var i = 0; i < 4; i++) // bounded loop, stops naturally when nothing matches
+        {
+            var next = SuffixPattern.Replace(s, string.Empty).TrimEnd(',', ' ');
+            if (next.Length == 0 || next == s) break;
+            s = next;
+        }
+        return s;
+    }
+}
