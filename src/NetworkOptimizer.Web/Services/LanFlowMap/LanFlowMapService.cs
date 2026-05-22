@@ -172,9 +172,13 @@ public class LanFlowMapService
             }
             else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
             {
-                // For infrastructure uplinks the child device's aggregate is the most live
-                // measurement we have on every tick - the agent records it via
-                // RecordInterfaceAggregate (RateIn = downstream, RateOut = upstream).
+                // For infrastructure uplinks the child device's aggregate is the most
+                // live measurement we have on every tick. The empirical convention from
+                // the AP badge work: aggregateInBps holds the upload-direction value
+                // (data flowing toward the gateway), aggregateOutBps holds downloads.
+                // The link's particle layer expects DownstreamBps to be downloads
+                // (parent -> child, blue) and UpstreamBps to be uploads
+                // (child -> parent, green), so map accordingly.
                 var childDev = ExtractDeviceMacFromUplinkId(link.Id);
                 if (!string.IsNullOrEmpty(childDev))
                 {
@@ -183,8 +187,8 @@ public class LanFlowMapService
                     {
                         rates = new LinkLiveRates
                         {
-                            DownstreamBps = stats.RateInBps ?? 0,
-                            UpstreamBps = stats.RateOutBps ?? 0,
+                            DownstreamBps = stats.RateOutBps ?? 0,
+                            UpstreamBps = stats.RateInBps ?? 0,
                             AsOf = stats.LastRateUpdate.Value,
                         };
                     }
