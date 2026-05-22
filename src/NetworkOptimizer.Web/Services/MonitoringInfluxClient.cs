@@ -528,32 +528,31 @@ from(bucket: ""{_bucket}"")
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var setLiteral = string.Join(", ", ids.Select(id => $@"""{id}"""));
 
-        // RTT: two-stage aggregation (collapse to 5s first, then display window) with mean.
-        var rttFlux = $@"
-from(bucket: ""{_bucket}"")
+        // Single query: union RTT (mean) and loss (max) with two-stage aggregation,
+        // then pivot into one row per timestamp. Avoids the O(n^2) merge of two queries.
+        var flux = $@"
+rtt = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => contains(value: r.target_id, set: [{setLiteral}]))
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
   |> aggregateWindow(every: 5s, fn: mean, createEmpty: false)
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> limit(n: 300)
-";
-        // Loss: two-stage aggregation with max to preserve spikes.
-        var lossFlux = $@"
-from(bucket: ""{_bucket}"")
+
+loss = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => contains(value: r.target_id, set: [{setLiteral}]))
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> aggregateWindow(every: 5s, fn: max, createEmpty: false)
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: max, createEmpty: false)
-  |> limit(n: 300)
+
+union(tables: [rtt, loss])
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> sort(columns: [""_time""])
 ";
         var results = new Dictionary<string, List<LatencyPoint>>();
-
-        // Query RTT
-        await foreach (var record in QueryFluxAsync(rttFlux, ct))
+        await foreach (var record in QueryFluxAsync(flux, ct))
         {
             var targetId = record.GetValueByKey("target_id") as string;
             if (string.IsNullOrEmpty(targetId)) continue;
@@ -562,32 +561,13 @@ from(bucket: ""{_bucket}"")
                 list = new List<LatencyPoint>();
                 results[targetId] = list;
             }
-            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
-            var existing = list.FindIndex(p => p.Time == time);
-            if (existing >= 0)
-                list[existing] = list[existing] with { RttAvgMs = AsDoubleOrNull(record.GetValueByKey("_value")) };
-            else
-                list.Add(new LatencyPoint { Time = time, RttAvgMs = AsDoubleOrNull(record.GetValueByKey("_value")) });
-        }
-
-        // Query loss and merge into same points
-        await foreach (var record in QueryFluxAsync(lossFlux, ct))
-        {
-            var targetId = record.GetValueByKey("target_id") as string;
-            if (string.IsNullOrEmpty(targetId)) continue;
-            if (!results.TryGetValue(targetId, out var list))
+            list.Add(new LatencyPoint
             {
-                list = new List<LatencyPoint>();
-                results[targetId] = list;
-            }
-            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
-            var existing = list.FindIndex(p => p.Time == time);
-            if (existing >= 0)
-                list[existing] = list[existing] with { LossPercent = AsDoubleOrNull(record.GetValueByKey("_value")) };
-            else
-                list.Add(new LatencyPoint { Time = time, LossPercent = AsDoubleOrNull(record.GetValueByKey("_value")) });
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
+                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
+            });
         }
-
         return results;
     }
 

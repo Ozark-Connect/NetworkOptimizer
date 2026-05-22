@@ -11,9 +11,10 @@ let lossChart = null;
 let pollTimer = null;
 let currentCategory = 'Fabric';
 let currentRangeHours = 1;
-let visibility = {};     // targetId → bool
-let targetMeta = [];      // [{id, name, color}]
+let visibility = {};
+let targetMeta = [];
 let containerId = null;
+let fetchController = null;
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -79,12 +80,18 @@ function buildLossOpts() {
 }
 
 async function fetchData() {
+    if (fetchController) fetchController.abort();
+    fetchController = new AbortController();
     try {
         const resp = await fetch(
-            `/api/monitoring/chart-data?category=${currentCategory}&rangeHours=${currentRangeHours}`);
+            `/api/monitoring/chart-data?category=${currentCategory}&rangeHours=${currentRangeHours}`,
+            { signal: fetchController.signal });
         if (!resp.ok) return null;
         return await resp.json();
-    } catch { return null; }
+    } catch (e) {
+        if (e.name === 'AbortError') return null;
+        return null;
+    }
 }
 
 function renderBadges(container) {
@@ -92,7 +99,6 @@ function renderBadges(container) {
     if (!el) return;
     if (targetMeta.length <= 1) { el.innerHTML = ''; return; }
 
-    const allVisible = targetMeta.every(t => visibility[t.id] !== false);
     el.innerHTML = targetMeta.map(t => {
         const vis = visibility[t.id] !== false;
         return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-target="${t.id}">
@@ -154,7 +160,9 @@ async function loadAndUpdate() {
     const lossSeries = data.targets.map((t, i) => ({
         name: t.name,
         color: PALETTE[i % PALETTE.length],
-        data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
+        data: (t.loss || [])
+            .filter(p => p.value != null && p.value > 0)
+            .map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
     if (rttChart) {
@@ -206,7 +214,6 @@ export async function mount(elId) {
     await rttChart.render();
     await lossChart.render();
 
-    // Wire up category + range buttons
     container.querySelectorAll('[data-category]').forEach(btn => {
         btn.addEventListener('click', () => {
             currentCategory = btn.dataset.category;
@@ -234,6 +241,7 @@ export async function mount(elId) {
 
 export function unmount() {
     stopPoll();
+    if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
     containerId = null;
