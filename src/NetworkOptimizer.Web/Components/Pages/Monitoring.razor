@@ -10,6 +10,7 @@
 @inject MonitoringLiveStats LiveStats
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
 
@@ -860,6 +861,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     private bool _latencyChartsMounted;
 
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_monitoringEnabled && _influxConfigured && !_latencyChartsMounted)
@@ -867,22 +870,21 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             _latencyChartsMounted = true;
             try
             {
+                var chartsUrl = VersionedJs("/js/latency-charts.js");
                 await JS.InvokeVoidAsync("eval",
-                    "(async () => { const m = await import('/js/latency-charts.js'); window.__latencyCharts = m; await m.mount('latency-charts-container'); })();");
+                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); }})();");
             }
             catch { _latencyChartsMounted = false; }
         }
 
-        // Mount the 3D map once the canvas is in the DOM and monitoring is active.
-        // Idempotent: the JS module unmounts any previous instance on re-mount.
         if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
         {
             _mapMounted = true;
             try
             {
-                await JS.InvokeVoidAsync("import", "/js/lan-flow-map.js?v=1");
+                var mapUrl = VersionedJs("/js/lan-flow-map.js");
                 await JS.InvokeVoidAsync("eval",
-                    "(async () => { const m = await import('/js/lan-flow-map.js'); window.__lanFlowMap = m; await m.mount('lan-flow-map-canvas'); })();");
+                    $"(async () => {{ const m = await import('{mapUrl}'); window.__lanFlowMap = m; await m.mount('lan-flow-map-canvas'); }})();");
             }
             catch
             {
