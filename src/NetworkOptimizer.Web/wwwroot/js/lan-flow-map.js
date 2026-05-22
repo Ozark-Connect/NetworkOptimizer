@@ -1760,6 +1760,30 @@ export class LanFlowMap {
 // Density and velocity both scale with rate (spec 5.7.1 hybrid dot semantics).
 // ----------------------------------------------------------------------------
 
+// Shared circular-dot texture so PointsMaterial renders round dots instead
+// of the default square gl_Point quads. Generated lazily on first use,
+// then memoized so every stream instance shares the same texture handle.
+let _dotTexture = null;
+function _getDotTexture() {
+    if (_dotTexture) return _dotTexture;
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    // Radial gradient: bright center -> soft edge -> transparent at the rim.
+    // Soft edge keeps the dot reading as round even at small on-screen sizes.
+    const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.85)');
+    grad.addColorStop(0.7, 'rgba(255,255,255,0.25)');
+    grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    _dotTexture = new THREE.CanvasTexture(canvas);
+    _dotTexture.needsUpdate = true;
+    return _dotTexture;
+}
+
 class ParticleStream {
     constructor({ from, to, color, particleCount = 0 }) {
         const fromV = new THREE.Vector3(from.x, from.y, from.z);
@@ -1793,6 +1817,8 @@ class ParticleStream {
         const material = new THREE.PointsMaterial({
             color,
             size: 0.55,
+            map: _getDotTexture(),
+            alphaTest: 0.01,
             transparent: true,
             opacity: 0.92,
             depthWrite: false,
@@ -1828,9 +1854,9 @@ class ParticleStream {
         const intensity = Math.max(0, Math.min(1,
             (Math.log10(Math.max(this._rateBps, 1)) - 4) / 7));
         this._density = intensity;
-        // Particle size: thin idle dots (0.35) -> bulky high-traffic dots (1.4).
-        // Picked to look proportionate, not technically accurate.
-        if (this._material) this._material.size = 0.35 + intensity * 1.05;
+        // Particle size: thin idle dots (0.3) -> chunky high-traffic dots (3.0).
+        // Wide range so the size change is unambiguous as traffic ramps.
+        if (this._material) this._material.size = 0.3 + intensity * 2.7;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
