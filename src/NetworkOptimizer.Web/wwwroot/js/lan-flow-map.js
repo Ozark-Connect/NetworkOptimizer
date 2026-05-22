@@ -955,11 +955,15 @@ export class LanFlowMap {
             lastTickMs = now;
             accumulator += rawDelta;
             if (accumulator < FRAME_MS) return;
+            // dt = time since the last ACCEPTED render, not since the last RAF
+            // callback. Otherwise on a 240 Hz monitor with a 120 fps cap, we'd
+            // advance particles by ~4 ms of physics while ~8 ms of wall-clock
+            // actually elapsed, making them look like they're moving at half
+            // speed. Read accumulator before modulo'ing it down.
+            const dt = Math.min(accumulator / 1000, 0.1);
             // Use modulo (not reset) to preserve leftover time and avoid drift
             // that would settle the effective cap below the target.
             accumulator = accumulator % FRAME_MS;
-
-            const dt = Math.min(rawDelta / 1000, 0.1);
 
             // Camera fly-in (easeOutCubic) on first ~1.3 s.
             if (now < this._flyInUntil) {
