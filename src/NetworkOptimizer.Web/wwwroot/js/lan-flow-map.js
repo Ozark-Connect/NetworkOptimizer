@@ -368,11 +368,10 @@ export class LanFlowMap {
 
     _heartbeatWifiInterest() {
         const macs = [];
-        if (this._nodes) {
-            for (const n of this._nodes.values()) {
-                if (n.kind === NODE_KIND.WifiClient && n.mac && n.group?.visible !== false) {
-                    macs.push(n.mac);
-                }
+        for (const group of this._nodeMeshes.values()) {
+            const n = group.userData?.node;
+            if (n && n.kind === NODE_KIND.WifiClient && n.mac && group.visible !== false) {
+                macs.push(n.mac);
             }
         }
         if (macs.length === 0) return;
