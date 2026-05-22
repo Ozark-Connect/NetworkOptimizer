@@ -1149,7 +1149,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_monitoringEnabled && _influxReachable == true && !_latencyChartsInitialized)
+        if (_monitoringEnabled && _influxConfigured && !_latencyChartsInitialized)
         {
             _latencyChartsInitialized = true;
             await LoadLatencyChartsAsync();
