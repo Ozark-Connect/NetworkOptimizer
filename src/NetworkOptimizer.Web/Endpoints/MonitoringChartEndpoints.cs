@@ -13,6 +13,8 @@ public static class MonitoringChartEndpoints
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
             string? category,
             int? rangeHours,
+            DateTime? from,
+            DateTime? to,
             CancellationToken ct) =>
         {
             var targetType = category switch
@@ -22,9 +24,18 @@ public static class MonitoringChartEndpoints
                 "InternetService" => MonitoringTargetType.InternetService,
                 _ => MonitoringTargetType.Fabric
             };
-            var hours = rangeHours ?? 1;
-            var now = DateTime.UtcNow;
-            var from = hours == 0 ? now.AddMinutes(-15) : now.AddHours(-hours);
+            DateTime queryFrom, queryTo;
+            if (from.HasValue && to.HasValue)
+            {
+                queryFrom = from.Value.ToUniversalTime();
+                queryTo = to.Value.ToUniversalTime();
+            }
+            else
+            {
+                var hours = rangeHours ?? 1;
+                queryTo = DateTime.UtcNow;
+                queryFrom = hours == 0 ? queryTo.AddMinutes(-15) : queryTo.AddHours(-hours);
+            }
 
             // Target names come from SQLite; time-series data from InfluxDB via
             // the target_type tag (indexed, ~10ms) instead of contains() on
@@ -40,7 +51,7 @@ public static class MonitoringChartEndpoints
                 return Results.Ok(new { targets = Array.Empty<object>() });
 
             var targetLookup = targets.ToDictionary(t => t.TargetId, t => t.Name);
-            var data = await influx.QueryLatencyByTargetTypeAsync(targetType, from, now, ct: ct);
+            var data = await influx.QueryLatencyByTargetTypeAsync(targetType, queryFrom, queryTo, ct: ct);
 
             var result = targets.Select(t =>
             {

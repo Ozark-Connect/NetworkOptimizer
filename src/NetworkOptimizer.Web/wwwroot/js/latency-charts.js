@@ -5,12 +5,17 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
+const RANGE_MS = { 0: 15 * 60000, 1: 3600000, 6: 6 * 3600000, 24: 86400000, 168: 7 * 86400000, 720: 30 * 86400000 };
 
 let rttChart = null;
 let lossChart = null;
 let pollTimer = null;
 let currentCategory = 'Fabric';
 let currentRangeHours = 1;
+let customFrom = null;  // Date or null
+let customTo = null;    // Date or null
+let isCustomRange = false;
+let windowOffset = 0;   // ms offset from "now" for shift arrows
 let visibility = {};
 let targetMeta = [];
 let containerId = null;
@@ -53,8 +58,6 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             x: { format: 'MMM dd, HH:mm:ss' },
         },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
-        markers: { size: 0 },
-        dataLabels: { enabled: false },
         ...extraOpts,
     };
 }
@@ -83,12 +86,29 @@ function buildLossOpts() {
         });
 }
 
+function buildQueryParams() {
+    let params = `category=${currentCategory}`;
+    if (isCustomRange && customFrom && customTo) {
+        params += `&from=${customFrom.toISOString()}&to=${customTo.toISOString()}`;
+    } else {
+        params += `&rangeHours=${currentRangeHours}`;
+        if (windowOffset !== 0) {
+            const now = Date.now();
+            const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
+            const to = new Date(now + windowOffset);
+            const from = new Date(to.getTime() - rangeMs);
+            params = `category=${currentCategory}&from=${from.toISOString()}&to=${to.toISOString()}`;
+        }
+    }
+    return params;
+}
+
 async function fetchData() {
     if (fetchController) fetchController.abort();
     fetchController = new AbortController();
     try {
         const resp = await fetch(
-            `/api/monitoring/chart-data?category=${currentCategory}&rangeHours=${currentRangeHours}`,
+            `/api/monitoring/chart-data?${buildQueryParams()}`,
             { signal: fetchController.signal });
         if (!resp.ok) return null;
         return await resp.json();
@@ -167,12 +187,8 @@ async function loadAndUpdate() {
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    if (rttChart) {
-        rttChart.updateSeries(rttSeries, false);
-    }
-    if (lossChart) {
-        lossChart.updateSeries(lossSeries, false);
-    }
+    if (rttChart) rttChart.updateSeries(rttSeries, false);
+    if (lossChart) lossChart.updateSeries(lossSeries, false);
 
     updateChartVisibility();
 
@@ -182,12 +198,73 @@ async function loadAndUpdate() {
 
 function startPoll() {
     stopPoll();
+    // Don't auto-poll when viewing historical (shifted or custom) windows
+    if (windowOffset !== 0 || isCustomRange) return;
     const interval = POLL_INTERVALS[currentRangeHours] || 30000;
     pollTimer = setInterval(loadAndUpdate, interval);
 }
 
 function stopPoll() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function selectPresetRange(container, hours) {
+    currentRangeHours = hours;
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
+    container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+    const btn = container.querySelector(`[data-range="${hours}"]`);
+    if (btn) btn.classList.add('active');
+    container.querySelector('.custom-range-btn')?.classList.remove('active');
+    updateCustomLabel(container);
+    loadAndUpdate();
+    startPoll();
+}
+
+function shiftWindow(direction) {
+    const rangeMs = isCustomRange && customFrom && customTo
+        ? customTo.getTime() - customFrom.getTime()
+        : RANGE_MS[currentRangeHours] || 3600000;
+    const shiftMs = rangeMs * 0.5;
+
+    if (isCustomRange && customFrom && customTo) {
+        const delta = direction === 'back' ? -shiftMs : shiftMs;
+        customFrom = new Date(customFrom.getTime() + delta);
+        customTo = new Date(customTo.getTime() + delta);
+    } else {
+        windowOffset += direction === 'back' ? -shiftMs : shiftMs;
+        if (windowOffset > 0) windowOffset = 0;
+    }
+
+    loadAndUpdate();
+    startPoll();
+}
+
+function toLocalDatetimeString(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function updateCustomLabel(container) {
+    const btn = container.querySelector('.custom-range-btn');
+    if (!btn) return;
+    const label = btn.querySelector('.latency-custom-label');
+    if (isCustomRange && customFrom && customTo) {
+        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        if (label) {
+            label.textContent = `${fmt(customFrom)} - ${fmt(customTo)}`;
+        } else {
+            const span = document.createElement('span');
+            span.className = 'latency-custom-label';
+            span.style.cssText = 'font-size: 0.75rem; margin-left: 0.25rem;';
+            span.textContent = `${fmt(customFrom)} - ${fmt(customTo)}`;
+            btn.appendChild(span);
+        }
+    } else if (label) {
+        label.remove();
+    }
 }
 
 export async function mount(elId) {
@@ -202,39 +279,66 @@ export async function mount(elId) {
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
 
-    rttChart = new ApexCharts(rttEl, {
-        ...buildRttOpts(),
-        series: [],
-        colors: PALETTE,
-    });
-    lossChart = new ApexCharts(lossEl, {
-        ...buildLossOpts(),
-        series: [],
-        colors: PALETTE,
-    });
+    rttChart = new ApexCharts(rttEl, { ...buildRttOpts(), series: [], colors: PALETTE });
+    lossChart = new ApexCharts(lossEl, { ...buildLossOpts(), series: [], colors: PALETTE });
 
     await rttChart.render();
     await lossChart.render();
 
+    // Category buttons
     container.querySelectorAll('[data-category]').forEach(btn => {
         btn.addEventListener('click', () => {
             currentCategory = btn.dataset.category;
             container.querySelectorAll('[data-category]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             visibility = {};
-            loadAndUpdate();
-            startPoll();
+            windowOffset = 0;
+            isCustomRange = false;
+            selectPresetRange(container, currentRangeHours);
         });
     });
 
+    // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            currentRangeHours = parseInt(btn.dataset.range);
-            container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            loadAndUpdate();
-            startPoll();
-        });
+        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+    });
+
+    // Shift arrows
+    container.querySelectorAll('[data-shift]').forEach(btn => {
+        btn.addEventListener('click', () => shiftWindow(btn.dataset.shift));
+    });
+
+    // Custom range popover
+    const popover = container.querySelector('[data-popover="custom-range"]');
+    const fromInput = container.querySelector('[data-input="from"]');
+    const toInput = container.querySelector('[data-input="to"]');
+
+    container.querySelector('[data-action="custom-range"]')?.addEventListener('click', () => {
+        const now = new Date();
+        const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
+        if (!fromInput.value) fromInput.value = toLocalDatetimeString(new Date(now.getTime() - rangeMs));
+        if (!toInput.value) toInput.value = toLocalDatetimeString(now);
+        popover?.classList.toggle('open');
+    });
+
+    container.querySelector('[data-action="cancel-custom"]')?.addEventListener('click', () => {
+        popover?.classList.remove('open');
+    });
+
+    container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
+        const from = fromInput?.value ? new Date(fromInput.value) : null;
+        const to = toInput?.value ? new Date(toInput.value) : null;
+        if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
+        customFrom = from;
+        customTo = to;
+        isCustomRange = true;
+        windowOffset = 0;
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        popover?.classList.remove('open');
+        updateCustomLabel(container);
+        loadAndUpdate();
+        startPoll();
     });
 
     await loadAndUpdate();
@@ -249,4 +353,8 @@ export function unmount() {
     containerId = null;
     targetMeta = [];
     visibility = {};
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
 }

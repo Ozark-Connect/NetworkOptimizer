@@ -14210,7 +14210,7 @@ a.affected-client:hover {
    jumps right under the cursor as it approaches the live edge. */
 .lan-flow-map-scrubber-row [data-role="right"] {
     display: inline-block;
-    min-width: 9rem;
+    min-width: 9.5rem;
     text-align: center;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
