@@ -1819,9 +1819,11 @@ class ParticleStream {
 
     setRate(bps) {
         this._rateBps = Math.max(bps, 0);
-        // Log scale density: 100kbps -> 0.05, 10Mbps -> 0.20, 100Mbps -> 0.40,
-        // 1Gbps -> 0.60, 10Gbps -> 0.85.
-        const ratio = Math.log10(Math.max(this._rateBps, 1)) / 11;  // log10(1e11) = 11
+        // Log scale density floored at 100kbps so idle links with multicast /
+        // ARP / housekeeping traffic don't draw particles at all. Curve:
+        //   100kbps -> 0.00 (no flow), 1Mbps -> 0.20, 10Mbps -> 0.40,
+        //   100Mbps -> 0.60, 1Gbps -> 0.80, 10Gbps -> 1.00.
+        const ratio = (Math.log10(Math.max(this._rateBps, 1)) - 5) / 5;
         this._density = Math.max(0, Math.min(1, ratio));
         // Velocity scales subtly with density (more traffic = faster dots) but with a
         // raised floor and reduced spread so per-poll rate fluctuations on WAN/trunk
