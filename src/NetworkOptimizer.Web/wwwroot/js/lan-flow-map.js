@@ -1801,6 +1801,7 @@ class ParticleStream {
                               // opposite the link's near surface.
             blending: THREE.AdditiveBlending,
         });
+        this._material = material;
         this.mesh = new THREE.Points(geometry, material);
         // Disable frustum culling: parking inactive particles outside the camera
         // far plane (above) means the auto-computed bounding sphere centers at the
@@ -1819,17 +1820,20 @@ class ParticleStream {
 
     setRate(bps) {
         this._rateBps = Math.max(bps, 0);
-        // Log scale density floored at 100kbps so idle links with multicast /
-        // ARP / housekeeping traffic don't draw particles at all. Curve:
-        //   100kbps -> 0.00 (no flow), 1Mbps -> 0.20, 10Mbps -> 0.40,
-        //   100Mbps -> 0.60, 1Gbps -> 0.80, 10Gbps -> 1.00.
-        const ratio = (Math.log10(Math.max(this._rateBps, 1)) - 5) / 5;
-        this._density = Math.max(0, Math.min(1, ratio));
-        // Velocity scales subtly with density (more traffic = faster dots) but with a
-        // raised floor and reduced spread so per-poll rate fluctuations on WAN/trunk
-        // links don't visually slam particles between crawl and jet ("matrix" effect).
-        // Range: 2.5 (idle) to 6.5 (saturated). Still communicates throughput.
-        this._velocity = 2.5 + this._density * 4.0;
+        // Log scale "intensity" from rate. Floor at 10kbps (housekeeping noise
+        // disappears), max at 100Gbps (top-end fabric saturates the curve).
+        // Both particle COUNT and particle SIZE scale off this value so heavier
+        // traffic visually compounds - more dots and chunkier dots together,
+        // which reads more dramatic than density alone.
+        const intensity = Math.max(0, Math.min(1,
+            (Math.log10(Math.max(this._rateBps, 1)) - 4) / 7));
+        this._density = intensity;
+        // Particle size: thin idle dots (0.35) -> bulky high-traffic dots (1.4).
+        // Picked to look proportionate, not technically accurate.
+        if (this._material) this._material.size = 0.35 + intensity * 1.05;
+        // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
+        // without slamming between crawl and jet on per-poll rate fluctuations.
+        this._velocity = 2.5 + intensity * 4.0;
     }
 
     advance(dt) {
