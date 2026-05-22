@@ -104,6 +104,89 @@ public class UpstreamTracerService
     }
 
     /// <summary>
+    /// Rehydrate the in-memory <see cref="State"/> from persisted DB rows when
+    /// the service starts cold (process restart). Safe to call multiple times -
+    /// no-ops if a run is in flight or the state already reflects committed
+    /// data. Without this the wizard panel showed "Ready" after every restart
+    /// even when monitoring targets were already saved.
+    /// </summary>
+    public async Task RehydrateFromDbAsync(CancellationToken ct = default)
+    {
+        if (State.Step != TracerStep.Idle) return;
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var ctx = await db.WanDiscoveryContexts
+                .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
+                .FirstOrDefaultAsync(ct);
+            if (ctx == null) return;
+
+            var targets = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.WanInterface == ctx.WanInterface
+                            && (t.TargetType == MonitoringTargetType.AccessIsp
+                                || t.TargetType == MonitoringTargetType.Transit))
+                .ToListAsync(ct);
+            if (targets.Count == 0) return;
+
+            var accessRows = targets
+                .Where(t => t.TargetType == MonitoringTargetType.AccessIsp)
+                .OrderBy(t => t.Id)
+                .ToList();
+            var transitRows = targets
+                .Where(t => t.TargetType == MonitoringTargetType.Transit)
+                .OrderBy(t => t.AsnNumber)
+                .ToList();
+
+            var hydrated = new UpstreamTracerState
+            {
+                Step = TracerStep.Done,
+                StartedAt = ctx.LastDiscoveryAt,
+                CompletedAt = ctx.LastDiscoveryAt,
+                WanInterface = ctx.WanInterface,
+                WanNeighborMac = ctx.L2NeighborMac,
+                WanNeighborOuiVendor = ctx.L2NeighborOui,
+                AccessTechnology = ctx.AccessTechnology,
+                CurrentActivity = "Targets saved. The monitor is probing them on its regular cycle.",
+                AccessHops = accessRows.Select(t => new AccessHopCandidate
+                {
+                    TargetId = t.TargetId,
+                    Label = t.Name,
+                    Address = t.Address,
+                    PtrHostname = t.PtrHostname,
+                    AsnNumber = t.AsnNumber,
+                    AsnName = t.AsnName,
+                    Role = Enum.TryParse<UpstreamRole>(t.AutoLabel, out var role) ? role : UpstreamRole.AccessHop,
+                    HopNumber = 0,
+                    RespondedTo = t.DiscoveredProbeMode ?? t.ProbeMode,
+                    Enabled = t.Enabled,
+                }).ToList(),
+                TransitAsns = transitRows.Select(t => new TransitAsnCandidate
+                {
+                    AsnNumber = t.AsnNumber ?? 0,
+                    AsnName = t.AsnName ?? $"AS{t.AsnNumber}",
+                    Method = t.DiscoveryMethod ?? DiscoveryMethod.DirectRouter,
+                    TargetId = t.TargetId,
+                    HopAddress = t.Address,
+                    HopHostname = null,
+                    RespondedTo = t.DiscoveredProbeMode,
+                    PathProxyTarget = (t.DiscoveryMethod == DiscoveryMethod.PathProxy) ? t.Address : null,
+                    Enabled = t.Enabled,
+                }).ToList(),
+            };
+            await _stateLock.WaitAsync(ct);
+            try
+            {
+                if (State.Step == TracerStep.Idle) State = hydrated;
+            }
+            finally { _stateLock.Release(); }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Upstream tracer rehydrate from DB failed; state stays Idle");
+        }
+    }
+
+    /// <summary>
     /// Kick off discovery. Idempotent: if a run is already in progress, returns without
     /// starting another. The UI polls <see cref="State"/> for live progress.
     /// </summary>

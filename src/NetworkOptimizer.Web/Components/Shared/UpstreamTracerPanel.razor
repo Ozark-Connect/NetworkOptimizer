@@ -263,6 +263,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // After a process restart Tracer.State is Idle in memory even if the
+        // user already committed targets. Rehydrate from DB so the panel
+        // shows the Done state with prior results instead of "Ready".
+        await Tracer.RehydrateFromDbAsync();
         _state = Tracer.State;
         await RefreshReviewFlagAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
