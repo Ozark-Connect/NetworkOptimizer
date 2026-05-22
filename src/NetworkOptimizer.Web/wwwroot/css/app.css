@@ -8005,6 +8005,36 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.25rem;
 }
 
+.custom-range-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.custom-range-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.custom-range-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.custom-range-field label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.custom-range-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
 /* Use secondary background when inside nested cards */
 .card .card .pill-selector,
 .card .card .time-range-selector,

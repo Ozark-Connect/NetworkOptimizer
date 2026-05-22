@@ -367,6 +367,13 @@ export async function mount(elId) {
         popover?.classList.remove('open');
     });
 
+    document.addEventListener('click', (e) => {
+        if (!popover?.classList.contains('open')) return;
+        const customBtn = container.querySelector('[data-action="custom-range"]');
+        if (popover.contains(e.target) || customBtn?.contains(e.target)) return;
+        popover.classList.remove('open');
+    });
+
     container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
         const from = fromInput?.value ? new Date(fromInput.value) : null;
         const to = toInput?.value ? new Date(toInput.value) : null;
