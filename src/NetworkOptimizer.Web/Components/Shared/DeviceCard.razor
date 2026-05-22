@@ -65,28 +65,6 @@
             @if (HasLiveData)
             {
                 <div class="device-live-stats">
-                    @if (Device.LiveRateInBps.HasValue || Device.LiveRateOutBps.HasValue)
-                    {
-                        <div class="device-rate">
-                            <span class="rate-down" title="Ingress (bytes received by the device)">
-                                In @FormatBps(Device.LiveRateInBps)
-                            </span>
-                            <span class="rate-up" title="Egress (bytes transmitted by the device)">
-                                Out @FormatBps(Device.LiveRateOutBps)
-                            </span>
-                        </div>
-                    }
-                    @if (Device.LiveLatencyMs.HasValue)
-                    {
-                        <div class="device-latency @(Device.LiveLossPercent > 5 ? "latency-degraded" : "")">
-                            <span class="latency-label">Ping</span>
-                            <span class="latency-value">@($"{Device.LiveLatencyMs.Value:0.000} ms")</span>
-                            @if (Device.LiveLossPercent > 0)
-                            {
-                                <span class="latency-loss">@($"{Device.LiveLossPercent:0.#}% loss")</span>
-                            }
-                        </div>
-                    }
                     @if (Device.LiveCpuPercent.HasValue || Device.LiveMemoryPercent.HasValue || Device.LiveTemperatureC.HasValue)
                     {
                         <div class="device-health-stats">
@@ -102,6 +80,28 @@
                             {
                                 <span>@($"{Device.LiveTemperatureC.Value:0} °C")</span>
                             }
+                        </div>
+                    }
+                    @if (Device.LiveLatencyMs.HasValue)
+                    {
+                        <div class="device-latency @(Device.LiveLossPercent > 5 ? "latency-degraded" : "")">
+                            <span class="latency-label">Ping</span>
+                            <span class="latency-value">@($"{Device.LiveLatencyMs.Value:0.000} ms")</span>
+                            @if (Device.LiveLossPercent > 0)
+                            {
+                                <span class="latency-loss">@($"{Device.LiveLossPercent:0.#}% loss")</span>
+                            }
+                        </div>
+                    }
+                    @if (Device.LiveRateInBps.HasValue || Device.LiveRateOutBps.HasValue)
+                    {
+                        <div class="device-rate">
+                            <span class="rate-down" title="Ingress (bytes received by the device)">
+                                In @FormatBps(Device.LiveRateInBps)
+                            </span>
+                            <span class="rate-up" title="Egress (bytes transmitted by the device)">
+                                Out @FormatBps(Device.LiveRateOutBps)
+                            </span>
                         </div>
                     }
                 </div>

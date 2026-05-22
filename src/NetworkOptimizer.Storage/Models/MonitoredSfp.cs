@@ -27,6 +27,8 @@ public class MonitoredSfp
 
     public bool IsMonitoredOnt { get; set; }
 
+    public int? LinkSpeedMbps { get; set; }
+
     [MaxLength(200)]
     public string? FriendlyName { get; set; }
 

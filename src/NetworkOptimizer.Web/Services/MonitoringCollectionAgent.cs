@@ -1477,7 +1477,7 @@ public class MonitoringCollectionAgent : BackgroundService
             // the UI doesn't render the padding.
             var sfpPart = TrimSfpField(port.SfpPart);
             var sfpVendor = TrimSfpField(port.SfpVendor);
-            var isPon = IsPonModule(sfpPart, port.SfpCompliance);
+            var isPon = IsPonModule(sfpPart, sfpVendor, port.SfpCompliance);
             if (!existing.TryGetValue(key, out var row))
             {
                 row = new MonitoredSfp
@@ -1487,7 +1487,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     SfpPart = sfpPart,
                     SfpVendor = sfpVendor,
                     IsPon = isPon,
-                    IsMonitoredOnt = isPon, // auto-promote PON SFPs (GPON, XGS-PON) since they're the headline use case
+                    IsMonitoredOnt = isPon,
+                    LinkSpeedMbps = port.Speed > 0 ? port.Speed : null,
                     CreatedAt = timestamp,
                     UpdatedAt = timestamp
                 };
@@ -1499,6 +1500,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 row.SfpPart = sfpPart ?? row.SfpPart;
                 row.SfpVendor = sfpVendor ?? row.SfpVendor;
                 row.IsPon = isPon || row.IsPon;
+                if (port.Speed > 0) row.LinkSpeedMbps = port.Speed;
                 row.UpdatedAt = timestamp;
             }
         }
@@ -1522,23 +1524,22 @@ public class MonitoringCollectionAgent : BackgroundService
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 
-    private static bool IsPonModule(string? part, string? compliance)
+    private static bool IsPonModule(string? part, string? vendor, string? compliance)
     {
-        if (!string.IsNullOrEmpty(part))
+        var combined = $"{part} {vendor} {compliance}";
+        if (combined.Contains("PON", StringComparison.OrdinalIgnoreCase)) return true;
+        if (combined.Contains("WAS", StringComparison.OrdinalIgnoreCase)) return true;
+
+        if (!string.IsNullOrEmpty(vendor))
         {
-            var p = part!;
-            if (p.Contains("GPON", StringComparison.OrdinalIgnoreCase)) return true;
-            if (p.Contains("XGS-PON", StringComparison.OrdinalIgnoreCase)) return true;
-            if (p.Contains("XGSPON", StringComparison.OrdinalIgnoreCase)) return true;
-            if (p.Contains("XG-PON", StringComparison.OrdinalIgnoreCase)) return true;
-            if (p.Contains("EPON", StringComparison.OrdinalIgnoreCase)) return true;
-            if (p.Contains("NG-PON", StringComparison.OrdinalIgnoreCase)) return true;
+            var v = vendor!.Replace("&", "").Replace("-", "").Replace("_", "").Trim();
+            if (v.StartsWith("Calix", StringComparison.OrdinalIgnoreCase)) return true;
+            if (v.StartsWith("Zyxel", StringComparison.OrdinalIgnoreCase)) return true;
+            if (v.StartsWith("Nokia", StringComparison.OrdinalIgnoreCase)) return true;
+            if (v.StartsWith("Leox", StringComparison.OrdinalIgnoreCase)) return true;
+            if (v.StartsWith("TW", StringComparison.OrdinalIgnoreCase)) return true;
         }
-        if (!string.IsNullOrEmpty(compliance) &&
-            compliance!.Contains("PON", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
+
         return false;
     }
 

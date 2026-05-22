@@ -4,7 +4,8 @@ const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
 
 let tempChart = null;
-let cpuMemChart = null;
+let cpuChart = null;
+let memChart = null;
 let pollTimer = null;
 let currentRangeHours = 1;
 let containerId = null;
@@ -12,7 +13,7 @@ let fetchController = null;
 let deviceMeta = [];
 let visibility = {};
 
-function baseOpts(height, yTitle, yFormatter) {
+function baseOpts(height, yTitle, yFormatter, extra) {
     return {
         chart: {
             type: 'line', height,
@@ -42,13 +43,20 @@ function baseOpts(height, yTitle, yFormatter) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: {
-            theme: 'dark',
-            shared: true,
-            x: { format: 'MMM dd, HH:mm:ss' },
-        },
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' } },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
+        ...extra,
     };
+}
+
+function pctOpts(height, yTitle) {
+    return baseOpts(height, yTitle, v => v != null ? v.toFixed(0) + '%' : '', {
+        yaxis: {
+            min: 0, max: 100,
+            title: { text: yTitle, style: { color: '#9ca3af' } },
+            labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' },
+        },
+    });
 }
 
 async function fetchData() {
@@ -95,15 +103,11 @@ function renderBadges(container) {
 function updateVisibility() {
     deviceMeta.forEach(d => {
         const vis = visibility[d.mac] !== false;
-        [tempChart, cpuMemChart].forEach(chart => {
-            if (!chart) return;
-            if (vis) chart.showSeries(d.name + ' Temp');
-            else chart.hideSeries(d.name + ' Temp');
-            if (vis) chart.showSeries(d.name + ' CPU');
-            else chart.hideSeries(d.name + ' CPU');
-            if (vis) chart.showSeries(d.name + ' Mem');
-            else chart.hideSeries(d.name + ' Mem');
-        });
+        for (const chart of [tempChart, cpuChart, memChart]) {
+            if (!chart) continue;
+            if (vis) chart.showSeries(d.name);
+            else chart.hideSeries(d.name);
+        }
     });
 }
 
@@ -112,40 +116,20 @@ async function loadAndUpdate() {
     if (!data?.devices) return;
 
     deviceMeta = data.devices.map((d, i) => ({
-        name: d.name,
-        mac: d.mac,
-        color: PALETTE[i % PALETTE.length],
+        name: d.name, mac: d.mac, color: PALETTE[i % PALETTE.length],
     }));
 
-    const tempSeries = data.devices.map((d, i) => ({
-        name: d.name + ' Temp',
+    const makeSeries = (field) => data.devices.map((d, i) => ({
+        name: d.name,
         color: PALETTE[i % PALETTE.length],
-        data: (d.data || []).filter(p => p.temp != null).map(p => ({
-            x: new Date(p.time).getTime(), y: p.temp
+        data: (d.data || []).filter(p => p[field] != null).map(p => ({
+            x: new Date(p.time).getTime(), y: p[field]
         })),
     }));
 
-    const cpuMemSeries = [];
-    data.devices.forEach((d, i) => {
-        const color = PALETTE[i % PALETTE.length];
-        cpuMemSeries.push({
-            name: d.name + ' CPU',
-            color: color,
-            data: (d.data || []).filter(p => p.cpu != null).map(p => ({
-                x: new Date(p.time).getTime(), y: p.cpu
-            })),
-        });
-        cpuMemSeries.push({
-            name: d.name + ' Mem',
-            color: color,
-            data: (d.data || []).filter(p => p.mem != null).map(p => ({
-                x: new Date(p.time).getTime(), y: p.mem
-            })),
-        });
-    });
-
-    if (tempChart) tempChart.updateSeries(tempSeries, false);
-    if (cpuMemChart) cpuMemChart.updateSeries(cpuMemSeries, false);
+    if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
+    if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
+    if (memChart) memChart.updateSeries(makeSeries('mem'), false);
 
     updateVisibility();
     const container = document.getElementById(containerId);
@@ -154,8 +138,7 @@ async function loadAndUpdate() {
 
 function startPoll() {
     stopPoll();
-    const interval = POLL_INTERVALS[currentRangeHours] || 30000;
-    pollTimer = setInterval(loadAndUpdate, interval);
+    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 30000);
 }
 
 function stopPoll() {
@@ -168,31 +151,21 @@ export async function mount(elId) {
     if (!container) return;
 
     const tempEl = container.querySelector('.health-temp-chart');
-    const cpuMemEl = container.querySelector('.health-cpumem-chart');
-    if (!tempEl || !cpuMemEl) return;
+    const cpuEl = container.querySelector('.health-cpu-chart');
+    const memEl = container.querySelector('.health-mem-chart');
+    if (!tempEl || !cpuEl || !memEl) return;
 
     if (tempChart) { tempChart.destroy(); tempChart = null; }
-    if (cpuMemChart) { cpuMemChart.destroy(); cpuMemChart = null; }
+    if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
+    if (memChart) { memChart.destroy(); memChart = null; }
 
-    tempChart = new ApexCharts(tempEl, {
-        ...baseOpts(220, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''),
-        series: [], colors: PALETTE,
-    });
-    cpuMemChart = new ApexCharts(cpuMemEl, {
-        ...baseOpts(220, '%', v => v != null ? v.toFixed(0) + '%' : ''),
-        yaxis: {
-            min: 0, max: 100,
-            title: { text: '%', style: { color: '#9ca3af' } },
-            labels: {
-                style: { colors: '#9ca3af' },
-                formatter: v => v != null ? v.toFixed(0) + '%' : '',
-            },
-        },
-        series: [], colors: PALETTE,
-    });
+    tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
+    cpuChart = new ApexCharts(cpuEl, { ...pctOpts(200, 'CPU %'), series: [], colors: PALETTE });
+    memChart = new ApexCharts(memEl, { ...pctOpts(200, 'Memory %'), series: [], colors: PALETTE });
 
     await tempChart.render();
-    await cpuMemChart.render();
+    await cpuChart.render();
+    await memChart.render();
 
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -212,7 +185,8 @@ export function unmount() {
     stopPoll();
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
-    if (cpuMemChart) { cpuMemChart.destroy(); cpuMemChart = null; }
+    if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
+    if (memChart) { memChart.destroy(); memChart = null; }
     containerId = null;
     deviceMeta = [];
     visibility = {};
