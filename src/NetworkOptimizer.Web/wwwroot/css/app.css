@@ -14032,6 +14032,7 @@ a.affected-client:hover {
 }
 .lan-flow-map-panel {
     position: absolute;
+    z-index: 5;
     background: rgba(16, 24, 32, 0.78);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -14243,6 +14244,7 @@ a.affected-client:hover {
 }
 .lan-flow-map-scrubber {
     position: absolute;
+    z-index: 5;
     left: 50%;
     bottom: 0.75rem;
     transform: translateX(-50%);
@@ -14332,6 +14334,7 @@ a.affected-client:hover {
     inset: 0;
     pointer-events: none;
     overflow: hidden;
+    z-index: 1;
 }
 .lan-flow-map-label {
     position: absolute;
@@ -14415,7 +14418,7 @@ a.affected-client:hover {
     line-height: 1.35;
     color: var(--text-primary);
     pointer-events: none;
-    z-index: 5;
+    z-index: 10;
     display: none;
     max-width: 260px;
 }

@@ -239,10 +239,22 @@ export class LanFlowMap {
         this._resizeObserver = new ResizeObserver(() => this._handleResize());
         this._resizeObserver.observe(this.canvas.parentElement || this.canvas);
 
-        // Hover tooltip lives outside the labels container so it can sit above the
-        // canvas (which the labels container is pointer-events: none).
         this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
         this.canvas.addEventListener('pointerleave', () => this._clearHover());
+
+        // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
+        this._keys = {};
+        this._onKeyDown = (e) => {
+            if (['w','a','s','d'].includes(e.key.toLowerCase())) {
+                this._keys[e.key.toLowerCase()] = true;
+                e.preventDefault();
+            }
+        };
+        this._onKeyUp = (e) => {
+            this._keys[e.key.toLowerCase()] = false;
+        };
+        document.addEventListener('keydown', this._onKeyDown);
+        document.addEventListener('keyup', this._onKeyUp);
     }
 
     _handleResize() {
@@ -277,6 +289,8 @@ export class LanFlowMap {
         if (this._pollTimer) clearInterval(this._pollTimer);
         if (this._historicPlaybackTimer) clearInterval(this._historicPlaybackTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
+        if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
+        if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
         this.controls?.dispose();
         this.renderer?.dispose();
         this._disposeScene();
@@ -972,6 +986,15 @@ export class LanFlowMap {
                 this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
                 this.camera.lookAt(0, 0, 0);
             } else {
+                // WASD: W/S zoom, A/D orbit
+                if (this._keys && this.controls) {
+                    const speed = 40 * dt;
+                    const orbitSpeed = 1.2 * dt;
+                    if (this._keys['w']) this.controls.dollyIn(1 + speed * 0.05);
+                    if (this._keys['s']) this.controls.dollyOut(1 + speed * 0.05);
+                    if (this._keys['a']) this.controls.rotateLeft(orbitSpeed);
+                    if (this._keys['d']) this.controls.rotateRight(orbitSpeed);
+                }
                 this.controls?.update();
             }
 
