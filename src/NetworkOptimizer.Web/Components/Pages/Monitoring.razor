@@ -357,7 +357,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                                 var visible = IsTargetVisible(t.TargetId);
                                 <button class="wan-filter-badge @(visible ? "active" : "")"
                                         @onclick="() => ToggleTargetVisibility(t.TargetId)">
-                                    <span class="wan-filter-dot" style="background: @color;"></span>
+                                    <span class="wan-badge-dot" style="background-color: @color;"></span>
                                     <span>@t.Name</span>
                                 </button>
                             }
