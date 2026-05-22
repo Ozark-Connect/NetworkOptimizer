@@ -800,50 +800,6 @@ from(bucket: ""{_bucket}"")
         }
     }
 
-    /// <summary>
-    /// Trim latency data from the shutdown edge. When the app stops, in-flight probes
-    /// time out and produce artificial 100% loss. Delete the last 30s of latency data
-    /// from the previous session so those points don't pollute charts.
-    /// InfluxDB delete predicates only support tags (not fields), so we delete all
-    /// latency points in the window rather than filtering on loss_percent.
-    /// </summary>
-    public async Task TrimShutdownEdgeAsync(CancellationToken ct = default)
-    {
-        if (!IsConfigured || _client == null || string.IsNullOrEmpty(_org)) return;
-        try
-        {
-            var lastFlux = $@"
-from(bucket: ""{_bucket}"")
-  |> range(start: -1h)
-  |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r._field == ""loss_percent"")
-  |> last()
-  |> keep(columns: [""_time""])
-";
-            DateTime? lastTime = null;
-            await foreach (var record in QueryFluxAsync(lastFlux, ct))
-            {
-                var t = record.GetTimeInDateTime();
-                if (t.HasValue && (!lastTime.HasValue || t.Value > lastTime.Value))
-                    lastTime = t;
-            }
-            if (!lastTime.HasValue) return;
-
-            var edgeStart = lastTime.Value.AddSeconds(-30);
-            var edgeStop = lastTime.Value.AddSeconds(1);
-            var predicate = @"_measurement=""latency""";
-            var deleteApi = _client.GetDeleteApi();
-            await deleteApi.Delete(edgeStart, edgeStop, predicate, _bucket, _org, ct);
-            _logger.LogInformation(
-                "Trimmed shutdown-edge latency data ({Start:HH:mm:ss} to {Stop:HH:mm:ss})",
-                edgeStart, edgeStop);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Shutdown-edge trim failed (non-fatal)");
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
@@ -853,7 +809,9 @@ from(bucket: ""{_bucket}"")
         {
             try { await _flushTask; } catch { }
         }
-        if (!_writeBuffer.IsEmpty) await FlushAsync();
+        // Intentionally do NOT flush remaining buffered writes. The buffer contains
+        // latency probes from the last ~5s that timed out during shutdown — flushing
+        // them writes artificial 100% loss to InfluxDB.
         await DisposeClientAsync();
         _timerCts.Dispose();
         _flushSemaphore.Dispose();

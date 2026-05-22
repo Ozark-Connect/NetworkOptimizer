@@ -44,7 +44,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ConcurrentDictionary<string, CounterSnapshot> _counterCache = new();
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
-    private bool _shutdownEdgeTrimmed;
 
     // SNMP gating. If a device fails SNMP repeatedly while being reachable on ICMP
     // (so we know it's online), assume it doesn't speak SNMP and stop polling it for
@@ -926,13 +925,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private async Task LatencyTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
-
-        if (!_shutdownEdgeTrimmed && _influx.IsConfigured)
-        {
-            _shutdownEdgeTrimmed = true;
-            try { await _influx.TrimShutdownEdgeAsync(ct); }
-            catch (Exception ex) { _logger.LogDebug(ex, "Shutdown-edge trim skipped"); }
-        }
 
         // Reconcile fabric targets with the live device list — gateways, switches, and APs
         // should each have a `fabric` target on their management IP (spec 5.4). New devices
