@@ -2314,8 +2314,8 @@
     private string _influxToken = string.Empty;
     private bool _influxTokenIsSet = false;
     private string _influxOrg = "network-optimizer";
-    private string _influxBucket = "monitoring";
-    private string _influxLongtermBucket = "monitoring_longterm";
+    private string _influxBucket = "network_monitoring";
+    private string _influxLongtermBucket = "network_monitoring_longterm";
     private bool _savingInflux = false;
 
     // CrowdSec Settings
@@ -4660,8 +4660,8 @@
             {
                 _influxUrl = _monitoringSettings.InfluxDbUrl ?? "http://localhost:8087";
                 _influxOrg = _monitoringSettings.InfluxDbOrg ?? "network-optimizer";
-                _influxBucket = _monitoringSettings.InfluxDbBucket ?? "monitoring";
-                _influxLongtermBucket = _monitoringSettings.InfluxDbLongtermBucket ?? "monitoring_longterm";
+                _influxBucket = _monitoringSettings.InfluxDbBucket ?? "network_monitoring";
+                _influxLongtermBucket = _monitoringSettings.InfluxDbLongtermBucket ?? "network_monitoring_longterm";
                 _influxTokenIsSet = !string.IsNullOrEmpty(_monitoringSettings.InfluxDbToken);
                 _influxToken = string.Empty;
             }
@@ -4687,8 +4687,8 @@
             var settings = await db.MonitoringSettings.FirstAsync();
             settings.InfluxDbUrl = (_influxUrl ?? "").Trim();
             settings.InfluxDbOrg = string.IsNullOrWhiteSpace(_influxOrg) ? "network-optimizer" : _influxOrg.Trim();
-            settings.InfluxDbBucket = string.IsNullOrWhiteSpace(_influxBucket) ? "monitoring" : _influxBucket.Trim();
-            settings.InfluxDbLongtermBucket = string.IsNullOrWhiteSpace(_influxLongtermBucket) ? "monitoring_longterm" : _influxLongtermBucket.Trim();
+            settings.InfluxDbBucket = string.IsNullOrWhiteSpace(_influxBucket) ? "network_monitoring" : _influxBucket.Trim();
+            settings.InfluxDbLongtermBucket = string.IsNullOrWhiteSpace(_influxLongtermBucket) ? "network_monitoring_longterm" : _influxLongtermBucket.Trim();
 
             // Only update the token if the user typed a new value
             if (!string.IsNullOrEmpty(_influxToken))
