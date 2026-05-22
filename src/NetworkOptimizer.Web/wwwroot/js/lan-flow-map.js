@@ -1937,15 +1937,15 @@ class ParticleStream {
         this._density = intensity;
         // Particle size on a squared curve so the low end collapses to
         // pinprick wisps and heavy traffic blooms to chunky dots:
-        //   100bps  -> ~0.07   (tiny)
-        //   100kbps -> ~0.37   (small)
-        //   10Mbps  -> ~0.75   (mid)
-        //   1Gbps   -> ~1.23   (chunky)
-        //   100Gbps -> 1.80    (max)
+        //   100bps  -> ~0.05  (tiny)
+        //   100kbps -> ~0.28  (small)
+        //   10Mbps  -> ~0.56  (mid)
+        //   1Gbps   -> ~0.92  (chunky)
+        //   100Gbps -> 1.35   (max)
         // Stored for use at spawn time only - particles already in flight
         // keep their birth size so a sudden rate change doesn't visually
         // resize dots that have already left the sender.
-        this._currentSize = 0.05 + (intensity * intensity) * 1.75;
+        this._currentSize = 0.0375 + (intensity * intensity) * 1.3125;
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
