@@ -14044,6 +14044,14 @@ a.affected-client:hover {
     line-height: 1.3;
     pointer-events: auto;
 }
+.lan-flow-map-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.lan-flow-map-filter .lan-flow-map-panel-body {
+    gap: 0.25rem;
+} 
 .lan-flow-map-panel-title {
     font-size: 0.72rem;
     text-transform: uppercase;
