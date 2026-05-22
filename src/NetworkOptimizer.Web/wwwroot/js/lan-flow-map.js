@@ -1284,9 +1284,10 @@ export class LanFlowMap {
             </button>
             <div class="lan-flow-map-help-body" hidden>
                 <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
-                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">Ctrl + Left-drag</span></div>
-                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
+                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
+                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over node</span></div>
+                <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
             </div>
         `;
         const helpToggle = help.querySelector('.lan-flow-map-help-toggle');
