@@ -278,6 +278,7 @@ function updateCustomLabel(container) {
     if (label) label.remove();
 
     const active = isCustomRange || windowOffset !== 0;
+    let clearBtn = btn.querySelector('.custom-range-clear');
     if (active) {
         btn.classList.add('active');
         const from = getEffectiveFrom();
@@ -286,9 +287,21 @@ function updateCustomLabel(container) {
             const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
         }
+        if (!clearBtn) {
+            clearBtn = document.createElement('span');
+            clearBtn.className = 'custom-range-clear';
+            clearBtn.textContent = '×';
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const ctr = document.getElementById(containerId);
+                if (ctr) selectPresetRange(ctr, currentRangeHours);
+            });
+            btn.appendChild(clearBtn);
+        }
     } else {
         btn.classList.remove('active');
         btn.setAttribute('data-tooltip', 'Custom date range');
+        if (clearBtn) clearBtn.remove();
     }
 }
 
