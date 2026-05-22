@@ -37,6 +37,12 @@ public class UpstreamTracerService
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private Task? _runningTask;
 
+    // IPs that belong to *our* gateway (LAN side, WAN side, management VLANs).
+    // Used to keep our own gateway out of the access-ISP hop list when the
+    // traceroute's first hop is a private/CGNAT address. Collected during
+    // DetectPublicIpAsync from the gateway's port_table.
+    private readonly HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
+
     public UpstreamTracerState State { get; private set; } = new();
 
     // CDN rotation per locked Gate 2 decision 5: five hardcoded endpoints across major
@@ -176,6 +182,16 @@ public class UpstreamTracerService
         }
 
         State.WanInterface = wanPort.NetworkName ?? "wan";
+
+        // Snapshot every IP the gateway carries (LAN, WAN, management VLAN) so
+        // we can filter our own gateway out of the access-hop classification
+        // below. Without this the trace's first hop (the LAN gateway address)
+        // gets misclassified as the access ISP's first-mile device.
+        _gatewayIps.Clear();
+        foreach (var port in gateway.PortTable)
+        {
+            if (!string.IsNullOrEmpty(port.Ip)) _gatewayIps.Add(port.Ip);
+        }
 
         // The port_table IP is the WAN public IP in our experience (or RFC1918 for
         // double-NAT, CGNAT for cgnat, etc.). NetworkUtilities.ClassifyPublicAddress
@@ -390,24 +406,32 @@ public class UpstreamTracerService
         }
         _mergedHops = byIp.Values.OrderBy(h => h.HopNumber).ToList();
 
+        // Drop hops that belong to *our* gateway from the candidate pool before
+        // any access-hop classification. Without this our 192.168.x.1 gateway
+        // shows up as the access ISP's first-mile device when the carrier
+        // doesn't respond to early TTLs (or when the upstream is CGNAT and
+        // the first responsive hops are all private). Carrier-side CGNAT
+        // hops (also private, Asn == null) are still eligible - they ARE
+        // first-mile access infra.
+        var candidateHops = _mergedHops
+            .Where(h => !_gatewayIps.Contains(h.Address))
+            .ToList();
+
         // Identify the access ISP ASN: the first non-null ASN seen at the lowest hop
         // numbers across the traces. Hops in private/CGNAT space (Asn == null) are
         // skipped over; they don't have a public ASN.
-        var firstPublicHop = _mergedHops.FirstOrDefault(h => h.Asn != null);
+        var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
         // Access hops: the first 1-3 hops attributable to that ASN, per spec 5.5.
-        // Require Asn != null on the candidate (not just `h.Asn?.Asn == accessAsn`)
-        // otherwise when accessAsn itself is null the equality matches every
-        // private/CGNAT hop too - including our own gateway at 192.168.x.1 -
-        // and they get committed as "first-mile" access targets. If no public
-        // hop responded, leave the access hop list empty.
-        _accessHopsResolved = accessAsn.HasValue
-            ? _mergedHops
-                .Where(h => h.Asn != null && h.Asn.Asn == accessAsn.Value)
-                .Take(3)
-                .ToList()
-            : new List<AttributedHop>();
+        // When accessAsn is null (no public hop reachable - e.g. fully filtered
+        // carrier), we fall back to private/CGNAT first hops since they're
+        // still the literal access path. The gateway IP filter above keeps our
+        // own CPE out of that fallback.
+        _accessHopsResolved = candidateHops
+            .Where(h => h.Asn?.Asn == accessAsn)
+            .Take(3)
+            .ToList();
 
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {

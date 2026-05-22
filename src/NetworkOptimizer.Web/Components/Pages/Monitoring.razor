@@ -268,12 +268,14 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                             var portLabel = !string.IsNullOrEmpty(sfp.FriendlyName) ? sfp.FriendlyName : $"port {sfp.PortName}";
                             <tr>
                                 <td>
-                                    <div><strong>@deviceName</strong></div>
-                                    <div class="text-muted" style="font-size: 0.8rem;">@portLabel</div>
-                                    @if (sfp.IsPon)
-                                    {
-                                        <span class="status-badge status-active" style="margin-top: 0.25rem;">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
-                                    }
+                                    <div class="sfp-port-cell">
+                                        <strong>@deviceName</strong>
+                                        <span class="text-muted">@portLabel</span>
+                                        @if (sfp.IsPon)
+                                        {
+                                            <span class="status-badge status-active">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
+                                        }
+                                    </div>
                                 </td>
                                 <td>
                                     @if (!string.IsNullOrEmpty(sfp.SfpPart))

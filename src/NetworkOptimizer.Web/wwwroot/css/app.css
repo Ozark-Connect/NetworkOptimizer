@@ -14237,6 +14237,17 @@ a.affected-client:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
 }
+/* SFP/Optical table device + port cell. Inline so device name, port label,
+   and PON badge sit on one row vertically centered, evenly spaced. */
+.sfp-port-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.sfp-port-cell .text-muted {
+    font-size: 0.85rem;
+}
 .lan-flow-map-mode {
     display: inline-flex;
     align-items: center;
