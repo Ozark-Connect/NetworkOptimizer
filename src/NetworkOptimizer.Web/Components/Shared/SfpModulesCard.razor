@@ -1,0 +1,259 @@
+@using NetworkOptimizer.Storage.Models
+@using Microsoft.EntityFrameworkCore
+@inject MonitoringLiveStats LiveStats
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+@if (AllSfps.Count > 0)
+{
+<div class="card">
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+        <h2 class="card-title">Optical (SFP / ONT)</h2>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="status-badge status-active" @onclick:stopPropagation="true">@AllSfps.Count(s => s.IsMonitoredOnt) monitored</span>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
+    </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+    <div class="card-body">
+        <p class="section-description">
+            GPON / XGS-PON ONTs and other SFP modules detected on switch / gateway
+            ports. For PON modules, RX power typically sits between -15 and -25 dBm;
+            values weaker than -27 dBm may indicate a failing link.
+        </p>
+        <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Port</th>
+                    <th>Module</th>
+                    <th>Type</th>
+                    <th>RX power</th>
+                    <th>TX power</th>
+                    <th>Temp</th>
+                    <th>Voltage</th>
+                    <th>Bias</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sfp in CurrentPage())
+                {
+                    var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
+                    var deviceName = ResolveDeviceName(sfp.DeviceMac);
+                    var portLabel = !string.IsNullOrEmpty(sfp.FriendlyName) ? sfp.FriendlyName : $"port {sfp.PortName}";
+                    <tr style="@(sfp.IsMonitoredOnt ? "" : "opacity: 0.6;")">
+                        <td>
+                            <div class="sfp-port-cell">
+                                <strong>@deviceName</strong>
+                                <span class="text-muted">@portLabel</span>
+                            </div>
+                        </td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(sfp.SfpPart))
+                            { <code>@sfp.SfpPart</code> }
+                            else
+                            { <span class="text-muted">-</span> }
+                        </td>
+                        <td>
+                            @if (sfp.IsPon)
+                            {
+                                <span class="status-badge status-active">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
+                            }
+                            else
+                            {
+                                <span class="status-badge status-connected">SFP</span>
+                            }
+                        </td>
+                        <td class="@RxClass(sfp.IsPon ? stats?.RxPowerDbm : null)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
+                        <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
+                        <td>@FormatOptical(stats?.TemperatureC, "°C")</td>
+                        <td>@FormatOptical(stats?.VoltageV, "V")</td>
+                        <td>@FormatOptical(stats?.BiasMa, "mA")</td>
+                        <td style="white-space: nowrap;">
+                            @if (sfp.IsMonitoredOnt)
+                            {
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => ToggleMonitoringAsync(sfp.Id, false)"
+                                        data-tooltip="Stop monitoring this SFP">
+                                    Unmonitor
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-primary"
+                                        @onclick="() => ToggleMonitoringAsync(sfp.Id, true)"
+                                        data-tooltip="Add this SFP to monitoring">
+                                    Monitor
+                                </button>
+                            }
+                            @if (!sfp.IsPon)
+                            {
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => TogglePonAsync(sfp.Id, true)"
+                                        data-tooltip="Mark as PON module"
+                                        style="margin-left: 0.25rem;">
+                                    Set PON
+                                </button>
+                            }
+                            else if (!IsPonAutoDetected(sfp))
+                            {
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => TogglePonAsync(sfp.Id, false)"
+                                        data-tooltip="Mark as regular SFP"
+                                        style="margin-left: 0.25rem;">
+                                    Set SFP
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+        @if (TotalPages() > 1)
+        {
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem;">
+                <button class="btn btn-sm btn-secondary" disabled="@(_page == 0)" @onclick="() => { _page--; StateHasChanged(); }">Prev</button>
+                <span class="text-muted" style="font-size: 0.85rem;">@(_page + 1) / @TotalPages()</span>
+                <button class="btn btn-sm btn-secondary" disabled="@(_page >= TotalPages() - 1)" @onclick="() => { _page++; StateHasChanged(); }">Next</button>
+            </div>
+        }
+    </div>
+        </div>
+    </div>
+</div>
+}
+else
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="empty-state">
+                <p>No SFP modules detected yet. They'll appear once the agent discovers SFP ports on your devices.</p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public List<MonitoredSfp> AllSfps { get; set; } = new();
+
+    [Parameter, EditorRequired]
+    public List<MonitoringTarget> Targets { get; set; } = new();
+
+    [Parameter]
+    public Dictionary<string, string> DeviceIpByMac { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnSfpChanged { get; set; }
+
+    private bool _collapsed = false;
+    private int _page = 0;
+    private const int PageSize = 10;
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    private IEnumerable<MonitoredSfp> CurrentPage() =>
+        SortedSfps().Skip(_page * PageSize).Take(PageSize);
+
+    private int TotalPages() =>
+        Math.Max(1, (int)Math.Ceiling((double)AllSfps.Count / PageSize));
+
+    private List<MonitoredSfp> SortedSfps() => AllSfps
+        .OrderBy(s => ParseIpForSorting(ResolveDeviceIp(s.DeviceMac)))
+        .ThenBy(s => int.TryParse(s.PortName, out var p) ? p : 9999)
+        .ToList();
+
+    private async Task ToggleMonitoringAsync(int sfpId, bool monitored)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoredSfps.FindAsync(sfpId);
+            if (row == null) return;
+            row.IsMonitoredOnt = monitored;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            await OnSfpChanged.InvokeAsync();
+        }
+        catch { }
+    }
+
+    private async Task TogglePonAsync(int sfpId, bool isPon)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoredSfps.FindAsync(sfpId);
+            if (row == null) return;
+            row.IsPon = isPon;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            await OnSfpChanged.InvokeAsync();
+        }
+        catch { }
+    }
+
+    private string ResolveDeviceName(string deviceMac)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return deviceMac;
+        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        var target = Targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
+        return !string.IsNullOrEmpty(target?.Name) ? target.Name : deviceMac;
+    }
+
+    private string ResolveDeviceIp(string deviceMac)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return "255.255.255.255";
+        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        if (DeviceIpByMac.TryGetValue(normalized, out var ip) && !string.IsNullOrEmpty(ip))
+            return ip;
+        var target = Targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
+        return target?.Address ?? "255.255.255.255";
+    }
+
+    private static long ParseIpForSorting(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip)) return long.MaxValue;
+        var parts = ip.Split('.');
+        if (parts.Length != 4) return long.MaxValue;
+        long result = 0;
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, out var octet)) return long.MaxValue;
+            result = (result << 8) | (uint)(octet & 0xFF);
+        }
+        return result;
+    }
+
+    private static string FormatOptical(double? value, string unit)
+    {
+        if (!value.HasValue) return "-";
+        return $"{value.Value:0.##} {unit}";
+    }
+
+    private static string RxClass(double? rxDbm)
+    {
+        if (!rxDbm.HasValue) return string.Empty;
+        var v = rxDbm.Value;
+        if (v >= -25 && v <= -8) return "";
+        if (v >= -28 && v <= -5) return "signal-fair";
+        return "signal-poor";
+    }
+
+    private static bool IsPonAutoDetected(MonitoredSfp sfp)
+    {
+        var variant = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfp.SfpPart, sfp.SfpVendor);
+        return variant != "PON";
+    }
+
+    private static string PonVariantLabel(string? sfpPart, string? sfpVendor) =>
+        NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfpPart, sfpVendor);
+}

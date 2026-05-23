@@ -287,6 +287,12 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## General
 
+### 3D Map - Speed Test Path Overlay Rework
+- Toggle hidden from overlay controls until the feature is useful
+- Code exists in `lan-flow-map.js` (`_loadInitialSpeedTests`, `_renderSpeedTestOverlay`)
+- Needs: visual design pass (hard to distinguish from traffic flow), results on hover/click, active test animation, filter by test type, time-based filtering
+- Consider making it a temporary overlay during/after a test rather than a persistent toggle
+
 ### Minify Custom JS Resources
 - `lan-flow-map.js`, `latency-charts.js`, `device-health-charts.js` are served unminified
 - Add a build step (terser or esbuild) to produce `.min.js` variants and reference those in production

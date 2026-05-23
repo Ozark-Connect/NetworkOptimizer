@@ -485,6 +485,56 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
+        string deviceMac,
+        IReadOnlyList<string> wanIfNames,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || wanIfNames.Count == 0) return Array.Empty<WanRatePoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var mac = NormalizeMac(deviceMac);
+        var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
+            $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => {ifFilter})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> group(columns: [""_time"", ""_field""])
+  |> sum()
+  |> group()
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> sort(columns: [""_time""])
+";
+        var results = new List<WanRatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            // SNMP rate_in_bps on a WAN interface = bytes received from ISP = download.
+            // rate_out_bps = bytes sent to ISP = upload.
+            results.Add(new WanRatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                DownloadBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
+                UploadBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
+            });
+        }
+        return results;
+    }
+
+    public record WanRatePoint
+    {
+        public required DateTime Time { get; init; }
+        public double? DownloadBps { get; init; }
+        public double? UploadBps { get; init; }
+    }
+
     /// <summary>Per-device CPU/memory/temperature trace.</summary>
     public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthAsync(
         string deviceMac,
@@ -749,6 +799,106 @@ from(bucket: ""{_longtermBucket}"")
                 System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             ? parsed : null
     };
+
+    /// <summary>
+    /// Find the most recent packet loss event across ISP, Transit, and Internet targets
+    /// (checked in that priority order). Returns the timestamp and target type of the
+    /// first match with loss > 1%.
+    /// </summary>
+    public async Task<RecentLossEvent?> FindRecentLossEventAsync(
+        DateTime? before = null, DateTime? after = null, CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return null;
+
+        var rangeStart = after ?? DateTime.UtcNow.AddDays(-30);
+        var rangeStop = before ?? DateTime.UtcNow;
+        var sortDesc = !after.HasValue;
+
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan"")
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+  |> filter(fn: (r) => r._value > 1.0)
+  |> group()
+  |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
+  |> limit(n: 1)
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var targetId = record.GetValueByKey("target_id") as string;
+            var targetType = record.GetValueByKey("target_type") as string ?? "internetservice";
+            var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
+            return new RecentLossEvent
+            {
+                Timestamp = time,
+                TargetType = targetType,
+                TargetId = targetId,
+                LossPercent = loss ?? 0
+            };
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Find the most recent SFP anomaly: temperature above PON threshold (75 C) or
+    /// RX power below PON threshold (-25 dBm). Scans the last 7 days.
+    /// </summary>
+    public async Task<RecentSfpAnomaly?> FindRecentSfpAnomalyAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return null;
+
+        var lookback = DateTime.UtcNow.AddDays(-7);
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(lookback)})
+  |> filter(fn: (r) => r._measurement == ""sfp"")
+  |> filter(fn: (r) => r._field == ""temp_c"" or r._field == ""rx_power_dbm"")
+  |> filter(fn: (r) => (r._field == ""temp_c"" and r._value > 75.0) or (r._field == ""rx_power_dbm"" and r._value < -25.0))
+  |> sort(columns: [""_time""], desc: true)
+  |> limit(n: 1)
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            var deviceMac = record.GetValueByKey("device_mac") as string;
+            var portName = record.GetValueByKey("port_name") as string;
+            return new RecentSfpAnomaly
+            {
+                Timestamp = time,
+                Metric = field == "temp_c" ? "temperature" : "rx_power",
+                Value = value ?? 0,
+                DeviceMac = deviceMac,
+                PortName = portName
+            };
+        }
+        return null;
+    }
+
+    public record RecentLossEvent
+    {
+        public required DateTime Timestamp { get; init; }
+        public required string TargetType { get; init; }
+        public string? TargetId { get; init; }
+        public double LossPercent { get; init; }
+    }
+
+    public record RecentSfpAnomaly
+    {
+        public required DateTime Timestamp { get; init; }
+        public required string Metric { get; init; }
+        public double Value { get; init; }
+        public string? DeviceMac { get; init; }
+        public string? PortName { get; init; }
+    }
 
     public record InterfaceRatePoint
     {

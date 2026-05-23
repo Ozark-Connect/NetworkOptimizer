@@ -23,8 +23,6 @@ let moduleMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
-let isMapFullscreen = false;
-let fsHandler = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -170,7 +168,7 @@ async function loadAndUpdate() {
     if (container) renderBadges(container);
 }
 
-function isVisible() { return isInViewport && !isMapFullscreen; }
+function isVisible() { return isInViewport; }
 
 function startPoll() {
     stopPoll();
@@ -238,8 +236,12 @@ function selectPresetRange(container, hours) {
     if (btn) btn.classList.add('active');
     const fromInput = container.querySelector('[data-input="from"]');
     const toInput = container.querySelector('[data-input="to"]');
-    if (fromInput) fromInput.value = '';
-    if (toInput) toInput.value = '';
+    if (fromInput && toInput) {
+        const now = Date.now();
+        const rangeMs = RANGE_MS[hours] || 86400000;
+        fromInput.value = toLocalDatetimeString(new Date(now - rangeMs));
+        toInput.value = toLocalDatetimeString(new Date(now));
+    }
     container.querySelector('[data-popover="custom-range"]')?.classList.remove('open');
     updateCustomLabel(container);
     loadAndUpdate();
@@ -347,32 +349,41 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
-    fsHandler = (e) => {
-        const was = isVisible();
-        isMapFullscreen = e.detail.fullscreen;
-        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible() && was) { stopPoll(); }
-    };
-    document.addEventListener('lanflowmap-fullscreen', fsHandler);
-
     await loadAndUpdate();
+    startPoll();
+}
+
+export function navigateToTime(isoTimestamp) {
+    const ts = new Date(isoTimestamp).getTime();
+    const windowMs = 10 * 60000; // 10 min window centered on event
+    customFrom = new Date(ts - windowMs);
+    customTo = new Date(ts + windowMs);
+    isCustomRange = true;
+    windowOffset = 0;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
     startPoll();
 }
 
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
-    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     containerId = null;
     moduleMeta = [];
     visibility = {};
+    currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
     customTo = null;
     isInViewport = true;
-    isMapFullscreen = false;
 }

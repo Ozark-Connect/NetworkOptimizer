@@ -340,6 +340,7 @@ builder.Services.AddSingleton<MonitoringLiveStats>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
 builder.Services.AddScoped<InfluxDbProvisioningService>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
@@ -1486,6 +1487,7 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 // New API endpoints go in Endpoints/*.cs, not inline here.
 LanFlowMapEndpoints.Map(app);
 MonitoringChartEndpoints.Map(app);
+MonitoringInvestigateEndpoints.Map(app);
 DeviceHealthChartEndpoints.Map(app);
 SfpChartEndpoints.Map(app);
 

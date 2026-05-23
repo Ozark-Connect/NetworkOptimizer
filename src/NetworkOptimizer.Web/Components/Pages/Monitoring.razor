@@ -1,3 +1,11 @@
+@* TODO: Continue extracting Monitoring cards into standalone Razor components.
+   LatencyTargetsCard and SfpModulesCard are done. Remaining candidates:
+   - Live View stat cards → MonitoringStatCards
+   - Monitoring Status / Setup card → MonitoringSetupCard
+   - Investigate card → MonitoringInvestigateCard
+   - Chart containers (latency, device health, SFP) are mostly thin wrappers
+     around JS mount points but could still benefit from encapsulation.
+*@
 @page "/monitoring"
 @rendermode InteractiveServer
 @implements IDisposable
@@ -11,6 +19,7 @@
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+@inject NavigationManager NavigationManager
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
 
@@ -40,204 +49,84 @@
         </div>
     </div>
 }
-else if (_snmpState == SnmpDetectionState.NotChecked)
+else
 {
-    <!-- Detection in progress or about to start -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">SNMP Configuration</h2>
+    <!-- Tab bar -->
+    <div class="wifi-view-tabs-wrapper">
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+        <div class="wifi-view-tabs">
+            <button class="wifi-view-tab @(_activeTab == "live" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("live"))"
+                    disabled="@(!_monitoringReady)">
+                Live View
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "performance" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("performance"))"
+                    disabled="@(!_monitoringReady)">
+                Network Performance
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "devices" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("devices"))"
+                    disabled="@(!_monitoringReady)">
+                Device Stats
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "sfp" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("sfp"))"
+                    disabled="@(!_monitoringReady)">
+                SFP Stats
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "setup" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("setup"))">
+                Setup
+            </button>
         </div>
-        <div class="card-body">
-            <div class="empty-state">
-                <span class="spinner"></span>
-                <p>Detecting SNMP configuration from UniFi Console...</p>
-            </div>
-        </div>
-    </div>
-}
-else if (_snmpState == SnmpDetectionState.Disabled)
-{
-    <!-- SNMP not enabled - setup guide -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">SNMP Setup Required</h2>
-            <span class="status-badge status-disconnected">Disabled</span>
-        </div>
-        <div class="card-body">
-            <div class="alert alert-warning">
-                <strong>SNMP is not enabled on your UniFi Console.</strong>
-                Network Optimizer needs SNMP to collect port-level traffic statistics, device health metrics, and interface data from your switches and gateway.
-            </div>
-
-            <details class="setup-guide" open>
-                <summary>How to Enable SNMP</summary>
-                <div class="setup-guide-content">
-                    <ol>
-                        <li>Open UniFi Network</li>
-                        <li>Search Settings for <strong>"SNMP Monitoring"</strong></li>
-                        <li>Enable <strong>SNMP v1/v2c</strong> and set a unique community string</li>
-                    </ol>
-                    <p>Currently at: Settings → CyberSecure → Traffic Logging → SNMP Monitoring. This menu has moved between UniFi versions - the search term is the reliable way to find it.</p>
-
-                    <h4>Recommended configuration</h4>
-                    <p><strong>SNMP v1/v2c</strong> with a unique community string is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
-                </div>
-            </details>
-
-            <div class="action-buttons" style="margin-top: 1rem;">
-                <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
-                    @if (_detecting) { <span class="spinner-sm"></span> <span>Checking...</span> }
-                    else { <span>Re-check</span> }
-                </button>
-            </div>
-        </div>
-    </div>
-}
-else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetectionState.EnabledV3Only || _snmpState == SnmpDetectionState.Working)
-{
-    <!-- SNMP configured - show monitoring content -->
-
-    @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
-    {
-        <div class="alert alert-info" style="margin-bottom: 1.5rem;">
-            <strong>SNMPv3 detected.</strong>
-            Consider switching to v1/v2c - the per-packet crypto adds CPU load to your network devices. The recommended security posture is a management VLAN, not v3 encryption.
-            <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @onclick="() => _showV3Recommendation = false">Dismiss</button>
-        </div>
-    }
-
-    @if (!_influxConfigured)
-    {
-        <!-- First-run InfluxDB setup happens right here inline. No click-through. -->
-        <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" />
-    }
-
-    <div class="card" style="@(_influxConfigured ? "" : "margin-top: 1.5rem;")">
-        <div class="card-header card-header-collapsible" @onclick="ToggleStatus">
-            <h2 class="card-title">Monitoring Status</h2>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span class="status-badge status-connected" @onclick:stopPropagation="true">@OverallStateBadge()</span>
-                <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings" @onclick:stopPropagation="true">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-                    </svg>
-                </a>
-                <span class="issue-type-chevron">@(_statusCollapsed ? "▼" : "▲")</span>
-            </div>
-        </div>
-        <div class="expand-wrapper @(!_statusCollapsed ? "expanded" : "")">
-            <div class="expand-content">
-        <div class="card-body">
-            <div class="form-group">
-                <label class="form-label">SNMP</label>
-                <div class="form-value">
-                    <span class="status-indicator status-active"></span>
-                    @(_snmpState == SnmpDetectionState.EnabledV2c ? "v2c" : _snmpState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")
-                </div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">InfluxDB</label>
-                <div class="form-value">
-                    @if (_influxReachable == true)
-                    {
-                        <span class="status-indicator status-active"></span>
-                        <span>Connected</span>
-                    }
-                    else if (_influxReachable == false && !string.IsNullOrEmpty(_influxError))
-                    {
-                        <span class="status-indicator status-danger"></span>
-                        <span>@_influxError</span>
-                    }
-                    else if (!_influxConfigured)
-                    {
-                        <span class="status-indicator status-inactive"></span>
-                        <span>Not configured - follow the setup card above.</span>
-                    }
-                    else
-                    {
-                        <span class="status-indicator status-inactive"></span>
-                        <span>Not checked</span>
-                    }
-                    @if (_influxConfigured)
-                    {
-                        <button class="btn btn-sm btn-secondary" style="margin-left: 0.75rem;" @onclick="CheckInfluxHealth" disabled="@_checkingInflux">
-                            @if (_checkingInflux)
-                            {
-                                <span class="spinner-sm"></span>
-                                <span>Checking...</span>
-                            }
-                            else
-                            {
-                                <span>Test</span>
-                            }
-                        </button>
-                        @if (_lastInfluxTestAt.HasValue && !_checkingInflux)
-                        {
-                            <span class="page-description" style="margin-left: 0.5rem;">
-                                @if (_influxReachable == true)
-                                {
-                                    <span style="color: var(--success-color);">✓ Connected</span>
-                                }
-                                else
-                                {
-                                    <span style="color: var(--danger-color);">✗ @(_influxError ?? "Unreachable")</span>
-                                }
-                            </span>
-                        }
-                    }
-                </div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Collection</label>
-                <div class="form-value">
-                    @if (_monitoringEnabled && _influxReachable == true)
-                    {
-                        <span class="status-indicator status-active"></span>
-                        <span>Agent running</span>
-                    }
-                    else if (_monitoringEnabled && _influxReachable != true)
-                    {
-                        <span class="status-indicator status-danger"></span>
-                        <span>Enabled, but InfluxDB unreachable</span>
-                    }
-                    else
-                    {
-                        <span class="status-indicator status-inactive"></span>
-                        <span>Disabled</span>
-                    }
-                </div>
-            </div>
-
-            <div class="action-buttons" style="margin-top: 1rem;">
-                @if (_monitoringEnabled)
-                {
-                    <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
-                        @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Stopping...</span> }
-                        else { <span>Disable Monitoring</span> }
-                    </button>
-                }
-                else
-                {
-                    <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
-                        @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Starting...</span> }
-                        else { <span>Enable Monitoring</span> }
-                    </button>
-                    @if (_influxReachable != true)
-                    {
-                        <span class="page-description" style="margin-left: 0.75rem;">
-                            Complete InfluxDB setup above to enable.
-                        </span>
-                    }
-                }
-            </div>
-        </div>
-            </div>
-        </div>
+        <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
     </div>
 
-    @if (_monitoringEnabled && _influxReachable == true)
+    @* ──────────────── Tab: Live View ──────────────── *@
+    @if (_activeTab == "live" && _monitoringReady)
     {
-        <!-- 3D LAN flow map (spec 5.7). Centerpiece of the monitoring view. -->
+        <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
+        <div class="monitoring-stat-cards">
+            @{ var wanRates = GetWanRates(); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value" style="color: #3b82f6;">@FormatRate(wanRates.download)</div>
+                <div class="stat-label">WAN Download</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
+                <div class="stat-label">WAN Upload</div>
+            </div>
+            @{ var gwLatency = GetGatewayLatency(); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
+                <div class="stat-label">Gateway RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
+                <div class="stat-label">Gateway Loss</div>
+            </div>
+            @{ var ispTarget = GetMeanTargetStats(MonitoringTargetType.AccessIsp); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
+                <div class="stat-label">ISP RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
+                <div class="stat-label">ISP Loss</div>
+            </div>
+            @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
+                <div class="stat-label">Transit RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
+                <div class="stat-label">Transit Loss</div>
+            </div>
+        </div>
+
+        <!-- 3D LAN flow map -->
         <div class="card lan-flow-map-card" style="margin-top: 1.5rem;">
             <div class="card-header">
                 <h2 class="card-title">3D LAN Flow Map</h2>
@@ -249,8 +138,38 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             </div>
         </div>
 
-        <!-- Latency time-series charts. Pure JS ApexCharts fed by /api/monitoring/chart-data. -->
-        <div class="card" style="margin-top: 1.5rem;" id="latency-charts-container">
+        <!-- Bottom stat cards: Gateway health + fabric load -->
+        <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
+            @{ var gwStats = GetGatewayStats(); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
+                <div class="stat-label">Gateway CPU</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
+                <div class="stat-label">Gateway Memory</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
+                <div class="stat-label">Gateway Temp</div>
+            </div>
+            @{ var fabricLoad = GetTotalFabricLoad(); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                <div class="stat-label">Fabric Ingress</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                <div class="stat-label">Fabric Egress</div>
+            </div>
+        </div>
+    }
+
+    @* ──────────────── Tab: Network Performance ──────────────── *@
+    @if (_activeTab == "performance" && _monitoringReady)
+    {
+        <!-- Latency time-series charts -->
+        <div class="card" id="latency-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -304,11 +223,60 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                     <div class="chart-header"><h3 class="chart-title">Packet loss</h3></div>
                     <div class="latency-loss-chart"></div>
                 </div>
+                <div class="chart-card latency-wan-rate-card" style="margin-top: 1rem; display: none;">
+                    <div class="chart-header"><h3 class="chart-title">WAN Throughput</h3></div>
+                    <div class="latency-wan-rate-chart"></div>
+                </div>
+                <div class="latency-stats-table"></div>
             </div>
         </div>
 
-        <!-- Device health charts - temperature + CPU/memory for network devices -->
-        <div class="card" style="margin-top: 1.5rem;" id="device-health-charts-container">
+        <!-- Quick investigation -->
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Investigate</h2>
+            </div>
+            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+                @if (_lossNavActive)
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="LossNavBack" disabled="@_investigatingLoss"
+                            data-tooltip="Previous loss event">&#x25C0;</button>
+                    <button class="btn btn-primary" @onclick="LossNavDeactivate"
+                            data-tooltip="Exit packet loss investigation">
+                        Packet Loss Events
+                    </button>
+                    <button class="btn btn-sm btn-secondary" @onclick="LossNavForward" disabled="@_investigatingLoss"
+                            data-tooltip="Next loss event">&#x25B6;</button>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
+                            data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
+                        @if (_investigatingLoss) { <span class="spinner-sm"></span> }
+                        else { <span>Packet Loss Events</span> }
+                    </button>
+                }
+                @if (!string.IsNullOrEmpty(_lossInvestigateResult))
+                {
+                    <span class="page-description" style="align-self: center;">@_lossInvestigateResult</span>
+                }
+            </div>
+        </div>
+
+        <!-- Upstream tracer wizard -->
+        <div style="margin-top: 1.5rem;">
+            <UpstreamTracerPanel />
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <LatencyTargetsCard Targets="_targets" OnTargetsChanged="OnTargetsChanged" />
+        </div>
+    }
+
+    @* ──────────────── Tab: Device Stats ──────────────── *@
+    @if (_activeTab == "devices" && _monitoringReady)
+    {
+        <div class="card" id="device-health-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Device Health</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -360,132 +328,16 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                 </div>
             </div>
         </div>
+    }
 
-        @if (_allSfps.Count > 0)
-        {
-        <div class="card" style="margin-top: 1.5rem;">
-            <div class="card-header card-header-collapsible" @onclick="ToggleSfpCollapse">
-                <h2 class="card-title">Optical (SFP / ONT)</h2>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="status-badge status-active" @onclick:stopPropagation="true">@_monitoredSfps.Count monitored</span>
-                    <span class="issue-type-chevron">@(_sfpCollapsed ? "▼" : "▲")</span>
-                </div>
-            </div>
-            <div class="expand-wrapper @(!_sfpCollapsed ? "expanded" : "")">
-                <div class="expand-content">
-            <div class="card-body">
-                <p class="section-description">
-                    GPON / XGS-PON ONTs and other SFP modules detected on switch / gateway
-                    ports. For PON modules, RX power typically sits between -15 and -25 dBm;
-                    values weaker than -27 dBm may indicate a failing link.
-                </p>
-                <div class="table-responsive">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Port</th>
-                            <th>Module</th>
-                            <th>Type</th>
-                            <th>RX power</th>
-                            <th>TX power</th>
-                            <th>Temp</th>
-                            <th>Voltage</th>
-                            <th>Bias</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var sfp in SfpPage())
-                        {
-                            var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
-                            var deviceName = ResolveDeviceName(sfp.DeviceMac);
-                            var portLabel = !string.IsNullOrEmpty(sfp.FriendlyName) ? sfp.FriendlyName : $"port {sfp.PortName}";
-                            <tr style="@(sfp.IsMonitoredOnt ? "" : "opacity: 0.6;")">
-                                <td>
-                                    <div class="sfp-port-cell">
-                                        <strong>@deviceName</strong>
-                                        <span class="text-muted">@portLabel</span>
-                                    </div>
-                                </td>
-                                <td>
-                                    @if (!string.IsNullOrEmpty(sfp.SfpPart))
-                                    { <code>@sfp.SfpPart</code> }
-                                    else
-                                    { <span class="text-muted">-</span> }
-                                </td>
-                                <td>
-                                    @if (sfp.IsPon)
-                                    {
-                                        <span class="status-badge status-active">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="status-badge status-connected">SFP</span>
-                                    }
-                                </td>
-                                <td class="@RxClass(sfp.IsPon ? stats?.RxPowerDbm : null)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
-                                <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
-                                <td>@FormatOptical(stats?.TemperatureC, "°C")</td>
-                                <td>@FormatOptical(stats?.VoltageV, "V")</td>
-                                <td>@FormatOptical(stats?.BiasMa, "mA")</td>
-                                <td style="white-space: nowrap;">
-                                    @if (sfp.IsMonitoredOnt)
-                                    {
-                                        <button class="btn btn-sm btn-secondary"
-                                                @onclick="() => ToggleSfpMonitoringAsync(sfp.Id, false)"
-                                                data-tooltip="Stop monitoring this SFP">
-                                            Unmonitor
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-primary"
-                                                @onclick="() => ToggleSfpMonitoringAsync(sfp.Id, true)"
-                                                data-tooltip="Add this SFP to monitoring">
-                                            Monitor
-                                        </button>
-                                    }
-                                    @if (!sfp.IsPon)
-                                    {
-                                        <button class="btn btn-sm btn-secondary"
-                                                @onclick="() => ToggleSfpPonAsync(sfp.Id, true)"
-                                                data-tooltip="Mark as PON module"
-                                                style="margin-left: 0.25rem;">
-                                            Set PON
-                                        </button>
-                                    }
-                                    else if (!IsPonAutoDetected(sfp))
-                                    {
-                                        <button class="btn btn-sm btn-secondary"
-                                                @onclick="() => ToggleSfpPonAsync(sfp.Id, false)"
-                                                data-tooltip="Mark as regular SFP"
-                                                style="margin-left: 0.25rem;">
-                                            Set SFP
-                                        </button>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-                </div>
-                @if (SfpTotalPages() > 1)
-                {
-                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem;">
-                        <button class="btn btn-sm btn-secondary" disabled="@(_sfpPage == 0)" @onclick="() => { _sfpPage--; StateHasChanged(); }">Prev</button>
-                        <span class="text-muted" style="font-size: 0.85rem;">@(_sfpPage + 1) / @SfpTotalPages()</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(_sfpPage >= SfpTotalPages() - 1)" @onclick="() => { _sfpPage++; StateHasChanged(); }">Next</button>
-                    </div>
-                }
-            </div>
-                </div>
-            </div>
-        </div>
-        }
+    @* ──────────────── Tab: SFP Stats ──────────────── *@
+    @if (_activeTab == "sfp" && _monitoringReady)
+    {
+        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged" />
 
         @if (_monitoredSfps.Count > 0)
         {
-        <!-- SFP DDM time-series: RX/TX power + temperature/voltage -->
+        <!-- SFP DDM time-series: RX/TX power + temperature -->
         <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">SFP Diagnostics</h2>
@@ -536,235 +388,296 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         </div>
         }
 
-        <!-- Upstream tracer wizard (Build #10). User-initiated discovery of the access
-             ISP path + transit ASN clouds; output populates AccessIsp / Transit
-             MonitoringTarget rows for the agent's latency tier to probe. -->
-        <div style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel />
+        <!-- SFP investigation -->
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Investigate</h2>
+            </div>
+            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn btn-secondary" @onclick="InvestigateSfpAnomaly" disabled="@_investigatingSfp"
+                        data-tooltip="Find the most recent SFP temperature or signal anomaly and jump to it on the chart">
+                    @if (_investigatingSfp) { <span class="spinner-sm"></span> }
+                    else { <span>SFP Anomalies</span> }
+                </button>
+                @if (!string.IsNullOrEmpty(_sfpInvestigateResult))
+                {
+                    <span class="page-description" style="align-self: center;">@_sfpInvestigateResult</span>
+                }
+            </div>
         </div>
     }
 
-    @if (_monitoringEnabled)
+    @* ──────────────── Tab: Setup ──────────────── *@
+    @if (_activeTab == "setup")
     {
-        <div class="card" style="margin-top: 1.5rem;">
-            <div class="card-header card-header-collapsible" @onclick="ToggleTargetsCollapse">
-                <h2 class="card-title">Latency targets</h2>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span class="status-badge status-active" @onclick:stopPropagation="true">@_targets.Count active</span>
-                    <a href="/monitoring/tools" class="tooltip-icon settings-link" data-tooltip="Run an ad-hoc probe" @onclick:stopPropagation="true">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM5.5 8.5a.5.5 0 010-1h2.793L7.146 6.354a.5.5 0 11.708-.708l2 2a.5.5 0 010 .708l-2 2a.5.5 0 11-.708-.708L8.293 8.5H5.5zm6.354-1.146a.5.5 0 010 .708L10.707 9.207H13.5a.5.5 0 010 1h-2.793l1.147 1.147a.5.5 0 11-.708.708l-2-2a.5.5 0 010-.708l2-2a.5.5 0 01.708 0z" clip-rule="evenodd" />
-                        </svg>
-                    </a>
-                    <span class="issue-type-chevron">@(_targetsCollapsed ? "▼" : "▲")</span>
+        @if (_snmpState == SnmpDetectionState.NotChecked)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">SNMP Configuration</h2>
+                </div>
+                <div class="card-body">
+                    <div class="empty-state">
+                        <span class="spinner"></span>
+                        <p>Detecting SNMP configuration from UniFi Console...</p>
+                    </div>
                 </div>
             </div>
-            <div class="expand-wrapper @(!_targetsCollapsed ? "expanded" : "")">
-                <div class="expand-content">
-            <div class="card-body">
-                <p class="section-description">
-                    Default WAN targets and one fabric target per discovered device. The agent probes
-                    each target at its own interval and writes results to the <code>latency</code>
-                    measurement in InfluxDB.
-                </p>
-                @if (_targets.Count == 0)
-                {
-                    <div class="empty-state">
-                        <p>No targets yet. They'll appear once the agent's first cycle completes.</p>
+        }
+        else if (_snmpState == SnmpDetectionState.Disabled)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">SNMP Setup Required</h2>
+                    <span class="status-badge status-disconnected">Disabled</span>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <strong>SNMP is not enabled on your UniFi Console.</strong>
+                        Network Optimizer needs SNMP to collect port-level traffic statistics, device health metrics, and interface data from your switches and gateway.
                     </div>
-                }
-                else
-                {
-                    <div class="table-responsive">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Target</th>
-                                <th>Address</th>
-                                <th>Interval</th>
-                                <th>Latest</th>
-                                <th>Last verified</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var t in _targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
-                            {
-                                var latest = LiveStats.GetTargetStats(t.TargetId);
-                                <tr style="@(t.Enabled ? "" : "opacity: 0.55;")">
-                                    <td>
-                                        <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
-                                            @t.TargetType.ToDisplayName()
-                                        </span>
-                                    </td>
-                                    <td>@t.Name</td>
-                                    <td><code>@t.Address</code></td>
-                                    <td>
-                                        @{ var currentInterval = t.PollIntervalSeconds; }
-                                        <select class="cadence-select"
-                                                @onchange="(e) => UpdateTargetIntervalAsync(t.Id, e)">
-                                            <option value="2" selected="@(currentInterval == 2)">2 s</option>
-                                            <option value="5" selected="@(currentInterval == 5)">5 s</option>
-                                            <option value="10" selected="@(currentInterval == 10)">10 s</option>
-                                            <option value="15" selected="@(currentInterval == 15)">15 s</option>
-                                            <option value="30" selected="@(currentInterval == 30)">30 s</option>
-                                            <option value="60" selected="@(currentInterval == 60)">60 s</option>
-                                            <option value="120" selected="@(currentInterval == 120)">2 m</option>
-                                            <option value="300" selected="@(currentInterval == 300)">5 m</option>
-                                        </select>
-                                    </td>
-                                    <td>
-                                        @if (!t.Enabled)
-                                        {
-                                            <span class="text-muted">paused</span>
-                                        }
-                                        else if (latest != null)
-                                        {
-                                            @if (latest.Success && latest.RttAvgMs.HasValue)
-                                            {
-                                                <span>@($"{latest.RttAvgMs.Value:0.#} ms")</span>
-                                                @if (latest.LossPercent > 0)
-                                                {
-                                                    <span style="color: var(--danger-color); margin-left: 0.5rem;">
-                                                        @($"{latest.LossPercent:0.#}% loss")
-                                                    </span>
-                                                }
-                                            }
-                                            else
-                                            {
-                                                <span style="color: var(--danger-color);">no response</span>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">-</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (t.LastVerified.HasValue)
-                                        { <span>@RelativeTime(t.LastVerified.Value)</span> }
-                                        else
-                                        { <span class="text-muted">never</span> }
-                                    </td>
-                                    <td style="white-space: nowrap;">
-                                        <button class="btn btn-sm btn-secondary"
-                                                @onclick="() => ToggleTargetAsync(t.Id)"
-                                                title="@(t.Enabled ? "Pause probing" : "Resume probing")">
-                                            @(t.Enabled ? "Pause" : "Resume")
-                                        </button>
-                                        <button class="btn btn-sm btn-danger"
-                                                @onclick="() => DeleteTargetAsync(t.Id)"
-                                                title="Remove this target"
-                                                style="margin-left: 0.25rem;">
-                                            Remove
-                                        </button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                    </div>
-                    <p class="page-description" style="margin-top: 0.5rem;">
-                        Removing a fabric or default WAN target will trigger it to be re-created
-                        on the next agent cycle. Use <strong>Pause</strong> instead to stop
-                        probing without losing the row's history.
-                    </p>
-                }
 
-                @if (_showAddTarget)
-                {
-                    <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
-                        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
-                            <div>
-                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
-                                <input type="text" class="custom-range-input" @bind="_newTargetName" placeholder="My ISP gateway" style="width: 160px;" />
-                            </div>
-                            <div>
-                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Address</label>
-                                <input type="text" class="custom-range-input" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" style="width: 180px;" />
-                            </div>
-                            <div>
-                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Type</label>
-                                <select class="cadence-select" style="width: 130px;" @bind="_newTargetType">
-                                    <option value="Custom">Custom</option>
-                                    <option value="InternetService">Internet</option>
-                                    <option value="AccessIsp">ISP</option>
-                                    <option value="Transit">Transit</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe</label>
-                                <select class="cadence-select" style="width: 100px;" @bind="_newTargetProbeMode">
-                                    <option value="Icmp">ICMP</option>
-                                    <option value="Tcp">TCP</option>
-                                </select>
-                            </div>
-                            @if (_newTargetProbeMode == "Tcp")
-                            {
-                                <div>
-                                    <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Port</label>
-                                    <input type="number" class="custom-range-input" @bind="_newTargetPort" placeholder="443" style="width: 70px;" />
-                                </div>
-                            }
-                            <div>
-                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Interval</label>
-                                <select class="cadence-select" style="width: 80px;" @bind="_newTargetInterval">
-                                    <option value="5">5 s</option>
-                                    <option value="10">10 s</option>
-                                    <option value="15">15 s</option>
-                                    <option value="30">30 s</option>
-                                    <option value="60">60 s</option>
-                                </select>
-                            </div>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
-                                    @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
-                                </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
-                            </div>
+                    <details class="setup-guide" open>
+                        <summary>How to Enable SNMP</summary>
+                        <div class="setup-guide-content">
+                            <ol>
+                                <li>Open UniFi Network</li>
+                                <li>Search Settings for <strong>"SNMP Monitoring"</strong></li>
+                                <li>Enable <strong>SNMP v1/v2c</strong> and set a unique community string</li>
+                            </ol>
+                            <p>Currently at: Settings → CyberSecure → Traffic Logging → SNMP Monitoring. This menu has moved between UniFi versions - the search term is the reliable way to find it.</p>
+
+                            <h4>Recommended configuration</h4>
+                            <p><strong>SNMP v1/v2c</strong> with a unique community string is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
                         </div>
-                        @if (!string.IsNullOrEmpty(_addTargetError))
+                    </details>
+
+                    <div class="action-buttons" style="margin-top: 1rem;">
+                        <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Checking...</span> }
+                            else { <span>Re-check</span> }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_snmpState == SnmpDetectionState.PollFailing)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Monitoring Status</h2>
+                    <span class="status-badge status-error">SNMP Error</span>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-danger">
+                        <strong>SNMP polling is failing.</strong>
+                        @(_detectionError ?? "Check that SNMP is still enabled on your UniFi Console and that firewall rules permit UDP/161 from this server to your network devices.")
+                    </div>
+                    <div class="action-buttons" style="margin-top: 1rem;">
+                        <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
+                            @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
+                            else { <span>Re-check SNMP</span> }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (_showV3Recommendation && _snmpState == SnmpDetectionState.EnabledV3Only)
+            {
+                <div class="alert alert-info" style="margin-bottom: 1.5rem;">
+                    <strong>SNMPv3 detected.</strong>
+                    Consider switching to v1/v2c - the per-packet crypto adds CPU load to your network devices. The recommended security posture is a management VLAN, not v3 encryption.
+                    <button class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;" @onclick="() => _showV3Recommendation = false">Dismiss</button>
+                </div>
+            }
+
+            @if (!_influxConfigured || _showInfluxWizard)
+            {
+                <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" OnDismissed="() => { _showInfluxWizard = false; StateHasChanged(); }" />
+            }
+
+            <div class="card" style="@(!_influxConfigured ? "margin-top: 1.5rem;" : "")">
+                <div class="card-header">
+                    <h2 class="card-title">Monitoring Status</h2>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="status-badge status-connected">@OverallStateBadge()</span>
+                        <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label class="form-label">SNMP</label>
+                        <div class="form-value">
+                            <span class="status-indicator status-active"></span>
+                            @(_snmpState == SnmpDetectionState.EnabledV2c ? "v2c" : _snmpState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">InfluxDB</label>
+                        <div class="form-value">
+                            @if (_influxReachable == true)
+                            {
+                                <span class="status-indicator status-active"></span>
+                                <span>Connected</span>
+                            }
+                            else if (_influxReachable == false)
+                            {
+                                <span class="status-indicator status-danger"></span>
+                                <span>@ShortInfluxStatus()</span>
+                            }
+                            else if (!_influxConfigured)
+                            {
+                                <span class="status-indicator status-inactive"></span>
+                                <span>Not configured - follow the setup card above.</span>
+                            }
+                            else
+                            {
+                                <span class="status-indicator status-inactive"></span>
+                                <span>Not checked</span>
+                            }
+                            @if (_influxConfigured)
+                            {
+                                <button class="btn btn-sm btn-secondary" style="margin-left: 0.75rem;" @onclick="CheckInfluxHealth" disabled="@_checkingInflux">
+                                    @if (_checkingInflux)
+                                    {
+                                        <span class="spinner-sm"></span>
+                                        <span>Checking...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Test</span>
+                                    }
+                                </button>
+                                @if (_influxReachable == false)
+                                {
+                                    <a href="/settings#monitoring" class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;">
+                                        Update Token
+                                    </a>
+                                    <button class="btn btn-sm btn-primary" style="margin-left: 0.25rem;" @onclick="ResetInfluxSetup">
+                                        Re-run Setup
+                                    </button>
+                                }
+                                @if (_lastInfluxTestAt.HasValue && !_checkingInflux)
+                                {
+                                    <span class="page-description" style="margin-left: 0.5rem;">
+                                        @if (_influxReachable == true)
+                                        {
+                                            <span style="color: var(--success-color);">&#x2713; Connected</span>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--danger-color);">&#x2717; @(_influxError ?? "Unreachable")</span>
+                                        }
+                                    </span>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Collection</label>
+                        <div class="form-value">
+                            @if (_monitoringEnabled && _influxReachable == true)
+                            {
+                                <span class="status-indicator status-active"></span>
+                                <span>Agent running</span>
+                            }
+                            else if (_monitoringEnabled && _influxReachable != true)
+                            {
+                                <span class="status-indicator status-danger"></span>
+                                <span>Enabled, but InfluxDB unreachable</span>
+                            }
+                            else
+                            {
+                                <span class="status-indicator status-inactive"></span>
+                                <span>Disabled</span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="action-buttons" style="margin-top: 1rem;">
+                        @if (_monitoringEnabled)
                         {
-                            <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addTargetError</p>
+                            <button class="btn btn-secondary" @onclick="() => SetMonitoringEnabled(false)" disabled="@_togglingEnable">
+                                @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Stopping...</span> }
+                                else { <span>Disable Monitoring</span> }
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary" @onclick="() => SetMonitoringEnabled(true)" disabled="@(_togglingEnable || _influxReachable != true)">
+                                @if (_togglingEnable) { <span class="spinner-sm"></span> <span>Starting...</span> }
+                                else { <span>Enable Monitoring</span> }
+                            </button>
+                            @if (_influxReachable != true)
+                            {
+                                <span class="page-description" style="margin-left: 0.75rem;">
+                                    Complete InfluxDB setup above to enable.
+                                </span>
+                            }
                         }
                     </div>
-                }
-                else
-                {
-                    <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
-                        + Add target
-                    </button>
-                }
-            </div>
                 </div>
             </div>
-        </div>
+        }
     }
 }
-else if (_snmpState == SnmpDetectionState.PollFailing)
-{
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Monitoring Status</h2>
-            <span class="status-badge status-error">SNMP Error</span>
-        </div>
-        <div class="card-body">
-            <div class="alert alert-danger">
-                <strong>SNMP polling is failing.</strong>
-                @(_detectionError ?? "Check that SNMP is still enabled on your UniFi Console and that firewall rules permit UDP/161 from this server to your network devices.")
-            </div>
-            <div class="action-buttons" style="margin-top: 1rem;">
-                <button class="btn btn-primary" @onclick="RunDetection" disabled="@_detecting">
-                    @if (_detecting) { <span class="spinner-sm"></span> <span>Re-checking...</span> }
-                    else { <span>Re-check SNMP</span> }
-                </button>
-            </div>
-        </div>
-    </div>
-}
+
+<style>
+    .monitoring-stat-cards {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .monitoring-stat-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        padding: 0.75rem 1rem;
+        flex: 1 1 120px;
+        min-width: 100px;
+        text-align: center;
+    }
+    .monitoring-stat-card .stat-value {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.2;
+    }
+    .monitoring-stat-card .stat-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
+    }
+    .stat-danger {
+        color: var(--danger-color);
+    }
+    @@media (max-width: 768px) {
+        .monitoring-stat-cards {
+            gap: 0.5rem;
+        }
+        .monitoring-stat-card {
+            flex: 1 1 80px;
+            min-width: 70px;
+            padding: 0.5rem 0.5rem;
+        }
+        .monitoring-stat-card .stat-value {
+            font-size: 1rem;
+        }
+    }
+</style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    private string? _lastTabParam;
+
     private SnmpDetectionState _snmpState = SnmpDetectionState.NotChecked;
     private bool _detecting;
     private bool _showV3Recommendation = true;
@@ -778,36 +691,73 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private System.Threading.Timer? _testFeedbackTimer;
     private bool _monitoringEnabled;
     private bool _togglingEnable;
+    private bool _showInfluxWizard;
     private List<MonitoringTarget> _targets = new();
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
     private Dictionary<string, string> _deviceIpByMac = new();
-    private System.Threading.Timer? _refreshTimer;
+    private string? _gatewayMac;
+    private List<string> _gatewayWanIfNames = new();
+    private System.Threading.Timer? _liveRefreshTimer;
+    private System.Threading.Timer? _dataRefreshTimer;
 
-    // Collapse state. Status auto-collapses when fully healthy (computed below);
-    // targets default-collapsed so the 3D map can stay centerstage.
-    private bool _statusCollapsed = false;
-    private bool _targetsCollapsed = true;
-    private bool _userToggledStatus = false; // once the user clicks, stop auto-collapsing
+    private string _activeTab = "setup";
 
-    // SFP collapse + pagination
-    private bool _sfpCollapsed = false;
-    private int _sfpPage = 0;
-    private const int SfpPageSize = 10;
+    private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
 
-    // Add-target form state
-    private bool _showAddTarget;
-    private bool _addingTarget;
-    private string _newTargetName = "";
-    private string _newTargetAddress = "";
-    private string _newTargetType = "Custom";
-    private string _newTargetProbeMode = "Icmp";
-    private int _newTargetPort = 443;
-    private int _newTargetInterval = 10;
-    private string? _addTargetError;
 
-    // 3D map JS module handle. Mounted after first render (canvas must exist in DOM).
+    // Chart mount tracking
     private bool _mapMounted = false;
+    private bool _latencyChartsMounted;
+    private bool _healthChartsMounted;
+    private bool _sfpChartsMounted;
+
+    // Investigation state
+    private bool _investigatingLoss;
+    private bool _investigatingSfp;
+    private string? _lossInvestigateResult;
+    private string? _sfpInvestigateResult;
+    private bool _lossNavActive;
+    private DateTime? _lossNavTimestamp;
+
+    private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "live", "performance", "devices", "sfp", "setup"
+    };
+
+    private string ResolveDefaultTab()
+    {
+        if (TabParam != null && ValidTabs.Contains(TabParam))
+            return TabParam.ToLowerInvariant();
+        if (!_monitoringReady) return "setup";
+        if (_influxReachable == false || _snmpState == SnmpDetectionState.PollFailing)
+            return "setup";
+        return "live";
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        if (tab != "setup" && !_monitoringReady) return;
+        _activeTab = tab;
+        var uri = "/monitoring?tab=" + tab;
+        NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
+        _lastTabParam = tab;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (TabParam != _lastTabParam && _lastTabParam != null)
+        {
+            var newTab = TabParam != null && ValidTabs.Contains(TabParam)
+                ? TabParam.ToLowerInvariant() : ResolveDefaultTab();
+            if (newTab != _activeTab)
+            {
+                _activeTab = newTab;
+                StateHasChanged();
+            }
+        }
+        _lastTabParam = TabParam;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -818,27 +768,25 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         LoadInfluxStateFromSettings(settings);
         await LoadTargetsAsync();
 
-        // Refresh the targets list periodically so LastVerified updates show movement
-        // without requiring a full page reload. Uses a longer interval (15 s) and skips
-        // StateHasChanged when the targets card is collapsed, because Blazor re-renders
-        // cause the 3D map's WebGL canvas to stutter.
-        _refreshTimer = new System.Threading.Timer(async _ =>
+        _activeTab = ResolveDefaultTab();
+
+        _liveRefreshTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(StateHasChanged); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+
+        _dataRefreshTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
                 await InvokeAsync(async () =>
                 {
-                    var oldTargetCount = _targets.Count;
-                    var oldSfpCount = _allSfps.Count;
                     await LoadTargetsAsync();
-                    var changed = _targets.Count != oldTargetCount
-                        || _allSfps.Count != oldSfpCount
-                        || !_targetsCollapsed;
-                    if (changed)
-                        StateHasChanged();
+                    StateHasChanged();
                 });
             }
-            catch { /* prevent timer death */ }
+            catch { }
         }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
 
         if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
@@ -862,13 +810,35 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         _monitoringEnabled = settings.Enabled;
     }
 
+    private async Task ResetInfluxSetup()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
+        if (settings != null)
+        {
+            settings.Enabled = false;
+            settings.InfluxDbToken = "";
+            settings.InfluxDbUrl = "";
+            settings.InfluxDbOrg = "";
+            settings.InfluxDbBucket = "";
+            settings.InfluxDbLongtermBucket = "";
+            settings.InfluxDbReachable = null;
+            settings.LastInfluxDbError = null;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        _influxConfigured = false;
+        _influxReachable = null;
+        _influxError = null;
+        _monitoringEnabled = false;
+        _showInfluxWizard = true;
+        StateHasChanged();
+    }
+
     private async Task OnInfluxProvisioned()
     {
-        // Wizard reports success - refresh the page state so the card flips from
-        // "set up InfluxDB" to "configured + ready to enable" without a navigation.
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         LoadInfluxStateFromSettings(settings);
-        // Also check health since the runtime client was just reconfigured.
         var health = await InfluxClient.CheckHealthAsync();
         _influxReachable = health.Reachable;
         _influxError = health.Error;
@@ -889,6 +859,13 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             _monitoringEnabled = enabled;
+
+            if (_monitoringReady && _activeTab == "setup")
+            {
+                _activeTab = "live";
+                NavigationManager.NavigateTo("/monitoring?tab=live", forceLoad: false, replace: true);
+                _lastTabParam = "live";
+            }
         }
         finally
         {
@@ -908,8 +885,6 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             _influxReachable = health.Reachable;
             _influxError = health.Error;
             _lastInfluxTestAt = DateTime.UtcNow;
-            // Hide the "Last tested: just now" indicator after a few seconds so it doesn't
-            // become permanent visual noise.
             _testFeedbackTimer?.Dispose();
             _testFeedbackTimer = new System.Threading.Timer(_ =>
             {
@@ -947,7 +922,6 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         StateHasChanged();
 
         var result = await SnmpDetection.DetectSnmpSettingsAsync();
-
         if (result.Success)
         {
             await SnmpDetection.SaveDetectionResultAsync(result);
@@ -964,14 +938,17 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         StateHasChanged();
     }
 
-    /// <summary>
-    /// The Monitoring Status badge reflects the holistic state of the subsystem, not
-    /// just SNMP. "SNMP Ready" was confusing when everything was actually online and
-    /// pumping data.
-    /// </summary>
+    private string ShortInfluxStatus()
+    {
+        if (string.IsNullOrEmpty(_influxError)) return "Unreachable";
+        if (_influxError.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)) return "Auth error";
+        if (_influxError.Contains("refused", StringComparison.OrdinalIgnoreCase)) return "Connection refused";
+        if (_influxError.Contains("timeout", StringComparison.OrdinalIgnoreCase)) return "Timeout";
+        return "Unreachable";
+    }
+
     private string OverallStateBadge()
     {
-        // SNMP must be detected to do anything; if it isn't, surface that.
         if (_snmpState != SnmpDetectionState.EnabledV2c
             && _snmpState != SnmpDetectionState.EnabledV3Only
             && _snmpState != SnmpDetectionState.Working)
@@ -983,14 +960,6 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         if (!_monitoringEnabled) return "Ready (disabled)";
         return "Monitoring active";
     }
-
-    private static string FormatSnmpState(SnmpDetectionState state) => state switch
-    {
-        SnmpDetectionState.EnabledV2c => "v2c",
-        SnmpDetectionState.EnabledV3Only => "v3",
-        SnmpDetectionState.Working => "Active",
-        _ => state.ToString()
-    };
 
     private async Task LoadTargetsAsync()
     {
@@ -1013,21 +982,14 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
                             d => d.Mac!.Replace("-", ":").ToLowerInvariant(),
                             d => d.DisplayIpAddress ?? "",
                             StringComparer.OrdinalIgnoreCase);
+                    var gw = devices.FirstOrDefault(d =>
+                        d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                        || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+                    _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
+                    _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
                 }
             }
-            catch { /* best effort - fall back to fabric target IPs */ }
-
-            // Auto-collapse the Monitoring Status card once everything is healthy. The
-            // user is here to see live data, not the green checkmarks. Once they've
-            // manually expanded or collapsed, respect their choice.
-            if (!_userToggledStatus)
-            {
-                _statusCollapsed = _monitoringEnabled
-                    && _influxReachable == true
-                    && (_snmpState == SnmpDetectionState.EnabledV2c
-                        || _snmpState == SnmpDetectionState.EnabledV3Only
-                        || _snmpState == SnmpDetectionState.Working);
-            }
+            catch { }
         }
         catch
         {
@@ -1037,216 +999,126 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         }
     }
 
-    private void ToggleStatus()
+    private async Task OnTargetsChanged()
     {
-        _statusCollapsed = !_statusCollapsed;
-        _userToggledStatus = true;
+        await LoadTargetsAsync();
         StateHasChanged();
     }
 
-    private void ToggleTargetsCollapse()
+    private async Task OnSfpChanged()
     {
-        _targetsCollapsed = !_targetsCollapsed;
+        await LoadTargetsAsync();
         StateHasChanged();
+        DebounceSfpChartRemount();
     }
 
-    private void ToggleSfpCollapse()
+    // ─── Stat card helpers ───
+
+    private (double download, double upload) GetWanRates()
     {
-        _sfpCollapsed = !_sfpCollapsed;
-        StateHasChanged();
+        if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
+        double totalDown = 0, totalUp = 0;
+        foreach (var ifName in _gatewayWanIfNames)
+        {
+            var rate = LiveStats.GetPortRate(_gatewayMac, ifName);
+            if (rate == null) continue;
+            // PortLiveRate convention: DownBps = SNMP rateOut (port TX), UpBps = SNMP rateIn (port RX).
+            // For WAN ports: RX = download from ISP, TX = upload to ISP.
+            totalDown += rate.UpBps;
+            totalUp += rate.DownBps;
+        }
+        return (totalDown, totalUp);
     }
 
-    private string ResolveDeviceIp(string deviceMac)
+    private DeviceLiveStats? GetGatewayStats()
     {
-        if (string.IsNullOrEmpty(deviceMac)) return "255.255.255.255";
-        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
-        if (_deviceIpByMac.TryGetValue(normalized, out var ip) && !string.IsNullOrEmpty(ip))
-            return ip;
-        var target = _targets.FirstOrDefault(t =>
+        if (_gatewayMac == null) return null;
+        return LiveStats.GetForDevice(_gatewayMac);
+    }
+
+    private (double? rtt, double loss) GetGatewayLatency()
+    {
+        if (_gatewayMac == null) return (null, 0);
+        var gwFabric = _targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
+            && t.Enabled
             && !string.IsNullOrEmpty(t.DeviceMac)
-            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
-        return target?.Address ?? "255.255.255.255";
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
+        if (gwFabric == null) return (null, 0);
+        var s = LiveStats.GetTargetStats(gwFabric.TargetId);
+        return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
-    private List<MonitoredSfp> SortedSfps()
+    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
     {
-        return _allSfps
-            .OrderBy(s => ParseIpForSorting(ResolveDeviceIp(s.DeviceMac)))
-            .ThenBy(s => int.TryParse(s.PortName, out var p) ? p : 9999)
-            .ToList();
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+
+        var rtts = new List<double>();
+        var losses = new List<double>();
+        foreach (var t in targets)
+        {
+            var s = LiveStats.GetTargetStats(t.TargetId);
+            if (s?.RttAvgMs != null) rtts.Add(s.RttAvgMs.Value);
+            if (s != null) losses.Add(s.LossPercent);
+        }
+        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
     }
 
-    private static long ParseIpForSorting(string? ip)
+    private (double ingress, double egress) GetTotalFabricLoad()
     {
-        if (string.IsNullOrEmpty(ip)) return long.MaxValue;
-        var parts = ip.Split('.');
-        if (parts.Length != 4) return long.MaxValue;
-        long result = 0;
-        foreach (var part in parts)
+        double totalIn = 0, totalOut = 0;
+        var fabricMacs = _targets
+            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+            .Select(t => t.DeviceMac!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in fabricMacs)
         {
-            if (!int.TryParse(part, out var octet)) return long.MaxValue;
-            result = (result << 8) | (uint)(octet & 0xFF);
+            var stats = LiveStats.GetForDevice(mac);
+            if (stats == null) continue;
+            totalIn += stats.FabricIngressBps ?? 0;
+            totalOut += stats.FabricEgressBps ?? 0;
         }
-        return result;
+        return (totalIn, totalOut);
     }
 
-    private IEnumerable<MonitoredSfp> SfpPage()
+    private static string FormatRate(double? bps)
     {
-        return SortedSfps().Skip(_sfpPage * SfpPageSize).Take(SfpPageSize);
+        if (!bps.HasValue || bps.Value < 1) return "-";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.#} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
+        return $"{v:0} bps";
     }
 
-    private int SfpTotalPages() => Math.Max(1, (int)Math.Ceiling((double)_allSfps.Count / SfpPageSize));
-
-    private async Task ToggleTargetAsync(int targetId)
+    private static string FormatRtt(double? ms)
     {
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            row.Enabled = !row.Enabled;
-            await db.SaveChangesAsync();
-            await LoadTargetsAsync();
-            StateHasChanged();
-        }
-        catch { /* best effort */ }
+        if (!ms.HasValue) return "-";
+        return $"{ms.Value:0.#} ms";
     }
 
-    private async Task DeleteTargetAsync(int targetId)
+    private static string FormatLoss(double percent)
     {
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            db.MonitoringTargets.Remove(row);
-            await db.SaveChangesAsync();
-            await LoadTargetsAsync();
-            StateHasChanged();
-        }
-        catch { /* best effort */ }
+        if (percent <= 0) return "0%";
+        return $"{percent:0.#}%";
     }
 
-    private async Task UpdateTargetIntervalAsync(int targetId, ChangeEventArgs e)
+    private static string FormatPercent(double? val)
     {
-        if (!int.TryParse(e.Value?.ToString(), out var interval)) return;
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var row = await db.MonitoringTargets.FindAsync(targetId);
-            if (row == null) return;
-            row.PollIntervalSeconds = interval;
-            await db.SaveChangesAsync();
-            await LoadTargetsAsync();
-            StateHasChanged();
-        }
-        catch { /* best effort */ }
+        if (!val.HasValue) return "-";
+        return $"{val.Value:0.#}%";
     }
 
-    private async Task AddTargetAsync()
+    private static string FormatTemp(double? val)
     {
-        _addTargetError = null;
-        var name = _newTargetName.Trim();
-        var address = _newTargetAddress.Trim();
-        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(address))
-        {
-            _addTargetError = "Name and address are required.";
-            return;
-        }
-        if (name.Length > 200 || address.Length > 200)
-        {
-            _addTargetError = "Name and address must be under 200 characters.";
-            return;
-        }
-        if (!System.Net.IPAddress.TryParse(address, out _)
-            && !System.Text.RegularExpressions.Regex.IsMatch(address, @"^[a-zA-Z0-9][a-zA-Z0-9.\-]*$"))
-        {
-            _addTargetError = "Address must be a valid IP or hostname.";
-            return;
-        }
-
-        _addingTarget = true;
-        StateHasChanged();
-        try
-        {
-            var targetType = Enum.TryParse<MonitoringTargetType>(_newTargetType, out var tt) ? tt : MonitoringTargetType.Custom;
-            var probeMode = _newTargetProbeMode == "Tcp" ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp : NetworkOptimizer.Core.Enums.ProbeMode.Icmp;
-            var targetId = $"custom-{Guid.NewGuid():N}"[..24];
-
-            await using var db = await DbFactory.CreateDbContextAsync();
-            db.MonitoringTargets.Add(new MonitoringTarget
-            {
-                TargetId = targetId,
-                Name = name,
-                Address = address,
-                TargetType = targetType,
-                ProbeMode = probeMode,
-                Port = probeMode == NetworkOptimizer.Core.Enums.ProbeMode.Tcp ? _newTargetPort : null,
-                PollIntervalSeconds = _newTargetInterval,
-                PingCount = 5,
-                Enabled = true,
-                AutoDiscovered = false,
-                VantagePoint = "server",
-                CreatedAt = DateTime.UtcNow
-            });
-            await db.SaveChangesAsync();
-
-            _showAddTarget = false;
-            _newTargetName = "";
-            _newTargetAddress = "";
-            _newTargetType = "Custom";
-            _newTargetProbeMode = "Icmp";
-            _newTargetPort = 443;
-            _newTargetInterval = 10;
-            await LoadTargetsAsync();
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            _addTargetError = $"Failed to add target: {ex.Message}";
-        }
-        finally
-        {
-            _addingTarget = false;
-        }
+        if (!val.HasValue) return "-";
+        return $"{val.Value:0.#} °C";
     }
+
+    // ─── SFP chart remount ───
 
     private System.Threading.Timer? _sfpChartDebounce;
-
-    private async Task ToggleSfpMonitoringAsync(int sfpId, bool monitored)
-    {
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var row = await db.MonitoredSfps.FindAsync(sfpId);
-            if (row == null) return;
-            row.IsMonitoredOnt = monitored;
-            row.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-            await LoadTargetsAsync();
-            StateHasChanged();
-            DebounceSfpChartRemount();
-        }
-        catch { /* best effort */ }
-    }
-
-    private async Task ToggleSfpPonAsync(int sfpId, bool isPon)
-    {
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var row = await db.MonitoredSfps.FindAsync(sfpId);
-            if (row == null) return;
-            row.IsPon = isPon;
-            row.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-            await LoadTargetsAsync();
-            StateHasChanged();
-            DebounceSfpChartRemount();
-        }
-        catch { /* best effort */ }
-    }
 
     private void DebounceSfpChartRemount()
     {
@@ -1270,76 +1142,129 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         }, null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
     }
 
-    private static bool IsPonAutoDetected(MonitoredSfp sfp)
+    // ─── Investigation ───
+
+    private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null);
+    private Task LossNavBack() => _lossNavTimestamp.HasValue
+        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddMinutes(-1), null) : Task.CompletedTask;
+    private Task LossNavForward() => _lossNavTimestamp.HasValue
+        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddMinutes(1)) : Task.CompletedTask;
+
+    private async Task LossNavDeactivate()
     {
-        var variant = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfp.SfpPart, sfp.SfpVendor);
-        return variant != "PON";
+        _lossNavActive = false;
+        _lossNavTimestamp = null;
+        _lossInvestigateResult = null;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
 
-    private static string FormatOptical(double? value, string unit)
+    private async Task NavigateToLossEvent(DateTime? before, DateTime? after)
     {
-        if (!value.HasValue) return "-";
-        return $"{value.Value:0.##} {unit}";
+        _investigatingLoss = true;
+        StateHasChanged();
+        try
+        {
+            var result = await InfluxClient.FindRecentLossEventAsync(before, after);
+            if (result == null)
+            {
+                _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
+                return;
+            }
+            var category = result.TargetType switch
+            {
+                "accessisp" => "AccessIsp",
+                "transit" => "Transit",
+                _ => "InternetService"
+            };
+            _lossNavActive = true;
+            _lossNavTimestamp = result.Timestamp;
+            var delta = DateTime.UtcNow - result.Timestamp;
+            var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
+                : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
+                : $"{(int)delta.TotalDays}d ago";
+            _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago}";
+            StateHasChanged();
+            await JS.InvokeVoidAsync("eval",
+                $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
+        }
+        catch (Exception ex)
+        {
+            _lossInvestigateResult = $"Query failed: {ex.Message}";
+        }
+        finally
+        {
+            _investigatingLoss = false;
+            StateHasChanged();
+        }
     }
 
-    // PON RX power: -8 to -28 dBm is the ITU-T spec receiver range. Typical
-    // operating range is -15 to -25 dBm. Color-code so problems jump out.
-    private static string RxClass(double? rxDbm)
+    private async Task InvestigateSfpAnomaly()
     {
-        if (!rxDbm.HasValue) return string.Empty;
-        var v = rxDbm.Value;
-        if (v >= -25 && v <= -8) return "";              // healthy
-        if (v >= -28 && v <= -5) return "signal-fair";   // marginal
-        return "signal-poor";
+        _investigatingSfp = true;
+        _sfpInvestigateResult = null;
+        StateHasChanged();
+        try
+        {
+            var result = await InfluxClient.FindRecentSfpAnomalyAsync();
+            if (result == null)
+            {
+                _sfpInvestigateResult = "No SFP anomalies in the last 7 days.";
+                return;
+            }
+            var desc = result.Metric == "temperature"
+                ? $"temperature {result.Value:0.#} °C"
+                : $"RX power {result.Value:0.##} dBm";
+            var delta = DateTime.UtcNow - result.Timestamp;
+            var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
+                : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
+                : $"{(int)delta.TotalDays}d ago";
+            _sfpInvestigateResult = $"SFP {desc} {ago}";
+            StateHasChanged();
+            await JS.InvokeVoidAsync("eval",
+                $"window.__sfpCharts?.navigateToTime('{result.Timestamp:o}');");
+        }
+        catch (Exception ex)
+        {
+            _sfpInvestigateResult = $"Query failed: {ex.Message}";
+        }
+        finally
+        {
+            _investigatingSfp = false;
+            StateHasChanged();
+        }
     }
 
-    // Resolves a device MAC to its friendly UniFi device name via the fabric
-    // monitoring targets (which carry both). Falls back to the MAC so the user
-    // always sees *something*, never an empty cell.
-    private string ResolveDeviceName(string deviceMac)
-    {
-        if (string.IsNullOrEmpty(deviceMac)) return deviceMac;
-        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
-        var target = _targets.FirstOrDefault(t =>
-            t.TargetType == MonitoringTargetType.Fabric
-            && !string.IsNullOrEmpty(t.DeviceMac)
-            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
-        return !string.IsNullOrEmpty(target?.Name) ? target.Name : deviceMac;
-    }
-
-    private static string PonVariantLabel(string? sfpPart, string? sfpVendor) =>
-        NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfpPart, sfpVendor);
-
-    private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
-    {
-        MonitoringTargetType.Fabric => "status-connected",
-        MonitoringTargetType.Wan => "status-active",
-        MonitoringTargetType.AccessIsp => "status-active",
-        MonitoringTargetType.Transit => "status-active",
-        MonitoringTargetType.InternetService => "status-active",
-        _ => "status-disconnected"
-    };
-
-    private static string RelativeTime(DateTime when)
-    {
-        var delta = DateTime.UtcNow - when.ToUniversalTime();
-        if (delta < TimeSpan.Zero) return "just now";
-        if (delta < TimeSpan.FromSeconds(15)) return "just now";
-        if (delta < TimeSpan.FromMinutes(1)) return $"{(int)delta.TotalSeconds}s ago";
-        if (delta < TimeSpan.FromHours(1)) return $"{(int)delta.TotalMinutes}m ago";
-        if (delta < TimeSpan.FromDays(1)) return $"{(int)delta.TotalHours}h ago";
-        return $"{(int)delta.TotalDays}d ago";
-    }
-
-    private bool _latencyChartsMounted;
-    private bool _healthChartsMounted;
-    private bool _sfpChartsMounted;
+    // ─── Chart mount/unmount lifecycle (tab-aware) ───
 
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_monitoringEnabled && _influxConfigured && !_latencyChartsMounted)
+        // Mount/unmount charts based on active tab. Only mount when the container
+        // div exists in the DOM (i.e., the tab is active). Unmount when switching away.
+
+        // 3D map - Live tab only
+        if (_activeTab == "live" && _monitoringReady && !_mapMounted)
+        {
+            _mapMounted = true;
+            try
+            {
+                var mapUrl = VersionedJs("/js/lan-flow-map.js");
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{mapUrl}'); window.__lanFlowMap = m; await m.mount('lan-flow-map-canvas'); }})();");
+            }
+            catch { _mapMounted = false; }
+        }
+        else if (_activeTab != "live" && _mapMounted)
+        {
+            _mapMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
+            catch { }
+        }
+
+        // Latency charts - Performance tab only
+        if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
             _latencyChartsMounted = true;
             try
@@ -1350,8 +1275,15 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             }
             catch { _latencyChartsMounted = false; }
         }
+        else if (_activeTab != "performance" && _latencyChartsMounted)
+        {
+            _latencyChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
+            catch { }
+        }
 
-        if (_monitoringEnabled && _influxConfigured && !_healthChartsMounted)
+        // Device health charts - Devices tab only
+        if (_activeTab == "devices" && _monitoringReady && !_healthChartsMounted)
         {
             _healthChartsMounted = true;
             try
@@ -1362,8 +1294,15 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             }
             catch { _healthChartsMounted = false; }
         }
+        else if (_activeTab != "devices" && _healthChartsMounted)
+        {
+            _healthChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__healthCharts?.unmount();"); }
+            catch { }
+        }
 
-        if (_monitoringEnabled && _influxReachable == true && _monitoredSfps.Count > 0 && !_sfpChartsMounted)
+        // SFP charts - SFP tab only
+        if (_activeTab == "sfp" && _monitoringReady && _monitoredSfps.Count > 0 && !_sfpChartsMounted)
         {
             _sfpChartsMounted = true;
             try
@@ -1374,40 +1313,19 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             }
             catch { _sfpChartsMounted = false; }
         }
-        else if (_sfpChartsMounted && (_monitoredSfps.Count == 0 || !_monitoringEnabled || _influxReachable != true))
+        else if ((_activeTab != "sfp" || _monitoredSfps.Count == 0) && _sfpChartsMounted)
         {
             _sfpChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
             catch { }
-        }
-
-        if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
-        {
-            _mapMounted = true;
-            try
-            {
-                var mapUrl = VersionedJs("/js/lan-flow-map.js");
-                await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{mapUrl}'); window.__lanFlowMap = m; await m.mount('lan-flow-map-canvas'); }})();");
-            }
-            catch
-            {
-                _mapMounted = false;
-            }
-        }
-        else if ((!_monitoringEnabled || _influxReachable != true) && _mapMounted)
-        {
-            // Map card is no longer rendered; tear the JS instance down.
-            _mapMounted = false;
-            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
-            catch { /* best effort */ }
         }
     }
 
     public void Dispose()
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
-        _refreshTimer?.Dispose();
+        _liveRefreshTimer?.Dispose();
+        _dataRefreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
         _sfpChartDebounce?.Dispose();
         if (_latencyChartsMounted)
@@ -1427,11 +1345,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         }
         if (_mapMounted)
         {
-            try
-            {
-                _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();").AsTask();
-            }
-            catch { /* best effort */ }
+            try { _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();").AsTask(); }
+            catch { }
         }
     }
 }

@@ -24,8 +24,6 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
-let isMapFullscreen = false;
-let fsHandler = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -148,7 +146,7 @@ async function loadAndUpdate() {
     if (container) renderBadges(container);
 }
 
-function isVisible() { return isInViewport && !isMapFullscreen; }
+function isVisible() { return isInViewport; }
 
 function startPoll() {
     stopPoll();
@@ -216,8 +214,12 @@ function selectPresetRange(container, hours) {
     if (btn) btn.classList.add('active');
     const fromInput = container.querySelector('[data-input="from"]');
     const toInput = container.querySelector('[data-input="to"]');
-    if (fromInput) fromInput.value = '';
-    if (toInput) toInput.value = '';
+    if (fromInput && toInput) {
+        const now = Date.now();
+        const rangeMs = RANGE_MS[hours] || 3600000;
+        fromInput.value = toLocalDatetimeString(new Date(now - rangeMs));
+        toInput.value = toLocalDatetimeString(new Date(now));
+    }
     container.querySelector('[data-popover="custom-range"]')?.classList.remove('open');
     updateCustomLabel(container);
     loadAndUpdate();
@@ -334,14 +336,6 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
-    fsHandler = (e) => {
-        const was = isVisible();
-        isMapFullscreen = e.detail.fullscreen;
-        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible() && was) { stopPoll(); }
-    };
-    document.addEventListener('lanflowmap-fullscreen', fsHandler);
-
     await loadAndUpdate();
     startPoll();
 }
@@ -349,7 +343,6 @@ export async function mount(elId) {
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
-    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
@@ -357,10 +350,10 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
     customTo = null;
     isInViewport = true;
-    isMapFullscreen = false;
 }

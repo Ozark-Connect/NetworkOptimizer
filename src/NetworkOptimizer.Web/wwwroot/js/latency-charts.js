@@ -14,6 +14,7 @@ const RANGE_MS = { 0: 15 * 60000, 1: 3600000, 6: 6 * 3600000, 24: 86400000, 168:
 
 let rttChart = null;
 let lossChart = null;
+let wanRateChart = null;
 let pollTimer = null;
 let currentCategory = 'Fabric';
 let currentRangeHours = 1;
@@ -27,8 +28,8 @@ let containerId = null;
 let fetchController = null;
 let visibilityObserver = null;
 let isInViewport = true;
-let isMapFullscreen = false;
-let fsHandler = null;
+let lastFetchData = null;
+let savedState = null;
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -95,6 +96,26 @@ function buildLossOpts() {
         });
 }
 
+function formatBps(v) {
+    if (v == null || v < 1) return '0';
+    if (v >= 1e9) return (v / 1e9).toFixed(1) + ' Gbps';
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
+    if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
+    return v.toFixed(0) + ' bps';
+}
+
+function buildWanRateOpts() {
+    return baseChartOpts('area', 'Throughput',
+        v => v != null ? formatBps(v) : '',
+        {
+            colors: ['#3b82f6', '#10b981'],
+            fill: {
+                type: 'gradient',
+                gradient: { shadeIntensity: 0.3, opacityFrom: 0.3, opacityTo: 0.05 },
+            },
+        });
+}
+
 function buildQueryParams() {
     let params = `category=${currentCategory}`;
     if (isCustomRange && customFrom && customTo) {
@@ -156,6 +177,7 @@ function renderBadges(container) {
             }
             updateChartVisibility();
             renderBadges(container);
+            if (lastFetchData) renderStatsTable(container, lastFetchData);
         });
     });
 }
@@ -196,16 +218,110 @@ async function loadAndUpdate() {
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
+    lastFetchData = data;
+
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
 
     updateChartVisibility();
 
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container, data);
+    }
+
+    // WAN rate chart - show for non-Fabric categories
+    const showWanRate = currentCategory !== 'Fabric';
+    const wanCard = container?.querySelector('.latency-wan-rate-card');
+    if (wanCard) wanCard.style.display = showWanRate ? '' : 'none';
+
+    if (showWanRate && wanRateChart) {
+        const timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        try {
+            const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
+            if (resp.ok) {
+                const wan = await resp.json();
+                const dlSeries = (wan.download || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                const ulSeries = (wan.upload || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                wanRateChart.updateSeries([
+                    { name: 'Download', data: dlSeries },
+                    { name: 'Upload', data: ulSeries }
+                ], false);
+            }
+        } catch { }
+    }
 }
 
-function isVisible() { return isInViewport && !isMapFullscreen; }
+function percentile(sorted, p) {
+    if (sorted.length === 0) return null;
+    const idx = (p / 100) * (sorted.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function computeStats(values) {
+    if (!values || values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    return {
+        mean: values.reduce((s, v) => s + v, 0) / values.length,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+        p95: percentile(sorted, 95),
+        p99: percentile(sorted, 99),
+    };
+}
+
+function fmtRtt(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtLoss(v) {
+    if (v == null) return '-';
+    const s = v.toFixed(2) + '%';
+    return v > 0 ? `<span style="color:var(--danger-color)">${s}</span>` : s;
+}
+
+function renderStatsTable(container, data) {
+    const el = container.querySelector('.latency-stats-table');
+    if (!el || !data?.targets?.length) { if (el) el.innerHTML = ''; return; }
+
+    const visibleTargets = data.targets.filter((t, i) => {
+        const meta = targetMeta[i];
+        return meta && visibility[meta.id] !== false;
+    });
+
+    if (visibleTargets.length === 0) { el.innerHTML = ''; return; }
+
+    const rows = visibleTargets.map((t, i) => {
+        const rttVals = (t.rtt || []).map(p => p.value).filter(v => v != null && v > 0);
+        const lossVals = (t.loss || []).map(p => p.value).filter(v => v != null);
+        const rtt = computeStats(rttVals);
+        const loss = computeStats(lossVals);
+        const meta = targetMeta.find(m => m.id === t.targetId);
+        const color = meta?.color || '#9ca3af';
+        return `<tr>
+            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(t.name)}</td>
+            <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
+            <td>${fmtLoss(loss?.mean)}</td><td>${fmtLoss(loss?.max)}</td>
+        </tr>`;
+    });
+
+    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
+        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
+        <div class="table-responsive">
+        <table class="data-table" style="font-size:0.8125rem">
+            <thead><tr>
+                <th>Target</th>
+                <th>RTT Mean</th><th>Min</th><th>Max</th><th>P95</th><th>P99</th>
+                <th>Loss Mean</th><th>Loss Max</th>
+            </tr></thead>
+            <tbody>${rows.join('')}</tbody>
+        </table>
+        </div>
+    </div>`;
+}
+
+function isVisible() { return isInViewport; }
 
 function startPoll() {
     stopPoll();
@@ -229,6 +345,7 @@ function selectPresetRange(container, hours) {
     const btn = container.querySelector(`[data-range="${hours}"]`);
     if (btn) btn.classList.add('active');
     container.querySelector('.custom-range-btn')?.classList.remove('active');
+    syncPopoverInputs(container);
     updateCustomLabel(container);
     loadAndUpdate();
     startPoll();
@@ -267,7 +384,7 @@ function syncPopoverInputs(container) {
     if (isCustomRange && customFrom && customTo) {
         fromInput.value = toLocalDatetimeString(customFrom);
         toInput.value = toLocalDatetimeString(customTo);
-    } else if (windowOffset !== 0) {
+    } else {
         const now = Date.now();
         const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
         const to = new Date(now + windowOffset);
@@ -340,8 +457,11 @@ export async function mount(elId) {
     const lossEl = container.querySelector('.latency-loss-chart');
     if (!rttEl || !lossEl) return;
 
+    const wanRateEl = container.querySelector('.latency-wan-rate-chart');
+
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
+    if (wanRateChart) { wanRateChart.destroy(); wanRateChart = null; }
 
     rttChart = new ApexCharts(rttEl, { ...buildRttOpts(), series: [], colors: PALETTE });
     lossChart = new ApexCharts(lossEl, { ...buildLossOpts(), series: [], colors: PALETTE });
@@ -349,16 +469,20 @@ export async function mount(elId) {
     await rttChart.render();
     await lossChart.render();
 
-    // Category buttons
+    if (wanRateEl) {
+        wanRateChart = new ApexCharts(wanRateEl, { ...buildWanRateOpts(), series: [] });
+        await wanRateChart.render();
+    }
+
+    // Category buttons - preserve current time window when switching
     container.querySelectorAll('[data-category]').forEach(btn => {
         btn.addEventListener('click', () => {
             currentCategory = btn.dataset.category;
             container.querySelectorAll('[data-category]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             visibility = {};
-            windowOffset = 0;
-            isCustomRange = false;
-            selectPresetRange(container, currentRangeHours);
+            loadAndUpdate();
+            startPoll();
         });
     });
 
@@ -420,32 +544,86 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
-    fsHandler = (e) => {
-        const was = isVisible();
-        isMapFullscreen = e.detail.fullscreen;
-        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible() && was) { stopPoll(); }
-    };
-    document.addEventListener('lanflowmap-fullscreen', fsHandler);
-
     await loadAndUpdate();
+    startPoll();
+}
+
+export function navigateToTime(isoTimestamp, category) {
+    if (!savedState) {
+        savedState = { category: currentCategory, rangeHours: currentRangeHours,
+            customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
+    }
+    const ts = new Date(isoTimestamp).getTime();
+    const windowMs = 10 * 60000; // 10 min window centered on event
+    customFrom = new Date(ts - windowMs);
+    customTo = new Date(ts + windowMs);
+    isCustomRange = true;
+    windowOffset = 0;
+    if (category) currentCategory = category;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-category]').forEach(b => {
+            b.classList.toggle('active', b.dataset.category === currentCategory);
+        });
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        syncPopoverInputs(container);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+    startPoll();
+}
+
+export function restoreState() {
+    if (!savedState) return;
+    currentCategory = savedState.category;
+    currentRangeHours = savedState.rangeHours;
+    customFrom = savedState.customFrom;
+    customTo = savedState.customTo;
+    isCustomRange = savedState.isCustomRange;
+    windowOffset = savedState.windowOffset;
+    visibility = savedState.visibility;
+    savedState = null;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-category]').forEach(b => {
+            b.classList.toggle('active', b.dataset.category === currentCategory);
+        });
+        if (isCustomRange) {
+            container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+            container.querySelector('.custom-range-btn')?.classList.add('active');
+        } else {
+            container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+            const btn = container.querySelector(`[data-range="${currentRangeHours}"]`);
+            if (btn) btn.classList.add('active');
+            container.querySelector('.custom-range-btn')?.classList.remove('active');
+        }
+        syncPopoverInputs(container);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
     startPoll();
 }
 
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
-    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
+    if (wanRateChart) { wanRateChart.destroy(); wanRateChart = null; }
     containerId = null;
     targetMeta = [];
     visibility = {};
+    currentCategory = 'Fabric';
+    currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
     customTo = null;
+    lastFetchData = null;
+    savedState = null;
     isInViewport = true;
-    isMapFullscreen = false;
 }

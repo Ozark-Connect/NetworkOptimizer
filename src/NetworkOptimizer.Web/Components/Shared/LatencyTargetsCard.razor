@@ -1,0 +1,352 @@
+@using NetworkOptimizer.Storage.Models
+@using Microsoft.EntityFrameworkCore
+@inject MonitoringLiveStats LiveStats
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+<div class="card">
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+        <h2 class="card-title">Latency targets</h2>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="status-badge status-active" @onclick:stopPropagation="true">@Targets.Count active</span>
+            <a href="/monitoring/tools" class="tooltip-icon settings-link" data-tooltip="Run an ad-hoc probe" @onclick:stopPropagation="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM5.5 8.5a.5.5 0 010-1h2.793L7.146 6.354a.5.5 0 11.708-.708l2 2a.5.5 0 010 .708l-2 2a.5.5 0 11-.708-.708L8.293 8.5H5.5zm6.354-1.146a.5.5 0 010 .708L10.707 9.207H13.5a.5.5 0 010 1h-2.793l1.147 1.147a.5.5 0 11-.708.708l-2-2a.5.5 0 010-.708l2-2a.5.5 0 01.708 0z" clip-rule="evenodd" />
+                </svg>
+            </a>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
+    </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+    <div class="card-body">
+        <p class="section-description">
+            Default WAN targets and one fabric target per discovered device. The agent probes
+            each target at its own interval and writes results to the <code>latency</code>
+            measurement in InfluxDB.
+        </p>
+
+        @if (Targets.Count == 0)
+        {
+            <div class="empty-state">
+                <p>No targets yet. They'll appear once the agent's first cycle completes.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Target</th>
+                        <th>Address</th>
+                        <th>Interval</th>
+                        <th>Latest</th>
+                        <th>Last verified</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
+                    {
+                        var latest = LiveStats.GetTargetStats(t.TargetId);
+                        <tr style="@(t.Enabled ? "" : "opacity: 0.55;")">
+                            <td>
+                                <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
+                                    @t.TargetType.ToDisplayName()
+                                </span>
+                            </td>
+                            <td>@t.Name</td>
+                            <td><code>@t.Address</code></td>
+                            <td>
+                                @{ var currentInterval = t.PollIntervalSeconds; }
+                                <select class="cadence-select"
+                                        @onchange="(e) => UpdateIntervalAsync(t.Id, e)">
+                                    <option value="2" selected="@(currentInterval == 2)">2 s</option>
+                                    <option value="5" selected="@(currentInterval == 5)">5 s</option>
+                                    <option value="10" selected="@(currentInterval == 10)">10 s</option>
+                                    <option value="15" selected="@(currentInterval == 15)">15 s</option>
+                                    <option value="30" selected="@(currentInterval == 30)">30 s</option>
+                                    <option value="60" selected="@(currentInterval == 60)">60 s</option>
+                                    <option value="120" selected="@(currentInterval == 120)">2 m</option>
+                                    <option value="300" selected="@(currentInterval == 300)">5 m</option>
+                                </select>
+                            </td>
+                            <td>
+                                @if (!t.Enabled)
+                                {
+                                    <span class="text-muted">paused</span>
+                                }
+                                else if (latest != null)
+                                {
+                                    @if (latest.Success && latest.RttAvgMs.HasValue)
+                                    {
+                                        <span>@($"{latest.RttAvgMs.Value:0.#} ms")</span>
+                                        @if (latest.LossPercent > 0)
+                                        {
+                                            <span style="color: var(--danger-color); margin-left: 0.5rem;">
+                                                @($"{latest.LossPercent:0.#}% loss")
+                                            </span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span style="color: var(--danger-color);">no response</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">-</span>
+                                }
+                            </td>
+                            <td>
+                                @if (t.LastVerified.HasValue)
+                                { <span>@RelativeTime(t.LastVerified.Value)</span> }
+                                else
+                                { <span class="text-muted">never</span> }
+                            </td>
+                            <td style="white-space: nowrap;">
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => ToggleTargetAsync(t.Id)"
+                                        title="@(t.Enabled ? "Pause probing" : "Resume probing")">
+                                    @(t.Enabled ? "Pause" : "Resume")
+                                </button>
+                                <button class="btn btn-sm btn-danger"
+                                        @onclick="() => DeleteTargetAsync(t.Id)"
+                                        title="Remove this target"
+                                        style="margin-left: 0.25rem;">
+                                    Remove
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+            <p class="page-description" style="margin-top: 0.5rem;">
+                Removing a fabric or default WAN target will trigger it to be re-created
+                on the next agent cycle. Use <strong>Pause</strong> instead to stop
+                probing without losing the row's history.
+            </p>
+        }
+
+        @if (_showAddTarget)
+        {
+            <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
+                        <input type="text" class="custom-range-input" @bind="_newTargetName" placeholder="My ISP gateway" style="width: 160px;" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Address</label>
+                        <input type="text" class="custom-range-input" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" style="width: 180px;" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Type</label>
+                        <select class="cadence-select" style="width: 130px;" @bind="_newTargetType">
+                            <option value="Custom">Custom</option>
+                            <option value="InternetService">Internet</option>
+                            <option value="AccessIsp">ISP</option>
+                            <option value="Transit">Transit</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe</label>
+                        <select class="cadence-select" style="width: 100px;" @bind="_newTargetProbeMode">
+                            <option value="Icmp">ICMP</option>
+                            <option value="Tcp">TCP</option>
+                        </select>
+                    </div>
+                    @if (_newTargetProbeMode == "Tcp")
+                    {
+                        <div>
+                            <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Port</label>
+                            <input type="number" class="custom-range-input" @bind="_newTargetPort" placeholder="443" style="width: 70px;" />
+                        </div>
+                    }
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Interval</label>
+                        <select class="cadence-select" style="width: 80px;" @bind="_newTargetInterval">
+                            <option value="5">5 s</option>
+                            <option value="10">10 s</option>
+                            <option value="15">15 s</option>
+                            <option value="30">30 s</option>
+                            <option value="60">60 s</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
+                            @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(_addTargetError))
+                {
+                    <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addTargetError</p>
+                }
+            </div>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
+                + Add target
+            </button>
+        }
+    </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public List<MonitoringTarget> Targets { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnTargetsChanged { get; set; }
+
+    private bool _collapsed = true;
+    private bool _showAddTarget;
+    private bool _addingTarget;
+    private string _newTargetName = "";
+    private string _newTargetAddress = "";
+    private string _newTargetType = "Custom";
+    private string _newTargetProbeMode = "Icmp";
+    private int _newTargetPort = 443;
+    private int _newTargetInterval = 10;
+    private string? _addTargetError;
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    private async Task ToggleTargetAsync(int targetId)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            row.Enabled = !row.Enabled;
+            await db.SaveChangesAsync();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        catch { }
+    }
+
+    private async Task DeleteTargetAsync(int targetId)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            db.MonitoringTargets.Remove(row);
+            await db.SaveChangesAsync();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        catch { }
+    }
+
+    private async Task UpdateIntervalAsync(int targetId, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var interval)) return;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            row.PollIntervalSeconds = interval;
+            await db.SaveChangesAsync();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        catch { }
+    }
+
+    private async Task AddTargetAsync()
+    {
+        _addTargetError = null;
+        var name = _newTargetName.Trim();
+        var address = _newTargetAddress.Trim();
+        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(address))
+        {
+            _addTargetError = "Name and address are required.";
+            return;
+        }
+        if (name.Length > 200 || address.Length > 200)
+        {
+            _addTargetError = "Name and address must be under 200 characters.";
+            return;
+        }
+        if (!System.Net.IPAddress.TryParse(address, out _)
+            && !System.Text.RegularExpressions.Regex.IsMatch(address, @"^[a-zA-Z0-9][a-zA-Z0-9.\-]*$"))
+        {
+            _addTargetError = "Address must be a valid IP or hostname.";
+            return;
+        }
+
+        _addingTarget = true;
+        StateHasChanged();
+        try
+        {
+            var targetType = Enum.TryParse<MonitoringTargetType>(_newTargetType, out var tt) ? tt : MonitoringTargetType.Custom;
+            var probeMode = _newTargetProbeMode == "Tcp" ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp : NetworkOptimizer.Core.Enums.ProbeMode.Icmp;
+            var targetId = $"custom-{Guid.NewGuid():N}"[..24];
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.MonitoringTargets.Add(new MonitoringTarget
+            {
+                TargetId = targetId,
+                Name = name,
+                Address = address,
+                TargetType = targetType,
+                ProbeMode = probeMode,
+                Port = probeMode == NetworkOptimizer.Core.Enums.ProbeMode.Tcp ? _newTargetPort : null,
+                PollIntervalSeconds = _newTargetInterval,
+                PingCount = 5,
+                Enabled = true,
+                AutoDiscovered = false,
+                VantagePoint = "server",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+
+            _showAddTarget = false;
+            _newTargetName = "";
+            _newTargetAddress = "";
+            _newTargetType = "Custom";
+            _newTargetProbeMode = "Icmp";
+            _newTargetPort = 443;
+            _newTargetInterval = 10;
+            await OnTargetsChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _addTargetError = $"Failed to add target: {ex.Message}";
+        }
+        finally
+        {
+            _addingTarget = false;
+        }
+    }
+
+    private static string TargetTypeBadgeClass(MonitoringTargetType type) => type switch
+    {
+        MonitoringTargetType.Fabric => "status-connected",
+        MonitoringTargetType.Wan => "status-active",
+        MonitoringTargetType.AccessIsp => "status-active",
+        MonitoringTargetType.Transit => "status-active",
+        MonitoringTargetType.InternetService => "status-active",
+        _ => "status-disconnected"
+    };
+
+    private static string RelativeTime(DateTime when)
+    {
+        var delta = DateTime.UtcNow - when.ToUniversalTime();
+        if (delta < TimeSpan.Zero) return "just now";
+        if (delta < TimeSpan.FromSeconds(15)) return "just now";
+        if (delta < TimeSpan.FromMinutes(1)) return $"{(int)delta.TotalSeconds}s ago";
+        if (delta < TimeSpan.FromHours(1)) return $"{(int)delta.TotalMinutes}m ago";
+        if (delta < TimeSpan.FromDays(1)) return $"{(int)delta.TotalHours}h ago";
+        return $"{(int)delta.TotalDays}d ago";
+    }
+}
