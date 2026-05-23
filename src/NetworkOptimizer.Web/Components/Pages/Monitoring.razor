@@ -700,6 +700,9 @@ else
     private List<string> _gatewayWanIfNames = new();
     private System.Threading.Timer? _liveRefreshTimer;
     private System.Threading.Timer? _dataRefreshTimer;
+    private DotNetObjectReference<Monitoring>? _mapDotNetRef;
+    private DateTime? _mapHistoricAt;
+    private HistoricStatSnapshot? _historicSnapshot;
 
     private string _activeTab = "setup";
 
@@ -1012,10 +1015,226 @@ else
         DebounceSfpChartRemount();
     }
 
+    // ─── Historic stat snapshot (synced with 3D map scrubber) ───
+
+    private record HistoricStatSnapshot
+    {
+        public double WanDownloadBps { get; init; }
+        public double WanUploadBps { get; init; }
+        public double? GatewayRttMs { get; init; }
+        public double GatewayLossPercent { get; init; }
+        public double? IspRttMs { get; init; }
+        public double IspLossPercent { get; init; }
+        public double? TransitRttMs { get; init; }
+        public double TransitLossPercent { get; init; }
+        public double? GatewayCpuPercent { get; init; }
+        public double? GatewayMemoryPercent { get; init; }
+        public double? GatewayTempC { get; init; }
+        public double FabricIngressBps { get; init; }
+        public double FabricEgressBps { get; init; }
+    }
+
+    [JSInvokable]
+    public async Task OnMapTimeChanged(string? isoTimestamp)
+    {
+        if (isoTimestamp == null)
+        {
+            _mapHistoricAt = null;
+            _historicSnapshot = null;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        var at = DateTime.Parse(isoTimestamp, null, System.Globalization.DateTimeStyles.RoundtripKind);
+        _mapHistoricAt = at;
+        await FetchHistoricSnapshotAsync(at);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task FetchHistoricSnapshotAsync(DateTime at)
+    {
+        var from = at.AddSeconds(-90);
+        var to = at.AddSeconds(30);
+
+        double wanDown = 0, wanUp = 0;
+        double? gwRtt = null; double gwLoss = 0;
+        double? ispRtt = null; double ispLoss = 0;
+        double? transitRtt = null; double transitLoss = 0;
+        double? gwCpu = null, gwMem = null, gwTemp = null;
+        double fabricIn = 0, fabricOut = 0;
+
+        var tasks = new List<Task>();
+
+        // WAN rates
+        if (_gatewayMac != null && _gatewayWanIfNames.Count > 0)
+        {
+            tasks.Add(Task.Run(async () =>
+            {
+                var points = await InfluxClient.QueryGatewayWanRatesAsync(
+                    _gatewayMac, _gatewayWanIfNames, from, to);
+                var closest = points
+                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                    .FirstOrDefault();
+                if (closest != null)
+                {
+                    wanDown = closest.DownloadBps ?? 0;
+                    wanUp = closest.UploadBps ?? 0;
+                }
+            }));
+        }
+
+        // Gateway health
+        if (_gatewayMac != null)
+        {
+            tasks.Add(Task.Run(async () =>
+            {
+                var points = await InfluxClient.QueryDeviceHealthAsync(_gatewayMac, from, to);
+                var closest = points
+                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                    .FirstOrDefault();
+                if (closest != null)
+                {
+                    gwCpu = closest.CpuPercent;
+                    gwMem = closest.MemoryUsedPercent;
+                    gwTemp = closest.TemperatureC;
+                }
+            }));
+        }
+
+        // Gateway latency (Fabric target for the gateway)
+        var gwFabric = _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && t.Enabled
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && _gatewayMac != null
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
+        if (gwFabric != null)
+        {
+            tasks.Add(Task.Run(async () =>
+            {
+                var points = await InfluxClient.QueryLatencyAsync(gwFabric.TargetId, from, to);
+                var closest = points
+                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                    .FirstOrDefault();
+                if (closest != null)
+                {
+                    gwRtt = closest.RttAvgMs;
+                    gwLoss = closest.LossPercent ?? 0;
+                }
+            }));
+        }
+
+        // ISP latency (mean across enabled ISP targets)
+        tasks.Add(Task.Run(async () =>
+        {
+            var data = await InfluxClient.QueryLatencyByTargetTypeAsync(
+                MonitoringTargetType.AccessIsp, from, to);
+            var rtts = new List<double>();
+            var losses = new List<double>();
+            foreach (var (_, pts) in data)
+            {
+                var closest = pts
+                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                    .FirstOrDefault();
+                if (closest == null) continue;
+                if (closest.RttAvgMs.HasValue) rtts.Add(closest.RttAvgMs.Value);
+                if (closest.LossPercent.HasValue) losses.Add(closest.LossPercent.Value);
+            }
+            ispRtt = rtts.Count > 0 ? rtts.Average() : null;
+            ispLoss = losses.Count > 0 ? losses.Average() : 0;
+        }));
+
+        // Transit latency (mean across enabled Transit targets)
+        tasks.Add(Task.Run(async () =>
+        {
+            var data = await InfluxClient.QueryLatencyByTargetTypeAsync(
+                MonitoringTargetType.Transit, from, to);
+            var rtts = new List<double>();
+            var losses = new List<double>();
+            foreach (var (_, pts) in data)
+            {
+                var closest = pts
+                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                    .FirstOrDefault();
+                if (closest == null) continue;
+                if (closest.RttAvgMs.HasValue) rtts.Add(closest.RttAvgMs.Value);
+                if (closest.LossPercent.HasValue) losses.Add(closest.LossPercent.Value);
+            }
+            transitRtt = rtts.Count > 0 ? rtts.Average() : null;
+            transitLoss = losses.Count > 0 ? losses.Average() : 0;
+        }));
+
+        // Fabric load (sum across switches, gateways, and cellular modems only -
+        // APs are excluded because their radio interfaces over-count beacons/retries.
+        // The live path only calls RecordFabricSum for these device types, so APs
+        // have FabricIngressBps == null and contribute 0 to the live total.)
+        var fabricMacs = _targets
+            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+            .Select(t => t.DeviceMac!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(mac =>
+            {
+                var stats = LiveStats.GetForDevice(mac);
+                return stats?.FabricIngressBps != null || stats?.FabricEgressBps != null;
+            })
+            .ToList();
+        if (fabricMacs.Count > 0)
+        {
+            tasks.Add(Task.Run(async () =>
+            {
+                double totalIn = 0, totalOut = 0;
+                foreach (var mac in fabricMacs)
+                {
+                    var points = await InfluxClient.QueryInterfaceRatesAsync(mac, from, to);
+                    var isGateway = _gatewayMac != null
+                        && mac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase);
+                    if (isGateway)
+                        points = points
+                            .Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
+                            .ToList();
+                    var closest = points
+                        .GroupBy(p => p.Time)
+                        .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
+                        .FirstOrDefault();
+                    if (closest == null) continue;
+                    foreach (var p in closest)
+                    {
+                        totalIn += p.RateInBps ?? 0;
+                        totalOut += p.RateOutBps ?? 0;
+                    }
+                }
+                fabricIn = totalIn;
+                fabricOut = totalOut;
+            }));
+        }
+
+        try { await Task.WhenAll(tasks); }
+        catch { }
+
+        _historicSnapshot = new HistoricStatSnapshot
+        {
+            WanDownloadBps = wanDown,
+            WanUploadBps = wanUp,
+            GatewayRttMs = gwRtt,
+            GatewayLossPercent = gwLoss,
+            IspRttMs = ispRtt,
+            IspLossPercent = ispLoss,
+            TransitRttMs = transitRtt,
+            TransitLossPercent = transitLoss,
+            GatewayCpuPercent = gwCpu,
+            GatewayMemoryPercent = gwMem,
+            GatewayTempC = gwTemp,
+            FabricIngressBps = fabricIn,
+            FabricEgressBps = fabricOut,
+        };
+    }
+
     // ─── Stat card helpers ───
 
     private (double download, double upload) GetWanRates()
     {
+        if (_historicSnapshot != null)
+            return (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps);
         if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
         double totalDown = 0, totalUp = 0;
         foreach (var ifName in _gatewayWanIfNames)
@@ -1032,12 +1251,23 @@ else
 
     private DeviceLiveStats? GetGatewayStats()
     {
+        if (_historicSnapshot != null)
+        {
+            return new DeviceLiveStats
+            {
+                CpuPercent = _historicSnapshot.GatewayCpuPercent,
+                MemoryUsedPercent = _historicSnapshot.GatewayMemoryPercent,
+                TemperatureC = _historicSnapshot.GatewayTempC,
+            };
+        }
         if (_gatewayMac == null) return null;
         return LiveStats.GetForDevice(_gatewayMac);
     }
 
     private (double? rtt, double loss) GetGatewayLatency()
     {
+        if (_historicSnapshot != null)
+            return (_historicSnapshot.GatewayRttMs, _historicSnapshot.GatewayLossPercent);
         if (_gatewayMac == null) return (null, 0);
         var gwFabric = _targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
@@ -1051,6 +1281,15 @@ else
 
     private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
     {
+        if (_historicSnapshot != null)
+        {
+            return type switch
+            {
+                MonitoringTargetType.AccessIsp => (_historicSnapshot.IspRttMs, _historicSnapshot.IspLossPercent),
+                MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
+                _ => (null, 0)
+            };
+        }
         var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
         if (targets.Count == 0) return (null, 0);
 
@@ -1067,6 +1306,8 @@ else
 
     private (double ingress, double egress) GetTotalFabricLoad()
     {
+        if (_historicSnapshot != null)
+            return (_historicSnapshot.FabricIngressBps, _historicSnapshot.FabricEgressBps);
         double totalIn = 0, totalOut = 0;
         var fabricMacs = _targets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
@@ -1183,7 +1424,8 @@ else
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago}";
+            var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
+            _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago} ({localTime})";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
@@ -1219,7 +1461,8 @@ else
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            _sfpInvestigateResult = $"SFP {desc} {ago}";
+            var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
+            _sfpInvestigateResult = $"SFP {desc} {ago} ({localTime})";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__sfpCharts?.navigateToTime('{result.Timestamp:o}');");
@@ -1250,15 +1493,23 @@ else
             _mapMounted = true;
             try
             {
-                var mapUrl = VersionedJs("/js/lan-flow-map.js");
+                _mapDotNetRef ??= DotNetObjectReference.Create(this);
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{mapUrl}'); window.__lanFlowMap = m; await m.mount('lan-flow-map-canvas'); }})();");
+                    "window.__mountLanFlowMap = async function(canvasId, ref) {" +
+                    "  window.__monitoringRef = ref;" +
+                    $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
+                    "  window.__lanFlowMap = m;" +
+                    "  await m.mount(canvasId);" +
+                    "}");
+                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
             }
             catch { _mapMounted = false; }
         }
         else if (_activeTab != "live" && _mapMounted)
         {
             _mapMounted = false;
+            _mapHistoricAt = null;
+            _historicSnapshot = null;
             try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
             catch { }
         }
@@ -1328,6 +1579,7 @@ else
         _dataRefreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
         _sfpChartDebounce?.Dispose();
+        _mapDotNetRef?.Dispose();
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }

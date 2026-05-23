@@ -18,6 +18,11 @@ public class LanFlowMapSnapshot
     /// <summary>Interface name of the primary WAN (e.g. "wan"). The JS layer
     /// uses this to route speed test results that don't carry a WanNetworkGroup.</summary>
     public string? PrimaryWanInterface { get; set; }
+
+    /// <summary>Linux interface names of gateway WAN ports (e.g. ["eth6"]).
+    /// Server-side only; used by the historic endpoint to query InfluxDB.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> WanIfNames { get; set; } = new();
 }
 
 public enum LanNodeKind
@@ -81,6 +86,12 @@ public class LanNode
     /// <summary>For wired clients: the parent switch port's negotiated link speed
     /// in Mbps. Surfaces as "1000 Mbps" / "2.5 Gbps" in the tooltip.</summary>
     public int? WiredLinkSpeedMbps { get; set; }
+
+    /// <summary>SNMP ifName of this device's own uplink port (e.g., "Port 9").
+    /// Server-side only; used by the historic endpoint as a fallback when the
+    /// parent doesn't expose SNMP data (mesh AP → switch case).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? UplinkIfName { get; set; }
 }
 
 public class LanPlacement
@@ -292,6 +303,7 @@ public class LanFlowMapHistoricUpdate
 {
     public DateTime At { get; set; }
     public Dictionary<string, LinkLiveRates> LinkRates { get; set; } = new();
+    public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
 
     /// <summary>Speed tests whose TestTime falls within the scrub window (or just before it).</summary>

@@ -608,7 +608,7 @@ public class MonitoringCollectionAgent : BackgroundService
     /// all alias counters carried by a physical eth port. Summing those gives
     /// 3-4x the real total, so we restrict gateway fabric sum to plain ethN.
     /// </summary>
-    private static bool IncludeInFabricSum(NetworkOptimizer.Core.Enums.DeviceType type, string ifDescr)
+    internal static bool IncludeInFabricSum(NetworkOptimizer.Core.Enums.DeviceType type, string ifDescr)
     {
         if (type == NetworkOptimizer.Core.Enums.DeviceType.Gateway)
             return System.Text.RegularExpressions.Regex.IsMatch(ifDescr, @"^eth\d+$");

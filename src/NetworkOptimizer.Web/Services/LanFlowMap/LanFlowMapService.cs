@@ -102,6 +102,16 @@ public class LanFlowMapService
         GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);
 
+        var gwRaw = rawDevices.FirstOrDefault(d =>
+            d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+        if (gwRaw?.PortTable != null)
+        {
+            snapshot.WanIfNames = gwRaw.PortTable
+                .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName))
+                .Select(p => p.IfName!)
+                .ToList();
+        }
+
         var portRates = await SeedPortRatesAsync(snapshot, ct);
         SeedLiveRates(snapshot, portRates);
 
@@ -297,59 +307,292 @@ public class LanFlowMapService
         var update = new LanFlowMapHistoricUpdate { At = at };
         if (!_connection.IsConnected) return update;
 
-        // Build the topology so we know the link / port IDs to look up.
         var snapshot = await BuildSnapshotAsync(ct);
 
-        var from = at - TimeSpan.FromSeconds(15);
-        var to = at + TimeSpan.FromSeconds(5);
-        var byMac = snapshot.Nodes
-            .Where(n => !string.IsNullOrEmpty(n.Mac))
-            .GroupBy(n => n.Mac!)
-            .ToDictionary(g => g.Key, g => g.First());
+        var from = at - TimeSpan.FromSeconds(90);
+        var to = at + TimeSpan.FromSeconds(30);
 
-        // Wire up each link's PortKey lookup -> historic rate point.
-        foreach (var link in snapshot.Links)
+        var gwNode = snapshot.Nodes.FirstOrDefault(n => n.Kind == LanNodeKind.Gateway);
+        var gwMac = gwNode?.Mac;
+
+        // Pre-fetch WAN rates. The link ID uses NetworkName ("wan") but InfluxDB
+        // stores the Linux ifname ("eth6"). WanIfNames on the snapshot resolves
+        // this from the port table's IfName field (same source as stat cards).
+        IReadOnlyList<MonitoringInfluxClient.WanRatePoint>? wanRates = null;
+        if (!string.IsNullOrEmpty(gwMac) && snapshot.WanIfNames.Count > 0)
         {
-            if (string.IsNullOrEmpty(link.PortKey)) continue;
-            var (deviceMac, ifName) = ParsePortKey(link.PortKey);
-            if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) continue;
-
             try
             {
-                var points = await _influx.QueryInterfaceRatesAsync(deviceMac, from, to, null, ct);
-                var latest = points
-                    .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                    .FirstOrDefault();
-                if (latest == null) continue;
-                update.LinkRates[link.Id] = MapPortToLinkRates(link, latest.RateInBps ?? 0, latest.RateOutBps ?? 0, latest.Time);
+                wanRates = await _influx.QueryGatewayWanRatesAsync(gwMac, snapshot.WanIfNames, from, to, ct: ct);
+            }
+            catch { }
+        }
+
+        // Pre-fetch interface_counters per device MAC so we don't re-query for
+        // every link on the same device. Covers WiredClient (PortKey), Uplink,
+        // MeshBackhaul, and WAN links.
+        var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
+        foreach (var link in snapshot.Links)
+        {
+            if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
+            {
+                var mac = ExtractDeviceMacFromUplinkId(link.Id);
+                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
+            }
+            else if (!string.IsNullOrEmpty(link.PortKey))
+            {
+                var (mac, _) = ParsePortKey(link.PortKey);
+                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
+            }
+        }
+        var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in deviceMacs)
+        {
+            try
+            {
+                ratesByDevice[mac] = await _influx.QueryInterfaceRatesAsync(mac, from, to, null, ct);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Historic rate fetch failed for {Port}", link.PortKey);
+                _logger.LogDebug(ex, "Historic rate fetch failed for device {Mac}", mac);
             }
         }
 
-        // Cloud latency at the historic instant.
-        foreach (var cloud in snapshot.Clouds)
+        // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
+        foreach (var link in snapshot.Links)
         {
             try
             {
-                var lat = await _influx.QueryLatencyAsync(cloud.Id, from, to, null, ct);
-                var latest = lat
+                if (link.Kind == LanLinkKind.Wan)
+                {
+                    if (wanRates != null)
+                    {
+                        var closest = wanRates
+                            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                            .FirstOrDefault();
+                        if (closest != null)
+                            update.LinkRates[link.Id] = MapPortToLinkRates(link, closest.DownloadBps ?? 0, closest.UploadBps ?? 0, closest.Time);
+                    }
+                }
+                else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
+                {
+                    MonitoringInfluxClient.InterfaceRatePoint? resolved = null;
+                    bool fromChildSide = false;
+
+                    // Primary: parent's trunk port via PortKey.
+                    if (!string.IsNullOrEmpty(link.PortKey))
+                    {
+                        var (pMac, pIf) = ParsePortKey(link.PortKey);
+                        if (ratesByDevice.TryGetValue(pMac, out var pPts))
+                        {
+                            resolved = pPts
+                                .Where(p => string.Equals(p.IfName, pIf, StringComparison.OrdinalIgnoreCase))
+                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                .FirstOrDefault();
+                        }
+                    }
+
+                    // Fallback: child device's own interface. Covers mesh APs
+                    // (vwiresta) and switches whose parent (e.g., a mesh AP)
+                    // doesn't expose SNMP port data. The live code does the
+                    // same at ComputePortRate(dev.Mac, dev.Uplink.PortIdx).
+                    if (resolved == null)
+                    {
+                        var childMac = ExtractDeviceMacFromUplinkId(link.Id);
+                        if (!string.IsNullOrEmpty(childMac) && ratesByDevice.TryGetValue(childMac, out var cPts))
+                        {
+                            if (link.Kind == LanLinkKind.MeshBackhaul)
+                            {
+                                resolved = cPts
+                                    .Where(p => p.IfName.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
+                                        && !p.IfName.Contains('.'))
+                                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                    .FirstOrDefault();
+                            }
+                            else
+                            {
+                                // Wired switch fallback: find the child's uplink port.
+                                // On switches SNMP ifDescr is "Port N" and the uplink
+                                // is the highest-rate port. Use the same closest-time
+                                // point from the child's interface set; the direction
+                                // swaps because we're reading from the other end.
+                                var childNode = snapshot.Nodes.FirstOrDefault(n =>
+                                    string.Equals(n.Mac, childMac, StringComparison.OrdinalIgnoreCase));
+                                if (childNode?.UplinkIfName != null)
+                                {
+                                    resolved = cPts
+                                        .Where(p => string.Equals(p.IfName, childNode.UplinkIfName, StringComparison.OrdinalIgnoreCase))
+                                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                        .FirstOrDefault();
+                                    fromChildSide = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (resolved != null)
+                    {
+                        if (link.Kind == LanLinkKind.MeshBackhaul && !fromChildSide)
+                        {
+                            // vwiresta rateIn = downloads, rateOut = uploads
+                            update.LinkRates[link.Id] = new LinkLiveRates
+                            {
+                                DownstreamBps = resolved.RateInBps ?? 0,
+                                UpstreamBps = resolved.RateOutBps ?? 0,
+                                AsOf = resolved.Time,
+                            };
+                        }
+                        else if (fromChildSide)
+                        {
+                            // Reading from child side: directions swap vs parent side.
+                            // Child port RX = bytes arriving from parent = downstream.
+                            // Child port TX = bytes leaving toward parent = upstream.
+                            update.LinkRates[link.Id] = new LinkLiveRates
+                            {
+                                DownstreamBps = resolved.RateInBps ?? 0,
+                                UpstreamBps = resolved.RateOutBps ?? 0,
+                                AsOf = resolved.Time,
+                            };
+                        }
+                        else
+                        {
+                            update.LinkRates[link.Id] = MapPortToLinkRates(link, resolved.RateInBps ?? 0, resolved.RateOutBps ?? 0, resolved.Time);
+                        }
+                    }
+                }
+                else if (link.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(link.PortKey))
+                {
+                    var (deviceMac, ifName) = ParsePortKey(link.PortKey);
+                    if (ratesByDevice.TryGetValue(deviceMac, out var pts))
+                    {
+                        var closest = pts
+                            .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
+                            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                            .FirstOrDefault();
+                        if (closest != null)
+                            update.LinkRates[link.Id] = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
+                    }
+                }
+                // WifiClient links: wifi_client throughput is stored with client_mac as
+                // a field (not a tag), making per-client InfluxDB lookups expensive.
+                // Skipped for now; wifi leaves show snapshot rates during playback.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Historic rate failed for link {Id}", link.Id);
+            }
+        }
+
+        // Node badges: device health + fabric/aggregate rates at the historic
+        // instant. Matches the live endpoint's badge population logic:
+        //   - Switches/gateways: fabricIngressBps = sum(port Rx), fabricEgressBps = sum(port Tx)
+        //   - APs: aggregateInBps/OutBps from the uplink link rate (already computed above)
+        // Without fabric rates the JS falls back to summing adjacent links,
+        // which double-counts flows traversing the device.
+        foreach (var node in snapshot.Nodes)
+        {
+            if (string.IsNullOrEmpty(node.Mac)) continue;
+            var mac = node.Mac;
+            try
+            {
+                var health = await _influx.QueryDeviceHealthAsync(mac, from, to, null, ct);
+                var healthPt = health
                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                     .FirstOrDefault();
-                if (latest == null) continue;
-                update.CloudStats[cloud.Id] = new CloudLiveStats
+
+                double? fabIn = null, fabOut = null;
+                if ((node.Kind == LanNodeKind.Switch || node.Kind == LanNodeKind.Gateway)
+                    && ratesByDevice.TryGetValue(mac, out var rates))
                 {
-                    RttAvgMs = latest.RttAvgMs,
-                    LossPercent = latest.LossPercent,
-                    Success = latest.RttAvgMs.HasValue,
+                    var isGw = node.Kind == LanNodeKind.Gateway;
+                    var filtered = isGw
+                        ? rates.Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
+                        : rates;
+                    var closestRates = filtered
+                        .GroupBy(p => p.Time)
+                        .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
+                        .FirstOrDefault();
+                    if (closestRates != null)
+                    {
+                        double sumRx = 0, sumTx = 0;
+                        foreach (var r in closestRates)
+                        {
+                            sumRx += r.RateInBps ?? 0;
+                            sumTx += r.RateOutBps ?? 0;
+                        }
+                        fabIn = sumRx;
+                        fabOut = sumTx;
+                    }
+                }
+
+                // For APs, pull aggregate from the uplink link rate we already computed.
+                double? aggIn = null, aggOut = null;
+                if (node.Kind == LanNodeKind.AccessPoint)
+                {
+                    var uplinkId = $"uplink-{mac}";
+                    if (update.LinkRates.TryGetValue(uplinkId, out var uplinkRate))
+                    {
+                        aggIn = uplinkRate.UpstreamBps;
+                        aggOut = uplinkRate.DownstreamBps;
+                    }
+                }
+
+                if (healthPt == null && fabIn == null && aggIn == null) continue;
+
+                update.NodeBadges[node.Id] = new NodeLiveBadge
+                {
+                    Online = node.Online,
+                    CpuPercent = healthPt?.CpuPercent,
+                    MemoryUsedPercent = healthPt?.MemoryUsedPercent,
+                    TemperatureC = healthPt?.TemperatureC,
+                    FabricIngressBps = fabIn,
+                    FabricEgressBps = fabOut,
+                    AggregateInBps = aggIn,
+                    AggregateOutBps = aggOut,
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Historic latency fetch failed for {Cloud}", cloud.Id);
+                _logger.LogDebug(ex, "Historic badge failed for {Mac}", mac);
+            }
+        }
+
+        // Cloud latency: map cloud kind to monitoring target type and query.
+        foreach (var cloud in snapshot.Clouds)
+        {
+            try
+            {
+                var targetType = cloud.Kind switch
+                {
+                    LanCloudKind.AccessIsp => MonitoringTargetType.AccessIsp,
+                    LanCloudKind.Transit => MonitoringTargetType.Transit,
+                    _ => (MonitoringTargetType?)null
+                };
+                if (targetType == null) continue;
+                var data = await _influx.QueryLatencyByTargetTypeAsync(targetType.Value, from, to, ct: ct);
+                MonitoringInfluxClient.LatencyPoint? best = null;
+                foreach (var (_, pts) in data)
+                {
+                    var closest = pts
+                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                        .FirstOrDefault();
+                    if (closest != null && (best == null
+                        || Math.Abs((closest.Time - at).TotalMilliseconds) < Math.Abs((best.Time - at).TotalMilliseconds)))
+                        best = closest;
+                }
+                if (best == null) continue;
+                update.CloudStats[cloud.Id] = new CloudLiveStats
+                {
+                    RttAvgMs = best.RttAvgMs,
+                    LossPercent = best.LossPercent,
+                    Success = best.RttAvgMs.HasValue,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Historic latency failed for cloud {Id}", cloud.Id);
             }
         }
 
@@ -476,6 +719,18 @@ public class LanFlowMapService
             }
 
             snapshot.Links.Add(link);
+
+            // Stash the child's own uplink port ifName on its node. The historic
+            // endpoint uses this as a fallback when the parent doesn't expose
+            // SNMP data (e.g., switch plugged into a mesh AP's Ethernet port).
+            if (d.LocalUplinkPort.HasValue && d.LocalUplinkPort.Value > 0)
+            {
+                var childNode = snapshot.Nodes.FirstOrDefault(n => n.Id == "dev-" + mac);
+                if (childNode != null && nameMaps.TryGetValue((mac, d.LocalUplinkPort.Value), out var localMap))
+                {
+                    childNode.UplinkIfName = localMap.IfName;
+                }
+            }
         }
     }
 

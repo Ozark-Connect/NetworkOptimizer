@@ -141,6 +141,10 @@ export class LanFlowMap {
         };
         this._mode = 'live';      // 'live' | 'historic'
         this._historicAt = null;  // Date when in historic mode
+        this._dotnetRef = window.__monitoringRef || null;
+        this._playbackSpeed = 1;  // real-time multiplier
+        this._playbackAccum = 0;  // fractional slider unit accumulator
+        this._scrubberOrigin = Date.now() - 24 * 3600000; // left edge anchored at mount - 24h
 
         this._panels = {};        // DOM refs for overlay UI
         this._floatingLabels = new Map();  // nodeId -> { el, nameEl, rateEl }
@@ -1113,39 +1117,54 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        // 10x real-time: 10 sec of real time per 1 sec of playback. Range is
-        // 0..1000 mapped to 24h = 86400 real sec, so 1 unit = 86.4 real sec.
-        // At 250ms tick, advance 2.5 real sec / 86.4 = ~0.029 units. Way too
-        // slow. Instead use a much higher real-time multiplier appropriate
-        // for a 24h window: 10 *minutes* of real time per 1 sec of playback.
-        // That puts a full 24h pass at ~2.4 min, which actually reads.
-        const realSecPerPlaybackSec = 300; // 5 minutes per second
-        const tickMs = 250;
-        const realSecPerTick = realSecPerPlaybackSec * (tickMs / 1000);
-        const unitsPerSec = 1000 / (24 * 60 * 60);
-        const unitsPerTick = Math.max(1, Math.round(realSecPerTick * unitsPerSec));
+        // Track playback as a continuous timestamp, not integer slider units.
+        // The slider and time label update every tick; the map and stat cards
+        // refresh on a throttled cadence (~3 s wall-clock) to avoid flooding
+        // the API while still feeling responsive.
+        const TICK_MS = 1000;
+        const DATA_REFRESH_TICKS = 3; // load new data every 3 ticks
+        this._playbackTime = this._historicAt
+            || this._scrubberValueToTime(Number(this._panels.scrubberRange?.value ?? 500));
+        let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
             const range = this._panels.scrubberRange;
             if (!range) return;
-            const cur = Number(range.value);
-            const next = Math.min(1000, cur + unitsPerTick);
-            range.value = next;
-            this._onScrubberInput(next);
-            // Mark playback-driven so _onScrubberChange skips its user-scrub
-            // auto-pause and we don't kill our own playback loop.
-            this._playbackAdvancing = true;
-            try {
-                if (next >= 1000) {
-                    this._stopHistoricPlayback();
-                    this._onScrubberChange(1000);
-                } else {
-                    this._onScrubberChange(next);
-                }
-            } finally {
-                this._playbackAdvancing = false;
+            // Advance the continuous timestamp
+            this._playbackTime = new Date(
+                this._playbackTime.getTime() + TICK_MS * this._playbackSpeed);
+            // Derive slider position from the timestamp (inverse of _scrubberValueToTime)
+            const now = Date.now();
+            const span = now - this._scrubberOrigin;
+            const value = span > 0
+                ? Math.round((this._playbackTime.getTime() - this._scrubberOrigin) / span * 1000)
+                : 1000;
+            const clamped = Math.max(0, Math.min(1000, value));
+            range.value = clamped;
+            // Update the time label from the continuous timestamp, not the
+            // integer slider position (which only moves every ~86s at 1x).
+            if (this._panels.scrubberRight) {
+                this._panels.scrubberRight.textContent =
+                    (clamped >= 998) ? 'Live' : _fmtDateTime(this._playbackTime);
             }
-        }, tickMs);
+            tickCount++;
+            // Refresh map and stat cards periodically
+            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 998) {
+                this._playbackAdvancing = true;
+                try {
+                    if (clamped >= 998) {
+                        this._stopHistoricPlayback();
+                        this._onScrubberChange(1000);
+                    } else {
+                        this._historicAt = this._playbackTime;
+                        this._notifyStatCards(this._playbackTime);
+                        this._loadHistoric(this._playbackTime);
+                    }
+                } finally {
+                    this._playbackAdvancing = false;
+                }
+            }
+        }, TICK_MS);
     }
 
     _stopHistoricPlayback() {
@@ -1311,6 +1330,13 @@ export class LanFlowMap {
         const modeBadge = document.createElement('span');
         modeBadge.className = 'lan-flow-map-mode';
         modeBadge.textContent = 'Live';
+        modeBadge.setAttribute('data-tooltip-hover-only', '');
+        modeBadge.addEventListener('click', () => {
+            if (this._mode === 'live') return;
+            const range = this._panels.scrubberRange;
+            if (range) range.value = 1000;
+            this._onScrubberChange(1000);
+        });
         status.appendChild(modeBadge);
         this._panels.status = status;
         this._panels.modeBadge = modeBadge;
@@ -1324,6 +1350,11 @@ export class LanFlowMap {
         scrubber.innerHTML = `
             <div class="lan-flow-map-scrubber-row">
                 <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <div class="lan-flow-map-speed-control" data-role="speed">
+                    <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
+                    <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
+                    <button class="lan-flow-map-speed-step" data-dir="1" type="button" aria-label="Faster">+</button>
+                </div>
                 <span data-role="left">-24h</span>
                 <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
                 <span data-role="right">Live</span>
@@ -1336,6 +1367,23 @@ export class LanFlowMap {
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
         playPause.addEventListener('click', () => this._togglePlayPause());
+        const SPEED_STEPS = [1, 2, 5, 10, 30, 60, 120, 360, 720, 1440];
+        this._speedSteps = SPEED_STEPS;
+        this._speedIndex = 0; // starts at 1x
+        for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-step')) {
+            btn.addEventListener('click', () => {
+                const dir = Number(btn.dataset.dir);
+                const newIdx = Math.max(0, Math.min(SPEED_STEPS.length - 1, this._speedIndex + dir));
+                if (newIdx === this._speedIndex) return;
+                this._speedIndex = newIdx;
+                this._playbackSpeed = SPEED_STEPS[newIdx];
+                this._syncSpeedLabel();
+                if (this._mode === 'historic' && this._historicPlaybackTimer) {
+                    this._stopHistoricPlayback();
+                    this._startHistoricPlayback();
+                }
+            });
+        }
         if (isMobile) {
             this.stage.parentElement.insertBefore(scrubber, this.stage.nextSibling);
         } else {
@@ -1347,6 +1395,7 @@ export class LanFlowMap {
         this._panels.scrubberRight = scrubber.querySelector('[data-role="right"]');
         this._panels.scrubberPlayPause = playPause;
         this._paused = false;
+        this._syncSpeedLabel();
     }
 
     _makePanel(extraClass) {
@@ -1509,23 +1558,30 @@ export class LanFlowMap {
         const at = this._scrubberValueToTime(value);
         if (this._panels.scrubberRight) {
             this._panels.scrubberRight.textContent =
-                (value >= 998) ? 'Live' : at.toLocaleString();
+                (value >= 998) ? 'Live' : _fmtDateTime(at);
         }
     }
 
     async _onScrubberChange(value) {
         if (value >= 998) {
             // Snap back to live.
+            this._stopHistoricPlayback();
             this._mode = 'live';
             this._historicAt = null;
+            this._onScrubberInput(1000);
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
                 this._panels.modeBadge.classList.remove('is-historic');
+                this._panels.modeBadge.style.cursor = '';
+                this._panels.modeBadge.removeAttribute('data-tooltip');
+                if (this._panels.modeBadge._tippy) this._panels.modeBadge._tippy.destroy();
             }
             // Returning to live resumes polling; clear the paused state so the
             // play button reflects "playing" again.
             this._paused = false;
             this._syncPlayPauseIcon();
+            this._syncSpeedLabel();
+            this._notifyStatCards(null);
             await this._pollLive();
             return;
         }
@@ -1535,7 +1591,10 @@ export class LanFlowMap {
         if (this._panels.modeBadge) {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
+            this._panels.modeBadge.style.cursor = 'pointer';
+            this._panels.modeBadge.setAttribute('data-tooltip', 'Click to return to live');
         }
+        this._syncSpeedLabel();
         // Scrubbing back into historic by the user lands paused so they can
         // inspect the point they picked. The playback timer also calls this
         // method on every tick (to load the historic snapshot for the new
@@ -1546,7 +1605,18 @@ export class LanFlowMap {
             this._syncPlayPauseIcon();
             this._stopHistoricPlayback();
         }
+        this._notifyStatCards(at);
         await this._loadHistoric(at);
+    }
+
+    _notifyStatCards(at) {
+        if (!this._dotnetRef) {
+            console.warn('[LanFlowMap] _notifyStatCards: dotnetRef is null');
+            return;
+        }
+        const iso = at ? at.toISOString() : null;
+        this._dotnetRef.invokeMethodAsync('OnMapTimeChanged', iso)
+            .catch(err => console.warn('[LanFlowMap] OnMapTimeChanged failed:', err));
     }
 
     _syncPlayPauseIcon() {
@@ -1556,10 +1626,16 @@ export class LanFlowMap {
         btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
     }
 
+    _syncSpeedLabel() {
+        const label = this._panels.scrubber?.querySelector('[data-role="speed-label"]');
+        if (label) label.textContent = `${this._playbackSpeed}x`;
+    }
+
     _scrubberValueToTime(value) {
-        // Range 0..1000 maps to 24 hours ago .. now.
+        // Range 0..1000 maps from the anchored origin (mount - 24h) to now.
+        // The window grows as the page stays open so recent time is always reachable.
         const now = Date.now();
-        const ms = now - (1000 - value) * (24 * 60 * 60 * 1000 / 1000);
+        const ms = this._scrubberOrigin + (value / 1000) * (now - this._scrubberOrigin);
         return new Date(ms);
     }
 
@@ -1570,8 +1646,9 @@ export class LanFlowMap {
             if (!res.ok) return;
             const update = await res.json();
             this._applyLiveRates(update.linkRates || {});
+            if (update.nodeBadges) this._currentBadges = update.nodeBadges;
         } catch (err) {
-            // Surface but don't crash the rendering loop.
+            // Keep ticking; transient errors are fine.
         }
     }
 
@@ -2264,6 +2341,11 @@ function formatAge(ms) {
     if (h < 24) return `${h}h ago`;
     const d = Math.floor(h / 24);
     return `${d}d ago`;
+}
+
+const _p = (n) => String(n).padStart(2, '0');
+function _fmtDateTime(d) {
+    return `${_p(d.getMonth()+1)}/${_p(d.getDate())}/${String(d.getFullYear()).slice(2)} ${_p(d.getHours())}:${_p(d.getMinutes())}:${_p(d.getSeconds())}`;
 }
 
 function escapeHtml(s) {
