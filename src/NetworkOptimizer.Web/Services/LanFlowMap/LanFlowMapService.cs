@@ -443,37 +443,73 @@ public class LanFlowMapService
             }
         }
 
-        // Node badges: device health at the historic instant. Aggregate rates
-        // are omitted - the per-link rates (computed above) drive the visual
-        // particles. Computing per-device trunk port rates here would require
-        // duplicating the uplink-resolution logic from the collection agent.
-        var healthMacs = snapshot.Nodes
-            .Where(n => !string.IsNullOrEmpty(n.Mac))
-            .Select(n => n.Mac!)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-        foreach (var mac in healthMacs)
+        // Node badges: device health + fabric/aggregate rates at the historic
+        // instant. Matches the live endpoint's badge population logic:
+        //   - Switches/gateways: fabricIngressBps = sum(port Rx), fabricEgressBps = sum(port Tx)
+        //   - APs: aggregateInBps/OutBps from the uplink link rate (already computed above)
+        // Without fabric rates the JS falls back to summing adjacent links,
+        // which double-counts flows traversing the device.
+        foreach (var node in snapshot.Nodes)
         {
+            if (string.IsNullOrEmpty(node.Mac)) continue;
+            var mac = node.Mac;
             try
             {
                 var health = await _influx.QueryDeviceHealthAsync(mac, from, to, null, ct);
-                var closest = health
+                var healthPt = health
                     .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                     .FirstOrDefault();
-                if (closest == null) continue;
 
-                var node = snapshot.Nodes.FirstOrDefault(n =>
-                    string.Equals(n.Mac, mac, StringComparison.OrdinalIgnoreCase));
-                update.NodeBadges[node?.Id ?? $"dev-{mac}"] = new NodeLiveBadge
+                double? fabIn = null, fabOut = null;
+                if ((node.Kind == LanNodeKind.Switch || node.Kind == LanNodeKind.Gateway)
+                    && ratesByDevice.TryGetValue(mac, out var rates))
                 {
-                    Online = node?.Online ?? true,
-                    CpuPercent = closest.CpuPercent,
-                    MemoryUsedPercent = closest.MemoryUsedPercent,
-                    TemperatureC = closest.TemperatureC,
+                    var closestRates = rates
+                        .GroupBy(p => p.Time)
+                        .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
+                        .FirstOrDefault();
+                    if (closestRates != null)
+                    {
+                        double sumRx = 0, sumTx = 0;
+                        foreach (var r in closestRates)
+                        {
+                            sumRx += r.RateInBps ?? 0;
+                            sumTx += r.RateOutBps ?? 0;
+                        }
+                        fabIn = sumRx;
+                        fabOut = sumTx;
+                    }
+                }
+
+                // For APs, pull aggregate from the uplink link rate we already computed.
+                double? aggIn = null, aggOut = null;
+                if (node.Kind == LanNodeKind.AccessPoint)
+                {
+                    var uplinkId = $"uplink-{mac}";
+                    if (update.LinkRates.TryGetValue(uplinkId, out var uplinkRate))
+                    {
+                        aggIn = uplinkRate.UpstreamBps;
+                        aggOut = uplinkRate.DownstreamBps;
+                    }
+                }
+
+                if (healthPt == null && fabIn == null && aggIn == null) continue;
+
+                update.NodeBadges[node.Id] = new NodeLiveBadge
+                {
+                    Online = node.Online,
+                    CpuPercent = healthPt?.CpuPercent,
+                    MemoryUsedPercent = healthPt?.MemoryUsedPercent,
+                    TemperatureC = healthPt?.TemperatureC,
+                    FabricIngressBps = fabIn,
+                    FabricEgressBps = fabOut,
+                    AggregateInBps = aggIn,
+                    AggregateOutBps = aggOut,
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Historic health failed for {Mac}", mac);
+                _logger.LogDebug(ex, "Historic badge failed for {Mac}", mac);
             }
         }
 
