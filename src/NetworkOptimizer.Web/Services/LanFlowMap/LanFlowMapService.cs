@@ -353,27 +353,45 @@ public class LanFlowMapService
                 }
                 else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
                 {
-                    var childMac = ExtractDeviceMacFromUplinkId(link.Id);
-                    if (!string.IsNullOrEmpty(childMac) && ratesByDevice.TryGetValue(childMac, out var pts))
+                    if (!string.IsNullOrEmpty(link.PortKey))
                     {
-                        var closest = pts
-                            .GroupBy(p => p.Time)
-                            .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
-                            .FirstOrDefault();
-                        if (closest != null)
+                        // Wired uplink: use the specific parent trunk port rate (matches live path).
+                        var (deviceMac, ifName) = ParsePortKey(link.PortKey);
+                        if (ratesByDevice.TryGetValue(deviceMac, out var pts))
                         {
-                            double aggIn = 0, aggOut = 0;
-                            foreach (var p in closest)
+                            var closest = pts
+                                .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
+                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                .FirstOrDefault();
+                            if (closest != null)
+                                update.LinkRates[link.Id] = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
+                        }
+                    }
+                    else
+                    {
+                        // Wireless mesh: use child device aggregate (same as live path fallback).
+                        var childMac = ExtractDeviceMacFromUplinkId(link.Id);
+                        if (!string.IsNullOrEmpty(childMac) && ratesByDevice.TryGetValue(childMac, out var pts))
+                        {
+                            var closest = pts
+                                .GroupBy(p => p.Time)
+                                .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
+                                .FirstOrDefault();
+                            if (closest != null)
                             {
-                                aggIn += p.RateInBps ?? 0;
-                                aggOut += p.RateOutBps ?? 0;
+                                double aggIn = 0, aggOut = 0;
+                                foreach (var p in closest)
+                                {
+                                    aggIn += p.RateInBps ?? 0;
+                                    aggOut += p.RateOutBps ?? 0;
+                                }
+                                update.LinkRates[link.Id] = new LinkLiveRates
+                                {
+                                    DownstreamBps = aggOut,
+                                    UpstreamBps = aggIn,
+                                    AsOf = closest.Key,
+                                };
                             }
-                            update.LinkRates[link.Id] = new LinkLiveRates
-                            {
-                                DownstreamBps = aggOut,
-                                UpstreamBps = aggIn,
-                                AsOf = closest.Key,
-                            };
                         }
                     }
                 }
@@ -400,7 +418,10 @@ public class LanFlowMapService
             }
         }
 
-        // Node badges: device health at the historic instant.
+        // Node badges: device health at the historic instant. Aggregate rates
+        // are omitted - the per-link rates (computed above) drive the visual
+        // particles. Computing per-device trunk port rates here would require
+        // duplicating the uplink-resolution logic from the collection agent.
         var healthMacs = snapshot.Nodes
             .Where(n => !string.IsNullOrEmpty(n.Mac))
             .Select(n => n.Mac!)
@@ -415,35 +436,10 @@ public class LanFlowMapService
                     .FirstOrDefault();
                 if (closest == null) continue;
 
-                double? aggIn = null, aggOut = null;
-                double? fabIn = null, fabOut = null;
-                if (ratesByDevice.TryGetValue(mac, out var rates))
-                {
-                    var closestRates = rates
-                        .GroupBy(p => p.Time)
-                        .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
-                        .FirstOrDefault();
-                    if (closestRates != null)
-                    {
-                        double totalIn = 0, totalOut = 0;
-                        foreach (var r in closestRates)
-                        {
-                            totalIn += r.RateInBps ?? 0;
-                            totalOut += r.RateOutBps ?? 0;
-                        }
-                        aggIn = totalIn;
-                        aggOut = totalOut;
-                    }
-                }
-
                 var node = snapshot.Nodes.FirstOrDefault(n =>
                     string.Equals(n.Mac, mac, StringComparison.OrdinalIgnoreCase));
                 update.NodeBadges[node?.Id ?? $"dev-{mac}"] = new NodeLiveBadge
                 {
-                    AggregateInBps = aggIn,
-                    AggregateOutBps = aggOut,
-                    FabricIngressBps = fabIn,
-                    FabricEgressBps = fabOut,
                     Online = node?.Online ?? true,
                     CpuPercent = closest.CpuPercent,
                     MemoryUsedPercent = closest.MemoryUsedPercent,
