@@ -611,7 +611,7 @@ public class MonitoringCollectionAgent : BackgroundService
     internal static bool IncludeInFabricSum(NetworkOptimizer.Core.Enums.DeviceType type, string ifDescr)
     {
         if (type == NetworkOptimizer.Core.Enums.DeviceType.Gateway)
-            return System.Text.RegularExpressions.Regex.IsMatch(ifDescr, @"^(eth\d+|gre\d+)$");
+            return System.Text.RegularExpressions.Regex.IsMatch(ifDescr, @"^eth\d+$");
         return true;
     }
 
