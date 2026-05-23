@@ -554,6 +554,12 @@ else
                                         <span>Test</span>
                                     }
                                 </button>
+                                @if (_influxReachable == false)
+                                {
+                                    <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="ResetInfluxSetup">
+                                        Re-run Setup
+                                    </button>
+                                }
                                 @if (_lastInfluxTestAt.HasValue && !_checkingInflux)
                                 {
                                     <span class="page-description" style="margin-left: 0.5rem;">
@@ -798,6 +804,30 @@ else
         _influxReachable = settings.InfluxDbReachable;
         _influxError = settings.LastInfluxDbError;
         _monitoringEnabled = settings.Enabled;
+    }
+
+    private async Task ResetInfluxSetup()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
+        if (settings != null)
+        {
+            settings.Enabled = false;
+            settings.InfluxDbToken = "";
+            settings.InfluxDbUrl = "";
+            settings.InfluxDbOrg = "";
+            settings.InfluxDbBucket = "";
+            settings.InfluxDbLongtermBucket = "";
+            settings.InfluxDbReachable = null;
+            settings.LastInfluxDbError = null;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        _influxConfigured = false;
+        _influxReachable = null;
+        _influxError = null;
+        _monitoringEnabled = false;
+        StateHasChanged();
     }
 
     private async Task OnInfluxProvisioned()
