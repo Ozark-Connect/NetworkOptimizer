@@ -1447,6 +1447,7 @@ a.stat-card-link:active {
 
 .status-indicator {
     width: 12px;
+    min-width: 12px;
     height: 12px;
     border-radius: 50%;
 }
@@ -14008,6 +14009,7 @@ a.affected-client:hover {
     color: var(--text-primary);
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.5rem;
 }
 
