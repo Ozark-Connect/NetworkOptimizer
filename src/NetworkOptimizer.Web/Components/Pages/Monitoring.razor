@@ -1177,7 +1177,11 @@ else
             };
             _lossNavActive = true;
             _lossNavTimestamp = result.Timestamp;
-            _investigateResult = $"{result.LossPercent:0.#}% loss {RelativeTime(result.Timestamp)}";
+            var delta = DateTime.UtcNow - result.Timestamp;
+            var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
+                : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
+                : $"{(int)delta.TotalDays}d ago";
+            _investigateResult = $"{result.LossPercent:0.#}% loss {ago}";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
