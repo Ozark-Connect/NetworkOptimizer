@@ -11,9 +11,12 @@ public static class MonitoringInvestigateEndpoints
         app.MapGet("/api/monitoring/investigate/packet-loss", async (
             MonitoringInfluxClient influx,
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            DateTime? before,
+            DateTime? after,
             CancellationToken ct) =>
         {
-            var result = await influx.FindRecentLossEventAsync(ct);
+            var result = await influx.FindRecentLossEventAsync(
+                before?.ToUniversalTime(), after?.ToUniversalTime(), ct);
             if (result == null)
                 return Results.Ok(new { found = false });
 

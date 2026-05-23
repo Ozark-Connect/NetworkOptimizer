@@ -805,13 +805,16 @@ from(bucket: ""{_longtermBucket}"")
     /// (checked in that priority order). Returns the timestamp and target type of the
     /// first match with loss > 1%.
     /// </summary>
-    public async Task<RecentLossEvent?> FindRecentLossEventAsync(CancellationToken ct = default)
+    public async Task<RecentLossEvent?> FindRecentLossEventAsync(
+        DateTime? before = null, DateTime? after = null, CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return null;
 
         var targetTypes = new[] { "accessisp", "transit", "internetservice" };
-        var lookback = DateTime.UtcNow.AddDays(-7);
+        var rangeStart = after ?? DateTime.UtcNow.AddDays(-30);
+        var rangeStop = before ?? DateTime.UtcNow;
+        var sortDesc = !after.HasValue;
 
         foreach (var typeTag in targetTypes)
         {
@@ -821,12 +824,12 @@ from(bucket: ""{_longtermBucket}"")
 
             var flux = $@"
 from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(lookback)})
+  |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => {typeFilter})
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> filter(fn: (r) => r._value > 1.0)
-  |> sort(columns: [""_time""], desc: true)
+  |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
   |> limit(n: 1)
 ";
             await foreach (var record in QueryFluxAsync(flux, ct))

@@ -236,12 +236,26 @@ else
             <div class="card-header">
                 <h2 class="card-title">Investigate</h2>
             </div>
-            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
-                        data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
-                    @if (_investigatingLoss) { <span class="spinner-sm"></span> }
-                    else { <span>Packet Loss Events</span> }
-                </button>
+            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+                @if (_lossNavActive)
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="LossNavBack" disabled="@_investigatingLoss"
+                            data-tooltip="Previous loss event">&#x25C0;</button>
+                    <button class="btn btn-primary" @onclick="LossNavDeactivate"
+                            data-tooltip="Exit packet loss investigation">
+                        Packet Loss Events
+                    </button>
+                    <button class="btn btn-sm btn-secondary" @onclick="LossNavForward" disabled="@_investigatingLoss"
+                            data-tooltip="Next loss event">&#x25B6;</button>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
+                            data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
+                        @if (_investigatingLoss) { <span class="spinner-sm"></span> }
+                        else { <span>Packet Loss Events</span> }
+                    </button>
+                }
                 @if (!string.IsNullOrEmpty(_investigateResult) && !_investigatingSfp)
                 {
                     <span class="page-description" style="align-self: center;">@_investigateResult</span>
@@ -696,6 +710,8 @@ else
     private bool _investigatingLoss;
     private bool _investigatingSfp;
     private string? _investigateResult;
+    private bool _lossNavActive;
+    private DateTime? _lossNavTimestamp;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -1084,17 +1100,30 @@ else
 
     // ─── Investigation ───
 
-    private async Task InvestigatePacketLoss()
+    private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null);
+    private Task LossNavBack() => _lossNavTimestamp.HasValue
+        ? NavigateToLossEvent(_lossNavTimestamp.Value, null) : Task.CompletedTask;
+    private Task LossNavForward() => _lossNavTimestamp.HasValue
+        ? NavigateToLossEvent(null, _lossNavTimestamp.Value) : Task.CompletedTask;
+
+    private void LossNavDeactivate()
+    {
+        _lossNavActive = false;
+        _lossNavTimestamp = null;
+        _investigateResult = null;
+        StateHasChanged();
+    }
+
+    private async Task NavigateToLossEvent(DateTime? before, DateTime? after)
     {
         _investigatingLoss = true;
-        _investigateResult = null;
         StateHasChanged();
         try
         {
-            var result = await InfluxClient.FindRecentLossEventAsync();
+            var result = await InfluxClient.FindRecentLossEventAsync(before, after);
             if (result == null)
             {
-                _investigateResult = "No packet loss events found in the last 7 days.";
+                _investigateResult = after.HasValue ? "No newer events" : "No older events";
                 return;
             }
             var category = result.TargetType switch
@@ -1103,7 +1132,9 @@ else
                 "transit" => "Transit",
                 _ => "InternetService"
             };
-            _investigateResult = $"Found {result.LossPercent:0.#}% loss at {result.Timestamp:MMM dd HH:mm}";
+            _lossNavActive = true;
+            _lossNavTimestamp = result.Timestamp;
+            _investigateResult = $"{result.LossPercent:0.#}% loss at {result.Timestamp:MMM dd HH:mm}";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
