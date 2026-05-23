@@ -713,14 +713,11 @@ from(bucket: ""{_longtermBucket}"")
 
     private static TimeSpan PickAggregateWindow(TimeSpan range)
     {
-        // Aim for ~120 points across the range — enough for a smooth chart, light enough
-        // that InfluxDB doesn't return tens of thousands of rows on long windows.
-        if (range <= TimeSpan.FromMinutes(15)) return TimeSpan.FromSeconds(5);
-        if (range <= TimeSpan.FromHours(1)) return TimeSpan.FromSeconds(30);
-        if (range <= TimeSpan.FromHours(6)) return TimeSpan.FromMinutes(3);
-        if (range <= TimeSpan.FromHours(24)) return TimeSpan.FromMinutes(15);
-        if (range <= TimeSpan.FromDays(7)) return TimeSpan.FromHours(1);
-        return TimeSpan.FromHours(6);
+        // Target ~150 data points regardless of range. Floor at 5 s so short ranges
+        // don't produce sub-second windows that InfluxDB can't aggregate meaningfully.
+        const int targetPoints = 150;
+        var windowSeconds = Math.Max(5, (int)(range.TotalSeconds / targetPoints));
+        return TimeSpan.FromSeconds(windowSeconds);
     }
 
     private static string ToFluxInstant(DateTime t) =>
