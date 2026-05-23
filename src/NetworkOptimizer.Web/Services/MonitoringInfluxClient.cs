@@ -487,21 +487,24 @@ from(bucket: ""{_bucket}"")
 
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
+        IReadOnlyList<string> wanIfNames,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
-        if (!IsConfigured) return Array.Empty<WanRatePoint>();
+        if (!IsConfigured || wanIfNames.Count == 0) return Array.Empty<WanRatePoint>();
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
         var mac = NormalizeMac(deviceMac);
+        var ifFilter = string.Join(" or ", wanIfNames.Select(n =>
+            $@"r.if_name == ""{SanitizeFluxString(n)}"""));
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r.direction == ""wan"")
+  |> filter(fn: (r) => {ifFilter})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> group(columns: [""_time"", ""_field""])

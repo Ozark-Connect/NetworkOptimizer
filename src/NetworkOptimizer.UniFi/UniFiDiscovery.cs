@@ -99,6 +99,10 @@ public class UniFiDiscovery
                 TxBytes = d.Stats?.TxBytes ?? 0,
                 RxBytes = d.Stats?.RxBytes ?? 0,
                 PortCount = d.PortTable?.Count ?? 0,
+                WanInterfaceNames = d.PortTable?
+                    .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName))
+                    .Select(p => p.IfName!)
+                    .ToList() ?? new(),
                 // Wi-Fi specific (APs only)
                 RadioTable = d.RadioTable,
                 RadioTableStats = d.RadioTableStats,
@@ -650,6 +654,8 @@ public class DiscoveredDevice
     public long TxBytes { get; set; }
     public long RxBytes { get; set; }
     public int PortCount { get; set; }
+
+    public List<string> WanInterfaceNames { get; set; } = new();
 
     // Wi-Fi specific (APs only)
     /// <summary>

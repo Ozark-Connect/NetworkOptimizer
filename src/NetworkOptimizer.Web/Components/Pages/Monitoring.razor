@@ -88,13 +88,13 @@ else
     {
         <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
-            @{ var gwStats = GetGatewayStats(); }
+            @{ var wanRates = GetWanRates(); }
             <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #3b82f6;">@FormatRate(gwStats?.RateOutBps)</div>
+                <div class="stat-value" style="color: #3b82f6;">@FormatRate(wanRates.download)</div>
                 <div class="stat-label">WAN Download</div>
             </div>
             <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #10b981;">@FormatRate(gwStats?.RateInBps)</div>
+                <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var gwLatency = GetGatewayLatency(); }
@@ -140,6 +140,7 @@ else
 
         <!-- Bottom stat cards: Gateway health + fabric load -->
         <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
+            @{ var gwStats = GetGatewayStats(); }
             <div class="monitoring-stat-card">
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
@@ -672,6 +673,7 @@ else
     private List<MonitoredSfp> _allSfps = new();
     private Dictionary<string, string> _deviceIpByMac = new();
     private string? _gatewayMac;
+    private List<string> _gatewayWanIfNames = new();
     private System.Threading.Timer? _liveRefreshTimer;
     private System.Threading.Timer? _dataRefreshTimer;
 
@@ -924,6 +926,7 @@ else
                         d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
                         || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
                     _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
+                    _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
                 }
             }
             catch { }
@@ -950,6 +953,22 @@ else
     }
 
     // ─── Stat card helpers ───
+
+    private (double download, double upload) GetWanRates()
+    {
+        if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
+        double totalDown = 0, totalUp = 0;
+        foreach (var ifName in _gatewayWanIfNames)
+        {
+            var rate = LiveStats.GetPortRate(_gatewayMac, ifName);
+            if (rate == null) continue;
+            // PortLiveRate convention: DownBps = SNMP rateOut (port TX), UpBps = SNMP rateIn (port RX).
+            // For WAN ports: RX = download from ISP, TX = upload to ISP.
+            totalDown += rate.UpBps;
+            totalUp += rate.DownBps;
+        }
+        return (totalDown, totalUp);
+    }
 
     private DeviceLiveStats? GetGatewayStats()
     {

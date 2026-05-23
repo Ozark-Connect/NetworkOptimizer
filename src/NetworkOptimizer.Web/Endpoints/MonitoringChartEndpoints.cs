@@ -92,20 +92,22 @@ public static class MonitoringChartEndpoints
             }
 
             string? gatewayMac = null;
+            List<string>? wanIfNames = null;
             try
             {
-                var devices = await connectionService.GetDiscoveredDevicesAsync();
+                var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
                 var gw = devices?.FirstOrDefault(d =>
                     d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
                     || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
                 gatewayMac = gw?.Mac;
+                wanIfNames = gw?.WanInterfaceNames;
             }
             catch { }
 
-            if (string.IsNullOrEmpty(gatewayMac))
+            if (string.IsNullOrEmpty(gatewayMac) || wanIfNames == null || wanIfNames.Count == 0)
                 return Results.Ok(new { download = Array.Empty<object>(), upload = Array.Empty<object>() });
 
-            var data = await influx.QueryGatewayWanRatesAsync(gatewayMac, queryFrom, queryTo, ct: ct);
+            var data = await influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct);
 
             return Results.Ok(new
             {
