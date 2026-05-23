@@ -14306,7 +14306,7 @@ a.affected-client:hover {
     justify-content: center;
     font-size: 0.8rem;
     padding: 0;
-    padding-bottom: 1px;
+    padding-bottom: 3px;
     flex-shrink: 0;
 }
 .lan-flow-map-scrubber-playpause:hover {

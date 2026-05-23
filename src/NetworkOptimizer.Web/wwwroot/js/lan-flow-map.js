@@ -1588,9 +1588,13 @@ export class LanFlowMap {
     }
 
     _notifyStatCards(at) {
-        if (!this._dotnetRef) return;
+        if (!this._dotnetRef) {
+            console.warn('[LanFlowMap] _notifyStatCards: dotnetRef is null');
+            return;
+        }
         const iso = at ? at.toISOString() : null;
-        this._dotnetRef.invokeMethodAsync('OnMapTimeChanged', iso).catch(() => {});
+        this._dotnetRef.invokeMethodAsync('OnMapTimeChanged', iso)
+            .catch(err => console.warn('[LanFlowMap] OnMapTimeChanged failed:', err));
     }
 
     _syncPlayPauseIcon() {
@@ -1616,11 +1620,13 @@ export class LanFlowMap {
         try {
             const url = `${this.apiBase}/history?at=${encodeURIComponent(at.toISOString())}`;
             const res = await fetch(url, { credentials: 'same-origin' });
-            if (!res.ok) return;
+            if (!res.ok) { console.warn('[LanFlowMap] _loadHistoric HTTP', res.status); return; }
             const update = await res.json();
+            const rateKeys = Object.keys(update.linkRates || {});
+            console.log(`[LanFlowMap] _loadHistoric: ${rateKeys.length} linkRates`);
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
-            // Surface but don't crash the rendering loop.
+            console.warn('[LanFlowMap] _loadHistoric error:', err);
         }
     }
 
