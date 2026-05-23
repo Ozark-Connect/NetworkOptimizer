@@ -811,41 +811,34 @@ from(bucket: ""{_longtermBucket}"")
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return null;
 
-        var targetTypes = new[] { "accessisp", "transit", "internetservice" };
         var rangeStart = after ?? DateTime.UtcNow.AddDays(-30);
         var rangeStop = before ?? DateTime.UtcNow;
         var sortDesc = !after.HasValue;
 
-        foreach (var typeTag in targetTypes)
-        {
-            var typeFilter = typeTag == "internetservice"
-                ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
-                : $@"r.target_type == ""{typeTag}""";
-
-            var flux = $@"
+        var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan"")
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
   |> filter(fn: (r) => r._value > 1.0)
   |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
   |> limit(n: 1)
 ";
-            await foreach (var record in QueryFluxAsync(flux, ct))
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var targetId = record.GetValueByKey("target_id") as string;
+            var targetType = record.GetValueByKey("target_type") as string ?? "internetservice";
+            var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
+            return new RecentLossEvent
             {
-                var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
-                var targetId = record.GetValueByKey("target_id") as string;
-                var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
-                return new RecentLossEvent
-                {
-                    Timestamp = time,
-                    TargetType = typeTag,
-                    TargetId = targetId,
-                    LossPercent = loss ?? 0
-                };
-            }
+                Timestamp = time,
+                TargetType = targetType,
+                TargetId = targetId,
+                LossPercent = loss ?? 0
+            };
         }
         return null;
     }
