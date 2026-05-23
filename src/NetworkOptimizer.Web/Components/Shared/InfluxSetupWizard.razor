@@ -183,6 +183,9 @@
     /// <summary>Invoked once provisioning succeeds, so the host page can refresh its state.</summary>
     [Parameter] public EventCallback OnProvisioned { get; set; }
 
+    /// <summary>Invoked when the user clicks Continue after seeing the success message.</summary>
+    [Parameter] public EventCallback OnDismissed { get; set; }
+
     private Step _state = Step.Detecting;
     private InfluxDbProvisioningService.UrlProbeResult? _probe;
     private string _manualUrl = string.Empty;
@@ -361,9 +364,7 @@
             await InfluxClient.CheckHealthAsync();
 
             _state = Step.Done;
-            // Don't fire OnProvisioned immediately, otherwise the host page hides the
-            // wizard and the user never sees the "InfluxDB ready" confirmation. The
-            // callback fires when the user clicks Continue.
+            if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
         }
         catch (Exception ex)
         {
@@ -379,7 +380,7 @@
 
     private async Task DismissAsync()
     {
-        if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
+        if (OnDismissed.HasDelegate) await OnDismissed.InvokeAsync();
     }
 
     private async Task<MonitoringSettings> GetOrCreateSettingsRowAsync()

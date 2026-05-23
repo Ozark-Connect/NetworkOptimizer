@@ -493,9 +493,9 @@ else
                 </div>
             }
 
-            @if (!_influxConfigured)
+            @if (!_influxConfigured || _showInfluxWizard)
             {
-                <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" />
+                <InfluxSetupWizard TitlePrefix="Set up " OnProvisioned="OnInfluxProvisioned" OnDismissed="() => { _showInfluxWizard = false; StateHasChanged(); }" />
             }
 
             <div class="card" style="@(!_influxConfigured ? "margin-top: 1.5rem;" : "")">
@@ -688,6 +688,7 @@ else
     private System.Threading.Timer? _testFeedbackTimer;
     private bool _monitoringEnabled;
     private bool _togglingEnable;
+    private bool _showInfluxWizard;
     private List<MonitoringTarget> _targets = new();
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
@@ -827,6 +828,7 @@ else
         _influxReachable = null;
         _influxError = null;
         _monitoringEnabled = false;
+        _showInfluxWizard = true;
         StateHasChanged();
     }
 
