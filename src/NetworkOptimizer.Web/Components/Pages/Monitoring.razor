@@ -947,7 +947,8 @@ else
     private List<MonitoredSfp> _allSfps = new();
     private Dictionary<string, string> _deviceIpByMac = new();
     private string? _gatewayMac;
-    private System.Threading.Timer? _refreshTimer;
+    private System.Threading.Timer? _liveRefreshTimer;
+    private System.Threading.Timer? _dataRefreshTimer;
 
     private string _activeTab = "setup";
 
@@ -1029,7 +1030,13 @@ else
 
         _activeTab = ResolveDefaultTab();
 
-        _refreshTimer = new System.Threading.Timer(async _ =>
+        _liveRefreshTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(StateHasChanged); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+
+        _dataRefreshTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
@@ -1039,8 +1046,8 @@ else
                     StateHasChanged();
                 });
             }
-            catch { /* prevent timer death */ }
-        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+            catch { }
+        }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
 
         if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
         {
@@ -1680,7 +1687,8 @@ else
     public void Dispose()
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
-        _refreshTimer?.Dispose();
+        _liveRefreshTimer?.Dispose();
+        _dataRefreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
         _sfpChartDebounce?.Dispose();
         if (_latencyChartsMounted)

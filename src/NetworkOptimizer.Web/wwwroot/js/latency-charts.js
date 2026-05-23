@@ -155,6 +155,7 @@ function renderBadges(container) {
             }
             updateChartVisibility();
             renderBadges(container);
+            if (lastFetchData) renderStatsTable(container, lastFetchData);
         });
     });
 }
@@ -254,7 +255,7 @@ function renderStatsTable(container, data) {
         return `<tr>
             <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(t.name)}</td>
             <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
-            <td>${fmtLoss(loss?.mean)}</td><td>${fmtLoss(loss?.max)}</td><td>${fmtLoss(loss?.p95)}</td><td>${fmtLoss(loss?.p99)}</td>
+            <td>${fmtLoss(loss?.mean)}</td><td>${fmtLoss(loss?.max)}</td>
         </tr>`;
     });
 
@@ -265,7 +266,7 @@ function renderStatsTable(container, data) {
             <thead><tr>
                 <th>Target</th>
                 <th>RTT Mean</th><th>Min</th><th>Max</th><th>P95</th><th>P99</th>
-                <th>Loss Mean</th><th>Max</th><th>P95</th><th>P99</th>
+                <th>Loss Mean</th><th>Loss Max</th>
             </tr></thead>
             <tbody>${rows.join('')}</tbody>
         </table>
