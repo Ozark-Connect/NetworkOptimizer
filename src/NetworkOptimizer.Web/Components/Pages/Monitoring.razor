@@ -556,7 +556,10 @@ else
                                 </button>
                                 @if (_influxReachable == false)
                                 {
-                                    <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="ResetInfluxSetup">
+                                    <a href="/settings#monitoring" class="btn btn-sm btn-secondary" style="margin-left: 0.5rem;">
+                                        Update Token
+                                    </a>
+                                    <button class="btn btn-sm btn-primary" style="margin-left: 0.25rem;" @onclick="ResetInfluxSetup">
                                         Re-run Setup
                                     </button>
                                 }
