@@ -1,4 +1,4 @@
-// SFP DDM time-series charts: RX/TX power (top), temperature/voltage (bottom).
+// SFP DDM time-series charts: RX/TX power, temperature, voltage.
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
@@ -10,7 +10,7 @@ const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 72
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
 let powerChart = null;
-let envChart = null;
+let tempChart = null;
 let pollTimer = null;
 let currentRangeHours = 24;
 let windowOffset = 0;
@@ -115,20 +115,13 @@ function renderBadges(container) {
 function updateVisibility() {
     moduleMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
-        for (const chart of [powerChart, envChart]) {
-            if (!chart) continue;
-            // Each module contributes 2 series to powerChart (RX, TX) and 2 to envChart (Temp, Voltage)
-            const rxName = `${m.label} RX`;
-            const txName = `${m.label} TX`;
-            const tempName = `${m.label} Temp`;
-            const voltName = `${m.label} Voltage`;
-            if (chart === powerChart) {
-                if (vis) { chart.showSeries(rxName); chart.showSeries(txName); }
-                else { chart.hideSeries(rxName); chart.hideSeries(txName); }
-            } else {
-                if (vis) { chart.showSeries(tempName); chart.showSeries(voltName); }
-                else { chart.hideSeries(tempName); chart.hideSeries(voltName); }
-            }
+        if (powerChart) {
+            if (vis) { powerChart.showSeries(`${m.label} RX`); powerChart.showSeries(`${m.label} TX`); }
+            else { powerChart.hideSeries(`${m.label} RX`); powerChart.hideSeries(`${m.label} TX`); }
+        }
+        if (tempChart) {
+            if (vis) tempChart.showSeries(m.label);
+            else tempChart.hideSeries(m.label);
         }
     });
 }
@@ -141,7 +134,7 @@ async function loadAndUpdate() {
     }));
 
     const powerSeries = [];
-    const envSeries = [];
+    const tSeries = [];
     data.modules.forEach((m, i) => {
         const color = PALETTE[i % PALETTE.length];
         const pts = m.data || [];
@@ -154,51 +147,21 @@ async function loadAndUpdate() {
             name: `${m.label} TX`,
             color: color,
             data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
-            // Dashed line for TX so RX and TX from the same module are visually distinct
         });
-        envSeries.push({
-            name: `${m.label} Temp`,
+        tSeries.push({
+            name: m.label,
             color: color,
             data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
         });
-        envSeries.push({
-            name: `${m.label} Voltage`,
-            color: color,
-            data: pts.filter(p => p.voltage != null).map(p => ({ x: new Date(p.time).getTime(), y: p.voltage })),
-        });
     });
 
-    // Build stroke dash array: solid for RX, dashed for TX (alternating per module)
     const powerDash = [];
     data.modules.forEach(() => { powerDash.push(0); powerDash.push(5); });
     if (powerChart) {
         powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
         powerChart.updateSeries(powerSeries, false);
     }
-
-    const envDash = [];
-    data.modules.forEach(() => { envDash.push(0); envDash.push(5); });
-    if (envChart) {
-        const tempNames = data.modules.map(m => `${m.label} Temp`);
-        const voltNames = data.modules.map(m => `${m.label} Voltage`);
-        envChart.updateOptions({
-            stroke: { curve: 'smooth', width: 2, dashArray: envDash },
-            yaxis: [
-                {
-                    title: { text: 'Temp (°C)', style: { color: '#9ca3af' } },
-                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + ' °C' : '' },
-                    seriesName: tempNames,
-                },
-                {
-                    opposite: true,
-                    title: { text: 'Voltage (V)', style: { color: '#9ca3af' } },
-                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(2) + ' V' : '' },
-                    seriesName: voltNames,
-                },
-            ],
-        }, false, false);
-        envChart.updateSeries(envSeries, false);
-    }
+    if (tempChart) tempChart.updateSeries(tSeries, false);
 
     updateVisibility();
     const container = document.getElementById(containerId);
@@ -308,49 +271,32 @@ export async function mount(elId) {
     if (!container) return;
 
     const powerEl = container.querySelector('.sfp-power-chart');
-    const envEl = container.querySelector('.sfp-env-chart');
-    if (!powerEl || !envEl) return;
+    const tempEl = container.querySelector('.sfp-temp-chart');
+    if (!powerEl || !tempEl) return;
 
     if (powerChart) { powerChart.destroy(); powerChart = null; }
-    if (envChart) { envChart.destroy(); envChart = null; }
+    if (tempChart) { tempChart.destroy(); tempChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
-        ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
+        ...baseOpts(200, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
         series: [], colors: PALETTE,
     });
-    envChart = new ApexCharts(envEl, {
-        ...baseOpts(220, '', v => v != null ? v.toFixed(1) : '', {
-            yaxis: [
-                {
-                    title: { text: 'Temp (°C)', style: { color: '#9ca3af' } },
-                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + ' °C' : '' },
-                    seriesName: [],
-                },
-                {
-                    opposite: true,
-                    title: { text: 'Voltage (V)', style: { color: '#9ca3af' } },
-                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(2) + ' V' : '' },
-                    seriesName: [],
-                },
-            ],
-        }),
+    tempChart = new ApexCharts(tempEl, {
+        ...baseOpts(160, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''),
         series: [], colors: PALETTE,
     });
 
     await powerChart.render();
-    await envChart.render();
+    await tempChart.render();
 
-    // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
     });
 
-    // Shift arrows
     container.querySelectorAll('[data-shift]').forEach(btn => {
         btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
     });
 
-    // Custom range popover
     const popover = container.querySelector('[data-popover="custom-range"]');
     const fromInput = container.querySelector('[data-input="from"]');
     const toInput = container.querySelector('[data-input="to"]');
@@ -406,7 +352,7 @@ export function unmount() {
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
-    if (envChart) { envChart.destroy(); envChart = null; }
+    if (tempChart) { tempChart.destroy(); tempChart = null; }
     containerId = null;
     moduleMeta = [];
     visibility = {};
