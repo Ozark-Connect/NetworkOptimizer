@@ -300,8 +300,8 @@ public class LanFlowMapService
         // Build the topology so we know the link / port IDs to look up.
         var snapshot = await BuildSnapshotAsync(ct);
 
-        var from = at - TimeSpan.FromSeconds(15);
-        var to = at + TimeSpan.FromSeconds(5);
+        var from = at - TimeSpan.FromSeconds(90);
+        var to = at + TimeSpan.FromSeconds(30);
         var byMac = snapshot.Nodes
             .Where(n => !string.IsNullOrEmpty(n.Mac))
             .GroupBy(n => n.Mac!)
