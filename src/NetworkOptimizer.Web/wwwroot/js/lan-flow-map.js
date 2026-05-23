@@ -285,6 +285,9 @@ export class LanFlowMap {
                 <polyline points="20 14 14 14 14 20"></polyline><polyline points="10 20 10 14 4 14"></polyline></svg>`;
             this._panels.fullscreenBtn.setAttribute('data-tooltip', 'Exit fullscreen (Esc)');
         }
+        document.dispatchEvent(new CustomEvent('lanflowmap-fullscreen', {
+            detail: { fullscreen: !isFs }
+        }));
         setTimeout(() => this._handleResize(), 50);
     }
 

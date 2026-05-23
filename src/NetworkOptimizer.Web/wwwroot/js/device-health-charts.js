@@ -24,6 +24,7 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isVisible = true;
+let fsHandler = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -330,6 +331,14 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
+    fsHandler = (e) => {
+        const wasVisible = isVisible;
+        isVisible = !e.detail.fullscreen;
+        if (isVisible && !wasVisible) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible && wasVisible) { stopPoll(); }
+    };
+    document.addEventListener('lanflowmap-fullscreen', fsHandler);
+
     await loadAndUpdate();
     startPoll();
 }
@@ -337,6 +346,7 @@ export async function mount(elId) {
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
+    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
