@@ -25,6 +25,10 @@ let visibility = {};
 let targetMeta = [];
 let containerId = null;
 let fetchController = null;
+let visibilityObserver = null;
+let isInViewport = true;
+let isMapFullscreen = false;
+let fsHandler = null;
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -201,10 +205,12 @@ async function loadAndUpdate() {
     if (container) renderBadges(container);
 }
 
+function isVisible() { return isInViewport && !isMapFullscreen; }
+
 function startPoll() {
     stopPoll();
-    // Don't auto-poll when viewing historical (shifted or custom) windows
     if (windowOffset !== 0 || isCustomRange) return;
+    if (!isVisible()) return;
     const interval = POLL_INTERVALS[currentRangeHours] || 30000;
     pollTimer = setInterval(loadAndUpdate, interval);
 }
@@ -406,12 +412,30 @@ export async function mount(elId) {
         startPoll();
     });
 
+    visibilityObserver = new IntersectionObserver(([entry]) => {
+        const was = isVisible();
+        isInViewport = entry.isIntersecting;
+        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible() && was) { stopPoll(); }
+    }, { threshold: 0 });
+    visibilityObserver.observe(container);
+
+    fsHandler = (e) => {
+        const was = isVisible();
+        isMapFullscreen = e.detail.fullscreen;
+        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible() && was) { stopPoll(); }
+    };
+    document.addEventListener('lanflowmap-fullscreen', fsHandler);
+
     await loadAndUpdate();
     startPoll();
 }
 
 export function unmount() {
     stopPoll();
+    if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
+    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
@@ -422,4 +446,6 @@ export function unmount() {
     isCustomRange = false;
     customFrom = null;
     customTo = null;
+    isInViewport = true;
+    isMapFullscreen = false;
 }

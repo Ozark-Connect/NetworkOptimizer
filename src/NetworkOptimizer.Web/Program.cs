@@ -1487,6 +1487,7 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 LanFlowMapEndpoints.Map(app);
 MonitoringChartEndpoints.Map(app);
 DeviceHealthChartEndpoints.Map(app);
+SfpChartEndpoints.Map(app);
 
 app.Run();
 

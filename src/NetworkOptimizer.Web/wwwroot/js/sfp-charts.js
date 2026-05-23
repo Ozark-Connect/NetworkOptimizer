@@ -1,26 +1,25 @@
-// TODO: Extract time-range controls (presets, shift arrows, custom range popover,
-// filter badges, poll interval scaling) into a shared module so latency-charts,
-// device-health-charts, and future chart sets share one implementation.
+// SFP DDM time-series charts: RX/TX power, temperature, voltage.
+// Same control pattern as latency-charts.js and device-health-charts.js.
+
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
 const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
-const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
+const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
+let powerChart = null;
 let tempChart = null;
-let cpuChart = null;
-let memChart = null;
 let pollTimer = null;
-let currentRangeHours = 1;
+let currentRangeHours = 24;
 let windowOffset = 0;
 let isCustomRange = false;
 let customFrom = null;
 let customTo = null;
 let containerId = null;
 let fetchController = null;
-let deviceMeta = [];
+let moduleMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
@@ -48,7 +47,6 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             },
         },
         yaxis: {
-            min: 0,
             title: { text: yTitle, style: { color: '#9ca3af' } },
             labels: { style: { colors: '#9ca3af' }, formatter: yFormatter },
         },
@@ -80,7 +78,7 @@ async function fetchData() {
     if (fetchController) fetchController.abort();
     fetchController = new AbortController();
     try {
-        const resp = await fetch(`/api/monitoring/device-health-chart?${buildQueryParams()}`,
+        const resp = await fetch(`/api/monitoring/sfp-chart?${buildQueryParams()}`,
             { signal: fetchController.signal });
         if (!resp.ok) return null;
         return await resp.json();
@@ -91,25 +89,25 @@ async function fetchData() {
 }
 
 function renderBadges(container) {
-    const el = container.querySelector('.health-filter-badges');
+    const el = container.querySelector('.sfp-filter-badges');
     if (!el) return;
-    if (deviceMeta.length <= 1) { el.innerHTML = ''; return; }
-    el.innerHTML = deviceMeta.map(d => {
-        const vis = visibility[d.mac] !== false;
-        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-mac="${d.mac}">
-            <span class="wan-badge-dot" style="background-color: ${d.color}"></span>
-            <span>${escapeHtml(d.name)}</span>
+    if (moduleMeta.length <= 1) { el.innerHTML = ''; return; }
+    el.innerHTML = moduleMeta.map(m => {
+        const vis = visibility[m.id] !== false;
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-sfp="${m.id}">
+            <span class="wan-badge-dot" style="background-color: ${m.color}"></span>
+            <span>${escapeHtml(m.label)}</span>
         </button>`;
     }).join('');
     el.querySelectorAll('button').forEach(btn => {
         btn.addEventListener('click', () => {
-            const mac = btn.dataset.mac;
-            const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
-            const onlyThis = visibility[mac] !== false
-                && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
+            const id = btn.dataset.sfp;
+            const allVis = moduleMeta.every(m => visibility[m.id] !== false);
+            const onlyThis = visibility[id] !== false
+                && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
             if (onlyThis) { visibility = {}; }
-            else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
-            else { visibility[mac] = visibility[mac] === false; }
+            else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
+            else { visibility[id] = visibility[id] === false; }
             updateVisibility();
             renderBadges(container);
         });
@@ -117,32 +115,56 @@ function renderBadges(container) {
 }
 
 function updateVisibility() {
-    deviceMeta.forEach(d => {
-        const vis = visibility[d.mac] !== false;
-        for (const chart of [tempChart, cpuChart, memChart]) {
-            if (!chart) continue;
-            if (vis) chart.showSeries(d.name);
-            else chart.hideSeries(d.name);
+    moduleMeta.forEach(m => {
+        const vis = visibility[m.id] !== false;
+        if (powerChart) {
+            if (vis) { powerChart.showSeries(`${m.label} RX`); powerChart.showSeries(`${m.label} TX`); }
+            else { powerChart.hideSeries(`${m.label} RX`); powerChart.hideSeries(`${m.label} TX`); }
+        }
+        if (tempChart) {
+            if (vis) tempChart.showSeries(m.label);
+            else tempChart.hideSeries(m.label);
         }
     });
 }
 
 async function loadAndUpdate() {
     const data = await fetchData();
-    if (!data?.devices) return;
-    deviceMeta = data.devices.map((d, i) => ({
-        name: d.name, mac: d.mac, color: PALETTE[i % PALETTE.length],
+    if (!data?.modules) return;
+    moduleMeta = data.modules.map((m, i) => ({
+        id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
     }));
-    const makeSeries = (field) => data.devices.map((d, i) => ({
-        name: d.name,
-        color: PALETTE[i % PALETTE.length],
-        data: (d.data || []).filter(p => p[field] != null).map(p => ({
-            x: new Date(p.time).getTime(), y: p[field]
-        })),
-    }));
-    if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
-    if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
-    if (memChart) memChart.updateSeries(makeSeries('mem'), false);
+
+    const powerSeries = [];
+    const tSeries = [];
+    data.modules.forEach((m, i) => {
+        const color = PALETTE[i % PALETTE.length];
+        const pts = m.data || [];
+        powerSeries.push({
+            name: `${m.label} RX`,
+            color: color,
+            data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
+        });
+        powerSeries.push({
+            name: `${m.label} TX`,
+            color: color,
+            data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
+        });
+        tSeries.push({
+            name: m.label,
+            color: color,
+            data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
+        });
+    });
+
+    const powerDash = [];
+    data.modules.forEach(() => { powerDash.push(0); powerDash.push(5); });
+    if (powerChart) {
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
+        powerChart.updateSeries(powerSeries, false);
+    }
+    if (tempChart) tempChart.updateSeries(tSeries, false);
+
     updateVisibility();
     const container = document.getElementById(containerId);
     if (container) renderBadges(container);
@@ -154,7 +176,7 @@ function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
     if (!isVisible()) return;
-    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 30000);
+    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 60000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
@@ -252,42 +274,33 @@ export async function mount(elId) {
     const container = document.getElementById(elId);
     if (!container) return;
 
-    const tempEl = container.querySelector('.health-temp-chart');
-    const cpuEl = container.querySelector('.health-cpu-chart');
-    const memEl = container.querySelector('.health-mem-chart');
-    if (!tempEl || !cpuEl || !memEl) return;
+    const powerEl = container.querySelector('.sfp-power-chart');
+    const tempEl = container.querySelector('.sfp-temp-chart');
+    if (!powerEl || !tempEl) return;
 
+    if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
-    if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
-    if (memChart) { memChart.destroy(); memChart = null; }
 
-    tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
-    cpuChart = new ApexCharts(cpuEl, {
-        ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
-        yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
+    powerChart = new ApexCharts(powerEl, {
+        ...baseOpts(200, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
         series: [], colors: PALETTE,
     });
-    memChart = new ApexCharts(memEl, {
-        ...baseOpts(200, 'Memory %', v => v != null ? v.toFixed(0) + '%' : ''),
-        yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'Memory %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
+    tempChart = new ApexCharts(tempEl, {
+        ...baseOpts(160, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''),
         series: [], colors: PALETTE,
     });
 
+    await powerChart.render();
     await tempChart.render();
-    await cpuChart.render();
-    await memChart.render();
 
-    // Preset range buttons
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
     });
 
-    // Shift arrows
     container.querySelectorAll('[data-shift]').forEach(btn => {
         btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
     });
 
-    // Custom range popover
     const popover = container.querySelector('[data-popover="custom-range"]');
     const fromInput = container.querySelector('[data-input="from"]');
     const toInput = container.querySelector('[data-input="to"]');
@@ -351,11 +364,10 @@ export function unmount() {
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
+    if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
-    if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
-    if (memChart) { memChart.destroy(); memChart = null; }
     containerId = null;
-    deviceMeta = [];
+    moduleMeta = [];
     visibility = {};
     windowOffset = 0;
     isCustomRange = false;

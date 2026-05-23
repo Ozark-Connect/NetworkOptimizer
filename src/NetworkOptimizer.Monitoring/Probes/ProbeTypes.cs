@@ -76,7 +76,7 @@ public record PingProbeResult
     public string? RawOutput { get; init; }
 
     public bool Success => Received > 0;
-    public double LossPercent => Sent == 0 ? 100.0 : (1.0 - (double)Received / Sent) * 100.0;
+    public double LossPercent => Sent == 0 ? 100.0 : Math.Max(0.0, (1.0 - (double)Received / Sent) * 100.0);
 }
 
 /// <summary>One hop on a traceroute. Address may be null for non-responding hops.</summary>

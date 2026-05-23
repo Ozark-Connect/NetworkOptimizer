@@ -237,7 +237,7 @@
                 if (el.hasAttribute('data-tooltip-follow')) {
                     opts.followCursor = true;
                 }
-                if (el.hasAttribute('data-tooltip-hover-only')) {
+                if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                 }
                 tippy(el, opts);
@@ -290,7 +290,7 @@
                 if (el.hasAttribute('data-tooltip-follow')) {
                     opts.followCursor = true;
                 }
-                if (el.hasAttribute('data-tooltip-hover-only')) {
+                if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                 }
                 if (el._tippy) {

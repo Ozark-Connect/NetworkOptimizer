@@ -235,70 +235,6 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         </div>
     </div>
 
-    @if (_monitoringEnabled && _monitoredSfps.Count > 0)
-    {
-        <div class="card" style="margin-top: 1.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">Optical (SFP / ONT)</h2>
-                <span class="status-badge status-active">@_monitoredSfps.Count modules</span>
-            </div>
-            <div class="card-body">
-                <p class="section-description">
-                    GPON / XGS-PON ONTs and other SFP modules detected on switch / gateway
-                    ports. RX optical power should sit in a healthy range (typically
-                    -3 to -25 dBm for single-mode); values outside that range need
-                    attention.
-                </p>
-                <div class="table-responsive">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Port</th>
-                            <th>Module</th>
-                            <th>RX power</th>
-                            <th>TX power</th>
-                            <th>Temp</th>
-                            <th>Voltage</th>
-                            <th>Bias</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var sfp in _monitoredSfps.OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName))
-                        {
-                            var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
-                            var deviceName = ResolveDeviceName(sfp.DeviceMac);
-                            var portLabel = !string.IsNullOrEmpty(sfp.FriendlyName) ? sfp.FriendlyName : $"port {sfp.PortName}";
-                            <tr>
-                                <td>
-                                    <div class="sfp-port-cell">
-                                        <strong>@deviceName</strong>
-                                        <span class="text-muted">@portLabel</span>
-                                        @if (sfp.IsPon)
-                                        {
-                                            <span class="status-badge status-active">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
-                                        }
-                                    </div>
-                                </td>
-                                <td>
-                                    @if (!string.IsNullOrEmpty(sfp.SfpPart))
-                                    { <code>@sfp.SfpPart</code> }
-                                    else
-                                    { <span class="text-muted">-</span> }
-                                </td>
-                                <td class="@RxClass(stats?.RxPowerDbm)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
-                                <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
-                                <td>@FormatOptical(stats?.TemperatureC, "°C")</td>
-                                <td>@FormatOptical(stats?.VoltageV, "V")</td>
-                                <td>@FormatOptical(stats?.BiasMa, "mA")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-                </div>
-            </div>
-        </div>
-    }
-
     @if (_monitoringEnabled && _influxReachable == true)
     {
         <!-- 3D LAN flow map (spec 5.7). Centerpiece of the monitoring view. -->
@@ -423,6 +359,181 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
             </div>
         </div>
 
+        @if (_allSfps.Count > 0)
+        {
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header card-header-collapsible" @onclick="ToggleSfpCollapse">
+                <h2 class="card-title">Optical (SFP / ONT)</h2>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="status-badge status-active" @onclick:stopPropagation="true">@_monitoredSfps.Count monitored</span>
+                    <span class="issue-type-chevron">@(_sfpCollapsed ? "▼" : "▲")</span>
+                </div>
+            </div>
+            <div class="expand-wrapper @(!_sfpCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+            <div class="card-body">
+                <p class="section-description">
+                    GPON / XGS-PON ONTs and other SFP modules detected on switch / gateway
+                    ports. For PON modules, RX power typically sits between -15 and -25 dBm;
+                    values weaker than -27 dBm may indicate a failing link.
+                </p>
+                <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Port</th>
+                            <th>Module</th>
+                            <th>Type</th>
+                            <th>RX power</th>
+                            <th>TX power</th>
+                            <th>Temp</th>
+                            <th>Voltage</th>
+                            <th>Bias</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sfp in SfpPage())
+                        {
+                            var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
+                            var deviceName = ResolveDeviceName(sfp.DeviceMac);
+                            var portLabel = !string.IsNullOrEmpty(sfp.FriendlyName) ? sfp.FriendlyName : $"port {sfp.PortName}";
+                            <tr style="@(sfp.IsMonitoredOnt ? "" : "opacity: 0.6;")">
+                                <td>
+                                    <div class="sfp-port-cell">
+                                        <strong>@deviceName</strong>
+                                        <span class="text-muted">@portLabel</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(sfp.SfpPart))
+                                    { <code>@sfp.SfpPart</code> }
+                                    else
+                                    { <span class="text-muted">-</span> }
+                                </td>
+                                <td>
+                                    @if (sfp.IsPon)
+                                    {
+                                        <span class="status-badge status-active">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-connected">SFP</span>
+                                    }
+                                </td>
+                                <td class="@RxClass(sfp.IsPon ? stats?.RxPowerDbm : null)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
+                                <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
+                                <td>@FormatOptical(stats?.TemperatureC, "°C")</td>
+                                <td>@FormatOptical(stats?.VoltageV, "V")</td>
+                                <td>@FormatOptical(stats?.BiasMa, "mA")</td>
+                                <td style="white-space: nowrap;">
+                                    @if (sfp.IsMonitoredOnt)
+                                    {
+                                        <button class="btn btn-sm btn-secondary"
+                                                @onclick="() => ToggleSfpMonitoringAsync(sfp.Id, false)"
+                                                data-tooltip="Stop monitoring this SFP">
+                                            Unmonitor
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-primary"
+                                                @onclick="() => ToggleSfpMonitoringAsync(sfp.Id, true)"
+                                                data-tooltip="Add this SFP to monitoring">
+                                            Monitor
+                                        </button>
+                                    }
+                                    @if (!sfp.IsPon)
+                                    {
+                                        <button class="btn btn-sm btn-secondary"
+                                                @onclick="() => ToggleSfpPonAsync(sfp.Id, true)"
+                                                data-tooltip="Mark as PON module"
+                                                style="margin-left: 0.25rem;">
+                                            Set PON
+                                        </button>
+                                    }
+                                    else if (!IsPonAutoDetected(sfp))
+                                    {
+                                        <button class="btn btn-sm btn-secondary"
+                                                @onclick="() => ToggleSfpPonAsync(sfp.Id, false)"
+                                                data-tooltip="Mark as regular SFP"
+                                                style="margin-left: 0.25rem;">
+                                            Set SFP
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+                @if (SfpTotalPages() > 1)
+                {
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sfpPage == 0)" @onclick="() => { _sfpPage--; StateHasChanged(); }">Prev</button>
+                        <span class="text-muted" style="font-size: 0.85rem;">@(_sfpPage + 1) / @SfpTotalPages()</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sfpPage >= SfpTotalPages() - 1)" @onclick="() => { _sfpPage++; StateHasChanged(); }">Next</button>
+                    </div>
+                }
+            </div>
+                </div>
+            </div>
+        </div>
+        }
+
+        @if (_monitoredSfps.Count > 0)
+        {
+        <!-- SFP DDM time-series: RX/TX power + temperature/voltage -->
+        <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <h2 class="card-title">SFP Diagnostics</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                    <div class="time-range-selector" style="position: relative;">
+                        <button class="time-btn" data-range="0">15m</button>
+                        <button class="time-btn" data-range="1">1h</button>
+                        <button class="time-btn" data-range="6">6h</button>
+                        <button class="time-btn active" data-range="24">24h</button>
+                        <button class="time-btn" data-range="168">7d</button>
+                        <button class="time-btn" data-range="720">30d</button>
+                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </button>
+                        <div class="custom-range-popover" data-popover="custom-range">
+                            <div class="custom-range-form">
+                                <div class="custom-range-title">Custom Range</div>
+                                <div class="custom-range-field">
+                                    <label>From</label>
+                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                </div>
+                                <div class="custom-range-field">
+                                    <label>To</label>
+                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                </div>
+                                <div class="custom-range-actions">
+                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="sfp-filter-badges wan-filter-badges"></div>
+                <div class="chart-card">
+                    <div class="chart-header"><h3 class="chart-title">RX / TX Power</h3></div>
+                    <div class="sfp-power-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Temperature</h3></div>
+                    <div class="sfp-temp-chart"></div>
+                </div>
+            </div>
+        </div>
+        }
+
         <!-- Upstream tracer wizard (Build #10). User-initiated discovery of the access
              ISP path + transit ASN clouds; output populates AccessIsp / Transit
              MonitoringTarget rows for the agent's latency tier to probe. -->
@@ -487,7 +598,20 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                                     </td>
                                     <td>@t.Name</td>
                                     <td><code>@t.Address</code></td>
-                                    <td>@t.PollIntervalSeconds s</td>
+                                    <td>
+                                        @{ var currentInterval = t.PollIntervalSeconds; }
+                                        <select class="cadence-select"
+                                                @onchange="(e) => UpdateTargetIntervalAsync(t.Id, e)">
+                                            <option value="2" selected="@(currentInterval == 2)">2 s</option>
+                                            <option value="5" selected="@(currentInterval == 5)">5 s</option>
+                                            <option value="10" selected="@(currentInterval == 10)">10 s</option>
+                                            <option value="15" selected="@(currentInterval == 15)">15 s</option>
+                                            <option value="30" selected="@(currentInterval == 30)">30 s</option>
+                                            <option value="60" selected="@(currentInterval == 60)">60 s</option>
+                                            <option value="120" selected="@(currentInterval == 120)">2 m</option>
+                                            <option value="300" selected="@(currentInterval == 300)">5 m</option>
+                                        </select>
+                                    </td>
                                     <td>
                                         @if (!t.Enabled)
                                         {
@@ -545,6 +669,71 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         probing without losing the row's history.
                     </p>
                 }
+
+                @if (_showAddTarget)
+                {
+                    <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
+                            <div>
+                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
+                                <input type="text" class="custom-range-input" @bind="_newTargetName" placeholder="My ISP gateway" style="width: 160px;" />
+                            </div>
+                            <div>
+                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Address</label>
+                                <input type="text" class="custom-range-input" @bind="_newTargetAddress" placeholder="192.168.1.1 or hostname" style="width: 180px;" />
+                            </div>
+                            <div>
+                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Type</label>
+                                <select class="cadence-select" style="width: 130px;" @bind="_newTargetType">
+                                    <option value="Custom">Custom</option>
+                                    <option value="InternetService">Internet</option>
+                                    <option value="AccessIsp">ISP</option>
+                                    <option value="Transit">Transit</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe</label>
+                                <select class="cadence-select" style="width: 100px;" @bind="_newTargetProbeMode">
+                                    <option value="Icmp">ICMP</option>
+                                    <option value="Tcp">TCP</option>
+                                </select>
+                            </div>
+                            @if (_newTargetProbeMode == "Tcp")
+                            {
+                                <div>
+                                    <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Port</label>
+                                    <input type="number" class="custom-range-input" @bind="_newTargetPort" placeholder="443" style="width: 70px;" />
+                                </div>
+                            }
+                            <div>
+                                <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Interval</label>
+                                <select class="cadence-select" style="width: 80px;" @bind="_newTargetInterval">
+                                    <option value="5">5 s</option>
+                                    <option value="10">10 s</option>
+                                    <option value="15">15 s</option>
+                                    <option value="30">30 s</option>
+                                    <option value="60">60 s</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-sm btn-primary" @onclick="AddTargetAsync" disabled="@_addingTarget">
+                                    @if (_addingTarget) { <span class="spinner-sm"></span> } else { <span>Add</span> }
+                                </button>
+                                <button class="btn btn-sm btn-secondary" @onclick="() => _showAddTarget = false">Cancel</button>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_addTargetError))
+                        {
+                            <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addTargetError</p>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="() => _showAddTarget = true">
+                        + Add target
+                    </button>
+                }
             </div>
                 </div>
             </div>
@@ -589,6 +778,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _togglingEnable;
     private List<MonitoringTarget> _targets = new();
     private List<MonitoredSfp> _monitoredSfps = new();
+    private List<MonitoredSfp> _allSfps = new();
+    private Dictionary<string, string> _deviceIpByMac = new();
     private System.Threading.Timer? _refreshTimer;
 
     // Collapse state. Status auto-collapses when fully healthy (computed below);
@@ -596,6 +787,22 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _statusCollapsed = false;
     private bool _targetsCollapsed = true;
     private bool _userToggledStatus = false; // once the user clicks, stop auto-collapsing
+
+    // SFP collapse + pagination
+    private bool _sfpCollapsed = false;
+    private int _sfpPage = 0;
+    private const int SfpPageSize = 10;
+
+    // Add-target form state
+    private bool _showAddTarget;
+    private bool _addingTarget;
+    private string _newTargetName = "";
+    private string _newTargetAddress = "";
+    private string _newTargetType = "Custom";
+    private string _newTargetProbeMode = "Icmp";
+    private int _newTargetPort = 443;
+    private int _newTargetInterval = 10;
+    private string? _addTargetError;
 
     // 3D map JS module handle. Mounted after first render (canvas must exist in DOM).
     private bool _mapMounted = false;
@@ -610,19 +817,27 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         await LoadTargetsAsync();
 
         // Refresh the targets list periodically so LastVerified updates show movement
-        // without requiring a full page reload.
+        // without requiring a full page reload. Uses a longer interval (15 s) and skips
+        // StateHasChanged when the targets card is collapsed, because Blazor re-renders
+        // cause the 3D map's WebGL canvas to stutter.
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
             try
             {
                 await InvokeAsync(async () =>
                 {
+                    var oldTargetCount = _targets.Count;
+                    var oldSfpCount = _allSfps.Count;
                     await LoadTargetsAsync();
-                    StateHasChanged();
+                    var changed = _targets.Count != oldTargetCount
+                        || _allSfps.Count != oldSfpCount
+                        || !_targetsCollapsed;
+                    if (changed)
+                        StateHasChanged();
                 });
             }
             catch { /* prevent timer death */ }
-        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
 
         if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
         {
@@ -782,9 +997,23 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             await using var db = await DbFactory.CreateDbContextAsync();
             _targets = await db.MonitoringTargets.AsNoTracking()
                 .OrderBy(t => t.TargetType).ThenBy(t => t.Name).ToListAsync();
-            _monitoredSfps = await db.MonitoredSfps.AsNoTracking()
-                .Where(s => s.IsMonitoredOnt)
-                .ToListAsync();
+            _allSfps = await db.MonitoredSfps.AsNoTracking().ToListAsync();
+            _monitoredSfps = _allSfps.Where(s => s.IsMonitoredOnt).ToList();
+
+            try
+            {
+                var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+                if (devices != null)
+                {
+                    _deviceIpByMac = devices
+                        .Where(d => !string.IsNullOrEmpty(d.Mac))
+                        .ToDictionary(
+                            d => d.Mac!.Replace("-", ":").ToLowerInvariant(),
+                            d => d.DisplayIpAddress ?? "",
+                            StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            catch { /* best effort - fall back to fabric target IPs */ }
 
             // Auto-collapse the Monitoring Status card once everything is healthy. The
             // user is here to see live data, not the green checkmarks. Once they've
@@ -801,6 +1030,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         catch
         {
             _targets = new List<MonitoringTarget>();
+            _allSfps = new List<MonitoredSfp>();
             _monitoredSfps = new List<MonitoredSfp>();
         }
     }
@@ -817,6 +1047,54 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         _targetsCollapsed = !_targetsCollapsed;
         StateHasChanged();
     }
+
+    private void ToggleSfpCollapse()
+    {
+        _sfpCollapsed = !_sfpCollapsed;
+        StateHasChanged();
+    }
+
+    private string ResolveDeviceIp(string deviceMac)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return "255.255.255.255";
+        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        if (_deviceIpByMac.TryGetValue(normalized, out var ip) && !string.IsNullOrEmpty(ip))
+            return ip;
+        var target = _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
+        return target?.Address ?? "255.255.255.255";
+    }
+
+    private List<MonitoredSfp> SortedSfps()
+    {
+        return _allSfps
+            .OrderBy(s => ParseIpForSorting(ResolveDeviceIp(s.DeviceMac)))
+            .ThenBy(s => int.TryParse(s.PortName, out var p) ? p : 9999)
+            .ToList();
+    }
+
+    private static long ParseIpForSorting(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip)) return long.MaxValue;
+        var parts = ip.Split('.');
+        if (parts.Length != 4) return long.MaxValue;
+        long result = 0;
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, out var octet)) return long.MaxValue;
+            result = (result << 8) | (uint)(octet & 0xFF);
+        }
+        return result;
+    }
+
+    private IEnumerable<MonitoredSfp> SfpPage()
+    {
+        return SortedSfps().Skip(_sfpPage * SfpPageSize).Take(SfpPageSize);
+    }
+
+    private int SfpTotalPages() => Math.Max(1, (int)Math.Ceiling((double)_allSfps.Count / SfpPageSize));
 
     private async Task ToggleTargetAsync(int targetId)
     {
@@ -848,21 +1126,168 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         catch { /* best effort */ }
     }
 
+    private async Task UpdateTargetIntervalAsync(int targetId, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var interval)) return;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            row.PollIntervalSeconds = interval;
+            await db.SaveChangesAsync();
+            await LoadTargetsAsync();
+            StateHasChanged();
+        }
+        catch { /* best effort */ }
+    }
+
+    private async Task AddTargetAsync()
+    {
+        _addTargetError = null;
+        var name = _newTargetName.Trim();
+        var address = _newTargetAddress.Trim();
+        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(address))
+        {
+            _addTargetError = "Name and address are required.";
+            return;
+        }
+        if (name.Length > 200 || address.Length > 200)
+        {
+            _addTargetError = "Name and address must be under 200 characters.";
+            return;
+        }
+        if (!System.Net.IPAddress.TryParse(address, out _)
+            && !System.Text.RegularExpressions.Regex.IsMatch(address, @"^[a-zA-Z0-9][a-zA-Z0-9.\-]*$"))
+        {
+            _addTargetError = "Address must be a valid IP or hostname.";
+            return;
+        }
+
+        _addingTarget = true;
+        StateHasChanged();
+        try
+        {
+            var targetType = Enum.TryParse<MonitoringTargetType>(_newTargetType, out var tt) ? tt : MonitoringTargetType.Custom;
+            var probeMode = _newTargetProbeMode == "Tcp" ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp : NetworkOptimizer.Core.Enums.ProbeMode.Icmp;
+            var targetId = $"custom-{Guid.NewGuid():N}"[..24];
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.MonitoringTargets.Add(new MonitoringTarget
+            {
+                TargetId = targetId,
+                Name = name,
+                Address = address,
+                TargetType = targetType,
+                ProbeMode = probeMode,
+                Port = probeMode == NetworkOptimizer.Core.Enums.ProbeMode.Tcp ? _newTargetPort : null,
+                PollIntervalSeconds = _newTargetInterval,
+                PingCount = 5,
+                Enabled = true,
+                AutoDiscovered = false,
+                VantagePoint = "server",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+
+            _showAddTarget = false;
+            _newTargetName = "";
+            _newTargetAddress = "";
+            _newTargetType = "Custom";
+            _newTargetProbeMode = "Icmp";
+            _newTargetPort = 443;
+            _newTargetInterval = 10;
+            await LoadTargetsAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _addTargetError = $"Failed to add target: {ex.Message}";
+        }
+        finally
+        {
+            _addingTarget = false;
+        }
+    }
+
+    private System.Threading.Timer? _sfpChartDebounce;
+
+    private async Task ToggleSfpMonitoringAsync(int sfpId, bool monitored)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoredSfps.FindAsync(sfpId);
+            if (row == null) return;
+            row.IsMonitoredOnt = monitored;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            await LoadTargetsAsync();
+            StateHasChanged();
+            DebounceSfpChartRemount();
+        }
+        catch { /* best effort */ }
+    }
+
+    private async Task ToggleSfpPonAsync(int sfpId, bool isPon)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MonitoredSfps.FindAsync(sfpId);
+            if (row == null) return;
+            row.IsPon = isPon;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            await LoadTargetsAsync();
+            StateHasChanged();
+            DebounceSfpChartRemount();
+        }
+        catch { /* best effort */ }
+    }
+
+    private void DebounceSfpChartRemount()
+    {
+        _sfpChartDebounce?.Dispose();
+        _sfpChartDebounce = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_sfpChartsMounted)
+                    {
+                        try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
+                        catch { }
+                        _sfpChartsMounted = false;
+                    }
+                    StateHasChanged();
+                });
+            }
+            catch { }
+        }, null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
+    }
+
+    private static bool IsPonAutoDetected(MonitoredSfp sfp)
+    {
+        var variant = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfp.SfpPart, sfp.SfpVendor);
+        return variant != "PON";
+    }
+
     private static string FormatOptical(double? value, string unit)
     {
         if (!value.HasValue) return "-";
         return $"{value.Value:0.##} {unit}";
     }
 
-    // Single-mode SFP/PON optical receive should land roughly between -3 and -25 dBm.
-    // Outside that range, the link is either over-driven (too strong, will cause errors)
-    // or under-driven (failing). Color-code the cell so problems jump out.
+    // PON RX power: -8 to -28 dBm is the ITU-T spec receiver range. Typical
+    // operating range is -15 to -25 dBm. Color-code so problems jump out.
     private static string RxClass(double? rxDbm)
     {
         if (!rxDbm.HasValue) return string.Empty;
         var v = rxDbm.Value;
-        if (v >= -27 && v <= -3) return "";              // healthy range
-        if (v >= -30 && v <= -1) return "signal-fair";
+        if (v >= -25 && v <= -8) return "";              // healthy
+        if (v >= -28 && v <= -5) return "signal-fair";   // marginal
         return "signal-poor";
     }
 
@@ -906,6 +1331,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
 
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
+    private bool _sfpChartsMounted;
 
     private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
 
@@ -933,6 +1359,24 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
                     $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); }})();");
             }
             catch { _healthChartsMounted = false; }
+        }
+
+        if (_monitoringEnabled && _influxReachable == true && _monitoredSfps.Count > 0 && !_sfpChartsMounted)
+        {
+            _sfpChartsMounted = true;
+            try
+            {
+                var sfpUrl = VersionedJs("/js/sfp-charts.js");
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); }})();");
+            }
+            catch { _sfpChartsMounted = false; }
+        }
+        else if (_sfpChartsMounted && (_monitoredSfps.Count == 0 || !_monitoringEnabled || _influxReachable != true))
+        {
+            _sfpChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
+            catch { }
         }
 
         if (_monitoringEnabled && _influxReachable == true && !_mapMounted)
@@ -963,6 +1407,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
+        _sfpChartDebounce?.Dispose();
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }
@@ -971,6 +1416,11 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         if (_healthChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__healthCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_sfpChartsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();").AsTask(); }
             catch { }
         }
         if (_mapMounted)

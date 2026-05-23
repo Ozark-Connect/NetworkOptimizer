@@ -78,7 +78,8 @@ public static class PingOutputParser
             var rtts = ExtractPerReplyRtts(output);
             if (rtts.Count > 0)
             {
-                received = Math.Max(received, rtts.Count);
+                // Clamp to sent so duplicate ICMP replies don't produce negative loss
+                received = Math.Min(sent, Math.Max(received, rtts.Count));
                 min ??= rtts.Min();
                 max ??= rtts.Max();
                 avg ??= rtts.Average();
