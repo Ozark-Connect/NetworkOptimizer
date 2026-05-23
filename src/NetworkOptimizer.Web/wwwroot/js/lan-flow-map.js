@@ -1137,8 +1137,12 @@ export class LanFlowMap {
             const value = Math.round(1000 - msFromNow / (24 * 3600000) * 1000);
             const clamped = Math.max(0, Math.min(1000, value));
             range.value = clamped;
-            // Update the time label on every tick
-            this._onScrubberInput(clamped);
+            // Update the time label from the continuous timestamp, not the
+            // integer slider position (which only moves every ~86s at 1x).
+            if (this._panels.scrubberRight) {
+                this._panels.scrubberRight.textContent =
+                    (clamped >= 998) ? 'Live' : this._playbackTime.toLocaleString();
+            }
             tickCount++;
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 998) {

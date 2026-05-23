@@ -302,10 +302,14 @@ public class LanFlowMapService
         var from = at - TimeSpan.FromSeconds(90);
         var to = at + TimeSpan.FromSeconds(30);
 
+        var gwNode = snapshot.Nodes.FirstOrDefault(n => n.Kind == LanNodeKind.Gateway);
+        var gwMac = gwNode?.Mac;
+
         // Pre-fetch interface_counters per device MAC so we don't re-query for
         // every link on the same device. Covers WiredClient (PortKey), Uplink,
         // MeshBackhaul, and WAN links.
         var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
         foreach (var link in snapshot.Links)
         {
             if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
@@ -338,13 +342,18 @@ public class LanFlowMapService
         {
             try
             {
-                if (link.Kind == LanLinkKind.Wan && !string.IsNullOrEmpty(link.PortKey))
+                if (link.Kind == LanLinkKind.Wan)
                 {
-                    var (deviceMac, ifName) = ParsePortKey(link.PortKey);
-                    if (ratesByDevice.TryGetValue(deviceMac, out var pts))
+                    // Live path uses WanSummary, keyed by WAN interface name
+                    // embedded in the link ID: "wan-link-{wanInterface}".
+                    var wanIface = link.Id.StartsWith("wan-link-", StringComparison.Ordinal)
+                        ? link.Id.Substring("wan-link-".Length)
+                        : null;
+                    if (wanIface != null && !string.IsNullOrEmpty(gwMac)
+                        && ratesByDevice.TryGetValue(gwMac, out var pts))
                     {
                         var closest = pts
-                            .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
+                            .Where(p => string.Equals(p.IfName, wanIface, StringComparison.OrdinalIgnoreCase))
                             .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                             .FirstOrDefault();
                         if (closest != null)
@@ -369,27 +378,27 @@ public class LanFlowMapService
                     }
                     else
                     {
-                        // Wireless mesh: use child device aggregate (same as live path fallback).
+                        // Wireless mesh: use the vwiresta interface (mesh backhaul),
+                        // matching the live path which uses apMeshUplinkInBps/OutBps
+                        // from the SNMP interface starting with "vwiresta" (no dot).
                         var childMac = ExtractDeviceMacFromUplinkId(link.Id);
                         if (!string.IsNullOrEmpty(childMac) && ratesByDevice.TryGetValue(childMac, out var pts))
                         {
                             var closest = pts
-                                .GroupBy(p => p.Time)
-                                .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
+                                .Where(p => p.IfName.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
+                                    && !p.IfName.Contains('.'))
+                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                                 .FirstOrDefault();
                             if (closest != null)
                             {
-                                double aggIn = 0, aggOut = 0;
-                                foreach (var p in closest)
-                                {
-                                    aggIn += p.RateInBps ?? 0;
-                                    aggOut += p.RateOutBps ?? 0;
-                                }
+                                // vwiresta rateIn = bytes received over mesh = downloads,
+                                // rateOut = bytes transmitted = uploads. Live path swaps
+                                // these via RecordInterfaceAggregate convention.
                                 update.LinkRates[link.Id] = new LinkLiveRates
                                 {
-                                    DownstreamBps = aggOut,
-                                    UpstreamBps = aggIn,
-                                    AsOf = closest.Key,
+                                    DownstreamBps = closest.RateInBps ?? 0,
+                                    UpstreamBps = closest.RateOutBps ?? 0,
+                                    AsOf = closest.Time,
                                 };
                             }
                         }
