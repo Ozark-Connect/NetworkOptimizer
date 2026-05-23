@@ -779,6 +779,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private List<MonitoringTarget> _targets = new();
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
+    private Dictionary<string, string> _deviceIpByMac = new();
     private System.Threading.Timer? _refreshTimer;
 
     // Collapse state. Status auto-collapses when fully healthy (computed below);
@@ -999,6 +1000,21 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             _allSfps = await db.MonitoredSfps.AsNoTracking().ToListAsync();
             _monitoredSfps = _allSfps.Where(s => s.IsMonitoredOnt).ToList();
 
+            try
+            {
+                var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+                if (devices != null)
+                {
+                    _deviceIpByMac = devices
+                        .Where(d => !string.IsNullOrEmpty(d.Mac))
+                        .ToDictionary(
+                            d => d.Mac!.Replace("-", ":").ToLowerInvariant(),
+                            d => d.DisplayIpAddress ?? "",
+                            StringComparer.OrdinalIgnoreCase);
+                }
+            }
+            catch { /* best effort - fall back to fabric target IPs */ }
+
             // Auto-collapse the Monitoring Status card once everything is healthy. The
             // user is here to see live data, not the green checkmarks. Once they've
             // manually expanded or collapsed, respect their choice.
@@ -1042,6 +1058,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     {
         if (string.IsNullOrEmpty(deviceMac)) return "255.255.255.255";
         var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        if (_deviceIpByMac.TryGetValue(normalized, out var ip) && !string.IsNullOrEmpty(ip))
+            return ip;
         var target = _targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
             && !string.IsNullOrEmpty(t.DeviceMac)
