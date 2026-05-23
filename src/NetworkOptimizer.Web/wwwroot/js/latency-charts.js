@@ -418,16 +418,15 @@ export async function mount(elId) {
     await rttChart.render();
     await lossChart.render();
 
-    // Category buttons
+    // Category buttons - preserve current time window when switching
     container.querySelectorAll('[data-category]').forEach(btn => {
         btn.addEventListener('click', () => {
             currentCategory = btn.dataset.category;
             container.querySelectorAll('[data-category]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             visibility = {};
-            windowOffset = 0;
-            isCustomRange = false;
-            selectPresetRange(container, currentRangeHours);
+            loadAndUpdate();
+            startPoll();
         });
     });
 
