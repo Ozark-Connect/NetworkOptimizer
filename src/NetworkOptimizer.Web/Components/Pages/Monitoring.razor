@@ -256,9 +256,9 @@ else
                         else { <span>Packet Loss Events</span> }
                     </button>
                 }
-                @if (!string.IsNullOrEmpty(_investigateResult) && !_investigatingSfp)
+                @if (!string.IsNullOrEmpty(_lossInvestigateResult))
                 {
-                    <span class="page-description" style="align-self: center;">@_investigateResult</span>
+                    <span class="page-description" style="align-self: center;">@_lossInvestigateResult</span>
                 }
             </div>
         </div>
@@ -399,9 +399,9 @@ else
                     @if (_investigatingSfp) { <span class="spinner-sm"></span> }
                     else { <span>SFP Anomalies</span> }
                 </button>
-                @if (!string.IsNullOrEmpty(_investigateResult) && !_investigatingLoss)
+                @if (!string.IsNullOrEmpty(_sfpInvestigateResult))
                 {
-                    <span class="page-description" style="align-self: center;">@_investigateResult</span>
+                    <span class="page-description" style="align-self: center;">@_sfpInvestigateResult</span>
                 }
             </div>
         </div>
@@ -715,7 +715,8 @@ else
     // Investigation state
     private bool _investigatingLoss;
     private bool _investigatingSfp;
-    private string? _investigateResult;
+    private string? _lossInvestigateResult;
+    private string? _sfpInvestigateResult;
     private bool _lossNavActive;
     private DateTime? _lossNavTimestamp;
 
@@ -1153,7 +1154,7 @@ else
     {
         _lossNavActive = false;
         _lossNavTimestamp = null;
-        _investigateResult = null;
+        _lossInvestigateResult = null;
         StateHasChanged();
         await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
@@ -1167,7 +1168,7 @@ else
             var result = await InfluxClient.FindRecentLossEventAsync(before, after);
             if (result == null)
             {
-                _investigateResult = after.HasValue ? "No newer events" : "No older events";
+                _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
                 return;
             }
             var category = result.TargetType switch
@@ -1182,14 +1183,14 @@ else
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
-            _investigateResult = $"{result.LossPercent:0.#}% loss {ago}";
+            _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago}";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
         }
         catch (Exception ex)
         {
-            _investigateResult = $"Query failed: {ex.Message}";
+            _lossInvestigateResult = $"Query failed: {ex.Message}";
         }
         finally
         {
@@ -1201,27 +1202,31 @@ else
     private async Task InvestigateSfpAnomaly()
     {
         _investigatingSfp = true;
-        _investigateResult = null;
+        _sfpInvestigateResult = null;
         StateHasChanged();
         try
         {
             var result = await InfluxClient.FindRecentSfpAnomalyAsync();
             if (result == null)
             {
-                _investigateResult = "No SFP anomalies found in the last 7 days.";
+                _sfpInvestigateResult = "No SFP anomalies in the last 7 days.";
                 return;
             }
             var desc = result.Metric == "temperature"
                 ? $"temperature {result.Value:0.#} °C"
                 : $"RX power {result.Value:0.##} dBm";
-            _investigateResult = $"Found SFP {desc} at {result.Timestamp:MMM dd HH:mm}";
+            var delta = DateTime.UtcNow - result.Timestamp;
+            var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
+                : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
+                : $"{(int)delta.TotalDays}d ago";
+            _sfpInvestigateResult = $"SFP {desc} {ago}";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__sfpCharts?.navigateToTime('{result.Timestamp:o}');");
         }
         catch (Exception ex)
         {
-            _investigateResult = $"Query failed: {ex.Message}";
+            _sfpInvestigateResult = $"Query failed: {ex.Message}";
         }
         finally
         {
