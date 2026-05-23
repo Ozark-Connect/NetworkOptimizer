@@ -71,7 +71,6 @@ public static class MonitoringChartEndpoints
 
         app.MapGet("/api/monitoring/wan-rate-chart", async (
             MonitoringInfluxClient influx,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
             UniFiConnectionService connectionService,
             int? rangeHours,
             DateTime? from,
