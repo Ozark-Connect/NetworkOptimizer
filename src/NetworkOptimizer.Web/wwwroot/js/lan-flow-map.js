@@ -1330,8 +1330,7 @@ export class LanFlowMap {
         const modeBadge = document.createElement('span');
         modeBadge.className = 'lan-flow-map-mode';
         modeBadge.textContent = 'Live';
-        modeBadge.style.cursor = 'pointer';
-        modeBadge.setAttribute('data-tooltip', 'Click to return to live');
+        modeBadge.setAttribute('data-tooltip-hover-only', '');
         modeBadge.addEventListener('click', () => {
             if (this._mode !== 'live') {
                 const range = this._panels.scrubberRange;
@@ -1572,6 +1571,8 @@ export class LanFlowMap {
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
                 this._panels.modeBadge.classList.remove('is-historic');
+                this._panels.modeBadge.removeAttribute('data-tooltip');
+                this._panels.modeBadge.style.cursor = '';
             }
             // Returning to live resumes polling; clear the paused state so the
             // play button reflects "playing" again.
@@ -1588,6 +1589,8 @@ export class LanFlowMap {
         if (this._panels.modeBadge) {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
+            this._panels.modeBadge.setAttribute('data-tooltip', 'Click to return to live');
+            this._panels.modeBadge.style.cursor = 'pointer';
         }
         this._syncSpeedLabel();
         // Scrubbing back into historic by the user lands paused so they can
