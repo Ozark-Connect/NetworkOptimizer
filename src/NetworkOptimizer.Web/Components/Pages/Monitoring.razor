@@ -1164,12 +1164,19 @@ else
             transitLoss = losses.Count > 0 ? losses.Average() : 0;
         }));
 
-        // Fabric load (sum across all fabric devices, matching live-mode filter:
-        // gateways only count eth\d+ interfaces, switches count all)
+        // Fabric load (sum across switches, gateways, and cellular modems only -
+        // APs are excluded because their radio interfaces over-count beacons/retries.
+        // The live path only calls RecordFabricSum for these device types, so APs
+        // have FabricIngressBps == null and contribute 0 to the live total.)
         var fabricMacs = _targets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
             .Select(t => t.DeviceMac!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(mac =>
+            {
+                var stats = LiveStats.GetForDevice(mac);
+                return stats?.FabricIngressBps != null || stats?.FabricEgressBps != null;
+            })
             .ToList();
         if (fabricMacs.Count > 0)
         {
