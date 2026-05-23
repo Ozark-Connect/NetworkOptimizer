@@ -1145,9 +1145,9 @@ else
 
     private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null);
     private Task LossNavBack() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(_lossNavTimestamp.Value, null) : Task.CompletedTask;
+        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddSeconds(-1), null) : Task.CompletedTask;
     private Task LossNavForward() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(null, _lossNavTimestamp.Value) : Task.CompletedTask;
+        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddSeconds(1)) : Task.CompletedTask;
 
     private void LossNavDeactivate()
     {
@@ -1177,7 +1177,7 @@ else
             };
             _lossNavActive = true;
             _lossNavTimestamp = result.Timestamp;
-            _investigateResult = $"{result.LossPercent:0.#}% loss at {result.Timestamp:MMM dd HH:mm}";
+            _investigateResult = $"{result.LossPercent:0.#}% loss {RelativeTime(result.Timestamp)}";
             StateHasChanged();
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
