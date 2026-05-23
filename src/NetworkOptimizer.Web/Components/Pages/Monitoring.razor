@@ -82,11 +82,11 @@ else
         <div class="monitoring-stat-cards">
             @{ var gwStats = GetGatewayStats(); }
             <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #3b82f6;">@FormatRate(gwStats?.RateInBps)</div>
+                <div class="stat-value" style="color: #3b82f6;">@FormatRate(gwStats?.RateOutBps)</div>
                 <div class="stat-label">WAN Download</div>
             </div>
             <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #10b981;">@FormatRate(gwStats?.RateOutBps)</div>
+                <div class="stat-value" style="color: #10b981;">@FormatRate(gwStats?.RateInBps)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var gwLatency = GetGatewayLatency(); }
@@ -146,12 +146,12 @@ else
             </div>
             @{ var fabricLoad = GetTotalFabricLoad(); }
             <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
-                <div class="stat-label">Fabric Ingress</div>
+                <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.egress)</div>
+                <div class="stat-label">Fabric Egress</div>
             </div>
             <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
-                <div class="stat-label">Fabric Egress</div>
+                <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.ingress)</div>
+                <div class="stat-label">Fabric Ingress</div>
             </div>
         </div>
     }
@@ -214,6 +214,7 @@ else
                     <div class="chart-header"><h3 class="chart-title">Packet loss</h3></div>
                     <div class="latency-loss-chart"></div>
                 </div>
+                <div class="latency-stats-table"></div>
             </div>
         </div>
 

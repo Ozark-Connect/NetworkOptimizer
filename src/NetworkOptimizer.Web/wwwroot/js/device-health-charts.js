@@ -24,8 +24,6 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
-let isMapFullscreen = false;
-let fsHandler = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -148,7 +146,7 @@ async function loadAndUpdate() {
     if (container) renderBadges(container);
 }
 
-function isVisible() { return isInViewport && !isMapFullscreen; }
+function isVisible() { return isInViewport; }
 
 function startPoll() {
     stopPoll();
@@ -334,14 +332,6 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
-    fsHandler = (e) => {
-        const was = isVisible();
-        isMapFullscreen = e.detail.fullscreen;
-        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible() && was) { stopPoll(); }
-    };
-    document.addEventListener('lanflowmap-fullscreen', fsHandler);
-
     await loadAndUpdate();
     startPoll();
 }
@@ -349,7 +339,6 @@ export async function mount(elId) {
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
-    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
@@ -362,5 +351,4 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     isInViewport = true;
-    isMapFullscreen = false;
 }

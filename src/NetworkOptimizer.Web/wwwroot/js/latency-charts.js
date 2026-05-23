@@ -27,8 +27,7 @@ let containerId = null;
 let fetchController = null;
 let visibilityObserver = null;
 let isInViewport = true;
-let isMapFullscreen = false;
-let fsHandler = null;
+let lastFetchData = null;
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -196,16 +195,85 @@ async function loadAndUpdate() {
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
+    lastFetchData = data;
+
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
 
     updateChartVisibility();
 
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container, data);
+    }
 }
 
-function isVisible() { return isInViewport && !isMapFullscreen; }
+function percentile(sorted, p) {
+    if (sorted.length === 0) return null;
+    const idx = (p / 100) * (sorted.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function computeStats(values) {
+    if (!values || values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    return {
+        mean: values.reduce((s, v) => s + v, 0) / values.length,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+        p95: percentile(sorted, 95),
+        p99: percentile(sorted, 99),
+    };
+}
+
+function fmtRtt(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtLoss(v) { return v != null ? v.toFixed(2) + '%' : '-'; }
+
+function renderStatsTable(container, data) {
+    const el = container.querySelector('.latency-stats-table');
+    if (!el || !data?.targets?.length) { if (el) el.innerHTML = ''; return; }
+
+    const visibleTargets = data.targets.filter((t, i) => {
+        const meta = targetMeta[i];
+        return meta && visibility[meta.id] !== false;
+    });
+
+    if (visibleTargets.length === 0) { el.innerHTML = ''; return; }
+
+    const rows = visibleTargets.map((t, i) => {
+        const rttVals = (t.rtt || []).map(p => p.value).filter(v => v != null && v > 0);
+        const lossVals = (t.loss || []).map(p => p.value).filter(v => v != null);
+        const rtt = computeStats(rttVals);
+        const loss = computeStats(lossVals);
+        const meta = targetMeta.find(m => m.id === t.targetId);
+        const color = meta?.color || '#9ca3af';
+        return `<tr>
+            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(t.name)}</td>
+            <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
+            <td>${fmtLoss(loss?.mean)}</td><td>${fmtLoss(loss?.max)}</td><td>${fmtLoss(loss?.p95)}</td><td>${fmtLoss(loss?.p99)}</td>
+        </tr>`;
+    });
+
+    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
+        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
+        <div class="table-responsive">
+        <table class="data-table" style="font-size:0.8125rem">
+            <thead><tr>
+                <th>Target</th>
+                <th>RTT Mean</th><th>Min</th><th>Max</th><th>P95</th><th>P99</th>
+                <th>Loss Mean</th><th>Max</th><th>P95</th><th>P99</th>
+            </tr></thead>
+            <tbody>${rows.join('')}</tbody>
+        </table>
+        </div>
+    </div>`;
+}
+
+function isVisible() { return isInViewport; }
 
 function startPoll() {
     stopPoll();
@@ -420,14 +488,6 @@ export async function mount(elId) {
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
-    fsHandler = (e) => {
-        const was = isVisible();
-        isMapFullscreen = e.detail.fullscreen;
-        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible() && was) { stopPoll(); }
-    };
-    document.addEventListener('lanflowmap-fullscreen', fsHandler);
-
     await loadAndUpdate();
     startPoll();
 }
@@ -435,7 +495,6 @@ export async function mount(elId) {
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
-    if (fsHandler) { document.removeEventListener('lanflowmap-fullscreen', fsHandler); fsHandler = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
@@ -446,6 +505,6 @@ export function unmount() {
     isCustomRange = false;
     customFrom = null;
     customTo = null;
+    lastFetchData = null;
     isInViewport = true;
-    isMapFullscreen = false;
 }
