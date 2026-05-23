@@ -1152,6 +1152,17 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             _addTargetError = "Name and address are required.";
             return;
         }
+        if (name.Length > 200 || address.Length > 200)
+        {
+            _addTargetError = "Name and address must be under 200 characters.";
+            return;
+        }
+        if (!System.Net.IPAddress.TryParse(address, out _)
+            && !System.Text.RegularExpressions.Regex.IsMatch(address, @"^[a-zA-Z0-9][a-zA-Z0-9.\-]*$"))
+        {
+            _addTargetError = "Address must be a valid IP or hostname.";
+            return;
+        }
 
         _addingTarget = true;
         StateHasChanged();

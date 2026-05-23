@@ -23,7 +23,8 @@ let fetchController = null;
 let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
-let isVisible = true;
+let isInViewport = true;
+let isMapFullscreen = false;
 let fsHandler = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
@@ -147,10 +148,12 @@ async function loadAndUpdate() {
     if (container) renderBadges(container);
 }
 
+function isVisible() { return isInViewport && !isMapFullscreen; }
+
 function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
-    if (!isVisible) return;
+    if (!isVisible()) return;
     pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 30000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
@@ -324,18 +327,18 @@ export async function mount(elId) {
     });
 
     visibilityObserver = new IntersectionObserver(([entry]) => {
-        const wasVisible = isVisible;
-        isVisible = entry.isIntersecting;
-        if (isVisible && !wasVisible) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible && wasVisible) { stopPoll(); }
+        const was = isVisible();
+        isInViewport = entry.isIntersecting;
+        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible() && was) { stopPoll(); }
     }, { threshold: 0 });
     visibilityObserver.observe(container);
 
     fsHandler = (e) => {
-        const wasVisible = isVisible;
-        isVisible = !e.detail.fullscreen;
-        if (isVisible && !wasVisible) { loadAndUpdate(); startPoll(); }
-        else if (!isVisible && wasVisible) { stopPoll(); }
+        const was = isVisible();
+        isMapFullscreen = e.detail.fullscreen;
+        if (isVisible() && !was) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible() && was) { stopPoll(); }
     };
     document.addEventListener('lanflowmap-fullscreen', fsHandler);
 
@@ -358,5 +361,6 @@ export function unmount() {
     isCustomRange = false;
     customFrom = null;
     customTo = null;
-    isVisible = true;
+    isInViewport = true;
+    isMapFullscreen = false;
 }

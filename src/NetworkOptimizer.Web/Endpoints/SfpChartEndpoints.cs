@@ -47,9 +47,8 @@ public static class SfpChartEndpoints
                 .ToListAsync(ct);
             var nameMap = targets
                 .Where(t => !string.IsNullOrEmpty(t.DeviceMac))
-                .ToDictionary(
-                    t => t.DeviceMac!.Replace("-", ":").ToLowerInvariant(),
-                    t => t.Name);
+                .GroupBy(t => t.DeviceMac!.Replace("-", ":").ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First().Name);
 
             var result = sfps.Select(s =>
             {
