@@ -1,0 +1,405 @@
+// SFP DDM time-series charts: RX/TX power (top), temperature/voltage (bottom).
+// Same control pattern as latency-charts.js and device-health-charts.js.
+
+import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+
+const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const _esc = document.createElement('span');
+function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
+const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
+
+let powerChart = null;
+let envChart = null;
+let pollTimer = null;
+let currentRangeHours = 1;
+let windowOffset = 0;
+let isCustomRange = false;
+let customFrom = null;
+let customTo = null;
+let containerId = null;
+let fetchController = null;
+let moduleMeta = [];
+let visibility = {};
+
+function baseOpts(height, yTitle, yFormatter, extra) {
+    return {
+        chart: {
+            type: 'line', height,
+            background: 'transparent',
+            toolbar: { show: false },
+            zoom: { enabled: false },
+            animations: { enabled: false },
+        },
+        stroke: { curve: 'smooth', width: 2 },
+        markers: { size: 0 },
+        dataLabels: { enabled: false },
+        xaxis: {
+            type: 'datetime',
+            labels: {
+                style: { colors: '#9ca3af' },
+                datetimeUTC: false,
+                datetimeFormatter: { hour: 'HH:mm', day: 'MMM dd' },
+            },
+        },
+        yaxis: {
+            title: { text: yTitle, style: { color: '#9ca3af' } },
+            labels: { style: { colors: '#9ca3af' }, formatter: yFormatter },
+        },
+        grid: { borderColor: '#374151', strokeDashArray: 3 },
+        legend: { show: false },
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' } },
+        noData: { text: 'No data in this time range', style: { color: '#64748b' } },
+        ...extra,
+    };
+}
+
+function buildQueryParams() {
+    let params = '';
+    if (isCustomRange && customFrom && customTo) {
+        params = `from=${customFrom.toISOString()}&to=${customTo.toISOString()}`;
+    } else if (windowOffset !== 0) {
+        const now = Date.now();
+        const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
+        const to = new Date(now + windowOffset);
+        const from = new Date(to.getTime() - rangeMs);
+        params = `from=${from.toISOString()}&to=${to.toISOString()}`;
+    } else {
+        params = `rangeHours=${currentRangeHours}`;
+    }
+    return params;
+}
+
+async function fetchData() {
+    if (fetchController) fetchController.abort();
+    fetchController = new AbortController();
+    try {
+        const resp = await fetch(`/api/monitoring/sfp-chart?${buildQueryParams()}`,
+            { signal: fetchController.signal });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        if (e.name === 'AbortError') return null;
+        return null;
+    }
+}
+
+function renderBadges(container) {
+    const el = container.querySelector('.sfp-filter-badges');
+    if (!el) return;
+    if (moduleMeta.length <= 1) { el.innerHTML = ''; return; }
+    el.innerHTML = moduleMeta.map(m => {
+        const vis = visibility[m.id] !== false;
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-sfp="${m.id}">
+            <span class="wan-badge-dot" style="background-color: ${m.color}"></span>
+            <span>${escapeHtml(m.label)}</span>
+        </button>`;
+    }).join('');
+    el.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.sfp;
+            const allVis = moduleMeta.every(m => visibility[m.id] !== false);
+            const onlyThis = visibility[id] !== false
+                && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
+            if (onlyThis) { visibility = {}; }
+            else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
+            else { visibility[id] = visibility[id] === false; }
+            updateVisibility();
+            renderBadges(container);
+        });
+    });
+}
+
+function updateVisibility() {
+    moduleMeta.forEach(m => {
+        const vis = visibility[m.id] !== false;
+        for (const chart of [powerChart, envChart]) {
+            if (!chart) continue;
+            // Each module contributes 2 series to powerChart (RX, TX) and 2 to envChart (Temp, Voltage)
+            const rxName = `${m.label} RX`;
+            const txName = `${m.label} TX`;
+            const tempName = `${m.label} Temp`;
+            const voltName = `${m.label} Voltage`;
+            if (chart === powerChart) {
+                if (vis) { chart.showSeries(rxName); chart.showSeries(txName); }
+                else { chart.hideSeries(rxName); chart.hideSeries(txName); }
+            } else {
+                if (vis) { chart.showSeries(tempName); chart.showSeries(voltName); }
+                else { chart.hideSeries(tempName); chart.hideSeries(voltName); }
+            }
+        }
+    });
+}
+
+async function loadAndUpdate() {
+    const data = await fetchData();
+    if (!data?.modules) return;
+    moduleMeta = data.modules.map((m, i) => ({
+        id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
+    }));
+
+    const powerSeries = [];
+    const envSeries = [];
+    data.modules.forEach((m, i) => {
+        const color = PALETTE[i % PALETTE.length];
+        const pts = m.data || [];
+        powerSeries.push({
+            name: `${m.label} RX`,
+            color: color,
+            data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
+        });
+        powerSeries.push({
+            name: `${m.label} TX`,
+            color: color,
+            data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
+            // Dashed line for TX so RX and TX from the same module are visually distinct
+        });
+        envSeries.push({
+            name: `${m.label} Temp`,
+            color: color,
+            data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
+        });
+        envSeries.push({
+            name: `${m.label} Voltage`,
+            color: color,
+            data: pts.filter(p => p.voltage != null).map(p => ({ x: new Date(p.time).getTime(), y: p.voltage })),
+        });
+    });
+
+    // Build stroke dash array: solid for RX, dashed for TX (alternating per module)
+    const powerDash = [];
+    data.modules.forEach(() => { powerDash.push(0); powerDash.push(5); });
+    if (powerChart) {
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
+        powerChart.updateSeries(powerSeries, false);
+    }
+
+    const envDash = [];
+    data.modules.forEach(() => { envDash.push(0); envDash.push(5); });
+    if (envChart) {
+        const tempNames = data.modules.map(m => `${m.label} Temp`);
+        const voltNames = data.modules.map(m => `${m.label} Voltage`);
+        envChart.updateOptions({
+            stroke: { curve: 'smooth', width: 2, dashArray: envDash },
+            yaxis: [
+                {
+                    title: { text: 'Temp (°C)', style: { color: '#9ca3af' } },
+                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + ' °C' : '' },
+                    seriesName: tempNames,
+                },
+                {
+                    opposite: true,
+                    title: { text: 'Voltage (V)', style: { color: '#9ca3af' } },
+                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(2) + ' V' : '' },
+                    seriesName: voltNames,
+                },
+            ],
+        }, false, false);
+        envChart.updateSeries(envSeries, false);
+    }
+
+    updateVisibility();
+    const container = document.getElementById(containerId);
+    if (container) renderBadges(container);
+}
+
+function startPoll() {
+    stopPoll();
+    if (windowOffset !== 0 || isCustomRange) return;
+    pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 60000);
+}
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+function toLocalDatetimeString(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function getEffectiveFrom() {
+    if (isCustomRange && customFrom) return customFrom;
+    if (windowOffset !== 0) return new Date(Date.now() + windowOffset - (RANGE_MS[currentRangeHours] || 3600000));
+    return null;
+}
+function getEffectiveTo() {
+    if (isCustomRange && customTo) return customTo;
+    if (windowOffset !== 0) return new Date(Date.now() + windowOffset);
+    return null;
+}
+
+function updateCustomLabel(container) {
+    const btn = container.querySelector('.custom-range-btn');
+    if (!btn) return;
+    let clearBtn = btn.querySelector('.custom-range-clear');
+    const label = btn.querySelector('.custom-range-label');
+    if (label) label.remove();
+    const active = isCustomRange || windowOffset !== 0;
+    if (active) {
+        btn.classList.add('active');
+        const from = getEffectiveFrom(), to = getEffectiveTo();
+        if (from && to) {
+            const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            btn.setAttribute('data-tooltip', `${fmt(from)} - ${fmt(to)}`);
+        }
+        if (!clearBtn) {
+            clearBtn = document.createElement('span');
+            clearBtn.className = 'custom-range-clear';
+            clearBtn.textContent = '×';
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectPresetRange(container, currentRangeHours);
+            });
+            btn.appendChild(clearBtn);
+        }
+    } else {
+        btn.classList.remove('active');
+        btn.setAttribute('data-tooltip', 'Custom date range');
+        if (clearBtn) clearBtn.remove();
+    }
+}
+
+function selectPresetRange(container, hours) {
+    currentRangeHours = hours;
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
+    container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+    const btn = container.querySelector(`[data-range="${hours}"]`);
+    if (btn) btn.classList.add('active');
+    const fromInput = container.querySelector('[data-input="from"]');
+    const toInput = container.querySelector('[data-input="to"]');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+    container.querySelector('[data-popover="custom-range"]')?.classList.remove('open');
+    updateCustomLabel(container);
+    loadAndUpdate();
+    startPoll();
+}
+
+function shiftWindow(container, direction) {
+    const rangeMs = isCustomRange && customFrom && customTo
+        ? customTo.getTime() - customFrom.getTime()
+        : RANGE_MS[currentRangeHours] || 3600000;
+    const shiftMs = rangeMs * 0.5;
+    if (isCustomRange && customFrom && customTo) {
+        const delta = direction === 'back' ? -shiftMs : shiftMs;
+        customFrom = new Date(customFrom.getTime() + delta);
+        customTo = new Date(customTo.getTime() + delta);
+    } else {
+        windowOffset += direction === 'back' ? -shiftMs : shiftMs;
+        if (windowOffset > 0) windowOffset = 0;
+    }
+    const fromInput = container.querySelector('[data-input="from"]');
+    const toInput = container.querySelector('[data-input="to"]');
+    const ef = getEffectiveFrom(), et = getEffectiveTo();
+    if (fromInput && ef) fromInput.value = toLocalDatetimeString(ef);
+    if (toInput && et) toInput.value = toLocalDatetimeString(et);
+    updateCustomLabel(container);
+    loadAndUpdate();
+    startPoll();
+}
+
+export async function mount(elId) {
+    containerId = elId;
+    const container = document.getElementById(elId);
+    if (!container) return;
+
+    const powerEl = container.querySelector('.sfp-power-chart');
+    const envEl = container.querySelector('.sfp-env-chart');
+    if (!powerEl || !envEl) return;
+
+    if (powerChart) { powerChart.destroy(); powerChart = null; }
+    if (envChart) { envChart.destroy(); envChart = null; }
+
+    powerChart = new ApexCharts(powerEl, {
+        ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
+        series: [], colors: PALETTE,
+    });
+    envChart = new ApexCharts(envEl, {
+        ...baseOpts(220, '', v => v != null ? v.toFixed(1) : '', {
+            yaxis: [
+                {
+                    title: { text: 'Temp (°C)', style: { color: '#9ca3af' } },
+                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + ' °C' : '' },
+                    seriesName: [],
+                },
+                {
+                    opposite: true,
+                    title: { text: 'Voltage (V)', style: { color: '#9ca3af' } },
+                    labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(2) + ' V' : '' },
+                    seriesName: [],
+                },
+            ],
+        }),
+        series: [], colors: PALETTE,
+    });
+
+    await powerChart.render();
+    await envChart.render();
+
+    // Preset range buttons
+    container.querySelectorAll('[data-range]').forEach(btn => {
+        btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
+    });
+
+    // Shift arrows
+    container.querySelectorAll('[data-shift]').forEach(btn => {
+        btn.addEventListener('click', () => shiftWindow(container, btn.dataset.shift));
+    });
+
+    // Custom range popover
+    const popover = container.querySelector('[data-popover="custom-range"]');
+    const fromInput = container.querySelector('[data-input="from"]');
+    const toInput = container.querySelector('[data-input="to"]');
+
+    container.querySelector('[data-action="custom-range"]')?.addEventListener('click', () => {
+        const now = new Date();
+        const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
+        if (!fromInput.value) fromInput.value = toLocalDatetimeString(new Date(now.getTime() - rangeMs));
+        if (!toInput.value) toInput.value = toLocalDatetimeString(now);
+        popover?.classList.toggle('open');
+    });
+
+    container.querySelector('[data-action="cancel-custom"]')?.addEventListener('click', () => {
+        popover?.classList.remove('open');
+    });
+
+    container.querySelector('[data-action="apply-custom"]')?.addEventListener('click', () => {
+        const from = fromInput?.value ? new Date(fromInput.value) : null;
+        const to = toInput?.value ? new Date(toInput.value) : null;
+        if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return;
+        customFrom = from;
+        customTo = to;
+        isCustomRange = true;
+        windowOffset = 0;
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        popover?.classList.remove('open');
+        updateCustomLabel(container);
+        loadAndUpdate();
+        startPoll();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!popover?.classList.contains('open')) return;
+        const customBtn = container.querySelector('[data-action="custom-range"]');
+        if (popover.contains(e.target) || customBtn?.contains(e.target)) return;
+        popover.classList.remove('open');
+    });
+
+    await loadAndUpdate();
+    startPoll();
+}
+
+export function unmount() {
+    stopPoll();
+    if (fetchController) { fetchController.abort(); fetchController = null; }
+    if (powerChart) { powerChart.destroy(); powerChart = null; }
+    if (envChart) { envChart.destroy(); envChart = null; }
+    containerId = null;
+    moduleMeta = [];
+    visibility = {};
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
+}

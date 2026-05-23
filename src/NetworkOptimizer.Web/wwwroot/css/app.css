@@ -14321,6 +14321,19 @@ a.affected-client:hover {
 .sfp-port-cell .text-muted {
     font-size: 0.85rem;
 }
+.cadence-select {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--bg-hover);
+    border-radius: 4px;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.cadence-select:focus {
+    outline: 1px solid var(--primary-color);
+    border-color: var(--primary-color);
+}
 .lan-flow-map-mode {
     display: inline-flex;
     align-items: center;

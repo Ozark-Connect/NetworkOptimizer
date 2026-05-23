@@ -597,6 +597,53 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>Per-SFP DDM time-series for a set of (device_mac, port_name) pairs.</summary>
+    public async Task<Dictionary<string, List<SfpPoint>>> QuerySfpByModulesAsync(
+        IReadOnlyList<(string DeviceMac, string PortName)> modules,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<SfpPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+
+        var macFilter = string.Join(" or ", modules.Select(m =>
+            $@"(r.device_mac == ""{NormalizeMac(m.DeviceMac)}"" and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""sfp"")
+  |> filter(fn: (r) => {macFilter})
+  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<SfpPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = record.GetValueByKey("device_mac") as string ?? "";
+            var port = record.GetValueByKey("port_name") as string ?? "";
+            var key = $"{mac}:{port}";
+            if (!results.TryGetValue(key, out var list))
+            {
+                list = new List<SfpPoint>();
+                results[key] = list;
+            }
+            list.Add(new SfpPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RxPowerDbm = AsDoubleOrNull(record.GetValueByKey("rx_power_dbm")),
+                TxPowerDbm = AsDoubleOrNull(record.GetValueByKey("tx_power_dbm")),
+                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
+                VoltageV = AsDoubleOrNull(record.GetValueByKey("voltage_v"))
+            });
+        }
+        return results;
+    }
+
     /// <summary>
     /// Historical WiFi client snapshots for timeline mode on the 3D map. Filter by
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
@@ -727,6 +774,15 @@ from(bucket: ""{_bucket}"")
         public required DateTime Time { get; init; }
         public double? RttAvgMs { get; init; }
         public double? LossPercent { get; init; }
+    }
+
+    public record SfpPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? RxPowerDbm { get; init; }
+        public double? TxPowerDbm { get; init; }
+        public double? TemperatureC { get; init; }
+        public double? VoltageV { get; init; }
     }
 
     /// <summary>
