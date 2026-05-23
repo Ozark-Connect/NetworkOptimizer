@@ -1567,6 +1567,7 @@ export class LanFlowMap {
             // Snap back to live.
             this._mode = 'live';
             this._historicAt = null;
+            this._onScrubberInput(1000);
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
                 this._panels.modeBadge.classList.remove('is-historic');
