@@ -506,7 +506,11 @@ public class LanFlowMapService
                 if ((node.Kind == LanNodeKind.Switch || node.Kind == LanNodeKind.Gateway)
                     && ratesByDevice.TryGetValue(mac, out var rates))
                 {
-                    var closestRates = rates
+                    var isGw = node.Kind == LanNodeKind.Gateway;
+                    var filtered = isGw
+                        ? rates.Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
+                        : rates;
+                    var closestRates = filtered
                         .GroupBy(p => p.Time)
                         .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
                         .FirstOrDefault();
