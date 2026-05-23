@@ -1116,36 +1116,45 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        // 1 slider unit = 86.4 real seconds (24h / 1000). At 1x (real-time),
-        // each 250ms tick accumulates 0.25 real seconds toward the next unit.
-        // Higher multipliers accumulate faster. The slider only advances on
-        // whole-unit crossings; the fractional part carries over.
-        const REAL_SEC_PER_UNIT = 86400 / 1000;
-        const TICK_MS = 250;
-        this._playbackAccum = 0;
+        // Track playback as a continuous timestamp, not integer slider units.
+        // The slider and time label update every tick; the map and stat cards
+        // refresh on a throttled cadence (~3 s wall-clock) to avoid flooding
+        // the API while still feeling responsive.
+        const TICK_MS = 1000;
+        const DATA_REFRESH_TICKS = 3; // load new data every 3 ticks
+        this._playbackTime = this._historicAt
+            || this._scrubberValueToTime(Number(this._panels.scrubberRange?.value ?? 500));
+        let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
             const range = this._panels.scrubberRange;
             if (!range) return;
-            const realSecThisTick = (TICK_MS / 1000) * this._playbackSpeed;
-            this._playbackAccum += realSecThisTick;
-            const units = Math.floor(this._playbackAccum / REAL_SEC_PER_UNIT);
-            if (units < 1) return;
-            this._playbackAccum -= units * REAL_SEC_PER_UNIT;
-            const cur = Number(range.value);
-            const next = Math.min(1000, cur + units);
-            range.value = next;
-            this._onScrubberInput(next);
-            this._playbackAdvancing = true;
-            try {
-                if (next >= 1000) {
-                    this._stopHistoricPlayback();
-                    this._onScrubberChange(1000);
-                } else {
-                    this._onScrubberChange(next);
+            // Advance the continuous timestamp
+            this._playbackTime = new Date(
+                this._playbackTime.getTime() + TICK_MS * this._playbackSpeed);
+            // Derive slider position from the timestamp
+            const msFromNow = Date.now() - this._playbackTime.getTime();
+            const value = Math.round(1000 - msFromNow / (24 * 3600000) * 1000);
+            const clamped = Math.max(0, Math.min(1000, value));
+            range.value = clamped;
+            // Update the time label on every tick
+            this._onScrubberInput(clamped);
+            tickCount++;
+            // Refresh map and stat cards periodically
+            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 998) {
+                this._playbackAdvancing = true;
+                try {
+                    if (clamped >= 998) {
+                        this._stopHistoricPlayback();
+                        this._onScrubberChange(1000);
+                    } else {
+                        this._historicAt = this._playbackTime;
+                        this._notifyStatCards(this._playbackTime);
+                        this._loadHistoric(this._playbackTime);
+                    }
+                } finally {
+                    this._playbackAdvancing = false;
                 }
-            } finally {
-                this._playbackAdvancing = false;
             }
         }, TICK_MS);
     }
