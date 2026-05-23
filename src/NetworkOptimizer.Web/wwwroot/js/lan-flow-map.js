@@ -1239,7 +1239,7 @@ export class LanFlowMap {
             ['wifiClients', 'Wi-Fi clients'],
             ['wiredClients', 'Wired clients'],
             ['clouds', 'WAN clouds'],
-            ['speedTests', 'Speed test paths'],
+            // TODO: Speed test path overlay needs rework - see research/monitoring/3d-map-overlays-TODO.md
         ];
         for (const [key, label] of overlayDefs) {
             const row = document.createElement('div');
