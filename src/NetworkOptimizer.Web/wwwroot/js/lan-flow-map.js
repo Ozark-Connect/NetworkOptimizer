@@ -141,6 +141,8 @@ export class LanFlowMap {
         };
         this._mode = 'live';      // 'live' | 'historic'
         this._historicAt = null;  // Date when in historic mode
+        this._dotnetRef = window.__monitoringRef || null;
+        this._playbackSpeed = 1;  // multiplier: 0.5, 1, 2, 4
 
         this._panels = {};        // DOM refs for overlay UI
         this._floatingLabels = new Map();  // nodeId -> { el, nameEl, rateEl }
@@ -1113,15 +1115,11 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        // 10x real-time: 10 sec of real time per 1 sec of playback. Range is
-        // 0..1000 mapped to 24h = 86400 real sec, so 1 unit = 86.4 real sec.
-        // At 250ms tick, advance 2.5 real sec / 86.4 = ~0.029 units. Way too
-        // slow. Instead use a much higher real-time multiplier appropriate
-        // for a 24h window: 10 *minutes* of real time per 1 sec of playback.
-        // That puts a full 24h pass at ~2.4 min, which actually reads.
-        const realSecPerPlaybackSec = 300; // 5 minutes per second
+        // Base rate: 75 real seconds per playback second (1.25 min/sec).
+        // Full 24h pass takes ~9.6 min at 1x. _playbackSpeed multiplies this.
+        const baseRate = 75;
         const tickMs = 250;
-        const realSecPerTick = realSecPerPlaybackSec * (tickMs / 1000);
+        const realSecPerTick = baseRate * this._playbackSpeed * (tickMs / 1000);
         const unitsPerSec = 1000 / (24 * 60 * 60);
         const unitsPerTick = Math.max(1, Math.round(realSecPerTick * unitsPerSec));
         this._historicPlaybackTimer = setInterval(() => {
@@ -1324,6 +1322,12 @@ export class LanFlowMap {
         scrubber.innerHTML = `
             <div class="lan-flow-map-scrubber-row">
                 <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <div class="lan-flow-map-speed-selector" data-role="speed">
+                    <button class="lan-flow-map-speed-btn" data-speed="0.5">0.5x</button>
+                    <button class="lan-flow-map-speed-btn is-active" data-speed="1">1x</button>
+                    <button class="lan-flow-map-speed-btn" data-speed="2">2x</button>
+                    <button class="lan-flow-map-speed-btn" data-speed="4">4x</button>
+                </div>
                 <span data-role="left">-24h</span>
                 <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
                 <span data-role="right">Live</span>
@@ -1336,6 +1340,17 @@ export class LanFlowMap {
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
         playPause.addEventListener('click', () => this._togglePlayPause());
+        for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-btn')) {
+            btn.addEventListener('click', () => {
+                this._playbackSpeed = Number(btn.dataset.speed);
+                for (const b of scrubber.querySelectorAll('.lan-flow-map-speed-btn'))
+                    b.classList.toggle('is-active', b === btn);
+                if (this._historicPlaybackTimer) {
+                    this._stopHistoricPlayback();
+                    this._startHistoricPlayback();
+                }
+            });
+        }
         if (isMobile) {
             this.stage.parentElement.insertBefore(scrubber, this.stage.nextSibling);
         } else {
@@ -1526,6 +1541,7 @@ export class LanFlowMap {
             // play button reflects "playing" again.
             this._paused = false;
             this._syncPlayPauseIcon();
+            this._notifyStatCards(null);
             await this._pollLive();
             return;
         }
@@ -1546,7 +1562,14 @@ export class LanFlowMap {
             this._syncPlayPauseIcon();
             this._stopHistoricPlayback();
         }
+        this._notifyStatCards(at);
         await this._loadHistoric(at);
+    }
+
+    _notifyStatCards(at) {
+        if (!this._dotnetRef) return;
+        const iso = at ? at.toISOString() : null;
+        this._dotnetRef.invokeMethodAsync('OnMapTimeChanged', iso).catch(() => {});
     }
 
     _syncPlayPauseIcon() {
