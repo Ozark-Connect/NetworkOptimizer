@@ -14312,35 +14312,38 @@ a.affected-client:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
 }
-.lan-flow-map-speed-selector {
+.lan-flow-map-speed-control {
     display: flex;
-    gap: 0.15rem;
+    align-items: center;
+    gap: 0.2rem;
     flex-shrink: 0;
 }
-.lan-flow-map-speed-btn {
+.lan-flow-map-speed-step {
     background: transparent;
     border: 1px solid var(--border-color, #334155);
-    color: var(--text-muted);
-    font-size: 0.65rem;
-    padding: 0.15rem 0.35rem;
+    color: var(--text-secondary);
+    width: 1.4rem;
+    height: 1.4rem;
     border-radius: 0.2rem;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
     line-height: 1;
-    white-space: nowrap;
 }
-.lan-flow-map-speed-btn:hover {
+.lan-flow-map-speed-step:hover {
     background: var(--bg-hover);
+    color: var(--text-primary);
+}
+.lan-flow-map-speed-label {
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    min-width: 2.2rem;
+    text-align: center;
     color: var(--text-secondary);
-}
-.lan-flow-map-speed-btn.is-active {
-    background: var(--primary-color);
-    border-color: var(--primary-color);
-    color: #fff;
-}
-.lan-flow-map-speed-btn.is-disabled {
-    opacity: 0.35;
-    cursor: default;
-    pointer-events: none;
 }
 /* SFP/Optical table device + port cell. Inline so device name, port label,
    and PON badge sit on one row vertically centered, evenly spaced. */
@@ -14580,7 +14583,7 @@ a.affected-client:hover {
         border-radius: 0 0 8px 8px;
         border-top: 1px solid rgba(255, 255, 255, 0.06);
     }
-    .lan-flow-map-speed-selector {
+    .lan-flow-map-speed-control {
         display: none;
     }
 }

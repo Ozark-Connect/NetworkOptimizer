@@ -1053,8 +1053,8 @@ else
 
     private async Task FetchHistoricSnapshotAsync(DateTime at)
     {
-        var from = at.AddSeconds(-15);
-        var to = at.AddSeconds(5);
+        var from = at.AddSeconds(-90);
+        var to = at.AddSeconds(30);
 
         double wanDown = 0, wanUp = 0;
         double? gwRtt = null; double gwLoss = 0;

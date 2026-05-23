@@ -142,7 +142,8 @@ export class LanFlowMap {
         this._mode = 'live';      // 'live' | 'historic'
         this._historicAt = null;  // Date when in historic mode
         this._dotnetRef = window.__monitoringRef || null;
-        this._playbackSpeed = 1;  // multiplier: 0.5, 1, 2, 4
+        this._playbackSpeed = 1;  // real-time multiplier
+        this._playbackAccum = 0;  // fractional slider unit accumulator
 
         this._panels = {};        // DOM refs for overlay UI
         this._floatingLabels = new Map();  // nodeId -> { el, nameEl, rateEl }
@@ -1115,21 +1116,26 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        // Advance 1 slider unit per tick; vary the tick interval for speed.
-        // 1 unit = 86.4 real seconds (24h / 1000 units).
-        // At 1x: 250ms/unit → full 24h in ~4.2 min.
-        const baseTickMs = 250;
-        const tickMs = Math.max(16, Math.round(baseTickMs / this._playbackSpeed));
+        // 1 slider unit = 86.4 real seconds (24h / 1000). At 1x (real-time),
+        // each 250ms tick accumulates 0.25 real seconds toward the next unit.
+        // Higher multipliers accumulate faster. The slider only advances on
+        // whole-unit crossings; the fractional part carries over.
+        const REAL_SEC_PER_UNIT = 86400 / 1000;
+        const TICK_MS = 250;
+        this._playbackAccum = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
             const range = this._panels.scrubberRange;
             if (!range) return;
+            const realSecThisTick = (TICK_MS / 1000) * this._playbackSpeed;
+            this._playbackAccum += realSecThisTick;
+            const units = Math.floor(this._playbackAccum / REAL_SEC_PER_UNIT);
+            if (units < 1) return;
+            this._playbackAccum -= units * REAL_SEC_PER_UNIT;
             const cur = Number(range.value);
-            const next = Math.min(1000, cur + 1);
+            const next = Math.min(1000, cur + units);
             range.value = next;
             this._onScrubberInput(next);
-            // Mark playback-driven so _onScrubberChange skips its user-scrub
-            // auto-pause and we don't kill our own playback loop.
             this._playbackAdvancing = true;
             try {
                 if (next >= 1000) {
@@ -1141,7 +1147,7 @@ export class LanFlowMap {
             } finally {
                 this._playbackAdvancing = false;
             }
-        }, tickMs);
+        }, TICK_MS);
     }
 
     _stopHistoricPlayback() {
@@ -1320,11 +1326,10 @@ export class LanFlowMap {
         scrubber.innerHTML = `
             <div class="lan-flow-map-scrubber-row">
                 <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
-                <div class="lan-flow-map-speed-selector" data-role="speed">
-                    <button class="lan-flow-map-speed-btn" data-speed="0.5">0.5x</button>
-                    <button class="lan-flow-map-speed-btn is-active" data-speed="1">1x</button>
-                    <button class="lan-flow-map-speed-btn" data-speed="2">2x</button>
-                    <button class="lan-flow-map-speed-btn" data-speed="4">4x</button>
+                <div class="lan-flow-map-speed-control" data-role="speed">
+                    <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
+                    <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
+                    <button class="lan-flow-map-speed-step" data-dir="1" type="button" aria-label="Faster">+</button>
                 </div>
                 <span data-role="left">-24h</span>
                 <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
@@ -1338,26 +1343,21 @@ export class LanFlowMap {
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
         playPause.addEventListener('click', () => this._togglePlayPause());
-        for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-btn')) {
+        const SPEED_STEPS = [1, 2, 5, 10, 30, 60, 120, 360, 720, 1440];
+        this._speedSteps = SPEED_STEPS;
+        this._speedIndex = 0; // starts at 1x
+        for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-step')) {
             btn.addEventListener('click', () => {
-                const speed = Number(btn.dataset.speed);
-                if (btn.classList.contains('is-disabled')) return;
-                this._playbackSpeed = speed;
-                for (const b of scrubber.querySelectorAll('.lan-flow-map-speed-btn'))
-                    b.classList.toggle('is-active', b === btn);
-                if (this._mode === 'live' && speed < 1) {
-                    // Drop out of live into historic playback at the chosen speed
-                    const startValue = 997; // ~4 min behind live
-                    range.value = startValue;
-                    this._onScrubberChange(startValue);
-                    this._paused = false;
-                    this._syncPlayPauseIcon();
-                    this._startHistoricPlayback();
-                } else if (this._mode === 'historic') {
+                const dir = Number(btn.dataset.dir);
+                const newIdx = Math.max(0, Math.min(SPEED_STEPS.length - 1, this._speedIndex + dir));
+                if (newIdx === this._speedIndex) return;
+                this._speedIndex = newIdx;
+                this._playbackSpeed = SPEED_STEPS[newIdx];
+                this._syncSpeedLabel();
+                if (this._mode === 'historic' && this._historicPlaybackTimer) {
                     this._stopHistoricPlayback();
-                    if (!this._paused) this._startHistoricPlayback();
+                    this._startHistoricPlayback();
                 }
-                this._syncSpeedButtons();
             });
         }
         if (isMobile) {
@@ -1371,7 +1371,7 @@ export class LanFlowMap {
         this._panels.scrubberRight = scrubber.querySelector('[data-role="right"]');
         this._panels.scrubberPlayPause = playPause;
         this._paused = false;
-        this._syncSpeedButtons();
+        this._syncSpeedLabel();
     }
 
     _makePanel(extraClass) {
@@ -1551,7 +1551,7 @@ export class LanFlowMap {
             // play button reflects "playing" again.
             this._paused = false;
             this._syncPlayPauseIcon();
-            this._syncSpeedButtons();
+            this._syncSpeedLabel();
             this._notifyStatCards(null);
             await this._pollLive();
             return;
@@ -1563,7 +1563,7 @@ export class LanFlowMap {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
         }
-        this._syncSpeedButtons();
+        this._syncSpeedLabel();
         // Scrubbing back into historic by the user lands paused so they can
         // inspect the point they picked. The playback timer also calls this
         // method on every tick (to load the historic snapshot for the new
@@ -1591,15 +1591,9 @@ export class LanFlowMap {
         btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
     }
 
-    _syncSpeedButtons() {
-        const scrubber = this._panels.scrubber;
-        if (!scrubber) return;
-        const isLive = this._mode === 'live';
-        for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-btn')) {
-            const speed = Number(btn.dataset.speed);
-            const disabled = isLive && speed > 1;
-            btn.classList.toggle('is-disabled', disabled);
-        }
+    _syncSpeedLabel() {
+        const label = this._panels.scrubber?.querySelector('[data-role="speed-label"]');
+        if (label) label.textContent = `${this._playbackSpeed}x`;
     }
 
     _scrubberValueToTime(value) {
