@@ -823,6 +823,7 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
   |> filter(fn: (r) => r._value > 1.0)
+  |> group()
   |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
   |> limit(n: 1)
 ";
