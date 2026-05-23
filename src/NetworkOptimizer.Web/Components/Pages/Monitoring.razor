@@ -229,12 +229,7 @@ else
                     @if (_investigatingLoss) { <span class="spinner-sm"></span> }
                     else { <span>Packet Loss Events</span> }
                 </button>
-                <button class="btn btn-secondary" @onclick="InvestigateSfpAnomaly" disabled="@_investigatingSfp"
-                        data-tooltip="Find the most recent SFP temperature or signal anomaly and jump to it on the SFP chart">
-                    @if (_investigatingSfp) { <span class="spinner-sm"></span> }
-                    else { <span>SFP Anomalies</span> }
-                </button>
-                @if (!string.IsNullOrEmpty(_investigateResult))
+                @if (!string.IsNullOrEmpty(_investigateResult) && !_investigatingSfp)
                 {
                     <span class="page-description" style="align-self: center;">@_investigateResult</span>
                 }
@@ -688,6 +683,24 @@ else
             </div>
         </div>
         }
+
+        <!-- SFP investigation -->
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Investigate</h2>
+            </div>
+            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn btn-secondary" @onclick="InvestigateSfpAnomaly" disabled="@_investigatingSfp"
+                        data-tooltip="Find the most recent SFP temperature or signal anomaly and jump to it on the chart">
+                    @if (_investigatingSfp) { <span class="spinner-sm"></span> }
+                    else { <span>SFP Anomalies</span> }
+                </button>
+                @if (!string.IsNullOrEmpty(_investigateResult) && !_investigatingLoss)
+                {
+                    <span class="page-description" style="align-self: center;">@_investigateResult</span>
+                }
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: Setup ──────────────── *@
@@ -1681,15 +1694,6 @@ else
                 : $"RX power {result.Value:0.##} dBm";
             _investigateResult = $"Found SFP {desc} at {result.Timestamp:MMM dd HH:mm}";
             StateHasChanged();
-
-            if (_activeTab != "sfp")
-            {
-                _activeTab = "sfp";
-                NavigationManager.NavigateTo("/monitoring?tab=sfp", forceLoad: false, replace: false);
-                _lastTabParam = "sfp";
-                StateHasChanged();
-                await Task.Delay(500);
-            }
             await JS.InvokeVoidAsync("eval",
                 $"window.__sfpCharts?.navigateToTime('{result.Timestamp:o}');");
         }

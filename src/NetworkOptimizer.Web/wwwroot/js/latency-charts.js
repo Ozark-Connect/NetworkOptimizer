@@ -495,7 +495,7 @@ export async function mount(elId) {
 
 export function navigateToTime(isoTimestamp, category) {
     const ts = new Date(isoTimestamp).getTime();
-    const windowMs = 30 * 60000; // 30 min window centered on event
+    const windowMs = 10 * 60000; // 10 min window centered on event
     customFrom = new Date(ts - windowMs);
     customTo = new Date(ts + windowMs);
     isCustomRange = true;
