@@ -186,7 +186,7 @@ else
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             _monitoredOnts = await db.MonitoredSfps.AsNoTracking()
-                .Where(s => s.IsMonitoredOnt)
+                .Where(s => s.IsMonitoredOnt && s.IsPon)
                 .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)
                 .ToListAsync();
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
