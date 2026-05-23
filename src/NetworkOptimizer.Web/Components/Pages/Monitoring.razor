@@ -1183,7 +1183,7 @@ else
                         && mac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase);
                     if (isGateway)
                         points = points
-                            .Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
+                            .Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^(eth\d+|gre\d+)$"))
                             .ToList();
                     var closest = points
                         .GroupBy(p => p.Time)
