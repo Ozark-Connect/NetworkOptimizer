@@ -728,7 +728,10 @@ else
     {
         if (TabParam != null && ValidTabs.Contains(TabParam))
             return TabParam.ToLowerInvariant();
-        return _monitoringReady ? "live" : "setup";
+        if (!_monitoringReady) return "setup";
+        if (_influxReachable == false || _snmpState == SnmpDetectionState.PollFailing)
+            return "setup";
+        return "live";
     }
 
     private void SetActiveTab(string tab)
