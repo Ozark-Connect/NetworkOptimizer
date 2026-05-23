@@ -1906,7 +1906,7 @@
 
             <div class="form-group">
                 <label class="form-label">API Token</label>
-                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" />
+                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">

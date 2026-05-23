@@ -90,7 +90,7 @@
 
                 <div class="form-group">
                     <label class="form-label">All-access API token</label>
-                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB all-access token" />
+                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB all-access token" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 @if (_state == Step.PickOrg)
