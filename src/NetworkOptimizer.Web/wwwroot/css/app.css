@@ -14337,6 +14337,11 @@ a.affected-client:hover {
     border-color: var(--primary-color);
     color: #fff;
 }
+.lan-flow-map-speed-btn.is-disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: none;
+}
 /* SFP/Optical table device + port cell. Inline so device name, port label,
    and PON badge sit on one row vertically centered, evenly spaced. */
 .sfp-port-cell {

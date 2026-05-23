@@ -1115,19 +1115,17 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        // Base rate: 75 real seconds per playback second (1.25 min/sec).
-        // Full 24h pass takes ~9.6 min at 1x. _playbackSpeed multiplies this.
-        const baseRate = 75;
-        const tickMs = 250;
-        const realSecPerTick = baseRate * this._playbackSpeed * (tickMs / 1000);
-        const unitsPerSec = 1000 / (24 * 60 * 60);
-        const unitsPerTick = Math.max(1, Math.round(realSecPerTick * unitsPerSec));
+        // Advance 1 slider unit per tick; vary the tick interval for speed.
+        // 1 unit = 86.4 real seconds (24h / 1000 units).
+        // At 1x: 250ms/unit → full 24h in ~4.2 min.
+        const baseTickMs = 250;
+        const tickMs = Math.max(16, Math.round(baseTickMs / this._playbackSpeed));
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
             const range = this._panels.scrubberRange;
             if (!range) return;
             const cur = Number(range.value);
-            const next = Math.min(1000, cur + unitsPerTick);
+            const next = Math.min(1000, cur + 1);
             range.value = next;
             this._onScrubberInput(next);
             // Mark playback-driven so _onScrubberChange skips its user-scrub
@@ -1342,13 +1340,24 @@ export class LanFlowMap {
         playPause.addEventListener('click', () => this._togglePlayPause());
         for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-btn')) {
             btn.addEventListener('click', () => {
-                this._playbackSpeed = Number(btn.dataset.speed);
+                const speed = Number(btn.dataset.speed);
+                if (btn.classList.contains('is-disabled')) return;
+                this._playbackSpeed = speed;
                 for (const b of scrubber.querySelectorAll('.lan-flow-map-speed-btn'))
                     b.classList.toggle('is-active', b === btn);
-                if (this._historicPlaybackTimer) {
-                    this._stopHistoricPlayback();
+                if (this._mode === 'live' && speed < 1) {
+                    // Drop out of live into historic playback at the chosen speed
+                    const startValue = 997; // ~4 min behind live
+                    range.value = startValue;
+                    this._onScrubberChange(startValue);
+                    this._paused = false;
+                    this._syncPlayPauseIcon();
                     this._startHistoricPlayback();
+                } else if (this._mode === 'historic') {
+                    this._stopHistoricPlayback();
+                    if (!this._paused) this._startHistoricPlayback();
                 }
+                this._syncSpeedButtons();
             });
         }
         if (isMobile) {
@@ -1362,6 +1371,7 @@ export class LanFlowMap {
         this._panels.scrubberRight = scrubber.querySelector('[data-role="right"]');
         this._panels.scrubberPlayPause = playPause;
         this._paused = false;
+        this._syncSpeedButtons();
     }
 
     _makePanel(extraClass) {
@@ -1541,6 +1551,7 @@ export class LanFlowMap {
             // play button reflects "playing" again.
             this._paused = false;
             this._syncPlayPauseIcon();
+            this._syncSpeedButtons();
             this._notifyStatCards(null);
             await this._pollLive();
             return;
@@ -1552,6 +1563,7 @@ export class LanFlowMap {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
         }
+        this._syncSpeedButtons();
         // Scrubbing back into historic by the user lands paused so they can
         // inspect the point they picked. The playback timer also calls this
         // method on every tick (to load the historic snapshot for the new
@@ -1577,6 +1589,17 @@ export class LanFlowMap {
         if (!btn) return;
         btn.textContent = this._paused ? '▶' : '⏸';
         btn.setAttribute('aria-label', this._paused ? 'Play' : 'Pause');
+    }
+
+    _syncSpeedButtons() {
+        const scrubber = this._panels.scrubber;
+        if (!scrubber) return;
+        const isLive = this._mode === 'live';
+        for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-btn')) {
+            const speed = Number(btn.dataset.speed);
+            const disabled = isLive && speed > 1;
+            btn.classList.toggle('is-disabled', disabled);
+        }
     }
 
     _scrubberValueToTime(value) {
