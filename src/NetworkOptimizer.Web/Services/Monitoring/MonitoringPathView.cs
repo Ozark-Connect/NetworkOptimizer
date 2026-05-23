@@ -26,6 +26,8 @@ public class MonitoringPathView
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringLiveStats _liveStats;
     private readonly ILogger<MonitoringPathView> _logger;
+    private IReadOnlyList<WanSummary>? _wanCache;
+    private DateTime _wanCacheExpiry;
 
     public MonitoringPathView(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -138,6 +140,12 @@ public class MonitoringPathView
     /// </summary>
     public async Task<IReadOnlyList<WanSummary>> GetWansAsync(CancellationToken ct = default)
     {
+        if (_wanCache != null && DateTime.UtcNow < _wanCacheExpiry)
+        {
+            RefreshWanLiveRates(_wanCache);
+            return _wanCache;
+        }
+
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return Array.Empty<WanSummary>();
 
@@ -163,37 +171,46 @@ public class MonitoringPathView
             .ToList();
         if (wanPorts.Count == 0)
         {
-            // Fall back to any port whose network_name looks like a WAN.
             wanPorts = gateway.PortTable
                 .Where(p => p.NetworkName != null && p.NetworkName.StartsWith("wan", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(p => p.PortIdx)
                 .ToList();
         }
 
+        var gwMac = gateway.Mac.ToLowerInvariant().Replace('-', ':');
         for (int i = 0; i < wanPorts.Count; i++)
         {
             var port = wanPorts[i];
-            // Live throughput for this WAN port comes from the agent's per-port rate
-            // cache (which we maintain anyway for AP backhaul lookups). The cache key
-            // is (gateway MAC, port_idx).
-            var deviceLive = _liveStats.GetForDevice(gateway.Mac);
-
             results.Add(new WanSummary
             {
                 WanInterface = port.NetworkName ?? $"wan{i + 1}",
                 FriendlyName = string.IsNullOrEmpty(port.Name) ? null : port.Name,
                 IsPrimary = i == 0,
-                GatewayMac = gateway.Mac.ToLowerInvariant().Replace('-', ':'),
+                GatewayMac = gwMac,
                 GatewayPortName = port.Name,
                 LinkSpeedMbps = port.Speed > 0 ? port.Speed : (int?)null,
-                LiveRateInBps = deviceLive?.RateInBps,
-                LiveRateOutBps = deviceLive?.RateOutBps,
                 IpAddress = port.Ip,
                 IpClass = NetworkUtilities.ClassifyPublicAddress(port.Ip)
             });
         }
 
+        _wanCache = results;
+        _wanCacheExpiry = DateTime.UtcNow.AddSeconds(30);
+        RefreshWanLiveRates(results);
         return results;
+    }
+
+    private void RefreshWanLiveRates(IReadOnlyList<WanSummary> wans)
+    {
+        if (wans.Count == 0) return;
+        var gwMac = wans[0].GatewayMac;
+        if (string.IsNullOrEmpty(gwMac)) return;
+        var deviceLive = _liveStats.GetForDevice(gwMac);
+        foreach (var wan in wans)
+        {
+            wan.LiveRateInBps = deviceLive?.RateInBps;
+            wan.LiveRateOutBps = deviceLive?.RateOutBps;
+        }
     }
 
     /// <summary>
@@ -273,8 +290,8 @@ public record WanSummary
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
     public int? LinkSpeedMbps { get; init; }
-    public double? LiveRateInBps { get; init; }
-    public double? LiveRateOutBps { get; init; }
+    public double? LiveRateInBps { get; set; }
+    public double? LiveRateOutBps { get; set; }
     public string? IpAddress { get; init; }
     public PublicAddressClass IpClass { get; init; }
 }

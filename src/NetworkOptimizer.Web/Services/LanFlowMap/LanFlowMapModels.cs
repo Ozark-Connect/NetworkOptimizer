@@ -18,6 +18,11 @@ public class LanFlowMapSnapshot
     /// <summary>Interface name of the primary WAN (e.g. "wan"). The JS layer
     /// uses this to route speed test results that don't carry a WanNetworkGroup.</summary>
     public string? PrimaryWanInterface { get; set; }
+
+    /// <summary>Linux interface names of gateway WAN ports (e.g. ["eth6"]).
+    /// Server-side only; used by the historic endpoint to query InfluxDB.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> WanIfNames { get; set; } = new();
 }
 
 public enum LanNodeKind
