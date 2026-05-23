@@ -86,6 +86,12 @@ public class LanNode
     /// <summary>For wired clients: the parent switch port's negotiated link speed
     /// in Mbps. Surfaces as "1000 Mbps" / "2.5 Gbps" in the tooltip.</summary>
     public int? WiredLinkSpeedMbps { get; set; }
+
+    /// <summary>SNMP ifName of this device's own uplink port (e.g., "Port 9").
+    /// Server-side only; used by the historic endpoint as a fallback when the
+    /// parent doesn't expose SNMP data (mesh AP → switch case).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? UplinkIfName { get; set; }
 }
 
 public class LanPlacement

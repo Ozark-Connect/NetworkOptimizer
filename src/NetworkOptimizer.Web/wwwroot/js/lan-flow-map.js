@@ -1326,6 +1326,15 @@ export class LanFlowMap {
         const modeBadge = document.createElement('span');
         modeBadge.className = 'lan-flow-map-mode';
         modeBadge.textContent = 'Live';
+        modeBadge.style.cursor = 'pointer';
+        modeBadge.setAttribute('data-tooltip', 'Click to return to live');
+        modeBadge.addEventListener('click', () => {
+            if (this._mode !== 'live') {
+                const range = this._panels.scrubberRange;
+                if (range) range.value = 1000;
+                this._onScrubberChange(1000);
+            }
+        });
         status.appendChild(modeBadge);
         this._panels.status = status;
         this._panels.modeBadge = modeBadge;

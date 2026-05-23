@@ -378,45 +378,87 @@ public class LanFlowMapService
                 }
                 else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
                 {
+                    MonitoringInfluxClient.InterfaceRatePoint? resolved = null;
+                    bool fromChildSide = false;
+
+                    // Primary: parent's trunk port via PortKey.
                     if (!string.IsNullOrEmpty(link.PortKey))
                     {
-                        // Wired uplink: use the specific parent trunk port rate (matches live path).
-                        var (deviceMac, ifName) = ParsePortKey(link.PortKey);
-                        if (ratesByDevice.TryGetValue(deviceMac, out var pts))
+                        var (pMac, pIf) = ParsePortKey(link.PortKey);
+                        if (ratesByDevice.TryGetValue(pMac, out var pPts))
                         {
-                            var closest = pts
-                                .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
+                            resolved = pPts
+                                .Where(p => string.Equals(p.IfName, pIf, StringComparison.OrdinalIgnoreCase))
                                 .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                                 .FirstOrDefault();
-                            if (closest != null)
-                                update.LinkRates[link.Id] = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                         }
                     }
-                    else
+
+                    // Fallback: child device's own interface. Covers mesh APs
+                    // (vwiresta) and switches whose parent (e.g., a mesh AP)
+                    // doesn't expose SNMP port data. The live code does the
+                    // same at ComputePortRate(dev.Mac, dev.Uplink.PortIdx).
+                    if (resolved == null)
                     {
-                        // Wireless mesh: use the vwiresta interface (mesh backhaul),
-                        // matching the live path which uses apMeshUplinkInBps/OutBps
-                        // from the SNMP interface starting with "vwiresta" (no dot).
                         var childMac = ExtractDeviceMacFromUplinkId(link.Id);
-                        if (!string.IsNullOrEmpty(childMac) && ratesByDevice.TryGetValue(childMac, out var pts))
+                        if (!string.IsNullOrEmpty(childMac) && ratesByDevice.TryGetValue(childMac, out var cPts))
                         {
-                            var closest = pts
-                                .Where(p => p.IfName.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
-                                    && !p.IfName.Contains('.'))
-                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                                .FirstOrDefault();
-                            if (closest != null)
+                            if (link.Kind == LanLinkKind.MeshBackhaul)
                             {
-                                // vwiresta rateIn = bytes received over mesh = downloads,
-                                // rateOut = bytes transmitted = uploads. Live path swaps
-                                // these via RecordInterfaceAggregate convention.
-                                update.LinkRates[link.Id] = new LinkLiveRates
-                                {
-                                    DownstreamBps = closest.RateInBps ?? 0,
-                                    UpstreamBps = closest.RateOutBps ?? 0,
-                                    AsOf = closest.Time,
-                                };
+                                resolved = cPts
+                                    .Where(p => p.IfName.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
+                                        && !p.IfName.Contains('.'))
+                                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                    .FirstOrDefault();
                             }
+                            else
+                            {
+                                // Wired switch fallback: find the child's uplink port.
+                                // On switches SNMP ifDescr is "Port N" and the uplink
+                                // is the highest-rate port. Use the same closest-time
+                                // point from the child's interface set; the direction
+                                // swaps because we're reading from the other end.
+                                var childNode = snapshot.Nodes.FirstOrDefault(n =>
+                                    string.Equals(n.Mac, childMac, StringComparison.OrdinalIgnoreCase));
+                                if (childNode?.UplinkIfName != null)
+                                {
+                                    resolved = cPts
+                                        .Where(p => string.Equals(p.IfName, childNode.UplinkIfName, StringComparison.OrdinalIgnoreCase))
+                                        .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                        .FirstOrDefault();
+                                    fromChildSide = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (resolved != null)
+                    {
+                        if (link.Kind == LanLinkKind.MeshBackhaul && !fromChildSide)
+                        {
+                            // vwiresta rateIn = downloads, rateOut = uploads
+                            update.LinkRates[link.Id] = new LinkLiveRates
+                            {
+                                DownstreamBps = resolved.RateInBps ?? 0,
+                                UpstreamBps = resolved.RateOutBps ?? 0,
+                                AsOf = resolved.Time,
+                            };
+                        }
+                        else if (fromChildSide)
+                        {
+                            // Reading from child side: directions swap vs parent side.
+                            // Child port RX = bytes arriving from parent = downstream.
+                            // Child port TX = bytes leaving toward parent = upstream.
+                            update.LinkRates[link.Id] = new LinkLiveRates
+                            {
+                                DownstreamBps = resolved.RateInBps ?? 0,
+                                UpstreamBps = resolved.RateOutBps ?? 0,
+                                AsOf = resolved.Time,
+                            };
+                        }
+                        else
+                        {
+                            update.LinkRates[link.Id] = MapPortToLinkRates(link, resolved.RateInBps ?? 0, resolved.RateOutBps ?? 0, resolved.Time);
                         }
                     }
                 }
@@ -673,6 +715,18 @@ public class LanFlowMapService
             }
 
             snapshot.Links.Add(link);
+
+            // Stash the child's own uplink port ifName on its node. The historic
+            // endpoint uses this as a fallback when the parent doesn't expose
+            // SNMP data (e.g., switch plugged into a mesh AP's Ethernet port).
+            if (d.LocalUplinkPort.HasValue && d.LocalUplinkPort.Value > 0)
+            {
+                var childNode = snapshot.Nodes.FirstOrDefault(n => n.Id == "dev-" + mac);
+                if (childNode != null && nameMaps.TryGetValue((mac, d.LocalUplinkPort.Value), out var localMap))
+                {
+                    childNode.UplinkIfName = localMap.IfName;
+                }
+            }
         }
     }
 
