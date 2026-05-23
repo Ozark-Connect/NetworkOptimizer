@@ -143,6 +143,9 @@ else
     public List<MonitoringTarget> Targets { get; set; } = new();
 
     [Parameter]
+    public Dictionary<string, string> DeviceIpByMac { get; set; } = new();
+
+    [Parameter]
     public EventCallback OnSfpChanged { get; set; }
 
     private bool _collapsed = false;
@@ -206,10 +209,13 @@ else
     private string ResolveDeviceIp(string deviceMac)
     {
         if (string.IsNullOrEmpty(deviceMac)) return "255.255.255.255";
+        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        if (DeviceIpByMac.TryGetValue(normalized, out var ip) && !string.IsNullOrEmpty(ip))
+            return ip;
         var target = Targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
             && !string.IsNullOrEmpty(t.DeviceMac)
-            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == deviceMac.Replace("-", ":").ToLowerInvariant());
+            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
         return target?.Address ?? "255.255.255.255";
     }
 

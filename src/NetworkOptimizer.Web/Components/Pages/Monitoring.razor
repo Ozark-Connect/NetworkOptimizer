@@ -318,7 +318,7 @@ else
     @* ──────────────── Tab: SFP Stats ──────────────── *@
     @if (_activeTab == "sfp" && _monitoringReady)
     {
-        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" OnSfpChanged="OnSfpChanged" />
+        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged" />
 
         @if (_monitoredSfps.Count > 0)
         {
