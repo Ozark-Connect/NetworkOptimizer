@@ -485,10 +485,18 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
-    /// <summary>
-    /// Aggregated WAN throughput for a gateway device - sums rate_in_bps and rate_out_bps
-    /// across all SNMP-tracked interfaces. Used by the latency chart's WAN rate overlay.
-    /// </summary>
+    public Task WriteWanThroughputAsync(string deviceMac, double downloadBps, double uploadBps, DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("wan_throughput")
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Field("download_bps", downloadBps)
+            .Field("upload_bps", uploadBps)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
         DateTime from,
@@ -503,13 +511,10 @@ from(bucket: ""{_bucket}"")
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r._measurement == ""wan_throughput"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> filter(fn: (r) => r._field == ""download_bps"" or r._field == ""upload_bps"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> group(columns: [""_time"", ""_field""])
-  |> sum()
-  |> group()
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> sort(columns: [""_time""])
 ";
@@ -519,8 +524,8 @@ from(bucket: ""{_bucket}"")
             results.Add(new WanRatePoint
             {
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
-                DownloadBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps")),
-                UploadBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps"))
+                DownloadBps = AsDoubleOrNull(record.GetValueByKey("download_bps")),
+                UploadBps = AsDoubleOrNull(record.GetValueByKey("upload_bps"))
             });
         }
         return results;

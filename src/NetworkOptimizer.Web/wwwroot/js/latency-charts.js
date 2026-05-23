@@ -340,6 +340,7 @@ function selectPresetRange(container, hours) {
     const btn = container.querySelector(`[data-range="${hours}"]`);
     if (btn) btn.classList.add('active');
     container.querySelector('.custom-range-btn')?.classList.remove('active');
+    syncPopoverInputs(container);
     updateCustomLabel(container);
     loadAndUpdate();
     startPoll();
@@ -378,7 +379,7 @@ function syncPopoverInputs(container) {
     if (isCustomRange && customFrom && customTo) {
         fromInput.value = toLocalDatetimeString(customFrom);
         toInput.value = toLocalDatetimeString(customTo);
-    } else if (windowOffset !== 0) {
+    } else {
         const now = Date.now();
         const rangeMs = RANGE_MS[currentRangeHours] || 3600000;
         const to = new Date(now + windowOffset);

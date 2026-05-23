@@ -214,8 +214,12 @@ function selectPresetRange(container, hours) {
     if (btn) btn.classList.add('active');
     const fromInput = container.querySelector('[data-input="from"]');
     const toInput = container.querySelector('[data-input="to"]');
-    if (fromInput) fromInput.value = '';
-    if (toInput) toInput.value = '';
+    if (fromInput && toInput) {
+        const now = Date.now();
+        const rangeMs = RANGE_MS[hours] || 3600000;
+        fromInput.value = toLocalDatetimeString(new Date(now - rangeMs));
+        toInput.value = toLocalDatetimeString(new Date(now));
+    }
     container.querySelector('[data-popover="custom-range"]')?.classList.remove('open');
     updateCustomLabel(container);
     loadAndUpdate();

@@ -477,6 +477,7 @@ public class MonitoringCollectionAgent : BackgroundService
                         // Gateway perspective: TX out the WAN = upstream toward internet;
                         // RX = downstream. Note direction flip vs the switch-port case.
                         _liveStats.RecordInterfaceAggregate(gw.Mac, rate.Value.UpBps, rate.Value.DownBps, nowOverride);
+                        _ = _influx.WriteWanThroughputAsync(gw.Mac, rate.Value.DownBps, rate.Value.UpBps, nowOverride);
                         continue;
                     }
                 }
@@ -491,6 +492,7 @@ public class MonitoringCollectionAgent : BackgroundService
             if (devRate.HasValue)
             {
                 _liveStats.RecordInterfaceAggregate(gw.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
+                _ = _influx.WriteWanThroughputAsync(gw.Mac, devRate.Value.DownBps, devRate.Value.UpBps, nowOverride);
             }
         }
 
