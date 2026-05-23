@@ -1199,6 +1199,8 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         }
     }
 
+    private System.Threading.Timer? _sfpChartDebounce;
+
     private async Task ToggleSfpMonitoringAsync(int sfpId, bool monitored)
     {
         try
@@ -1211,6 +1213,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             await db.SaveChangesAsync();
             await LoadTargetsAsync();
             StateHasChanged();
+            DebounceSfpChartRemount();
         }
         catch { /* best effort */ }
     }
@@ -1227,8 +1230,31 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
             await db.SaveChangesAsync();
             await LoadTargetsAsync();
             StateHasChanged();
+            DebounceSfpChartRemount();
         }
         catch { /* best effort */ }
+    }
+
+    private void DebounceSfpChartRemount()
+    {
+        _sfpChartDebounce?.Dispose();
+        _sfpChartDebounce = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_sfpChartsMounted)
+                    {
+                        try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
+                        catch { }
+                        _sfpChartsMounted = false;
+                    }
+                    StateHasChanged();
+                });
+            }
+            catch { }
+        }, null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
     }
 
     private static bool IsPonAutoDetected(MonitoredSfp sfp)
@@ -1370,6 +1396,7 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
+        _sfpChartDebounce?.Dispose();
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }
