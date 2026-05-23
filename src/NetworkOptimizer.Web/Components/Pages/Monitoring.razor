@@ -1164,7 +1164,8 @@ else
             transitLoss = losses.Count > 0 ? losses.Average() : 0;
         }));
 
-        // Fabric load (sum across all fabric devices)
+        // Fabric load (sum across all fabric devices, matching live-mode filter:
+        // gateways only count eth\d+ interfaces, switches count all)
         var fabricMacs = _targets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
             .Select(t => t.DeviceMac!)
@@ -1178,6 +1179,12 @@ else
                 foreach (var mac in fabricMacs)
                 {
                     var points = await InfluxClient.QueryInterfaceRatesAsync(mac, from, to);
+                    var isGateway = _gatewayMac != null
+                        && mac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase);
+                    if (isGateway)
+                        points = points
+                            .Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.IfName, @"^eth\d+$"))
+                            .ToList();
                     var closest = points
                         .GroupBy(p => p.Time)
                         .OrderBy(g => Math.Abs((g.Key - at).TotalMilliseconds))
