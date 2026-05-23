@@ -485,6 +485,54 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Aggregated WAN throughput for a gateway device - sums rate_in_bps and rate_out_bps
+    /// across all SNMP-tracked interfaces. Used by the latency chart's WAN rate overlay.
+    /// </summary>
+    public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return Array.Empty<WanRatePoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> group(columns: [""_time"", ""_field""])
+  |> sum()
+  |> group()
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> sort(columns: [""_time""])
+";
+        var results = new List<WanRatePoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new WanRatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                DownloadBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps")),
+                UploadBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps"))
+            });
+        }
+        return results;
+    }
+
+    public record WanRatePoint
+    {
+        public required DateTime Time { get; init; }
+        public double? DownloadBps { get; init; }
+        public double? UploadBps { get; init; }
+    }
+
     /// <summary>Per-device CPU/memory/temperature trace.</summary>
     public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthAsync(
         string deviceMac,

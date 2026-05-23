@@ -14,6 +14,7 @@ const RANGE_MS = { 0: 15 * 60000, 1: 3600000, 6: 6 * 3600000, 24: 86400000, 168:
 
 let rttChart = null;
 let lossChart = null;
+let wanRateChart = null;
 let pollTimer = null;
 let currentCategory = 'Fabric';
 let currentRangeHours = 1;
@@ -90,6 +91,26 @@ function buildLossOpts() {
             fill: {
                 type: 'gradient',
                 gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
+            },
+        });
+}
+
+function formatBps(v) {
+    if (v == null || v < 1) return '0';
+    if (v >= 1e9) return (v / 1e9).toFixed(1) + ' Gbps';
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + ' Mbps';
+    if (v >= 1e3) return (v / 1e3).toFixed(0) + ' Kbps';
+    return v.toFixed(0) + ' bps';
+}
+
+function buildWanRateOpts() {
+    return baseChartOpts('area', 'Throughput',
+        v => v != null ? formatBps(v) : '',
+        {
+            colors: ['#3b82f6', '#10b981'],
+            fill: {
+                type: 'gradient',
+                gradient: { shadeIntensity: 0.3, opacityFrom: 0.3, opacityTo: 0.05 },
             },
         });
 }
@@ -207,6 +228,27 @@ async function loadAndUpdate() {
     if (container) {
         renderBadges(container);
         renderStatsTable(container, data);
+    }
+
+    // WAN rate chart - show for non-Fabric categories
+    const showWanRate = currentCategory !== 'Fabric';
+    const wanCard = container?.querySelector('.latency-wan-rate-card');
+    if (wanCard) wanCard.style.display = showWanRate ? '' : 'none';
+
+    if (showWanRate && wanRateChart) {
+        const timeParams = buildQueryParams().replace(/category=[^&]*&?/, '');
+        try {
+            const resp = await fetch(`/api/monitoring/wan-rate-chart?${timeParams}`, { credentials: 'same-origin' });
+            if (resp.ok) {
+                const wan = await resp.json();
+                const dlSeries = (wan.download || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                const ulSeries = (wan.upload || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value }));
+                wanRateChart.updateSeries([
+                    { name: 'Download', data: dlSeries },
+                    { name: 'Upload', data: ulSeries }
+                ], false);
+            }
+        } catch { }
     }
 }
 
@@ -409,14 +451,22 @@ export async function mount(elId) {
     const lossEl = container.querySelector('.latency-loss-chart');
     if (!rttEl || !lossEl) return;
 
+    const wanRateEl = container.querySelector('.latency-wan-rate-chart');
+
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
+    if (wanRateChart) { wanRateChart.destroy(); wanRateChart = null; }
 
     rttChart = new ApexCharts(rttEl, { ...buildRttOpts(), series: [], colors: PALETTE });
     lossChart = new ApexCharts(lossEl, { ...buildLossOpts(), series: [], colors: PALETTE });
 
     await rttChart.render();
     await lossChart.render();
+
+    if (wanRateEl) {
+        wanRateChart = new ApexCharts(wanRateEl, { ...buildWanRateOpts(), series: [] });
+        await wanRateChart.render();
+    }
 
     // Category buttons - preserve current time window when switching
     container.querySelectorAll('[data-category]').forEach(btn => {
@@ -521,6 +571,7 @@ export function unmount() {
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
+    if (wanRateChart) { wanRateChart.destroy(); wanRateChart = null; }
     containerId = null;
     targetMeta = [];
     visibility = {};
