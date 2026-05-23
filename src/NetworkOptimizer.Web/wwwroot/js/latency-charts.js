@@ -493,6 +493,29 @@ export async function mount(elId) {
     startPoll();
 }
 
+export function navigateToTime(isoTimestamp, category) {
+    const ts = new Date(isoTimestamp).getTime();
+    const windowMs = 30 * 60000; // 30 min window centered on event
+    customFrom = new Date(ts - windowMs);
+    customTo = new Date(ts + windowMs);
+    isCustomRange = true;
+    windowOffset = 0;
+    if (category) currentCategory = category;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-category]').forEach(b => {
+            b.classList.toggle('active', b.dataset.category === currentCategory);
+        });
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        syncPopoverInputs(container);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+    startPoll();
+}
+
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }

@@ -750,6 +750,108 @@ from(bucket: ""{_longtermBucket}"")
             ? parsed : null
     };
 
+    /// <summary>
+    /// Find the most recent packet loss event across ISP, Transit, and Internet targets
+    /// (checked in that priority order). Returns the timestamp and target type of the
+    /// first match with loss > 1%.
+    /// </summary>
+    public async Task<RecentLossEvent?> FindRecentLossEventAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return null;
+
+        var targetTypes = new[] { "accessisp", "transit", "internetservice" };
+        var lookback = DateTime.UtcNow.AddDays(-7);
+
+        foreach (var typeTag in targetTypes)
+        {
+            var typeFilter = typeTag == "internetservice"
+                ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+                : $@"r.target_type == ""{typeTag}""";
+
+            var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(lookback)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> filter(fn: (r) => r._value > 1.0)
+  |> sort(columns: [""_time""], desc: true)
+  |> limit(n: 1)
+";
+            await foreach (var record in QueryFluxAsync(flux, ct))
+            {
+                var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+                var targetId = record.GetValueByKey("target_id") as string;
+                var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
+                return new RecentLossEvent
+                {
+                    Timestamp = time,
+                    TargetType = typeTag,
+                    TargetId = targetId,
+                    LossPercent = loss ?? 0
+                };
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Find the most recent SFP anomaly: temperature above PON threshold (75 C) or
+    /// RX power below PON threshold (-25 dBm). Scans the last 7 days.
+    /// </summary>
+    public async Task<RecentSfpAnomaly?> FindRecentSfpAnomalyAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return null;
+
+        var lookback = DateTime.UtcNow.AddDays(-7);
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(lookback)})
+  |> filter(fn: (r) => r._measurement == ""sfp"")
+  |> filter(fn: (r) => r._field == ""temp_c"" or r._field == ""rx_power_dbm"")
+  |> filter(fn: (r) => (r._field == ""temp_c"" and r._value > 75.0) or (r._field == ""rx_power_dbm"" and r._value < -25.0))
+  |> sort(columns: [""_time""], desc: true)
+  |> limit(n: 1)
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            var deviceMac = record.GetValueByKey("device_mac") as string;
+            var portName = record.GetValueByKey("port_name") as string;
+            return new RecentSfpAnomaly
+            {
+                Timestamp = time,
+                Metric = field == "temp_c" ? "temperature" : "rx_power",
+                Value = value ?? 0,
+                DeviceMac = deviceMac,
+                PortName = portName
+            };
+        }
+        return null;
+    }
+
+    public record RecentLossEvent
+    {
+        public required DateTime Timestamp { get; init; }
+        public required string TargetType { get; init; }
+        public string? TargetId { get; init; }
+        public double LossPercent { get; init; }
+    }
+
+    public record RecentSfpAnomaly
+    {
+        public required DateTime Timestamp { get; init; }
+        public required string Metric { get; init; }
+        public double Value { get; init; }
+        public string? DeviceMac { get; init; }
+        public string? PortName { get; init; }
+    }
+
     public record InterfaceRatePoint
     {
         public required DateTime Time { get; init; }

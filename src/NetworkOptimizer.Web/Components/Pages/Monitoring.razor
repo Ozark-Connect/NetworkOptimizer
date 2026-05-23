@@ -218,6 +218,29 @@ else
             </div>
         </div>
 
+        <!-- Quick investigation -->
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Investigate</h2>
+            </div>
+            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
+                        data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
+                    @if (_investigatingLoss) { <span class="spinner-sm"></span> }
+                    else { <span>Packet Loss Events</span> }
+                </button>
+                <button class="btn btn-secondary" @onclick="InvestigateSfpAnomaly" disabled="@_investigatingSfp"
+                        data-tooltip="Find the most recent SFP temperature or signal anomaly and jump to it on the SFP chart">
+                    @if (_investigatingSfp) { <span class="spinner-sm"></span> }
+                    else { <span>SFP Anomalies</span> }
+                </button>
+                @if (!string.IsNullOrEmpty(_investigateResult))
+                {
+                    <span class="page-description" style="align-self: center;">@_investigateResult</span>
+                }
+            </div>
+        </div>
+
         <!-- Upstream tracer wizard -->
         <div style="margin-top: 1.5rem;">
             <UpstreamTracerPanel />
@@ -983,6 +1006,11 @@ else
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
 
+    // Investigation state
+    private bool _investigatingLoss;
+    private bool _investigatingSfp;
+    private string? _investigateResult;
+
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
         "live", "performance", "devices", "sfp", "setup"
@@ -1596,6 +1624,84 @@ else
         if (delta < TimeSpan.FromHours(1)) return $"{(int)delta.TotalMinutes}m ago";
         if (delta < TimeSpan.FromDays(1)) return $"{(int)delta.TotalHours}h ago";
         return $"{(int)delta.TotalDays}d ago";
+    }
+
+    // ─── Investigation ───
+
+    private async Task InvestigatePacketLoss()
+    {
+        _investigatingLoss = true;
+        _investigateResult = null;
+        StateHasChanged();
+        try
+        {
+            var result = await InfluxClient.FindRecentLossEventAsync();
+            if (result == null)
+            {
+                _investigateResult = "No packet loss events found in the last 7 days.";
+                return;
+            }
+            var category = result.TargetType switch
+            {
+                "accessisp" => "AccessIsp",
+                "transit" => "Transit",
+                _ => "InternetService"
+            };
+            _investigateResult = $"Found {result.LossPercent:0.#}% loss at {result.Timestamp:MMM dd HH:mm}";
+            StateHasChanged();
+            await JS.InvokeVoidAsync("eval",
+                $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
+        }
+        catch (Exception ex)
+        {
+            _investigateResult = $"Query failed: {ex.Message}";
+        }
+        finally
+        {
+            _investigatingLoss = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task InvestigateSfpAnomaly()
+    {
+        _investigatingSfp = true;
+        _investigateResult = null;
+        StateHasChanged();
+        try
+        {
+            var result = await InfluxClient.FindRecentSfpAnomalyAsync();
+            if (result == null)
+            {
+                _investigateResult = "No SFP anomalies found in the last 7 days.";
+                return;
+            }
+            var desc = result.Metric == "temperature"
+                ? $"temperature {result.Value:0.#} °C"
+                : $"RX power {result.Value:0.##} dBm";
+            _investigateResult = $"Found SFP {desc} at {result.Timestamp:MMM dd HH:mm}";
+            StateHasChanged();
+
+            if (_activeTab != "sfp")
+            {
+                _activeTab = "sfp";
+                NavigationManager.NavigateTo("/monitoring?tab=sfp", forceLoad: false, replace: false);
+                _lastTabParam = "sfp";
+                StateHasChanged();
+                await Task.Delay(500);
+            }
+            await JS.InvokeVoidAsync("eval",
+                $"window.__sfpCharts?.navigateToTime('{result.Timestamp:o}');");
+        }
+        catch (Exception ex)
+        {
+            _investigateResult = $"Query failed: {ex.Message}";
+        }
+        finally
+        {
+            _investigatingSfp = false;
+            StateHasChanged();
+        }
     }
 
     // ─── Chart mount/unmount lifecycle (tab-aware) ───

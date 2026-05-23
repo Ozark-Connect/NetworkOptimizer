@@ -349,6 +349,24 @@ export async function mount(elId) {
     startPoll();
 }
 
+export function navigateToTime(isoTimestamp) {
+    const ts = new Date(isoTimestamp).getTime();
+    const windowMs = 2 * 3600000; // 4h window centered on event
+    customFrom = new Date(ts - windowMs);
+    customTo = new Date(ts + windowMs);
+    isCustomRange = true;
+    windowOffset = 0;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        container.querySelector('.custom-range-btn')?.classList.add('active');
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+    startPoll();
+}
+
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
