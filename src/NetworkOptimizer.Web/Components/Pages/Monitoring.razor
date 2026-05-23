@@ -89,13 +89,13 @@ else
                 <div class="stat-value" style="color: #10b981;">@FormatRate(gwStats?.RateOutBps)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
-            @{ var gwTarget = GetMeanTargetStats(MonitoringTargetType.Wan); }
+            @{ var gwLatency = GetGatewayLatency(); }
             <div class="monitoring-stat-card">
-                <div class="stat-value">@FormatRtt(gwTarget.rtt)</div>
+                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
             <div class="monitoring-stat-card">
-                <div class="stat-value @(gwTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwTarget.loss)</div>
+                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             @{ var ispTarget = GetMeanTargetStats(MonitoringTargetType.AccessIsp); }
@@ -945,6 +945,7 @@ else
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
     private Dictionary<string, string> _deviceIpByMac = new();
+    private string? _gatewayMac;
     private System.Threading.Timer? _refreshTimer;
 
     private string _activeTab = "setup";
@@ -1033,14 +1034,12 @@ else
             {
                 await InvokeAsync(async () =>
                 {
-                    var oldTargetCount = _targets.Count;
-                    var oldSfpCount = _allSfps.Count;
                     await LoadTargetsAsync();
                     StateHasChanged();
                 });
             }
             catch { /* prevent timer death */ }
-        }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
 
         if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
         {
@@ -1201,6 +1200,10 @@ else
                             d => d.Mac!.Replace("-", ":").ToLowerInvariant(),
                             d => d.DisplayIpAddress ?? "",
                             StringComparer.OrdinalIgnoreCase);
+                    var gw = devices.FirstOrDefault(d =>
+                        d.Type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                        || d.HardwareType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
+                    _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
                 }
             }
             catch { }
@@ -1217,10 +1220,21 @@ else
 
     private DeviceLiveStats? GetGatewayStats()
     {
-        var gwTarget = _targets.FirstOrDefault(t =>
-            t.TargetType == MonitoringTargetType.Wan && !string.IsNullOrEmpty(t.DeviceMac));
-        if (gwTarget?.DeviceMac == null) return null;
-        return LiveStats.GetForDevice(gwTarget.DeviceMac);
+        if (_gatewayMac == null) return null;
+        return LiveStats.GetForDevice(_gatewayMac);
+    }
+
+    private (double? rtt, double loss) GetGatewayLatency()
+    {
+        if (_gatewayMac == null) return (null, 0);
+        var gwFabric = _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && t.Enabled
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
+        if (gwFabric == null) return (null, 0);
+        var s = LiveStats.GetTargetStats(gwFabric.TargetId);
+        return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
     private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
