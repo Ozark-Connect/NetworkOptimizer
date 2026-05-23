@@ -1444,6 +1444,25 @@
                     </div>
                 </div>
                 <div>
+                    <h4 class="event-type-group-header">Monitoring</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("monitoring.target_offline")'><code>monitoring.target_offline</code> <span>Probe target went offline</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.target_recovered")'><code>monitoring.target_recovered</code> <span>Probe target came back online</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.target_sustained_loss")'><code>monitoring.target_sustained_loss</code> <span>Sustained packet loss detected</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.sfp_rx_power")'><code>monitoring.sfp_rx_power</code> <span>SFP/PON RX power below threshold</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.sfp_tx_power")'><code>monitoring.sfp_tx_power</code> <span>SFP/PON TX power above threshold</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.sfp_temperature")'><code>monitoring.sfp_temperature</code> <span>SFP temperature above threshold</span></div>
+                        <div @onclick='() => SelectEventType("monitoring.*")'><code>monitoring.*</code> <span>All monitoring events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">WAN Data Usage</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("wan.data_usage_warning")'><code>wan.data_usage_warning</code> <span>Monthly data cap approaching</span></div>
+                        <div @onclick='() => SelectEventType("wan.data_usage_exceeded")'><code>wan.data_usage_exceeded</code> <span>Monthly data cap exceeded</span></div>
+                    </div>
+                </div>
+                <div>
                     <h4 class="event-type-group-header">Schedule & Other</h4>
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("schedule.task_completed")'><code>schedule.task_completed</code> <span>Scheduled task succeeded</span></div>

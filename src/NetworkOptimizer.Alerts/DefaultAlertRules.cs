@@ -188,6 +188,35 @@ public static class DefaultAlertRules
             Source = "monitoring",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
+        },
+
+        // --- SFP / PON threshold alerts (enabled - auto-managed for detected modules) ---
+        new AlertRule
+        {
+            Name = "SFP: PON RX Power Low",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.sfp_rx_power",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "SFP: PON TX Power High",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.sfp_tx_power",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "SFP: Temperature High",
+            IsEnabled = true,
+            EventTypePattern = "monitoring.sfp_temperature",
+            Source = "monitoring",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
         }
     ];
 }

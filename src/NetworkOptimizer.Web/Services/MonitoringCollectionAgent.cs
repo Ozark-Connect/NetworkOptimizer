@@ -37,6 +37,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator _sfpAlertEvaluator;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
 
@@ -61,6 +62,7 @@ public class MonitoringCollectionAgent : BackgroundService
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator alertEvaluator,
+        NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator sfpAlertEvaluator,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger)
     {
@@ -71,6 +73,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         _alertEvaluator = alertEvaluator;
+        _sfpAlertEvaluator = sfpAlertEvaluator;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -682,6 +685,32 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var device in devices)
         {
             CollectSfpForDevice(device, db, existingSfps, nowSfp);
+        }
+
+        // SFP threshold evaluation: check DDM values against alert thresholds.
+        foreach (var device in devices)
+        {
+            if (device.PortTable == null || device.PortTable.Count == 0) continue;
+            var sfpMac = NormalizeMac(device.Mac);
+            foreach (var port in device.PortTable)
+            {
+                if (port.SfpFound != true) continue;
+                var sfpPortName = port.PortIdx > 0
+                    ? port.PortIdx.ToString()
+                    : (port.Name ?? string.Empty);
+                if (string.IsNullOrEmpty(sfpPortName)) continue;
+                var isPon = existingSfps.TryGetValue((sfpMac, sfpPortName), out var sfpRow) && sfpRow.IsPon;
+                try
+                {
+                    await _sfpAlertEvaluator.EvaluateAsync(
+                        sfpMac, sfpPortName, device.Name, isPon,
+                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "SFP alert evaluation failed for {Mac} port {Port}", sfpMac, sfpPortName);
+                }
+            }
         }
 
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
