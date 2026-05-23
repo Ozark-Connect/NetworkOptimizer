@@ -265,6 +265,9 @@ export class LanFlowMap {
     }
 
     _shouldAcceptKeys() {
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+        if (document.activeElement?.isContentEditable) return false;
         const rect = this.canvas.getBoundingClientRect();
         return rect.bottom > 0 && rect.top < window.innerHeight;
     }
