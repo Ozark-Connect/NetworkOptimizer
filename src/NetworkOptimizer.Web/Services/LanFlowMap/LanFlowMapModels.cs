@@ -292,6 +292,7 @@ public class LanFlowMapHistoricUpdate
 {
     public DateTime At { get; set; }
     public Dictionary<string, LinkLiveRates> LinkRates { get; set; } = new();
+    public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
 
     /// <summary>Speed tests whose TestTime falls within the scrub window (or just before it).</summary>

@@ -1620,13 +1620,12 @@ export class LanFlowMap {
         try {
             const url = `${this.apiBase}/history?at=${encodeURIComponent(at.toISOString())}`;
             const res = await fetch(url, { credentials: 'same-origin' });
-            if (!res.ok) { console.warn('[LanFlowMap] _loadHistoric HTTP', res.status); return; }
+            if (!res.ok) return;
             const update = await res.json();
-            const rateKeys = Object.keys(update.linkRates || {});
-            console.log(`[LanFlowMap] _loadHistoric: ${rateKeys.length} linkRates`);
             this._applyLiveRates(update.linkRates || {});
+            if (update.nodeBadges) this._currentBadges = update.nodeBadges;
         } catch (err) {
-            console.warn('[LanFlowMap] _loadHistoric error:', err);
+            // Keep ticking; transient errors are fine.
         }
     }
 
