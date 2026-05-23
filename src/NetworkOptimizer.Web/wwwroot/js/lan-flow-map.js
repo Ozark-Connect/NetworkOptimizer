@@ -1145,7 +1145,7 @@ export class LanFlowMap {
             // integer slider position (which only moves every ~86s at 1x).
             if (this._panels.scrubberRight) {
                 this._panels.scrubberRight.textContent =
-                    (clamped >= 998) ? 'Live' : this._playbackTime.toLocaleString();
+                    (clamped >= 998) ? 'Live' : _fmtDateTime(this._playbackTime);
             }
             tickCount++;
             // Refresh map and stat cards periodically
@@ -1558,7 +1558,7 @@ export class LanFlowMap {
         const at = this._scrubberValueToTime(value);
         if (this._panels.scrubberRight) {
             this._panels.scrubberRight.textContent =
-                (value >= 998) ? 'Live' : at.toLocaleString();
+                (value >= 998) ? 'Live' : _fmtDateTime(at);
         }
     }
 
@@ -2341,6 +2341,11 @@ function formatAge(ms) {
     if (h < 24) return `${h}h ago`;
     const d = Math.floor(h / 24);
     return `${d}d ago`;
+}
+
+const _p = (n) => String(n).padStart(2, '0');
+function _fmtDateTime(d) {
+    return `${_p(d.getMonth()+1)}/${_p(d.getDate())}/${String(d.getFullYear()).slice(2)} ${_p(d.getHours())}:${_p(d.getMinutes())}:${_p(d.getSeconds())}`;
 }
 
 function escapeHtml(s) {
