@@ -144,6 +144,7 @@ export class LanFlowMap {
         this._dotnetRef = window.__monitoringRef || null;
         this._playbackSpeed = 1;  // real-time multiplier
         this._playbackAccum = 0;  // fractional slider unit accumulator
+        this._scrubberOrigin = Date.now() - 24 * 3600000; // left edge anchored at mount - 24h
 
         this._panels = {};        // DOM refs for overlay UI
         this._floatingLabels = new Map();  // nodeId -> { el, nameEl, rateEl }
@@ -1132,9 +1133,12 @@ export class LanFlowMap {
             // Advance the continuous timestamp
             this._playbackTime = new Date(
                 this._playbackTime.getTime() + TICK_MS * this._playbackSpeed);
-            // Derive slider position from the timestamp
-            const msFromNow = Date.now() - this._playbackTime.getTime();
-            const value = Math.round(1000 - msFromNow / (24 * 3600000) * 1000);
+            // Derive slider position from the timestamp (inverse of _scrubberValueToTime)
+            const now = Date.now();
+            const span = now - this._scrubberOrigin;
+            const value = span > 0
+                ? Math.round((this._playbackTime.getTime() - this._scrubberOrigin) / span * 1000)
+                : 1000;
             const clamped = Math.max(0, Math.min(1000, value));
             range.value = clamped;
             // Update the time label from the continuous timestamp, not the
@@ -1623,9 +1627,10 @@ export class LanFlowMap {
     }
 
     _scrubberValueToTime(value) {
-        // Range 0..1000 maps to 24 hours ago .. now.
+        // Range 0..1000 maps from the anchored origin (mount - 24h) to now.
+        // The window grows as the page stays open so recent time is always reachable.
         const now = Date.now();
-        const ms = now - (1000 - value) * (24 * 60 * 60 * 1000 / 1000);
+        const ms = this._scrubberOrigin + (value / 1000) * (now - this._scrubberOrigin);
         return new Date(ms);
     }
 
