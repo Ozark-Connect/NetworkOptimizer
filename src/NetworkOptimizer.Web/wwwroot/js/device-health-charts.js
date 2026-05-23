@@ -22,6 +22,8 @@ let containerId = null;
 let fetchController = null;
 let deviceMeta = [];
 let visibility = {};
+let visibilityObserver = null;
+let isVisible = true;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -147,6 +149,7 @@ async function loadAndUpdate() {
 function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
+    if (!isVisible) return;
     pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 30000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
@@ -319,12 +322,21 @@ export async function mount(elId) {
         popover.classList.remove('open');
     });
 
+    visibilityObserver = new IntersectionObserver(([entry]) => {
+        const wasVisible = isVisible;
+        isVisible = entry.isIntersecting;
+        if (isVisible && !wasVisible) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible && wasVisible) { stopPoll(); }
+    }, { threshold: 0 });
+    visibilityObserver.observe(container);
+
     await loadAndUpdate();
     startPoll();
 }
 
 export function unmount() {
     stopPoll();
+    if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
@@ -336,4 +348,5 @@ export function unmount() {
     isCustomRange = false;
     customFrom = null;
     customTo = null;
+    isVisible = true;
 }

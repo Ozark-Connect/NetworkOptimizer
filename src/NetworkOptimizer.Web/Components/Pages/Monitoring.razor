@@ -235,13 +235,32 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
         </div>
     </div>
 
-    @if (_monitoringEnabled && _allSfps.Count > 0)
+    @if (_monitoringEnabled && _influxReachable == true)
     {
-        <div class="card" style="margin-top: 1.5rem;">
+        <!-- 3D LAN flow map (spec 5.7). Centerpiece of the monitoring view. -->
+        <div class="card lan-flow-map-card" style="margin-top: 1.5rem;">
             <div class="card-header">
-                <h2 class="card-title">Optical (SFP / ONT)</h2>
-                <span class="status-badge status-active">@_monitoredSfps.Count monitored</span>
+                <h2 class="card-title">3D LAN Flow Map</h2>
             </div>
+            <div class="card-body lan-flow-map-body">
+                <div class="lan-flow-map-stage" id="lan-flow-map-stage">
+                    <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        @if (_allSfps.Count > 0)
+        {
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header card-header-collapsible" @onclick="ToggleSfpCollapse">
+                <h2 class="card-title">Optical (SFP / ONT)</h2>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="status-badge status-active" @onclick:stopPropagation="true">@_monitoredSfps.Count monitored</span>
+                    <span class="issue-type-chevron">@(_sfpCollapsed ? "▼" : "▲")</span>
+                </div>
+            </div>
+            <div class="expand-wrapper @(!_sfpCollapsed ? "expanded" : "")">
+                <div class="expand-content">
             <div class="card-body">
                 <p class="section-description">
                     GPON / XGS-PON ONTs and other SFP modules detected on switch / gateway
@@ -264,7 +283,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var sfp in _allSfps.OrderByDescending(s => s.IsMonitoredOnt).ThenBy(s => s.DeviceMac).ThenBy(s => s.PortName))
+                        @foreach (var sfp in SfpPage())
                         {
                             var stats = LiveStats.GetSfpStats(sfp.DeviceMac, sfp.PortName);
                             var deviceName = ResolveDeviceName(sfp.DeviceMac);
@@ -338,12 +357,22 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                     </tbody>
                 </table>
                 </div>
+                @if (SfpTotalPages() > 1)
+                {
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem;">
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sfpPage == 0)" @onclick="() => { _sfpPage--; StateHasChanged(); }">Prev</button>
+                        <span class="text-muted" style="font-size: 0.85rem;">@(_sfpPage + 1) / @SfpTotalPages()</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(_sfpPage >= SfpTotalPages() - 1)" @onclick="() => { _sfpPage++; StateHasChanged(); }">Next</button>
+                    </div>
+                }
+            </div>
+                </div>
             </div>
         </div>
-    }
+        }
 
-    @if (_monitoringEnabled && _influxReachable == true && _monitoredSfps.Count > 0)
-    {
+        @if (_monitoredSfps.Count > 0)
+        {
         <!-- SFP DDM time-series: RX/TX power + temperature/voltage -->
         <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
@@ -352,9 +381,9 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
                         <button class="time-btn" data-range="0">15m</button>
-                        <button class="time-btn active" data-range="1">1h</button>
+                        <button class="time-btn" data-range="1">1h</button>
                         <button class="time-btn" data-range="6">6h</button>
-                        <button class="time-btn" data-range="24">24h</button>
+                        <button class="time-btn active" data-range="24">24h</button>
                         <button class="time-btn" data-range="168">7d</button>
                         <button class="time-btn" data-range="720">30d</button>
                         <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
@@ -393,21 +422,7 @@ else if (_snmpState == SnmpDetectionState.EnabledV2c || _snmpState == SnmpDetect
                 </div>
             </div>
         </div>
-    }
-
-    @if (_monitoringEnabled && _influxReachable == true)
-    {
-        <!-- 3D LAN flow map (spec 5.7). Centerpiece of the monitoring view. -->
-        <div class="card lan-flow-map-card" style="margin-top: 1.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">3D LAN Flow Map</h2>
-            </div>
-            <div class="card-body lan-flow-map-body">
-                <div class="lan-flow-map-stage" id="lan-flow-map-stage">
-                    <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
-                </div>
-            </div>
-        </div>
+        }
 
         <!-- Latency time-series charts. Pure JS ApexCharts fed by /api/monitoring/chart-data. -->
         <div class="card" style="margin-top: 1.5rem;" id="latency-charts-container">
@@ -772,6 +787,11 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
     private bool _targetsCollapsed = true;
     private bool _userToggledStatus = false; // once the user clicks, stop auto-collapsing
 
+    // SFP collapse + pagination
+    private bool _sfpCollapsed = false;
+    private int _sfpPage = 0;
+    private const int SfpPageSize = 10;
+
     // Add-target form state
     private bool _showAddTarget;
     private bool _addingTarget;
@@ -1011,6 +1031,52 @@ else if (_snmpState == SnmpDetectionState.PollFailing)
         _targetsCollapsed = !_targetsCollapsed;
         StateHasChanged();
     }
+
+    private void ToggleSfpCollapse()
+    {
+        _sfpCollapsed = !_sfpCollapsed;
+        StateHasChanged();
+    }
+
+    private string ResolveDeviceIp(string deviceMac)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return "255.255.255.255";
+        var normalized = deviceMac.Replace("-", ":").ToLowerInvariant();
+        var target = _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").ToLowerInvariant() == normalized);
+        return target?.Address ?? "255.255.255.255";
+    }
+
+    private List<MonitoredSfp> SortedSfps()
+    {
+        return _allSfps
+            .OrderBy(s => ParseIpForSorting(ResolveDeviceIp(s.DeviceMac)))
+            .ThenBy(s => int.TryParse(s.PortName, out var p) ? p : 9999)
+            .ToList();
+    }
+
+    private static long ParseIpForSorting(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip)) return long.MaxValue;
+        var parts = ip.Split('.');
+        if (parts.Length != 4) return long.MaxValue;
+        long result = 0;
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, out var octet)) return long.MaxValue;
+            result = (result << 8) | (uint)(octet & 0xFF);
+        }
+        return result;
+    }
+
+    private IEnumerable<MonitoredSfp> SfpPage()
+    {
+        return SortedSfps().Skip(_sfpPage * SfpPageSize).Take(SfpPageSize);
+    }
+
+    private int SfpTotalPages() => Math.Max(1, (int)Math.Ceiling((double)_allSfps.Count / SfpPageSize));
 
     private async Task ToggleTargetAsync(int targetId)
     {

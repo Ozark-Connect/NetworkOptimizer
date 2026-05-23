@@ -25,6 +25,8 @@ let visibility = {};
 let targetMeta = [];
 let containerId = null;
 let fetchController = null;
+let visibilityObserver = null;
+let isVisible = true;
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -203,8 +205,8 @@ async function loadAndUpdate() {
 
 function startPoll() {
     stopPoll();
-    // Don't auto-poll when viewing historical (shifted or custom) windows
     if (windowOffset !== 0 || isCustomRange) return;
+    if (!isVisible) return;
     const interval = POLL_INTERVALS[currentRangeHours] || 30000;
     pollTimer = setInterval(loadAndUpdate, interval);
 }
@@ -406,12 +408,21 @@ export async function mount(elId) {
         startPoll();
     });
 
+    visibilityObserver = new IntersectionObserver(([entry]) => {
+        const wasVisible = isVisible;
+        isVisible = entry.isIntersecting;
+        if (isVisible && !wasVisible) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible && wasVisible) { stopPoll(); }
+    }, { threshold: 0 });
+    visibilityObserver.observe(container);
+
     await loadAndUpdate();
     startPoll();
 }
 
 export function unmount() {
     stopPoll();
+    if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rttChart) { rttChart.destroy(); rttChart = null; }
     if (lossChart) { lossChart.destroy(); lossChart = null; }
@@ -422,4 +433,5 @@ export function unmount() {
     isCustomRange = false;
     customFrom = null;
     customTo = null;
+    isVisible = true;
 }

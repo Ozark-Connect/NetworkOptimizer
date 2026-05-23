@@ -12,7 +12,7 @@ const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*8
 let powerChart = null;
 let envChart = null;
 let pollTimer = null;
-let currentRangeHours = 1;
+let currentRangeHours = 24;
 let windowOffset = 0;
 let isCustomRange = false;
 let customFrom = null;
@@ -21,6 +21,8 @@ let containerId = null;
 let fetchController = null;
 let moduleMeta = [];
 let visibility = {};
+let visibilityObserver = null;
+let isVisible = true;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -206,6 +208,7 @@ async function loadAndUpdate() {
 function startPoll() {
     stopPoll();
     if (windowOffset !== 0 || isCustomRange) return;
+    if (!isVisible) return;
     pollTimer = setInterval(loadAndUpdate, POLL_INTERVALS[currentRangeHours] || 60000);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
@@ -386,12 +389,21 @@ export async function mount(elId) {
         popover.classList.remove('open');
     });
 
+    visibilityObserver = new IntersectionObserver(([entry]) => {
+        const wasVisible = isVisible;
+        isVisible = entry.isIntersecting;
+        if (isVisible && !wasVisible) { loadAndUpdate(); startPoll(); }
+        else if (!isVisible && wasVisible) { stopPoll(); }
+    }, { threshold: 0 });
+    visibilityObserver.observe(container);
+
     await loadAndUpdate();
     startPoll();
 }
 
 export function unmount() {
     stopPoll();
+    if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (envChart) { envChart.destroy(); envChart = null; }
@@ -402,4 +414,5 @@ export function unmount() {
     isCustomRange = false;
     customFrom = null;
     customTo = null;
+    isVisible = true;
 }
