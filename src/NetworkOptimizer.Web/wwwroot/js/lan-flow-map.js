@@ -1565,6 +1565,7 @@ export class LanFlowMap {
     async _onScrubberChange(value) {
         if (value >= 998) {
             // Snap back to live.
+            this._stopHistoricPlayback();
             this._mode = 'live';
             this._historicAt = null;
             this._onScrubberInput(1000);
