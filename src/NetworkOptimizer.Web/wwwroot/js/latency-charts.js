@@ -502,6 +502,8 @@ export function unmount() {
     containerId = null;
     targetMeta = [];
     visibility = {};
+    currentCategory = 'Fabric';
+    currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;

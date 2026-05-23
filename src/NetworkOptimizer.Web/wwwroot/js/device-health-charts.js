@@ -346,6 +346,7 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;
     customFrom = null;
