@@ -1145,16 +1145,17 @@ else
 
     private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null);
     private Task LossNavBack() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddSeconds(-1), null) : Task.CompletedTask;
+        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddMinutes(-1), null) : Task.CompletedTask;
     private Task LossNavForward() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddSeconds(1)) : Task.CompletedTask;
+        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddMinutes(1)) : Task.CompletedTask;
 
-    private void LossNavDeactivate()
+    private async Task LossNavDeactivate()
     {
         _lossNavActive = false;
         _lossNavTimestamp = null;
         _investigateResult = null;
         StateHasChanged();
+        await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
 
     private async Task NavigateToLossEvent(DateTime? before, DateTime? after)

@@ -29,6 +29,7 @@ let fetchController = null;
 let visibilityObserver = null;
 let isInViewport = true;
 let lastFetchData = null;
+let savedState = null;
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -544,6 +545,10 @@ export async function mount(elId) {
 }
 
 export function navigateToTime(isoTimestamp, category) {
+    if (!savedState) {
+        savedState = { category: currentCategory, rangeHours: currentRangeHours,
+            customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
+    }
     const ts = new Date(isoTimestamp).getTime();
     const windowMs = 10 * 60000; // 10 min window centered on event
     customFrom = new Date(ts - windowMs);
@@ -559,6 +564,38 @@ export function navigateToTime(isoTimestamp, category) {
         });
         container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
         container.querySelector('.custom-range-btn')?.classList.add('active');
+        syncPopoverInputs(container);
+        updateCustomLabel(container);
+    }
+    loadAndUpdate();
+    startPoll();
+}
+
+export function restoreState() {
+    if (!savedState) return;
+    currentCategory = savedState.category;
+    currentRangeHours = savedState.rangeHours;
+    customFrom = savedState.customFrom;
+    customTo = savedState.customTo;
+    isCustomRange = savedState.isCustomRange;
+    windowOffset = savedState.windowOffset;
+    visibility = savedState.visibility;
+    savedState = null;
+
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-category]').forEach(b => {
+            b.classList.toggle('active', b.dataset.category === currentCategory);
+        });
+        if (isCustomRange) {
+            container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+            container.querySelector('.custom-range-btn')?.classList.add('active');
+        } else {
+            container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+            const btn = container.querySelector(`[data-range="${currentRangeHours}"]`);
+            if (btn) btn.classList.add('active');
+            container.querySelector('.custom-range-btn')?.classList.remove('active');
+        }
         syncPopoverInputs(container);
         updateCustomLabel(container);
     }
@@ -583,5 +620,6 @@ export function unmount() {
     customFrom = null;
     customTo = null;
     lastFetchData = null;
+    savedState = null;
     isInViewport = true;
 }
