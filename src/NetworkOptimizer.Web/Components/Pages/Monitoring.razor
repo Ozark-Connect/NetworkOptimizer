@@ -526,10 +526,10 @@ else
                                 <span class="status-indicator status-active"></span>
                                 <span>Connected</span>
                             }
-                            else if (_influxReachable == false && !string.IsNullOrEmpty(_influxError))
+                            else if (_influxReachable == false)
                             {
                                 <span class="status-indicator status-danger"></span>
-                                <span>@_influxError</span>
+                                <span>@ShortInfluxStatus()</span>
                             }
                             else if (!_influxConfigured)
                             {
@@ -935,6 +935,15 @@ else
 
         _detecting = false;
         StateHasChanged();
+    }
+
+    private string ShortInfluxStatus()
+    {
+        if (string.IsNullOrEmpty(_influxError)) return "Unreachable";
+        if (_influxError.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)) return "Auth error";
+        if (_influxError.Contains("refused", StringComparison.OrdinalIgnoreCase)) return "Connection refused";
+        if (_influxError.Contains("timeout", StringComparison.OrdinalIgnoreCase)) return "Timeout";
+        return "Unreachable";
     }
 
     private string OverallStateBadge()
