@@ -559,7 +559,7 @@ export class LanFlowMap {
 
         // Post-layout: push WiFi clients outward from their parent AP so they
         // fan out rather than clustering tightly around the infrastructure.
-        const WIFI_SPREAD = 1.8;
+        const WIFI_SPREAD = 1.4;
         for (const node of snap.nodes) {
             if (node.kind !== NODE_KIND.WifiClient) continue;
             const p = positions.get(node.id);
