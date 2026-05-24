@@ -826,11 +826,15 @@ public class LanFlowMapService
             }
             if (!hasGap) continue;
 
-            // Map each actual floor number to a compacted Z (sequential from the lowest floor)
+            // Anchor from the top floor and compact downward so upper floors stay
+            // level with the same floor in other buildings.
             var zMap = new Dictionary<int, double>();
-            int baseFloor = floorNums[0];
+            int topFloor = floorNums[^1];
             for (int i = 0; i < floorNums.Count; i++)
-                zMap[floorNums[i]] = (baseFloor + i) * 3.0;
+            {
+                int distFromTop = floorNums.Count - 1 - i;
+                zMap[floorNums[i]] = (topFloor - distFromTop) * 3.0;
+            }
 
             foreach (var floor in building.Floors)
             {
