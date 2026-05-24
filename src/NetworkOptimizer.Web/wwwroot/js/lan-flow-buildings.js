@@ -274,35 +274,113 @@ function _drawSiding(canvas, ctx) {
     }
 }
 
-// Weathered gray vertical board siding - exterior look for bare-wood structures
-// (sheds, barns, outbuildings with no insulation/drywall).
+// Weathered silvery-gray vertical board siding - exterior look for bare-wood
+// structures (sheds, barns, outbuildings). Wide boards with visible gaps,
+// natural grain, knots, and UV-weathered patina with brown undertones.
 function _drawWoodVertical(canvas, ctx) {
-    canvas.width = 256;
-    canvas.height = 256;
-    const boardW = 28;
-    const gapW = 2;
-    const baseColors = ['#8A8580', '#7E7A75', '#908880', '#7A7670', '#858078'];
+    canvas.width = 512;
+    canvas.height = 512;
+    const boardW = 62;
+    const gapW = 4;
 
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(0, 0, 256, 256);
+    // Dark gap background visible between boards
+    ctx.fillStyle = '#2a2018';
+    ctx.fillRect(0, 0, 512, 512);
 
-    for (let x = 0; x < 256; x += boardW + gapW) {
-        const ci = Math.floor(x / (boardW + gapW)) % baseColors.length;
-        ctx.fillStyle = baseColors[ci];
-        ctx.fillRect(x, 0, boardW, 256);
-        // Vertical grain lines
-        for (let g = 0; g < 4; g++) {
-            const gx = x + 4 + Math.random() * (boardW - 8);
-            ctx.strokeStyle = `rgba(0,0,0,${0.06 + Math.random() * 0.06})`;
-            ctx.lineWidth = 1;
+    // Silvery-gray palette with warm brown undertones from weathering
+    const baseColors = [
+        [158, 150, 138], [142, 135, 125], [165, 155, 142],
+        [135, 128, 118], [150, 142, 130], [148, 140, 128],
+        [138, 132, 122], [160, 148, 135],
+    ];
+
+    let boardIdx = 0;
+    for (let x = 0; x < 512; x += boardW + gapW) {
+        const [br, bg, bb] = baseColors[boardIdx % baseColors.length];
+        // Per-board color variation
+        const shift = ((boardIdx * 17) % 11) - 5;
+        const r = Math.min(255, Math.max(0, br + shift));
+        const g = Math.min(255, Math.max(0, bg + shift));
+        const b = Math.min(255, Math.max(0, bb + shift));
+
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x, 0, boardW, 512);
+
+        // Vertical grain - multiple fine lines with slight wander
+        for (let gi = 0; gi < 8; gi++) {
+            const gx = x + 3 + (gi / 8) * (boardW - 6) + (Math.random() - 0.5) * 4;
+            const darkness = 0.04 + Math.random() * 0.08;
+            ctx.strokeStyle = `rgba(40,25,15,${darkness})`;
+            ctx.lineWidth = 0.5 + Math.random() * 1;
             ctx.beginPath();
-            ctx.moveTo(gx, 0);
-            ctx.lineTo(gx + (Math.random() - 0.5) * 2, 256);
+            let cx = gx;
+            ctx.moveTo(cx, 0);
+            // Slight grain wander
+            for (let y = 32; y <= 512; y += 32) {
+                cx += (Math.random() - 0.5) * 1.5;
+                ctx.lineTo(cx, y);
+            }
             ctx.stroke();
         }
-        // Subtle weathering
-        ctx.fillStyle = `rgba(0,0,0,${0.02 + Math.random() * 0.03})`;
-        ctx.fillRect(x, 0, boardW, 256);
+
+        // Wider grain bands - darker streaks
+        for (let si = 0; si < 2; si++) {
+            const sx = x + 8 + Math.random() * (boardW - 16);
+            const sw = 2 + Math.random() * 4;
+            ctx.fillStyle = `rgba(30,20,10,${0.04 + Math.random() * 0.06})`;
+            ctx.fillRect(sx, 0, sw, 512);
+        }
+
+        // Weathering gradient - slightly darker/greener at bottom (moisture),
+        // lighter silver at top (sun bleaching)
+        const wGrad = ctx.createLinearGradient(0, 0, 0, 512);
+        wGrad.addColorStop(0, 'rgba(200,195,185,0.06)');
+        wGrad.addColorStop(0.4, 'rgba(0,0,0,0)');
+        wGrad.addColorStop(0.85, 'rgba(0,0,0,0.04)');
+        wGrad.addColorStop(1, 'rgba(20,30,15,0.08)');
+        ctx.fillStyle = wGrad;
+        ctx.fillRect(x, 0, boardW, 512);
+
+        // Knot (one per ~third board)
+        if (boardIdx % 3 === 0) {
+            const ky = 80 + ((boardIdx * 137) % 300);
+            const kx = x + boardW / 2 + (Math.random() - 0.5) * 10;
+            const kr = 4 + Math.random() * 3;
+
+            // Knot core - dark ring
+            ctx.strokeStyle = 'rgba(50,30,15,0.35)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(kx, ky, kr, kr * 0.7, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Knot interior
+            ctx.fillStyle = 'rgba(70,45,25,0.25)';
+            ctx.beginPath();
+            ctx.ellipse(kx, ky, kr - 1, kr * 0.6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Grain curves around knot
+            for (let a = -2; a <= 2; a++) {
+                ctx.strokeStyle = 'rgba(40,25,15,0.06)';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                const offset = (kr + 4 + Math.abs(a) * 3) * (a < 0 ? -1 : 1);
+                ctx.moveTo(kx + offset, ky - 30);
+                ctx.quadraticCurveTo(kx + offset * 0.3, ky, kx + offset, ky + 30);
+                ctx.stroke();
+            }
+        }
+
+        // Board edge shadow on right side
+        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        ctx.fillRect(x + boardW - 2, 0, 2, 512);
+
+        // Board edge highlight on left side
+        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.fillRect(x, 0, 1, 512);
+
+        boardIdx++;
     }
 }
 
