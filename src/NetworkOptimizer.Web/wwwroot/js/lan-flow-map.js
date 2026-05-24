@@ -272,7 +272,7 @@ export class LanFlowMap {
                 }
             }
             if (!this._shouldAcceptKeys()) return;
-            if (['w','a','s','d'].includes(e.key.toLowerCase())) {
+            if (['w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
             }
         };
@@ -447,7 +447,7 @@ export class LanFlowMap {
         // and then spread by ANCHOR_SPREAD_FACTOR so interpolated / unanchored
         // devices have room to settle between the pinned APs without crowding.
         const sceneRadius = 30.0;
-        const ANCHOR_SPREAD_FACTOR = 1.5;
+        const ANCHOR_SPREAD_FACTOR = 1.875;
         const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
 
         const positions = new Map();
@@ -1065,7 +1065,9 @@ export class LanFlowMap {
                     if (this._keys['s']) { g.position.x -= forward.x * step; g.position.z -= forward.z * step; }
                     if (this._keys['d']) { g.position.x += right.x * step; g.position.z += right.z * step; }
                     if (this._keys['a']) { g.position.x -= right.x * step; g.position.z -= right.z * step; }
-                    if (this._keys['w'] || this._keys['a'] || this._keys['s'] || this._keys['d']) {
+                    if (this._keys['e']) { g.position.y += step; this._repositionPlane.constant = -g.position.y; }
+                    if (this._keys['q']) { g.position.y -= step; this._repositionPlane.constant = -g.position.y; }
+                    if (this._keys['w'] || this._keys['a'] || this._keys['s'] || this._keys['d'] || this._keys['q'] || this._keys['e']) {
                         this._updateAdjacentLinks();
                     }
                 }
@@ -2200,10 +2202,11 @@ export class LanFlowMap {
         hud.innerHTML = `
             <span class="lan-flow-map-reposition-title">Moving: ${escapeHtml(node.name || node.mac || 'Device')}</span>
             <span class="lan-flow-map-reposition-keys">
-                <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> to nudge
+                <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> move
+                &nbsp;&middot;&nbsp; <span class="kbd">Q</span><span class="kbd">E</span> / <span class="kbd">Scroll</span> height
                 &nbsp;&middot;&nbsp; Drag to move
-                &nbsp;&middot;&nbsp; <span class="kbd">Click</span> to place
-                &nbsp;&middot;&nbsp; <span class="kbd">Esc</span> to cancel
+                &nbsp;&middot;&nbsp; <span class="kbd">Click</span> place
+                &nbsp;&middot;&nbsp; <span class="kbd">Esc</span> cancel
             </span>
         `;
         this.stage.appendChild(hud);
@@ -2232,9 +2235,18 @@ export class LanFlowMap {
                 }
             }
         };
+        this._repositionWheelHandler = (e) => {
+            if (!this._repositionMode) return;
+            e.preventDefault();
+            const step = e.deltaY > 0 ? -0.5 : 0.5;
+            this._repositionGroup.position.y += step;
+            this._repositionPlane.constant = -this._repositionGroup.position.y;
+            this._updateAdjacentLinks();
+        };
         this.canvas.addEventListener('pointermove', this._repositionMoveHandler);
         this.canvas.addEventListener('pointerdown', this._repositionDownHandler, true);
         this.canvas.addEventListener('pointerup', this._repositionUpHandler);
+        this.canvas.addEventListener('wheel', this._repositionWheelHandler, { passive: false });
     }
 
     _onRepositionPointerMove(e) {
@@ -2324,7 +2336,7 @@ export class LanFlowMap {
             return;
         }
         const sceneRadius = 30.0;
-        const ANCHOR_SPREAD_FACTOR = 1.5;
+        const ANCHOR_SPREAD_FACTOR = 1.875;
         const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
         const EARTH_RADIUS = 6_371_000.0;
 
@@ -2374,6 +2386,7 @@ export class LanFlowMap {
         this.canvas.removeEventListener('pointermove', this._repositionMoveHandler);
         this.canvas.removeEventListener('pointerdown', this._repositionDownHandler, true);
         this.canvas.removeEventListener('pointerup', this._repositionUpHandler);
+        this.canvas.removeEventListener('wheel', this._repositionWheelHandler);
     }
 }
 
