@@ -494,13 +494,14 @@ function _drawWindow(canvas, ctx, panes, widthM, heightM) {
     ctx.fillStyle = '#6E6E72';
     ctx.fillRect(0, 0, w, h);
 
-    // Window proportions: width fills ~80% of segment,
-    // height scales with width but capped at ~60% of wall height
+    // Window proportions: width fills ~80% of segment. Standard residential
+    // windows are typically 3-5 ft tall. Height scales with width but uses
+    // ~70% of wall height for a realistic look.
     const winW = w * 0.8;
-    const aspect = Math.min(1.4, Math.max(0.7, widthM * 0.9));
-    const winH = Math.min(h * 0.55, winW * aspect);
+    const winH = h * 0.45 + Math.min(winW * 0.5, h * 0.25);
     const winL = (w - winW) / 2;
-    const winT = h * 0.2;  // offset down from top (windows sit in upper half)
+    // Vertically center the window in the upper portion of the wall
+    const winT = (h - winH) * 0.35;
 
     const trimW = Math.max(3, w * 0.025);
     const frameW = Math.max(4, w * 0.04);
@@ -558,9 +559,9 @@ function _drawDoorWood(canvas, ctx, widthM, heightM) {
     ctx.fillStyle = '#6E6E72';
     ctx.fillRect(0, 0, w, h);
 
-    // Standard door: ~0.9m wide x 2.1m tall. Scale to fit segment.
+    // Standard US door: 6'8" (2.032 m) height, fixed regardless of width.
     const doorW = w * 0.85;
-    const doorH = Math.min(h * 0.72, doorW * 2.3);
+    const doorH = h * (2.032 / heightM);
     const doorL = (w - doorW) / 2;
     const doorB = h * 0.97;
     const doorT = doorB - doorH;
@@ -610,7 +611,7 @@ function _drawDoorMetal(canvas, ctx, widthM, heightM) {
     ctx.fillRect(0, 0, w, h);
 
     const doorW = w * 0.85;
-    const doorH = Math.min(h * 0.72, doorW * 2.3);
+    const doorH = h * (2.032 / heightM);
     const doorL = (w - doorW) / 2;
     const doorB = h * 0.97;
     const doorT = doorB - doorH;
@@ -654,7 +655,7 @@ function _drawDoorGlass(canvas, ctx, widthM, heightM) {
     ctx.fillRect(0, 0, w, h);
 
     const doorW = w * 0.85;
-    const doorH = Math.min(h * 0.72, doorW * 2.3);
+    const doorH = h * (2.032 / heightM);
     const doorL = (w - doorW) / 2;
     const doorB = h * 0.97;
     const doorT = doorB - doorH;
