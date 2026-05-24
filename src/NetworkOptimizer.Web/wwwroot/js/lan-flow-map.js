@@ -1412,7 +1412,7 @@ export class LanFlowMap {
         const overlayDefs = [
             ['wifiClients', 'Wi-Fi clients'],
             ['wiredClients', 'Wired clients'],
-            ['clouds', 'WAN clouds'],
+            ['clouds', 'WAN globes'],
             ['buildings', 'Buildings'],
             // TODO: Speed test path overlay needs rework - see research/monitoring/3d-map-overlays-TODO.md
         ];
