@@ -278,69 +278,70 @@ function _drawLogCabin(canvas, ctx) {
     }
 }
 
-// Horizontal lap siding for residential exteriors - dark warm gray-brown
-// with visible wood grain texture and pronounced overlap shadow lines.
+// Horizontal lap siding for residential exteriors - warm greige (gray-beige)
+// engineered wood siding with visible grain texture, pronounced overlap shadows,
+// and staggered vertical butt joints. Modeled after fiber cement/LP SmartSide.
 function _drawSiding(canvas, ctx) {
     canvas.width = 512;
     canvas.height = 512;
-    const boardH = 36;
+    const boardH = 40;
 
-    // Cool charcoal gray palette matching fiber cement/engineered siding
-    const baseColors = [
-        [95, 92, 88], [90, 87, 83], [98, 95, 90],
-        [88, 85, 81], [93, 90, 86], [96, 93, 88],
-    ];
+    // Warm greige/taupe palette - the gray-brown tone of engineered wood siding
+    const baseR = 125, baseG = 116, baseB = 108;
 
     let row = 0;
     for (let y = 0; y < 512; y += boardH) {
-        const [br, bg, bb] = baseColors[row % baseColors.length];
-        const shift = ((row * 13) % 7) - 3;
-        ctx.fillStyle = `rgb(${br + shift},${bg + shift},${bb + shift})`;
+        // Very subtle per-board variation
+        const shift = ((row * 11) % 5) - 2;
+        ctx.fillStyle = `rgb(${baseR + shift},${baseG + shift},${baseB + shift})`;
         ctx.fillRect(0, y, 512, boardH);
 
-        // Wood grain texture - horizontal fine lines across each board
-        for (let gi = 0; gi < 12; gi++) {
-            const gy = y + 3 + (gi / 12) * (boardH - 8) + (Math.random() - 0.5) * 2;
-            const darkness = 0.03 + Math.random() * 0.05;
-            ctx.strokeStyle = `rgba(30,20,10,${darkness})`;
-            ctx.lineWidth = 0.5 + Math.random() * 0.5;
+        // Horizontal wood grain showing through - the defining texture of
+        // engineered wood siding vs vinyl
+        for (let gi = 0; gi < 14; gi++) {
+            const gy = y + 2 + (gi / 14) * (boardH - 6) + (Math.random() - 0.5) * 1.5;
+            const darkness = 0.03 + Math.random() * 0.06;
+            ctx.strokeStyle = `rgba(50,35,25,${darkness})`;
+            ctx.lineWidth = 0.5 + Math.random() * 0.8;
             ctx.beginPath();
             let gx = 0;
             ctx.moveTo(gx, gy);
-            // Slight grain wander
-            for (let sx = 40; sx <= 512; sx += 40) {
+            for (let sx = 30; sx <= 512; sx += 30) {
                 gx = sx;
-                ctx.lineTo(gx, gy + (Math.random() - 0.5) * 1.2);
+                ctx.lineTo(gx, gy + (Math.random() - 0.5) * 0.8);
             }
             ctx.stroke();
         }
 
-        // Wider grain bands
-        for (let si = 0; si < 2; si++) {
-            const sy = y + 5 + Math.random() * (boardH - 12);
-            ctx.fillStyle = `rgba(20,12,5,${0.03 + Math.random() * 0.04})`;
-            ctx.fillRect(0, sy, 512, 1.5 + Math.random() * 2);
+        // Wider grain bands - slightly darker sweeps across the board
+        for (let si = 0; si < 3; si++) {
+            const sy = y + 4 + Math.random() * (boardH - 10);
+            ctx.fillStyle = `rgba(40,28,18,${0.025 + Math.random() * 0.035})`;
+            ctx.fillRect(0, sy, 512, 1 + Math.random() * 2.5);
         }
 
-        // Overlap shadow at bottom - pronounced dark line where boards overlap
-        const shadowGrad = ctx.createLinearGradient(0, y + boardH - 5, 0, y + boardH);
+        // Pronounced overlap shadow at bottom - crisp dark line
+        const shadowGrad = ctx.createLinearGradient(0, y + boardH - 6, 0, y + boardH);
         shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
-        shadowGrad.addColorStop(0.4, 'rgba(0,0,0,0.12)');
-        shadowGrad.addColorStop(1, 'rgba(0,0,0,0.22)');
+        shadowGrad.addColorStop(0.3, 'rgba(0,0,0,0.08)');
+        shadowGrad.addColorStop(0.7, 'rgba(0,0,0,0.18)');
+        shadowGrad.addColorStop(1, 'rgba(0,0,0,0.28)');
         ctx.fillStyle = shadowGrad;
-        ctx.fillRect(0, y + boardH - 5, 512, 5);
+        ctx.fillRect(0, y + boardH - 6, 512, 6);
 
-        // Highlight along top edge where board catches light
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        // Light catch along top edge
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
         ctx.fillRect(0, y, 512, 1);
         ctx.fillStyle = 'rgba(255,255,255,0.03)';
         ctx.fillRect(0, y + 1, 512, 1);
 
-        // Occasional board seam (vertical joint where boards butt together)
-        if (row % 2 === 0) {
-            const sx = 180 + ((row * 97) % 200);
-            ctx.fillStyle = 'rgba(0,0,0,0.1)';
-            ctx.fillRect(sx, y + 1, 1, boardH - 3);
+        // Staggered vertical butt joints where board ends meet
+        if (row % 3 !== 2) {
+            const sx = 120 + ((row * 97) % 280);
+            ctx.fillStyle = 'rgba(0,0,0,0.09)';
+            ctx.fillRect(sx, y + 1, 1, boardH - 4);
+            ctx.fillStyle = 'rgba(255,255,255,0.03)';
+            ctx.fillRect(sx + 1, y + 1, 1, boardH - 4);
         }
 
         row++;
