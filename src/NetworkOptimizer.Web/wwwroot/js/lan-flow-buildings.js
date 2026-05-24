@@ -1,6 +1,7 @@
 // 3D building renderer for the LAN Flow Map.
 // Reads pre-projected building/floor/wall geometry from the snapshot and builds
 // Three.js meshes: walls colored by material, floor planes, and pitched roofs.
+// Procedural textures for brick, siding, wood, and concrete.
 
 import * as THREE from 'three';
 
@@ -13,7 +14,39 @@ const ROOF_COLOR = 0x5a6577;
 const FLOOR_COLOR = 0x2a3545;
 const ROOF_PITCH = 0.28;
 const MAX_RIDGE_M = 3.0;
-const FALLBACK_WALL_COLOR = '#94a3b8';
+
+// Realistic colors - muted, real-world tones instead of the bright signal-map palette
+const REALISTIC_COLORS = {
+    drywall:              '#E8E0D8',
+    drywall_heavy:        '#D5CEC6',
+    wood:                 '#7A5C3A',
+    wood_paneling:        '#A08060',
+    glass:                '#A8C8E0',
+    glass_thin:           '#BDD8EC',
+    brick:                '#8B4225',
+    concrete:             '#8A8A8A',
+    metal:                '#9A9A9A',
+    door_wood:            '#5C3A1E',
+    door_metal:           '#707070',
+    door_glass:           '#9AB8D0',
+    window_1_pane:        '#9AB8D8',
+    window_2_pane:        '#88A8C8',
+    window_3_pane:        '#7898B8',
+    exterior:             '#C0B49C',
+    exterior_residential: '#C0B49C',
+    exterior_commercial:  '#707068',
+    floor_wood:           '#6B5540',
+    floor_concrete:       '#8A8A8A',
+};
+
+// Materials that get procedural textures
+const TEXTURED = new Set([
+    'brick', 'concrete', 'exterior_commercial',
+    'exterior_residential', 'exterior',
+    'wood',
+]);
+
+const _texCache = new Map();
 
 export function buildBuildings(snap) {
     const group = new THREE.Group();
@@ -28,7 +61,6 @@ export function buildBuildings(snap) {
     const sceneRadius = 30.0;
     const spreadFactor = 1.875;
     const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * spreadFactor;
-    const colors = snap.materialColors || {};
 
     const wallHScene = WALL_HEIGHT_M * scale * 0.8;
     const wallDScene = WALL_THICKNESS_M * scale;
@@ -43,7 +75,7 @@ export function buildBuildings(snap) {
             const floorY = floor.z * scale * 0.8;
 
             _buildFloorPlane(floor, scale, floorY, bGroup);
-            _buildWalls(floor, scale, floorY, wallHScene, wallDScene, colors, bGroup);
+            _buildWalls(floor, scale, floorY, wallHScene, wallDScene, bGroup);
         }
 
         const topFloor = building.floors.find(f => f.floorNumber === maxFloorNum);
@@ -63,11 +95,187 @@ function toScene(pt, scale) {
     return { x: -pt.x * scale, z: pt.y * scale };
 }
 
-function cornerToScene(meterX, meterY, scale) {
-    return { x: -meterX * scale, z: meterY * scale };
+// -- procedural textures ------------------------------------------------------
+
+function _getTexCanvas(matKey) {
+    if (_texCache.has(matKey)) return _texCache.get(matKey);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    let tileSizeM = 1.0;
+
+    switch (matKey) {
+        case 'brick':
+            _drawBrick(canvas, ctx);
+            tileSizeM = 1.0;
+            break;
+        case 'concrete':
+        case 'exterior_commercial':
+            _drawConcrete(canvas, ctx, matKey);
+            tileSizeM = 1.5;
+            break;
+        case 'exterior_residential':
+        case 'exterior':
+            _drawSiding(canvas, ctx);
+            tileSizeM = 1.0;
+            break;
+        case 'wood':
+            _drawWoodVertical(canvas, ctx);
+            tileSizeM = 0.6;
+            break;
+        default:
+            _texCache.set(matKey, null);
+            return null;
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex._tileSizeM = tileSizeM;
+    _texCache.set(matKey, tex);
+    return tex;
 }
 
-// -- floor plane (from wall convex hull, not axis-aligned bbox) ---------------
+function _drawBrick(canvas, ctx) {
+    canvas.width = 256;
+    canvas.height = 256;
+    const mortarColor = '#C0B8A8';
+    const brickH = 17;
+    const mortarGap = 3;
+    const courseH = brickH + mortarGap;
+    const brickColors = ['#8B4225', '#7E3B20', '#96482A', '#6E3320', '#A0502E', '#844028'];
+
+    ctx.fillStyle = mortarColor;
+    ctx.fillRect(0, 0, 256, 256);
+
+    let row = 0;
+    for (let y = 0; y < 256; y += courseH) {
+        const offset = (row % 2) ? 32 : 0;
+        const brickW = 52;
+        for (let x = -offset; x < 256; x += brickW + mortarGap) {
+            const ci = (row * 7 + Math.floor(x / 30)) % brickColors.length;
+            ctx.fillStyle = brickColors[ci];
+            const bx = Math.max(x, 0);
+            const bw = Math.min(x + brickW, 256) - bx;
+            if (bw <= 0) continue;
+            ctx.fillRect(bx, y, bw, brickH);
+            // Subtle shade variation
+            ctx.fillStyle = `rgba(0,0,0,${0.02 + ((row * 3 + x) % 5) * 0.015})`;
+            ctx.fillRect(bx, y, bw, brickH);
+        }
+        row++;
+    }
+}
+
+function _drawConcrete(canvas, ctx, matKey) {
+    canvas.width = 256;
+    canvas.height = 256;
+    const base = matKey === 'exterior_commercial' ? '#707068' : '#8A8A8A';
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, 256, 256);
+    // Subtle noise
+    for (let i = 0; i < 800; i++) {
+        const x = Math.random() * 256;
+        const y = Math.random() * 256;
+        const s = 1 + Math.random() * 3;
+        ctx.fillStyle = `rgba(${Math.random() > 0.5 ? '255,255,255' : '0,0,0'},${0.03 + Math.random() * 0.04})`;
+        ctx.fillRect(x, y, s, s);
+    }
+    // Form lines (horizontal joints in poured/block concrete)
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.lineWidth = 1;
+    for (let y = 64; y < 256; y += 64) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(256, y);
+        ctx.stroke();
+    }
+}
+
+function _drawSiding(canvas, ctx) {
+    canvas.width = 256;
+    canvas.height = 256;
+    const boardH = 18;
+    const colors = ['#C0B49C', '#B8AC94', '#C4B8A0', '#BCAE96'];
+
+    for (let y = 0; y < 256; y += boardH) {
+        const ci = Math.floor(y / boardH) % colors.length;
+        ctx.fillStyle = colors[ci];
+        ctx.fillRect(0, y, 256, boardH - 1);
+        // Shadow line at bottom of each board
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
+        ctx.fillRect(0, y + boardH - 2, 256, 2);
+        // Highlight at top
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(0, y, 256, 1);
+    }
+}
+
+function _drawWoodVertical(canvas, ctx) {
+    // Weathered gray vertical barn/shed siding
+    canvas.width = 256;
+    canvas.height = 256;
+    const boardW = 28;
+    const gapW = 2;
+    const baseColors = ['#8A8580', '#7E7A75', '#908880', '#7A7670', '#858078'];
+
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, 256, 256);
+
+    for (let x = 0; x < 256; x += boardW + gapW) {
+        const ci = Math.floor(x / (boardW + gapW)) % baseColors.length;
+        ctx.fillStyle = baseColors[ci];
+        ctx.fillRect(x, 0, boardW, 256);
+        // Vertical grain lines
+        for (let g = 0; g < 4; g++) {
+            const gx = x + 4 + Math.random() * (boardW - 8);
+            ctx.strokeStyle = `rgba(0,0,0,${0.06 + Math.random() * 0.06})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(gx, 0);
+            ctx.lineTo(gx + (Math.random() - 0.5) * 2, 256);
+            ctx.stroke();
+        }
+        // Subtle weathering
+        ctx.fillStyle = `rgba(0,0,0,${0.02 + Math.random() * 0.03})`;
+        ctx.fillRect(x, 0, boardW, 256);
+    }
+}
+
+// -- wall material factory ----------------------------------------------------
+
+function _createWallMaterial(matKey, segLenM) {
+    const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
+    const baseTex = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
+
+    if (baseTex) {
+        const tex = baseTex.clone();
+        tex.needsUpdate = true;
+        const tileSizeM = baseTex._tileSizeM || 1.0;
+        tex.repeat.set(segLenM / tileSizeM, WALL_HEIGHT_M / tileSizeM);
+        return new THREE.MeshStandardMaterial({
+            map: tex,
+            transparent: true,
+            opacity: WALL_OPACITY,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            roughness: 0.85,
+        });
+    }
+
+    return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(hex),
+        transparent: true,
+        opacity: WALL_OPACITY,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        emissive: new THREE.Color(hex),
+        emissiveIntensity: 0.05,
+        roughness: 0.7,
+    });
+}
+
+// -- floor plane (from wall convex hull) --------------------------------------
 
 function _buildFloorPlane(floor, scale, floorY, parent) {
     const pts = [];
@@ -81,7 +289,6 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
     const hull = _convexHull(pts);
     if (hull.length < 3) return;
 
-    // Fan triangulation from hull[0]
     const triCount = hull.length - 2;
     const verts = new Float32Array(triCount * 9);
     for (let i = 0; i < triCount; i++) {
@@ -108,25 +315,7 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
 
 // -- walls --------------------------------------------------------------------
 
-function _buildWalls(floor, scale, floorY, wallH, wallD, colors, parent) {
-    const matCache = new Map();
-
-    function getMaterial(matKey) {
-        if (matCache.has(matKey)) return matCache.get(matKey);
-        const hex = colors[matKey] || FALLBACK_WALL_COLOR;
-        const m = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(hex),
-            transparent: true,
-            opacity: WALL_OPACITY,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-            emissive: new THREE.Color(hex),
-            emissiveIntensity: 0.05,
-        });
-        matCache.set(matKey, m);
-        return m;
-    }
-
+function _buildWalls(floor, scale, floorY, wallH, wallD, parent) {
     for (const wall of floor.walls) {
         const pts = wall.points;
         if (!pts || pts.length < 2) continue;
@@ -140,12 +329,17 @@ function _buildWalls(floor, scale, floorY, wallH, wallD, colors, parent) {
             const segLen = Math.sqrt(dx * dx + dz * dz);
             if (segLen < 0.001) continue;
 
+            // Real-world segment length from meter-space points
+            const mDx = pts[i + 1].x - pts[i].x;
+            const mDy = pts[i + 1].y - pts[i].y;
+            const segLenM = Math.sqrt(mDx * mDx + mDy * mDy);
+
             const angle = Math.atan2(dz, dx);
             const mx = (a.x + b.x) / 2;
             const mz = (a.z + b.z) / 2;
 
             const segMat = (wall.materials && wall.materials[i]) || wall.material;
-            const material = getMaterial(segMat);
+            const material = _createWallMaterial(segMat, segLenM);
 
             const geo = new THREE.BoxGeometry(segLen, wallH, wallD);
             const mesh = new THREE.Mesh(geo, material);
@@ -179,22 +373,18 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
     const ridgeHeight = Math.min(obb.shortLen * ROOF_PITCH, maxRidgeScene);
     const ridgeY = eaveY + ridgeHeight;
 
-    // OBB corners and ridge endpoints
-    const { corners, longAxis, shortAxis, center } = obb;
+    const { longAxis, shortAxis, center } = obb;
     const halfLong = obb.longLen / 2;
     const halfShort = obb.shortLen / 2;
 
-    // Ridge endpoints (along the long axis, through center)
     const rA = { x: center.x + longAxis.x * halfLong, z: center.z + longAxis.z * halfLong };
     const rB = { x: center.x - longAxis.x * halfLong, z: center.z - longAxis.z * halfLong };
 
-    // Eave corners
     const c0 = { x: rA.x + shortAxis.x * halfShort, z: rA.z + shortAxis.z * halfShort };
     const c1 = { x: rA.x - shortAxis.x * halfShort, z: rA.z - shortAxis.z * halfShort };
     const c2 = { x: rB.x - shortAxis.x * halfShort, z: rB.z - shortAxis.z * halfShort };
     const c3 = { x: rB.x + shortAxis.x * halfShort, z: rB.z + shortAxis.z * halfShort };
 
-    // Overhang: extend eaves slightly past the walls
     const overhang = obb.shortLen * 0.06;
     const oc0 = _extend(c0, center, overhang);
     const oc1 = _extend(c1, center, overhang);
@@ -204,15 +394,11 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
     const orB = _extend(rB, center, overhang);
 
     const verts = new Float32Array([
-        // Left slope (oc0, oc3, orA-ridge, orB-ridge)
         oc0.x, eaveY, oc0.z,   orA.x, ridgeY, orA.z,   oc3.x, eaveY, oc3.z,
         oc3.x, eaveY, oc3.z,   orA.x, ridgeY, orA.z,   orB.x, ridgeY, orB.z,
-        // Right slope (oc1, oc2, orA-ridge, orB-ridge)
         oc1.x, eaveY, oc1.z,   oc2.x, eaveY, oc2.z,    orA.x, ridgeY, orA.z,
         oc2.x, eaveY, oc2.z,   orB.x, ridgeY, orB.z,    orA.x, ridgeY, orA.z,
-        // Gable end A (oc0, oc1, orA-ridge)
         oc0.x, eaveY, oc0.z,   oc1.x, eaveY, oc1.z,    orA.x, ridgeY, orA.z,
-        // Gable end B (oc3, oc2, orB-ridge)
         oc3.x, eaveY, oc3.z,   orB.x, ridgeY, orB.z,    oc2.x, eaveY, oc2.z,
     ]);
 
