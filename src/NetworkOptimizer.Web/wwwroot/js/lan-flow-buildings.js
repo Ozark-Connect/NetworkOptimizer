@@ -47,6 +47,15 @@ const TEXTURED = new Set([
     'wood', 'wood_paneling',
 ]);
 
+// Materials that look different on the interior face. Maps to the
+// REALISTIC_COLORS key used for the back-face solid color.
+const INTERIOR_LOOK = {
+    wood_paneling: '#A08060',       // warm wood paneling
+    exterior_residential: '#E8E0D8', // drywall
+    exterior: '#E8E0D8',
+    exterior_commercial: '#D5CEC6',
+};
+
 const _texCache = new Map();
 
 export function buildBuildings(snap) {
@@ -336,24 +345,24 @@ function _drawSiding(canvas, ctx) {
     }
 }
 
-// Weathered silvery-gray vertical board siding - exterior look for bare-wood
-// structures (sheds, barns, outbuildings). Wide boards with visible gaps,
-// natural grain, knots, and UV-weathered patina with brown undertones.
+// Weathered gray vertical board siding - exterior look for bare-wood
+// structures (sheds, barns, outbuildings). Colors are pushed cool/blue-gray
+// to compensate for the scene's ACES tone mapping and warm lighting.
 function _drawWoodVertical(canvas, ctx) {
     canvas.width = 512;
     canvas.height = 512;
     const boardW = 62;
     const gapW = 4;
 
-    // Dark gap background visible between boards
-    ctx.fillStyle = '#2a2018';
+    // Cool dark gap background
+    ctx.fillStyle = '#1a1e22';
     ctx.fillRect(0, 0, 512, 512);
 
-    // Silvery-gray palette with warm brown undertones from weathering
+    // Cool blue-gray palette - compensates for scene's warm tone mapping
     const baseColors = [
-        [158, 150, 138], [142, 135, 125], [165, 155, 142],
-        [135, 128, 118], [150, 142, 130], [148, 140, 128],
-        [138, 132, 122], [160, 148, 135],
+        [125, 130, 138], [118, 123, 132], [130, 135, 142],
+        [112, 118, 126], [122, 127, 135], [120, 125, 133],
+        [115, 120, 128], [128, 132, 140],
     ];
 
     let boardIdx = 0;
@@ -368,16 +377,15 @@ function _drawWoodVertical(canvas, ctx) {
         ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(x, 0, boardW, 512);
 
-        // Vertical grain - multiple fine lines with slight wander
+        // Vertical grain - cool-toned fine lines with slight wander
         for (let gi = 0; gi < 8; gi++) {
             const gx = x + 3 + (gi / 8) * (boardW - 6) + (Math.random() - 0.5) * 4;
             const darkness = 0.04 + Math.random() * 0.08;
-            ctx.strokeStyle = `rgba(40,25,15,${darkness})`;
+            ctx.strokeStyle = `rgba(20,25,35,${darkness})`;
             ctx.lineWidth = 0.5 + Math.random() * 1;
             ctx.beginPath();
             let cx = gx;
             ctx.moveTo(cx, 0);
-            // Slight grain wander
             for (let y = 32; y <= 512; y += 32) {
                 cx += (Math.random() - 0.5) * 1.5;
                 ctx.lineTo(cx, y);
@@ -385,21 +393,20 @@ function _drawWoodVertical(canvas, ctx) {
             ctx.stroke();
         }
 
-        // Wider grain bands - darker streaks
+        // Wider grain bands - cool dark streaks
         for (let si = 0; si < 2; si++) {
             const sx = x + 8 + Math.random() * (boardW - 16);
             const sw = 2 + Math.random() * 4;
-            ctx.fillStyle = `rgba(30,20,10,${0.04 + Math.random() * 0.06})`;
+            ctx.fillStyle = `rgba(15,20,30,${0.04 + Math.random() * 0.06})`;
             ctx.fillRect(sx, 0, sw, 512);
         }
 
-        // Weathering gradient - slightly darker/greener at bottom (moisture),
-        // lighter silver at top (sun bleaching)
+        // Weathering gradient - darker at bottom, lighter silver at top
         const wGrad = ctx.createLinearGradient(0, 0, 0, 512);
-        wGrad.addColorStop(0, 'rgba(200,195,185,0.06)');
+        wGrad.addColorStop(0, 'rgba(180,185,195,0.06)');
         wGrad.addColorStop(0.4, 'rgba(0,0,0,0)');
         wGrad.addColorStop(0.85, 'rgba(0,0,0,0.04)');
-        wGrad.addColorStop(1, 'rgba(20,30,15,0.08)');
+        wGrad.addColorStop(1, 'rgba(15,20,25,0.08)');
         ctx.fillStyle = wGrad;
         ctx.fillRect(x, 0, boardW, 512);
 
@@ -409,22 +416,19 @@ function _drawWoodVertical(canvas, ctx) {
             const kx = x + boardW / 2 + (Math.random() - 0.5) * 10;
             const kr = 4 + Math.random() * 3;
 
-            // Knot core - dark ring
-            ctx.strokeStyle = 'rgba(50,30,15,0.35)';
+            ctx.strokeStyle = 'rgba(30,35,45,0.35)';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.ellipse(kx, ky, kr, kr * 0.7, 0, 0, Math.PI * 2);
             ctx.stroke();
 
-            // Knot interior
-            ctx.fillStyle = 'rgba(70,45,25,0.25)';
+            ctx.fillStyle = 'rgba(40,45,55,0.25)';
             ctx.beginPath();
             ctx.ellipse(kx, ky, kr - 1, kr * 0.6, 0, 0, Math.PI * 2);
             ctx.fill();
 
-            // Grain curves around knot
             for (let a = -2; a <= 2; a++) {
-                ctx.strokeStyle = 'rgba(40,25,15,0.06)';
+                ctx.strokeStyle = 'rgba(20,25,35,0.06)';
                 ctx.lineWidth = 0.5;
                 ctx.beginPath();
                 const offset = (kr + 4 + Math.abs(a) * 3) * (a < 0 ? -1 : 1);
@@ -434,12 +438,10 @@ function _drawWoodVertical(canvas, ctx) {
             }
         }
 
-        // Board edge shadow on right side
+        // Board edge shadow/highlight
         ctx.fillStyle = 'rgba(0,0,0,0.08)';
         ctx.fillRect(x + boardW - 2, 0, 2, 512);
-
-        // Board edge highlight on left side
-        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.fillStyle = 'rgba(200,210,220,0.04)';
         ctx.fillRect(x, 0, 1, 512);
 
         boardIdx++;
