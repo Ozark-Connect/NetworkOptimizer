@@ -548,7 +548,9 @@ function _createWallMaterial(matKey, segLenM) {
         });
     }
 
-    // If this material has a different interior look, build a back-face material
+    // If this material has a different interior look, return a 6-material array
+    // for BoxGeometry face groups: [+X, -X, +Y, -Y, +Z front, -Z back].
+    // Front face (+Z, group 4) gets the exterior, back face (-Z, group 5) gets interior.
     const interiorKey = INTERIOR_LOOK[matKey];
     if (interiorKey) {
         const intCached = _getInteriorTexCanvas(interiorKey);
@@ -564,24 +566,15 @@ function _createWallMaterial(matKey, segLenM) {
                 transparent: WALL_OPACITY < 1.0,
                 opacity: WALL_OPACITY,
                 depthWrite: WALL_OPACITY >= 1.0,
-                side: THREE.BackSide,
                 roughness: 0.85,
             });
         } else {
-            interiorMat = new THREE.MeshStandardMaterial({
-                color: new THREE.Color(hex),
-                transparent: WALL_OPACITY < 1.0,
-                opacity: WALL_OPACITY,
-                depthWrite: WALL_OPACITY >= 1.0,
-                side: THREE.BackSide,
-                roughness: 0.7,
-            });
+            interiorMat = exteriorMat;
         }
-        return [exteriorMat, interiorMat];
+        // [right, left, top, bottom, front=exterior, back=interior]
+        return [exteriorMat, exteriorMat, exteriorMat, exteriorMat, exteriorMat, interiorMat];
     }
 
-    // No interior difference - use DoubleSide on the single material
-    exteriorMat.side = THREE.DoubleSide;
     return exteriorMat;
 }
 
@@ -649,23 +642,13 @@ function _buildWalls(floor, scale, floorY, wallH, wallD, parent) {
             const mz = (a.z + b.z) / 2;
 
             const segMat = (wall.materials && wall.materials[i]) || wall.material;
+            // Returns a single material or a 6-element array for per-face rendering
             const material = _createWallMaterial(segMat, segLenM);
             const geo = new THREE.BoxGeometry(segLen, wallH, wallD);
-
-            if (Array.isArray(material)) {
-                // Two-sided: exterior on front face, interior on back face
-                for (const mat of material) {
-                    const mesh = new THREE.Mesh(geo, mat);
-                    mesh.position.set(mx, floorY + wallH / 2, mz);
-                    mesh.rotation.y = -angle;
-                    parent.add(mesh);
-                }
-            } else {
-                const mesh = new THREE.Mesh(geo, material);
-                mesh.position.set(mx, floorY + wallH / 2, mz);
-                mesh.rotation.y = -angle;
-                parent.add(mesh);
-            }
+            const mesh = new THREE.Mesh(geo, material);
+            mesh.position.set(mx, floorY + wallH / 2, mz);
+            mesh.rotation.y = -angle;
+            parent.add(mesh);
         }
     }
 }
