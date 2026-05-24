@@ -45,8 +45,13 @@ const TEXTURED = new Set([
     'brick', 'concrete', 'exterior_commercial',
     'exterior_residential', 'exterior',
     'wood', 'wood_paneling',
-    'window_1_pane', 'window_2_pane', 'window_3_pane',
     'glass', 'glass_thin',
+]);
+
+// Materials drawn per-segment (no tiling). Each segment gets a fresh canvas
+// sized to its real-world proportions.
+const PER_SEGMENT = new Set([
+    'window_1_pane', 'window_2_pane', 'window_3_pane',
     'door_wood', 'door_metal', 'door_glass',
 ]);
 
@@ -175,33 +180,9 @@ function _getTexCanvas(matKey) {
             _drawWoodVertical(canvas, ctx);
             tileSizeM = 0.6;
             break;
-        case 'window_1_pane':
-            _drawWindow(canvas, ctx, 1);
-            tileSizeM = 1.0;
-            break;
-        case 'window_2_pane':
-            _drawWindow(canvas, ctx, 2);
-            tileSizeM = 1.0;
-            break;
-        case 'window_3_pane':
-            _drawWindow(canvas, ctx, 3);
-            tileSizeM = 1.0;
-            break;
         case 'glass':
         case 'glass_thin':
             _drawGlassWall(canvas, ctx, matKey === 'glass_thin');
-            tileSizeM = 1.0;
-            break;
-        case 'door_wood':
-            _drawDoorWood(canvas, ctx);
-            tileSizeM = 1.0;
-            break;
-        case 'door_metal':
-            _drawDoorMetal(canvas, ctx);
-            tileSizeM = 1.0;
-            break;
-        case 'door_glass':
-            _drawDoorGlass(canvas, ctx);
             tileSizeM = 1.0;
             break;
         default:
@@ -559,90 +540,158 @@ function _drawGlassWall(canvas, ctx, thin) {
     }
 }
 
-// -- doors --------------------------------------------------------------------
-// Raised-panel residential wood door with frame and panels.
-function _drawDoorWood(canvas, ctx) {
-    canvas.width = 256;
-    canvas.height = 512;
+// -- doors and windows (per-segment, not tiled) -------------------------------
+// These draw a single unit sized to the actual wall segment dimensions.
+// Canvas coordinates: X = segment width, Y = wall height (bottom at top of canvas,
+// floor at bottom - canvas Y=0 is wall top, Y=h is wall bottom).
 
-    // Wall surround at top (above door)
-    ctx.fillStyle = '#6E6E72';
-    ctx.fillRect(0, 0, 256, 512);
-
-    const doorL = 30, doorT = 60, doorR = 226, doorB = 490;
-    const doorW = doorR - doorL, doorH = doorB - doorT;
-
-    // Trim casing
-    ctx.fillStyle = '#D8D8D8';
-    ctx.fillRect(doorL - 8, doorT - 8, doorW + 16, doorH + 12);
-
-    // Door face - warm wood brown
-    ctx.fillStyle = '#5C4030';
-    ctx.fillRect(doorL, doorT, doorW, doorH);
-
-    // Raised panels (6-panel door: 2 columns x 3 rows)
-    const panelPad = 14;
-    const panelGapX = 8, panelGapY = 8;
-    const pw = (doorW - panelPad * 2 - panelGapX) / 2;
-    const ph = (doorH - panelPad * 2 - panelGapY * 2) / 3;
-
-    for (let row = 0; row < 3; row++) {
-        for (let col = 0; col < 2; col++) {
-            const px = doorL + panelPad + col * (pw + panelGapX);
-            const py = doorT + panelPad + row * (ph + panelGapY);
-
-            // Panel recess shadow
-            ctx.fillStyle = 'rgba(0,0,0,0.15)';
-            ctx.fillRect(px, py, pw, ph);
-
-            // Raised panel face
-            ctx.fillStyle = '#6B4E3A';
-            ctx.fillRect(px + 4, py + 4, pw - 8, ph - 8);
-
-            // Panel highlight on top/left
-            ctx.fillStyle = 'rgba(255,255,255,0.06)';
-            ctx.fillRect(px + 4, py + 4, pw - 8, 2);
-            ctx.fillRect(px + 4, py + 4, 2, ph - 8);
-        }
-    }
-
-    // Door handle
-    ctx.fillStyle = '#B0A898';
-    ctx.fillRect(doorR - 30, doorT + doorH * 0.52, 8, 20);
-
-    // Threshold
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(doorL - 4, doorB, doorW + 8, 4);
-}
-
-// Steel entry door - flat gray with subtle panel lines and a small lite.
-function _drawDoorMetal(canvas, ctx) {
-    canvas.width = 256;
-    canvas.height = 512;
+// Residential window proportioned to segment width. Wider segments get taller
+// windows, narrow segments get squarer windows.
+function _drawWindow(canvas, ctx, panes, widthM, heightM) {
+    const w = 256, h = Math.round(256 * (heightM / widthM));
+    canvas.width = w;
+    canvas.height = h;
 
     // Wall surround
     ctx.fillStyle = '#6E6E72';
-    ctx.fillRect(0, 0, 256, 512);
+    ctx.fillRect(0, 0, w, h);
 
-    const doorL = 30, doorT = 60, doorR = 226, doorB = 490;
-    const doorW = doorR - doorL, doorH = doorB - doorT;
+    // Window proportions: width fills ~80% of segment,
+    // height scales with width but capped at ~60% of wall height
+    const winW = w * 0.8;
+    const aspect = Math.min(1.4, Math.max(0.7, widthM * 0.9));
+    const winH = Math.min(h * 0.55, winW * aspect);
+    const winL = (w - winW) / 2;
+    const winT = h * 0.2;  // offset down from top (windows sit in upper half)
+
+    const trimW = Math.max(3, w * 0.025);
+    const frameW = Math.max(4, w * 0.04);
+
+    // White trim casing
+    ctx.fillStyle = '#D8D8D8';
+    ctx.fillRect(winL - trimW, winT - trimW, winW + trimW * 2, winH + trimW * 2);
+
+    // Dark frame
+    ctx.fillStyle = '#3A3A3E';
+    ctx.fillRect(winL, winT, winW, winH);
+
+    // Glass area
+    const gL = winL + frameW, gT = winT + frameW;
+    const gW = winW - frameW * 2, gH = winH - frameW * 2;
+
+    const glassGrad = ctx.createLinearGradient(gL, gT, gL + gW, gT + gH);
+    glassGrad.addColorStop(0, '#8AAEC8');
+    glassGrad.addColorStop(0.3, '#7BA0BC');
+    glassGrad.addColorStop(0.7, '#6890AE');
+    glassGrad.addColorStop(1, '#5A82A0');
+    ctx.fillStyle = glassGrad;
+    ctx.fillRect(gL, gT, gW, gH);
+
+    // Reflection highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.moveTo(gL, gT);
+    ctx.lineTo(gL + gW * 0.35, gT);
+    ctx.lineTo(gL, gT + gH * 0.45);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mullions
+    ctx.fillStyle = '#3A3A3E';
+    const mullW = Math.max(2, frameW * 0.6);
+    if (panes >= 2) {
+        ctx.fillRect(gL, gT + gH / 2 - mullW / 2, gW, mullW);
+    }
+    if (panes >= 3) {
+        ctx.fillRect(gL + gW / 2 - mullW / 2, gT, mullW, gH);
+    }
+
+    // Sill
+    ctx.fillStyle = '#C0C0C0';
+    ctx.fillRect(winL - 3, winT + winH + trimW, winW + 6, Math.max(3, h * 0.012));
+}
+
+// Raised-panel residential wood door - sits in the lower portion of the wall.
+function _drawDoorWood(canvas, ctx, widthM, heightM) {
+    const w = 256, h = Math.round(256 * (heightM / widthM));
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.fillStyle = '#6E6E72';
+    ctx.fillRect(0, 0, w, h);
+
+    // Standard door: ~0.9m wide x 2.1m tall. Scale to fit segment.
+    const doorW = w * 0.85;
+    const doorH = Math.min(h * 0.72, doorW * 2.3);
+    const doorL = (w - doorW) / 2;
+    const doorB = h * 0.97;
+    const doorT = doorB - doorH;
+
+    const trim = Math.max(3, w * 0.03);
 
     // Trim casing
     ctx.fillStyle = '#D8D8D8';
-    ctx.fillRect(doorL - 8, doorT - 8, doorW + 16, doorH + 12);
+    ctx.fillRect(doorL - trim, doorT - trim, doorW + trim * 2, doorH + trim);
 
-    // Door face - steel gray
+    // Door face
+    ctx.fillStyle = '#5C4030';
+    ctx.fillRect(doorL, doorT, doorW, doorH);
+
+    // 6-panel layout (2 cols x 3 rows)
+    const pad = doorW * 0.07;
+    const gapX = doorW * 0.04, gapY = doorH * 0.02;
+    const pw = (doorW - pad * 2 - gapX) / 2;
+    const ph = (doorH - pad * 2 - gapY * 2) / 3;
+
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 2; col++) {
+            const px = doorL + pad + col * (pw + gapX);
+            const py = doorT + pad + row * (ph + gapY);
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.fillRect(px, py, pw, ph);
+            ctx.fillStyle = '#6B4E3A';
+            ctx.fillRect(px + 3, py + 3, pw - 6, ph - 6);
+            ctx.fillStyle = 'rgba(255,255,255,0.06)';
+            ctx.fillRect(px + 3, py + 3, pw - 6, 2);
+        }
+    }
+
+    // Handle
+    ctx.fillStyle = '#B0A898';
+    const handleY = doorT + doorH * 0.52;
+    ctx.fillRect(doorL + doorW - doorW * 0.14, handleY, doorW * 0.04, doorH * 0.04);
+}
+
+// Steel entry door with half-lite window.
+function _drawDoorMetal(canvas, ctx, widthM, heightM) {
+    const w = 256, h = Math.round(256 * (heightM / widthM));
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.fillStyle = '#6E6E72';
+    ctx.fillRect(0, 0, w, h);
+
+    const doorW = w * 0.85;
+    const doorH = Math.min(h * 0.72, doorW * 2.3);
+    const doorL = (w - doorW) / 2;
+    const doorB = h * 0.97;
+    const doorT = doorB - doorH;
+    const trim = Math.max(3, w * 0.03);
+
+    ctx.fillStyle = '#D8D8D8';
+    ctx.fillRect(doorL - trim, doorT - trim, doorW + trim * 2, doorH + trim);
+
     ctx.fillStyle = '#6A6A6E';
     ctx.fillRect(doorL, doorT, doorW, doorH);
 
-    // Subtle embossed panel lines
+    // Embossed panel lines
     ctx.strokeStyle = 'rgba(0,0,0,0.1)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(doorL + 16, doorT + 20, doorW - 32, doorH * 0.25);
-    ctx.strokeRect(doorL + 16, doorT + doorH * 0.35, doorW - 32, doorH * 0.55);
+    ctx.strokeRect(doorL + doorW * 0.08, doorT + doorH * 0.05, doorW * 0.84, doorH * 0.25);
+    ctx.strokeRect(doorL + doorW * 0.08, doorT + doorH * 0.35, doorW * 0.84, doorH * 0.58);
 
-    // Small half-lite window at top
-    const liteL = doorL + doorW * 0.2, liteT = doorT + 30;
+    // Half-lite window
+    const liteL = doorL + doorW * 0.2, liteT = doorT + doorH * 0.07;
     const liteW = doorW * 0.6, liteH = doorH * 0.18;
     ctx.fillStyle = '#3A3A3E';
     ctx.fillRect(liteL, liteT, liteW, liteH);
@@ -654,72 +703,67 @@ function _drawDoorMetal(canvas, ctx) {
 
     // Handle
     ctx.fillStyle = '#B0A898';
-    ctx.fillRect(doorR - 30, doorT + doorH * 0.52, 8, 20);
-
-    // Threshold
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(doorL - 4, doorB, doorW + 8, 4);
+    ctx.fillRect(doorL + doorW * 0.82, doorT + doorH * 0.52, doorW * 0.04, doorH * 0.04);
 }
 
-// Glass/French door - mostly glass with thin frame.
-function _drawDoorGlass(canvas, ctx) {
-    canvas.width = 256;
-    canvas.height = 512;
+// Glass/French door - mostly glass with grid.
+function _drawDoorGlass(canvas, ctx, widthM, heightM) {
+    const w = 256, h = Math.round(256 * (heightM / widthM));
+    canvas.width = w;
+    canvas.height = h;
 
-    // Wall surround
     ctx.fillStyle = '#6E6E72';
-    ctx.fillRect(0, 0, 256, 512);
+    ctx.fillRect(0, 0, w, h);
 
-    const doorL = 30, doorT = 60, doorR = 226, doorB = 490;
-    const doorW = doorR - doorL, doorH = doorB - doorT;
+    const doorW = w * 0.85;
+    const doorH = Math.min(h * 0.72, doorW * 2.3);
+    const doorL = (w - doorW) / 2;
+    const doorB = h * 0.97;
+    const doorT = doorB - doorH;
+    const trim = Math.max(3, w * 0.03);
 
-    // Trim casing
     ctx.fillStyle = '#D8D8D8';
-    ctx.fillRect(doorL - 8, doorT - 8, doorW + 16, doorH + 12);
+    ctx.fillRect(doorL - trim, doorT - trim, doorW + trim * 2, doorH + trim);
 
-    // Frame
     ctx.fillStyle = '#3A3A3E';
     ctx.fillRect(doorL, doorT, doorW, doorH);
 
-    // Large glass area (leave bottom rail)
-    const glassL = doorL + 10, glassT = doorT + 10;
-    const glassR = doorR - 10, glassB = doorB - 50;
-    const glassW = glassR - glassL, glassH = glassB - glassT;
+    // Glass area (leave bottom rail ~15%)
+    const railH = doorH * 0.12;
+    const gL = doorL + doorW * 0.04, gT = doorT + doorW * 0.04;
+    const gW = doorW * 0.92, gH = doorH - railH - doorW * 0.08;
 
-    const gGrad = ctx.createLinearGradient(glassL, glassT, glassR, glassB);
+    const gGrad = ctx.createLinearGradient(gL, gT, gL + gW, gT + gH);
     gGrad.addColorStop(0, '#8AAEC8');
     gGrad.addColorStop(0.4, '#7898B0');
     gGrad.addColorStop(1, '#6088A0');
     ctx.fillStyle = gGrad;
-    ctx.fillRect(glassL, glassT, glassW, glassH);
+    ctx.fillRect(gL, gT, gW, gH);
 
     // Reflection
     ctx.fillStyle = 'rgba(255,255,255,0.1)';
     ctx.beginPath();
-    ctx.moveTo(glassL, glassT);
-    ctx.lineTo(glassL + glassW * 0.35, glassT);
-    ctx.lineTo(glassL, glassT + glassH * 0.4);
+    ctx.moveTo(gL, gT);
+    ctx.lineTo(gL + gW * 0.3, gT);
+    ctx.lineTo(gL, gT + gH * 0.4);
     ctx.closePath();
     ctx.fill();
 
-    // French door grid (3 rows x 2 cols)
+    // French door grid
+    const mullW = Math.max(2, doorW * 0.02);
     ctx.fillStyle = '#3A3A3E';
-    ctx.fillRect(glassL + glassW / 2 - 2, glassT, 4, glassH);
+    ctx.fillRect(gL + gW / 2 - mullW / 2, gT, mullW, gH);
     for (let r = 1; r < 3; r++) {
-        ctx.fillRect(glassL, glassT + (glassH / 3) * r - 2, glassW, 4);
+        ctx.fillRect(gL, gT + (gH / 3) * r - mullW / 2, gW, mullW);
     }
 
     // Bottom rail
     ctx.fillStyle = '#4A4A4E';
-    ctx.fillRect(doorL, doorB - 50, doorW, 50);
+    ctx.fillRect(doorL, doorT + doorH - railH, doorW, railH);
 
     // Handle
     ctx.fillStyle = '#B0A898';
-    ctx.fillRect(doorR - 26, doorT + doorH * 0.48, 6, 24);
-
-    // Threshold
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(doorL - 4, doorB, doorW + 8, 4);
+    ctx.fillRect(doorL + doorW * 0.82, doorT + doorH * 0.48, doorW * 0.03, doorH * 0.05);
 }
 
 // -- interior textures --------------------------------------------------------
@@ -842,6 +886,33 @@ function _drawDrywallInterior(canvas, ctx) {
 
 function _createWallMaterial(matKey, segLenM, winding) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
+
+    // Per-segment materials (doors, windows) - drawn fresh with real dimensions,
+    // no tiling. Each segment gets its own canvas sized to its proportions.
+    if (PER_SEGMENT.has(matKey)) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const drawFn = {
+            window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M),
+            window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M),
+            window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M),
+            door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M),
+            door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M),
+            door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M),
+        }[matKey];
+        if (drawFn) drawFn(canvas, ctx);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return new THREE.MeshStandardMaterial({
+            map: tex,
+            transparent: WALL_OPACITY < 1.0,
+            opacity: WALL_OPACITY,
+            depthWrite: WALL_OPACITY >= 1.0,
+            side: THREE.DoubleSide,
+            roughness: 0.85,
+        });
+    }
+
     const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
 
     // Build the exterior (primary) material
