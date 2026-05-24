@@ -82,12 +82,16 @@ export function buildBuildings(snap) {
         bGroup.name = `building-${building.id}`;
         let maxFloorNum = -Infinity;
 
+        // Determine winding direction from the longest wall loop to decide
+        // which BoxGeometry face (+Z or -Z) is the exterior.
+        const winding = _detectWinding(building, scale);
+
         for (const floor of building.floors) {
             if (floor.floorNumber > maxFloorNum) maxFloorNum = floor.floorNumber;
             const floorY = floor.z * scale * 0.8;
 
             _buildFloorPlane(floor, scale, floorY, bGroup);
-            _buildWalls(floor, scale, floorY, wallHScene, wallDScene, bGroup);
+            _buildWalls(floor, scale, floorY, wallHScene, wallDScene, winding, bGroup);
         }
 
         const topFloor = building.floors.find(f => f.floorNumber === maxFloorNum);
@@ -105,6 +109,33 @@ export function buildBuildings(snap) {
 
 function toScene(pt, scale) {
     return { x: -pt.x * scale, z: pt.y * scale };
+}
+
+// Compute signed area of the longest wall loop to determine winding direction.
+// Returns 1 if the exterior face is +Z (group 4), -1 if it's -Z (group 5).
+function _detectWinding(building, scale) {
+    // Find the longest closed wall (most points) as the representative outline
+    let bestWall = null;
+    let bestLen = 0;
+    for (const floor of building.floors) {
+        for (const wall of floor.walls) {
+            if (wall.points.length > bestLen) {
+                bestLen = wall.points.length;
+                bestWall = wall;
+            }
+        }
+    }
+    if (!bestWall || bestWall.points.length < 3) return 1;
+
+    // Shoelace formula for signed area in scene space
+    const pts = bestWall.points.map(p => toScene(p, scale));
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        area += pts[i].x * pts[j].z - pts[j].x * pts[i].z;
+    }
+    // Negative signed area = clockwise in XZ plane = +Z face points outward
+    return area < 0 ? 1 : -1;
 }
 
 // -- procedural textures ------------------------------------------------------
@@ -516,7 +547,7 @@ function _drawDrywallInterior(canvas, ctx) {
 // to the wall's real-world dimensions. Solid materials use realistic muted colors.
 // Materials in INTERIOR_LOOK return [exteriorMat, interiorMat] for two-sided rendering.
 
-function _createWallMaterial(matKey, segLenM) {
+function _createWallMaterial(matKey, segLenM, winding) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
     const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
 
@@ -572,8 +603,11 @@ function _createWallMaterial(matKey, segLenM) {
         } else {
             interiorMat = exteriorMat;
         }
-        // [right, left, top, bottom, front=exterior, back=interior]
-        return [exteriorMat, exteriorMat, exteriorMat, exteriorMat, exteriorMat, interiorMat];
+        // BoxGeometry groups: [+X, -X, +Y, -Y, +Z(front), -Z(back)]
+        // Winding determines which face is exterior: 1 = +Z is exterior, -1 = -Z is exterior
+        const face4 = winding > 0 ? exteriorMat : interiorMat;
+        const face5 = winding > 0 ? interiorMat : exteriorMat;
+        return [exteriorMat, exteriorMat, exteriorMat, exteriorMat, face4, face5];
     }
 
     return exteriorMat;
@@ -619,7 +653,7 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
 
 // -- walls --------------------------------------------------------------------
 
-function _buildWalls(floor, scale, floorY, wallH, wallD, parent) {
+function _buildWalls(floor, scale, floorY, wallH, wallD, winding, parent) {
     for (const wall of floor.walls) {
         const pts = wall.points;
         if (!pts || pts.length < 2) continue;
@@ -644,7 +678,7 @@ function _buildWalls(floor, scale, floorY, wallH, wallD, parent) {
 
             const segMat = (wall.materials && wall.materials[i]) || wall.material;
             // Returns a single material or a 6-element array for per-face rendering
-            const material = _createWallMaterial(segMat, segLenM);
+            const material = _createWallMaterial(segMat, segLenM, winding);
             const geo = new THREE.BoxGeometry(segLen, wallH, wallD);
             const mesh = new THREE.Mesh(geo, material);
             mesh.position.set(mx, floorY + wallH / 2, mz);
