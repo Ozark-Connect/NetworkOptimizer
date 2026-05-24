@@ -582,7 +582,7 @@ function _drawWindow(canvas, ctx, panes, widthM, heightM, bgTex, fallback) {
 
 // Raised-panel residential wood door - sits in the lower portion of the wall.
 function _drawDoorWood(canvas, ctx, widthM, heightM, bgTex, fallback) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
@@ -632,12 +632,11 @@ function _drawDoorWood(canvas, ctx, widthM, heightM, bgTex, fallback) {
 
 // Steel entry door with half-lite window.
 function _drawDoorMetal(canvas, ctx, widthM, heightM, bgTex, fallback) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
-    ctx.fillStyle = '#6E6E72';
-    ctx.fillRect(0, 0, w, h);
+    _fillWallBackground(ctx, w, h, widthM, heightM, bgTex, fallback);
 
     const doorW = w * 0.85;
     const doorH = h * (2.032 / heightM);
@@ -676,12 +675,11 @@ function _drawDoorMetal(canvas, ctx, widthM, heightM, bgTex, fallback) {
 
 // Glass/French door - mostly glass with grid.
 function _drawDoorGlass(canvas, ctx, widthM, heightM, bgTex, fallback) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
-    ctx.fillStyle = '#6E6E72';
-    ctx.fillRect(0, 0, w, h);
+    _fillWallBackground(ctx, w, h, widthM, heightM, bgTex, fallback);
 
     const doorW = w * 0.85;
     const doorH = h * (2.032 / heightM);

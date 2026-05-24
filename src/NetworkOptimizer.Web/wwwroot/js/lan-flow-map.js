@@ -16,8 +16,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js';
 
 const COLORS = {
-    background: 0x101820,
-    fog: 0x101820,
+    background: 0x161618,
+    fog: 0x161618,
     gateway: 0xfacc15,
     switchNode: 0x9aa6b2,
     ap: 0x3385d6,
@@ -364,12 +364,16 @@ export class LanFlowMap {
     }
 
     _disposeScene() {
+        const disposeMat = (m) => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+        };
         const disposeGroup = (g) => {
             g.traverse((obj) => {
                 if (obj.geometry) obj.geometry.dispose();
                 if (obj.material) {
-                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
-                    else obj.material.dispose();
+                    if (Array.isArray(obj.material)) obj.material.forEach(disposeMat);
+                    else disposeMat(obj.material);
                 }
             });
             while (g.children.length) g.remove(g.children[0]);
@@ -2430,7 +2434,7 @@ export class LanFlowMap {
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
         // Reverse Y → floor: posY = floor * 3.0 * scale * 0.8
-        const floor = Math.round(pos.y / (scale * 0.8) / 3.0);
+        const floor = Math.round(pos.y / (scale * 0.8) / 2.9);
 
         try {
             await fetch(`${this.apiBase}/device-placement`, {

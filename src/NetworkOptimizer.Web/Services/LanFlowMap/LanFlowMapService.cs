@@ -834,7 +834,7 @@ public class LanFlowMapService
             for (int i = 0; i < floorNums.Count; i++)
             {
                 int distFromTop = floorNums.Count - 1 - i;
-                zMap[floorNums[i]] = (topFloor - distFromTop) * 3.0;
+                zMap[floorNums[i]] = (topFloor - distFromTop) * FloorHeightMetres;
             }
 
             foreach (var floor in building.Floors)
@@ -853,7 +853,7 @@ public class LanFlowMapService
             {
                 if (anchor.X < minX || anchor.X > maxX || anchor.Y < minY || anchor.Y > maxY)
                     continue;
-                int deviceFloor = (int)Math.Round(anchor.Z / 3.0);
+                int deviceFloor = (int)Math.Round(anchor.Z / FloorHeightMetres);
                 if (zMap.TryGetValue(deviceFloor, out var newDevZ))
                     anchor.Z = newDevZ;
             }
@@ -1296,7 +1296,7 @@ public class LanFlowMapService
             {
                 X = anchored.Average(p => p.X),
                 Y = anchored.Average(p => p.Y),
-                Z = anchored.Average(p => p.Z) - 3.0,  // sit slightly "below" the APs in 3D
+                Z = anchored.Average(p => p.Z) - FloorHeightMetres,  // sit slightly "below" the APs in 3D
                 Source = LanPlacementSource.Interpolated,
             };
         }
