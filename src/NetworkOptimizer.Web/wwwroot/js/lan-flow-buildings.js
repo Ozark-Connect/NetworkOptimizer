@@ -38,11 +38,22 @@ export function buildBuildings(snap) {
         bGroup.name = `building-${building.id}`;
         let maxFloorNum = -Infinity;
 
+        // Precompute the building's overall footprint from all wall points
+        const allBuildingPts = [];
+        for (const floor of building.floors) {
+            for (const wall of floor.walls) {
+                for (const pt of wall.points) {
+                    allBuildingPts.push(toScene(pt, scale));
+                }
+            }
+        }
+        const buildingHull = allBuildingPts.length >= 3 ? _convexHull(allBuildingPts) : null;
+
         for (const floor of building.floors) {
             if (floor.floorNumber > maxFloorNum) maxFloorNum = floor.floorNumber;
             const floorY = floor.z * scale * 0.8;
 
-            _buildFloorPlane(floor, scale, floorY, bGroup);
+            _buildFloorPlane(floor, scale, floorY, buildingHull, bGroup);
             _buildWalls(floor, scale, floorY, wallHScene, wallDScene, colors, bGroup);
         }
 
@@ -69,17 +80,17 @@ function cornerToScene(meterX, meterY, scale) {
 
 // -- floor plane (from wall convex hull, not axis-aligned bbox) ---------------
 
-function _buildFloorPlane(floor, scale, floorY, parent) {
+function _buildFloorPlane(floor, scale, floorY, buildingHull, parent) {
     const pts = [];
     for (const wall of floor.walls) {
         for (const pt of wall.points) {
             pts.push(toScene(pt, scale));
         }
     }
-    if (pts.length < 3) return;
 
-    const hull = _convexHull(pts);
-    if (hull.length < 3) return;
+    // Use this floor's wall points, or fall back to the building's overall footprint
+    const hull = pts.length >= 3 ? _convexHull(pts) : buildingHull;
+    if (!hull || hull.length < 3) return;
 
     // Fan triangulation from hull[0]
     const triCount = hull.length - 2;
