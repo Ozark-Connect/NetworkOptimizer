@@ -490,11 +490,14 @@ export class LanFlowMap {
         for (const node of snap.nodes) {
             const p = node.placement;
             if (p && p.source === PLACEMENT_SOURCE.Anchor) {
-                // Vertical offset within the floor: APs use mount type,
-                // clients default to mid-floor height.
+                // Vertical offset within the floor by device type:
+                // APs use their mount type, clients mid-floor, infra at desk level.
                 const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
-                const mountM = isClient ? WALL_H_M * 0.5
-                    : (node.mountType && mountOffsetM[node.mountType]) || 0;
+                const isInfra = node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway;
+                const mountM = node.mountType ? (mountOffsetM[node.mountType] || 0)
+                    : isClient ? WALL_H_M * 0.5
+                    : isInfra ? WALL_H_M * 0.15
+                    : 0;
                 positions.set(node.id, {
                     x: -p.x * scale,
                     y: p.z * scale * 0.8 + mountM * scale * 0.8,
