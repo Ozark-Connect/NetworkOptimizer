@@ -2819,18 +2819,33 @@ function lerpColor(a, b, t) {
 }
 
 function makeRadialBackgroundTexture(width, height) {
-    const w = 512;
-    const h = Math.max(256, Math.round(512 * (height / Math.max(width, 1))));
+    // Render at actual screen resolution to avoid upscale banding, and add
+    // subtle noise dithering to break up the 8-bit color quantization in
+    // very dark gradients.
+    const w = Math.max(width, 512);
+    const h = Math.max(height, 256);
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
-    grd.addColorStop(0, '#0a0b0e');
-    grd.addColorStop(0.55, '#060708');
-    grd.addColorStop(1, '#030304');
+    grd.addColorStop(0, '#1e2024');
+    grd.addColorStop(0.55, '#161618');
+    grd.addColorStop(1, '#101012');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
+
+    // Dither: sprinkle fine noise to eliminate banding in the dark gradient
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+        const noise = Math.floor(Math.random() * 5) - 2;
+        d[i]     = Math.max(0, Math.min(255, d[i] + noise));
+        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + noise));
+        d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + noise));
+    }
+    ctx.putImageData(imgData, 0, 0);
+
     const tex = new THREE.CanvasTexture(canvas);
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
