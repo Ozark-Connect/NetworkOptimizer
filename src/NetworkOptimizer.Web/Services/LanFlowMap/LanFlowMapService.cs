@@ -1,9 +1,11 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
+using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Services.LanFlowMap;
 
@@ -88,6 +90,9 @@ public class LanFlowMapService
         var anchors = ProjectAnchors(markers, deviceLocations,
             out var centerLat, out var centerLng, out var lngScale);
         snapshot.Bounds = ComputeBounds(anchors, centerLat, centerLng, lngScale);
+        snapshot.Buildings = await BuildBuildingsAsync(centerLat, centerLng, lngScale, ct);
+        snapshot.MaterialColors = new Dictionary<string, string>(
+            WiFi.Data.MaterialAttenuation.MaterialColors, StringComparer.OrdinalIgnoreCase);
 
         var nameMaps = await LoadInterfaceNameMaps(ct);
 
@@ -616,6 +621,16 @@ public class LanFlowMapService
     // Internal: AP placement -> local Cartesian
     // ---------------------------------------------------------------------------------
 
+    private const double EarthRadiusMetres = 6_371_000.0;
+
+    private static (double x, double y) ProjectLatLng(
+        double lat, double lng, double centerLat, double centerLng, double lngScale)
+    {
+        double x = (lng - centerLng) * Math.PI / 180.0 * lngScale * EarthRadiusMetres;
+        double y = (lat - centerLat) * Math.PI / 180.0 * EarthRadiusMetres;
+        return (x, y);
+    }
+
     private static Dictionary<string, LanPlacement> ProjectAnchors(
         IReadOnlyList<Web.Models.ApMapMarker> markers,
         IReadOnlyList<Storage.Models.ApLocation> deviceLocations,
@@ -644,21 +659,16 @@ public class LanFlowMapService
             centerLng = deviceLocations.Average(d => d.Longitude);
         }
 
-        const double earthRadiusMetres = 6_371_000.0;
         lngScale = Math.Cos(centerLat * Math.PI / 180.0);
 
         foreach (var m in withCoords)
         {
-            double dLat = (m.Latitude!.Value - centerLat) * Math.PI / 180.0;
-            double dLng = (m.Longitude!.Value - centerLng) * Math.PI / 180.0;
-            double x = dLng * lngScale * earthRadiusMetres;
-            double y = dLat * earthRadiusMetres;
-            double z = (m.Floor ?? 1) * 3.0;
+            var (x, y) = ProjectLatLng(m.Latitude!.Value, m.Longitude!.Value, centerLat, centerLng, lngScale);
             anchors[NormalizeMac(m.Mac)] = new LanPlacement
             {
                 X = x,
                 Y = y,
-                Z = z,
+                Z = (m.Floor ?? 1) * 3.0,
                 Source = LanPlacementSource.Anchor,
             };
         }
@@ -667,16 +677,12 @@ public class LanFlowMapService
         {
             var mac = NormalizeMac(d.ApMac);
             if (anchors.ContainsKey(mac)) continue;
-            double dLat = (d.Latitude - centerLat) * Math.PI / 180.0;
-            double dLng = (d.Longitude - centerLng) * Math.PI / 180.0;
-            double x = dLng * lngScale * earthRadiusMetres;
-            double y = dLat * earthRadiusMetres;
-            double z = (d.Floor ?? 1) * 3.0;
+            var (x, y) = ProjectLatLng(d.Latitude, d.Longitude, centerLat, centerLng, lngScale);
             anchors[mac] = new LanPlacement
             {
                 X = x,
                 Y = y,
-                Z = z,
+                Z = (d.Floor ?? 1) * 3.0,
                 Source = LanPlacementSource.Anchor,
             };
         }
@@ -708,6 +714,85 @@ public class LanFlowMapService
         bounds.CenterLng = centerLng;
         bounds.LngScale = lngScale;
         return bounds;
+    }
+
+    private async Task<List<LanBuilding>> BuildBuildingsAsync(
+        double centerLat, double centerLng, double lngScale, CancellationToken ct)
+    {
+        var result = new List<LanBuilding>();
+        try
+        {
+            using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var buildings = await db.Buildings.Include(b => b.Floors).ToListAsync(ct);
+
+            var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            foreach (var building in buildings)
+            {
+                var lanBuilding = new LanBuilding
+                {
+                    Id = building.Id,
+                    Name = building.Name,
+                };
+
+                foreach (var floor in building.Floors)
+                {
+                    if (string.IsNullOrWhiteSpace(floor.WallsJson) || floor.WallsJson == "[]")
+                        continue;
+
+                    List<PropagationWall>? walls;
+                    try
+                    {
+                        walls = JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOptions);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                    if (walls == null || walls.Count == 0) continue;
+
+                    var (swX, swY) = ProjectLatLng(floor.SwLatitude, floor.SwLongitude, centerLat, centerLng, lngScale);
+                    var (neX, neY) = ProjectLatLng(floor.NeLatitude, floor.NeLongitude, centerLat, centerLng, lngScale);
+
+                    var lanFloor = new LanBuildingFloor
+                    {
+                        FloorNumber = floor.FloorNumber,
+                        FloorMaterial = floor.FloorMaterial ?? "floor_wood",
+                        SwX = swX,
+                        SwY = swY,
+                        NeX = neX,
+                        NeY = neY,
+                        Z = floor.FloorNumber * 3.0,
+                    };
+
+                    foreach (var wall in walls)
+                    {
+                        if (wall.Points.Count < 2) continue;
+                        var lanWall = new LanWall
+                        {
+                            Material = wall.Material,
+                            Materials = wall.Materials?.Select(m => (string?)m).ToList(),
+                        };
+                        foreach (var pt in wall.Points)
+                        {
+                            var (px, py) = ProjectLatLng(pt.Lat, pt.Lng, centerLat, centerLng, lngScale);
+                            lanWall.Points.Add(new LanWallPoint { X = px, Y = py });
+                        }
+                        lanFloor.Walls.Add(lanWall);
+                    }
+
+                    lanBuilding.Floors.Add(lanFloor);
+                }
+
+                if (lanBuilding.Floors.Count > 0)
+                    result.Add(lanBuilding);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load buildings for 3D map");
+        }
+        return result;
     }
 
     // ---------------------------------------------------------------------------------

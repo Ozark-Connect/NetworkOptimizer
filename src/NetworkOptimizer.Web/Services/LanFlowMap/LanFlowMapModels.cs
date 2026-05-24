@@ -14,6 +14,8 @@ public class LanFlowMapSnapshot
     public Dictionary<string, LinkLiveRates> LiveRates { get; set; } = new();
     public List<SpeedTestOverlayItem> SpeedTests { get; set; } = new();
     public LanFlowMapBounds Bounds { get; set; } = new();
+    public List<LanBuilding> Buildings { get; set; } = new();
+    public Dictionary<string, string> MaterialColors { get; set; } = new();
 
     /// <summary>Interface name of the primary WAN (e.g. "wan"). The JS layer
     /// uses this to route speed test results that don't carry a WanNetworkGroup.</summary>
@@ -318,4 +320,36 @@ public class LanFlowMapHistoricUpdate
 
     /// <summary>Speed tests whose TestTime falls within the scrub window (or just before it).</summary>
     public List<SpeedTestOverlayItem> SpeedTests { get; set; } = new();
+}
+
+public class LanBuilding
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public List<LanBuildingFloor> Floors { get; set; } = new();
+}
+
+public class LanBuildingFloor
+{
+    public int FloorNumber { get; set; }
+    public string FloorMaterial { get; set; } = "floor_wood";
+    public double SwX { get; set; }
+    public double SwY { get; set; }
+    public double NeX { get; set; }
+    public double NeY { get; set; }
+    public double Z { get; set; }
+    public List<LanWall> Walls { get; set; } = new();
+}
+
+public class LanWall
+{
+    public List<LanWallPoint> Points { get; set; } = new();
+    public string Material { get; set; } = "drywall";
+    public List<string?>? Materials { get; set; }
+}
+
+public class LanWallPoint
+{
+    public double X { get; set; }
+    public double Y { get; set; }
 }

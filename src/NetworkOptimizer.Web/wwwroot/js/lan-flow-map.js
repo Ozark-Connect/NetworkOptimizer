@@ -13,6 +13,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { buildBuildings } from './lan-flow-buildings.js';
 
 const COLORS = {
     background: 0x101820,
@@ -134,6 +135,7 @@ export class LanFlowMap {
             wiredClients: true,
             clouds: true,
             speedTests: false,    // off by default - heavy visual, opt-in
+            buildings: true,
         };
         this._filter = {
             text: '',
@@ -237,12 +239,13 @@ export class LanFlowMap {
 
 
         // Container groups so toggling layers is cheap.
+        this.buildingGroup = new THREE.Group();
         this.nodeGroup = new THREE.Group();
         this.linkGroup = new THREE.Group();
         this.cloudGroup = new THREE.Group();
         this.particleGroup = new THREE.Group();
         this.labelGroup = new THREE.Group();
-        this.scene.add(this.nodeGroup, this.linkGroup, this.cloudGroup, this.particleGroup, this.labelGroup);
+        this.scene.add(this.buildingGroup, this.nodeGroup, this.linkGroup, this.cloudGroup, this.particleGroup, this.labelGroup);
     }
 
     _initInteractions() {
@@ -371,6 +374,7 @@ export class LanFlowMap {
             });
             while (g.children.length) g.remove(g.children[0]);
         };
+        if (this.buildingGroup) disposeGroup(this.buildingGroup);
         if (this.nodeGroup) disposeGroup(this.nodeGroup);
         if (this.linkGroup) disposeGroup(this.linkGroup);
         if (this.cloudGroup) disposeGroup(this.cloudGroup);
@@ -412,6 +416,7 @@ export class LanFlowMap {
             this._snapshot = snap;
 
             this._layoutNodes(snap);
+            this._rebuildBuildings(snap);
             this._buildNodes(snap);
             // Clouds must build before links - links reference cloud node IDs in their
             // FromNodeId/ToNodeId and _buildLinks looks positions up via _positions.
@@ -422,6 +427,26 @@ export class LanFlowMap {
         } catch (err) {
             this.onError(err);
         }
+    }
+
+    _rebuildBuildings(snap) {
+        const disposeGroup = (g) => {
+            g.traverse((obj) => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+                    else obj.material.dispose();
+                }
+            });
+            while (g.children.length) g.remove(g.children[0]);
+        };
+        if (this.buildingGroup) {
+            disposeGroup(this.buildingGroup);
+            this.scene.remove(this.buildingGroup);
+        }
+        this.buildingGroup = buildBuildings(snap);
+        this.buildingGroup.visible = this._overlays.buildings;
+        this.scene.add(this.buildingGroup);
     }
 
     async _pollLive() {
@@ -1319,6 +1344,7 @@ export class LanFlowMap {
             ['wifiClients', 'Wi-Fi clients'],
             ['wiredClients', 'Wired clients'],
             ['clouds', 'WAN clouds'],
+            ['buildings', 'Buildings'],
             // TODO: Speed test path overlay needs rework - see research/monitoring/3d-map-overlays-TODO.md
         ];
         for (const [key, label] of overlayDefs) {
@@ -1519,6 +1545,7 @@ export class LanFlowMap {
 
     _applyOverlayVisibility() {
         if (this.cloudGroup) this.cloudGroup.visible = this._overlays.clouds;
+        if (this.buildingGroup) this.buildingGroup.visible = this._overlays.buildings;
         this._applyFilter();
     }
 
