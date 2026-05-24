@@ -2153,7 +2153,7 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
-        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.AccessPoint) return;
+        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch) return;
 
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
