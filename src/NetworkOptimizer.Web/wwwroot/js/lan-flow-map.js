@@ -13,6 +13,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { buildBuildings } from './lan-flow-buildings.js';
 
 const COLORS = {
     background: 0x101820,
@@ -134,6 +135,7 @@ export class LanFlowMap {
             wiredClients: true,
             clouds: true,
             speedTests: false,    // off by default - heavy visual, opt-in
+            buildings: true,
         };
         this._filter = {
             text: '',
@@ -237,12 +239,13 @@ export class LanFlowMap {
 
 
         // Container groups so toggling layers is cheap.
+        this.buildingGroup = new THREE.Group();
         this.nodeGroup = new THREE.Group();
         this.linkGroup = new THREE.Group();
         this.cloudGroup = new THREE.Group();
         this.particleGroup = new THREE.Group();
         this.labelGroup = new THREE.Group();
-        this.scene.add(this.nodeGroup, this.linkGroup, this.cloudGroup, this.particleGroup, this.labelGroup);
+        this.scene.add(this.buildingGroup, this.nodeGroup, this.linkGroup, this.cloudGroup, this.particleGroup, this.labelGroup);
     }
 
     _initInteractions() {
@@ -361,16 +364,21 @@ export class LanFlowMap {
     }
 
     _disposeScene() {
+        const disposeMat = (m) => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+        };
         const disposeGroup = (g) => {
             g.traverse((obj) => {
                 if (obj.geometry) obj.geometry.dispose();
                 if (obj.material) {
-                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
-                    else obj.material.dispose();
+                    if (Array.isArray(obj.material)) obj.material.forEach(disposeMat);
+                    else disposeMat(obj.material);
                 }
             });
             while (g.children.length) g.remove(g.children[0]);
         };
+        if (this.buildingGroup) disposeGroup(this.buildingGroup);
         if (this.nodeGroup) disposeGroup(this.nodeGroup);
         if (this.linkGroup) disposeGroup(this.linkGroup);
         if (this.cloudGroup) disposeGroup(this.cloudGroup);
@@ -412,6 +420,7 @@ export class LanFlowMap {
             this._snapshot = snap;
 
             this._layoutNodes(snap);
+            this._rebuildBuildings(snap);
             this._buildNodes(snap);
             // Clouds must build before links - links reference cloud node IDs in their
             // FromNodeId/ToNodeId and _buildLinks looks positions up via _positions.
@@ -422,6 +431,26 @@ export class LanFlowMap {
         } catch (err) {
             this.onError(err);
         }
+    }
+
+    _rebuildBuildings(snap) {
+        const disposeGroup = (g) => {
+            g.traverse((obj) => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+                    else obj.material.dispose();
+                }
+            });
+            while (g.children.length) g.remove(g.children[0]);
+        };
+        if (this.buildingGroup) {
+            disposeGroup(this.buildingGroup);
+            this.scene.remove(this.buildingGroup);
+        }
+        this.buildingGroup = buildBuildings(snap);
+        this.buildingGroup.visible = this._overlays.buildings;
+        this.scene.add(this.buildingGroup);
     }
 
     async _pollLive() {
@@ -453,12 +482,25 @@ export class LanFlowMap {
         const positions = new Map();
         const anchors = new Map();
 
+        // Mount height offsets within a floor (in meters, pre-scale).
+        // ceiling = near ceiling, wall = mid-height, desktop = near floor.
+        const WALL_H_M = 2.9;
+        const mountOffsetM = { ceiling: WALL_H_M * 0.85, wall: WALL_H_M * 0.5, desktop: WALL_H_M * 0.15 };
+
         for (const node of snap.nodes) {
             const p = node.placement;
             if (p && p.source === PLACEMENT_SOURCE.Anchor) {
+                // Vertical offset within the floor by device type:
+                // APs use their mount type, clients mid-floor, infra at desk level.
+                const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
+                const isInfra = node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway;
+                const mountM = node.mountType ? (mountOffsetM[node.mountType] || 0)
+                    : isClient ? WALL_H_M * 0.5
+                    : isInfra ? WALL_H_M * 0.15
+                    : 0;
                 positions.set(node.id, {
                     x: -p.x * scale,
-                    y: p.z * scale * 0.8,    // floors get vertical separation but compressed
+                    y: p.z * scale * 0.8 + mountM * scale * 0.8,
                     z: p.y * scale,
                     pinned: true,
                 });
@@ -619,7 +661,8 @@ export class LanFlowMap {
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
-            // Text label, kept simple as a sprite billboard.
+            // Sprite labels for all devices. Infrastructure devices also get DOM
+            // labels (with rate badges) but sprites provide 3D depth sorting.
             if (node.name) {
                 const sprite = this._makeLabelSprite(node.name);
                 sprite.position.set(0, radius + 0.8, 0);
@@ -674,15 +717,32 @@ export class LanFlowMap {
             const b = this._positions.get(link.toNodeId);
             if (!a || !b) continue;
 
-            const pipe = this._makePipeMesh(a, b, link);
+            // For WAN/Transit links, shorten the cloud end to the globe surface
+            // so the pipe terminates at the wireframe, not the center.
+            let effA = a, effB = b;
+            const isWan = link.kind === LINK_KIND.Wan || link.kind === LINK_KIND.Transit;
+            if (isWan) {
+                const r = NODE_RADIUS.cloud;
+                const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b'
+                    : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
+                if (cloudEnd) {
+                    const from = cloudEnd === 'b' ? a : b;
+                    const to = cloudEnd === 'b' ? b : a;
+                    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+                    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+                    const surfPt = { x: to.x - (dx / d) * r, y: to.y - (dy / d) * r, z: to.z - (dz / d) * r };
+                    if (cloudEnd === 'b') effB = surfPt; else effA = surfPt;
+                }
+            }
+
+            const pipe = this._makePipeMesh(effA, effB, link);
             this.linkGroup.add(pipe);
 
-            // Particle streams - two ParticleStream instances (one per direction).
             const down = new ParticleStream({
-                from: a, to: b, color: COLORS.downstream, particleCount: 0,
+                from: effA, to: effB, color: COLORS.downstream, particleCount: 0,
             });
             const up = new ParticleStream({
-                from: b, to: a, color: COLORS.upstream, particleCount: 0,
+                from: effB, to: effA, color: COLORS.upstream, particleCount: 0,
             });
             this.particleGroup.add(down.mesh, up.mesh);
 
@@ -795,25 +855,54 @@ export class LanFlowMap {
                               : 0.35;
             const baseColor = tier === CLOUD_TIER.Unresolved ? 0x2a3340 : COLORS.cloud;
 
-            const geo = new THREE.SphereGeometry(NODE_RADIUS.cloud, 32, 24);
-            const mat = new THREE.MeshStandardMaterial({
-                color: baseColor,
-                emissive: 0x1d2330,
-                emissiveIntensity: 0.3,
-                roughness: 0.95,
-                metalness: 0.02,
+            // Wireframe globe - no solid sphere, just the lat/lng grid lines.
+            // LineBasicMaterial.linewidth doesn't work on WebGL, so we use
+            // thin tube geometry for each line to get visible thickness.
+            const r = NODE_RADIUS.cloud;
+            const gridColor = tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6;
+            const tubeMat = new THREE.MeshBasicMaterial({
+                color: gridColor,
                 transparent: true,
-                opacity: baseOpacity,
+                opacity: baseOpacity * 0.6,
             });
-            const blob = new THREE.Mesh(geo, mat);
-            group.add(blob);
+            const tubeRadius = r * 0.02;
+            // Latitude lines
+            for (let lat = -75; lat <= 75; lat += 25) {
+                const phi = (90 - lat) * Math.PI / 180;
+                const pts = [];
+                for (let lng = 0; lng <= 360; lng += 10) {
+                    const theta = lng * Math.PI / 180;
+                    pts.push(new THREE.Vector3(
+                        r * Math.sin(phi) * Math.cos(theta),
+                        r * Math.cos(phi),
+                        r * Math.sin(phi) * Math.sin(theta),
+                    ));
+                }
+                const curve = new THREE.CatmullRomCurve3(pts);
+                group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length, tubeRadius, 4, false), tubeMat));
+            }
+            // Longitude lines
+            for (let lng = 0; lng < 360; lng += 30) {
+                const theta = lng * Math.PI / 180;
+                const pts = [];
+                for (let lat = -90; lat <= 90; lat += 10) {
+                    const phi = (90 - lat) * Math.PI / 180;
+                    pts.push(new THREE.Vector3(
+                        r * Math.sin(phi) * Math.cos(theta),
+                        r * Math.cos(phi),
+                        r * Math.sin(phi) * Math.sin(theta),
+                    ));
+                }
+                const curve = new THREE.CatmullRomCurve3(pts);
+                group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length, tubeRadius, 4, false), tubeMat));
+            }
 
-            // Outer wisp shell to read as a cloud, not a sphere.
-            const wisp = new THREE.Mesh(
-                new THREE.SphereGeometry(NODE_RADIUS.cloud * 1.7, 24, 16),
-                new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.12, depthWrite: false }),
+            // Subtle outer glow
+            const glow = new THREE.Mesh(
+                new THREE.SphereGeometry(r * 1.5, 24, 16),
+                new THREE.MeshBasicMaterial({ color: 0x1a3050, transparent: true, opacity: 0.08, depthWrite: false }),
             );
-            group.add(wisp);
+            group.add(glow);
 
             // Label: ASN name (primary), with sub-tags for access-tech / OUI / tier hint.
             const labelText = cloud.name || (cloud.asn ? `AS${cloud.asn}` : 'Cloud');
@@ -912,7 +1001,7 @@ export class LanFlowMap {
         const h = subText ? fontSize + subFontSize + pad * 2 + 6 : fontSize + pad * 2;
         canvas.width = w;
         canvas.height = h;
-        ctx.fillStyle = 'rgba(16, 24, 32, 0.85)';
+        ctx.fillStyle = 'rgba(6, 8, 12, 0.92)';
         roundRect(ctx, 0, 0, w, h, 12);
         ctx.fillStyle = '#f1f5f9';
         ctx.textBaseline = 'top';
@@ -1319,6 +1408,7 @@ export class LanFlowMap {
             ['wifiClients', 'Wi-Fi clients'],
             ['wiredClients', 'Wired clients'],
             ['clouds', 'WAN clouds'],
+            ['buildings', 'Buildings'],
             // TODO: Speed test path overlay needs rework - see research/monitoring/3d-map-overlays-TODO.md
         ];
         for (const [key, label] of overlayDefs) {
@@ -1519,6 +1609,7 @@ export class LanFlowMap {
 
     _applyOverlayVisibility() {
         if (this.cloudGroup) this.cloudGroup.visible = this._overlays.clouds;
+        if (this.buildingGroup) this.buildingGroup.visible = this._overlays.buildings;
         this._applyFilter();
     }
 
@@ -1756,8 +1847,8 @@ export class LanFlowMap {
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
 
-        // Device labels: gateway, switch, AP - clients get name only via the existing
-        // sprite labels to keep DOM count reasonable (clients can number in the hundreds).
+        // Device labels: infrastructure devices (gateway, switch, AP) get DOM labels.
+        // Clients stay as sprites for proper 3D depth sorting.
         for (const node of snap.nodes) {
             if (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient) continue;
             if (node.kind === NODE_KIND.Cloud) continue;
@@ -2174,7 +2265,7 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
-        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.WiredClient) return;
+        if (node.kind === NODE_KIND.Cloud || node.kind === NODE_KIND.VirtualHub) return;
 
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
@@ -2396,7 +2487,7 @@ export class LanFlowMap {
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
         // Reverse Y → floor: posY = floor * 3.0 * scale * 0.8
-        const floor = Math.round(pos.y / (scale * 0.8) / 3.0);
+        const floor = Math.round(pos.y / (scale * 0.8) / 2.9);
 
         try {
             await fetch(`${this.apiBase}/device-placement`, {
@@ -2744,18 +2835,22 @@ function lerpColor(a, b, t) {
 }
 
 function makeRadialBackgroundTexture(width, height) {
-    const w = 512;
-    const h = Math.max(256, Math.round(512 * (height / Math.max(width, 1))));
+    // Render at actual screen resolution to avoid upscale banding, and add
+    // subtle noise dithering to break up the 8-bit color quantization in
+    // very dark gradients.
+    const w = Math.max(width, 512);
+    const h = Math.max(height, 256);
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
-    grd.addColorStop(0, '#1c2a3a');
-    grd.addColorStop(0.55, '#121b27');
-    grd.addColorStop(1, '#0a1018');
+    grd.addColorStop(0, '#0a0b0e');
+    grd.addColorStop(0.55, '#060708');
+    grd.addColorStop(1, '#030304');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
+
     const tex = new THREE.CanvasTexture(canvas);
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
