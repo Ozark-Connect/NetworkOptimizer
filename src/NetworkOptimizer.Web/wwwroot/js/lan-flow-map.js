@@ -2826,17 +2826,6 @@ function makeRadialBackgroundTexture(width, height) {
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
 
-    // Dither: sprinkle fine noise to eliminate banding in the dark gradient
-    const imgData = ctx.getImageData(0, 0, w, h);
-    const d = imgData.data;
-    for (let i = 0; i < d.length; i += 4) {
-        const noise = Math.floor(Math.random() * 5) - 2;
-        d[i]     = Math.max(0, Math.min(255, d[i] + noise));
-        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + noise));
-        d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + noise));
-    }
-    ctx.putImageData(imgData, 0, 0);
-
     const tex = new THREE.CanvasTexture(canvas);
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
