@@ -655,8 +655,8 @@ export class LanFlowMap {
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
-            // Text label, kept simple as a sprite billboard.
-            if (node.name) {
+            // Sprite labels only for clouds - all other devices use DOM labels now.
+            if (node.name && node.kind === NODE_KIND.Cloud) {
                 const sprite = this._makeLabelSprite(node.name);
                 sprite.position.set(0, radius + 0.8, 0);
                 group.add(sprite);
@@ -831,42 +831,31 @@ export class LanFlowMap {
                               : 0.35;
             const baseColor = tier === CLOUD_TIER.Unresolved ? 0x2a3340 : COLORS.cloud;
 
-            // Solid dark sphere as the globe body
+            // Wireframe globe - no solid sphere, just the lat/lng grid lines.
+            // LineBasicMaterial.linewidth doesn't work on WebGL, so we use
+            // thin tube geometry for each line to get visible thickness.
             const r = NODE_RADIUS.cloud;
-            const geo = new THREE.SphereGeometry(r, 32, 24);
-            const mat = new THREE.MeshStandardMaterial({
-                color: 0x0a1828,
-                emissive: 0x0a1525,
-                emissiveIntensity: 0.4,
-                roughness: 0.9,
-                metalness: 0.1,
+            const gridColor = tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6;
+            const tubeMat = new THREE.MeshBasicMaterial({
+                color: gridColor,
                 transparent: true,
-                opacity: baseOpacity,
+                opacity: baseOpacity * 0.6,
             });
-            const globe = new THREE.Mesh(geo, mat);
-            group.add(globe);
-
-            // Wireframe lat/lng grid overlay for the globe look
-            const gridMat = new THREE.LineBasicMaterial({
-                color: tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6,
-                transparent: true,
-                opacity: baseOpacity * 0.5,
-                linewidth: 2,
-                depthWrite: false,
-            });
+            const tubeRadius = r * 0.02;
             // Latitude lines
-            for (let lat = -60; lat <= 60; lat += 30) {
+            for (let lat = -75; lat <= 75; lat += 25) {
                 const phi = (90 - lat) * Math.PI / 180;
                 const pts = [];
                 for (let lng = 0; lng <= 360; lng += 10) {
                     const theta = lng * Math.PI / 180;
                     pts.push(new THREE.Vector3(
-                        r * 1.04 * Math.sin(phi) * Math.cos(theta),
-                        r * 1.04 * Math.cos(phi),
-                        r * 1.04 * Math.sin(phi) * Math.sin(theta),
+                        r * Math.sin(phi) * Math.cos(theta),
+                        r * Math.cos(phi),
+                        r * Math.sin(phi) * Math.sin(theta),
                     ));
                 }
-                group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+                const curve = new THREE.CatmullRomCurve3(pts);
+                group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length, tubeRadius, 4, false), tubeMat));
             }
             // Longitude lines
             for (let lng = 0; lng < 360; lng += 30) {
@@ -875,12 +864,13 @@ export class LanFlowMap {
                 for (let lat = -90; lat <= 90; lat += 10) {
                     const phi = (90 - lat) * Math.PI / 180;
                     pts.push(new THREE.Vector3(
-                        r * 1.04 * Math.sin(phi) * Math.cos(theta),
-                        r * 1.04 * Math.cos(phi),
-                        r * 1.04 * Math.sin(phi) * Math.sin(theta),
+                        r * Math.sin(phi) * Math.cos(theta),
+                        r * Math.cos(phi),
+                        r * Math.sin(phi) * Math.sin(theta),
                     ));
                 }
-                group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+                const curve = new THREE.CatmullRomCurve3(pts);
+                group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length, tubeRadius, 4, false), tubeMat));
             }
 
             // Subtle outer glow
