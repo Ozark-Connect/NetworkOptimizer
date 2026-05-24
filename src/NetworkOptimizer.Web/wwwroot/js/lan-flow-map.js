@@ -194,9 +194,7 @@ export class LanFlowMap {
         this.renderer.toneMappingExposure = 1.15;
 
         this.scene = new THREE.Scene();
-        // Radial gradient background - slightly lighter at the center, deep blue-black
-        // at the edges. Gives the scene depth without dominating.
-        this.scene.background = makeRadialBackgroundTexture(width, height);
+        this.scene.background = new THREE.Color(COLORS.background);
         this.scene.fog = new THREE.Fog(COLORS.fog, 70, 260);
 
         this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
