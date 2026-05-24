@@ -110,7 +110,7 @@ public class LanFlowMapService
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
         BuildInfrastructureGraph(topology, anchors, snapshot, nameMaps);
-        BuildClientLeaves(topology, snapshot, nameMaps, rawByMac);
+        BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
         GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);
 
@@ -791,6 +791,7 @@ public class LanFlowMapService
 
     private void BuildClientLeaves(
         NetworkTopology topology,
+        Dictionary<string, LanPlacement> anchors,
         LanFlowMapSnapshot snapshot,
         Dictionary<(string mac, int port), InterfaceNameMap> nameMaps,
         Dictionary<string, NetworkOptimizer.UniFi.Models.UniFiDeviceResponse> rawByMac)
@@ -802,6 +803,7 @@ public class LanFlowMapService
             if (string.IsNullOrEmpty(c.ConnectedToDeviceMac)) continue;
             var parentMac = NormalizeMac(c.ConnectedToDeviceMac);
 
+            anchors.TryGetValue(clientMac, out var anchor);
             var nodeId = "cli-" + clientMac;
             var node = new LanNode
             {
@@ -811,6 +813,7 @@ public class LanFlowMapService
                 Ip = string.IsNullOrEmpty(c.IpAddress) ? null : c.IpAddress,
                 Name = ResolveClientLabel(c),
                 ParentId = "dev-" + parentMac,
+                Placement = anchor,
                 Network = c.Network,
                 IsGuest = c.IsGuest,
                 Ssid = c.Essid,
