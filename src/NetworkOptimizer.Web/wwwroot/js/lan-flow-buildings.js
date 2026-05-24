@@ -254,23 +254,72 @@ function _drawLogCabin(canvas, ctx) {
     }
 }
 
-// Horizontal lap siding for residential exteriors.
+// Horizontal lap siding for residential exteriors - dark warm gray-brown
+// with visible wood grain texture and pronounced overlap shadow lines.
 function _drawSiding(canvas, ctx) {
-    canvas.width = 256;
-    canvas.height = 256;
-    const boardH = 18;
-    const colors = ['#C0B49C', '#B8AC94', '#C4B8A0', '#BCAE96'];
+    canvas.width = 512;
+    canvas.height = 512;
+    const boardH = 36;
 
-    for (let y = 0; y < 256; y += boardH) {
-        const ci = Math.floor(y / boardH) % colors.length;
-        ctx.fillStyle = colors[ci];
-        ctx.fillRect(0, y, 256, boardH - 1);
-        // Shadow line at bottom of each board
-        ctx.fillStyle = 'rgba(0,0,0,0.12)';
-        ctx.fillRect(0, y + boardH - 2, 256, 2);
-        // Highlight at top
+    // Dark warm gray-brown palette
+    const baseColors = [
+        [105, 97, 88], [100, 92, 84], [108, 100, 90],
+        [98, 90, 82], [103, 95, 86], [106, 98, 89],
+    ];
+
+    let row = 0;
+    for (let y = 0; y < 512; y += boardH) {
+        const [br, bg, bb] = baseColors[row % baseColors.length];
+        const shift = ((row * 13) % 7) - 3;
+        ctx.fillStyle = `rgb(${br + shift},${bg + shift},${bb + shift})`;
+        ctx.fillRect(0, y, 512, boardH);
+
+        // Wood grain texture - horizontal fine lines across each board
+        for (let gi = 0; gi < 12; gi++) {
+            const gy = y + 3 + (gi / 12) * (boardH - 8) + (Math.random() - 0.5) * 2;
+            const darkness = 0.03 + Math.random() * 0.05;
+            ctx.strokeStyle = `rgba(30,20,10,${darkness})`;
+            ctx.lineWidth = 0.5 + Math.random() * 0.5;
+            ctx.beginPath();
+            let gx = 0;
+            ctx.moveTo(gx, gy);
+            // Slight grain wander
+            for (let sx = 40; sx <= 512; sx += 40) {
+                gx = sx;
+                ctx.lineTo(gx, gy + (Math.random() - 0.5) * 1.2);
+            }
+            ctx.stroke();
+        }
+
+        // Wider grain bands
+        for (let si = 0; si < 2; si++) {
+            const sy = y + 5 + Math.random() * (boardH - 12);
+            ctx.fillStyle = `rgba(20,12,5,${0.03 + Math.random() * 0.04})`;
+            ctx.fillRect(0, sy, 512, 1.5 + Math.random() * 2);
+        }
+
+        // Overlap shadow at bottom - pronounced dark line where boards overlap
+        const shadowGrad = ctx.createLinearGradient(0, y + boardH - 5, 0, y + boardH);
+        shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        shadowGrad.addColorStop(0.4, 'rgba(0,0,0,0.12)');
+        shadowGrad.addColorStop(1, 'rgba(0,0,0,0.22)');
+        ctx.fillStyle = shadowGrad;
+        ctx.fillRect(0, y + boardH - 5, 512, 5);
+
+        // Highlight along top edge where board catches light
         ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(0, y, 256, 1);
+        ctx.fillRect(0, y, 512, 1);
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        ctx.fillRect(0, y + 1, 512, 1);
+
+        // Occasional board seam (vertical joint where boards butt together)
+        if (row % 2 === 0) {
+            const sx = 180 + ((row * 97) % 200);
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            ctx.fillRect(sx, y + 1, 1, boardH - 3);
+        }
+
+        row++;
     }
 }
 
