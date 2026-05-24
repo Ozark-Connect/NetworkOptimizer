@@ -44,7 +44,7 @@ const REALISTIC_COLORS = {
 const TEXTURED = new Set([
     'brick', 'concrete', 'exterior_commercial',
     'exterior_residential', 'exterior',
-    'wood_paneling',
+    'wood', 'wood_paneling',
 ]);
 
 const _texCache = new Map();
@@ -120,6 +120,10 @@ function _getTexCanvas(matKey) {
         case 'exterior_residential':
         case 'exterior':
             _drawSiding(canvas, ctx);
+            tileSizeM = 1.0;
+            break;
+        case 'wood':
+            _drawLogCabin(canvas, ctx);
             tileSizeM = 1.0;
             break;
         case 'wood_paneling':
@@ -198,6 +202,59 @@ function _drawConcrete(canvas, ctx, matKey) {
     }
 }
 
+// Horizontal stacked logs with chinking between courses.
+function _drawLogCabin(canvas, ctx) {
+    canvas.width = 256;
+    canvas.height = 256;
+    const logH = 32;
+    const chinkH = 4;
+    const courseH = logH + chinkH;
+    const logColors = ['#6B4226', '#5C3A1E', '#7A4E30', '#634020', '#715038'];
+
+    ctx.fillStyle = '#C8BCA0';
+    ctx.fillRect(0, 0, 256, 256);
+
+    let row = 0;
+    for (let y = 0; y < 256; y += courseH) {
+        const ci = row % logColors.length;
+        ctx.fillStyle = logColors[ci];
+        ctx.fillRect(0, y, 256, logH);
+
+        // Rounded log shading - highlight on top, shadow on bottom
+        const grad = ctx.createLinearGradient(0, y, 0, y + logH);
+        grad.addColorStop(0, 'rgba(255,255,255,0.12)');
+        grad.addColorStop(0.3, 'rgba(255,255,255,0.05)');
+        grad.addColorStop(0.7, 'rgba(0,0,0,0.03)');
+        grad.addColorStop(1, 'rgba(0,0,0,0.15)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, y, 256, logH);
+
+        // Horizontal grain lines
+        for (let g = 0; g < 3; g++) {
+            const gy = y + 6 + Math.random() * (logH - 12);
+            ctx.strokeStyle = `rgba(0,0,0,${0.04 + Math.random() * 0.05})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, gy);
+            ctx.lineTo(256, gy + (Math.random() - 0.5) * 2);
+            ctx.stroke();
+        }
+
+        // Occasional knot
+        if (row % 3 === 1) {
+            const kx = 60 + (row * 73) % 140;
+            const ky = y + logH / 2;
+            ctx.fillStyle = 'rgba(60,30,10,0.25)';
+            ctx.beginPath();
+            ctx.ellipse(kx, ky, 5, 3.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        row++;
+    }
+}
+
+// Horizontal lap siding for residential exteriors.
 function _drawSiding(canvas, ctx) {
     canvas.width = 256;
     canvas.height = 256;
