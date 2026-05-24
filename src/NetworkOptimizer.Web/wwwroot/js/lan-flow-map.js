@@ -16,8 +16,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js';
 
 const COLORS = {
-    background: 0x101820,
-    fog: 0x101820,
+    background: 0x161618,
+    fog: 0x161618,
     gateway: 0xfacc15,
     switchNode: 0x9aa6b2,
     ap: 0x3385d6,
