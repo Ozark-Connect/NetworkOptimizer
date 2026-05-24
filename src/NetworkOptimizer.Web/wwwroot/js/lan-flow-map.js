@@ -2242,7 +2242,7 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
-        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.WiredClient) return;
+        if (node.kind === NODE_KIND.Cloud || node.kind === NODE_KIND.VirtualHub) return;
 
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
