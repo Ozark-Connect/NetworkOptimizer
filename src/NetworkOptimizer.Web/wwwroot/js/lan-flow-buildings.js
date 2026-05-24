@@ -317,8 +317,8 @@ function _drawSiding(canvas, ctx) {
     canvas.height = 512;
     const boardH = 40;
 
-    // Warm greige/taupe palette - the gray-brown tone of engineered wood siding
-    const baseR = 125, baseG = 116, baseB = 108;
+    // Cool-shifted greige to survive ACES tone mapping without going warm/wood
+    const baseR = 112, baseG = 112, baseB = 115;
 
     let row = 0;
     for (let y = 0; y < 512; y += boardH) {
@@ -332,7 +332,7 @@ function _drawSiding(canvas, ctx) {
         for (let gi = 0; gi < 14; gi++) {
             const gy = y + 2 + (gi / 14) * (boardH - 6) + (Math.random() - 0.5) * 1.5;
             const darkness = 0.03 + Math.random() * 0.06;
-            ctx.strokeStyle = `rgba(50,35,25,${darkness})`;
+            ctx.strokeStyle = `rgba(30,30,35,${darkness})`;
             ctx.lineWidth = 0.5 + Math.random() * 0.8;
             ctx.beginPath();
             let gx = 0;
@@ -347,7 +347,7 @@ function _drawSiding(canvas, ctx) {
         // Wider grain bands - slightly darker sweeps across the board
         for (let si = 0; si < 3; si++) {
             const sy = y + 4 + Math.random() * (boardH - 10);
-            ctx.fillStyle = `rgba(40,28,18,${0.025 + Math.random() * 0.035})`;
+            ctx.fillStyle = `rgba(25,25,30,${0.025 + Math.random() * 0.035})`;
             ctx.fillRect(0, sy, 512, 1 + Math.random() * 2.5);
         }
 
