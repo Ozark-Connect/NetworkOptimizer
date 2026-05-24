@@ -26,6 +26,25 @@ public class UnusedPortRuleTests
     }
 
     [Fact]
+    public void Evaluate_MirrorDestinationPort_DownWithOldLastSeen_ReturnsNull()
+    {
+        // Mirror destination ports legitimately have intermittent device occupancy
+        // (capture device may be unplugged). Without the guard, an unplugged mirror
+        // port with an old last_connection would be flagged as unused - acting on
+        // that recommendation breaks mirroring as soon as the capture device returns.
+        var port = CreatePort(
+            isUp: false,
+            forwardMode: "all",
+            lastConnectionSeen: DateTimeOffset.UtcNow.AddDays(-90).ToUnixTimeSeconds(),
+            opMode: "mirror");
+        var networks = new List<NetworkInfo>();
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("Mirror destination ports should not be flagged as unused");
+    }
+
+    [Fact]
     public void RuleName_ReturnsExpectedValue()
     {
         _rule.RuleName.Should().Be("Unused Port Disabled");
@@ -797,7 +816,8 @@ public class UnusedPortRuleTests
         string switchName = "Test Switch",
         long? lastConnectionSeen = null,
         UniFiPortProfile? assignedProfile = null,
-        bool isEnabled = true)
+        bool isEnabled = true,
+        string? opMode = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -813,6 +833,7 @@ public class UnusedPortRuleTests
             IsEnabled = isEnabled,
             IsUp = isUp,
             ForwardMode = forwardMode,
+            OpMode = opMode,
             IsUplink = isUplink,
             IsWan = isWan,
             NativeNetworkId = networkId,

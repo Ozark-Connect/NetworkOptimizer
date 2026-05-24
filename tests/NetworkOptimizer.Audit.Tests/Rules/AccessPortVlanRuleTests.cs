@@ -877,6 +877,28 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
+    #region Mirror Destination Ports
+
+    [Fact]
+    public void Evaluate_MirrorDestinationPort_ReturnsInformational()
+    {
+        // Mirror destination ports (op_mode=mirror) have visibility into all mirrored
+        // VLAN traffic by design. Surface as Informational so the operator is aware of
+        // the physical-access exposure, not flagged as a misconfiguration.
+        var port = CreateTrunkPortWithClient(opMode: "mirror");
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(2);
+        result.Message.Should().Contain("Mirror destination");
+        result.Metadata!["is_mirror_destination"].Should().Be(true);
+    }
+
+    #endregion
+
     #region 802.1X / RADIUS Dynamic VLAN Assignment
 
     [Fact]
@@ -1200,7 +1222,8 @@ public class AccessPortVlanRuleTests
         string? nativeNetworkId = null,
         string? connectedDeviceType = null,
         string forwardMode = "custom",
-        string? dot1xCtrl = null)
+        string? dot1xCtrl = null,
+        string? opMode = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -1214,6 +1237,7 @@ public class AccessPortVlanRuleTests
             Name = portName,
             IsUp = true,
             ForwardMode = forwardMode,
+            OpMode = opMode,
             IsUplink = isUplink,
             IsWan = isWan,
             NativeNetworkId = nativeNetworkId,

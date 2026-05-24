@@ -23,6 +23,12 @@ public class IotVlanRule : AuditRuleBase
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)
             return null;
 
+        // Skip mirror destination ports. Defense-in-depth: the ForwardMode gate above
+        // already filters them since UniFi default-configures mirror destinations with
+        // forward="all", but the explicit guard makes the design intent clear.
+        if (port.IsMirrorDestination)
+            return null;
+
         DeviceDetectionResult detection;
         bool isOfflineDevice = false;
 

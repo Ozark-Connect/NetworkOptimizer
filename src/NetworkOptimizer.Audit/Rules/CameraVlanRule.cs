@@ -29,6 +29,12 @@ public class CameraVlanRule : AuditRuleBase
         if (protectCamera != null)
             return EvaluateProtectCamera(protectCamera, port, networks);
 
+        // Skip mirror destination ports. Defense-in-depth: the ForwardMode gate below
+        // already filters them since UniFi default-configures mirror destinations with
+        // forward="all", but the explicit guard makes the design intent clear.
+        if (port.IsMirrorDestination)
+            return null;
+
         // Skip uplinks, WAN ports, and non-access ports
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)
             return null;

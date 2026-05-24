@@ -45,6 +45,20 @@ public class PortInfo
     public string? TaggedVlanMgmt { get; init; }
 
     /// <summary>
+    /// Port operational mode from the UniFi API's op_mode field.
+    /// Values include "switch" (normal switching), "mirror" (mirror destination),
+    /// "aggregate" (LAG parent), and others. Null if not present in the API response.
+    /// </summary>
+    public string? OpMode { get; init; }
+
+    /// <summary>
+    /// Whether this port is configured as a mirror destination (port mirroring/SPAN).
+    /// Mirror destinations cannot accept port profiles and must receive frames at L2
+    /// regardless of VLAN tags, so access-port audit rules should skip them.
+    /// </summary>
+    public bool IsMirrorDestination => string.Equals(OpMode, "mirror", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether this is an uplink port
     /// </summary>
     public bool IsUplink { get; init; }
