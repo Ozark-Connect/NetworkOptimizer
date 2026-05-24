@@ -875,14 +875,49 @@ function _createWallMaterial(matKey, segLenM, winding, adjacentMat) {
         if (drawFn) drawFn(canvas, ctx);
         const tex = new THREE.CanvasTexture(canvas);
         tex.colorSpace = THREE.SRGBColorSpace;
-        return new THREE.MeshStandardMaterial({
+        const exteriorMat = new THREE.MeshStandardMaterial({
             map: tex,
             transparent: WALL_OPACITY < 1.0,
             opacity: WALL_OPACITY,
             depthWrite: WALL_OPACITY >= 1.0,
-            side: THREE.DoubleSide,
             roughness: 0.85,
         });
+
+        // If the adjacent wall has an interior look, build a second canvas
+        // with the interior background for the back face.
+        const intKey = INTERIOR_LOOK[adjacentMat];
+        if (intKey) {
+            const intCanvas = document.createElement('canvas');
+            const intCtx = intCanvas.getContext('2d');
+            const intBg = _getInteriorTexCanvas(intKey);
+            const intFallback = SURROUND_COLORS.drywall || '#D8D2C8';
+            if (drawFn === null) return exteriorMat;
+            // Re-draw the same door/window but with interior background
+            const intDrawFn = {
+                window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M, intBg, intFallback),
+                window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M, intBg, intFallback),
+                window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M, intBg, intFallback),
+                door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M, intBg, intFallback),
+                door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M, intBg, intFallback),
+                door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M, intBg, intFallback),
+            }[matKey];
+            if (intDrawFn) intDrawFn(intCanvas, intCtx);
+            const intTex = new THREE.CanvasTexture(intCanvas);
+            intTex.colorSpace = THREE.SRGBColorSpace;
+            const interiorMat = new THREE.MeshStandardMaterial({
+                map: intTex,
+                transparent: WALL_OPACITY < 1.0,
+                opacity: WALL_OPACITY,
+                depthWrite: WALL_OPACITY >= 1.0,
+                roughness: 0.85,
+            });
+            const face4 = winding > 0 ? exteriorMat : interiorMat;
+            const face5 = winding > 0 ? interiorMat : exteriorMat;
+            return [exteriorMat, exteriorMat, exteriorMat, exteriorMat, face4, face5];
+        }
+
+        exteriorMat.side = THREE.DoubleSide;
+        return exteriorMat;
     }
 
     const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
