@@ -130,13 +130,20 @@ export class LanFlowMap {
 
         // Overlay + filter state. Defaults match spec 5.7.1 ("default 'all on' so a
         // first-time user sees the full picture, but power users can declutter").
-        this._overlays = {
+        // Restore persisted overlay toggles, falling back to defaults.
+        const defaultOverlays = {
             wifiClients: true,
             wiredClients: true,
             clouds: true,
-            speedTests: false,    // off by default - heavy visual, opt-in
+            speedTests: false,
             buildings: true,
         };
+        try {
+            const saved = JSON.parse(localStorage.getItem('lanFlowMapOverlays'));
+            this._overlays = saved ? { ...defaultOverlays, ...saved } : { ...defaultOverlays };
+        } catch {
+            this._overlays = { ...defaultOverlays };
+        }
         this._filter = {
             text: '',
             bands: { '2.4': true, '5': true, '6': true },
@@ -1418,6 +1425,7 @@ export class LanFlowMap {
                 row.classList.toggle('is-on', this._overlays[key]);
                 this._applyOverlayVisibility();
                 if (key === 'speedTests') this._renderSpeedTestOverlay();
+                try { localStorage.setItem('lanFlowMapOverlays', JSON.stringify(this._overlays)); } catch {}
             });
             controlsBody.appendChild(row);
         }
