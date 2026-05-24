@@ -156,6 +156,12 @@ export class LanFlowMap {
         this._pointerScreen = { x: 0, y: 0 };
         this._hoverTarget = null;
 
+        // Reposition mode state
+        this._repositionMode = false;
+        this._repositionNode = null;   // node being moved
+        this._repositionGroup = null;  // THREE.Group for the node
+        this._repositionOrigPos = null; // original position for cancel
+
         this._raf = null;
         this._pollTimer = null;
         this._lastFrame = performance.now();
@@ -246,11 +252,20 @@ export class LanFlowMap {
         this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
         this.canvas.addEventListener('pointerleave', () => this._clearHover());
         this.canvas.addEventListener('dblclick', (e) => this._onDoubleClick(e));
+        this.canvas.addEventListener('contextmenu', (e) => this._onContextMenu(e));
+        this.canvas.addEventListener('pointerdown', (e) => {
+            if (this._repositionMode) return;
+            this._dismissContextMenu();
+        });
 
         // WASD keyboard navigation: W/S = zoom in/out, A/D = orbit left/right
         this._keys = {};
         this._onKeyDown = (e) => {
             if (e.key === 'Escape') {
+                if (this._repositionMode) {
+                    this._cancelReposition();
+                    return;
+                }
                 if (this.stage?.classList.contains('lan-flow-map-fullscreen')) {
                     this._toggleFullscreen();
                     return;
@@ -323,6 +338,8 @@ export class LanFlowMap {
 
     dispose() {
         this._destroyed = true;
+        if (this._repositionMode) this._exitRepositionMode();
+        this._dismissContextMenu();
         // The render loop registered via setAnimationLoop checks _destroyed
         // and tears itself down. Belt-and-suspenders null it here too.
         this.renderer?.setAnimationLoop(null);
@@ -1031,6 +1048,27 @@ export class LanFlowMap {
                 const eased = 1 - Math.pow(1 - t, 3);
                 this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
                 this.camera.lookAt(0, 0, 0);
+            } else if (this._repositionMode && this._repositionGroup) {
+                // In reposition mode WASD nudges the device on the XZ plane
+                if (this._keys) {
+                    const step = 0.35;
+                    const cam = this.camera;
+                    const forward = new THREE.Vector3();
+                    cam.getWorldDirection(forward);
+                    forward.y = 0;
+                    forward.normalize();
+                    const right = new THREE.Vector3();
+                    right.crossVectors(forward, cam.up).normalize();
+
+                    const g = this._repositionGroup;
+                    if (this._keys['w']) { g.position.x += forward.x * step; g.position.z += forward.z * step; }
+                    if (this._keys['s']) { g.position.x -= forward.x * step; g.position.z -= forward.z * step; }
+                    if (this._keys['d']) { g.position.x += right.x * step; g.position.z += right.z * step; }
+                    if (this._keys['a']) { g.position.x -= right.x * step; g.position.z -= right.z * step; }
+                    if (this._keys['w'] || this._keys['a'] || this._keys['s'] || this._keys['d']) {
+                        this._updateAdjacentLinks();
+                    }
+                }
             } else {
                 // WASD: W/S zoom, A/D orbit around target
                 if (this._keys) {
@@ -1939,6 +1977,7 @@ export class LanFlowMap {
         this._pointerScreen.y = e.clientY - rect.top;
         this._pointerNdc.x = (this._pointerScreen.x / rect.width) * 2 - 1;
         this._pointerNdc.y = -(this._pointerScreen.y / rect.height) * 2 + 1;
+        if (this._repositionMode) return;
         this._raycaster.setFromCamera(this._pointerNdc, this.camera);
         // Raycast against device node spheres - cheap, ~tens of meshes.
         const candidates = [];
@@ -1959,6 +1998,7 @@ export class LanFlowMap {
     }
 
     _onDoubleClick(e) {
+        if (this._repositionMode) return;
         const rect = this.canvas.getBoundingClientRect();
         const ndc = new THREE.Vector2(
             ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -2081,6 +2121,258 @@ export class LanFlowMap {
     _clearHover() {
         if (this._tooltipEl) this._tooltipEl.classList.remove('is-visible');
         this._hoverTarget = null;
+    }
+
+    // ------------------------------------------------------------------------
+    // Right-click context menu + device reposition
+    // ------------------------------------------------------------------------
+
+    _onContextMenu(e) {
+        e.preventDefault();
+        if (this._repositionMode) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        this._raycaster.setFromCamera(ndc, this.camera);
+        const candidates = [];
+        for (const group of this._nodeMeshes.values()) {
+            if (!group.visible) continue;
+            for (const child of group.children) {
+                if (child.isMesh) candidates.push(child);
+            }
+        }
+        const hits = this._raycaster.intersectObjects(candidates, false);
+        if (hits.length === 0) return;
+        let g = hits[0].object;
+        while (g && !(g.userData?.node)) g = g.parent;
+        if (!g) return;
+        const node = g.userData.node;
+        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.AccessPoint) return;
+
+        this._showContextMenu(e.clientX, e.clientY, node, g);
+    }
+
+    _showContextMenu(clientX, clientY, node, group) {
+        this._dismissContextMenu();
+        const menu = document.createElement('div');
+        menu.className = 'lan-flow-map-context-menu';
+        const item = document.createElement('div');
+        item.className = 'lan-flow-map-context-menu-item';
+        item.textContent = 'Reposition Device';
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._dismissContextMenu();
+            this._enterReposition(node, group);
+        });
+        menu.appendChild(item);
+
+        const stageRect = this.stage.getBoundingClientRect();
+        menu.style.left = `${clientX - stageRect.left}px`;
+        menu.style.top = `${clientY - stageRect.top}px`;
+        this.stage.appendChild(menu);
+        this._contextMenuEl = menu;
+    }
+
+    _dismissContextMenu() {
+        if (this._contextMenuEl) {
+            this._contextMenuEl.remove();
+            this._contextMenuEl = null;
+        }
+    }
+
+    _enterReposition(node, group) {
+        this._repositionMode = true;
+        this._repositionNode = node;
+        this._repositionGroup = group;
+        this._repositionOrigPos = group.position.clone();
+        this._clearHover();
+
+        this.controls.enabled = false;
+        this.canvas.style.cursor = 'move';
+
+        // Show the reposition HUD banner
+        const hud = document.createElement('div');
+        hud.className = 'lan-flow-map-reposition-hud';
+        hud.innerHTML = `
+            <span class="lan-flow-map-reposition-title">Moving: ${escapeHtml(node.name || node.mac || 'Device')}</span>
+            <span class="lan-flow-map-reposition-keys">
+                <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> to nudge
+                &nbsp;&middot;&nbsp; Drag to move
+                &nbsp;&middot;&nbsp; <span class="kbd">Click</span> to place
+                &nbsp;&middot;&nbsp; <span class="kbd">Esc</span> to cancel
+            </span>
+        `;
+        this.stage.appendChild(hud);
+        this._repositionHud = hud;
+
+        // Set up mouse-drag on the XZ plane at the device's Y height.
+        // Confirm on pointerup only if the pointer barely moved (click, not drag).
+        this._repositionDragging = false;
+        this._repositionDragMoved = false;
+        this._repositionDownPt = null;
+        this._repositionPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -group.position.y);
+        this._repositionMoveHandler = (e) => this._onRepositionPointerMove(e);
+        this._repositionDownHandler = (e) => {
+            if (e.button === 0) {
+                this._repositionDragging = true;
+                this._repositionDragMoved = false;
+                this._repositionDownPt = { x: e.clientX, y: e.clientY };
+                e.preventDefault();
+            }
+        };
+        this._repositionUpHandler = (e) => {
+            if (e.button === 0 && this._repositionMode) {
+                this._repositionDragging = false;
+                if (!this._repositionDragMoved) {
+                    this._confirmReposition();
+                }
+            }
+        };
+        this.canvas.addEventListener('pointermove', this._repositionMoveHandler);
+        this.canvas.addEventListener('pointerdown', this._repositionDownHandler, true);
+        this.canvas.addEventListener('pointerup', this._repositionUpHandler);
+    }
+
+    _onRepositionPointerMove(e) {
+        if (!this._repositionMode || !this._repositionDragging) return;
+
+        // Track whether the pointer actually moved (drag vs click)
+        if (this._repositionDownPt) {
+            const dx = e.clientX - this._repositionDownPt.x;
+            const dy = e.clientY - this._repositionDownPt.y;
+            if (dx * dx + dy * dy > 9) this._repositionDragMoved = true;
+        }
+        if (!this._repositionDragMoved) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        this._raycaster.setFromCamera(ndc, this.camera);
+        const intersection = new THREE.Vector3();
+        if (this._raycaster.ray.intersectPlane(this._repositionPlane, intersection)) {
+            this._repositionGroup.position.x = intersection.x;
+            this._repositionGroup.position.z = intersection.z;
+            this._updateAdjacentLinks();
+        }
+    }
+
+    _updateAdjacentLinks() {
+        if (!this._repositionNode) return;
+        const nodeId = this._repositionNode.id;
+        const pos = this._repositionGroup.position;
+
+        for (const [linkId, linkObj] of this._linkMeshes) {
+            if (linkObj.link.fromNodeId !== nodeId && linkObj.link.toNodeId !== nodeId) continue;
+            const otherNodeId = linkObj.link.fromNodeId === nodeId ? linkObj.link.toNodeId : linkObj.link.fromNodeId;
+            const otherGroup = this._nodeMeshes.get(otherNodeId);
+            if (!otherGroup) continue;
+
+            const a = linkObj.link.fromNodeId === nodeId ? pos : otherGroup.position;
+            const b = linkObj.link.toNodeId === nodeId ? pos : otherGroup.position;
+
+            // Update pipe mesh
+            this._updatePipePosition(linkObj.pipe, a, b);
+            // Update particle stream endpoints
+            if (linkObj.link.fromNodeId === nodeId) {
+                linkObj.down.updateEndpoints(pos, otherGroup.position);
+                linkObj.up.updateEndpoints(otherGroup.position, pos);
+            } else {
+                linkObj.down.updateEndpoints(otherGroup.position, pos);
+                linkObj.up.updateEndpoints(pos, otherGroup.position);
+            }
+        }
+    }
+
+    _updatePipePosition(pipe, a, b) {
+        if (!pipe.isMesh) return;
+        const from = new THREE.Vector3(a.x, a.y, a.z);
+        const to = new THREE.Vector3(b.x, b.y, b.z);
+        const dir = to.clone().sub(from);
+        const length = dir.length();
+        if (length < 0.01) return;
+
+        const mid = from.clone().add(to).multiplyScalar(0.5);
+        pipe.position.copy(mid);
+        pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        const origHeight = pipe.geometry.parameters?.height || 1;
+        pipe.scale.y = length / origHeight;
+    }
+
+    async _confirmReposition() {
+        if (!this._repositionMode) return;
+        const group = this._repositionGroup;
+        const node = this._repositionNode;
+        const pos = { x: group.position.x, y: group.position.y, z: group.position.z };
+
+        this._exitRepositionMode();
+
+        // Update the internal positions map
+        this._positions.set(node.id, {
+            x: pos.x, y: pos.y, z: pos.z, pinned: true,
+        });
+
+        // Reverse-project 3D scene coords back to geo
+        const bounds = this._snapshot?.bounds;
+        if (!bounds?.centerLat || !bounds?.lngScale) {
+            console.warn('[LanFlowMap] No projection params - cannot save placement');
+            return;
+        }
+        const sceneRadius = 30.0;
+        const ANCHOR_SPREAD_FACTOR = 1.5;
+        const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
+        const EARTH_RADIUS = 6_371_000.0;
+
+        // Undo JS transform: posX = local.x * scale, posZ = local.y * scale
+        // (posY = local.z * scale * 0.4 but we don't save floor from 3D)
+        const localX = pos.x / scale;
+        const localY = pos.z / scale; // JS z maps to projection y
+
+        // Undo equirectangular projection
+        const dLng = localX / (bounds.lngScale * EARTH_RADIUS);
+        const dLat = localY / EARTH_RADIUS;
+        const lat = bounds.centerLat + dLat * 180 / Math.PI;
+        const lng = bounds.centerLng + dLng * 180 / Math.PI;
+
+        try {
+            await fetch(`${this.apiBase}/device-placement`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng }),
+            });
+        } catch (err) {
+            console.error('[LanFlowMap] Failed to save placement:', err);
+        }
+    }
+
+    _cancelReposition() {
+        if (!this._repositionMode) return;
+        this._repositionGroup.position.copy(this._repositionOrigPos);
+        this._updateAdjacentLinks();
+        this._exitRepositionMode();
+    }
+
+    _exitRepositionMode() {
+        this._repositionMode = false;
+        this._repositionNode = null;
+        this._repositionGroup = null;
+        this._repositionOrigPos = null;
+        this._repositionDragging = false;
+        this._repositionDragMoved = false;
+        this._repositionDownPt = null;
+
+        this.controls.enabled = true;
+        this.canvas.style.cursor = '';
+
+        if (this._repositionHud) { this._repositionHud.remove(); this._repositionHud = null; }
+        this.canvas.removeEventListener('pointermove', this._repositionMoveHandler);
+        this.canvas.removeEventListener('pointerdown', this._repositionDownHandler, true);
+        this.canvas.removeEventListener('pointerup', this._repositionUpHandler);
     }
 }
 
@@ -2229,6 +2521,14 @@ class ParticleStream {
         // Velocity: 2.5 idle -> 6.5 saturated. Still communicates throughput
         // without slamming between crawl and jet on per-poll rate fluctuations.
         this._velocity = 2.5 + intensity * 4.0;
+    }
+
+    updateEndpoints(from, to) {
+        this._from.set(from.x, from.y, from.z);
+        this._to.set(to.x, to.y, to.z);
+        this._direction.copy(this._to).sub(this._from);
+        this._length = this._direction.length();
+        this._direction.normalize();
     }
 
     advance(dt) {

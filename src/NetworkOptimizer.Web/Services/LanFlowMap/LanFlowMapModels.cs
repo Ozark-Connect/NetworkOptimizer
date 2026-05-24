@@ -258,6 +258,16 @@ public class LanFlowMapBounds
     /// <summary>Maximum extent of anchor coordinates so the JS layout can normalise.</summary>
     public double Radius { get; set; } = 1.0;
     public int AnchorCount { get; set; }
+
+    /// <summary>Projection centroid latitude (degrees). JS uses this to reverse-project
+    /// 3D scene coordinates back to geo for persistent device placement.</summary>
+    public double? CenterLat { get; set; }
+
+    /// <summary>Projection centroid longitude (degrees).</summary>
+    public double? CenterLng { get; set; }
+
+    /// <summary>Longitude cosine scale factor at centroid latitude.</summary>
+    public double? LngScale { get; set; }
 }
 
 /// <summary>

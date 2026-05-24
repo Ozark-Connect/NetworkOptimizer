@@ -1,9 +1,12 @@
+using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
 public static class LanFlowMapEndpoints
 {
+    private record DevicePlacementRequest(string Mac, double Latitude, double Longitude);
+
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/monitoring/lan-flow-map/snapshot",
@@ -34,6 +37,16 @@ public static class LanFlowMapEndpoints
                 var toT = until ?? DateTime.UtcNow;
                 var items = await svc.BuildSpeedTestOverlayAsync(fromT, toT, limitPerKind: 10, ct: ct);
                 return Results.Ok(items);
+            });
+
+        app.MapPost("/api/monitoring/lan-flow-map/device-placement",
+            async (DevicePlacementRequest req, ApMapService apMap, LanFlowMapService svc) =>
+            {
+                if (string.IsNullOrWhiteSpace(req.Mac))
+                    return Results.BadRequest("mac is required");
+                await apMap.SaveApLocationAsync(req.Mac, req.Latitude, req.Longitude);
+                svc.InvalidateCache();
+                return Results.Ok();
             });
     }
 }

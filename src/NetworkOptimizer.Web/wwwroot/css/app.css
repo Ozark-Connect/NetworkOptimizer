@@ -14588,3 +14588,57 @@ a.affected-client:hover {
         display: none;
     }
 }
+.lan-flow-map-context-menu {
+    position: absolute;
+    z-index: 20;
+    background: rgba(16, 24, 32, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 160px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.lan-flow-map-context-menu-item {
+    padding: 7px 14px;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+}
+.lan-flow-map-context-menu-item:hover {
+    background: var(--bg-hover);
+}
+.lan-flow-map-reposition-hud {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    background: rgba(16, 24, 32, 0.92);
+    border: 1px solid var(--primary-color);
+    border-radius: 8px;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.82rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.lan-flow-map-reposition-title {
+    font-weight: 500;
+    color: var(--primary-hover);
+}
+.lan-flow-map-reposition-keys {
+    color: var(--text-secondary);
+}
+.lan-flow-map-reposition-keys .kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 0.72rem;
+    background: var(--bg-tertiary);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+    font-family: inherit;
+    line-height: 1.4;
+}

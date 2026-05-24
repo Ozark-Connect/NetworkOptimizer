@@ -74,8 +74,20 @@ public class LanFlowMapService
         var topology = await discovery.DiscoverTopologyAsync(ct);
 
         var markers = await _apMap.GetApMapMarkersAsync();
-        var anchors = ProjectAnchors(markers);
-        snapshot.Bounds = ComputeBounds(anchors);
+
+        // Load non-AP device placements (switches, gateways) from the same table.
+        using var db = await _dbFactory.CreateDbContextAsync();
+        var allLocations = await db.ApLocations.ToListAsync(ct);
+        var apMacs = new HashSet<string>(
+            markers.Select(m => m.Mac.ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+        var deviceLocations = allLocations
+            .Where(l => !apMacs.Contains(l.ApMac.ToLowerInvariant()))
+            .ToList();
+
+        var anchors = ProjectAnchors(markers, deviceLocations,
+            out var centerLat, out var centerLng, out var lngScale);
+        snapshot.Bounds = ComputeBounds(anchors, centerLat, centerLng, lngScale);
 
         var nameMaps = await LoadInterfaceNameMaps(ct);
 
@@ -604,22 +616,36 @@ public class LanFlowMapService
     // Internal: AP placement -> local Cartesian
     // ---------------------------------------------------------------------------------
 
-    private static Dictionary<string, LanPlacement> ProjectAnchors(IReadOnlyList<Web.Models.ApMapMarker> markers)
+    private static Dictionary<string, LanPlacement> ProjectAnchors(
+        IReadOnlyList<Web.Models.ApMapMarker> markers,
+        IReadOnlyList<Storage.Models.ApLocation> deviceLocations,
+        out double centerLat, out double centerLng, out double lngScale)
     {
+        centerLat = 0;
+        centerLng = 0;
+        lngScale = 1;
+
         var anchors = new Dictionary<string, LanPlacement>();
         var withCoords = markers
             .Where(m => m.Latitude.HasValue && m.Longitude.HasValue)
             .ToList();
-        if (withCoords.Count == 0) return anchors;
+        if (withCoords.Count == 0 && deviceLocations.Count == 0) return anchors;
 
-        // Project lat/lng to a local equirectangular frame centered on the centroid.
-        // Scale so 1 unit ~= 1 metre at the centroid latitude. Z = floor number * 3 metres
-        // (typical floor-to-floor distance). The JS layer normalises to its own scene
-        // units; we just need consistent local coordinates.
-        double centerLat = withCoords.Average(m => m.Latitude!.Value);
-        double centerLng = withCoords.Average(m => m.Longitude!.Value);
+        // Centroid is computed from AP markers only so that repositioning a
+        // switch/gateway doesn't shift the AP reference frame.
+        if (withCoords.Count > 0)
+        {
+            centerLat = withCoords.Average(m => m.Latitude!.Value);
+            centerLng = withCoords.Average(m => m.Longitude!.Value);
+        }
+        else
+        {
+            centerLat = deviceLocations.Average(d => d.Latitude);
+            centerLng = deviceLocations.Average(d => d.Longitude);
+        }
+
         const double earthRadiusMetres = 6_371_000.0;
-        double lngScale = Math.Cos(centerLat * Math.PI / 180.0);
+        lngScale = Math.Cos(centerLat * Math.PI / 180.0);
 
         foreach (var m in withCoords)
         {
@@ -636,23 +662,52 @@ public class LanFlowMapService
                 Source = LanPlacementSource.Anchor,
             };
         }
+
+        foreach (var d in deviceLocations)
+        {
+            var mac = NormalizeMac(d.ApMac);
+            if (anchors.ContainsKey(mac)) continue;
+            double dLat = (d.Latitude - centerLat) * Math.PI / 180.0;
+            double dLng = (d.Longitude - centerLng) * Math.PI / 180.0;
+            double x = dLng * lngScale * earthRadiusMetres;
+            double y = dLat * earthRadiusMetres;
+            double z = (d.Floor ?? 1) * 3.0;
+            anchors[mac] = new LanPlacement
+            {
+                X = x,
+                Y = y,
+                Z = z,
+                Source = LanPlacementSource.Anchor,
+            };
+        }
+
         return anchors;
     }
 
-    private static LanFlowMapBounds ComputeBounds(Dictionary<string, LanPlacement> anchors)
+    private static LanFlowMapBounds ComputeBounds(
+        Dictionary<string, LanPlacement> anchors,
+        double centerLat, double centerLng, double lngScale)
     {
-        if (anchors.Count == 0) return new LanFlowMapBounds { Radius = 1.0, AnchorCount = 0 };
+        var bounds = new LanFlowMapBounds
+        {
+            AnchorCount = anchors.Count,
+        };
+        if (anchors.Count == 0)
+        {
+            bounds.Radius = 1.0;
+            return bounds;
+        }
         double maxR = 0;
         foreach (var p in anchors.Values)
         {
             var r = Math.Sqrt(p.X * p.X + p.Y * p.Y + p.Z * p.Z);
             if (r > maxR) maxR = r;
         }
-        return new LanFlowMapBounds
-        {
-            Radius = Math.Max(maxR, 1.0),
-            AnchorCount = anchors.Count,
-        };
+        bounds.Radius = Math.Max(maxR, 1.0);
+        bounds.CenterLat = centerLat;
+        bounds.CenterLng = centerLng;
+        bounds.LngScale = lngScale;
+        return bounds;
     }
 
     // ---------------------------------------------------------------------------------
