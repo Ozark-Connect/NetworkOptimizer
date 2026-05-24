@@ -16,8 +16,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js';
 
 const COLORS = {
-    background: 0x161618,
-    fog: 0x161618,
+    background: 0x101820,
+    fog: 0x101820,
     gateway: 0xfacc15,
     switchNode: 0x9aa6b2,
     ap: 0x3385d6,
@@ -2789,9 +2789,9 @@ function makeRadialBackgroundTexture(width, height) {
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
-    grd.addColorStop(0, '#1c2a3a');
-    grd.addColorStop(0.55, '#121b27');
-    grd.addColorStop(1, '#0a1018');
+    grd.addColorStop(0, '#1a1c20');
+    grd.addColorStop(0.55, '#141618');
+    grd.addColorStop(1, '#0e0f12');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
     const tex = new THREE.CanvasTexture(canvas);
