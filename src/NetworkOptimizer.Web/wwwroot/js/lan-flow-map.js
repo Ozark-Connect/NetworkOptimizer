@@ -457,7 +457,7 @@ export class LanFlowMap {
             const p = node.placement;
             if (p && p.source === PLACEMENT_SOURCE.Anchor) {
                 positions.set(node.id, {
-                    x: p.x * scale,
+                    x: -p.x * scale,
                     y: p.z * scale * 0.4,    // floors get vertical separation but compressed
                     z: p.y * scale,
                     pinned: true,
@@ -465,7 +465,7 @@ export class LanFlowMap {
                 anchors.set(node.id, true);
             } else if (p && p.source === PLACEMENT_SOURCE.Interpolated) {
                 positions.set(node.id, {
-                    x: p.x * scale,
+                    x: -p.x * scale,
                     y: p.z * scale * 0.4 - 4,
                     z: p.y * scale,
                     pinned: false,
@@ -2328,9 +2328,9 @@ export class LanFlowMap {
         const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
         const EARTH_RADIUS = 6_371_000.0;
 
-        // Undo JS transform: posX = local.x * scale, posZ = local.y * scale
+        // Undo JS transform: posX = -(local.x * scale), posZ = local.y * scale
         // (posY = local.z * scale * 0.4 but we don't save floor from 3D)
-        const localX = pos.x / scale;
+        const localX = -(pos.x / scale);
         const localY = pos.z / scale; // JS z maps to projection y
 
         // Undo equirectangular projection
