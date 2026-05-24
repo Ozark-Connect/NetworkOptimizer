@@ -851,6 +851,7 @@ export class LanFlowMap {
                 color: tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6,
                 transparent: true,
                 opacity: baseOpacity * 0.5,
+                linewidth: 2,
                 depthWrite: false,
             });
             // Latitude lines
@@ -860,9 +861,9 @@ export class LanFlowMap {
                 for (let lng = 0; lng <= 360; lng += 10) {
                     const theta = lng * Math.PI / 180;
                     pts.push(new THREE.Vector3(
-                        r * 1.01 * Math.sin(phi) * Math.cos(theta),
-                        r * 1.01 * Math.cos(phi),
-                        r * 1.01 * Math.sin(phi) * Math.sin(theta),
+                        r * 1.04 * Math.sin(phi) * Math.cos(theta),
+                        r * 1.04 * Math.cos(phi),
+                        r * 1.04 * Math.sin(phi) * Math.sin(theta),
                     ));
                 }
                 group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
@@ -874,9 +875,9 @@ export class LanFlowMap {
                 for (let lat = -90; lat <= 90; lat += 10) {
                     const phi = (90 - lat) * Math.PI / 180;
                     pts.push(new THREE.Vector3(
-                        r * 1.01 * Math.sin(phi) * Math.cos(theta),
-                        r * 1.01 * Math.cos(phi),
-                        r * 1.01 * Math.sin(phi) * Math.sin(theta),
+                        r * 1.04 * Math.sin(phi) * Math.cos(theta),
+                        r * 1.04 * Math.cos(phi),
+                        r * 1.04 * Math.sin(phi) * Math.sin(theta),
                     ));
                 }
                 group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
@@ -2829,9 +2830,9 @@ function makeRadialBackgroundTexture(width, height) {
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
-    grd.addColorStop(0, '#1e2024');
-    grd.addColorStop(0.55, '#161618');
-    grd.addColorStop(1, '#101012');
+    grd.addColorStop(0, '#0a0b0e');
+    grd.addColorStop(0.55, '#060708');
+    grd.addColorStop(1, '#030304');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
 
