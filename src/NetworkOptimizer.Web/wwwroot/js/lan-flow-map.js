@@ -655,8 +655,9 @@ export class LanFlowMap {
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
-            // Sprite labels only for clouds - all other devices use DOM labels now.
-            if (node.name && node.kind === NODE_KIND.Cloud) {
+            // Sprite labels for all devices. Infrastructure devices also get DOM
+            // labels (with rate badges) but sprites provide 3D depth sorting.
+            if (node.name) {
                 const sprite = this._makeLabelSprite(node.name);
                 sprite.position.set(0, radius + 0.8, 0);
                 group.add(sprite);
@@ -977,7 +978,7 @@ export class LanFlowMap {
         const h = subText ? fontSize + subFontSize + pad * 2 + 6 : fontSize + pad * 2;
         canvas.width = w;
         canvas.height = h;
-        ctx.fillStyle = 'rgba(16, 24, 32, 0.85)';
+        ctx.fillStyle = 'rgba(6, 8, 12, 0.92)';
         roundRect(ctx, 0, 0, w, h, 12);
         ctx.fillStyle = '#f1f5f9';
         ctx.textBaseline = 'top';
@@ -1823,9 +1824,10 @@ export class LanFlowMap {
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
 
-        // Device labels: all devices including clients get DOM labels for consistent
-        // styling (sprites are affected by bloom/tone mapping, DOM labels are not).
+        // Device labels: infrastructure devices (gateway, switch, AP) get DOM labels.
+        // Clients stay as sprites for proper 3D depth sorting.
         for (const node of snap.nodes) {
+            if (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient) continue;
             if (node.kind === NODE_KIND.Cloud) continue;
             const el = document.createElement('div');
             el.className = 'lan-flow-map-label';
