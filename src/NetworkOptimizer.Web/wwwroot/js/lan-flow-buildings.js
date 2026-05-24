@@ -442,68 +442,6 @@ function _drawWoodVertical(canvas, ctx) {
     }
 }
 
-// -- windows ------------------------------------------------------------------
-// Residential window with dark frame, blue-tinted glass, and optional mullions.
-// Pane count controls mullion grid: 1=no mullions, 2=center vertical, 3=6-lite grid.
-function _drawWindow(canvas, ctx, panes) {
-    canvas.width = 256;
-    canvas.height = 256;
-
-    // Exterior wall surround (matches siding tone)
-    ctx.fillStyle = '#6E6E72';
-    ctx.fillRect(0, 0, 256, 256);
-
-    const frameW = 12;
-    const trimW = 6;
-    const winL = 20, winT = 30, winR = 236, winB = 220;
-
-    // White trim casing around the window
-    ctx.fillStyle = '#D8D8D8';
-    ctx.fillRect(winL - trimW, winT - trimW, (winR - winL) + trimW * 2, (winB - winT) + trimW * 2);
-
-    // Dark frame
-    ctx.fillStyle = '#3A3A3E';
-    ctx.fillRect(winL, winT, winR - winL, winB - winT);
-
-    // Glass area
-    const glassL = winL + frameW, glassT = winT + frameW;
-    const glassR = winR - frameW, glassB = winB - frameW;
-    const glassW = glassR - glassL, glassH = glassB - glassT;
-
-    // Blue-tinted glass with sky reflection gradient
-    const glassGrad = ctx.createLinearGradient(glassL, glassT, glassR, glassB);
-    glassGrad.addColorStop(0, '#8AAEC8');
-    glassGrad.addColorStop(0.3, '#7BA0BC');
-    glassGrad.addColorStop(0.6, '#6890AE');
-    glassGrad.addColorStop(1, '#5A82A0');
-    ctx.fillStyle = glassGrad;
-    ctx.fillRect(glassL, glassT, glassW, glassH);
-
-    // Subtle reflection highlight (diagonal streak)
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.moveTo(glassL, glassT);
-    ctx.lineTo(glassL + glassW * 0.4, glassT);
-    ctx.lineTo(glassL, glassT + glassH * 0.5);
-    ctx.closePath();
-    ctx.fill();
-
-    // Mullions based on pane count
-    ctx.fillStyle = '#3A3A3E';
-    if (panes >= 2) {
-        // Center horizontal meeting rail
-        ctx.fillRect(glassL, glassT + glassH / 2 - 2, glassW, 4);
-    }
-    if (panes >= 3) {
-        // Vertical mullion in each half (6-lite grid)
-        ctx.fillRect(glassL + glassW / 2 - 2, glassT, 4, glassH);
-    }
-
-    // Window sill at bottom
-    ctx.fillStyle = '#C0C0C0';
-    ctx.fillRect(winL - 4, winB + trimW - 2, (winR - winL) + 8, 6);
-}
-
 // -- glass walls --------------------------------------------------------------
 // Full glass curtain wall or storefront glazing. Thin dark frame grid with
 // large glass panels.
