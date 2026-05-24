@@ -2279,10 +2279,33 @@ export class LanFlowMap {
         const nodeId = this._repositionNode.id;
         const pos = this._repositionGroup.position;
 
+        // If moving a gateway, drag all connected clouds along (they're positioned
+        // relative to the gateway and have no independent geo coords).
+        if (this._repositionNode.kind === NODE_KIND.Gateway) {
+            if (!this._repositionCloudOffsets) {
+                this._repositionCloudOffsets = new Map();
+                for (const [cloudId, group] of this._cloudMeshes) {
+                    this._repositionCloudOffsets.set(cloudId, {
+                        dx: group.position.x - this._repositionOrigPos.x,
+                        dy: group.position.y - this._repositionOrigPos.y,
+                        dz: group.position.z - this._repositionOrigPos.z,
+                    });
+                }
+            }
+            for (const [cloudId, offset] of this._repositionCloudOffsets) {
+                const group = this._cloudMeshes.get(cloudId);
+                if (!group) continue;
+                group.position.set(pos.x + offset.dx, pos.y + offset.dy, pos.z + offset.dz);
+                this._positions.set(cloudId, {
+                    x: group.position.x, y: group.position.y, z: group.position.z, pinned: true,
+                });
+            }
+        }
+
         for (const [linkId, linkObj] of this._linkMeshes) {
             if (linkObj.link.fromNodeId !== nodeId && linkObj.link.toNodeId !== nodeId) continue;
             const otherNodeId = linkObj.link.fromNodeId === nodeId ? linkObj.link.toNodeId : linkObj.link.fromNodeId;
-            const otherGroup = this._nodeMeshes.get(otherNodeId);
+            const otherGroup = this._nodeMeshes.get(otherNodeId) || this._cloudMeshes.get(otherNodeId);
             if (!otherGroup) continue;
 
             const a = linkObj.link.fromNodeId === nodeId ? pos : otherGroup.position;
@@ -2369,6 +2392,18 @@ export class LanFlowMap {
     _cancelReposition() {
         if (!this._repositionMode) return;
         this._repositionGroup.position.copy(this._repositionOrigPos);
+        // Restore cloud positions if we moved a gateway
+        if (this._repositionCloudOffsets) {
+            for (const [cloudId, offset] of this._repositionCloudOffsets) {
+                const group = this._cloudMeshes.get(cloudId);
+                if (!group) continue;
+                group.position.set(
+                    this._repositionOrigPos.x + offset.dx,
+                    this._repositionOrigPos.y + offset.dy,
+                    this._repositionOrigPos.z + offset.dz,
+                );
+            }
+        }
         this._updateAdjacentLinks();
         this._exitRepositionMode();
     }
@@ -2381,6 +2416,7 @@ export class LanFlowMap {
         this._repositionDragging = false;
         this._repositionDragMoved = false;
         this._repositionDownPt = null;
+        this._repositionCloudOffsets = null;
 
         this.controls.enabled = true;
         this.canvas.style.cursor = '';
