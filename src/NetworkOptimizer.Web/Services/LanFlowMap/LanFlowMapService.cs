@@ -93,6 +93,7 @@ public class LanFlowMapService
         snapshot.Buildings = await BuildBuildingsAsync(centerLat, centerLng, lngScale, ct);
         snapshot.MaterialColors = new Dictionary<string, string>(
             WiFi.Data.MaterialAttenuation.MaterialColors, StringComparer.OrdinalIgnoreCase);
+        CompactBuildingFloors(snapshot.Buildings, anchors);
 
         var nameMaps = await LoadInterfaceNameMaps(ct);
 
@@ -793,6 +794,50 @@ public class LanFlowMapService
             _logger.LogDebug(ex, "Failed to load buildings for 3D map");
         }
         return result;
+    }
+
+    private static void CompactBuildingFloors(
+        List<LanBuilding> buildings, Dictionary<string, LanPlacement> anchors)
+    {
+        foreach (var building in buildings)
+        {
+            var floorNums = building.Floors.Select(f => f.FloorNumber).OrderBy(n => n).ToList();
+            if (floorNums.Count < 2) continue;
+
+            bool hasGap = false;
+            for (int i = 1; i < floorNums.Count; i++)
+            {
+                if (floorNums[i] - floorNums[i - 1] > 1) { hasGap = true; break; }
+            }
+            if (!hasGap) continue;
+
+            // Map each actual floor number to a compacted Z (sequential from the lowest floor)
+            var zMap = new Dictionary<int, double>();
+            int baseFloor = floorNums[0];
+            for (int i = 0; i < floorNums.Count; i++)
+                zMap[floorNums[i]] = (baseFloor + i) * 3.0;
+
+            foreach (var floor in building.Floors)
+            {
+                if (zMap.TryGetValue(floor.FloorNumber, out var newZ))
+                    floor.Z = newZ;
+            }
+
+            // Adjust devices whose position falls inside this building's footprint
+            double minX = building.Floors.Min(f => Math.Min(f.SwX, f.NeX));
+            double maxX = building.Floors.Max(f => Math.Max(f.SwX, f.NeX));
+            double minY = building.Floors.Min(f => Math.Min(f.SwY, f.NeY));
+            double maxY = building.Floors.Max(f => Math.Max(f.SwY, f.NeY));
+
+            foreach (var anchor in anchors.Values)
+            {
+                if (anchor.X < minX || anchor.X > maxX || anchor.Y < minY || anchor.Y > maxY)
+                    continue;
+                int deviceFloor = (int)Math.Round(anchor.Z / 3.0);
+                if (zMap.TryGetValue(deviceFloor, out var newDevZ))
+                    anchor.Z = newDevZ;
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------

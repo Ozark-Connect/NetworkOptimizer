@@ -4,14 +4,15 @@
 
 import * as THREE from 'three';
 
-const WALL_HEIGHT_M = 2.7;
+const WALL_HEIGHT_M = 2.44;
 const WALL_THICKNESS_M = 0.15;
 const FLOOR_OPACITY = 0.25;
 const WALL_OPACITY = 0.5;
 const ROOF_OPACITY = 0.45;
 const ROOF_COLOR = 0x5a6577;
 const FLOOR_COLOR = 0x2a3545;
-const ROOF_PITCH = 0.35;
+const ROOF_PITCH = 0.22;
+const MAX_RIDGE_M = 2.5;
 const FALLBACK_WALL_COLOR = '#94a3b8';
 
 export function buildBuildings(snap) {
@@ -66,19 +67,35 @@ function cornerToScene(meterX, meterY, scale) {
     return { x: -meterX * scale, z: meterY * scale };
 }
 
-// -- floor plane --------------------------------------------------------------
+// -- floor plane (from wall convex hull, not axis-aligned bbox) ---------------
 
 function _buildFloorPlane(floor, scale, floorY, parent) {
-    const sw = cornerToScene(floor.swX, floor.swY, scale);
-    const ne = cornerToScene(floor.neX, floor.neY, scale);
-    const width = Math.abs(ne.x - sw.x);
-    const depth = Math.abs(ne.z - sw.z);
-    if (width < 0.01 || depth < 0.01) return;
+    const pts = [];
+    for (const wall of floor.walls) {
+        for (const pt of wall.points) {
+            pts.push(toScene(pt, scale));
+        }
+    }
+    if (pts.length < 3) return;
 
-    const cx = (sw.x + ne.x) / 2;
-    const cz = (sw.z + ne.z) / 2;
+    const hull = _convexHull(pts);
+    if (hull.length < 3) return;
 
-    const geo = new THREE.BoxGeometry(width, 0.02, depth);
+    // Fan triangulation from hull[0]
+    const triCount = hull.length - 2;
+    const verts = new Float32Array(triCount * 9);
+    for (let i = 0; i < triCount; i++) {
+        const a = hull[0], b = hull[i + 1], c = hull[i + 2];
+        const off = i * 9;
+        verts[off]     = a.x; verts[off + 1] = floorY; verts[off + 2] = a.z;
+        verts[off + 3] = b.x; verts[off + 4] = floorY; verts[off + 5] = b.z;
+        verts[off + 6] = c.x; verts[off + 7] = floorY; verts[off + 8] = c.z;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+
     const mat = new THREE.MeshStandardMaterial({
         color: FLOOR_COLOR,
         transparent: true,
@@ -86,9 +103,7 @@ function _buildFloorPlane(floor, scale, floorY, parent) {
         depthWrite: false,
         side: THREE.DoubleSide,
     });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(cx, floorY, cz);
-    parent.add(mesh);
+    parent.add(new THREE.Mesh(geo, mat));
 }
 
 // -- walls --------------------------------------------------------------------
@@ -160,7 +175,8 @@ function _buildRoof(topFloor, building, scale, wallH, parent) {
     const obb = _orientedBoundingBox(hull);
     const floorY = topFloor.z * scale * 0.8;
     const eaveY = floorY + wallH;
-    const ridgeHeight = obb.shortLen * ROOF_PITCH;
+    const maxRidgeScene = MAX_RIDGE_M * scale * 0.8;
+    const ridgeHeight = Math.min(obb.shortLen * ROOF_PITCH, maxRidgeScene);
     const ridgeY = eaveY + ridgeHeight;
 
     // OBB corners and ridge endpoints
