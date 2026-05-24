@@ -8,7 +8,7 @@ import * as THREE from 'three';
 const WALL_HEIGHT_M = 2.8;
 const WALL_THICKNESS_M = 0.15;
 const FLOOR_OPACITY = 0.25;
-const WALL_OPACITY = 0.5;
+const WALL_OPACITY = 1.0;
 const ROOF_OPACITY = 0.45;
 const ROOF_COLOR = 0x5a6577;
 const FLOOR_COLOR = 0x2a3545;
@@ -465,7 +465,8 @@ function _createWallMaterial(matKey, segLenM) {
             map: tex,
             transparent: true,
             opacity: WALL_OPACITY,
-            depthWrite: false,
+            depthWrite: WALL_OPACITY >= 1.0,
+            transparent: WALL_OPACITY < 1.0,
             side: THREE.DoubleSide,
             roughness: 0.85,
         });
@@ -473,9 +474,9 @@ function _createWallMaterial(matKey, segLenM) {
 
     return new THREE.MeshStandardMaterial({
         color: new THREE.Color(hex),
-        transparent: true,
+        transparent: WALL_OPACITY < 1.0,
         opacity: WALL_OPACITY,
-        depthWrite: false,
+        depthWrite: WALL_OPACITY >= 1.0,
         side: THREE.DoubleSide,
         emissive: new THREE.Color(hex),
         emissiveIntensity: 0.05,
