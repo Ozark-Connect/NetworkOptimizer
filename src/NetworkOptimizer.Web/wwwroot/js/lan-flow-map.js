@@ -206,7 +206,7 @@ export class LanFlowMap {
 
         this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
         // Will animate IN from here on first mount via _flyIn().
-        this.camera.position.set(95, 60, 95);
+        this.camera.position.set(120, 80, 120);
         this.camera.lookAt(0, 0, 0);
 
         // Post-processing: bloom for the luminous-particles look. Selective bloom would
@@ -1121,7 +1121,7 @@ export class LanFlowMap {
     _startAnimation() {
         // Schedule a one-shot camera fly-in on first frame.
         this._flyInUntil = performance.now() + 1300;
-        this._flyInTargetCam = new THREE.Vector3(40, 25, 40);
+        this._flyInTargetCam = new THREE.Vector3(60, 40, 60);
         this._flyInStartCam = this.camera.position.clone();
 
         // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
