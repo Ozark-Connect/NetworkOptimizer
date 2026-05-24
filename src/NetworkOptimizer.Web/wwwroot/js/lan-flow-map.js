@@ -480,7 +480,7 @@ export class LanFlowMap {
 
         // Mount height offsets within a floor (in meters, pre-scale).
         // ceiling = near ceiling, wall = mid-height, desktop = near floor.
-        const WALL_H_M = 2.8;
+        const WALL_H_M = 2.9;
         const mountOffsetM = { ceiling: WALL_H_M * 0.85, wall: WALL_H_M * 0.5, desktop: WALL_H_M * 0.15 };
 
         for (const node of snap.nodes) {

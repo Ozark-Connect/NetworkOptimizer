@@ -638,6 +638,7 @@ public class LanFlowMapService
     // ---------------------------------------------------------------------------------
 
     private const double EarthRadiusMetres = 6_371_000.0;
+    private const double FloorHeightMetres = 2.9;
 
     private static (double x, double y) ProjectLatLng(
         double lat, double lng, double centerLat, double centerLng, double lngScale)
@@ -684,7 +685,7 @@ public class LanFlowMapService
             {
                 X = x,
                 Y = y,
-                Z = (m.Floor ?? 1) * 3.0,
+                Z = (m.Floor ?? 1) * FloorHeightMetres,
                 Source = LanPlacementSource.Anchor,
             };
         }
@@ -698,7 +699,7 @@ public class LanFlowMapService
             {
                 X = x,
                 Y = y,
-                Z = (d.Floor ?? 1) * 3.0,
+                Z = (d.Floor ?? 1) * FloorHeightMetres,
                 Source = LanPlacementSource.Anchor,
             };
         }
@@ -778,7 +779,7 @@ public class LanFlowMapService
                         SwY = swY,
                         NeX = neX,
                         NeY = neY,
-                        Z = floor.FloorNumber * 3.0,
+                        Z = floor.FloorNumber * FloorHeightMetres,
                     };
 
                     foreach (var wall in walls)
