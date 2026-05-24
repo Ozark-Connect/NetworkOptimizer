@@ -43,11 +43,10 @@ public class UpstreamTracerService
     // DetectPublicIpAsync from the gateway's port_table.
     private readonly HashSet<string> _gatewayIps = new(StringComparer.OrdinalIgnoreCase);
 
-    // The OS-level interface name backing the WAN port (e.g. "ethN" or
-    // "ethN.M" for VLAN-tagged uplinks), read straight from UniFi's
-    // port_table.uplink_ifname during DetectPublicIpAsync. The L2-neighbor
-    // step uses this to target `ip neigh show dev <iface>` correctly even
-    // when the WAN sits on a sub-interface.
+    // The OS-level interface name backing the WAN port (e.g. "ethN",
+    // "ethN.M" for VLAN-tagged, "pppN" for PPPoE), read from the device's
+    // wan1...wan6 uplink_ifname during DetectPublicIpAsync. The L2-neighbor
+    // step uses this to target `ip neigh show dev <iface>` correctly.
     private string? _wanUplinkIfName;
 
     public UpstreamTracerState State { get; private set; } = new();
@@ -259,53 +258,108 @@ public class UpstreamTracerService
             return Fail("Not connected to UniFi Console.");
         }
 
-        List<UniFiDeviceResponse> devices;
+        // Fetch raw device JSON to read wan1...wan6 objects directly.
+        // These are the authoritative WAN descriptors and correctly report
+        // the Linux interface name for all connection types (DHCP, PPPoE,
+        // VLAN-tagged, GRE tunnels) - unlike port_table.is_uplink which
+        // may not be set for non-standard connections.
+        string? deviceJson;
         try
         {
-            devices = (await _connectionService.Client.GetDevicesAsync(ct))?.ToList()
-                      ?? new List<UniFiDeviceResponse>();
+            deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
+            if (string.IsNullOrEmpty(deviceJson))
+                return Fail("Empty device response from UniFi Console.");
         }
         catch (Exception ex)
         {
             return Fail($"Couldn't fetch UniFi devices: {ex.Message}");
         }
 
-        var gateway = devices.FirstOrDefault(d =>
-            d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
-        if (gateway?.PortTable == null)
+        string? wanInterfaceName = null;
+        string? wanUplinkIfName = null;
+        string? wanIp = null;
+
+        using (var doc = System.Text.Json.JsonDocument.Parse(deviceJson))
         {
-            return Fail("No gateway found in topology.");
+            var root = doc.RootElement;
+            var devices = root.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? root
+                : root.TryGetProperty("data", out var data) ? data : root;
+
+            foreach (var device in devices.EnumerateArray())
+            {
+                var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+                if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                    continue;
+
+                // Collect every IP the gateway carries so we can filter our own
+                // gateway out of the access-hop classification later.
+                _gatewayIps.Clear();
+                var portIdxToNetworkName = new Dictionary<int, string>();
+                if (device.TryGetProperty("port_table", out var portTable) &&
+                    portTable.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var port in portTable.EnumerateArray())
+                    {
+                        if (port.TryGetProperty("ip", out var ptIpProp))
+                        {
+                            var ptIp = ptIpProp.GetString();
+                            if (!string.IsNullOrEmpty(ptIp)) _gatewayIps.Add(ptIp);
+                        }
+                        if (port.TryGetProperty("port_idx", out var idxProp) &&
+                            idxProp.TryGetInt32(out var idx) &&
+                            port.TryGetProperty("network_name", out var nnProp))
+                        {
+                            var nn = nnProp.GetString();
+                            if (!string.IsNullOrEmpty(nn))
+                                portIdxToNetworkName[idx] = nn;
+                        }
+                    }
+                }
+
+                for (int i = 1; i <= 6; i++)
+                {
+                    var wanKey = $"wan{i}";
+                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
+
+                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
+                        ? uplinkProp.GetString() : null;
+                    if (string.IsNullOrEmpty(uplinkIfname)) continue;
+
+                    var ip = wanObj.TryGetProperty("ip", out var wanIpProp)
+                        ? wanIpProp.GetString() : null;
+
+                    // Derive the WAN key from port_table network_name when available
+                    // (e.g. "wan", "wan2") to match convention used by prior code.
+                    string interfaceKey;
+                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
+                        portIdxProp.TryGetInt32(out var portIdx) &&
+                        portIdxToNetworkName.TryGetValue(portIdx, out var networkName))
+                    {
+                        interfaceKey = networkName;
+                    }
+                    else
+                    {
+                        interfaceKey = i == 1 ? "wan" : $"wan{i}";
+                    }
+
+                    wanInterfaceName = interfaceKey;
+                    wanUplinkIfName = uplinkIfname;
+                    wanIp = ip;
+                    break;
+                }
+
+                if (wanInterfaceName != null) break;
+            }
         }
 
-        // Primary WAN port: first IsUplink port with a network_name starting with "wan",
-        // else any uplink port.
-        var wanPort = gateway.PortTable.FirstOrDefault(p =>
-            p.IsUplink &&
-            (p.NetworkName?.StartsWith("wan", StringComparison.OrdinalIgnoreCase) ?? false));
-        wanPort ??= gateway.PortTable.FirstOrDefault(p => p.IsUplink);
-        if (wanPort == null)
-        {
+        if (wanInterfaceName == null)
             return Fail("Couldn't identify the WAN port on the gateway.");
-        }
 
-        State.WanInterface = wanPort.NetworkName ?? "wan";
-        _wanUplinkIfName = wanPort.UplinkIfName;
-
-        // Snapshot every IP the gateway carries (LAN, WAN, management VLAN) so
-        // we can filter our own gateway out of the access-hop classification
-        // below. Without this the trace's first hop (the LAN gateway address)
-        // gets misclassified as the access ISP's first-mile device.
-        _gatewayIps.Clear();
-        foreach (var port in gateway.PortTable)
-        {
-            if (!string.IsNullOrEmpty(port.Ip)) _gatewayIps.Add(port.Ip);
-        }
-
-        // The port_table IP is the WAN public IP in our experience (or RFC1918 for
-        // double-NAT, CGNAT for cgnat, etc.). NetworkUtilities.ClassifyPublicAddress
-        // does the bracket detection.
-        State.WanIpAddress = wanPort.Ip;
-        State.WanIpClass = NetworkUtilities.ClassifyPublicAddress(wanPort.Ip);
+        State.WanInterface = wanInterfaceName;
+        _wanUplinkIfName = wanUplinkIfName;
+        State.WanIpAddress = wanIp;
+        State.WanIpClass = NetworkUtilities.ClassifyPublicAddress(wanIp);
 
         switch (State.WanIpClass)
         {
@@ -315,14 +369,14 @@ public class UpstreamTracerService
 
             case PublicAddressClass.Cgnat:
                 State.IsCgnat = true;
-                _logger.LogInformation("Tracer: WAN IP is CGNAT ({Ip}); proceeding with discovery", wanPort.Ip);
+                _logger.LogInformation("Tracer: WAN IP is CGNAT ({Ip}); proceeding with discovery", wanIp);
                 break;
 
             case PublicAddressClass.DoubleNat:
                 // Per locked Gate 2 decision 8: proceed anyway, traceroute will still
                 // reveal the upstream ISP. Surface a small "double-NAT detected" badge.
                 State.IsDoubleNat = true;
-                _logger.LogInformation("Tracer: WAN IP is RFC1918 ({Ip}); proceeding (double-NAT)", wanPort.Ip);
+                _logger.LogInformation("Tracer: WAN IP is RFC1918 ({Ip}); proceeding (double-NAT)", wanIp);
                 break;
 
             case PublicAddressClass.IPv6:

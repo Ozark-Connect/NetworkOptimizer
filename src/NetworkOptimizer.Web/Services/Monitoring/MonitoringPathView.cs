@@ -149,11 +149,15 @@ public class MonitoringPathView
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return Array.Empty<WanSummary>();
 
-        List<UniFiDeviceResponse> devices;
+        // Read wan1...wan6 from raw device JSON instead of relying on
+        // port_table.is_uplink, which may not be set for PPPoE, VLAN-tagged,
+        // or GRE tunnel connections.
+        string? deviceJson;
         try
         {
-            devices = (await _connectionService.Client.GetDevicesAsync(ct))?.ToList()
-                       ?? new List<UniFiDeviceResponse>();
+            deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
+            if (string.IsNullOrEmpty(deviceJson))
+                return Array.Empty<WanSummary>();
         }
         catch (Exception ex)
         {
@@ -161,37 +165,82 @@ public class MonitoringPathView
             return Array.Empty<WanSummary>();
         }
 
-        var gateway = devices.FirstOrDefault(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
-        if (gateway?.PortTable == null) return Array.Empty<WanSummary>();
-
         var results = new List<WanSummary>();
-        var wanPorts = gateway.PortTable
-            .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.NetworkName))
-            .OrderBy(p => p.PortIdx)
-            .ToList();
-        if (wanPorts.Count == 0)
-        {
-            wanPorts = gateway.PortTable
-                .Where(p => p.NetworkName != null && p.NetworkName.StartsWith("wan", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(p => p.PortIdx)
-                .ToList();
-        }
 
-        var gwMac = gateway.Mac.ToLowerInvariant().Replace('-', ':');
-        for (int i = 0; i < wanPorts.Count; i++)
+        using (var doc = System.Text.Json.JsonDocument.Parse(deviceJson))
         {
-            var port = wanPorts[i];
-            results.Add(new WanSummary
+            var root = doc.RootElement;
+            var devices = root.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? root
+                : root.TryGetProperty("data", out var data) ? data : root;
+
+            foreach (var device in devices.EnumerateArray())
             {
-                WanInterface = port.NetworkName ?? $"wan{i + 1}",
-                FriendlyName = string.IsNullOrEmpty(port.Name) ? null : port.Name,
-                IsPrimary = i == 0,
-                GatewayMac = gwMac,
-                GatewayPortName = port.Name,
-                LinkSpeedMbps = port.Speed > 0 ? port.Speed : (int?)null,
-                IpAddress = port.Ip,
-                IpClass = NetworkUtilities.ClassifyPublicAddress(port.Ip)
-            });
+                var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+                if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                    continue;
+
+                var gwMac = device.TryGetProperty("mac", out var macProp) ? macProp.GetString() : null;
+                gwMac = gwMac?.ToLowerInvariant().Replace('-', ':') ?? "";
+
+                var portInfo = new Dictionary<int, (string? networkName, string? name, int speed)>();
+                if (device.TryGetProperty("port_table", out var portTable) &&
+                    portTable.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var port in portTable.EnumerateArray())
+                    {
+                        if (!port.TryGetProperty("port_idx", out var idxProp) || !idxProp.TryGetInt32(out var idx))
+                            continue;
+                        var networkName = port.TryGetProperty("network_name", out var nnProp) ? nnProp.GetString() : null;
+                        var name = port.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+                        var speed = port.TryGetProperty("speed", out var speedProp) && speedProp.TryGetInt32(out var spd) ? spd : 0;
+                        portInfo[idx] = (networkName, name, speed);
+                    }
+                }
+
+                for (int i = 1; i <= 6; i++)
+                {
+                    var wanKey = $"wan{i}";
+                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
+
+                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
+                        ? uplinkProp.GetString() : null;
+                    if (string.IsNullOrEmpty(uplinkIfname)) continue;
+
+                    var ip = wanObj.TryGetProperty("ip", out var ipProp) ? ipProp.GetString() : null;
+                    var wanSpeed = wanObj.TryGetProperty("speed", out var wanSpeedProp) &&
+                        wanSpeedProp.TryGetInt32(out var ws) && ws > 0 ? ws : 0;
+
+                    string? interfaceKey = null;
+                    string? friendlyName = null;
+                    int linkSpeed = wanSpeed;
+
+                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
+                        portIdxProp.TryGetInt32(out var portIdx) &&
+                        portInfo.TryGetValue(portIdx, out var pi))
+                    {
+                        interfaceKey = pi.networkName;
+                        friendlyName = pi.name;
+                        if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
+                    }
+
+                    interfaceKey ??= i == 1 ? "wan" : $"wan{i}";
+
+                    results.Add(new WanSummary
+                    {
+                        WanInterface = interfaceKey,
+                        FriendlyName = string.IsNullOrEmpty(friendlyName) ? null : friendlyName,
+                        IsPrimary = results.Count == 0,
+                        GatewayMac = gwMac,
+                        GatewayPortName = friendlyName,
+                        LinkSpeedMbps = linkSpeed > 0 ? linkSpeed : (int?)null,
+                        IpAddress = ip,
+                        IpClass = NetworkUtilities.ClassifyPublicAddress(ip)
+                    });
+                }
+
+                if (results.Count > 0) break;
+            }
         }
 
         _wanCache = results;
