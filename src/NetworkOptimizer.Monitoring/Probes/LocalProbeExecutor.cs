@@ -27,12 +27,13 @@ public class LocalProbeExecutor : IProbeExecutor
     private readonly SemaphoreSlim _capabilityLock = new(1, 1);
     private bool _tracerouteBinaryAvailable;
 
-    // Throttle native Process.Start traceroutes. Spawning 18 concurrent
-    // processes (9 CDN endpoints * 2 modes from the upstream tracer) tripped
-    // a .NET 10 AccessViolation in SafePipeHandle.CreatePipeSocket on macOS,
-    // crashing the whole host with Abort trap: 6. 4-wide stays under the
-    // race and a full sweep still finishes inside the 10s deadline.
-    private readonly SemaphoreSlim _processLaunchLimiter = new(4, 4);
+    // Throttle native Process.Start. macOS ARM64 has a .NET 10 runtime bug
+    // (dotnet/runtime#112167) where concurrent Process.Start with redirected
+    // stdout/stderr causes heap corruption and Abort trap: 6. Limit to 2 on
+    // macOS (faster 0.1s ping interval compensates). Linux is unaffected.
+    private readonly SemaphoreSlim _processLaunchLimiter = new(
+        OperatingSystem.IsMacOS() ? 2 : 4,
+        OperatingSystem.IsMacOS() ? 2 : 4);
 
     public LocalProbeExecutor(ILogger<LocalProbeExecutor> logger)
     {
@@ -131,13 +132,12 @@ public class LocalProbeExecutor : IProbeExecutor
 
     private async Task<PingProbeResult> NativePingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
     {
-        // STM-style burst tuning: keep total burst duration ~1.5s by scaling interval
-        // inversely with count. 3 pings = 0.75 s interval, 6 = 0.3 s, 10 = ~0.17 s.
-        // Floor at 0.2 s to satisfy iputils' "minimum interval for non-root" check
-        // (also matches our SSH executor behavior).
+        // Fast burst: 0.1s interval on macOS (BSD ping allows it for non-root),
+        // 0.2s floor on Linux (iputils enforces minimum for non-root).
         var safeCount = Math.Max(1, count);
-        var rawInterval = safeCount > 1 ? 1.5 / (safeCount - 1) : 0.2;
-        var interval = Math.Max(0.2, Math.Round(rawInterval, 2));
+        var minInterval = OperatingSystem.IsMacOS() ? 0.1 : 0.15;
+        var rawInterval = safeCount > 1 ? 1.5 / (safeCount - 1) : minInterval;
+        var interval = Math.Max(minInterval, Math.Round(rawInterval, 2));
         var timeoutSeconds = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
 
         // Two BSD-vs-iputils gotchas: ping has no -4 on macOS (it aborts with
