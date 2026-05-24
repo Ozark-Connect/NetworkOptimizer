@@ -456,6 +456,7 @@ export class LanFlowMap {
             this._buildClouds(snap);
             this._buildLinks(snap);
             this._buildFloatingLabels(snap);
+            this._applyOverlayVisibility();
             this._applyLiveRates(snap.liveRates || {});
         } catch (err) {
             this.onError(err);
