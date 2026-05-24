@@ -66,6 +66,21 @@ const INTERIOR_LOOK = {
 
 const _interiorTexCache = new Map();
 
+// Flat surround colors for the wall area around doors/windows. Approximates
+// what the adjacent wall material looks like as a solid fill.
+const SURROUND_COLORS = {
+    exterior_residential: '#707072',
+    exterior:             '#707072',
+    exterior_commercial:  '#686868',
+    wood_paneling:        '#757880',
+    wood:                 '#6B4226',
+    brick:                '#8B4225',
+    concrete:             '#808080',
+    drywall:              '#D8D2C8',
+    drywall_heavy:        '#CCC6BC',
+    metal:                '#888888',
+};
+
 const _texCache = new Map();
 
 export function buildBuildings(snap) {
@@ -485,20 +500,19 @@ function _drawGlassWall(canvas, ctx, thin) {
 
 // Residential window proportioned to segment width. Wider segments get taller
 // windows, narrow segments get squarer windows.
-function _drawWindow(canvas, ctx, panes, widthM, heightM) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+function _drawWindow(canvas, ctx, panes, widthM, heightM, surround) {
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
-    // Wall surround
-    ctx.fillStyle = '#6E6E72';
+    // Wall surround matches adjacent wall material
+    ctx.fillStyle = surround || '#6E6E72';
     ctx.fillRect(0, 0, w, h);
 
-    // Window proportions: width fills ~80% of segment. Standard residential
-    // windows are typically 3-5 ft tall. Height scales with width but uses
-    // ~70% of wall height for a realistic look.
+    // Window proportions: width fills ~80% of segment. Height scales with
+    // width but stays proportionate - not floor to ceiling.
     const winW = w * 0.8;
-    const winH = h * 0.45 + Math.min(winW * 0.5, h * 0.25);
+    const winH = h * 0.38 + Math.min(winW * 0.4, h * 0.2);
     const winL = (w - winW) / 2;
     // Vertically center the window in the upper portion of the wall
     const winT = (h - winH) * 0.35;
@@ -551,12 +565,12 @@ function _drawWindow(canvas, ctx, panes, widthM, heightM) {
 }
 
 // Raised-panel residential wood door - sits in the lower portion of the wall.
-function _drawDoorWood(canvas, ctx, widthM, heightM) {
+function _drawDoorWood(canvas, ctx, widthM, heightM, surround) {
     const w = 256, h = Math.round(256 * (heightM / widthM));
     canvas.width = w;
     canvas.height = h;
 
-    ctx.fillStyle = '#6E6E72';
+    ctx.fillStyle = surround || '#6E6E72';
     ctx.fillRect(0, 0, w, h);
 
     // Standard US door: 6'8" (2.032 m) height, fixed regardless of width.
@@ -602,7 +616,7 @@ function _drawDoorWood(canvas, ctx, widthM, heightM) {
 }
 
 // Steel entry door with half-lite window.
-function _drawDoorMetal(canvas, ctx, widthM, heightM) {
+function _drawDoorMetal(canvas, ctx, widthM, heightM, surround) {
     const w = 256, h = Math.round(256 * (heightM / widthM));
     canvas.width = w;
     canvas.height = h;
@@ -646,7 +660,7 @@ function _drawDoorMetal(canvas, ctx, widthM, heightM) {
 }
 
 // Glass/French door - mostly glass with grid.
-function _drawDoorGlass(canvas, ctx, widthM, heightM) {
+function _drawDoorGlass(canvas, ctx, widthM, heightM, surround) {
     const w = 256, h = Math.round(256 * (heightM / widthM));
     canvas.width = w;
     canvas.height = h;
@@ -823,7 +837,7 @@ function _drawDrywallInterior(canvas, ctx) {
 // to the wall's real-world dimensions. Solid materials use realistic muted colors.
 // Materials in INTERIOR_LOOK return [exteriorMat, interiorMat] for two-sided rendering.
 
-function _createWallMaterial(matKey, segLenM, winding) {
+function _createWallMaterial(matKey, segLenM, winding, adjacentMat) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
 
     // Per-segment materials (doors, windows) - drawn fresh with real dimensions,
@@ -831,13 +845,14 @@ function _createWallMaterial(matKey, segLenM, winding) {
     if (PER_SEGMENT.has(matKey)) {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
+        const surround = SURROUND_COLORS[adjacentMat] || SURROUND_COLORS.exterior_residential || '#6E6E72';
         const drawFn = {
-            window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M),
-            window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M),
-            window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M),
-            door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M),
-            door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M),
-            door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M),
+            window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M, surround),
+            window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M, surround),
+            window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M, surround),
+            door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M, surround),
+            door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M, surround),
+            door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M, surround),
         }[matKey];
         if (drawFn) drawFn(canvas, ctx);
         const tex = new THREE.CanvasTexture(canvas);
@@ -980,8 +995,19 @@ function _buildWalls(floor, scale, floorY, wallH, wallD, winding, parent) {
             const mz = (a.z + b.z) / 2;
 
             const segMat = (wall.materials && wall.materials[i]) || wall.material;
+            // For doors/windows, find the adjacent wall material for the surround
+            let adjacentMat = wall.material;
+            if (PER_SEGMENT.has(segMat) && wall.materials) {
+                // Look at previous then next segment for a non-door/window material
+                for (const adj of [i - 1, i + 1]) {
+                    if (adj >= 0 && adj < wall.materials.length) {
+                        const m = wall.materials[adj] || wall.material;
+                        if (!PER_SEGMENT.has(m)) { adjacentMat = m; break; }
+                    }
+                }
+            }
             // Returns a single material or a 6-element array for per-face rendering
-            const material = _createWallMaterial(segMat, segLenM, winding);
+            const material = _createWallMaterial(segMat, segLenM, winding, adjacentMat);
             const geo = new THREE.BoxGeometry(segLen, wallH, wallD);
             const mesh = new THREE.Mesh(geo, material);
             mesh.position.set(mx, floorY + wallH / 2, mz);
