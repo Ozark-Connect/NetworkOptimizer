@@ -557,6 +557,27 @@ export class LanFlowMap {
             }
         }
 
+        // Post-layout: push WiFi clients outward from their parent AP so they
+        // fan out rather than clustering tightly around the infrastructure.
+        const WIFI_SPREAD = 1.8;
+        for (const node of snap.nodes) {
+            if (node.kind !== NODE_KIND.WifiClient) continue;
+            const p = positions.get(node.id);
+            if (!p || p.pinned) continue;
+            const parentId = node.parentId;
+            if (!parentId) continue;
+            const pp = positions.get(parentId);
+            if (!pp) continue;
+            const dx = p.x - pp.x;
+            const dy = p.y - pp.y;
+            const dz = p.z - pp.z;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < 0.1) continue;
+            p.x = pp.x + dx * WIFI_SPREAD;
+            p.y = pp.y + dy * WIFI_SPREAD;
+            p.z = pp.z + dz * WIFI_SPREAD;
+        }
+
         this._positions = positions;
     }
 
@@ -2153,7 +2174,7 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
-        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch) return;
+        if (node.kind !== NODE_KIND.Gateway && node.kind !== NODE_KIND.Switch && node.kind !== NODE_KIND.WiredClient) return;
 
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
