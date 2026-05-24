@@ -11,8 +11,8 @@ const WALL_OPACITY = 0.5;
 const ROOF_OPACITY = 0.45;
 const ROOF_COLOR = 0x5a6577;
 const FLOOR_COLOR = 0x2a3545;
-const ROOF_PITCH = 0.22;
-const MAX_RIDGE_M = 2.75;
+const ROOF_PITCH = 0.28;
+const MAX_RIDGE_M = 3.0;
 const FALLBACK_WALL_COLOR = '#94a3b8';
 
 export function buildBuildings(snap) {
