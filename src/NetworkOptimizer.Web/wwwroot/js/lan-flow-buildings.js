@@ -135,13 +135,11 @@ function _getTexCanvas(matKey) {
             return null;
     }
 
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex._tileSizeM = tileSizeM;
-    _texCache.set(matKey, tex);
-    return tex;
+    // Cache the raw canvas and tile size - NOT the Three.js texture.
+    // CanvasTexture.clone() doesn't reliably transfer image data to the GPU,
+    // so each wall segment creates a fresh texture from the cached canvas.
+    _texCache.set(matKey, { canvas, tileSizeM });
+    return _texCache.get(matKey);
 }
 
 // Standard US modular brick: 7-5/8" x 2-1/4" (194mm x 57mm) with
@@ -276,10 +274,10 @@ function _drawSiding(canvas, ctx) {
     canvas.height = 512;
     const boardH = 36;
 
-    // Dark warm gray-brown palette
+    // Cool charcoal gray palette matching fiber cement/engineered siding
     const baseColors = [
-        [105, 97, 88], [100, 92, 84], [108, 100, 90],
-        [98, 90, 82], [103, 95, 86], [106, 98, 89],
+        [95, 92, 88], [90, 87, 83], [98, 95, 90],
+        [88, 85, 81], [93, 90, 86], [96, 93, 88],
     ];
 
     let row = 0;
@@ -454,19 +452,19 @@ function _drawWoodVertical(canvas, ctx) {
 
 function _createWallMaterial(matKey, segLenM) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
-    const baseTex = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
+    const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
 
-    if (baseTex) {
-        const tex = baseTex.clone();
-        tex.needsUpdate = true;
-        const tileSizeM = baseTex._tileSizeM || 1.0;
-        tex.repeat.set(segLenM / tileSizeM, WALL_HEIGHT_M / tileSizeM);
+    if (cached) {
+        const tex = new THREE.CanvasTexture(cached.canvas);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.repeat.set(segLenM / cached.tileSizeM, WALL_HEIGHT_M / cached.tileSizeM);
         return new THREE.MeshStandardMaterial({
             map: tex,
-            transparent: true,
+            transparent: WALL_OPACITY < 1.0,
             opacity: WALL_OPACITY,
             depthWrite: WALL_OPACITY >= 1.0,
-            transparent: WALL_OPACITY < 1.0,
             side: THREE.DoubleSide,
             roughness: 0.85,
         });
