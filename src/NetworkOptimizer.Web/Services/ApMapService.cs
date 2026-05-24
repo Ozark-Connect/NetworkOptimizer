@@ -88,7 +88,7 @@ public class ApMapService
     /// <summary>
     /// Save an AP's map location (upsert by MAC address).
     /// </summary>
-    public async Task SaveApLocationAsync(string mac, double lat, double lng)
+    public async Task SaveApLocationAsync(string mac, double lat, double lng, int? floor = null)
     {
         var normalizedMac = mac.ToLowerInvariant();
 
@@ -98,6 +98,7 @@ public class ApMapService
         {
             existing.Latitude = lat;
             existing.Longitude = lng;
+            if (floor.HasValue) existing.Floor = floor.Value;
             existing.UpdatedAt = DateTime.UtcNow;
         }
         else
@@ -107,7 +108,7 @@ public class ApMapService
                 ApMac = normalizedMac,
                 Latitude = lat,
                 Longitude = lng,
-                Floor = 1,
+                Floor = floor ?? 1,
                 UpdatedAt = DateTime.UtcNow
             });
         }

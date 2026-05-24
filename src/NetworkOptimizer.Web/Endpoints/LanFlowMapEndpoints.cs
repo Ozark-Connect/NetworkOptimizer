@@ -5,7 +5,7 @@ namespace NetworkOptimizer.Web.Endpoints;
 
 public static class LanFlowMapEndpoints
 {
-    private record DevicePlacementRequest(string Mac, double Latitude, double Longitude);
+    private record DevicePlacementRequest(string Mac, double Latitude, double Longitude, int? Floor);
 
     public static void Map(WebApplication app)
     {
@@ -44,7 +44,7 @@ public static class LanFlowMapEndpoints
             {
                 if (string.IsNullOrWhiteSpace(req.Mac))
                     return Results.BadRequest("mac is required");
-                await apMap.SaveApLocationAsync(req.Mac, req.Latitude, req.Longitude);
+                await apMap.SaveApLocationAsync(req.Mac, req.Latitude, req.Longitude, req.Floor);
                 svc.InvalidateCache();
                 return Results.Ok();
             });

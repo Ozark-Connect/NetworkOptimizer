@@ -2351,12 +2351,15 @@ export class LanFlowMap {
         const lat = bounds.centerLat + dLat * 180 / Math.PI;
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
+        // Reverse Y → floor: posY = floor * 3.0 * scale * 0.4
+        const floor = Math.max(1, Math.round(pos.y / (scale * 0.4) / 3.0));
+
         try {
             await fetch(`${this.apiBase}/device-placement`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng }),
+                body: JSON.stringify({ mac: node.mac, latitude: lat, longitude: lng, floor }),
             });
         } catch (err) {
             console.error('[LanFlowMap] Failed to save placement:', err);
