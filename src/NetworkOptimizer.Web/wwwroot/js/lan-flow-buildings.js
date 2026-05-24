@@ -97,9 +97,9 @@ function toScene(pt, scale) {
 }
 
 // -- procedural textures ------------------------------------------------------
-// Each canvas represents a fixed real-world tile (tileSizeM). The raw canvas
-// is cached; each wall segment creates a fresh CanvasTexture from it with
-// repeat set from the wall's actual meter dimensions.
+// Each canvas represents a fixed real-world tile (tileSizeM). The Three.js
+// texture is cached; per-segment materials clone it with repeat set from
+// the wall's actual meter dimensions.
 
 function _getTexCanvas(matKey) {
     if (_texCache.has(matKey)) return _texCache.get(matKey);
@@ -131,17 +131,12 @@ function _getTexCanvas(matKey) {
             return null;
     }
 
-    _texCache.set(matKey, { canvas, tileSizeM });
-    return _texCache.get(matKey);
-}
-
-// Create a fresh Three.js texture from a cached canvas with segment-specific repeat.
-function _makeTexture(cached, segLenM) {
-    const tex = new THREE.CanvasTexture(cached.canvas);
+    const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.repeat.set(segLenM / cached.tileSizeM, WALL_HEIGHT_M / cached.tileSizeM);
+    tex._tileSizeM = tileSizeM;
+    _texCache.set(matKey, tex);
     return tex;
 }
 
@@ -260,11 +255,15 @@ function _drawWoodVertical(canvas, ctx) {
 
 function _createWallMaterial(matKey, segLenM) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
-    const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
+    const baseTex = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
 
-    if (cached) {
+    if (baseTex) {
+        const tex = baseTex.clone();
+        tex.needsUpdate = true;
+        const tileSizeM = baseTex._tileSizeM || 1.0;
+        tex.repeat.set(segLenM / tileSizeM, WALL_HEIGHT_M / tileSizeM);
         return new THREE.MeshStandardMaterial({
-            map: _makeTexture(cached, segLenM),
+            map: tex,
             transparent: true,
             opacity: WALL_OPACITY,
             depthWrite: false,
