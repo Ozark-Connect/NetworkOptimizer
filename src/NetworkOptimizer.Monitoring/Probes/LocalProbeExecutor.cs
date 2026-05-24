@@ -132,12 +132,10 @@ public class LocalProbeExecutor : IProbeExecutor
 
     private async Task<PingProbeResult> NativePingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
     {
-        // Fast burst: 0.1s interval on macOS (BSD ping allows it for non-root),
-        // 0.2s floor on Linux (iputils enforces minimum for non-root).
+        // Fixed interval per platform: 0.1s on macOS (BSD ping allows it),
+        // 0.15s on Linux. 10 pings completes in 0.9s / 1.35s respectively.
         var safeCount = Math.Max(1, count);
-        var minInterval = OperatingSystem.IsMacOS() ? 0.1 : 0.15;
-        var rawInterval = safeCount > 1 ? 1.5 / (safeCount - 1) : minInterval;
-        var interval = Math.Max(minInterval, Math.Round(rawInterval, 2));
+        var interval = OperatingSystem.IsMacOS() ? 0.1 : 0.15;
         var timeoutSeconds = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds));
 
         // Two BSD-vs-iputils gotchas: ping has no -4 on macOS (it aborts with
