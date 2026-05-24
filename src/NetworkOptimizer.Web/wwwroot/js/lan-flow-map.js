@@ -235,6 +235,30 @@ export class LanFlowMap {
         this.controls.maxDistance = 220;
         this.controls.target.set(0, 0, 0);
 
+        // Restore persisted camera target for fly-in destination.
+        try {
+            const saved = JSON.parse(localStorage.getItem('lanFlowMapCamera'));
+            if (saved) {
+                this._savedCamera = saved;
+            }
+        } catch {}
+
+        // Persist camera on orbit change with 500ms debounce.
+        let camSaveTimer = null;
+        this.controls.addEventListener('change', () => {
+            clearTimeout(camSaveTimer);
+            camSaveTimer = setTimeout(() => {
+                try {
+                    const p = this.camera.position;
+                    const t = this.controls.target;
+                    localStorage.setItem('lanFlowMapCamera', JSON.stringify({
+                        cx: p.x, cy: p.y, cz: p.z,
+                        tx: t.x, ty: t.y, tz: t.z,
+                    }));
+                } catch {}
+            }, 500);
+        });
+
         // Subtle hemispheric lighting so nodes have a sense of depth without flat shading.
         const hemi = new THREE.HemisphereLight(0xb1d4ff, 0x1a2029, 0.55);
         const ambient = new THREE.AmbientLight(0xffffff, 0.35);
@@ -1119,9 +1143,16 @@ export class LanFlowMap {
     // ------------------------------------------------------------------------
 
     _startAnimation() {
-        // Schedule a one-shot camera fly-in on first frame.
+        // Schedule a one-shot camera fly-in. If the user has a saved camera
+        // position, fly to that instead of the default overview.
         this._flyInUntil = performance.now() + 1300;
-        this._flyInTargetCam = new THREE.Vector3(60, 40, 60);
+        const sc = this._savedCamera;
+        this._flyInTargetCam = sc
+            ? new THREE.Vector3(sc.cx, sc.cy, sc.cz)
+            : new THREE.Vector3(60, 40, 60);
+        this._flyInTargetLookAt = sc
+            ? new THREE.Vector3(sc.tx, sc.ty, sc.tz)
+            : null;
         this._flyInStartCam = this.camera.position.clone();
 
         // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
@@ -1162,7 +1193,10 @@ export class LanFlowMap {
                 const t = 1 - (this._flyInUntil - now) / 1300;
                 const eased = 1 - Math.pow(1 - t, 3);
                 this.camera.position.lerpVectors(this._flyInStartCam, this._flyInTargetCam, eased);
-                this.camera.lookAt(0, 0, 0);
+                if (this._flyInTargetLookAt) {
+                    this.controls.target.lerpVectors(new THREE.Vector3(0, 0, 0), this._flyInTargetLookAt, eased);
+                }
+                this.camera.lookAt(this.controls.target);
             } else if (this._repositionMode && this._repositionGroup) {
                 // In reposition mode WASD nudges the device on the XZ plane
                 if (this._keys) {
