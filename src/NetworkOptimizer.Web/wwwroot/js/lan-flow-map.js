@@ -464,12 +464,13 @@ export class LanFlowMap {
     }
 
     _rebuildBuildings(snap) {
+        const disposeMat = (m) => { if (m.map) m.map.dispose(); m.dispose(); };
         const disposeGroup = (g) => {
             g.traverse((obj) => {
                 if (obj.geometry) obj.geometry.dispose();
                 if (obj.material) {
-                    if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
-                    else obj.material.dispose();
+                    if (Array.isArray(obj.material)) obj.material.forEach(disposeMat);
+                    else disposeMat(obj.material);
                 }
             });
             while (g.children.length) g.remove(g.children[0]);
@@ -2507,7 +2508,7 @@ export class LanFlowMap {
 
         // Reverse-project 3D scene coords back to geo
         const bounds = this._snapshot?.bounds;
-        if (!bounds?.centerLat || !bounds?.lngScale) {
+        if (bounds?.centerLat == null || bounds?.lngScale == null) {
             console.warn('[LanFlowMap] No projection params - cannot save placement');
             return;
         }
