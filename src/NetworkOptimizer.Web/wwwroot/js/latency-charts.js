@@ -274,7 +274,7 @@ function computeStats(values) {
     };
 }
 
-function fmtRtt(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtRtt(v) { return v != null ? v.toFixed(3) : '-'; }
 function fmtLoss(v) {
     if (v == null) return '-';
     const s = v.toFixed(2) + '%';

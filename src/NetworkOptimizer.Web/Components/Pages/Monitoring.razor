@@ -1336,7 +1336,7 @@ else
     private static string FormatRtt(double? ms)
     {
         if (!ms.HasValue) return "-";
-        return $"{ms.Value:0.#} ms";
+        return $"{ms.Value:0.##} ms";
     }
 
     private static string FormatLoss(double percent)
