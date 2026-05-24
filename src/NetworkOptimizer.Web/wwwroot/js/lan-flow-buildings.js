@@ -345,104 +345,51 @@ function _drawSiding(canvas, ctx) {
     }
 }
 
-// Weathered gray vertical board siding - exterior look for bare-wood
-// structures (sheds, barns, outbuildings). Colors are pushed cool/blue-gray
-// to compensate for the scene's ACES tone mapping and warm lighting.
+// Painted gray vertical board siding - uniform paint color with subtle wood
+// grain texture showing through. Clean flat boards, no exposed knots.
+// Colors pushed cool/blue-gray to compensate for scene's warm tone mapping.
 function _drawWoodVertical(canvas, ctx) {
     canvas.width = 512;
     canvas.height = 512;
     const boardW = 62;
     const gapW = 4;
 
-    // Cool dark gap background
-    ctx.fillStyle = '#1a1e22';
+    // Dark gap between boards
+    ctx.fillStyle = '#181c20';
     ctx.fillRect(0, 0, 512, 512);
 
-    // Cool blue-gray palette - compensates for scene's warm tone mapping
-    const baseColors = [
-        [125, 130, 138], [118, 123, 132], [130, 135, 142],
-        [112, 118, 126], [122, 127, 135], [120, 125, 133],
-        [115, 120, 128], [128, 132, 140],
-    ];
+    // Uniform painted gray - slight per-board variation like real paint
+    const baseR = 118, baseG = 123, baseB = 132;
 
     let boardIdx = 0;
     for (let x = 0; x < 512; x += boardW + gapW) {
-        const [br, bg, bb] = baseColors[boardIdx % baseColors.length];
-        // Per-board color variation
-        const shift = ((boardIdx * 17) % 11) - 5;
-        const r = Math.min(255, Math.max(0, br + shift));
-        const g = Math.min(255, Math.max(0, bg + shift));
-        const b = Math.min(255, Math.max(0, bb + shift));
-
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        // Very subtle per-board shift (paint absorption varies slightly)
+        const shift = ((boardIdx * 7) % 5) - 2;
+        ctx.fillStyle = `rgb(${baseR + shift},${baseG + shift},${baseB + shift})`;
         ctx.fillRect(x, 0, boardW, 512);
 
-        // Vertical grain - cool-toned fine lines with slight wander
-        for (let gi = 0; gi < 8; gi++) {
-            const gx = x + 3 + (gi / 8) * (boardW - 6) + (Math.random() - 0.5) * 4;
-            const darkness = 0.04 + Math.random() * 0.08;
-            ctx.strokeStyle = `rgba(20,25,35,${darkness})`;
-            ctx.lineWidth = 0.5 + Math.random() * 1;
+        // Subtle grain showing through paint - very faint vertical lines
+        for (let gi = 0; gi < 6; gi++) {
+            const gx = x + 4 + (gi / 6) * (boardW - 8) + (Math.random() - 0.5) * 3;
+            ctx.strokeStyle = `rgba(20,25,35,${0.02 + Math.random() * 0.03})`;
+            ctx.lineWidth = 0.5 + Math.random() * 0.5;
             ctx.beginPath();
             let cx = gx;
             ctx.moveTo(cx, 0);
-            for (let y = 32; y <= 512; y += 32) {
-                cx += (Math.random() - 0.5) * 1.5;
+            for (let y = 40; y <= 512; y += 40) {
+                cx += (Math.random() - 0.5) * 1;
                 ctx.lineTo(cx, y);
             }
             ctx.stroke();
         }
 
-        // Wider grain bands - cool dark streaks
-        for (let si = 0; si < 2; si++) {
-            const sx = x + 8 + Math.random() * (boardW - 16);
-            const sw = 2 + Math.random() * 4;
-            ctx.fillStyle = `rgba(15,20,30,${0.04 + Math.random() * 0.06})`;
-            ctx.fillRect(sx, 0, sw, 512);
-        }
-
-        // Weathering gradient - darker at bottom, lighter silver at top
-        const wGrad = ctx.createLinearGradient(0, 0, 0, 512);
-        wGrad.addColorStop(0, 'rgba(180,185,195,0.06)');
-        wGrad.addColorStop(0.4, 'rgba(0,0,0,0)');
-        wGrad.addColorStop(0.85, 'rgba(0,0,0,0.04)');
-        wGrad.addColorStop(1, 'rgba(15,20,25,0.08)');
-        ctx.fillStyle = wGrad;
-        ctx.fillRect(x, 0, boardW, 512);
-
-        // Knot (one per ~third board)
-        if (boardIdx % 3 === 0) {
-            const ky = 80 + ((boardIdx * 137) % 300);
-            const kx = x + boardW / 2 + (Math.random() - 0.5) * 10;
-            const kr = 4 + Math.random() * 3;
-
-            ctx.strokeStyle = 'rgba(30,35,45,0.35)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.ellipse(kx, ky, kr, kr * 0.7, 0, 0, Math.PI * 2);
-            ctx.stroke();
-
-            ctx.fillStyle = 'rgba(40,45,55,0.25)';
-            ctx.beginPath();
-            ctx.ellipse(kx, ky, kr - 1, kr * 0.6, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            for (let a = -2; a <= 2; a++) {
-                ctx.strokeStyle = 'rgba(20,25,35,0.06)';
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
-                const offset = (kr + 4 + Math.abs(a) * 3) * (a < 0 ? -1 : 1);
-                ctx.moveTo(kx + offset, ky - 30);
-                ctx.quadraticCurveTo(kx + offset * 0.3, ky, kx + offset, ky + 30);
-                ctx.stroke();
-            }
-        }
-
-        // Board edge shadow/highlight
-        ctx.fillStyle = 'rgba(0,0,0,0.08)';
+        // Board channel shadow on right edge
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
         ctx.fillRect(x + boardW - 2, 0, 2, 512);
-        ctx.fillStyle = 'rgba(200,210,220,0.04)';
-        ctx.fillRect(x, 0, 1, 512);
+
+        // Slight highlight on left edge where board catches light
+        ctx.fillStyle = 'rgba(180,190,200,0.04)';
+        ctx.fillRect(x + 1, 0, 1, 512);
 
         boardIdx++;
     }
