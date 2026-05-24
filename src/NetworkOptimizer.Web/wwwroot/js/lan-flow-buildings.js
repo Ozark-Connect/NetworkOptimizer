@@ -47,14 +47,16 @@ const TEXTURED = new Set([
     'wood', 'wood_paneling',
 ]);
 
-// Materials that look different on the interior face. Maps to the
-// REALISTIC_COLORS key used for the back-face solid color.
+// Materials that look different on the interior face. Value is the
+// interior texture key used by _getTexCanvas / _getInteriorTexCanvas.
 const INTERIOR_LOOK = {
-    wood_paneling: '#A08060',       // warm wood paneling
-    exterior_residential: '#E8E0D8', // drywall
-    exterior: '#E8E0D8',
-    exterior_commercial: '#D5CEC6',
+    wood_paneling: 'interior_wood',
+    exterior_residential: 'interior_drywall',
+    exterior: 'interior_drywall',
+    exterior_commercial: 'interior_drywall',
 };
+
+const _interiorTexCache = new Map();
 
 const _texCache = new Map();
 
@@ -395,40 +397,192 @@ function _drawWoodVertical(canvas, ctx) {
     }
 }
 
+// -- interior textures --------------------------------------------------------
+// Cached separately from exterior textures. Used for the back face of walls
+// that look different inside vs outside.
+
+function _getInteriorTexCanvas(interiorKey) {
+    if (_interiorTexCache.has(interiorKey)) return _interiorTexCache.get(interiorKey);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    let tileSizeM = 1.0;
+
+    switch (interiorKey) {
+        case 'interior_wood':
+            _drawWoodPanelingInterior(canvas, ctx);
+            tileSizeM = 0.6;
+            break;
+        case 'interior_drywall':
+            _drawDrywallInterior(canvas, ctx);
+            tileSizeM = 1.0;
+            break;
+        default:
+            _interiorTexCache.set(interiorKey, null);
+            return null;
+    }
+
+    _interiorTexCache.set(interiorKey, { canvas, tileSizeM });
+    return _interiorTexCache.get(interiorKey);
+}
+
+// Warm wood paneling with grain and knots - interior face of wood_paneling walls.
+function _drawWoodPanelingInterior(canvas, ctx) {
+    canvas.width = 512;
+    canvas.height = 512;
+    const boardW = 62;
+    const gapW = 3;
+
+    ctx.fillStyle = '#1a1510';
+    ctx.fillRect(0, 0, 512, 512);
+
+    const baseColors = [
+        [155, 120, 85], [140, 108, 78], [160, 125, 88],
+        [135, 105, 75], [148, 115, 82], [145, 112, 80],
+    ];
+
+    let boardIdx = 0;
+    for (let x = 0; x < 512; x += boardW + gapW) {
+        const [br, bg, bb] = baseColors[boardIdx % baseColors.length];
+        const shift = ((boardIdx * 13) % 7) - 3;
+        ctx.fillStyle = `rgb(${br + shift},${bg + shift},${bb + shift})`;
+        ctx.fillRect(x, 0, boardW, 512);
+
+        // Vertical grain lines
+        for (let gi = 0; gi < 6; gi++) {
+            const gx = x + 3 + (gi / 6) * (boardW - 6) + (Math.random() - 0.5) * 4;
+            ctx.strokeStyle = `rgba(40,25,10,${0.04 + Math.random() * 0.06})`;
+            ctx.lineWidth = 0.5 + Math.random() * 0.8;
+            ctx.beginPath();
+            let cx = gx;
+            ctx.moveTo(cx, 0);
+            for (let y = 32; y <= 512; y += 32) {
+                cx += (Math.random() - 0.5) * 1.5;
+                ctx.lineTo(cx, y);
+            }
+            ctx.stroke();
+        }
+
+        // Wider grain bands
+        for (let si = 0; si < 2; si++) {
+            const sx = x + 8 + Math.random() * (boardW - 16);
+            ctx.fillStyle = `rgba(30,18,8,${0.04 + Math.random() * 0.05})`;
+            ctx.fillRect(sx, 0, 2 + Math.random() * 3, 512);
+        }
+
+        // Knot on every third board
+        if (boardIdx % 3 === 0) {
+            const ky = 80 + ((boardIdx * 137) % 300);
+            const kx = x + boardW / 2 + (Math.random() - 0.5) * 10;
+            const kr = 4 + Math.random() * 3;
+            ctx.strokeStyle = 'rgba(60,35,15,0.35)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(kx, ky, kr, kr * 0.7, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(80,50,25,0.25)';
+            ctx.beginPath();
+            ctx.ellipse(kx, ky, kr - 1, kr * 0.6, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        ctx.fillRect(x + boardW - 1, 0, 1, 512);
+
+        boardIdx++;
+    }
+}
+
+// Painted drywall - interior face of exterior walls. Off-white with subtle
+// roller texture.
+function _drawDrywallInterior(canvas, ctx) {
+    canvas.width = 256;
+    canvas.height = 256;
+    ctx.fillStyle = '#E2DBD2';
+    ctx.fillRect(0, 0, 256, 256);
+
+    // Subtle roller texture - tiny stipple noise
+    for (let i = 0; i < 600; i++) {
+        const x = Math.random() * 256;
+        const y = Math.random() * 256;
+        const s = 0.5 + Math.random() * 1.5;
+        ctx.fillStyle = `rgba(${Math.random() > 0.5 ? '255,255,255' : '0,0,0'},${0.01 + Math.random() * 0.02})`;
+        ctx.fillRect(x, y, s, s);
+    }
+}
+
 // -- wall material factory ----------------------------------------------------
-// Textured materials get a cloned texture with repeat scaled to the wall
-// segment's real-world dimensions. Solid materials use realistic muted colors.
+// Textured materials get a fresh texture from cached canvas with repeat scaled
+// to the wall's real-world dimensions. Solid materials use realistic muted colors.
+// Materials in INTERIOR_LOOK return [exteriorMat, interiorMat] for two-sided rendering.
 
 function _createWallMaterial(matKey, segLenM) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
     const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
 
+    // Build the exterior (primary) material
+    let exteriorMat;
     if (cached) {
         const tex = new THREE.CanvasTexture(cached.canvas);
         tex.wrapS = THREE.RepeatWrapping;
         tex.wrapT = THREE.RepeatWrapping;
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.repeat.set(segLenM / cached.tileSizeM, WALL_HEIGHT_M / cached.tileSizeM);
-        return new THREE.MeshStandardMaterial({
+        exteriorMat = new THREE.MeshStandardMaterial({
             map: tex,
             transparent: WALL_OPACITY < 1.0,
             opacity: WALL_OPACITY,
             depthWrite: WALL_OPACITY >= 1.0,
-            side: THREE.DoubleSide,
+            side: THREE.FrontSide,
             roughness: 0.85,
+        });
+    } else {
+        exteriorMat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(hex),
+            transparent: WALL_OPACITY < 1.0,
+            opacity: WALL_OPACITY,
+            depthWrite: WALL_OPACITY >= 1.0,
+            side: THREE.FrontSide,
+            emissive: new THREE.Color(hex),
+            emissiveIntensity: 0.05,
+            roughness: 0.7,
         });
     }
 
-    return new THREE.MeshStandardMaterial({
-        color: new THREE.Color(hex),
-        transparent: WALL_OPACITY < 1.0,
-        opacity: WALL_OPACITY,
-        depthWrite: WALL_OPACITY >= 1.0,
-        side: THREE.DoubleSide,
-        emissive: new THREE.Color(hex),
-        emissiveIntensity: 0.05,
-        roughness: 0.7,
-    });
+    // If this material has a different interior look, build a back-face material
+    const interiorKey = INTERIOR_LOOK[matKey];
+    if (interiorKey) {
+        const intCached = _getInteriorTexCanvas(interiorKey);
+        let interiorMat;
+        if (intCached) {
+            const tex = new THREE.CanvasTexture(intCached.canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.repeat.set(segLenM / intCached.tileSizeM, WALL_HEIGHT_M / intCached.tileSizeM);
+            interiorMat = new THREE.MeshStandardMaterial({
+                map: tex,
+                transparent: WALL_OPACITY < 1.0,
+                opacity: WALL_OPACITY,
+                depthWrite: WALL_OPACITY >= 1.0,
+                side: THREE.BackSide,
+                roughness: 0.85,
+            });
+        } else {
+            interiorMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(hex),
+                transparent: WALL_OPACITY < 1.0,
+                opacity: WALL_OPACITY,
+                depthWrite: WALL_OPACITY >= 1.0,
+                side: THREE.BackSide,
+                roughness: 0.7,
+            });
+        }
+        return [exteriorMat, interiorMat];
+    }
+
+    // No interior difference - use DoubleSide on the single material
+    exteriorMat.side = THREE.DoubleSide;
+    return exteriorMat;
 }
 
 // -- floor plane (convex hull of wall points, not axis-aligned bbox) ----------
@@ -496,12 +650,22 @@ function _buildWalls(floor, scale, floorY, wallH, wallD, parent) {
 
             const segMat = (wall.materials && wall.materials[i]) || wall.material;
             const material = _createWallMaterial(segMat, segLenM);
-
             const geo = new THREE.BoxGeometry(segLen, wallH, wallD);
-            const mesh = new THREE.Mesh(geo, material);
-            mesh.position.set(mx, floorY + wallH / 2, mz);
-            mesh.rotation.y = -angle;
-            parent.add(mesh);
+
+            if (Array.isArray(material)) {
+                // Two-sided: exterior on front face, interior on back face
+                for (const mat of material) {
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(mx, floorY + wallH / 2, mz);
+                    mesh.rotation.y = -angle;
+                    parent.add(mesh);
+                }
+            } else {
+                const mesh = new THREE.Mesh(geo, material);
+                mesh.position.set(mx, floorY + wallH / 2, mz);
+                mesh.rotation.y = -angle;
+                parent.add(mesh);
+            }
         }
     }
 }
