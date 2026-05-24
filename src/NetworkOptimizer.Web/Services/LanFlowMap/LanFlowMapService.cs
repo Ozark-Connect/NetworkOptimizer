@@ -738,6 +738,20 @@ public class LanFlowMapService
 
                 foreach (var floor in building.Floors)
                 {
+                    if (string.IsNullOrWhiteSpace(floor.WallsJson) || floor.WallsJson == "[]")
+                        continue;
+
+                    List<PropagationWall>? walls;
+                    try
+                    {
+                        walls = JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOptions);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                    if (walls == null || walls.Count == 0) continue;
+
                     var (swX, swY) = ProjectLatLng(floor.SwLatitude, floor.SwLongitude, centerLat, centerLng, lngScale);
                     var (neX, neY) = ProjectLatLng(floor.NeLatitude, floor.NeLongitude, centerLat, centerLng, lngScale);
 
@@ -752,31 +766,20 @@ public class LanFlowMapService
                         Z = floor.FloorNumber * 3.0,
                     };
 
-                    if (!string.IsNullOrWhiteSpace(floor.WallsJson) && floor.WallsJson != "[]")
+                    foreach (var wall in walls)
                     {
-                        try
+                        if (wall.Points.Count < 2) continue;
+                        var lanWall = new LanWall
                         {
-                            var walls = JsonSerializer.Deserialize<List<PropagationWall>>(floor.WallsJson, jsonOptions);
-                            if (walls != null)
-                            {
-                                foreach (var wall in walls)
-                                {
-                                    if (wall.Points.Count < 2) continue;
-                                    var lanWall = new LanWall
-                                    {
-                                        Material = wall.Material,
-                                        Materials = wall.Materials?.Select(m => (string?)m).ToList(),
-                                    };
-                                    foreach (var pt in wall.Points)
-                                    {
-                                        var (px, py) = ProjectLatLng(pt.Lat, pt.Lng, centerLat, centerLng, lngScale);
-                                        lanWall.Points.Add(new LanWallPoint { X = px, Y = py });
-                                    }
-                                    lanFloor.Walls.Add(lanWall);
-                                }
-                            }
+                            Material = wall.Material,
+                            Materials = wall.Materials?.Select(m => (string?)m).ToList(),
+                        };
+                        foreach (var pt in wall.Points)
+                        {
+                            var (px, py) = ProjectLatLng(pt.Lat, pt.Lng, centerLat, centerLng, lngScale);
+                            lanWall.Points.Add(new LanWallPoint { X = px, Y = py });
                         }
-                        catch { }
+                        lanFloor.Walls.Add(lanWall);
                     }
 
                     lanBuilding.Floors.Add(lanFloor);
