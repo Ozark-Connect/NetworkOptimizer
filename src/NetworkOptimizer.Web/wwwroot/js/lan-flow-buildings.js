@@ -495,19 +495,35 @@ function _drawGlassWall(canvas, ctx, thin) {
 
 // -- doors and windows (per-segment, not tiled) -------------------------------
 // These draw a single unit sized to the actual wall segment dimensions.
-// Canvas coordinates: X = segment width, Y = wall height (bottom at top of canvas,
-// floor at bottom - canvas Y=0 is wall top, Y=h is wall bottom).
+// The adjacent wall's texture is tiled as the background so the material
+// pattern (siding, brick, etc.) flows continuously through the segment.
+
+// Tiles the adjacent wall texture across the canvas as background, or
+// falls back to a solid color if no texture is available.
+function _fillWallBackground(ctx, w, h, widthM, heightM, bgTex, fallback) {
+    if (bgTex && bgTex.canvas) {
+        const tileW = w * (bgTex.tileSizeM / widthM);
+        const tileH = h * (bgTex.tileSizeM / heightM);
+        for (let ty = 0; ty < h; ty += tileH) {
+            for (let tx = 0; tx < w; tx += tileW) {
+                ctx.drawImage(bgTex.canvas, tx, ty, tileW, tileH);
+            }
+        }
+    } else {
+        ctx.fillStyle = fallback || '#6E6E72';
+        ctx.fillRect(0, 0, w, h);
+    }
+}
 
 // Residential window proportioned to segment width. Wider segments get taller
 // windows, narrow segments get squarer windows.
-function _drawWindow(canvas, ctx, panes, widthM, heightM, surround) {
+function _drawWindow(canvas, ctx, panes, widthM, heightM, bgTex, fallback) {
     const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
-    // Wall surround matches adjacent wall material
-    ctx.fillStyle = surround || '#6E6E72';
-    ctx.fillRect(0, 0, w, h);
+    // Tile adjacent wall texture as continuous background
+    _fillWallBackground(ctx, w, h, widthM, heightM, bgTex, fallback);
 
     // Window proportions: width fills ~80% of segment. Height scales with
     // width but stays proportionate - not floor to ceiling.
@@ -565,13 +581,12 @@ function _drawWindow(canvas, ctx, panes, widthM, heightM, surround) {
 }
 
 // Raised-panel residential wood door - sits in the lower portion of the wall.
-function _drawDoorWood(canvas, ctx, widthM, heightM, surround) {
+function _drawDoorWood(canvas, ctx, widthM, heightM, bgTex, fallback) {
     const w = 256, h = Math.round(256 * (heightM / widthM));
     canvas.width = w;
     canvas.height = h;
 
-    ctx.fillStyle = surround || '#6E6E72';
-    ctx.fillRect(0, 0, w, h);
+    _fillWallBackground(ctx, w, h, widthM, heightM, bgTex, fallback);
 
     // Standard US door: 6'8" (2.032 m) height, fixed regardless of width.
     const doorW = w * 0.85;
@@ -616,7 +631,7 @@ function _drawDoorWood(canvas, ctx, widthM, heightM, surround) {
 }
 
 // Steel entry door with half-lite window.
-function _drawDoorMetal(canvas, ctx, widthM, heightM, surround) {
+function _drawDoorMetal(canvas, ctx, widthM, heightM, bgTex, fallback) {
     const w = 256, h = Math.round(256 * (heightM / widthM));
     canvas.width = w;
     canvas.height = h;
@@ -660,7 +675,7 @@ function _drawDoorMetal(canvas, ctx, widthM, heightM, surround) {
 }
 
 // Glass/French door - mostly glass with grid.
-function _drawDoorGlass(canvas, ctx, widthM, heightM, surround) {
+function _drawDoorGlass(canvas, ctx, widthM, heightM, bgTex, fallback) {
     const w = 256, h = Math.round(256 * (heightM / widthM));
     canvas.width = w;
     canvas.height = h;
@@ -841,18 +856,21 @@ function _createWallMaterial(matKey, segLenM, winding, adjacentMat) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
 
     // Per-segment materials (doors, windows) - drawn fresh with real dimensions,
-    // no tiling. Each segment gets its own canvas sized to its proportions.
+    // no tiling. The adjacent wall texture is tiled as the background so the
+    // siding/brick pattern flows continuously through the opening.
     if (PER_SEGMENT.has(matKey)) {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const surround = SURROUND_COLORS[adjacentMat] || SURROUND_COLORS.exterior_residential || '#6E6E72';
+        // Get the adjacent wall's texture canvas to tile as background
+        const bgTex = TEXTURED.has(adjacentMat) ? _getTexCanvas(adjacentMat) : null;
+        const fallback = SURROUND_COLORS[adjacentMat] || '#6E6E72';
         const drawFn = {
-            window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M, surround),
-            window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M, surround),
-            window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M, surround),
-            door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M, surround),
-            door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M, surround),
-            door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M, surround),
+            window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M, bgTex, fallback),
+            window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M, bgTex, fallback),
+            window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M, bgTex, fallback),
+            door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M, bgTex, fallback),
+            door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M, bgTex, fallback),
+            door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M, bgTex, fallback),
         }[matKey];
         if (drawFn) drawFn(canvas, ctx);
         const tex = new THREE.CanvasTexture(canvas);
