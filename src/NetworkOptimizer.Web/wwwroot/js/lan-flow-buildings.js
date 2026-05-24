@@ -548,7 +548,7 @@ function _drawGlassWall(canvas, ctx, thin) {
 // Residential window proportioned to segment width. Wider segments get taller
 // windows, narrow segments get squarer windows.
 function _drawWindow(canvas, ctx, panes, widthM, heightM) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
@@ -613,7 +613,7 @@ function _drawWindow(canvas, ctx, panes, widthM, heightM) {
 
 // Raised-panel residential wood door - sits in the lower portion of the wall.
 function _drawDoorWood(canvas, ctx, widthM, heightM) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
@@ -664,7 +664,7 @@ function _drawDoorWood(canvas, ctx, widthM, heightM) {
 
 // Steel entry door with half-lite window.
 function _drawDoorMetal(canvas, ctx, widthM, heightM) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
@@ -708,7 +708,7 @@ function _drawDoorMetal(canvas, ctx, widthM, heightM) {
 
 // Glass/French door - mostly glass with grid.
 function _drawDoorGlass(canvas, ctx, widthM, heightM) {
-    const w = 256, h = Math.round(256 * (heightM / widthM));
+    const w = 256, h = Math.min(2048, Math.round(256 * (heightM / widthM)));
     canvas.width = w;
     canvas.height = h;
 
@@ -890,27 +890,33 @@ function _createWallMaterial(matKey, segLenM, winding) {
     // Per-segment materials (doors, windows) - drawn fresh with real dimensions,
     // no tiling. Each segment gets its own canvas sized to its proportions.
     if (PER_SEGMENT.has(matKey)) {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const drawFn = {
-            window_1_pane: (c, x) => _drawWindow(c, x, 1, segLenM, WALL_HEIGHT_M),
-            window_2_pane: (c, x) => _drawWindow(c, x, 2, segLenM, WALL_HEIGHT_M),
-            window_3_pane: (c, x) => _drawWindow(c, x, 3, segLenM, WALL_HEIGHT_M),
-            door_wood: (c, x) => _drawDoorWood(c, x, segLenM, WALL_HEIGHT_M),
-            door_metal: (c, x) => _drawDoorMetal(c, x, segLenM, WALL_HEIGHT_M),
-            door_glass: (c, x) => _drawDoorGlass(c, x, segLenM, WALL_HEIGHT_M),
-        }[matKey];
-        if (drawFn) drawFn(canvas, ctx);
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        return new THREE.MeshStandardMaterial({
-            map: tex,
-            transparent: WALL_OPACITY < 1.0,
-            opacity: WALL_OPACITY,
-            depthWrite: WALL_OPACITY >= 1.0,
-            side: THREE.DoubleSide,
-            roughness: 0.85,
-        });
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            // Clamp segLenM to avoid degenerate canvas sizes
+            const safeWidth = Math.max(segLenM, 0.3);
+            const drawFn = {
+                window_1_pane: (c, x) => _drawWindow(c, x, 1, safeWidth, WALL_HEIGHT_M),
+                window_2_pane: (c, x) => _drawWindow(c, x, 2, safeWidth, WALL_HEIGHT_M),
+                window_3_pane: (c, x) => _drawWindow(c, x, 3, safeWidth, WALL_HEIGHT_M),
+                door_wood: (c, x) => _drawDoorWood(c, x, safeWidth, WALL_HEIGHT_M),
+                door_metal: (c, x) => _drawDoorMetal(c, x, safeWidth, WALL_HEIGHT_M),
+                door_glass: (c, x) => _drawDoorGlass(c, x, safeWidth, WALL_HEIGHT_M),
+            }[matKey];
+            if (drawFn) drawFn(canvas, ctx);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            return new THREE.MeshStandardMaterial({
+                map: tex,
+                transparent: WALL_OPACITY < 1.0,
+                opacity: WALL_OPACITY,
+                depthWrite: WALL_OPACITY >= 1.0,
+                side: THREE.DoubleSide,
+                roughness: 0.85,
+            });
+        } catch {
+            // Fall through to solid color if canvas drawing fails
+        }
     }
 
     const cached = TEXTURED.has(matKey) ? _getTexCanvas(matKey) : null;
