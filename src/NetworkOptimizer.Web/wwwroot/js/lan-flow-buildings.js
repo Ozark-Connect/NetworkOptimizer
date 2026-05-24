@@ -44,7 +44,7 @@ const REALISTIC_COLORS = {
 const TEXTURED = new Set([
     'brick', 'concrete', 'exterior_commercial',
     'exterior_residential', 'exterior',
-    'wood', 'wood_paneling',
+    'wood_paneling',
 ]);
 
 const _texCache = new Map();
@@ -122,7 +122,6 @@ function _getTexCanvas(matKey) {
             _drawSiding(canvas, ctx);
             tileSizeM = 1.0;
             break;
-        case 'wood':
         case 'wood_paneling':
             _drawWoodVertical(canvas, ctx);
             tileSizeM = 0.6;
