@@ -144,34 +144,49 @@ function _getTexCanvas(matKey) {
     return tex;
 }
 
-// Standard US brick: 7-5/8" x 2-1/4" with 3/8" mortar joints.
-// Canvas represents 1m x 1m tile (~5 bricks wide, ~15 courses tall).
+// Standard US modular brick: 7-5/8" x 2-1/4" (194mm x 57mm) with
+// 3/8" (10mm) mortar joints. 512px canvas = 1m tile.
+// At 0.512 px/mm: brick = 99px x 29px, mortar = 5px, course = 34px.
+// ~5 bricks wide, ~15 courses tall per 1m tile.
 function _drawBrick(canvas, ctx) {
-    canvas.width = 256;
-    canvas.height = 256;
-    const mortarColor = '#C0B8A8';
-    const brickH = 17;
-    const mortarGap = 3;
+    canvas.width = 512;
+    canvas.height = 512;
+    const brickW = 99;
+    const brickH = 29;
+    const mortarGap = 5;
     const courseH = brickH + mortarGap;
-    const brickColors = ['#8B4225', '#7E3B20', '#96482A', '#6E3320', '#A0502E', '#844028'];
+    const halfBrick = Math.floor((brickW + mortarGap) / 2);
+    const brickColors = [
+        '#8B4225', '#7E3B20', '#96482A', '#6E3320',
+        '#A0502E', '#844028', '#924530', '#7A3822',
+    ];
 
-    ctx.fillStyle = mortarColor;
-    ctx.fillRect(0, 0, 256, 256);
+    // Mortar fill
+    ctx.fillStyle = '#C0B8A8';
+    ctx.fillRect(0, 0, 512, 512);
 
     let row = 0;
-    for (let y = 0; y < 256; y += courseH) {
-        const offset = (row % 2) ? 32 : 0;
-        const brickW = 52;
-        for (let x = -offset; x < 256; x += brickW + mortarGap) {
-            const ci = (row * 7 + Math.floor(x / 30)) % brickColors.length;
+    for (let y = 0; y < 512; y += courseH) {
+        const offset = (row % 2) ? halfBrick : 0;
+        for (let x = -offset; x < 512; x += brickW + mortarGap) {
+            const ci = (row * 7 + Math.floor((x + offset) / 50)) % brickColors.length;
             ctx.fillStyle = brickColors[ci];
             const bx = Math.max(x, 0);
-            const bw = Math.min(x + brickW, 256) - bx;
+            const bw = Math.min(x + brickW, 512) - bx;
             if (bw <= 0) continue;
             ctx.fillRect(bx, y, bw, brickH);
-            // Subtle shade variation
-            ctx.fillStyle = `rgba(0,0,0,${0.02 + ((row * 3 + x) % 5) * 0.015})`;
+
+            // Subtle per-brick shade variation
+            ctx.fillStyle = `rgba(0,0,0,${0.02 + ((row * 3 + x) % 5) * 0.012})`;
             ctx.fillRect(bx, y, bw, brickH);
+
+            // Fine surface texture
+            for (let t = 0; t < 3; t++) {
+                const tx = bx + Math.random() * bw;
+                const ty = y + Math.random() * brickH;
+                ctx.fillStyle = `rgba(0,0,0,${0.03 + Math.random() * 0.04})`;
+                ctx.fillRect(tx, ty, 1 + Math.random() * 3, 1);
+            }
         }
         row++;
     }
