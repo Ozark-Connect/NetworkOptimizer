@@ -831,25 +831,63 @@ export class LanFlowMap {
                               : 0.35;
             const baseColor = tier === CLOUD_TIER.Unresolved ? 0x2a3340 : COLORS.cloud;
 
-            const geo = new THREE.SphereGeometry(NODE_RADIUS.cloud, 32, 24);
+            // Solid dark sphere as the globe body
+            const r = NODE_RADIUS.cloud;
+            const geo = new THREE.SphereGeometry(r, 32, 24);
             const mat = new THREE.MeshStandardMaterial({
-                color: baseColor,
-                emissive: 0x1d2330,
-                emissiveIntensity: 0.3,
-                roughness: 0.95,
-                metalness: 0.02,
+                color: 0x0a1828,
+                emissive: 0x0a1525,
+                emissiveIntensity: 0.4,
+                roughness: 0.9,
+                metalness: 0.1,
                 transparent: true,
                 opacity: baseOpacity,
             });
-            const blob = new THREE.Mesh(geo, mat);
-            group.add(blob);
+            const globe = new THREE.Mesh(geo, mat);
+            group.add(globe);
 
-            // Outer wisp shell to read as a cloud, not a sphere.
-            const wisp = new THREE.Mesh(
-                new THREE.SphereGeometry(NODE_RADIUS.cloud * 1.7, 24, 16),
-                new THREE.MeshBasicMaterial({ color: baseColor, transparent: true, opacity: 0.12, depthWrite: false }),
+            // Wireframe lat/lng grid overlay for the globe look
+            const gridMat = new THREE.LineBasicMaterial({
+                color: tier === CLOUD_TIER.Unresolved ? 0x3a4455 : 0x3385d6,
+                transparent: true,
+                opacity: baseOpacity * 0.5,
+                depthWrite: false,
+            });
+            // Latitude lines
+            for (let lat = -60; lat <= 60; lat += 30) {
+                const phi = (90 - lat) * Math.PI / 180;
+                const pts = [];
+                for (let lng = 0; lng <= 360; lng += 10) {
+                    const theta = lng * Math.PI / 180;
+                    pts.push(new THREE.Vector3(
+                        r * 1.01 * Math.sin(phi) * Math.cos(theta),
+                        r * 1.01 * Math.cos(phi),
+                        r * 1.01 * Math.sin(phi) * Math.sin(theta),
+                    ));
+                }
+                group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+            }
+            // Longitude lines
+            for (let lng = 0; lng < 360; lng += 30) {
+                const theta = lng * Math.PI / 180;
+                const pts = [];
+                for (let lat = -90; lat <= 90; lat += 10) {
+                    const phi = (90 - lat) * Math.PI / 180;
+                    pts.push(new THREE.Vector3(
+                        r * 1.01 * Math.sin(phi) * Math.cos(theta),
+                        r * 1.01 * Math.cos(phi),
+                        r * 1.01 * Math.sin(phi) * Math.sin(theta),
+                    ));
+                }
+                group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+            }
+
+            // Subtle outer glow
+            const glow = new THREE.Mesh(
+                new THREE.SphereGeometry(r * 1.5, 24, 16),
+                new THREE.MeshBasicMaterial({ color: 0x1a3050, transparent: true, opacity: 0.08, depthWrite: false }),
             );
-            group.add(wisp);
+            group.add(glow);
 
             // Label: ASN name (primary), with sub-tags for access-tech / OUI / tier hint.
             const labelText = cloud.name || (cloud.asn ? `AS${cloud.asn}` : 'Cloud');
@@ -1794,10 +1832,9 @@ export class LanFlowMap {
             this._linkLabels.set(link.id, { el, kind: link.kind });
         }
 
-        // Device labels: gateway, switch, AP - clients get name only via the existing
-        // sprite labels to keep DOM count reasonable (clients can number in the hundreds).
+        // Device labels: all devices including clients get DOM labels for consistent
+        // styling (sprites are affected by bloom/tone mapping, DOM labels are not).
         for (const node of snap.nodes) {
-            if (node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient) continue;
             if (node.kind === NODE_KIND.Cloud) continue;
             const el = document.createElement('div');
             el.className = 'lan-flow-map-label';
