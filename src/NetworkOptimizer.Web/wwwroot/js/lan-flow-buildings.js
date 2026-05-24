@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 
-const WALL_HEIGHT_M = 2.44;
+const WALL_HEIGHT_M = 2.8;
 const WALL_THICKNESS_M = 0.15;
 const FLOOR_OPACITY = 0.25;
 const WALL_OPACITY = 0.5;
