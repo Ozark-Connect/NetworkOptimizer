@@ -717,15 +717,32 @@ export class LanFlowMap {
             const b = this._positions.get(link.toNodeId);
             if (!a || !b) continue;
 
-            const pipe = this._makePipeMesh(a, b, link);
+            // For WAN/Transit links, shorten the cloud end to the globe surface
+            // so the pipe terminates at the wireframe, not the center.
+            let effA = a, effB = b;
+            const isWan = link.kind === LINK_KIND.Wan || link.kind === LINK_KIND.Transit;
+            if (isWan) {
+                const r = NODE_RADIUS.cloud;
+                const cloudEnd = this._cloudMeshes.has(link.toNodeId) ? 'b'
+                    : this._cloudMeshes.has(link.fromNodeId) ? 'a' : null;
+                if (cloudEnd) {
+                    const from = cloudEnd === 'b' ? a : b;
+                    const to = cloudEnd === 'b' ? b : a;
+                    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+                    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+                    const surfPt = { x: to.x - (dx / d) * r, y: to.y - (dy / d) * r, z: to.z - (dz / d) * r };
+                    if (cloudEnd === 'b') effB = surfPt; else effA = surfPt;
+                }
+            }
+
+            const pipe = this._makePipeMesh(effA, effB, link);
             this.linkGroup.add(pipe);
 
-            // Particle streams - two ParticleStream instances (one per direction).
             const down = new ParticleStream({
-                from: a, to: b, color: COLORS.downstream, particleCount: 0,
+                from: effA, to: effB, color: COLORS.downstream, particleCount: 0,
             });
             const up = new ParticleStream({
-                from: b, to: a, color: COLORS.upstream, particleCount: 0,
+                from: effB, to: effA, color: COLORS.upstream, particleCount: 0,
             });
             this.particleGroup.add(down.mesh, up.mesh);
 
