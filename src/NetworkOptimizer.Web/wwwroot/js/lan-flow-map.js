@@ -2789,9 +2789,9 @@ function makeRadialBackgroundTexture(width, height) {
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     const grd = ctx.createRadialGradient(w / 2, h / 2, w * 0.05, w / 2, h / 2, w * 0.65);
-    grd.addColorStop(0, '#1e2024');
-    grd.addColorStop(0.55, '#161618');
-    grd.addColorStop(1, '#101012');
+    grd.addColorStop(0, '#0a0b0e');
+    grd.addColorStop(0.55, '#060708');
+    grd.addColorStop(1, '#030304');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, w, h);
     const tex = new THREE.CanvasTexture(canvas);
