@@ -2352,7 +2352,7 @@ export class LanFlowMap {
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
         // Reverse Y → floor: posY = floor * 3.0 * scale * 0.8
-        const floor = Math.max(1, Math.round(pos.y / (scale * 0.8) / 3.0));
+        const floor = Math.round(pos.y / (scale * 0.8) / 3.0);
 
         try {
             await fetch(`${this.apiBase}/device-placement`, {
