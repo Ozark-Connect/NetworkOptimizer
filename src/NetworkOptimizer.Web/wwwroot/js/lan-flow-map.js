@@ -478,12 +478,19 @@ export class LanFlowMap {
         const positions = new Map();
         const anchors = new Map();
 
+        // Mount height offsets within a floor (in meters, pre-scale).
+        // ceiling = near ceiling, wall = mid-height, desktop = near floor.
+        const WALL_H_M = 2.8;
+        const mountOffsetM = { ceiling: WALL_H_M * 0.85, wall: WALL_H_M * 0.5, desktop: WALL_H_M * 0.15 };
+
         for (const node of snap.nodes) {
             const p = node.placement;
             if (p && p.source === PLACEMENT_SOURCE.Anchor) {
+                // AP mount type shifts vertical position within the floor
+                const mountM = (node.mountType && mountOffsetM[node.mountType]) || 0;
                 positions.set(node.id, {
                     x: -p.x * scale,
-                    y: p.z * scale * 0.8,    // floors get vertical separation but compressed
+                    y: p.z * scale * 0.8 + mountM * scale * 0.8,
                     z: p.y * scale,
                     pinned: true,
                 });

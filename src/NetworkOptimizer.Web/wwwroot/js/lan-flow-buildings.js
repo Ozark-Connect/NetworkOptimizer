@@ -15,7 +15,8 @@ const FLOOR_COLOR = 0x2a3545;
 const ROOF_PITCH = 0.28;
 const MAX_RIDGE_M = 3.0;
 
-// Realistic colors - muted, real-world tones instead of the bright signal-map palette
+// Realistic colors for 3D rendering - muted real-world tones instead of
+// the bright signal-map palette from MaterialAttenuation.MaterialColors.
 const REALISTIC_COLORS = {
     drywall:              '#E8E0D8',
     drywall_heavy:        '#D5CEC6',
@@ -96,6 +97,9 @@ function toScene(pt, scale) {
 }
 
 // -- procedural textures ------------------------------------------------------
+// Each canvas represents a fixed real-world tile (tileSizeM). Textures are
+// created once and cached; per-segment materials clone the texture with
+// repeat set from the wall's actual meter dimensions.
 
 function _getTexCanvas(matKey) {
     if (_texCache.has(matKey)) return _texCache.get(matKey);
@@ -136,6 +140,8 @@ function _getTexCanvas(matKey) {
     return tex;
 }
 
+// Standard US brick: 7-5/8" x 2-1/4" with 3/8" mortar joints.
+// Canvas represents 1m x 1m tile (~5 bricks wide, ~15 courses tall).
 function _drawBrick(canvas, ctx) {
     canvas.width = 256;
     canvas.height = 256;
@@ -211,8 +217,9 @@ function _drawSiding(canvas, ctx) {
     }
 }
 
+// Weathered gray vertical board siding - exterior look for bare-wood structures
+// (sheds, barns, outbuildings with no insulation/drywall).
 function _drawWoodVertical(canvas, ctx) {
-    // Weathered gray vertical barn/shed siding
     canvas.width = 256;
     canvas.height = 256;
     const boardW = 28;
@@ -243,6 +250,8 @@ function _drawWoodVertical(canvas, ctx) {
 }
 
 // -- wall material factory ----------------------------------------------------
+// Textured materials get a cloned texture with repeat scaled to the wall
+// segment's real-world dimensions. Solid materials use realistic muted colors.
 
 function _createWallMaterial(matKey, segLenM) {
     const hex = REALISTIC_COLORS[matKey] || '#94a3b8';
@@ -275,7 +284,7 @@ function _createWallMaterial(matKey, segLenM) {
     });
 }
 
-// -- floor plane (from wall convex hull) --------------------------------------
+// -- floor plane (convex hull of wall points, not axis-aligned bbox) ----------
 
 function _buildFloorPlane(floor, scale, floorY, parent) {
     const pts = [];

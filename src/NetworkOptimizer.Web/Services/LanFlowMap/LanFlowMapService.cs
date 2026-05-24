@@ -115,7 +115,22 @@ public class LanFlowMapService
             .Where(d => !string.IsNullOrEmpty(d.Mac))
             .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase);
 
+        // Mount type lookup so AP nodes carry their mount position for 3D vertical offset
+        var mountTypes = markers
+            .Where(m => !string.IsNullOrEmpty(m.MountType))
+            .ToDictionary(m => NormalizeMac(m.Mac), m => m.MountType, StringComparer.OrdinalIgnoreCase);
+
         BuildInfrastructureGraph(topology, anchors, snapshot, nameMaps);
+
+        foreach (var node in snapshot.Nodes)
+        {
+            if (node.Kind == LanNodeKind.AccessPoint && node.Mac != null
+                && mountTypes.TryGetValue(node.Mac, out var mt))
+            {
+                node.MountType = mt;
+            }
+        }
+
         BuildClientLeaves(topology, anchors, snapshot, nameMaps, rawByMac);
         GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);

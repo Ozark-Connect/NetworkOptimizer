@@ -66,6 +66,9 @@ public class LanNode
 
     public LanPlacement? Placement { get; set; }
 
+    /// <summary>AP mount type ("ceiling", "wall", "desktop") for vertical positioning within a floor.</summary>
+    public string? MountType { get; set; }
+
     /// <summary>Whether the device responded to our last poll (for dimming offline nodes).</summary>
     public bool Online { get; set; } = true;
 
