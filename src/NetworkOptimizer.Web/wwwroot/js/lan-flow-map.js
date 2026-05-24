@@ -458,7 +458,7 @@ export class LanFlowMap {
             if (p && p.source === PLACEMENT_SOURCE.Anchor) {
                 positions.set(node.id, {
                     x: -p.x * scale,
-                    y: p.z * scale * 0.4,    // floors get vertical separation but compressed
+                    y: p.z * scale * 0.8,    // floors get vertical separation but compressed
                     z: p.y * scale,
                     pinned: true,
                 });
@@ -466,7 +466,7 @@ export class LanFlowMap {
             } else if (p && p.source === PLACEMENT_SOURCE.Interpolated) {
                 positions.set(node.id, {
                     x: -p.x * scale,
-                    y: p.z * scale * 0.4 - 4,
+                    y: p.z * scale * 0.8 - 4,
                     z: p.y * scale,
                     pinned: false,
                 });
@@ -2341,7 +2341,7 @@ export class LanFlowMap {
         const EARTH_RADIUS = 6_371_000.0;
 
         // Undo JS transform: posX = -(local.x * scale), posZ = local.y * scale
-        // (posY = local.z * scale * 0.4 but we don't save floor from 3D)
+        // (posY = local.z * scale * 0.8 but we don't save floor from 3D)
         const localX = -(pos.x / scale);
         const localY = pos.z / scale; // JS z maps to projection y
 
@@ -2351,8 +2351,8 @@ export class LanFlowMap {
         const lat = bounds.centerLat + dLat * 180 / Math.PI;
         const lng = bounds.centerLng + dLng * 180 / Math.PI;
 
-        // Reverse Y → floor: posY = floor * 3.0 * scale * 0.4
-        const floor = Math.max(1, Math.round(pos.y / (scale * 0.4) / 3.0));
+        // Reverse Y → floor: posY = floor * 3.0 * scale * 0.8
+        const floor = Math.max(1, Math.round(pos.y / (scale * 0.8) / 3.0));
 
         try {
             await fetch(`${this.apiBase}/device-placement`, {
