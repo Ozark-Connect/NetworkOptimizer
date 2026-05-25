@@ -305,15 +305,14 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
-            // Prefer the physical port rate (eth6) over the VLAN sub-interface
-            // (eth6.228) - the physical port counters match what the old
-            // port_table.IsUplink path returned.
-            var rateIfName = wan.PhysicalIfName ?? wan.UplinkIfName;
-            if (!string.IsNullOrEmpty(rateIfName))
+            if (!string.IsNullOrEmpty(wan.UplinkIfName))
             {
-                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
+                var portRate = _liveStats.GetPortRate(gwMac, wan.UplinkIfName);
                 if (portRate != null)
                 {
+                    // GetPortRate convention: DownBps = port TX, UpBps = port RX.
+                    // WAN port: TX = to internet = uploads (LiveRateInBps),
+                    //           RX = from internet = downloads (LiveRateOutBps).
                     wan.LiveRateInBps = portRate.DownBps;
                     wan.LiveRateOutBps = portRate.UpBps;
                     continue;
