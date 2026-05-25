@@ -1571,7 +1571,13 @@ export class LanFlowMap {
         `;
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
         range.addEventListener('input', (e) => this._onScrubberInput(Number(e.target.value)));
-        range.addEventListener('change', (e) => this._onScrubberChange(Number(e.target.value)));
+        this._scrubberDebounce = null;
+        range.addEventListener('change', (e) => {
+            const val = Number(e.target.value);
+            this._onScrubberInput(val);
+            clearTimeout(this._scrubberDebounce);
+            this._scrubberDebounce = setTimeout(() => this._onScrubberChange(val), 250);
+        });
         // User grabbing the thumb implicitly cancels any active historic playback.
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
