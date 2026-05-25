@@ -309,25 +309,18 @@ export class LanFlowMap {
                 this._togglePlayPause();
                 return;
             }
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                const range = this._panels.scrubberRange;
-                if (range) {
-                    e.preventDefault();
-                    const step = e.shiftKey ? 100 : 10;
-                    const dir = e.key === 'ArrowRight' ? step : -step;
-                    const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
-                    range.value = val;
-                    range.dispatchEvent(new Event('input'));
-                    range.dispatchEvent(new Event('change'));
-                    return;
-                }
+            if (['arrowleft','arrowright','w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
+                this._keys[e.key.toLowerCase()] = true;
             }
+            if (e.key === 'Shift') this._keys.shift = true;
             if (['w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
             }
         };
         this._onKeyUp = (e) => {
             this._keys[e.key.toLowerCase()] = false;
+            if (e.key === 'Shift') this._keys.shift = false;
         };
         document.addEventListener('keydown', this._onKeyDown);
         document.addEventListener('keyup', this._onKeyUp);
@@ -1281,6 +1274,19 @@ export class LanFlowMap {
                     }
                 }
                 this.controls?.update();
+            }
+
+            // Left/right arrow: scrub timeline. ~30s per tick, shift = 10x.
+            if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
+                const range = this._panels.scrubberRange;
+                if (range) {
+                    const step = this._keys.shift ? 35 : 4;
+                    const dir = this._keys['arrowright'] ? step : -step;
+                    const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
+                    range.value = val;
+                    range.dispatchEvent(new Event('input'));
+                    range.dispatchEvent(new Event('change'));
+                }
             }
 
             // Freeze particle motion while paused (Live or Historic) so the
