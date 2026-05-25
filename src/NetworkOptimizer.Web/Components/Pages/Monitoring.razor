@@ -1037,11 +1037,13 @@ else
     [JSInvokable]
     public void NavigateToUpstreamDiscovery()
     {
-        InvokeAsync(() =>
+        InvokeAsync(async () =>
         {
             _activeTab = "performance";
-            NavigationManager.NavigateTo("/monitoring?tab=performance#upstream-discovery", forceLoad: false, replace: false);
             StateHasChanged();
+            await Task.Yield();
+            await JS.InvokeVoidAsync("eval",
+                "document.getElementById('upstream-discovery')?.scrollIntoView({behavior:'smooth',block:'start'})");
         });
     }
 
