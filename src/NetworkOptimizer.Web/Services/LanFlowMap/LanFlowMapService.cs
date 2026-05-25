@@ -1452,12 +1452,17 @@ public class LanFlowMapService
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
+        // Group by WAN so secondary WANs aren't crowded out by frequent
+        // primary WAN tests. Take limitPerKind per group.
         var raw = await db.Iperf3Results
             .AsNoTracking()
             .Where(r => r.Success && r.TestTime >= since && r.TestTime <= until)
             .OrderByDescending(r => r.TestTime)
-            .Take(limitPerKind * 4)
             .ToListAsync(ct);
+        raw = raw
+            .GroupBy(r => r.WanNetworkGroup ?? "")
+            .SelectMany(g => g.Take(limitPerKind))
+            .ToList();
 
         var result = new List<SpeedTestOverlayItem>();
         foreach (var r in raw)
