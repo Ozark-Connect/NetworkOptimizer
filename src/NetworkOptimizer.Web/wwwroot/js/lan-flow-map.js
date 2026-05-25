@@ -1988,10 +1988,14 @@ export class LanFlowMap {
             if (!group) { pill.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
             tmp.y -= NODE_RADIUS.cloud - 1;
+            const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
+            const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, REF_DIST / Math.max(dist, 1)));
+            pill.style.transform = `translate(-50%, 0%) scale(${scale.toFixed(3)})`;
+            pill.style.transformOrigin = 'center top';
             pill.style.left = `${x}px`;
             pill.style.top = `${y}px`;
         }
