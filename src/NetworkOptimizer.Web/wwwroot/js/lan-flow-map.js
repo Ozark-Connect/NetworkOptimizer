@@ -1993,7 +1993,7 @@ export class LanFlowMap {
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
-            const scale = Math.max(MIN_SCALE, Math.min(1.1, REF_DIST / Math.max(dist, 1)));
+            const scale = Math.max(MIN_SCALE, Math.min(1.0, REF_DIST / Math.max(dist, 1)));
             pill.style.transform = `translate(-50%, 0%) scale(${scale.toFixed(3)})`;
             pill.style.transformOrigin = 'center top';
             pill.style.left = `${x}px`;
