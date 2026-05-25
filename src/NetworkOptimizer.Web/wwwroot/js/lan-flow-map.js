@@ -862,7 +862,7 @@ export class LanFlowMap {
             const z = gwZ + dirZ * accessRadius;
             cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
         } else {
-            const accessFan = Math.min(Math.PI * 0.6, accessClouds.length * (Math.PI / 6));
+            const accessFan = Math.min(Math.PI * 0.4, accessClouds.length * (Math.PI / 10));
             const accessArcStep = accessClouds.length > 1 ? accessFan / (accessClouds.length - 1) : 0;
             const accessArcStart = -accessFan / 2;
             for (let i = 0; i < accessClouds.length; i++) {

@@ -58,8 +58,8 @@ public class MonitoringPathView
 
         var resolvedWanInterface = wan?.WanInterface ?? wanInterface ?? "wan";
         var isPrimary = wan?.IsPrimary ?? true;
-        _logger.LogDebug("GetUpstreamPathAsync: wans={WanCount}, wan={WanIf}, resolved={Resolved}, isPrimary={Primary}",
-            wans.Count, wan?.WanInterface, resolvedWanInterface, isPrimary);
+        _logger.LogDebug("GetUpstreamPathAsync: wans={WanCount}, wan={WanIf}, friendly={Friendly}, resolved={Resolved}, isPrimary={Primary}",
+            wans.Count, wan?.WanInterface, wan?.FriendlyName, resolvedWanInterface, isPrimary);
 
         // Per-WAN context, with fallback to legacy MonitoringSettings for installs that
         // pre-date the WanDiscoveryContexts table. New installs and any post-migration
