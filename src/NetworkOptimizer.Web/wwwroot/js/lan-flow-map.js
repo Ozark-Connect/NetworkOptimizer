@@ -309,12 +309,13 @@ export class LanFlowMap {
                 this._togglePlayPause();
                 return;
             }
-            if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                 const range = this._panels.scrubberRange;
-                if (range && document.activeElement === range) {
+                if (range) {
                     e.preventDefault();
-                    const step = e.key === 'ArrowRight' ? 10 : -10;
-                    const val = Math.max(0, Math.min(10000, Number(range.value) + step));
+                    const step = e.shiftKey ? 100 : 10;
+                    const dir = e.key === 'ArrowRight' ? step : -step;
+                    const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
                     range.value = val;
                     range.dispatchEvent(new Event('input'));
                     range.dispatchEvent(new Event('change'));
@@ -1601,6 +1602,7 @@ export class LanFlowMap {
                 }, 1000 - elapsed);
             }
         });
+        range.addEventListener('keydown', (e) => e.preventDefault());
         // User grabbing the thumb implicitly cancels any active historic playback.
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
