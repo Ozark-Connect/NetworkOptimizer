@@ -309,6 +309,18 @@ export class LanFlowMap {
                 this._togglePlayPause();
                 return;
             }
+            if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                const range = this._panels.scrubberRange;
+                if (range && document.activeElement === range) {
+                    e.preventDefault();
+                    const step = e.key === 'ArrowRight' ? 10 : -10;
+                    const val = Math.max(0, Math.min(10000, Number(range.value) + step));
+                    range.value = val;
+                    range.dispatchEvent(new Event('input'));
+                    range.dispatchEvent(new Event('change'));
+                    return;
+                }
+            }
             if (['w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
             }
