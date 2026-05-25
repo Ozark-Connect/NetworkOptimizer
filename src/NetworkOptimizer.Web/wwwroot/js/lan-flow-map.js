@@ -1592,7 +1592,7 @@ export class LanFlowMap {
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
                 if (this._mode === 'live' && this._playbackSpeed < 1) {
-                    this._onScrubberChange(998);
+                    this._onScrubberChange(997);
                 }
                 if (this._mode === 'historic' && this._historicPlaybackTimer) {
                     this._stopHistoricPlayback();
