@@ -7,8 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
-using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -16,6 +14,7 @@ using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Ssh;
+using NetworkOptimizer.WiFi.Models;
 using Serilog;
 using Serilog.Events;
 
@@ -539,6 +538,9 @@ using (var scope = app.Services.CreateScope())
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
     db.Database.Migrate();
 
+    // Ensure WAL mode - config imports replace the DB with a DELETE-mode copy
+    db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+
     // Seed default alert rules - insert any missing rules by EventTypePattern
     {
         var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
@@ -989,12 +991,27 @@ app.MapGet("/api/floor-plan/buildings", async (FloorPlanService svc) =>
     var buildings = await svc.GetBuildingsAsync();
     return Results.Ok(buildings.Select(b => new
     {
-        b.Id, b.Name, b.CenterLatitude, b.CenterLongitude, b.CreatedAt,
+        b.Id,
+        b.Name,
+        b.CenterLatitude,
+        b.CenterLongitude,
+        b.CreatedAt,
         Floors = b.Floors.Select(f => new
         {
-            f.Id, f.BuildingId, f.FloorNumber, f.Label, f.SwLatitude, f.SwLongitude,
-            f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson, f.FloorMaterial,
-            HasImage = !string.IsNullOrEmpty(f.ImagePath), f.CreatedAt, f.UpdatedAt
+            f.Id,
+            f.BuildingId,
+            f.FloorNumber,
+            f.Label,
+            f.SwLatitude,
+            f.SwLongitude,
+            f.NeLatitude,
+            f.NeLongitude,
+            f.Opacity,
+            f.WallsJson,
+            f.FloorMaterial,
+            HasImage = !string.IsNullOrEmpty(f.ImagePath),
+            f.CreatedAt,
+            f.UpdatedAt
         })
     }));
 });
@@ -1029,9 +1046,20 @@ app.MapGet("/api/floor-plan/buildings/{id:int}/floors", async (int id, FloorPlan
     var floors = await svc.GetFloorsAsync(id);
     return Results.Ok(floors.Select(f => new
     {
-        f.Id, f.BuildingId, f.FloorNumber, f.Label, f.SwLatitude, f.SwLongitude,
-        f.NeLatitude, f.NeLongitude, f.Opacity, f.WallsJson, f.FloorMaterial,
-        HasImage = !string.IsNullOrEmpty(f.ImagePath), f.CreatedAt, f.UpdatedAt
+        f.Id,
+        f.BuildingId,
+        f.FloorNumber,
+        f.Label,
+        f.SwLatitude,
+        f.SwLongitude,
+        f.NeLatitude,
+        f.NeLongitude,
+        f.Opacity,
+        f.WallsJson,
+        f.FloorMaterial,
+        HasImage = !string.IsNullOrEmpty(f.ImagePath),
+        f.CreatedAt,
+        f.UpdatedAt
     }));
 });
 
@@ -1092,9 +1120,18 @@ app.MapGet("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, Fl
     var images = await svc.GetFloorImagesAsync(floorId);
     return Results.Ok(images.Select(i => new
     {
-        i.Id, i.FloorPlanId, i.Label, i.SwLatitude, i.SwLongitude,
-        i.NeLatitude, i.NeLongitude, i.Opacity, i.RotationDeg, i.CropJson,
-        i.SortOrder, HasFile = !string.IsNullOrEmpty(i.ImagePath)
+        i.Id,
+        i.FloorPlanId,
+        i.Label,
+        i.SwLatitude,
+        i.SwLongitude,
+        i.NeLatitude,
+        i.NeLongitude,
+        i.Opacity,
+        i.RotationDeg,
+        i.CropJson,
+        i.SortOrder,
+        HasFile = !string.IsNullOrEmpty(i.ImagePath)
     }));
 });
 
@@ -1118,9 +1155,18 @@ app.MapPost("/api/floor-plan/floors/{floorId:int}/images", async (int floorId, H
     var image = await svc.CreateFloorImageAsync(floorId, stream, swLat, swLng, neLat, neLng, label);
     return Results.Ok(new
     {
-        image.Id, image.FloorPlanId, image.Label, image.SwLatitude, image.SwLongitude,
-        image.NeLatitude, image.NeLongitude, image.Opacity, image.RotationDeg, image.CropJson,
-        image.SortOrder, HasFile = true
+        image.Id,
+        image.FloorPlanId,
+        image.Label,
+        image.SwLatitude,
+        image.SwLongitude,
+        image.NeLatitude,
+        image.NeLongitude,
+        image.Opacity,
+        image.RotationDeg,
+        image.CropJson,
+        image.SortOrder,
+        HasFile = true
     });
 });
 
@@ -1141,8 +1187,17 @@ app.MapPut("/api/floor-plan/images/{imageId:int}", async (int imageId, FloorImag
     if (image == null) return Results.NotFound();
     return Results.Ok(new
     {
-        image.Id, image.FloorPlanId, image.Label, image.SwLatitude, image.SwLongitude,
-        image.NeLatitude, image.NeLongitude, image.Opacity, image.RotationDeg, image.CropJson, image.SortOrder
+        image.Id,
+        image.FloorPlanId,
+        image.Label,
+        image.SwLatitude,
+        image.SwLongitude,
+        image.NeLatitude,
+        image.NeLongitude,
+        image.Opacity,
+        image.RotationDeg,
+        image.CropJson,
+        image.SortOrder
     });
 });
 
