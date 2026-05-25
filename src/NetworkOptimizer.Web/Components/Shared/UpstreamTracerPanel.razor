@@ -96,6 +96,18 @@
 
             @if (_state.Step == TracerStep.ReviewingResults)
             {
+                <div class="form-group">
+                    <label class="form-label">Access network technology</label>
+                    <select class="form-select" style="max-width: 250px;"
+                            value="@((int)_state.AccessTechnology)"
+                            @onchange="e => _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!)">
+                        @foreach (var tech in Enum.GetValues<AccessTechnology>())
+                        {
+                            <option value="@((int)tech)">@FormatTechName(tech)</option>
+                        }
+                    </select>
+                </div>
+
                 @if (_state.Traces.Count > 0)
                 {
                     <div class="form-group">
@@ -366,6 +378,21 @@
     };
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    private static string FormatTechName(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.Unknown => "Auto-detect",
+        AccessTechnology.Gpon => "GPON",
+        AccessTechnology.XgsPon => "XGS-PON",
+        AccessTechnology.Docsis => "DOCSIS (Cable)",
+        AccessTechnology.PppoE => "PPPoE",
+        AccessTechnology.DirectEthernet => "Direct Ethernet",
+        AccessTechnology.FixedWireless => "Fixed Wireless",
+        AccessTechnology.Satellite => "Satellite",
+        AccessTechnology.Cellular => "Cellular",
+        AccessTechnology.Other => "Other",
+        _ => tech.ToString()
+    };
 
     private string AccessAsnDisplay()
     {

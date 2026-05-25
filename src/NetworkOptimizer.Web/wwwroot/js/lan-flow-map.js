@@ -2389,6 +2389,7 @@ export class LanFlowMap {
 
         if (g.userData?.cloud) {
             const cloud = g.userData.cloud;
+            // TODO: enable for all WANs once multi-WAN upstream tracing is implemented
             if (cloud.kind === 0 && cloud.wanInterface === this._snapshot?.primaryWanInterface) {
                 this._showCloudContextMenu(e.clientX, e.clientY, cloud);
             }

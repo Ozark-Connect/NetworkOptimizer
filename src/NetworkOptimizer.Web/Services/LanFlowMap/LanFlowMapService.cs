@@ -1161,8 +1161,12 @@ public class LanFlowMapService
                 AccessTechnology = upstream.Access.AccessTechnology,
                 L2NeighborOui = upstream.Access.L2NeighborOui,
                 IsCgnat = upstream.Access.IsCgnat,
-                IsDiscoveryPending = upstream.Access.Hops.Count == 0,
-                Tier = upstream.Access.Hops.Count == 0 ? LanCloudTier.Unresolved : LanCloudTier.Solid,
+                // TODO: secondary WAN discovery - currently only the primary WAN
+                // runs upstream tracing, so secondary WANs always have 0 hops.
+                // Suppress the "discovery pending" state for them until multi-WAN
+                // tracing is implemented.
+                IsDiscoveryPending = wan.IsPrimary && upstream.Access.Hops.Count == 0,
+                Tier = wan.IsPrimary && upstream.Access.Hops.Count == 0 ? LanCloudTier.Unresolved : LanCloudTier.Solid,
             };
             // RTT for the access cloud: pick the deepest hop with live data (closest to the
             // ISP boundary). Wizard-output ordering puts BNG/CMTS/OLT toward the tail.
