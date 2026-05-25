@@ -420,6 +420,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
     [Fact]
     public async Task Analyze_WithDohBlockRule_DetectsRule()
     {
+        // Must cover all 4 required providers: Cloudflare, Google, Quad9, OpenDNS
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DoH Bypass"",
@@ -428,7 +429,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""destination"": {
                     ""port"": ""443"",
                     ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com""]
+                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com""]
                 }
             }
         ]").RootElement;
@@ -438,6 +439,78 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.HasDohBlockRule.Should().BeTrue();
         result.DohBlockedDomains.Should().Contain("dns.google");
         result.DohBlockedDomains.Should().Contain("cloudflare-dns.com");
+        result.DohBlockedDomains.Should().Contain("dns.quad9.net");
+        result.DohBlockedDomains.Should().Contain("doh.opendns.com");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDohBlockRule_MissingRequiredProvider_DoesNotDetect()
+    {
+        // Only 3 of 4 required providers (missing OpenDNS) - should not get credit
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Partial DoH Block"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("missing OpenDNS means incomplete provider coverage");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDohBlockRule_SingleProvider_DoesNotDetect()
+    {
+        // A single provider domain should not get credit, even with many variants
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Cloudflare DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""cloudflare-dns.com"", ""one.one.one.one"", ""dns.cloudflare.com"", ""family.cloudflare-dns.com""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("blocking only Cloudflare variants does not cover other major providers");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDohBlockRule_AllRequiredPlusExtras_DetectsRule()
+    {
+        // All 4 required providers plus extras - comprehensive blocklist like a real deployment
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoH Bypass (Full)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [
+                        ""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com"",
+                        ""dns.adguard.com"", ""dns.nextdns.io"", ""doh.cleanbrowsing.org""
+                    ]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.DohBlockedDomains.Should().HaveCountGreaterThanOrEqualTo(7);
     }
 
     [Fact]
@@ -724,7 +797,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""destination"": {
                     ""port"": ""443"",
                     ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google""]
+                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com""]
                 }
             }
         ]").RootElement;
@@ -748,7 +821,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""destination"": {
                     ""port"": ""443"",
                     ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google""]
+                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com""]
                 }
             }
         ]").RootElement;
@@ -2540,7 +2613,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var firewall = JsonDocument.Parse(@"[
             { ""name"": ""Block DNS"", ""enabled"": true, ""action"": ""drop"", ""destination"": { ""port"": ""53"" } },
             { ""name"": ""Block DoT"", ""enabled"": true, ""action"": ""drop"", ""destination"": { ""port"": ""853"" } },
-            { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
+            { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com""] } }
         ]").RootElement;
 
         var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall));
@@ -2588,7 +2661,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""ANY"" },
-                ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] }
+                ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com""] }
             }
         ]").RootElement;
 
@@ -4176,7 +4249,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var firewall = JsonDocument.Parse(@"[
             { ""name"": ""Block DNS"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""udp"", ""destination"": { ""port"": ""53"" } },
             { ""name"": ""Block DoT/DoQ"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp_udp"", ""destination"": { ""port"": ""853"" } },
-            { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
+            { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google"", ""cloudflare-dns.com"", ""dns.quad9.net"", ""doh.opendns.com""] } }
         ]").RootElement;
 
         var deviceData = JsonDocument.Parse(@"[

@@ -185,6 +185,30 @@ public static class DohProviderRegistry
     }
 
     /// <summary>
+    /// Match a list of domain names against known DoH providers.
+    /// </summary>
+    public static (int MatchedCount, HashSet<string> MatchedProviders) MatchKnownDohDomains(IEnumerable<string> domains)
+    {
+        var matchedProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int matchedCount = 0;
+
+        foreach (var domain in domains)
+        {
+            if (string.IsNullOrEmpty(domain))
+                continue;
+
+            var provider = IdentifyProvider(domain);
+            if (provider != null)
+            {
+                matchedCount++;
+                matchedProviders.Add(provider.Name);
+            }
+        }
+
+        return (matchedCount, matchedProviders);
+    }
+
+    /// <summary>
     /// Match a list of IP addresses against known DoH providers. Returns the total number
     /// of IPs that match a known provider and the set of distinct provider names matched.
     /// Used to detect IP-based DoH-blocking firewall rules where the destination is a list
