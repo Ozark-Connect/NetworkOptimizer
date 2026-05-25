@@ -87,7 +87,7 @@ public class MonitoringPathView
 
         var access = new AccessIspCloud
         {
-            AccessTechnology = accessTech.ToString(),
+            AccessTechnology = FormatAccessTechnology(accessTech),
             L2NeighborOui = l2NeighborOui,
             AsnNumber = accessHops.FirstOrDefault()?.AsnNumber,
             AsnName = accessHops.FirstOrDefault()?.AsnName,
@@ -333,6 +333,21 @@ public class MonitoringPathView
     /// alongside the human-facing text. Until the tracer ships, AutoLabel is empty;
     /// fall back to AccessHop as the generic positional role.
     /// </summary>
+    private static string? FormatAccessTechnology(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.Unknown => null,
+        AccessTechnology.Gpon => "GPON",
+        AccessTechnology.XgsPon => "XGS-PON",
+        AccessTechnology.Docsis => "DOCSIS",
+        AccessTechnology.PppoE => "PPPoE",
+        AccessTechnology.DirectEthernet => "Active Ethernet",
+        AccessTechnology.FixedWireless => "Fixed Wireless",
+        AccessTechnology.Satellite => "Satellite",
+        AccessTechnology.Cellular => "Cellular",
+        AccessTechnology.Other => "Other",
+        _ => tech.ToString()
+    };
+
     private static UpstreamRole MapRoleFromAutoLabel(string? autoLabel)
     {
         if (string.IsNullOrEmpty(autoLabel)) return UpstreamRole.AccessHop;
