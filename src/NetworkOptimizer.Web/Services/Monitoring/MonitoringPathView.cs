@@ -77,9 +77,13 @@ public class MonitoringPathView
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
 
-        var l2NeighborMac = wanCtx?.L2NeighborMac ?? settings?.WanNeighborMac;
-        var l2NeighborOui = wanCtx?.L2NeighborOui ?? settings?.WanNeighborOui;
-        var accessTech = wanCtx?.AccessTechnology ?? settings?.AccessTechnology ?? AccessTechnology.Unknown;
+        // TODO: once multi-WAN upstream tracing is implemented, each WAN will
+        // have its own WanDiscoveryContext with L2 neighbor and access tech.
+        // Until then, only fall back to global MonitoringSettings for the
+        // primary WAN so secondaries don't inherit the primary's values.
+        var l2NeighborMac = wanCtx?.L2NeighborMac ?? (isPrimary ? settings?.WanNeighborMac : null);
+        var l2NeighborOui = wanCtx?.L2NeighborOui ?? (isPrimary ? settings?.WanNeighborOui : null);
+        var accessTech = wanCtx?.AccessTechnology ?? (isPrimary ? settings?.AccessTechnology : null) ?? AccessTechnology.Unknown;
 
         var isCgnat = l2NeighborMac != null
             && !string.IsNullOrEmpty(wan?.IpAddress)
