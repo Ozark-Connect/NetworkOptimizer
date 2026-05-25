@@ -1077,7 +1077,12 @@ export class LanFlowMap {
     _buildCloudSubLabel(cloud, tier) {
         const parts = [];
         if (cloud.accessTechnology) parts.push(cloud.accessTechnology);
-        if (cloud.l2NeighborOui) parts.push(cloud.l2NeighborOui);
+        if (cloud.l2NeighborOui) {
+            const oui = cloud.l2NeighborOui.length > 20
+                ? cloud.l2NeighborOui.substring(0, 20).trimEnd() + '...'
+                : cloud.l2NeighborOui;
+            parts.push(oui);
+        }
         if (cloud.isCgnat) parts.push('CGNAT');
         if (tier === CLOUD_TIER.PathProxy) parts.push('via path');
         if (tier === CLOUD_TIER.Unresolved) parts.push('discovery pending');
