@@ -1,5 +1,8 @@
 using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text.Json;
+using DnsClient;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
@@ -33,6 +36,8 @@ public class ThirdPartyDnsDetector
         public string? PiholeVersion { get; init; }
         public bool IsAdGuardHome { get; init; }
         public string? AdGuardHomeVersion { get; init; }
+        public bool IsNextDns { get; init; }
+        public string? NextDnsProfile { get; init; }
         public string DnsProviderName { get; init; } = "Third-Party LAN DNS";
     }
 
@@ -117,6 +122,8 @@ public class ThirdPartyDnsDetector
                 string? piholeVersion = null;
                 bool isAdGuardHome = false;
                 string? adGuardHomeVersion = null;
+                bool isNextDns = false;
+                string? nextDnsProfile = null;
                 string providerName = "Third-Party LAN DNS";
 
                 if (!probedIps.Contains(dnsServer))
@@ -139,6 +146,18 @@ public class ThirdPartyDnsDetector
                             providerName = "AdGuard Home";
                             _logger.LogInformation("Detected AdGuard Home at {Ip} (version: {Version})", dnsServer, adGuardHomeVersion ?? "unknown");
                         }
+                        else
+                        {
+                            // If not AdGuard Home, try NextDNS CLI detection. This is slower than
+                            // the local-HTTP probes (requires DNS query through the resolver plus
+                            // an HTTPS round-trip to NextDNS's test endpoint), so it goes last.
+                            (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(dnsServer);
+                            if (isNextDns)
+                            {
+                                providerName = "NextDNS CLI";
+                                _logger.LogInformation("Detected NextDNS CLI at {Ip} (profile: {Profile})", dnsServer, nextDnsProfile ?? "unknown");
+                            }
+                        }
                     }
                 }
                 else
@@ -151,6 +170,8 @@ public class ThirdPartyDnsDetector
                         piholeVersion = existingResult.PiholeVersion;
                         isAdGuardHome = existingResult.IsAdGuardHome;
                         adGuardHomeVersion = existingResult.AdGuardHomeVersion;
+                        isNextDns = existingResult.IsNextDns;
+                        nextDnsProfile = existingResult.NextDnsProfile;
                         providerName = existingResult.DnsProviderName;
                     }
                 }
@@ -165,6 +186,8 @@ public class ThirdPartyDnsDetector
                     PiholeVersion = piholeVersion,
                     IsAdGuardHome = isAdGuardHome,
                     AdGuardHomeVersion = adGuardHomeVersion,
+                    IsNextDns = isNextDns,
+                    NextDnsProfile = nextDnsProfile,
                     DnsProviderName = providerName
                 });
             }
@@ -243,10 +266,192 @@ public class ThirdPartyDnsDetector
             "9.9.9.9" or "149.112.112.112" => "Quad9",
             "208.67.222.222" or "208.67.220.220" => "OpenDNS",
             "94.140.14.14" or "94.140.15.15" => "AdGuard DNS",
+            "45.90.28.0" or "45.90.30.0" => "NextDNS",
             "76.76.2.0" or "76.76.10.0" => "Control D",
             "185.228.168.9" or "185.228.169.9" => "CleanBrowsing",
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Test hook: override the NextDNS probe outcome for a given DNS server IP.
+    /// When set, ProbeNextDnsAsync delegates to this delegate instead of doing
+    /// the actual DNS + HTTPS dance. The test assembly's [ModuleInitializer]
+    /// sets a safe (false, null) default at assembly load, so production code
+    /// is never exercised by unit tests by default. Tests that exercise the
+    /// probe path explicitly override this with their own outcome and then
+    /// restore the assembly-wide default in their Dispose.
+    /// </summary>
+    internal static Func<string, CancellationToken, Task<(bool IsNextDns, string? Profile)>>? NextDnsProbeOverride { get; set; }
+
+    /// <summary>
+    /// Reset the NextDNS probe override to null. Used for cleanup paths that
+    /// want production semantics (the real DNS+HTTPS probe). Test code should
+    /// generally restore TestAssemblyInit.SetSafeDefault() instead, to avoid
+    /// breaking sibling tests that inherit the assembly-wide default.
+    /// </summary>
+    internal static void ResetNextDnsProbeOverride() => NextDnsProbeOverride = null;
+
+    /// <summary>
+    /// Probe an IP address to detect if it's running NextDNS CLI.
+    /// </summary>
+    /// <remarks>
+    /// NextDNS CLI doesn't expose an HTTP admin interface, so it can't be detected
+    /// via the local-IP probes used for Pi-hole and AdGuard Home. The detection
+    /// signal lives in NextDNS's hosted test endpoint (https://test.nextdns.io),
+    /// which correlates DNS lookups to its auth servers with subsequent HTTPS
+    /// requests bearing the same random subdomain.
+    /// 
+    /// Probe steps:
+    /// 1. Generate a random subdomain {hex}.test.nextdns.io
+    /// 2. Query the audited DNS server for the subdomain's A record. If the
+    ///    audited server is NextDNS CLI, it forwards this lookup upstream to
+    ///    NextDNS via DoH, and NextDNS records the resolver IP that originated
+    ///    the query.
+    /// 3. HTTPS GET to https://{random}.test.nextdns.io with the TCP connection
+    ///    forced to the resolved IP. NextDNS's web server looks up the random
+    ///    subdomain it just saw queried, correlates it with the resolver IP,
+    ///    and returns JSON with status=ok plus clientName indicating the kind
+    ///    of NextDNS client (nextdns-cli, browser DoH, etc.).
+    /// 4. Detection succeeds if status=ok and clientName contains "nextdns".
+    /// </remarks>
+    private async Task<(bool IsNextDns, string? Profile)> ProbeNextDnsAsync(string ipAddress, CancellationToken ct = default)
+    {
+        // Test override short-circuits the real probe
+        if (NextDnsProbeOverride != null)
+        {
+            return await NextDnsProbeOverride(ipAddress, ct);
+        }
+
+        if (!IPAddress.TryParse(ipAddress, out var resolverIp))
+        {
+            return (false, null);
+        }
+
+        // Step 1: generate a random subdomain. 12 hex chars gives 48 bits of
+        // entropy - enough to avoid collisions in NextDNS's recent-query window
+        // without being unnecessarily long.
+        var randomId = Convert.ToHexString(RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
+        var hostname = $"{randomId}.test.nextdns.io";
+
+        // Step 2: DNS A-record query via the audited resolver
+        IPAddress[] resolvedIps;
+        try
+        {
+            var lookup = new LookupClient(new LookupClientOptions(resolverIp)
+            {
+                Timeout = TimeSpan.FromSeconds(2),
+                UseCache = false,
+                Retries = 0,
+                ContinueOnDnsError = false
+            });
+
+            var dnsResult = await lookup.QueryAsync(hostname, QueryType.A, cancellationToken: ct);
+            if (dnsResult.HasError)
+            {
+                _logger.LogDebug("NextDNS DNS probe: lookup error for {Hostname} via {Resolver}: {Error}",
+                    hostname, ipAddress, dnsResult.ErrorMessage);
+                return (false, null);
+            }
+
+            resolvedIps = dnsResult.Answers
+                .OfType<DnsClient.Protocol.ARecord>()
+                .Select(r => r.Address)
+                .ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "NextDNS DNS probe: lookup exception for {Hostname} via {Resolver}",
+                hostname, ipAddress);
+            return (false, null);
+        }
+
+        if (resolvedIps.Length == 0)
+        {
+            return (false, null);
+        }
+
+        // Step 3: HTTPS GET with connection pinned to the resolved IP. SNI carries
+        // the random hostname for TLS cert validation; the actual TCP connection
+        // lands on the NextDNS web server IP that the audited resolver returned.
+        var probeIp = resolvedIps[0];
+        var url = $"https://{hostname}/";
+
+        SocketsHttpHandler? probeHandler = null;
+        HttpClient? probeClient = null;
+        try
+        {
+            probeHandler = new SocketsHttpHandler
+            {
+                ConnectCallback = async (ctx, cb) =>
+                {
+                    var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                    try
+                    {
+                        await socket.ConnectAsync(probeIp, ctx.DnsEndPoint.Port, cb);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                }
+            };
+
+            probeClient = new HttpClient(probeHandler, disposeHandler: false)
+            {
+                Timeout = TimeSpan.FromSeconds(3)
+            };
+
+            using var response = await probeClient.GetAsync(url, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("NextDNS HTTPS probe: {Status} from {Hostname} via {Resolver}",
+                    (int)response.StatusCode, hostname, ipAddress);
+                return (false, null);
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("status", out var statusElement) ||
+                !string.Equals(statusElement.GetString(), "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, null);
+            }
+
+            if (!doc.RootElement.TryGetProperty("clientName", out var clientElement))
+            {
+                return (false, null);
+            }
+
+            var clientName = clientElement.GetString();
+            if (string.IsNullOrEmpty(clientName) ||
+                clientName.IndexOf("nextdns", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                return (false, null);
+            }
+
+            string? profile = null;
+            if (doc.RootElement.TryGetProperty("profile", out var profileElement))
+            {
+                profile = profileElement.GetString();
+            }
+
+            return (true, profile);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "NextDNS HTTPS probe: exception for {Hostname} via {Resolver}",
+                hostname, ipAddress);
+            return (false, null);
+        }
+        finally
+        {
+            probeClient?.Dispose();
+            probeHandler?.Dispose();
+        }
     }
 
     /// <summary>

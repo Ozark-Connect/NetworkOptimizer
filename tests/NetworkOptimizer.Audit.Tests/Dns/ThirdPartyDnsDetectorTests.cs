@@ -23,6 +23,119 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     public void Dispose()
     {
         DohProviderRegistry.ResetDnsResolver();
+        // Restore the assembly-wide safe default rather than nulling out the override.
+        // The module initializer in TestAssemblyInit sets this once at assembly load;
+        // nulling it here would expose subsequent tests to the real DNS+HTTPS probe.
+        TestAssemblyInit.SetSafeDefault();
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_NextDnsDetected_FlagsProviderAsNextDns()
+    {
+        // Pi-hole and AdGuard Home probes return 404 (not detected). NextDNS probe
+        // override returns a successful detection. Result should record IsNextDns=true
+        // and the provider name should propagate up to the orchestration layer.
+        ThirdPartyDnsDetector.NextDnsProbeOverride = (ip, ct) =>
+            Task.FromResult<(bool, string?)>((true, "fp1234567890abcdef"));
+
+        var httpClient = CreateMockHttpClient(HttpStatusCode.NotFound);
+        var detector = CreateDetector(httpClient);
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net1",
+                DhcpEnabled = true,
+                Name = "Trusted",
+                VlanId = 1,
+                Subnet = "10.0.0.0/24",
+                Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.100.251" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].DnsServerIp.Should().Be("10.0.100.251");
+        result[0].IsNextDns.Should().BeTrue();
+        result[0].NextDnsProfile.Should().Be("fp1234567890abcdef");
+        result[0].IsPihole.Should().BeFalse();
+        result[0].IsAdGuardHome.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("NextDNS CLI");
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_NextDnsProbeReturnsFalse_NoNextDnsFlag()
+    {
+        // All three probes fail to identify the resolver. Result should still be
+        // recorded as a third-party DNS, but with no specific provider attribution.
+        ThirdPartyDnsDetector.NextDnsProbeOverride = (ip, ct) =>
+            Task.FromResult<(bool, string?)>((false, null));
+
+        var httpClient = CreateMockHttpClient(HttpStatusCode.NotFound);
+        var detector = CreateDetector(httpClient);
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net1",
+                DhcpEnabled = true,
+                Name = "Trusted",
+                VlanId = 1,
+                Subnet = "10.0.0.0/24",
+                Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.100.251" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsNextDns.Should().BeFalse();
+        result[0].NextDnsProfile.Should().BeNull();
+        result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_PiholeDetected_DoesNotRunNextDnsProbe()
+    {
+        // If Pi-hole is detected first, the NextDNS probe override should never
+        // be invoked. Use a probe that would fail the test if called to enforce this.
+        var nextDnsProbeCalled = false;
+        ThirdPartyDnsDetector.NextDnsProbeOverride = (ip, ct) =>
+        {
+            nextDnsProbeCalled = true;
+            return Task.FromResult<(bool, string?)>((false, null));
+        };
+
+        // Mock HTTP client returns a valid Pi-hole API response on the probe URL
+        var piholeResponse = @"{""dns"":true,""https_port"":443,""took"":0.001}";
+        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, piholeResponse);
+        var detector = CreateDetector(httpClient);
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net1",
+                DhcpEnabled = true,
+                Name = "Trusted",
+                VlanId = 1,
+                Subnet = "10.0.0.0/24",
+                Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.100.10" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPihole.Should().BeTrue();
+        result[0].IsNextDns.Should().BeFalse();
+        nextDnsProbeCalled.Should().BeFalse("NextDNS probe should be skipped when Pi-hole is detected first");
     }
 
     private ThirdPartyDnsDetector CreateDetector(HttpClient? httpClient = null)
@@ -1524,6 +1637,8 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     [InlineData("9.9.9.9", "Quad9")]
     [InlineData("208.67.222.222", "OpenDNS")]
     [InlineData("94.140.14.14", "AdGuard DNS")]
+    [InlineData("45.90.28.0", "NextDNS")]
+    [InlineData("45.90.30.0", "NextDNS")]
     public void DetectExternalDns_KnownProviders_ReturnsCorrectProviderName(string dnsIp, string expectedProvider)
     {
         var detector = CreateDetector();
