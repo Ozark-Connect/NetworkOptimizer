@@ -266,6 +266,8 @@
 </div>
 
 @code {
+    [Parameter] public bool ForceExpand { get; set; }
+
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
@@ -277,7 +279,7 @@
     {
         await Tracer.RehydrateFromDbAsync();
         _state = Tracer.State;
-        _collapsed = _state.Step == TracerStep.Done;
+        _collapsed = !ForceExpand && _state.Step == TracerStep.Done;
         await RefreshReviewFlagAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
         // runs in the background and the UI just observes. Re-check the rediscovery

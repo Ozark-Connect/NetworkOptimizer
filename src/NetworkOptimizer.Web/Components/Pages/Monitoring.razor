@@ -265,7 +265,7 @@ else
 
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel />
+            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" />
         </div>
 
         <div style="margin-top: 1.5rem;">
@@ -707,6 +707,7 @@ else
     private string _activeTab = "setup";
 
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
+    private bool _forceExpandUpstream;
 
 
     // Chart mount tracking
@@ -1040,10 +1041,22 @@ else
         InvokeAsync(async () =>
         {
             _activeTab = "performance";
+            _forceExpandUpstream = true;
             StateHasChanged();
-            await Task.Yield();
-            await JS.InvokeVoidAsync("eval",
-                "document.getElementById('upstream-discovery')?.scrollIntoView({behavior:'smooth',block:'start'})");
+            await Task.Delay(150);
+            await JS.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('upstream-discovery');
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        el.style.transition = 'outline-color 0.3s';
+                        el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                        el.style.outlineOffset = '4px';
+                        el.style.borderRadius = '12px';
+                        setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                    }
+                })();");
+            _forceExpandUpstream = false;
         });
     }
 
