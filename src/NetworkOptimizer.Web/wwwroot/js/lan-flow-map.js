@@ -309,12 +309,9 @@ export class LanFlowMap {
                 this._togglePlayPause();
                 return;
             }
+            if (e.key === 'Shift') this._keys.shift = true;
             if (['arrowleft','arrowright','w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
-                this._keys[e.key.toLowerCase()] = true;
-            }
-            if (e.key === 'Shift') this._keys.shift = true;
-            if (['w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
             }
         };
@@ -1378,7 +1375,7 @@ export class LanFlowMap {
             }
             tickCount++;
             // Refresh map and stat cards periodically
-            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 998) {
+            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
                 this._playbackAdvancing = true;
                 try {
                     if (clamped >= 9998) {
