@@ -1576,17 +1576,24 @@ export class LanFlowMap {
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
         playPause.addEventListener('click', () => this._togglePlayPause());
-        const SPEED_STEPS = [1, 2, 5, 10, 30, 60, 120, 360, 720, 1440];
+        const SPEED_STEPS = [0.5, 1, 2, 5, 10, 30, 60, 120, 360, 720, 1440];
         this._speedSteps = SPEED_STEPS;
-        this._speedIndex = 0; // starts at 1x
+        this._speedIndex = 1; // starts at 1x
         for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-step')) {
             btn.addEventListener('click', () => {
                 const dir = Number(btn.dataset.dir);
-                const newIdx = Math.max(0, Math.min(SPEED_STEPS.length - 1, this._speedIndex + dir));
+                let newIdx = Math.max(0, Math.min(SPEED_STEPS.length - 1, this._speedIndex + dir));
+                if (this._mode === 'live' && dir > 0) {
+                    const liveIdx = SPEED_STEPS.indexOf(1);
+                    if (newIdx > liveIdx) newIdx = liveIdx;
+                }
                 if (newIdx === this._speedIndex) return;
                 this._speedIndex = newIdx;
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
+                if (this._mode === 'live' && this._playbackSpeed < 1) {
+                    this._onScrubberChange(998);
+                }
                 if (this._mode === 'historic' && this._historicPlaybackTimer) {
                     this._stopHistoricPlayback();
                     this._startHistoricPlayback();
@@ -1786,8 +1793,9 @@ export class LanFlowMap {
                 this._panels.modeBadge.removeAttribute('data-tooltip');
                 if (this._panels.modeBadge._tippy) this._panels.modeBadge._tippy.destroy();
             }
-            // Returning to live resumes polling; clear the paused state so the
-            // play button reflects "playing" again.
+            // Returning to live: reset speed to 1x and resume polling.
+            this._speedIndex = this._speedSteps.indexOf(1);
+            this._playbackSpeed = 1;
             this._paused = false;
             this._syncPlayPauseIcon();
             this._syncSpeedLabel();
