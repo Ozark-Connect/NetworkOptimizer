@@ -304,6 +304,11 @@ export class LanFlowMap {
                 }
             }
             if (!this._shouldAcceptKeys()) return;
+            if (e.key === ' ') {
+                e.preventDefault();
+                this._togglePlayPause();
+                return;
+            }
             if (['w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
                 this._keys[e.key.toLowerCase()] = true;
             }
