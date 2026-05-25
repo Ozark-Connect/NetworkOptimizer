@@ -135,15 +135,15 @@ public class LanFlowMapService
         GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);
 
-        var gwRaw = rawDevices.FirstOrDefault(d =>
-            d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
-        if (gwRaw?.PortTable != null)
-        {
-            snapshot.WanIfNames = gwRaw.PortTable
-                .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName))
-                .Select(p => p.IfName!)
-                .ToList();
-        }
+        // WAN interface names for InfluxDB rate queries. Use the physical port
+        // name (not VLAN sub-interface) to match what SNMP records accurately.
+        var wans = await _pathView.GetWansAsync(ct);
+        snapshot.WanIfNames = wans
+            .Select(w => w.PhysicalIfName ?? w.UplinkIfName)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Select(n => n!)
+            .Distinct()
+            .ToList();
 
         var portRates = await SeedPortRatesAsync(snapshot, ct);
         SeedLiveRates(snapshot, portRates);
@@ -348,18 +348,19 @@ public class LanFlowMapService
         var gwNode = snapshot.Nodes.FirstOrDefault(n => n.Kind == LanNodeKind.Gateway);
         var gwMac = gwNode?.Mac;
 
-        // Pre-fetch WAN rates. The link ID uses NetworkName ("wan") but InfluxDB
-        // stores the Linux ifname ("eth6"). WanIfNames on the snapshot resolves
-        // this from the port table's IfName field (same source as stat cards).
-        IReadOnlyList<MonitoringInfluxClient.WanRatePoint>? wanRates = null;
-        if (!string.IsNullOrEmpty(gwMac) && snapshot.WanIfNames.Count > 0)
+        // Build WAN interface → physical ifname mapping for per-WAN rate queries.
+        var wanIfNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
         {
-            try
+            var wans = await _pathView.GetWansAsync(ct);
+            foreach (var w in wans)
             {
-                wanRates = await _influx.QueryGatewayWanRatesAsync(gwMac, snapshot.WanIfNames, from, to, ct: ct);
+                var rateIf = w.PhysicalIfName ?? w.UplinkIfName;
+                if (!string.IsNullOrEmpty(rateIf))
+                    wanIfNameMap[w.WanInterface] = rateIf;
             }
-            catch { }
         }
+        catch { }
 
         // Pre-fetch interface_counters per device MAC so we don't re-query for
         // every link on the same device. Covers WiredClient (PortKey), Uplink,
@@ -400,13 +401,25 @@ public class LanFlowMapService
             {
                 if (link.Kind == LanLinkKind.Wan)
                 {
-                    if (wanRates != null)
+                    // Per-WAN: extract interface name from link ID, look up
+                    // the physical ifname, then find matching rate points.
+                    var wanIface = link.Id.StartsWith("wan-link-", StringComparison.Ordinal)
+                        ? link.Id.Substring("wan-link-".Length) : null;
+                    if (wanIface != null
+                        && wanIfNameMap.TryGetValue(wanIface, out var rateIf)
+                        && !string.IsNullOrEmpty(gwMac)
+                        && ratesByDevice.TryGetValue(gwMac, out var gwRates))
                     {
-                        var closest = wanRates
+                        var closest = gwRates
+                            .Where(p => string.Equals(p.IfName, rateIf, StringComparison.OrdinalIgnoreCase))
                             .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                             .FirstOrDefault();
                         if (closest != null)
-                            update.LinkRates[link.Id] = MapPortToLinkRates(link, closest.DownloadBps ?? 0, closest.UploadBps ?? 0, closest.Time);
+                        {
+                            // rate_in_bps = downloads, rate_out_bps = uploads
+                            update.LinkRates[link.Id] = MapPortToLinkRates(link,
+                                closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
+                        }
                     }
                 }
                 else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)

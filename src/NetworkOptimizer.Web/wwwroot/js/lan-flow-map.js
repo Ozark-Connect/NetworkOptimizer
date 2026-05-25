@@ -1990,7 +1990,7 @@ export class LanFlowMap {
             const group = this._cloudMeshes.get(`cloud-access-${wanIface}`);
             if (!group) { pill.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
-            tmp.y -= NODE_RADIUS.cloud + 0.5;
+            tmp.y -= NODE_RADIUS.cloud;
             tmp.project(this.camera);
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
