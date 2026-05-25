@@ -1140,7 +1140,7 @@ public class LanFlowMapService
             {
                 Id = $"cloud-access-{wan.WanInterface}",
                 Kind = LanCloudKind.AccessIsp,
-                Name = upstream.Access.AsnName ?? upstream.Access.L2NeighborOui ?? "Access ISP",
+                Name = upstream.Access.AsnName ?? wan.FriendlyName ?? "Access ISP",
                 Asn = upstream.Access.AsnNumber,
                 AsnName = upstream.Access.AsnName,
                 Order = 0,

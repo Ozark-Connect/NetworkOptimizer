@@ -855,11 +855,24 @@ export class LanFlowMap {
         };
 
         const cloudPositions = new Map();
-        for (const cloud of accessClouds) {
+        if (accessClouds.length === 1) {
+            const cloud = accessClouds[0];
             const x = gwX + dirX * accessRadius;
             const y = gwY + 4;
             const z = gwZ + dirZ * accessRadius;
             cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
+        } else {
+            const accessFan = Math.min(Math.PI * 0.6, accessClouds.length * (Math.PI / 6));
+            const accessArcStep = accessClouds.length > 1 ? accessFan / (accessClouds.length - 1) : 0;
+            const accessArcStart = -accessFan / 2;
+            for (let i = 0; i < accessClouds.length; i++) {
+                const cloud = accessClouds[i];
+                const angle = outBearing + accessArcStart + accessArcStep * i;
+                const x = gwX + Math.cos(angle) * accessRadius;
+                const y = gwY + 4;
+                const z = gwZ + Math.sin(angle) * accessRadius;
+                cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
+            }
         }
         for (let i = 0; i < siblings.length; i++) {
             const cloud = siblings[i];

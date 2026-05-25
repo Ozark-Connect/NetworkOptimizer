@@ -58,12 +58,8 @@ public class MonitoringPathView
 
         var resolvedWanInterface = wan?.WanInterface ?? wanInterface ?? "wan";
         var isPrimary = wan?.IsPrimary ?? true;
-        var accessHopCount = await db.MonitoringTargets.AsNoTracking()
-            .CountAsync(t => t.TargetType == MonitoringTargetType.AccessIsp
-                        && (t.WanInterface == resolvedWanInterface
-                            || (isPrimary && t.WanInterface == null)), ct);
-        _logger.LogInformation("GetUpstreamPathAsync: wans={WanCount}, wan={WanIf}, resolved={Resolved}, isPrimary={Primary}, accessHopCount={HopCount}",
-            wans.Count, wan?.WanInterface, resolvedWanInterface, isPrimary, accessHopCount);
+        _logger.LogDebug("GetUpstreamPathAsync: wans={WanCount}, wan={WanIf}, resolved={Resolved}, isPrimary={Primary}",
+            wans.Count, wan?.WanInterface, resolvedWanInterface, isPrimary);
 
         // Per-WAN context, with fallback to legacy MonitoringSettings for installs that
         // pre-date the WanDiscoveryContexts table. New installs and any post-migration
