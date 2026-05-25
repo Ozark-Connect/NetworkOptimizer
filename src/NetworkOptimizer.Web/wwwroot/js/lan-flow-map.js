@@ -1253,8 +1253,8 @@ export class LanFlowMap {
                     const target = this.controls.target;
                     const offset = cam.position.clone().sub(target);
                     const dist = offset.length();
-                    const zoomStep = dist * 0.0225;
-                    const panDist = dist * 0.012;
+                    const zoomStep = dist * 0.015;
+                    const panDist = dist * 0.008;
 
                     if (this._keys['w'] && dist > this.controls.minDistance + zoomStep) {
                         offset.multiplyScalar(1 - zoomStep / dist);
