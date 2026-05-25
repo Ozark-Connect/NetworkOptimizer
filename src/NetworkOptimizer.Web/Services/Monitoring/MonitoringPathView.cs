@@ -253,12 +253,15 @@ public class MonitoringPathView
                         if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
                     }
 
+                    // Physical port name (e.g. "eth6" for VLAN-tagged "eth6.228",
+                    // same as uplinkIfname for non-VLAN connections).
+                    var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+
                     // For virtual WANs (GRE, etc.) without port_table entries,
                     // resolve the friendly name from WAN network configs via
                     // ethernet_overrides networkgroup or wan key convention.
                     if (string.IsNullOrEmpty(friendlyName))
                     {
-                        var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
                         var lookupIfname = physicalIfname ?? uplinkIfname;
                         string? networkGroup = null;
                         if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
@@ -278,6 +281,7 @@ public class MonitoringPathView
                         GatewayMac = gwMac,
                         GatewayPortName = friendlyName,
                         UplinkIfName = uplinkIfname,
+                        PhysicalIfName = physicalIfname,
                         LinkSpeedMbps = linkSpeed > 0 ? linkSpeed : (int?)null,
                         IpAddress = ip,
                         IpClass = NetworkUtilities.ClassifyPublicAddress(ip)
@@ -301,13 +305,17 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
-            if (!string.IsNullOrEmpty(wan.UplinkIfName))
+            // Prefer the physical port rate (eth6) over the VLAN sub-interface
+            // (eth6.228) - the physical port counters match what the old
+            // port_table.IsUplink path returned.
+            var rateIfName = wan.PhysicalIfName ?? wan.UplinkIfName;
+            if (!string.IsNullOrEmpty(rateIfName))
             {
-                var portRate = _liveStats.GetPortRate(gwMac, wan.UplinkIfName);
+                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
                 if (portRate != null)
                 {
-                    wan.LiveRateInBps = portRate.UpBps;
-                    wan.LiveRateOutBps = portRate.DownBps;
+                    wan.LiveRateInBps = portRate.DownBps;
+                    wan.LiveRateOutBps = portRate.UpBps;
                     continue;
                 }
             }
@@ -394,6 +402,7 @@ public record WanSummary
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
     public string? UplinkIfName { get; init; }
+    public string? PhysicalIfName { get; init; }
     public int? LinkSpeedMbps { get; init; }
     public double? LiveRateInBps { get; set; }
     public double? LiveRateOutBps { get; set; }
