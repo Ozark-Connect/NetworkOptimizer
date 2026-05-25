@@ -430,6 +430,47 @@ public class InterfaceMetricsTests
         metrics.ShouldMonitor().Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("Device 17cb:1109", "Device 17cb:1109")]
+    [InlineData("Device 168c:0046", "Device 168c:0046")]
+    [InlineData("device 17cb:1109", "device 17cb:1109")]
+    public void ShouldMonitor_DeviceDescriptors_ReturnsFalse(string description, string name)
+    {
+        var metrics = new InterfaceMetrics
+        {
+            Description = description,
+            Name = name
+        };
+
+        metrics.ShouldMonitor().Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("miireg", "miireg")]
+    public void ShouldMonitor_MiiRegister_ReturnsFalse(string description, string name)
+    {
+        var metrics = new InterfaceMetrics
+        {
+            Description = description,
+            Name = name
+        };
+
+        metrics.ShouldMonitor().Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("teql0", "teql0")]
+    public void ShouldMonitor_TrafficEqualizer_ReturnsFalse(string description, string name)
+    {
+        var metrics = new InterfaceMetrics
+        {
+            Description = description,
+            Name = name
+        };
+
+        metrics.ShouldMonitor().Should().BeFalse();
+    }
+
     [Fact]
     public void ShouldMonitor_CaseInsensitive()
     {

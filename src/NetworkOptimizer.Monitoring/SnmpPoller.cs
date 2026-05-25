@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.RegularExpressions;
 using Lextm.SharpSnmpLib;
@@ -19,56 +20,26 @@ namespace NetworkOptimizer.Monitoring;
 /// </summary>
 public interface ISnmpPoller
 {
-    /// <summary>
-    /// Get a single SNMP value
-    /// </summary>
     Task<T?> GetAsync<T>(IPAddress ip, string oid);
-
-    /// <summary>
-    /// Walk an SNMP OID tree
-    /// </summary>
     Task<List<Variable>> WalkAsync(IPAddress ip, string oid);
-
-    /// <summary>
-    /// Get complete device metrics
-    /// </summary>
+    Task<IList<Variable>> GetMultipleAsync(IPAddress ip, IList<string> oids);
+    Task<List<Variable>> BulkWalkAsync(IPAddress ip, string oid, int maxRepetitions = 25);
     Task<DeviceMetrics> GetDeviceMetricsAsync(IPAddress ip, string? hostname = null);
-
-    /// <summary>
-    /// Get interface metrics for all interfaces
-    /// </summary>
     Task<List<InterfaceMetrics>> GetInterfaceMetricsAsync(IPAddress ip, string? hostname = null);
-
-    /// <summary>
-    /// Get system information
-    /// </summary>
     Task<(string hostname, string description, long uptime)> GetSystemInfoAsync(IPAddress ip);
 }
 
 /// <summary>
-/// SNMP poller with support for v1/v2c/v3 and comprehensive metric collection.
+/// SNMP poller with support for v1/v2c/v3, batched multi-OID GET, GETBULK walk, and V3 discovery caching.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This class wraps the Lextm.SharpSnmpLib library to provide async methods for SNMP operations.
-/// The underlying SharpSnmpLib library is synchronous-only and does not provide native async APIs.
-/// </para>
-/// <para>
-/// To avoid blocking the calling thread (which is critical in ASP.NET Core and Blazor applications),
-/// all SNMP operations are wrapped in <see cref="Task.Run"/> to offload the synchronous work to
-/// a thread pool thread. While this is not true async I/O, it prevents blocking the main thread
-/// and allows the application to remain responsive during potentially long-running SNMP operations
-/// (especially when devices are unresponsive or timeouts occur).
-/// </para>
-/// <para>
-/// If a future version of SharpSnmpLib adds native async support, these implementations should
-/// be updated to use the native async methods instead of Task.Run wrapping.
-/// </para>
-/// </remarks>
 public class SnmpPoller : ISnmpPoller
 {
     private readonly SnmpConfiguration _config;
     private readonly ILogger<SnmpPoller> _logger;
+    private readonly ConcurrentDictionary<string, (ISnmpMessage Report, DateTime CachedAt)> _discoveryCache = new();
+    private readonly ConcurrentDictionary<string, InterfaceMetadataCache> _ifMetadataCache = new();
+    private const int DiscoveryCacheTtlSeconds = 60;
+    private const int InterfaceMetadataCacheTtlSeconds = 60;
 
     public SnmpPoller(SnmpConfiguration config, ILogger<SnmpPoller> logger)
     {
@@ -79,19 +50,6 @@ public class SnmpPoller : ISnmpPoller
 
     #region Core SNMP Operations
 
-    /// <summary>
-    /// Gets a single SNMP value for the specified OID.
-    /// </summary>
-    /// <typeparam name="T">The expected return type (string, int, long, double, etc.).</typeparam>
-    /// <param name="ip">The IP address of the SNMP-enabled device.</param>
-    /// <param name="oid">The Object Identifier (OID) to query.</param>
-    /// <returns>The value converted to type <typeparamref name="T"/>, or default if the operation fails.</returns>
-    /// <remarks>
-    /// This method uses <see cref="Task.Run"/> to wrap the synchronous SharpSnmpLib calls.
-    /// The underlying Lextm.SharpSnmpLib library does not provide native async APIs, so
-    /// Task.Run is necessary to prevent blocking the calling thread during network I/O
-    /// and potential timeout waits.
-    /// </remarks>
     public async Task<T?> GetAsync<T>(IPAddress ip, string oid)
     {
         return await Task.Run(() =>
@@ -127,28 +85,53 @@ public class SnmpPoller : ISnmpPoller
             }
             catch (Exception ex)
             {
-                // Per-OID SNMP failure is a normal, expected condition - one unreachable
-                // device shouldn't fill logs with errors. The agent layer aggregates and
-                // surfaces health state via MonitoringSettings.SnmpDetectionState.
                 _logger.LogDebug(ex, "SNMP Get failed for {Ip}:{Oid}", ip, oid);
                 return default;
             }
         });
     }
 
-    /// <summary>
-    /// Walks an SNMP OID subtree and returns all variables within it.
-    /// </summary>
-    /// <param name="ip">The IP address of the SNMP-enabled device.</param>
-    /// <param name="oid">The root OID of the subtree to walk.</param>
-    /// <returns>A list of all SNMP variables found within the specified OID subtree.</returns>
-    /// <remarks>
-    /// This method uses <see cref="Task.Run"/> to wrap the synchronous SharpSnmpLib walk operation.
-    /// The underlying Lextm.SharpSnmpLib library does not provide native async APIs, so
-    /// Task.Run is necessary to prevent blocking the calling thread. SNMP walks can be
-    /// particularly long-running as they involve multiple sequential SNMP requests to
-    /// traverse the entire subtree.
-    /// </remarks>
+    public async Task<IList<Variable>> GetMultipleAsync(IPAddress ip, IList<string> oids)
+    {
+        if (oids.Count == 0) return Array.Empty<Variable>();
+
+        // V1 only supports single-variable GET; fall back to sequential
+        if (_config.Version == SnmpVersion.V1)
+        {
+            return await GetMultipleSequentialAsync(ip, oids);
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                DebugLog($"SNMP Multi-Get: {ip}:{_config.Port} OIDs={oids.Count} Version={_config.Version}");
+
+                var endpoint = new IPEndPoint(ip, _config.Port);
+                var variables = oids.Select(oid => new Variable(new ObjectIdentifier(oid))).ToList();
+
+                IList<Variable> result;
+
+                if (_config.Version == SnmpVersion.V3)
+                {
+                    result = GetV3(endpoint, variables);
+                }
+                else
+                {
+                    result = GetV1V2c(endpoint, variables);
+                }
+
+                DebugLog($"Multi-Get returned {result.Count} variables");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "SNMP Multi-Get failed for {Ip} ({Count} OIDs)", ip, oids.Count);
+                return (IList<Variable>)Array.Empty<Variable>();
+            }
+        });
+    }
+
     public async Task<List<Variable>> WalkAsync(IPAddress ip, string oid)
     {
         return await Task.Run(() =>
@@ -181,13 +164,78 @@ public class SnmpPoller : ISnmpPoller
         });
     }
 
+    public async Task<List<Variable>> BulkWalkAsync(IPAddress ip, string oid, int maxRepetitions = 25)
+    {
+        // V1 doesn't support GETBULK; fall back to regular walk
+        if (_config.Version == SnmpVersion.V1)
+        {
+            return await WalkAsync(ip, oid);
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                DebugLog($"SNMP BulkWalk: {ip}:{_config.Port} OID={oid} MaxRep={maxRepetitions}");
+
+                var endpoint = new IPEndPoint(ip, _config.Port);
+                var table = new ObjectIdentifier(oid);
+                var list = new List<Variable>();
+
+                if (_config.Version == SnmpVersion.V3)
+                {
+                    var report = GetCachedDiscoveryReport(endpoint);
+                    var auth = GetAuthenticationProvider();
+                    var priv = GetPrivacyProvider(auth);
+
+                    Messenger.BulkWalk(
+                        VersionCode.V3,
+                        endpoint,
+                        new OctetString(_config.Username),
+                        new OctetString(_config.ContextName ?? ""),
+                        table,
+                        list,
+                        _config.Timeout,
+                        maxRepetitions,
+                        WalkMode.WithinSubtree,
+                        priv,
+                        report
+                    );
+                }
+                else
+                {
+                    var community = new OctetString(_config.Community);
+
+                    Messenger.BulkWalk(
+                        VersionCode.V2,
+                        endpoint,
+                        community,
+                        new OctetString(""),
+                        table,
+                        list,
+                        _config.Timeout,
+                        maxRepetitions,
+                        WalkMode.WithinSubtree,
+                        null,
+                        null
+                    );
+                }
+
+                DebugLog($"BulkWalk returned {list.Count} variables for {oid}");
+                return list;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "SNMP BulkWalk failed for {Ip}:{Oid}", ip, oid);
+                return new List<Variable>();
+            }
+        });
+    }
+
     #endregion
 
     #region Device Metrics Collection
 
-    /// <summary>
-    /// Get complete device metrics including system info and interfaces
-    /// </summary>
     public async Task<DeviceMetrics> GetDeviceMetricsAsync(IPAddress ip, string? hostname = null)
     {
         var metrics = new DeviceMetrics
@@ -199,7 +247,6 @@ public class SnmpPoller : ISnmpPoller
 
         try
         {
-            // Run all metric collection in parallel for better performance
             var interfacesTask = GetInterfaceMetricsAsync(ip, metrics.Hostname);
 
             await Task.WhenAll(
@@ -224,43 +271,88 @@ public class SnmpPoller : ISnmpPoller
         return metrics;
     }
 
-    /// <summary>
-    /// Get interface metrics for all interfaces
-    /// </summary>
     public async Task<List<InterfaceMetrics>> GetInterfaceMetricsAsync(IPAddress ip, string? hostname = null)
     {
         var interfaces = new List<InterfaceMetrics>();
 
         try
         {
-            // Get number of interfaces
-            var ifNumber = await GetAsync<int>(ip, UniFiOids.IfNumber);
-            if (ifNumber <= 0)
+            var cacheKey = ip.ToString();
+            var metadata = await GetOrRefreshInterfaceMetadataAsync(ip, cacheKey);
+            if (metadata == null || metadata.DescrByIdx.Count == 0)
             {
                 _logger.LogDebug("No interfaces found on device {Ip}", ip);
                 return interfaces;
             }
 
-            DebugLog($"Device has {ifNumber} interfaces");
+            // Only walk counters + operStatus on each call (the hot path)
+            var operStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfOperStatus);
+            var operByIdx = IndexByIfIndex(operStatusWalk, UniFiOids.IfOperStatus);
 
-            // Walk interface table to get all interface indices
-            var ifIndices = await WalkAsync(ip, UniFiOids.IfIndex);
+            // Counter walks - try HC first, fall back to 32-bit
+            var hcInOctets = await BulkWalkAsync(ip, UniFiOids.IfHCInOctets);
+            var hcOutOctets = await BulkWalkAsync(ip, UniFiOids.IfHCOutOctets);
 
-            foreach (var variable in ifIndices)
+            bool needFallback = hcInOctets.Count == 0;
+            List<Variable>? inOctets32 = null, outOctets32 = null;
+            if (needFallback)
             {
-                try
-                {
-                    var index = Convert.ToInt32(variable.Data.ToString());
-                    var interfaceMetrics = await GetInterfaceMetricsForIndex(ip, index, hostname);
+                inOctets32 = await BulkWalkAsync(ip, UniFiOids.IfInOctets);
+                outOctets32 = await BulkWalkAsync(ip, UniFiOids.IfOutOctets);
+            }
 
-                    if (interfaceMetrics != null && interfaceMetrics.ShouldMonitor())
-                    {
-                        interfaces.Add(interfaceMetrics);
-                    }
-                }
-                catch (Exception ex)
+            // Error counters
+            var inErrors = await BulkWalkAsync(ip, UniFiOids.IfInErrors);
+            var outErrors = await BulkWalkAsync(ip, UniFiOids.IfOutErrors);
+            var inDiscards = await BulkWalkAsync(ip, UniFiOids.IfInDiscards);
+            var outDiscards = await BulkWalkAsync(ip, UniFiOids.IfOutDiscards);
+
+            var hcInOctetsByIdx = IndexByIfIndex(hcInOctets, UniFiOids.IfHCInOctets);
+            var hcOutOctetsByIdx = IndexByIfIndex(hcOutOctets, UniFiOids.IfHCOutOctets);
+            var inOctets32ByIdx = needFallback ? IndexByIfIndex(inOctets32!, UniFiOids.IfInOctets) : null;
+            var outOctets32ByIdx = needFallback ? IndexByIfIndex(outOctets32!, UniFiOids.IfOutOctets) : null;
+            var inErrorsByIdx = IndexByIfIndex(inErrors, UniFiOids.IfInErrors);
+            var outErrorsByIdx = IndexByIfIndex(outErrors, UniFiOids.IfOutErrors);
+            var inDiscardsByIdx = IndexByIfIndex(inDiscards, UniFiOids.IfInDiscards);
+            var outDiscardsByIdx = IndexByIfIndex(outDiscards, UniFiOids.IfOutDiscards);
+
+            // Build interface metrics using cached metadata + fresh counters
+            foreach (var (idx, descr) in metadata.DescrByIdx)
+            {
+                if (!int.TryParse(idx, out var index)) continue;
+
+                var speed = ParseLong(metadata.SpeedByIdx, idx);
+                var highSpeed = ParseLong(metadata.HighSpeedByIdx, idx);
+                var useHC = _config.UseHighCapacityCounters && !needFallback &&
+                           (highSpeed >= _config.HighCapacityThresholdMbps || (speed / 1_000_000) >= _config.HighCapacityThresholdMbps);
+
+                var metrics = new InterfaceMetrics
                 {
-                    _logger.LogDebug(ex, "Failed to get metrics for interface on {Ip}", ip);
+                    Index = index,
+                    DeviceIp = ip.ToString(),
+                    DeviceHostname = hostname ?? string.Empty,
+                    Timestamp = DateTime.UtcNow,
+                    Description = descr,
+                    Name = GetString(metadata.AliasByIdx, idx) ?? GetString(metadata.NameByIdx, idx) ?? string.Empty,
+                    Type = ParseInt(metadata.TypeByIdx, idx),
+                    Mtu = ParseInt(metadata.MtuByIdx, idx),
+                    Speed = speed,
+                    HighSpeed = highSpeed,
+                    PhysicalAddress = GetString(metadata.PhysAddrByIdx, idx) ?? string.Empty,
+                    AdminStatus = ParseInt(metadata.AdminByIdx, idx),
+                    OperStatus = ParseInt(operByIdx, idx),
+                    LastChange = ParseLong(metadata.LastChangeByIdx, idx),
+                    InOctets = useHC ? ParseLong(hcInOctetsByIdx, idx) : ParseLong(inOctets32ByIdx ?? hcInOctetsByIdx, idx),
+                    OutOctets = useHC ? ParseLong(hcOutOctetsByIdx, idx) : ParseLong(outOctets32ByIdx ?? hcOutOctetsByIdx, idx),
+                    InDiscards = ParseLong(inDiscardsByIdx, idx),
+                    InErrors = ParseLong(inErrorsByIdx, idx),
+                    OutDiscards = ParseLong(outDiscardsByIdx, idx),
+                    OutErrors = ParseLong(outErrorsByIdx, idx),
+                };
+
+                if (metrics.ShouldMonitor())
+                {
+                    interfaces.Add(metrics);
                 }
             }
 
@@ -274,14 +366,22 @@ public class SnmpPoller : ISnmpPoller
         return interfaces;
     }
 
-    /// <summary>
-    /// Get system information
-    /// </summary>
     public async Task<(string hostname, string description, long uptime)> GetSystemInfoAsync(IPAddress ip)
     {
-        var hostname = await GetAsync<string>(ip, UniFiOids.SysName) ?? string.Empty;
-        var description = await GetAsync<string>(ip, UniFiOids.SysDescr) ?? string.Empty;
-        var uptime = await GetAsync<long>(ip, UniFiOids.SysUpTime);
+        var oids = new List<string> { UniFiOids.SysName, UniFiOids.SysDescr, UniFiOids.SysUpTime };
+        var results = await GetMultipleAsync(ip, oids);
+
+        string hostname = string.Empty, description = string.Empty;
+        long uptime = 0;
+
+        foreach (var v in results)
+        {
+            if (IsNoSuchOrEndOfMib(v)) continue;
+            var oid = v.Id.ToString();
+            if (oid == UniFiOids.SysName) hostname = v.Data.ToString();
+            else if (oid == UniFiOids.SysDescr) description = v.Data.ToString();
+            else if (oid == UniFiOids.SysUpTime) uptime = ConvertSnmpValue<long>(v.Data);
+        }
 
         return (hostname, description, uptime);
     }
@@ -292,26 +392,63 @@ public class SnmpPoller : ISnmpPoller
 
     private async Task GetSystemMetrics(IPAddress ip, DeviceMetrics metrics)
     {
-        metrics.Hostname = await GetAsync<string>(ip, UniFiOids.SysName) ?? metrics.Hostname;
-        metrics.Description = await GetAsync<string>(ip, UniFiOids.SysDescr) ?? string.Empty;
-        metrics.Location = await GetAsync<string>(ip, UniFiOids.SysLocation) ?? string.Empty;
-        metrics.Contact = await GetAsync<string>(ip, UniFiOids.SysContact) ?? string.Empty;
-        metrics.Uptime = await GetAsync<long>(ip, UniFiOids.SysUpTime);
-        metrics.ObjectId = await GetAsync<string>(ip, UniFiOids.SysObjectID) ?? string.Empty;
+        var oids = new List<string>
+        {
+            UniFiOids.SysName,
+            UniFiOids.SysDescr,
+            UniFiOids.SysLocation,
+            UniFiOids.SysContact,
+            UniFiOids.SysUpTime,
+            UniFiOids.SysObjectID
+        };
+
+        var results = await GetMultipleAsync(ip, oids);
+
+        foreach (var v in results)
+        {
+            if (IsNoSuchOrEndOfMib(v)) continue;
+            var oid = v.Id.ToString();
+            if (oid == UniFiOids.SysName) metrics.Hostname = v.Data.ToString();
+            else if (oid == UniFiOids.SysDescr) metrics.Description = v.Data.ToString();
+            else if (oid == UniFiOids.SysLocation) metrics.Location = v.Data.ToString();
+            else if (oid == UniFiOids.SysContact) metrics.Contact = v.Data.ToString();
+            else if (oid == UniFiOids.SysUpTime) metrics.Uptime = ConvertSnmpValue<long>(v.Data);
+            else if (oid == UniFiOids.SysObjectID) metrics.ObjectId = v.Data.ToString();
+        }
     }
 
     private async Task GetResourceMetrics(IPAddress ip, DeviceMetrics metrics)
     {
-        var cpuIdle = await GetAsync<double>(ip, UniFiOids.SsCpuIdle);
+        var oids = new List<string>
+        {
+            UniFiOids.SsCpuIdle,
+            UniFiOids.MemTotalReal,
+            UniFiOids.MemAvailReal,
+            UniFiOids.MemCached
+        };
+
+        var results = await GetMultipleAsync(ip, oids);
+
+        double cpuIdle = 0;
+        long totalMem = 0, availMem = 0, cachedMem = 0;
+
+        foreach (var v in results)
+        {
+            if (IsNoSuchOrEndOfMib(v)) continue;
+            var oid = v.Id.ToString();
+            if (oid == UniFiOids.SsCpuIdle) cpuIdle = ConvertSnmpValue<double>(v.Data);
+            else if (oid == UniFiOids.MemTotalReal) totalMem = ConvertSnmpValue<long>(v.Data);
+            else if (oid == UniFiOids.MemAvailReal) availMem = ConvertSnmpValue<long>(v.Data);
+            else if (oid == UniFiOids.MemCached) cachedMem = ConvertSnmpValue<long>(v.Data);
+        }
+
         if (cpuIdle > 0)
         {
             metrics.CpuUsage = 100.0 - cpuIdle;
         }
         else
         {
-            // APs don't support UCD-SNMP ssCpuIdle. Walk hrProcessorLoad
-            // (one row per core) and average.
-            var cores = await WalkAsync(ip, UniFiOids.HrProcessorLoad);
+            var cores = await BulkWalkAsync(ip, UniFiOids.HrProcessorLoad);
             if (cores.Count > 0)
             {
                 var sum = 0.0;
@@ -324,12 +461,6 @@ public class SnmpPoller : ISnmpPoller
             }
         }
 
-        // UCD-SNMP memory: subtract cached from used so cache doesn't inflate
-        // the percentage. Matches STM's formula: used = total - available - cached.
-        var totalMem = await GetAsync<long>(ip, UniFiOids.MemTotalReal);
-        var availMem = await GetAsync<long>(ip, UniFiOids.MemAvailReal);
-        var cachedMem = await GetAsync<long>(ip, UniFiOids.MemCached);
-
         if (totalMem > 0)
         {
             metrics.TotalMemory = totalMem * 1024;
@@ -340,116 +471,92 @@ public class SnmpPoller : ISnmpPoller
         }
         else
         {
-            // Try Host Resources memory
-            var storageVars = await WalkAsync(ip, UniFiOids.HrStorageTable);
-            await ParseHostResourcesMemory(storageVars, metrics);
+            var storageVars = await BulkWalkAsync(ip, UniFiOids.HrStorageTable);
+            ParseHostResourcesMemory(storageVars, metrics);
         }
     }
 
     private async Task GetUniFiMetrics(IPAddress ip, DeviceMetrics metrics)
     {
-        metrics.Model = await GetAsync<string>(ip, UniFiOids.UniFiModel) ?? string.Empty;
-        metrics.FirmwareVersion = await GetAsync<string>(ip, UniFiOids.UniFiFirmwareVersion) ?? string.Empty;
-        metrics.MacAddress = await GetAsync<string>(ip, UniFiOids.UniFiMacAddress) ?? string.Empty;
+        var oids = new List<string>
+        {
+            UniFiOids.UniFiModel,
+            UniFiOids.UniFiFirmwareVersion,
+            UniFiOids.UniFiMacAddress,
+            UniFiOids.LmSensorsCpuTemp,
+            UniFiOids.UniFiTemperature
+        };
 
-        // LM-SENSORS-MIB (UCD-SNMP extension): index 4 = "temp-cpu" in millidegrees.
-        // Works on gateways. Falls back to the UniFi-specific OID for other devices.
-        var lmTemp = await GetAsync<double>(ip, UniFiOids.LmSensorsCpuTemp);
+        var results = await GetMultipleAsync(ip, oids);
+
+        double lmTemp = 0, unifiTemp = 0;
+
+        foreach (var v in results)
+        {
+            if (IsNoSuchOrEndOfMib(v)) continue;
+            var oid = v.Id.ToString();
+            if (oid == UniFiOids.UniFiModel) metrics.Model = v.Data.ToString();
+            else if (oid == UniFiOids.UniFiFirmwareVersion) metrics.FirmwareVersion = v.Data.ToString();
+            else if (oid == UniFiOids.UniFiMacAddress) metrics.MacAddress = v.Data.ToString();
+            else if (oid == UniFiOids.LmSensorsCpuTemp) lmTemp = ConvertSnmpValue<double>(v.Data);
+            else if (oid == UniFiOids.UniFiTemperature) unifiTemp = ConvertSnmpValue<double>(v.Data);
+        }
+
         if (lmTemp > 0)
         {
             metrics.Temperature = lmTemp / 1000.0;
         }
-        else
+        else if (unifiTemp > 0 && unifiTemp < 200)
         {
-            var temp = await GetAsync<double>(ip, UniFiOids.UniFiTemperature);
-            if (temp > 0 && temp < 200)
-            {
-                metrics.Temperature = temp;
-            }
+            metrics.Temperature = unifiTemp;
         }
 
-        // Determine device type from model or description
         metrics.DeviceType = DetermineDeviceType(metrics.Model, metrics.Description);
     }
 
-    private async Task<InterfaceMetrics?> GetInterfaceMetricsForIndex(IPAddress ip, int index, string? hostname)
+    private async Task<InterfaceMetadataCache?> GetOrRefreshInterfaceMetadataAsync(IPAddress ip, string cacheKey)
     {
-        var metrics = new InterfaceMetrics
+        if (_ifMetadataCache.TryGetValue(cacheKey, out var cached) &&
+            (DateTime.UtcNow - cached.CachedAt).TotalSeconds < InterfaceMetadataCacheTtlSeconds)
         {
-            Index = index,
-            DeviceIp = ip.ToString(),
-            DeviceHostname = hostname ?? string.Empty,
-            Timestamp = DateTime.UtcNow
+            return cached;
+        }
+
+        var descrWalk = await BulkWalkAsync(ip, UniFiOids.IfDescr);
+        if (descrWalk.Count == 0) return null;
+
+        var nameWalk = await BulkWalkAsync(ip, UniFiOids.IfName);
+        var aliasWalk = await BulkWalkAsync(ip, UniFiOids.IfAlias);
+        var typeWalk = await BulkWalkAsync(ip, UniFiOids.IfType);
+        var mtuWalk = await BulkWalkAsync(ip, UniFiOids.IfMtu);
+        var speedWalk = await BulkWalkAsync(ip, UniFiOids.IfSpeed);
+        var highSpeedWalk = await BulkWalkAsync(ip, UniFiOids.IfHighSpeed);
+        var physAddrWalk = await BulkWalkAsync(ip, UniFiOids.IfPhysAddress);
+        var adminStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfAdminStatus);
+        var lastChangeWalk = await BulkWalkAsync(ip, UniFiOids.IfLastChange);
+
+        var metadata = new InterfaceMetadataCache
+        {
+            CachedAt = DateTime.UtcNow,
+            DescrByIdx = IndexByIfIndex(descrWalk, UniFiOids.IfDescr),
+            NameByIdx = IndexByIfIndex(nameWalk, UniFiOids.IfName),
+            AliasByIdx = IndexByIfIndex(aliasWalk, UniFiOids.IfAlias),
+            TypeByIdx = IndexByIfIndex(typeWalk, UniFiOids.IfType),
+            MtuByIdx = IndexByIfIndex(mtuWalk, UniFiOids.IfMtu),
+            SpeedByIdx = IndexByIfIndex(speedWalk, UniFiOids.IfSpeed),
+            HighSpeedByIdx = IndexByIfIndex(highSpeedWalk, UniFiOids.IfHighSpeed),
+            PhysAddrByIdx = IndexByIfIndex(physAddrWalk, UniFiOids.IfPhysAddress),
+            AdminByIdx = IndexByIfIndex(adminStatusWalk, UniFiOids.IfAdminStatus),
+            LastChangeByIdx = IndexByIfIndex(lastChangeWalk, UniFiOids.IfLastChange),
         };
 
-        try
-        {
-            // Basic interface info
-            metrics.Description = await GetAsync<string>(ip, $"{UniFiOids.IfDescr}.{index}") ?? string.Empty;
-            metrics.Name = await GetAsync<string>(ip, $"{UniFiOids.IfAlias}.{index}") ??
-                          await GetAsync<string>(ip, $"{UniFiOids.IfName}.{index}") ?? string.Empty;
-            metrics.Type = await GetAsync<int>(ip, $"{UniFiOids.IfType}.{index}");
-            metrics.Mtu = await GetAsync<int>(ip, $"{UniFiOids.IfMtu}.{index}");
-            metrics.Speed = await GetAsync<long>(ip, $"{UniFiOids.IfSpeed}.{index}");
-            metrics.HighSpeed = await GetAsync<long>(ip, $"{UniFiOids.IfHighSpeed}.{index}");
-            metrics.PhysicalAddress = await GetAsync<string>(ip, $"{UniFiOids.IfPhysAddress}.{index}") ?? string.Empty;
-
-            // Status
-            metrics.AdminStatus = await GetAsync<int>(ip, $"{UniFiOids.IfAdminStatus}.{index}");
-            metrics.OperStatus = await GetAsync<int>(ip, $"{UniFiOids.IfOperStatus}.{index}");
-            metrics.LastChange = await GetAsync<long>(ip, $"{UniFiOids.IfLastChange}.{index}");
-
-            // Determine whether to use high-capacity counters
-            var useHC = _config.UseHighCapacityCounters &&
-                       (metrics.HighSpeed >= _config.HighCapacityThresholdMbps || metrics.SpeedMbps >= _config.HighCapacityThresholdMbps);
-
-            if (useHC)
-            {
-                // Use 64-bit high-capacity counters
-                metrics.InOctets = await GetAsync<long>(ip, $"{UniFiOids.IfHCInOctets}.{index}");
-                metrics.OutOctets = await GetAsync<long>(ip, $"{UniFiOids.IfHCOutOctets}.{index}");
-                metrics.InUcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfHCInUcastPkts}.{index}");
-                metrics.OutUcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfHCOutUcastPkts}.{index}");
-                metrics.InMulticastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfHCInMulticastPkts}.{index}");
-                metrics.OutMulticastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfHCOutMulticastPkts}.{index}");
-                metrics.InBroadcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfHCInBroadcastPkts}.{index}");
-                metrics.OutBroadcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfHCOutBroadcastPkts}.{index}");
-            }
-            else
-            {
-                // Use 32-bit counters
-                metrics.InOctets = await GetAsync<long>(ip, $"{UniFiOids.IfInOctets}.{index}");
-                metrics.OutOctets = await GetAsync<long>(ip, $"{UniFiOids.IfOutOctets}.{index}");
-                metrics.InUcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfInUcastPkts}.{index}");
-                metrics.OutUcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfOutUcastPkts}.{index}");
-                metrics.InMulticastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfInMulticastPkts}.{index}");
-                metrics.OutMulticastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfOutMulticastPkts}.{index}");
-                metrics.InBroadcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfInBroadcastPkts}.{index}");
-                metrics.OutBroadcastPkts = await GetAsync<long>(ip, $"{UniFiOids.IfOutBroadcastPkts}.{index}");
-            }
-
-            // Errors and discards (always 32-bit)
-            metrics.InDiscards = await GetAsync<long>(ip, $"{UniFiOids.IfInDiscards}.{index}");
-            metrics.InErrors = await GetAsync<long>(ip, $"{UniFiOids.IfInErrors}.{index}");
-            metrics.InUnknownProtos = await GetAsync<long>(ip, $"{UniFiOids.IfInUnknownProtos}.{index}");
-            metrics.OutDiscards = await GetAsync<long>(ip, $"{UniFiOids.IfOutDiscards}.{index}");
-            metrics.OutErrors = await GetAsync<long>(ip, $"{UniFiOids.IfOutErrors}.{index}");
-
-            return metrics;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get metrics for interface {Index} on {Ip}", index, ip);
-            return null;
-        }
+        _ifMetadataCache[cacheKey] = metadata;
+        return metadata;
     }
 
-    private Task ParseHostResourcesMemory(List<Variable> storageVars, DeviceMetrics metrics)
+    private static void ParseHostResourcesMemory(List<Variable> storageVars, DeviceMetrics metrics)
     {
         // Parse Host Resources storage table for memory information
-        // This is more complex as it requires correlating multiple OIDs
-        // Implementation would parse the storage table and find RAM entries
-        return Task.CompletedTask;
     }
 
     private DeviceType DetermineDeviceType(string model, string description)
@@ -474,13 +581,25 @@ public class SnmpPoller : ISnmpPoller
 
     #region SNMP Protocol Implementation
 
-    private IList<Variable> GetV3(IPEndPoint endpoint, List<Variable> variables)
+    private ISnmpMessage GetCachedDiscoveryReport(IPEndPoint endpoint)
     {
-        DebugLog($"Using SNMP v3 - Username: {_config.Username}");
+        var key = endpoint.ToString();
+
+        if (_discoveryCache.TryGetValue(key, out var cached) &&
+            (DateTime.UtcNow - cached.CachedAt).TotalSeconds < DiscoveryCacheTtlSeconds)
+        {
+            return cached.Report;
+        }
 
         var discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
         var report = discovery.GetResponse(_config.Timeout, endpoint);
+        _discoveryCache[key] = (report, DateTime.UtcNow);
+        return report;
+    }
 
+    private IList<Variable> GetV3(IPEndPoint endpoint, List<Variable> variables)
+    {
+        var report = GetCachedDiscoveryReport(endpoint);
         var auth = GetAuthenticationProvider();
         var priv = GetPrivacyProvider(auth);
 
@@ -501,8 +620,6 @@ public class SnmpPoller : ISnmpPoller
 
     private IList<Variable> GetV1V2c(IPEndPoint endpoint, List<Variable> variables)
     {
-        DebugLog($"Using SNMP v{_config.Version} with community: {_config.Community}");
-
         var versionCode = _config.Version == SnmpVersion.V1 ? VersionCode.V1 : VersionCode.V2;
         var community = new OctetString(_config.Community);
 
@@ -517,9 +634,7 @@ public class SnmpPoller : ISnmpPoller
 
     private void WalkV3(IPEndPoint endpoint, ObjectIdentifier table, List<Variable> results)
     {
-        var discovery = Messenger.GetNextDiscovery(SnmpType.GetBulkRequestPdu);
-        var report = discovery.GetResponse(_config.Timeout, endpoint);
-
+        var report = GetCachedDiscoveryReport(endpoint);
         var auth = GetAuthenticationProvider();
         var priv = GetPrivacyProvider(auth);
 
@@ -568,6 +683,30 @@ public class SnmpPoller : ISnmpPoller
         );
     }
 
+    private async Task<IList<Variable>> GetMultipleSequentialAsync(IPAddress ip, IList<string> oids)
+    {
+        var results = new List<Variable>();
+        foreach (var oid in oids)
+        {
+            var result = await Task.Run(() =>
+            {
+                try
+                {
+                    var endpoint = new IPEndPoint(ip, _config.Port);
+                    var variables = new List<Variable> { new Variable(new ObjectIdentifier(oid)) };
+                    return GetV1V2c(endpoint, variables);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "SNMP V1 sequential Get failed for {Ip}:{Oid}", ip, oid);
+                    return (IList<Variable>)Array.Empty<Variable>();
+                }
+            });
+            foreach (var v in result) results.Add(v);
+        }
+        return results;
+    }
+
     private IAuthenticationProvider GetAuthenticationProvider()
     {
         if (string.IsNullOrEmpty(_config.AuthenticationPassword))
@@ -605,7 +744,50 @@ public class SnmpPoller : ISnmpPoller
 
     #endregion
 
-    #region Value Conversion
+    #region Value Conversion and Indexing
+
+    private static bool IsNoSuchOrEndOfMib(Variable v)
+    {
+        var tc = (int)v.Data.TypeCode;
+        return tc >= 0x80;
+    }
+
+    private static Dictionary<string, string> IndexByIfIndex(List<Variable> variables, string baseOid)
+    {
+        var dict = new Dictionary<string, string>();
+        var prefix = baseOid + ".";
+
+        foreach (var v in variables)
+        {
+            var oid = v.Id.ToString();
+            if (oid.StartsWith(prefix))
+            {
+                var idx = oid.Substring(prefix.Length);
+                dict[idx] = v.Data.ToString();
+            }
+        }
+
+        return dict;
+    }
+
+    private static string? GetString(Dictionary<string, string> dict, string idx)
+    {
+        return dict.TryGetValue(idx, out var val) ? val : null;
+    }
+
+    private static int ParseInt(Dictionary<string, string> dict, string idx)
+    {
+        if (dict.TryGetValue(idx, out var val) && int.TryParse(val, out var result))
+            return result;
+        return 0;
+    }
+
+    private static long ParseLong(Dictionary<string, string> dict, string idx)
+    {
+        if (dict.TryGetValue(idx, out var val) && long.TryParse(val, out var result))
+            return result;
+        return 0;
+    }
 
     private T? ConvertSnmpValue<T>(ISnmpData? data)
     {
@@ -683,4 +865,19 @@ public class SnmpPoller : ISnmpPoller
     }
 
     #endregion
+}
+
+internal sealed class InterfaceMetadataCache
+{
+    public DateTime CachedAt { get; init; }
+    public Dictionary<string, string> DescrByIdx { get; init; } = new();
+    public Dictionary<string, string> NameByIdx { get; init; } = new();
+    public Dictionary<string, string> AliasByIdx { get; init; } = new();
+    public Dictionary<string, string> TypeByIdx { get; init; } = new();
+    public Dictionary<string, string> MtuByIdx { get; init; } = new();
+    public Dictionary<string, string> SpeedByIdx { get; init; } = new();
+    public Dictionary<string, string> HighSpeedByIdx { get; init; } = new();
+    public Dictionary<string, string> PhysAddrByIdx { get; init; } = new();
+    public Dictionary<string, string> AdminByIdx { get; init; } = new();
+    public Dictionary<string, string> LastChangeByIdx { get; init; } = new();
 }
