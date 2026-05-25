@@ -1041,22 +1041,20 @@ export class LanFlowMap {
             ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
             subW = Math.ceil(ctx.measureText(subText).width);
         }
-        const maxW = 600;
-        const w = Math.min(Math.max(titleW, subW) + pad * 2, maxW);
+        const w = Math.max(titleW, subW) + pad * 2;
         const h = subText ? fontSize + subFontSize + pad * 2 + 6 : fontSize + pad * 2;
         canvas.width = w;
         canvas.height = h;
         ctx.fillStyle = 'rgba(6, 8, 12, 0.92)';
         roundRect(ctx, 0, 0, w, h, 12);
-        const drawW = w - pad * 2;
         ctx.fillStyle = '#f1f5f9';
         ctx.textBaseline = 'top';
         ctx.font = `${fontSize}px ui-sans-serif, system-ui, sans-serif`;
-        ctx.fillText(text, pad, pad, drawW);
+        ctx.fillText(text, pad, pad);
         if (subText) {
             ctx.fillStyle = '#94a3b8';
             ctx.font = `${subFontSize}px ui-sans-serif, system-ui, sans-serif`;
-            ctx.fillText(subText, pad, pad + fontSize + 6, drawW);
+            ctx.fillText(subText, pad, pad + fontSize + 6);
         }
         const tex = new THREE.CanvasTexture(canvas);
         tex.needsUpdate = true;
