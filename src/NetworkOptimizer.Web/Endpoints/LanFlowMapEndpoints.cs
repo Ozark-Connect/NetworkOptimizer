@@ -33,7 +33,7 @@ public static class LanFlowMapEndpoints
         app.MapGet("/api/monitoring/lan-flow-map/speed-tests",
             async (LanFlowMapService svc, DateTime? since, DateTime? until, CancellationToken ct) =>
             {
-                var fromT = since ?? DateTime.UtcNow.AddHours(-24);
+                var fromT = since ?? DateTime.UtcNow.AddDays(-30);
                 var toT = until ?? DateTime.UtcNow;
                 var items = await svc.BuildSpeedTestOverlayAsync(fromT, toT, limitPerKind: 10, ct: ct);
                 return Results.Ok(items);
