@@ -166,6 +166,20 @@ public class MonitoringPathView
             return Array.Empty<WanSummary>();
         }
 
+        // Fetch WAN network configs for friendly names (covers GRE tunnels and
+        // other virtual WANs that don't have port_table entries).
+        var networkGroupToName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var wanConfigs = await _connectionService.Client.GetWanConfigsAsync(ct);
+            foreach (var wc in wanConfigs.Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup)))
+                networkGroupToName[wc.WanNetworkgroup!] = wc.Name;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "GetWansAsync: failed to fetch WAN configs for names");
+        }
+
         var results = new List<WanSummary>();
 
         using (var doc = System.Text.Json.JsonDocument.Parse(deviceJson))
@@ -184,6 +198,7 @@ public class MonitoringPathView
                 var gwMac = device.TryGetProperty("mac", out var macProp) ? macProp.GetString() : null;
                 gwMac = gwMac?.ToLowerInvariant().Replace('-', ':') ?? "";
 
+                // Build port_idx lookups from port_table and ethernet_overrides
                 var portInfo = new Dictionary<int, (string? networkName, string? name, int speed)>();
                 if (device.TryGetProperty("port_table", out var portTable) &&
                     portTable.ValueKind == System.Text.Json.JsonValueKind.Array)
@@ -196,6 +211,19 @@ public class MonitoringPathView
                         var name = port.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
                         var speed = port.TryGetProperty("speed", out var speedProp) && speedProp.TryGetInt32(out var spd) ? spd : 0;
                         portInfo[idx] = (networkName, name, speed);
+                    }
+                }
+
+                var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
+                    ethOverrides.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var ov in ethOverrides.EnumerateArray())
+                    {
+                        var ifn = ov.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                        var ng = ov.TryGetProperty("networkgroup", out var ngProp) ? ngProp.GetString() : null;
+                        if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
+                            ifnameToNetworkGroup[ifn] = ng;
                     }
                 }
 
@@ -223,6 +251,21 @@ public class MonitoringPathView
                         interfaceKey = pi.networkName;
                         friendlyName = pi.name;
                         if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
+                    }
+
+                    // For virtual WANs (GRE, etc.) without port_table entries,
+                    // resolve the friendly name from WAN network configs via
+                    // ethernet_overrides networkgroup or wan key convention.
+                    if (string.IsNullOrEmpty(friendlyName))
+                    {
+                        var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                        var lookupIfname = physicalIfname ?? uplinkIfname;
+                        string? networkGroup = null;
+                        if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
+                            networkGroup = ng;
+                        networkGroup ??= i == 1 ? "WAN" : $"WAN{i}";
+                        if (networkGroupToName.TryGetValue(networkGroup, out var configName))
+                            friendlyName = configName;
                     }
 
                     interfaceKey ??= i == 1 ? "wan" : $"wan{i}";
