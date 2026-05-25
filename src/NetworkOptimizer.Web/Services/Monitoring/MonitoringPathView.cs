@@ -277,6 +277,7 @@ public class MonitoringPathView
                         IsPrimary = results.Count == 0,
                         GatewayMac = gwMac,
                         GatewayPortName = friendlyName,
+                        UplinkIfName = uplinkIfname,
                         LinkSpeedMbps = linkSpeed > 0 ? linkSpeed : (int?)null,
                         IpAddress = ip,
                         IpClass = NetworkUtilities.ClassifyPublicAddress(ip)
@@ -298,9 +299,19 @@ public class MonitoringPathView
         if (wans.Count == 0) return;
         var gwMac = wans[0].GatewayMac;
         if (string.IsNullOrEmpty(gwMac)) return;
-        var deviceLive = _liveStats.GetForDevice(gwMac);
         foreach (var wan in wans)
         {
+            if (!string.IsNullOrEmpty(wan.UplinkIfName))
+            {
+                var portRate = _liveStats.GetPortRate(gwMac, wan.UplinkIfName);
+                if (portRate != null)
+                {
+                    wan.LiveRateInBps = portRate.UpBps;
+                    wan.LiveRateOutBps = portRate.DownBps;
+                    continue;
+                }
+            }
+            var deviceLive = _liveStats.GetForDevice(gwMac);
             wan.LiveRateInBps = deviceLive?.RateInBps;
             wan.LiveRateOutBps = deviceLive?.RateOutBps;
         }
@@ -382,6 +393,7 @@ public record WanSummary
     public required bool IsPrimary { get; init; }
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
+    public string? UplinkIfName { get; init; }
     public int? LinkSpeedMbps { get; init; }
     public double? LiveRateInBps { get; set; }
     public double? LiveRateOutBps { get; set; }
