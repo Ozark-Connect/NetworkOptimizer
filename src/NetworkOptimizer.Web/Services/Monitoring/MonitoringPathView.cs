@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
@@ -59,6 +58,8 @@ public class MonitoringPathView
 
         var resolvedWanInterface = wan?.WanInterface ?? wanInterface ?? "wan";
         var isPrimary = wan?.IsPrimary ?? true;
+        _logger.LogDebug("GetUpstreamPathAsync: wans={WanCount}, wan={WanIf}, resolved={Resolved}, isPrimary={Primary}",
+            wans.Count, wan?.WanInterface, resolvedWanInterface, isPrimary);
 
         // Per-WAN context, with fallback to legacy MonitoringSettings for installs that
         // pre-date the WanDiscoveryContexts table. New installs and any post-migration
