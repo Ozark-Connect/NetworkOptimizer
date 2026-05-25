@@ -1542,6 +1542,9 @@ export class LanFlowMap {
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
                 <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
+                <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
+                <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
             </div>
         `;
