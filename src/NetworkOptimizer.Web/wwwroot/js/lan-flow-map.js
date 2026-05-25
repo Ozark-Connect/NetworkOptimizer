@@ -1343,24 +1343,24 @@ export class LanFlowMap {
             const now = Date.now();
             const span = now - this._scrubberOrigin;
             const value = span > 0
-                ? Math.round((this._playbackTime.getTime() - this._scrubberOrigin) / span * 1000)
-                : 1000;
-            const clamped = Math.max(0, Math.min(1000, value));
+                ? Math.round((this._playbackTime.getTime() - this._scrubberOrigin) / span * 10000)
+                : 10000;
+            const clamped = Math.max(0, Math.min(10000, value));
             range.value = clamped;
             // Update the time label from the continuous timestamp, not the
             // integer slider position (which only moves every ~86s at 1x).
             if (this._panels.scrubberRight) {
                 this._panels.scrubberRight.textContent =
-                    (clamped >= 998) ? 'Live' : _fmtDateTime(this._playbackTime);
+                    (clamped >= 9998) ? 'Live' : _fmtDateTime(this._playbackTime);
             }
             tickCount++;
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 998) {
                 this._playbackAdvancing = true;
                 try {
-                    if (clamped >= 998) {
+                    if (clamped >= 9998) {
                         this._stopHistoricPlayback();
-                        this._onScrubberChange(1000);
+                        this._onScrubberChange(10000);
                     } else {
                         this._historicAt = this._playbackTime;
                         this._notifyStatCards(this._playbackTime);
@@ -1543,8 +1543,8 @@ export class LanFlowMap {
         modeBadge.addEventListener('click', () => {
             if (this._mode === 'live') return;
             const range = this._panels.scrubberRange;
-            if (range) range.value = 1000;
-            this._onScrubberChange(1000);
+            if (range) range.value = 10000;
+            this._onScrubberChange(10000);
         });
         status.appendChild(modeBadge);
         this._panels.status = status;
@@ -1565,7 +1565,7 @@ export class LanFlowMap {
                     <button class="lan-flow-map-speed-step" data-dir="1" type="button" aria-label="Faster">+</button>
                 </div>
                 <span data-role="left">-24h</span>
-                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
+                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="10000" value="10000" />
                 <span data-role="right">Live</span>
             </div>
         `;
@@ -1594,9 +1594,9 @@ export class LanFlowMap {
                 if (this._mode === 'live' && this._playbackSpeed < 1) {
                     const now = Date.now();
                     const span = now - this._scrubberOrigin;
-                    const nearNow = span > 0 ? Math.floor((now - 5000 - this._scrubberOrigin) / span * 1000) : 997;
+                    const nearNow = span > 0 ? Math.floor((now - 5000 - this._scrubberOrigin) / span * 10000) : 9997;
                     this._speedTransition = true;
-                    this._onScrubberChange(Math.min(nearNow, 997));
+                    this._onScrubberChange(Math.min(nearNow, 9997));
                     this._speedTransition = false;
                     this._startHistoricPlayback();
                 }
@@ -1781,17 +1781,17 @@ export class LanFlowMap {
         const at = this._scrubberValueToTime(value);
         if (this._panels.scrubberRight) {
             this._panels.scrubberRight.textContent =
-                (value >= 998) ? 'Live' : _fmtDateTime(at);
+                (value >= 9998) ? 'Live' : _fmtDateTime(at);
         }
     }
 
     async _onScrubberChange(value) {
-        if (value >= 998) {
+        if (value >= 9998) {
             // Snap back to live.
             this._stopHistoricPlayback();
             this._mode = 'live';
             this._historicAt = null;
-            this._onScrubberInput(1000);
+            this._onScrubberInput(10000);
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
                 this._panels.modeBadge.classList.remove('is-historic');
@@ -1856,10 +1856,10 @@ export class LanFlowMap {
     }
 
     _scrubberValueToTime(value) {
-        // Range 0..1000 maps from the anchored origin (mount - 24h) to now.
+        // Range 0..10000 maps from the anchored origin (mount - 24h) to now.
         // The window grows as the page stays open so recent time is always reachable.
         const now = Date.now();
-        const ms = this._scrubberOrigin + (value / 1000) * (now - this._scrubberOrigin);
+        const ms = this._scrubberOrigin + (value / 10000) * (now - this._scrubberOrigin);
         return new Date(ms);
     }
 
