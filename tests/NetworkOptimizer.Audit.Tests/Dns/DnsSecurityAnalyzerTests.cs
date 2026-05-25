@@ -441,6 +441,199 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_WithIpBasedDohBlockRule_DetectsRule()
+    {
+        // An IP-based rule whose destination contains a list of known DoH provider IPs
+        // should be credited as a DoH block, mirroring how UniFi users commonly deploy
+        // this control (alternative or supplement to domain-based or DPI-app-based rules).
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Public DoH (IPs)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9"", ""94.140.14.14""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.DohRuleName.Should().Be("Block Public DoH (IPs)");
+    }
+
+    [Fact]
+    public async Task Analyze_WithIpBasedDohRule_BelowIpThreshold_DoesNotDetect()
+    {
+        // Only 2 known DoH IPs (below MinDohIpMatches = 3) should not trigger detection.
+        // Guards against rules that incidentally block one or two DoH IPs.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Two DNS IPs"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("two known DoH IPs is below the minimum match threshold");
+    }
+
+    [Fact]
+    public async Task Analyze_WithIpBasedDohRule_BelowProviderThreshold_DoesNotDetect()
+    {
+        // 3+ IPs matched, but all from the same provider (Cloudflare). Below
+        // MinDohProvidersMatched = 2. Real DoH bypass prevention spans multiple
+        // providers; a single-provider IP block is more likely targeted at one
+        // service for a different reason.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Cloudflare Resolvers"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""ips"": [""1.1.1.1"", ""1.0.0.1"", ""1.1.1.2"", ""1.0.0.2""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("a single provider is below the minimum provider threshold");
+    }
+
+    [Fact]
+    public async Task Analyze_WithIpBasedDohRule_UdpOnly_DetectsDoh3NotDoH()
+    {
+        // UDP 443 to DoH provider IPs is DoH3 (HTTP/3 over QUIC), not DoH (TCP).
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoH3 by IP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("UDP 443 is DoH3, not DoH");
+        result.HasDoh3BlockRule.Should().BeTrue();
+        result.Doh3RuleName.Should().Be("Block DoH3 by IP");
+    }
+
+    [Fact]
+    public async Task Analyze_WithIpBasedDohRule_BothProtocols_DetectsBoth()
+    {
+        // tcp_udp on port 443 to DoH provider IPs catches both DoH (TCP) and DoH3 (UDP).
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoH + DoH3 by IP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp_udp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeTrue();
+        result.DohRuleName.Should().Be("Block DoH + DoH3 by IP");
+        result.Doh3RuleName.Should().Be("Block DoH + DoH3 by IP");
+    }
+
+    [Fact]
+    public async Task Analyze_WithIpGroupResolvedToDohIps_DetectsRule()
+    {
+        // End-to-end: rule references an IP group via OBJECT/ip_group_id, group is
+        // resolved by the parser, analyzer recognizes the resolved list as DoH IPs.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Public DoH (Group)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""matching_target_type"": ""OBJECT"",
+                    ""ip_group_id"": ""doh-providers-group""
+                }
+            }
+        ]").RootElement;
+
+        var firewallGroups = new List<UniFiFirewallGroup>
+        {
+            new UniFiFirewallGroup
+            {
+                Id = "doh-providers-group",
+                Name = "DoH-Providers",
+                GroupType = "address-group",
+                GroupMembers = new List<string>
+                {
+                    "1.1.1.1", "1.0.0.1",
+                    "8.8.8.8", "8.8.4.4",
+                    "9.9.9.9", "149.112.112.112",
+                    "94.140.14.14", "94.140.15.15"
+                }
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.DohRuleName.Should().Be("Block Public DoH (Group)");
+    }
+
+    [Fact]
+    public async Task Analyze_WithIpBasedDohRule_OnlyOneIpFromKnownProvider_DoesNotDetect()
+    {
+        // 3+ IPs but only 1 is a known DoH provider IP. Below MinDohIpMatches.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Mixed IPs"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""IP"",
+                    ""ips"": [""1.1.1.1"", ""203.0.113.5"", ""198.51.100.20"", ""192.0.2.10""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("only one known DoH IP among non-DNS addresses");
+    }
+
+    [Fact]
     public async Task Analyze_WithDoqBlockRule_DetectsRule()
     {
         // DoQ (DNS over QUIC) uses UDP 853 per RFC 9250

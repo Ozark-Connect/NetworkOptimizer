@@ -185,6 +185,34 @@ public static class DohProviderRegistry
     }
 
     /// <summary>
+    /// Match a list of IP addresses against known DoH providers. Returns the total number
+    /// of IPs that match a known provider and the set of distinct provider names matched.
+    /// Used to detect IP-based DoH-blocking firewall rules where the destination is a list
+    /// of provider IPs (typically referenced via an IP group) rather than a hostname or
+    /// DPI app reference.
+    /// </summary>
+    public static (int MatchedCount, HashSet<string> MatchedProviders) MatchKnownDohIps(IEnumerable<string> ips)
+    {
+        var matchedProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int matchedCount = 0;
+
+        foreach (var ip in ips)
+        {
+            if (string.IsNullOrEmpty(ip))
+                continue;
+
+            var provider = IdentifyProviderFromIp(ip);
+            if (provider != null)
+            {
+                matchedCount++;
+                matchedProviders.Add(provider.Name);
+            }
+        }
+
+        return (matchedCount, matchedProviders);
+    }
+
+    /// <summary>
     /// Identify a provider from a DNS IP address using PTR lookup (authoritative) with static IP fallback.
     /// PTR lookup is tried first and takes priority when successful.
     /// Static IP matching (e.g., "45.90." prefix for NextDNS) is only used as fallback when PTR fails.
