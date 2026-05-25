@@ -1592,7 +1592,10 @@ export class LanFlowMap {
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
                 if (this._mode === 'live' && this._playbackSpeed < 1) {
+                    this._speedTransition = true;
                     this._onScrubberChange(997);
+                    this._speedTransition = false;
+                    this._startHistoricPlayback();
                 }
                 if (this._mode === 'historic' && this._historicPlaybackTimer) {
                     this._stopHistoricPlayback();
@@ -1818,7 +1821,7 @@ export class LanFlowMap {
         // method on every tick (to load the historic snapshot for the new
         // slider position); skip the auto-pause in that case or playback
         // would stop after one tick.
-        if (!this._playbackAdvancing && !this._paused) {
+        if (!this._playbackAdvancing && !this._speedTransition && !this._paused) {
             this._paused = true;
             this._syncPlayPauseIcon();
             this._stopHistoricPlayback();
