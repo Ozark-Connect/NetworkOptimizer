@@ -1322,11 +1322,8 @@ export class LanFlowMap {
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
         // Track playback as a continuous timestamp, not integer slider units.
-        // The slider and time label update every tick; the map and stat cards
-        // refresh on a throttled cadence (~3 s wall-clock) to avoid flooding
-        // the API while still feeling responsive.
         const TICK_MS = 1000;
-        const DATA_REFRESH_TICKS = 3; // load new data every 3 ticks
+        const DATA_REFRESH_TICKS = 1;
         this._playbackTime = this._historicAt
             || this._scrubberValueToTime(Number(this._panels.scrubberRange?.value ?? 500));
         let tickCount = 0;
