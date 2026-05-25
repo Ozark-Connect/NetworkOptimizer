@@ -98,7 +98,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Access network technology</label>
-                    <select class="form-select" style="max-width: 250px;"
+                    <select class="form-input" style="max-width: 250px;"
                             value="@((int)_state.AccessTechnology)"
                             @onchange="e => _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!)">
                         @foreach (var tech in Enum.GetValues<AccessTechnology>())
@@ -381,7 +381,7 @@
 
     private static string FormatTechName(AccessTechnology tech) => tech switch
     {
-        AccessTechnology.Unknown => "Auto-detect",
+        AccessTechnology.Unknown => "Not detected",
         AccessTechnology.Gpon => "GPON",
         AccessTechnology.XgsPon => "XGS-PON",
         AccessTechnology.Docsis => "DOCSIS (Cable)",
