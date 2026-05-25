@@ -149,7 +149,7 @@ public class LanFlowMapService
         SeedLiveRates(snapshot, portRates);
 
         snapshot.SpeedTests = await BuildSpeedTestOverlayAsync(
-            since: snapshot.GeneratedAt - TimeSpan.FromHours(24),
+            since: snapshot.GeneratedAt - TimeSpan.FromDays(30),
             until: snapshot.GeneratedAt,
             limitPerKind: 3,
             ct: ct);
