@@ -199,7 +199,10 @@ public class InterfaceMetrics
             "virbr",     // Virtual Bridge
             "tun",       // Tunnel
             "tap",       // TAP device
-            "null"       // Null interface
+            "null",      // Null interface
+            "device ",   // USB/PCI device descriptors (e.g. Qualcomm chipset "Device 17cb:1109")
+            "miireg",    // MII register access (not a network interface)
+            "teql",      // Traffic equalizer
         };
 
         foreach (var pattern in excludePatterns)
