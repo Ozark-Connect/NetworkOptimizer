@@ -49,6 +49,31 @@ public class AccessPortVlanRule : AuditRuleBase
         if (port.IsUplink || port.IsWan)
             return null;
 
+        // Mirror destination ports cannot accept port profiles and receive frames at L2
+        // regardless of VLAN tags - this is by design. Don't treat as a misconfiguration,
+        // but surface as informational so the operator is aware that any device connected
+        // to this port can passively observe traffic from the mirrored source port(s).
+        if (port.IsMirrorDestination)
+        {
+            var mirrorNetwork = GetNetwork(port.NativeNetworkId, networks);
+            return CreateIssue(
+                "Mirror destination port has visibility into all mirrored VLAN traffic",
+                port,
+                new Dictionary<string, object>
+                {
+                    { "network", mirrorNetwork?.Name ?? "Unknown" },
+                    { "is_mirror_destination", true }
+                },
+                "This port is configured as a SPAN/mirror destination. UniFi enforces op_mode=mirror "
+                + "as a distinct operational mode that does not accept port profiles, and mirror "
+                + "destinations must receive frames regardless of VLAN tags to fulfill their capture "
+                + "role. Any device connected to this port can passively observe traffic from the "
+                + "mirrored source port(s), so ensure physical access to this port is restricted "
+                + "appropriately.",
+                overrideSeverity: AuditSeverity.Informational,
+                overrideScoreImpact: 2);
+        }
+
         // Only check ports configured as trunk/custom (these have tagged VLANs)
         // Access ports (ForwardMode = "native") don't have tagged VLANs - that's normal
         // Ports with tagged_vlan_mgmt = "block_all" block all tagged VLANs regardless of forward mode

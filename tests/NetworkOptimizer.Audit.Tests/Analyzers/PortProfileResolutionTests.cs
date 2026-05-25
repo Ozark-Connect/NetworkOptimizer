@@ -22,6 +22,47 @@ public class PortProfileResolutionTests
     }
 
     [Fact]
+    public void ExtractSwitches_PortWithOpModeMirror_PopulatesOpModeAndIsMirrorDestination()
+    {
+        // op_mode is the UniFi controller field that flags a port as a mirror/SPAN
+        // destination. ParsePort must propagate it to PortInfo.OpMode so downstream
+        // rules can use IsMirrorDestination to skip these ports.
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 5,
+                        ""name"": ""Port 5"",
+                        ""op_mode"": ""mirror"",
+                        ""forward"": ""all"",
+                        ""up"": true
+                    },
+                    {
+                        ""port_idx"": 1,
+                        ""name"": ""Port 1"",
+                        ""op_mode"": ""switch"",
+                        ""forward"": ""all"",
+                        ""up"": true
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, null);
+
+        var mirrorPort = result[0].Ports.Single(p => p.PortIndex == 5);
+        mirrorPort.OpMode.Should().Be("mirror");
+        mirrorPort.IsMirrorDestination.Should().BeTrue();
+
+        var switchPort = result[0].Ports.Single(p => p.PortIndex == 1);
+        switchPort.OpMode.Should().Be("switch");
+        switchPort.IsMirrorDestination.Should().BeFalse();
+    }
+
+    [Fact]
     public void ExtractSwitches_PortWithProfile_ResolvesForwardModeFromProfile()
     {
         // Port has forward="all" but profile has forward="disabled"

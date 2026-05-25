@@ -48,6 +48,12 @@ public class UnusedPortRule : AuditRuleBase
         if (port.IsUplink || port.IsWan)
             return null;
 
+        // Skip mirror destination ports. A mirror port can be legitimately down when its
+        // capture device is unplugged - recommending it be disabled would break mirroring
+        // as soon as the capture device reconnects.
+        if (port.IsMirrorDestination)
+            return null;
+
         // Check if port is disabled (either via forward mode or hardware enable flag)
         if (port.ForwardMode == "disabled" || !port.IsEnabled)
             return null; // Correctly configured

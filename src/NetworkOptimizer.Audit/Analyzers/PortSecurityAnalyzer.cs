@@ -679,6 +679,7 @@ public class PortSecurityAnalyzer
             Speed = port.GetIntOrDefault("speed"),
             ForwardMode = forwardMode,
             TaggedVlanMgmt = taggedVlanMgmt,
+            OpMode = port.GetStringOrNull("op_mode"),
             IsUplink = port.GetBoolOrDefault("is_uplink"),
             IsWan = isWan,
             NativeNetworkId = nativeNetworkId,

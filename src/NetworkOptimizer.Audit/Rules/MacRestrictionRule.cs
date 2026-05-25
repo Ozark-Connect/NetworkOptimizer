@@ -34,6 +34,12 @@ public class MacRestrictionRule : AuditRuleBase
         if (port.IsUplink || port.IsWan)
             return null;
 
+        // Skip mirror destination ports. Defense-in-depth: the isAccessPort check below
+        // already filters them since mirror destinations have forward="all" (not an access
+        // port shape), but the explicit guard makes the design intent clear.
+        if (port.IsMirrorDestination)
+            return null;
+
         // Skip ports with network fabric devices (AP, switch, bridge) - these are LAN infrastructure
         // Modems, NVRs, Cloud Keys, etc. are endpoints and SHOULD get MAC restriction recommendations
         if (IsNetworkFabricDevice(port.ConnectedDeviceType))
