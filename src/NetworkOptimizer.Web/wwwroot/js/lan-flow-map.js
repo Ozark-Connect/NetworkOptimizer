@@ -117,7 +117,7 @@ export class LanFlowMap {
         this.canvas = canvasEl;
         this.stage = canvasEl.parentElement || canvasEl;
         this.apiBase = options.apiBase ?? '/api/monitoring/lan-flow-map';
-        this.pollIntervalMs = options.pollIntervalMs ?? 2000;
+        this.pollIntervalMs = options.pollIntervalMs ?? 1000;
         this.onError = options.onError ?? ((err) => console.error('[LanFlowMap]', err));
 
         this._snapshot = null;
@@ -304,12 +304,20 @@ export class LanFlowMap {
                 }
             }
             if (!this._shouldAcceptKeys()) return;
-            if (['w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
+            if (e.key === ' ') {
+                e.preventDefault();
+                this._togglePlayPause();
+                return;
+            }
+            if (e.key === 'Shift') this._keys.shift = true;
+            if (['arrowleft','arrowright','w','a','s','d','q','e'].includes(e.key.toLowerCase())) {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
                 this._keys[e.key.toLowerCase()] = true;
             }
         };
         this._onKeyUp = (e) => {
             this._keys[e.key.toLowerCase()] = false;
+            if (e.key === 'Shift') this._keys.shift = false;
         };
         document.addEventListener('keydown', this._onKeyDown);
         document.addEventListener('keyup', this._onKeyUp);
@@ -855,11 +863,24 @@ export class LanFlowMap {
         };
 
         const cloudPositions = new Map();
-        for (const cloud of accessClouds) {
+        if (accessClouds.length === 1) {
+            const cloud = accessClouds[0];
             const x = gwX + dirX * accessRadius;
             const y = gwY + 4;
             const z = gwZ + dirZ * accessRadius;
             cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
+        } else {
+            const accessFan = Math.min(Math.PI * 0.4, accessClouds.length * (Math.PI / 10));
+            const accessArcStep = accessClouds.length > 1 ? accessFan / (accessClouds.length - 1) : 0;
+            const accessArcStart = -accessFan / 2;
+            for (let i = 0; i < accessClouds.length; i++) {
+                const cloud = accessClouds[i];
+                const angle = outBearing + accessArcStart + accessArcStep * i;
+                const x = gwX + Math.cos(angle) * accessRadius;
+                const y = gwY + 4;
+                const z = gwZ + Math.sin(angle) * accessRadius;
+                cloudPositions.set(cloud.id, placeCloud(cloud, x, y, z));
+            }
         }
         for (let i = 0; i < siblings.length; i++) {
             const cloud = siblings[i];
@@ -1229,8 +1250,8 @@ export class LanFlowMap {
                     const target = this.controls.target;
                     const offset = cam.position.clone().sub(target);
                     const dist = offset.length();
-                    const zoomStep = dist * 0.0225;
-                    const panDist = dist * 0.012;
+                    const zoomStep = dist * 0.015;
+                    const panDist = dist * 0.008;
 
                     if (this._keys['w'] && dist > this.controls.minDistance + zoomStep) {
                         offset.multiplyScalar(1 - zoomStep / dist);
@@ -1250,6 +1271,23 @@ export class LanFlowMap {
                     }
                 }
                 this.controls?.update();
+            }
+
+            // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
+            if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
+                const now = performance.now();
+                if (!this._lastArrowScrub || now - this._lastArrowScrub >= 200) {
+                    this._lastArrowScrub = now;
+                    const range = this._panels.scrubberRange;
+                    if (range) {
+                        const step = this._keys.shift ? 35 : 4;
+                        const dir = this._keys['arrowright'] ? step : -step;
+                        const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
+                        range.value = val;
+                        range.dispatchEvent(new Event('input'));
+                        range.dispatchEvent(new Event('change'));
+                    }
+                }
             }
 
             // Freeze particle motion while paused (Live or Historic) so the
@@ -1309,11 +1347,8 @@ export class LanFlowMap {
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
         // Track playback as a continuous timestamp, not integer slider units.
-        // The slider and time label update every tick; the map and stat cards
-        // refresh on a throttled cadence (~3 s wall-clock) to avoid flooding
-        // the API while still feeling responsive.
         const TICK_MS = 1000;
-        const DATA_REFRESH_TICKS = 3; // load new data every 3 ticks
+        const DATA_REFRESH_TICKS = 1;
         this._playbackTime = this._historicAt
             || this._scrubberValueToTime(Number(this._panels.scrubberRange?.value ?? 500));
         let tickCount = 0;
@@ -1328,24 +1363,24 @@ export class LanFlowMap {
             const now = Date.now();
             const span = now - this._scrubberOrigin;
             const value = span > 0
-                ? Math.round((this._playbackTime.getTime() - this._scrubberOrigin) / span * 1000)
-                : 1000;
-            const clamped = Math.max(0, Math.min(1000, value));
+                ? Math.round((this._playbackTime.getTime() - this._scrubberOrigin) / span * 10000)
+                : 10000;
+            const clamped = Math.max(0, Math.min(10000, value));
             range.value = clamped;
             // Update the time label from the continuous timestamp, not the
             // integer slider position (which only moves every ~86s at 1x).
             if (this._panels.scrubberRight) {
                 this._panels.scrubberRight.textContent =
-                    (clamped >= 998) ? 'Live' : _fmtDateTime(this._playbackTime);
+                    (clamped >= 9998) ? 'Live' : _fmtDateTime(this._playbackTime);
             }
             tickCount++;
             // Refresh map and stat cards periodically
-            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 998) {
+            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
                 this._playbackAdvancing = true;
                 try {
-                    if (clamped >= 998) {
+                    if (clamped >= 9998) {
                         this._stopHistoricPlayback();
-                        this._onScrubberChange(1000);
+                        this._onScrubberChange(10000);
                     } else {
                         this._historicAt = this._playbackTime;
                         this._notifyStatCards(this._playbackTime);
@@ -1507,6 +1542,9 @@ export class LanFlowMap {
                 <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
                 <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
                 <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
+                <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
+                <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
+                <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>
                 <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
             </div>
         `;
@@ -1528,8 +1566,8 @@ export class LanFlowMap {
         modeBadge.addEventListener('click', () => {
             if (this._mode === 'live') return;
             const range = this._panels.scrubberRange;
-            if (range) range.value = 1000;
-            this._onScrubberChange(1000);
+            if (range) range.value = 10000;
+            this._onScrubberChange(10000);
         });
         status.appendChild(modeBadge);
         this._panels.status = status;
@@ -1550,28 +1588,59 @@ export class LanFlowMap {
                     <button class="lan-flow-map-speed-step" data-dir="1" type="button" aria-label="Faster">+</button>
                 </div>
                 <span data-role="left">-24h</span>
-                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="1000" value="1000" />
+                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="10000" value="10000" />
                 <span data-role="right">Live</span>
             </div>
         `;
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
         range.addEventListener('input', (e) => this._onScrubberInput(Number(e.target.value)));
-        range.addEventListener('change', (e) => this._onScrubberChange(Number(e.target.value)));
+        this._scrubberThrottleTimer = null;
+        this._scrubberLastFire = 0;
+        range.addEventListener('change', (e) => {
+            const val = Number(e.target.value);
+            this._onScrubberInput(val);
+            const now = Date.now();
+            const elapsed = now - this._scrubberLastFire;
+            clearTimeout(this._scrubberThrottleTimer);
+            if (elapsed >= 1000) {
+                this._scrubberLastFire = now;
+                this._onScrubberChange(val);
+            } else {
+                this._scrubberThrottleTimer = setTimeout(() => {
+                    this._scrubberLastFire = Date.now();
+                    this._onScrubberChange(val);
+                }, 1000 - elapsed);
+            }
+        });
+        range.addEventListener('keydown', (e) => e.preventDefault());
         // User grabbing the thumb implicitly cancels any active historic playback.
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
         playPause.addEventListener('click', () => this._togglePlayPause());
-        const SPEED_STEPS = [1, 2, 5, 10, 30, 60, 120, 360, 720, 1440];
+        const SPEED_STEPS = [0.5, 1, 2, 5, 10, 30, 60, 120, 360, 720, 1440];
         this._speedSteps = SPEED_STEPS;
-        this._speedIndex = 0; // starts at 1x
+        this._speedIndex = 1; // starts at 1x
         for (const btn of scrubber.querySelectorAll('.lan-flow-map-speed-step')) {
             btn.addEventListener('click', () => {
                 const dir = Number(btn.dataset.dir);
-                const newIdx = Math.max(0, Math.min(SPEED_STEPS.length - 1, this._speedIndex + dir));
+                let newIdx = Math.max(0, Math.min(SPEED_STEPS.length - 1, this._speedIndex + dir));
+                if (this._mode === 'live' && dir > 0) {
+                    const liveIdx = SPEED_STEPS.indexOf(1);
+                    if (newIdx > liveIdx) newIdx = liveIdx;
+                }
                 if (newIdx === this._speedIndex) return;
                 this._speedIndex = newIdx;
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
+                if (this._mode === 'live' && this._playbackSpeed < 1) {
+                    const now = Date.now();
+                    const span = now - this._scrubberOrigin;
+                    const nearNow = span > 0 ? Math.floor((now - 5000 - this._scrubberOrigin) / span * 10000) : 9997;
+                    this._speedTransition = true;
+                    this._onScrubberChange(Math.min(nearNow, 9997));
+                    this._speedTransition = false;
+                    this._startHistoricPlayback();
+                }
                 if (this._mode === 'historic' && this._historicPlaybackTimer) {
                     this._stopHistoricPlayback();
                     this._startHistoricPlayback();
@@ -1753,17 +1822,17 @@ export class LanFlowMap {
         const at = this._scrubberValueToTime(value);
         if (this._panels.scrubberRight) {
             this._panels.scrubberRight.textContent =
-                (value >= 998) ? 'Live' : _fmtDateTime(at);
+                (value >= 9998) ? 'Live' : _fmtDateTime(at);
         }
     }
 
     async _onScrubberChange(value) {
-        if (value >= 998) {
+        if (value >= 9998) {
             // Snap back to live.
             this._stopHistoricPlayback();
             this._mode = 'live';
             this._historicAt = null;
-            this._onScrubberInput(1000);
+            this._onScrubberInput(10000);
             if (this._panels.modeBadge) {
                 this._panels.modeBadge.textContent = 'Live';
                 this._panels.modeBadge.classList.remove('is-historic');
@@ -1771,8 +1840,9 @@ export class LanFlowMap {
                 this._panels.modeBadge.removeAttribute('data-tooltip');
                 if (this._panels.modeBadge._tippy) this._panels.modeBadge._tippy.destroy();
             }
-            // Returning to live resumes polling; clear the paused state so the
-            // play button reflects "playing" again.
+            // Returning to live: reset speed to 1x and resume polling.
+            this._speedIndex = this._speedSteps.indexOf(1);
+            this._playbackSpeed = 1;
             this._paused = false;
             this._syncPlayPauseIcon();
             this._syncSpeedLabel();
@@ -1795,7 +1865,7 @@ export class LanFlowMap {
         // method on every tick (to load the historic snapshot for the new
         // slider position); skip the auto-pause in that case or playback
         // would stop after one tick.
-        if (!this._playbackAdvancing && !this._paused) {
+        if (!this._playbackAdvancing && !this._speedTransition && !this._paused) {
             this._paused = true;
             this._syncPlayPauseIcon();
             this._stopHistoricPlayback();
@@ -1827,10 +1897,10 @@ export class LanFlowMap {
     }
 
     _scrubberValueToTime(value) {
-        // Range 0..1000 maps from the anchored origin (mount - 24h) to now.
+        // Range 0..10000 maps from the anchored origin (mount - 24h) to now.
         // The window grows as the page stays open so recent time is always reachable.
         const now = Date.now();
-        const ms = this._scrubberOrigin + (value / 1000) * (now - this._scrubberOrigin);
+        const ms = this._scrubberOrigin + (value / 10000) * (now - this._scrubberOrigin);
         return new Date(ms);
     }
 
@@ -1978,10 +2048,14 @@ export class LanFlowMap {
             if (!group) { pill.classList.remove('is-visible'); continue; }
             tmp.setFromMatrixPosition(group.matrixWorld);
             tmp.y -= NODE_RADIUS.cloud + 0.5;
+            const dist = tmp.distanceTo(camPos);
             tmp.project(this.camera);
             if (tmp.z > 1) { pill.classList.remove('is-visible'); continue; }
             const x = (tmp.x * halfW) + halfW;
             const y = -(tmp.y * halfH) + halfH;
+            const scale = Math.max(MIN_SCALE, Math.min(1.0, REF_DIST / Math.max(dist, 1)));
+            pill.style.transform = `translate(-50%, 0%) scale(${scale.toFixed(3)})`;
+            pill.style.transformOrigin = 'center top';
             pill.style.left = `${x}px`;
             pill.style.top = `${y}px`;
         }
@@ -2301,14 +2375,29 @@ export class LanFlowMap {
                 if (child.isMesh) candidates.push(child);
             }
         }
+        for (const group of this._cloudMeshes.values()) {
+            if (!group.visible) continue;
+            for (const child of group.children) {
+                if (child.isMesh) candidates.push(child);
+            }
+        }
         const hits = this._raycaster.intersectObjects(candidates, false);
         if (hits.length === 0) return;
         let g = hits[0].object;
-        while (g && !(g.userData?.node)) g = g.parent;
+        while (g && !(g.userData?.node || g.userData?.cloud)) g = g.parent;
         if (!g) return;
+
+        if (g.userData?.cloud) {
+            const cloud = g.userData.cloud;
+            // TODO: enable for all WANs once multi-WAN upstream tracing is implemented
+            if (cloud.kind === 0 && cloud.wanInterface === this._snapshot?.primaryWanInterface) {
+                this._showCloudContextMenu(e.clientX, e.clientY, cloud);
+            }
+            return;
+        }
+
         const node = g.userData.node;
         if (node.kind === NODE_KIND.Cloud || node.kind === NODE_KIND.VirtualHub) return;
-
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
 
@@ -2323,6 +2412,29 @@ export class LanFlowMap {
             e.stopPropagation();
             this._dismissContextMenu();
             this._enterReposition(node, group);
+        });
+        menu.appendChild(item);
+
+        const stageRect = this.stage.getBoundingClientRect();
+        menu.style.left = `${clientX - stageRect.left}px`;
+        menu.style.top = `${clientY - stageRect.top}px`;
+        this.stage.appendChild(menu);
+        this._contextMenuEl = menu;
+    }
+
+    _showCloudContextMenu(clientX, clientY, cloud) {
+        this._dismissContextMenu();
+        const menu = document.createElement('div');
+        menu.className = 'lan-flow-map-context-menu';
+        const item = document.createElement('div');
+        item.className = 'lan-flow-map-context-menu-item';
+        item.textContent = 'Run Upstream Discovery';
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._dismissContextMenu();
+            if (this._dotnetRef) {
+                this._dotnetRef.invokeMethodAsync('NavigateToUpstreamDiscovery');
+            }
         });
         menu.appendChild(item);
 

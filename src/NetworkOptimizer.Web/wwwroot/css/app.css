@@ -14494,6 +14494,7 @@ a.affected-client:hover {
     font-variant-numeric: tabular-nums;
     border: 1px solid rgba(36, 188, 112, 0.3);
     margin-top: 4px;
+    white-space: nowrap;
     display: none;
 }
 .lan-flow-map-wan-pill.is-visible {

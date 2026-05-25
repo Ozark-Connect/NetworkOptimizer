@@ -461,16 +461,33 @@ public class MonitoringCollectionAgent : BackgroundService
         }
 
         // Gateways are the top of the topology - no parent switch to read their
-        // uplink rate from. Fall back to the SNMP rate on the gateway's own WAN
-        // interface (which is what the topology view's gateway pipe actually
-        // represents anyway). We pick the highest-rate non-LAN interface as a
-        // pragmatic heuristic - the WAN interface tends to dominate.
+        // uplink rate from. Use the SNMP rate on the gateway's actual WAN
+        // interface (wan1...wan6 uplink_ifname, e.g. eth6.100 for VLAN-tagged
+        // or ppp3 for PPPoE) rather than port_table.IsUplink which may not be
+        // set for non-standard connection types.
         foreach (var gw in devices.Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway))
         {
             var gwMac = NormalizeMac(gw.Mac);
 
-            // Primary: UniFi PortTable WAN port byte delta. Works when the gateway's
-            // uplink is a simple physical port and PortIdx aligns with SNMP ifIndex.
+            // Primary: SNMP rate on the WAN physical port. For VLAN-tagged WANs,
+            // use the parent port (eth6) not the sub-interface (eth6.100) since
+            // VLAN sub-interface counters double-count on some kernels.
+            var rateIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
+            rateIfName ??= _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
+            if (rateIfName != null)
+            {
+                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
+                if (portRate != null)
+                {
+                    // Gateway WAN perspective: port TX (DownBps) = data toward
+                    // internet = uploads; port RX (UpBps) = from internet = downloads.
+                    _liveStats.RecordInterfaceAggregate(gw.Mac, portRate.DownBps, portRate.UpBps, nowOverride);
+                    continue;
+                }
+            }
+
+            // Fallback: PortTable IsUplink + PortIdx. Covers gateways where
+            // the raw JSON hasn't been fetched yet or the wan object is missing.
             (double DownBps, double UpBps)? rate = null;
             if (gw.PortTable != null)
             {
@@ -480,19 +497,15 @@ public class MonitoringCollectionAgent : BackgroundService
                     rate = ComputePortRate(gwMac, wanPort.PortIdx, nowOverride);
                     if (rate.HasValue)
                     {
-                        // Gateway perspective: TX out the WAN = upstream toward internet;
-                        // RX = downstream. Note direction flip vs the switch-port case.
                         _liveStats.RecordInterfaceAggregate(gw.Mac, rate.Value.UpBps, rate.Value.DownBps, nowOverride);
                         continue;
                     }
                 }
             }
 
-            // Fallback: UniFi device-level tx_bytes / rx_bytes delta. Used when the
-            // gateway's WAN-side is a bond/LAG (Linux bond0 aggregating eth4+eth5
-            // for a named WAN port, etc.) and PortTable.PortIdx doesn't
-            // align with any single physical SNMP ifIndex. ComputeDeviceRate
-            // returns (down, up) in our convention.
+            // Last resort: device-level tx_bytes / rx_bytes delta. Used when the
+            // gateway's WAN-side is a bond/LAG and neither wan1...wan6 nor
+            // PortTable produced a usable rate.
             var devRate = ComputeDeviceRate(gwMac);
             if (devRate.HasValue)
             {
@@ -1335,6 +1348,8 @@ public class MonitoringCollectionAgent : BackgroundService
     private List<UniFiDeviceResponse> _cachedDevices = new();
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
+    private Dictionary<string, string> _cachedGatewayWanIfNames = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _cachedGatewayWanPhysicalIfNames = new(StringComparer.OrdinalIgnoreCase);
 
     // Gateway LAN IP cache. UniFi reports the gateway's "ip" as the WAN public IP
     // which never answers SNMP from inside the LAN. The actual SNMP-reachable IP is
@@ -1428,6 +1443,52 @@ public class MonitoringCollectionAgent : BackgroundService
                 .ToList() ?? new List<UniFiDeviceResponse>();
             _cachedDevices = filtered;
             _cachedDevicesAt = DateTime.UtcNow;
+
+            // Extract gateway WAN uplink_ifname from raw device JSON so the
+            // gateway rate override uses the correct interface (e.g. eth6.100
+            // for VLAN-tagged, ppp3 for PPPoE) instead of the physical port.
+            var gwIfNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var gwPhysIfNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var rawJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
+                if (!string.IsNullOrEmpty(rawJson))
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(rawJson);
+                    var root = doc.RootElement;
+                    var devArray = root.ValueKind == System.Text.Json.JsonValueKind.Array
+                        ? root
+                        : root.TryGetProperty("data", out var arr) ? arr : root;
+                    foreach (var dev in devArray.EnumerateArray())
+                    {
+                        var type = dev.TryGetProperty("type", out var tp) ? tp.GetString() : null;
+                        if (type != "ugw" && type != "udm" && type != "uxg") continue;
+                        var mac = dev.TryGetProperty("mac", out var mp) ? mp.GetString() : null;
+                        if (string.IsNullOrEmpty(mac)) continue;
+                        var normalizedMac = mac.ToLowerInvariant().Replace('-', ':');
+                        for (int i = 1; i <= 6; i++)
+                        {
+                            if (!dev.TryGetProperty($"wan{i}", out var wanObj)) continue;
+                            var uplinkIf = wanObj.TryGetProperty("uplink_ifname", out var up) ? up.GetString() : null;
+                            if (!string.IsNullOrEmpty(uplinkIf))
+                            {
+                                gwIfNames[normalizedMac] = uplinkIf;
+                                var physIf = wanObj.TryGetProperty("ifname", out var pf) ? pf.GetString() : null;
+                                if (!string.IsNullOrEmpty(physIf))
+                                    gwPhysIfNames[normalizedMac] = physIf;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to extract gateway WAN ifnames from raw JSON");
+            }
+            _cachedGatewayWanIfNames = gwIfNames;
+            _cachedGatewayWanPhysicalIfNames = gwPhysIfNames;
+
             return filtered;
         }
         catch (Exception ex)

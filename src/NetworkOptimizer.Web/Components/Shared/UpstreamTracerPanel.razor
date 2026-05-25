@@ -96,6 +96,18 @@
 
             @if (_state.Step == TracerStep.ReviewingResults)
             {
+                <div class="form-group">
+                    <label class="form-label">Access network technology</label>
+                    <select class="form-control" style="max-width: 250px;"
+                            value="@((int)_state.AccessTechnology)"
+                            @onchange="e => _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!)">
+                        @foreach (var tech in Enum.GetValues<AccessTechnology>())
+                        {
+                            <option value="@((int)tech)">@FormatTechName(tech)</option>
+                        }
+                    </select>
+                </div>
+
                 @if (_state.Traces.Count > 0)
                 {
                     <div class="form-group">
@@ -164,7 +176,7 @@
                                                        @onchange="e => hop.Enabled = (bool)e.Value!" />
                                             </td>
                                             <td>
-                                                <input type="text" class="form-input form-input-sm"
+                                                <input type="text" class="form-control form-control-sm"
                                                        value="@hop.Label"
                                                        @onchange="e => hop.Label = (string)e.Value!" />
                                             </td>
@@ -266,6 +278,8 @@
 </div>
 
 @code {
+    [Parameter] public bool ForceExpand { get; set; }
+
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
@@ -277,7 +291,7 @@
     {
         await Tracer.RehydrateFromDbAsync();
         _state = Tracer.State;
-        _collapsed = _state.Step == TracerStep.Done;
+        _collapsed = !ForceExpand && _state.Step == TracerStep.Done;
         await RefreshReviewFlagAsync();
         // Poll the tracer state every 1.5s while a run is active; the state machine
         // runs in the background and the UI just observes. Re-check the rediscovery
@@ -365,6 +379,21 @@
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
+    private static string FormatTechName(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.Unknown => "Not detected",
+        AccessTechnology.Gpon => "GPON",
+        AccessTechnology.XgsPon => "XGS-PON",
+        AccessTechnology.Docsis => "DOCSIS (Cable)",
+        AccessTechnology.PppoE => "PPPoE",
+        AccessTechnology.DirectEthernet => "Active Ethernet",
+        AccessTechnology.FixedWireless => "Fixed Wireless",
+        AccessTechnology.Satellite => "Satellite",
+        AccessTechnology.Cellular => "Cellular",
+        AccessTechnology.Other => "Other",
+        _ => tech.ToString()
+    };
+
     private string AccessAsnDisplay()
     {
         var first = _state.AccessHops.FirstOrDefault(h => h.AsnNumber.HasValue);
@@ -379,5 +408,5 @@
 
 <style>
     .row-disabled { opacity: 0.45; }
-    .form-input-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+    .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
 </style>

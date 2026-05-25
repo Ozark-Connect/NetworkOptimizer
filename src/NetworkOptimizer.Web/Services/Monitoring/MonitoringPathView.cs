@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
@@ -59,6 +58,8 @@ public class MonitoringPathView
 
         var resolvedWanInterface = wan?.WanInterface ?? wanInterface ?? "wan";
         var isPrimary = wan?.IsPrimary ?? true;
+        _logger.LogDebug("GetUpstreamPathAsync: wans={WanCount}, wan={WanIf}, friendly={Friendly}, resolved={Resolved}, isPrimary={Primary}",
+            wans.Count, wan?.WanInterface, wan?.FriendlyName, resolvedWanInterface, isPrimary);
 
         // Per-WAN context, with fallback to legacy MonitoringSettings for installs that
         // pre-date the WanDiscoveryContexts table. New installs and any post-migration
@@ -76,9 +77,13 @@ public class MonitoringPathView
             .OrderBy(t => t.Id)
             .ToListAsync(ct);
 
-        var l2NeighborMac = wanCtx?.L2NeighborMac ?? settings?.WanNeighborMac;
-        var l2NeighborOui = wanCtx?.L2NeighborOui ?? settings?.WanNeighborOui;
-        var accessTech = wanCtx?.AccessTechnology ?? settings?.AccessTechnology ?? AccessTechnology.Unknown;
+        // TODO: once multi-WAN upstream tracing is implemented, each WAN will
+        // have its own WanDiscoveryContext with L2 neighbor and access tech.
+        // Until then, only fall back to global MonitoringSettings for the
+        // primary WAN so secondaries don't inherit the primary's values.
+        var l2NeighborMac = wanCtx?.L2NeighborMac ?? (isPrimary ? settings?.WanNeighborMac : null);
+        var l2NeighborOui = wanCtx?.L2NeighborOui ?? (isPrimary ? settings?.WanNeighborOui : null);
+        var accessTech = wanCtx?.AccessTechnology ?? (isPrimary ? settings?.AccessTechnology : null) ?? AccessTechnology.Unknown;
 
         var isCgnat = l2NeighborMac != null
             && !string.IsNullOrEmpty(wan?.IpAddress)
@@ -86,7 +91,7 @@ public class MonitoringPathView
 
         var access = new AccessIspCloud
         {
-            AccessTechnology = accessTech.ToString(),
+            AccessTechnology = FormatAccessTechnology(accessTech),
             L2NeighborOui = l2NeighborOui,
             AsnNumber = accessHops.FirstOrDefault()?.AsnNumber,
             AsnName = accessHops.FirstOrDefault()?.AsnName,
@@ -149,11 +154,15 @@ public class MonitoringPathView
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return Array.Empty<WanSummary>();
 
-        List<UniFiDeviceResponse> devices;
+        // Read wan1...wan6 from raw device JSON instead of relying on
+        // port_table.is_uplink, which may not be set for PPPoE, VLAN-tagged,
+        // or GRE tunnel connections.
+        string? deviceJson;
         try
         {
-            devices = (await _connectionService.Client.GetDevicesAsync(ct))?.ToList()
-                       ?? new List<UniFiDeviceResponse>();
+            deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
+            if (string.IsNullOrEmpty(deviceJson))
+                return Array.Empty<WanSummary>();
         }
         catch (Exception ex)
         {
@@ -161,37 +170,130 @@ public class MonitoringPathView
             return Array.Empty<WanSummary>();
         }
 
-        var gateway = devices.FirstOrDefault(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway);
-        if (gateway?.PortTable == null) return Array.Empty<WanSummary>();
-
-        var results = new List<WanSummary>();
-        var wanPorts = gateway.PortTable
-            .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.NetworkName))
-            .OrderBy(p => p.PortIdx)
-            .ToList();
-        if (wanPorts.Count == 0)
+        // Fetch WAN network configs for friendly names (covers GRE tunnels and
+        // other virtual WANs that don't have port_table entries).
+        var networkGroupToName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
         {
-            wanPorts = gateway.PortTable
-                .Where(p => p.NetworkName != null && p.NetworkName.StartsWith("wan", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(p => p.PortIdx)
-                .ToList();
+            var wanConfigs = await _connectionService.Client.GetWanConfigsAsync(ct);
+            foreach (var wc in wanConfigs.Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup)))
+                networkGroupToName[wc.WanNetworkgroup!] = wc.Name;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "GetWansAsync: failed to fetch WAN configs for names");
         }
 
-        var gwMac = gateway.Mac.ToLowerInvariant().Replace('-', ':');
-        for (int i = 0; i < wanPorts.Count; i++)
+        var results = new List<WanSummary>();
+
+        using (var doc = System.Text.Json.JsonDocument.Parse(deviceJson))
         {
-            var port = wanPorts[i];
-            results.Add(new WanSummary
+            var root = doc.RootElement;
+            var devices = root.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? root
+                : root.TryGetProperty("data", out var data) ? data : root;
+
+            foreach (var device in devices.EnumerateArray())
             {
-                WanInterface = port.NetworkName ?? $"wan{i + 1}",
-                FriendlyName = string.IsNullOrEmpty(port.Name) ? null : port.Name,
-                IsPrimary = i == 0,
-                GatewayMac = gwMac,
-                GatewayPortName = port.Name,
-                LinkSpeedMbps = port.Speed > 0 ? port.Speed : (int?)null,
-                IpAddress = port.Ip,
-                IpClass = NetworkUtilities.ClassifyPublicAddress(port.Ip)
-            });
+                var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+                if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                    continue;
+
+                var gwMac = device.TryGetProperty("mac", out var macProp) ? macProp.GetString() : null;
+                gwMac = gwMac?.ToLowerInvariant().Replace('-', ':') ?? "";
+
+                // Build port_idx lookups from port_table and ethernet_overrides
+                var portInfo = new Dictionary<int, (string? networkName, string? name, int speed)>();
+                if (device.TryGetProperty("port_table", out var portTable) &&
+                    portTable.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var port in portTable.EnumerateArray())
+                    {
+                        if (!port.TryGetProperty("port_idx", out var idxProp) || !idxProp.TryGetInt32(out var idx))
+                            continue;
+                        var networkName = port.TryGetProperty("network_name", out var nnProp) ? nnProp.GetString() : null;
+                        var name = port.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+                        var speed = port.TryGetProperty("speed", out var speedProp) && speedProp.TryGetInt32(out var spd) ? spd : 0;
+                        portInfo[idx] = (networkName, name, speed);
+                    }
+                }
+
+                var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
+                    ethOverrides.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var ov in ethOverrides.EnumerateArray())
+                    {
+                        var ifn = ov.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                        var ng = ov.TryGetProperty("networkgroup", out var ngProp) ? ngProp.GetString() : null;
+                        if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
+                            ifnameToNetworkGroup[ifn] = ng;
+                    }
+                }
+
+                for (int i = 1; i <= 6; i++)
+                {
+                    var wanKey = $"wan{i}";
+                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
+
+                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
+                        ? uplinkProp.GetString() : null;
+                    if (string.IsNullOrEmpty(uplinkIfname)) continue;
+
+                    var ip = wanObj.TryGetProperty("ip", out var ipProp) ? ipProp.GetString() : null;
+                    var wanSpeed = wanObj.TryGetProperty("speed", out var wanSpeedProp) &&
+                        wanSpeedProp.TryGetInt32(out var ws) && ws > 0 ? ws : 0;
+
+                    string? interfaceKey = null;
+                    string? friendlyName = null;
+                    int linkSpeed = wanSpeed;
+
+                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
+                        portIdxProp.TryGetInt32(out var portIdx) &&
+                        portInfo.TryGetValue(portIdx, out var pi))
+                    {
+                        interfaceKey = pi.networkName;
+                        friendlyName = pi.name;
+                        if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
+                    }
+
+                    // Physical port name (e.g. "eth6" for VLAN-tagged "eth6.100",
+                    // same as uplinkIfname for non-VLAN connections).
+                    var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+
+                    // For virtual WANs (GRE, etc.) without port_table entries,
+                    // resolve the friendly name from WAN network configs via
+                    // ethernet_overrides networkgroup or wan key convention.
+                    if (string.IsNullOrEmpty(friendlyName))
+                    {
+                        var lookupIfname = physicalIfname ?? uplinkIfname;
+                        string? networkGroup = null;
+                        if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
+                            networkGroup = ng;
+                        networkGroup ??= i == 1 ? "WAN" : $"WAN{i}";
+                        if (networkGroupToName.TryGetValue(networkGroup, out var configName))
+                            friendlyName = configName;
+                    }
+
+                    interfaceKey ??= i == 1 ? "wan" : $"wan{i}";
+
+                    results.Add(new WanSummary
+                    {
+                        WanInterface = interfaceKey,
+                        FriendlyName = string.IsNullOrEmpty(friendlyName) ? null : friendlyName,
+                        IsPrimary = results.Count == 0,
+                        GatewayMac = gwMac,
+                        GatewayPortName = friendlyName,
+                        UplinkIfName = uplinkIfname,
+                        PhysicalIfName = physicalIfname,
+                        LinkSpeedMbps = linkSpeed > 0 ? linkSpeed : (int?)null,
+                        IpAddress = ip,
+                        IpClass = NetworkUtilities.ClassifyPublicAddress(ip)
+                    });
+                }
+
+                if (results.Count > 0) break;
+            }
         }
 
         _wanCache = results;
@@ -205,9 +307,26 @@ public class MonitoringPathView
         if (wans.Count == 0) return;
         var gwMac = wans[0].GatewayMac;
         if (string.IsNullOrEmpty(gwMac)) return;
-        var deviceLive = _liveStats.GetForDevice(gwMac);
         foreach (var wan in wans)
         {
+            // For VLAN sub-interfaces (eth6.100), use the physical parent (eth6)
+            // for rate stats - VLAN sub-interface SNMP counters double-count on
+            // some kernels. For non-VLAN WANs, PhysicalIfName == UplinkIfName.
+            var rateIfName = wan.PhysicalIfName ?? wan.UplinkIfName;
+            if (!string.IsNullOrEmpty(rateIfName))
+            {
+                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
+                if (portRate != null)
+                {
+                    // GetPortRate convention: DownBps = port TX, UpBps = port RX.
+                    // WAN port: TX = to internet = uploads (LiveRateInBps),
+                    //           RX = from internet = downloads (LiveRateOutBps).
+                    wan.LiveRateInBps = portRate.DownBps;
+                    wan.LiveRateOutBps = portRate.UpBps;
+                    continue;
+                }
+            }
+            var deviceLive = _liveStats.GetForDevice(gwMac);
             wan.LiveRateInBps = deviceLive?.RateInBps;
             wan.LiveRateOutBps = deviceLive?.RateOutBps;
         }
@@ -218,6 +337,21 @@ public class MonitoringPathView
     /// alongside the human-facing text. Until the tracer ships, AutoLabel is empty;
     /// fall back to AccessHop as the generic positional role.
     /// </summary>
+    private static string? FormatAccessTechnology(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.Unknown => null,
+        AccessTechnology.Gpon => "GPON",
+        AccessTechnology.XgsPon => "XGS-PON",
+        AccessTechnology.Docsis => "DOCSIS",
+        AccessTechnology.PppoE => "PPPoE",
+        AccessTechnology.DirectEthernet => "Active Ethernet",
+        AccessTechnology.FixedWireless => "Fixed Wireless",
+        AccessTechnology.Satellite => "Satellite",
+        AccessTechnology.Cellular => "Cellular",
+        AccessTechnology.Other => "Other",
+        _ => tech.ToString()
+    };
+
     private static UpstreamRole MapRoleFromAutoLabel(string? autoLabel)
     {
         if (string.IsNullOrEmpty(autoLabel)) return UpstreamRole.AccessHop;
@@ -289,6 +423,8 @@ public record WanSummary
     public required bool IsPrimary { get; init; }
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
+    public string? UplinkIfName { get; init; }
+    public string? PhysicalIfName { get; init; }
     public int? LinkSpeedMbps { get; init; }
     public double? LiveRateInBps { get; set; }
     public double? LiveRateOutBps { get; set; }
