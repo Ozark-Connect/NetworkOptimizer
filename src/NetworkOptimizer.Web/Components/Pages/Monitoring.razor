@@ -264,7 +264,7 @@ else
         </div>
 
         <!-- Upstream tracer wizard -->
-        <div style="margin-top: 1.5rem;">
+        <div id="upstream-discovery" style="margin-top: 1.5rem;">
             <UpstreamTracerPanel />
         </div>
 
@@ -1039,8 +1039,8 @@ else
     {
         InvokeAsync(() =>
         {
-            _activeTab = "setup";
-            NavigationManager.NavigateTo("/monitoring?tab=setup", forceLoad: false, replace: false);
+            _activeTab = "performance";
+            NavigationManager.NavigateTo("/monitoring?tab=performance#upstream-discovery", forceLoad: false, replace: false);
             StateHasChanged();
         });
     }
