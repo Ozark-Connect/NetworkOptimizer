@@ -1276,16 +1276,20 @@ export class LanFlowMap {
                 this.controls?.update();
             }
 
-            // Left/right arrow: scrub timeline. ~30s per tick, shift = 10x.
+            // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
-                const range = this._panels.scrubberRange;
-                if (range) {
-                    const step = this._keys.shift ? 35 : 4;
-                    const dir = this._keys['arrowright'] ? step : -step;
-                    const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
-                    range.value = val;
-                    range.dispatchEvent(new Event('input'));
-                    range.dispatchEvent(new Event('change'));
+                const now = performance.now();
+                if (!this._lastArrowScrub || now - this._lastArrowScrub >= 200) {
+                    this._lastArrowScrub = now;
+                    const range = this._panels.scrubberRange;
+                    if (range) {
+                        const step = this._keys.shift ? 35 : 4;
+                        const dir = this._keys['arrowright'] ? step : -step;
+                        const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
+                        range.value = val;
+                        range.dispatchEvent(new Event('input'));
+                        range.dispatchEvent(new Event('change'));
+                    }
                 }
             }
 
