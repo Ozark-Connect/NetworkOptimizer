@@ -4,7 +4,6 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -939,6 +938,7 @@ public class UpstreamTracerService
     private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)
     {
         var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == hop.TargetId, ct);
+        existing ??= await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
         if (existing == null)
         {
             db.MonitoringTargets.Add(new MonitoringTarget
@@ -989,20 +989,10 @@ public class UpstreamTracerService
             ? MonitoringTargetType.InternetService
             : MonitoringTargetType.Transit;
 
-        // PathProxy targets probe the same endpoints as the default WAN targets
-        // (e.g. Cloudflare 1.1.1.1). Skip if one already exists for this address.
-        if (transit.Method == DiscoveryMethod.PathProxy)
-        {
-            var address = transit.HopAddress ?? transit.PathProxyTarget;
-            if (!string.IsNullOrEmpty(address))
-            {
-                var duplicate = await db.MonitoringTargets.AnyAsync(
-                    t => t.Address == address && t.TargetId != transit.TargetId, ct);
-                if (duplicate) return;
-            }
-        }
-
+        var address = transit.HopAddress ?? transit.PathProxyTarget;
         var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == transit.TargetId, ct);
+        if (existing == null && !string.IsNullOrEmpty(address))
+            existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == address, ct);
         if (existing == null)
         {
             db.MonitoringTargets.Add(new MonitoringTarget
