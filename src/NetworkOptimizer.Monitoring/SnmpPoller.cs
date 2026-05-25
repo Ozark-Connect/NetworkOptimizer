@@ -37,7 +37,9 @@ public class SnmpPoller : ISnmpPoller
     private readonly SnmpConfiguration _config;
     private readonly ILogger<SnmpPoller> _logger;
     private readonly ConcurrentDictionary<string, (ISnmpMessage Report, DateTime CachedAt)> _discoveryCache = new();
+    private readonly ConcurrentDictionary<string, InterfaceMetadataCache> _ifMetadataCache = new();
     private const int DiscoveryCacheTtlSeconds = 60;
+    private const int InterfaceMetadataCacheTtlSeconds = 60;
 
     public SnmpPoller(SnmpConfiguration config, ILogger<SnmpPoller> logger)
     {
@@ -275,105 +277,52 @@ public class SnmpPoller : ISnmpPoller
 
         try
         {
-            // BulkWalk each column once instead of per-interface sequential GETs
-            var descrWalk = await BulkWalkAsync(ip, UniFiOids.IfDescr);
-            if (descrWalk.Count == 0)
+            var cacheKey = ip.ToString();
+            var metadata = await GetOrRefreshInterfaceMetadataAsync(ip, cacheKey);
+            if (metadata == null || metadata.DescrByIdx.Count == 0)
             {
-                _logger.LogDebug("No interfaces found on device {Ip} (IfDescr walk empty)", ip);
+                _logger.LogDebug("No interfaces found on device {Ip}", ip);
                 return interfaces;
             }
 
-            var nameWalk = await BulkWalkAsync(ip, UniFiOids.IfName);
-            var aliasWalk = await BulkWalkAsync(ip, UniFiOids.IfAlias);
-            var typeWalk = await BulkWalkAsync(ip, UniFiOids.IfType);
-            var mtuWalk = await BulkWalkAsync(ip, UniFiOids.IfMtu);
-            var speedWalk = await BulkWalkAsync(ip, UniFiOids.IfSpeed);
-            var highSpeedWalk = await BulkWalkAsync(ip, UniFiOids.IfHighSpeed);
-            var physAddrWalk = await BulkWalkAsync(ip, UniFiOids.IfPhysAddress);
-            var adminStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfAdminStatus);
+            // Only walk counters + operStatus on each call (the hot path)
             var operStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfOperStatus);
-            var lastChangeWalk = await BulkWalkAsync(ip, UniFiOids.IfLastChange);
+            var operByIdx = IndexByIfIndex(operStatusWalk, UniFiOids.IfOperStatus);
 
             // Counter walks - try HC first, fall back to 32-bit
             var hcInOctets = await BulkWalkAsync(ip, UniFiOids.IfHCInOctets);
             var hcOutOctets = await BulkWalkAsync(ip, UniFiOids.IfHCOutOctets);
-            var hcInUcast = await BulkWalkAsync(ip, UniFiOids.IfHCInUcastPkts);
-            var hcOutUcast = await BulkWalkAsync(ip, UniFiOids.IfHCOutUcastPkts);
-            var hcInMcast = await BulkWalkAsync(ip, UniFiOids.IfHCInMulticastPkts);
-            var hcOutMcast = await BulkWalkAsync(ip, UniFiOids.IfHCOutMulticastPkts);
-            var hcInBcast = await BulkWalkAsync(ip, UniFiOids.IfHCInBroadcastPkts);
-            var hcOutBcast = await BulkWalkAsync(ip, UniFiOids.IfHCOutBroadcastPkts);
-
-            // 32-bit fallbacks (used when HC counters unavailable for a given interface)
-            List<Variable>? inOctets32 = null, outOctets32 = null;
-            List<Variable>? inUcast32 = null, outUcast32 = null;
-            List<Variable>? inMcast32 = null, outMcast32 = null;
-            List<Variable>? inBcast32 = null, outBcast32 = null;
 
             bool needFallback = hcInOctets.Count == 0;
+            List<Variable>? inOctets32 = null, outOctets32 = null;
             if (needFallback)
             {
                 inOctets32 = await BulkWalkAsync(ip, UniFiOids.IfInOctets);
                 outOctets32 = await BulkWalkAsync(ip, UniFiOids.IfOutOctets);
-                inUcast32 = await BulkWalkAsync(ip, UniFiOids.IfInUcastPkts);
-                outUcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutUcastPkts);
-                inMcast32 = await BulkWalkAsync(ip, UniFiOids.IfInMulticastPkts);
-                outMcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutMulticastPkts);
-                inBcast32 = await BulkWalkAsync(ip, UniFiOids.IfInBroadcastPkts);
-                outBcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutBroadcastPkts);
             }
 
-            // Error/discard counters (always 32-bit)
-            var inDiscards = await BulkWalkAsync(ip, UniFiOids.IfInDiscards);
+            // Error counters
             var inErrors = await BulkWalkAsync(ip, UniFiOids.IfInErrors);
-            var inUnknownProtos = await BulkWalkAsync(ip, UniFiOids.IfInUnknownProtos);
-            var outDiscards = await BulkWalkAsync(ip, UniFiOids.IfOutDiscards);
             var outErrors = await BulkWalkAsync(ip, UniFiOids.IfOutErrors);
-
-            // Index all walks by interface index suffix
-            var descrByIdx = IndexByIfIndex(descrWalk, UniFiOids.IfDescr);
-            var nameByIdx = IndexByIfIndex(nameWalk, UniFiOids.IfName);
-            var aliasByIdx = IndexByIfIndex(aliasWalk, UniFiOids.IfAlias);
-            var typeByIdx = IndexByIfIndex(typeWalk, UniFiOids.IfType);
-            var mtuByIdx = IndexByIfIndex(mtuWalk, UniFiOids.IfMtu);
-            var speedByIdx = IndexByIfIndex(speedWalk, UniFiOids.IfSpeed);
-            var highSpeedByIdx = IndexByIfIndex(highSpeedWalk, UniFiOids.IfHighSpeed);
-            var physAddrByIdx = IndexByIfIndex(physAddrWalk, UniFiOids.IfPhysAddress);
-            var adminByIdx = IndexByIfIndex(adminStatusWalk, UniFiOids.IfAdminStatus);
-            var operByIdx = IndexByIfIndex(operStatusWalk, UniFiOids.IfOperStatus);
-            var lastChangeByIdx = IndexByIfIndex(lastChangeWalk, UniFiOids.IfLastChange);
+            var inDiscards = await BulkWalkAsync(ip, UniFiOids.IfInDiscards);
+            var outDiscards = await BulkWalkAsync(ip, UniFiOids.IfOutDiscards);
 
             var hcInOctetsByIdx = IndexByIfIndex(hcInOctets, UniFiOids.IfHCInOctets);
             var hcOutOctetsByIdx = IndexByIfIndex(hcOutOctets, UniFiOids.IfHCOutOctets);
-            var hcInUcastByIdx = IndexByIfIndex(hcInUcast, UniFiOids.IfHCInUcastPkts);
-            var hcOutUcastByIdx = IndexByIfIndex(hcOutUcast, UniFiOids.IfHCOutUcastPkts);
-            var hcInMcastByIdx = IndexByIfIndex(hcInMcast, UniFiOids.IfHCInMulticastPkts);
-            var hcOutMcastByIdx = IndexByIfIndex(hcOutMcast, UniFiOids.IfHCOutMulticastPkts);
-            var hcInBcastByIdx = IndexByIfIndex(hcInBcast, UniFiOids.IfHCInBroadcastPkts);
-            var hcOutBcastByIdx = IndexByIfIndex(hcOutBcast, UniFiOids.IfHCOutBroadcastPkts);
-
             var inOctets32ByIdx = needFallback ? IndexByIfIndex(inOctets32!, UniFiOids.IfInOctets) : null;
             var outOctets32ByIdx = needFallback ? IndexByIfIndex(outOctets32!, UniFiOids.IfOutOctets) : null;
-            var inUcast32ByIdx = needFallback ? IndexByIfIndex(inUcast32!, UniFiOids.IfInUcastPkts) : null;
-            var outUcast32ByIdx = needFallback ? IndexByIfIndex(outUcast32!, UniFiOids.IfOutUcastPkts) : null;
-            var inMcast32ByIdx = needFallback ? IndexByIfIndex(inMcast32!, UniFiOids.IfInMulticastPkts) : null;
-            var outMcast32ByIdx = needFallback ? IndexByIfIndex(outMcast32!, UniFiOids.IfOutMulticastPkts) : null;
-            var inBcast32ByIdx = needFallback ? IndexByIfIndex(inBcast32!, UniFiOids.IfInBroadcastPkts) : null;
-            var outBcast32ByIdx = needFallback ? IndexByIfIndex(outBcast32!, UniFiOids.IfOutBroadcastPkts) : null;
-
-            var inDiscardsByIdx = IndexByIfIndex(inDiscards, UniFiOids.IfInDiscards);
             var inErrorsByIdx = IndexByIfIndex(inErrors, UniFiOids.IfInErrors);
-            var inUnknownByIdx = IndexByIfIndex(inUnknownProtos, UniFiOids.IfInUnknownProtos);
-            var outDiscardsByIdx = IndexByIfIndex(outDiscards, UniFiOids.IfOutDiscards);
             var outErrorsByIdx = IndexByIfIndex(outErrors, UniFiOids.IfOutErrors);
+            var inDiscardsByIdx = IndexByIfIndex(inDiscards, UniFiOids.IfInDiscards);
+            var outDiscardsByIdx = IndexByIfIndex(outDiscards, UniFiOids.IfOutDiscards);
 
-            // Build interface metrics from indexed columns
-            foreach (var (idx, descr) in descrByIdx)
+            // Build interface metrics using cached metadata + fresh counters
+            foreach (var (idx, descr) in metadata.DescrByIdx)
             {
                 if (!int.TryParse(idx, out var index)) continue;
 
-                var speed = ParseLong(speedByIdx, idx);
-                var highSpeed = ParseLong(highSpeedByIdx, idx);
+                var speed = ParseLong(metadata.SpeedByIdx, idx);
+                var highSpeed = ParseLong(metadata.HighSpeedByIdx, idx);
                 var useHC = _config.UseHighCapacityCounters && !needFallback &&
                            (highSpeed >= _config.HighCapacityThresholdMbps || (speed / 1_000_000) >= _config.HighCapacityThresholdMbps);
 
@@ -384,26 +333,19 @@ public class SnmpPoller : ISnmpPoller
                     DeviceHostname = hostname ?? string.Empty,
                     Timestamp = DateTime.UtcNow,
                     Description = descr,
-                    Name = GetString(aliasByIdx, idx) ?? GetString(nameByIdx, idx) ?? string.Empty,
-                    Type = ParseInt(typeByIdx, idx),
-                    Mtu = ParseInt(mtuByIdx, idx),
+                    Name = GetString(metadata.AliasByIdx, idx) ?? GetString(metadata.NameByIdx, idx) ?? string.Empty,
+                    Type = ParseInt(metadata.TypeByIdx, idx),
+                    Mtu = ParseInt(metadata.MtuByIdx, idx),
                     Speed = speed,
                     HighSpeed = highSpeed,
-                    PhysicalAddress = GetString(physAddrByIdx, idx) ?? string.Empty,
-                    AdminStatus = ParseInt(adminByIdx, idx),
+                    PhysicalAddress = GetString(metadata.PhysAddrByIdx, idx) ?? string.Empty,
+                    AdminStatus = ParseInt(metadata.AdminByIdx, idx),
                     OperStatus = ParseInt(operByIdx, idx),
-                    LastChange = ParseLong(lastChangeByIdx, idx),
+                    LastChange = ParseLong(metadata.LastChangeByIdx, idx),
                     InOctets = useHC ? ParseLong(hcInOctetsByIdx, idx) : ParseLong(inOctets32ByIdx ?? hcInOctetsByIdx, idx),
                     OutOctets = useHC ? ParseLong(hcOutOctetsByIdx, idx) : ParseLong(outOctets32ByIdx ?? hcOutOctetsByIdx, idx),
-                    InUcastPkts = useHC ? ParseLong(hcInUcastByIdx, idx) : ParseLong(inUcast32ByIdx ?? hcInUcastByIdx, idx),
-                    OutUcastPkts = useHC ? ParseLong(hcOutUcastByIdx, idx) : ParseLong(outUcast32ByIdx ?? hcOutUcastByIdx, idx),
-                    InMulticastPkts = useHC ? ParseLong(hcInMcastByIdx, idx) : ParseLong(inMcast32ByIdx ?? hcInMcastByIdx, idx),
-                    OutMulticastPkts = useHC ? ParseLong(hcOutMcastByIdx, idx) : ParseLong(outMcast32ByIdx ?? hcOutMcastByIdx, idx),
-                    InBroadcastPkts = useHC ? ParseLong(hcInBcastByIdx, idx) : ParseLong(inBcast32ByIdx ?? hcInBcastByIdx, idx),
-                    OutBroadcastPkts = useHC ? ParseLong(hcOutBcastByIdx, idx) : ParseLong(outBcast32ByIdx ?? hcOutBcastByIdx, idx),
                     InDiscards = ParseLong(inDiscardsByIdx, idx),
                     InErrors = ParseLong(inErrorsByIdx, idx),
-                    InUnknownProtos = ParseLong(inUnknownByIdx, idx),
                     OutDiscards = ParseLong(outDiscardsByIdx, idx),
                     OutErrors = ParseLong(outErrorsByIdx, idx),
                 };
@@ -570,6 +512,46 @@ public class SnmpPoller : ISnmpPoller
         }
 
         metrics.DeviceType = DetermineDeviceType(metrics.Model, metrics.Description);
+    }
+
+    private async Task<InterfaceMetadataCache?> GetOrRefreshInterfaceMetadataAsync(IPAddress ip, string cacheKey)
+    {
+        if (_ifMetadataCache.TryGetValue(cacheKey, out var cached) &&
+            (DateTime.UtcNow - cached.CachedAt).TotalSeconds < InterfaceMetadataCacheTtlSeconds)
+        {
+            return cached;
+        }
+
+        var descrWalk = await BulkWalkAsync(ip, UniFiOids.IfDescr);
+        if (descrWalk.Count == 0) return null;
+
+        var nameWalk = await BulkWalkAsync(ip, UniFiOids.IfName);
+        var aliasWalk = await BulkWalkAsync(ip, UniFiOids.IfAlias);
+        var typeWalk = await BulkWalkAsync(ip, UniFiOids.IfType);
+        var mtuWalk = await BulkWalkAsync(ip, UniFiOids.IfMtu);
+        var speedWalk = await BulkWalkAsync(ip, UniFiOids.IfSpeed);
+        var highSpeedWalk = await BulkWalkAsync(ip, UniFiOids.IfHighSpeed);
+        var physAddrWalk = await BulkWalkAsync(ip, UniFiOids.IfPhysAddress);
+        var adminStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfAdminStatus);
+        var lastChangeWalk = await BulkWalkAsync(ip, UniFiOids.IfLastChange);
+
+        var metadata = new InterfaceMetadataCache
+        {
+            CachedAt = DateTime.UtcNow,
+            DescrByIdx = IndexByIfIndex(descrWalk, UniFiOids.IfDescr),
+            NameByIdx = IndexByIfIndex(nameWalk, UniFiOids.IfName),
+            AliasByIdx = IndexByIfIndex(aliasWalk, UniFiOids.IfAlias),
+            TypeByIdx = IndexByIfIndex(typeWalk, UniFiOids.IfType),
+            MtuByIdx = IndexByIfIndex(mtuWalk, UniFiOids.IfMtu),
+            SpeedByIdx = IndexByIfIndex(speedWalk, UniFiOids.IfSpeed),
+            HighSpeedByIdx = IndexByIfIndex(highSpeedWalk, UniFiOids.IfHighSpeed),
+            PhysAddrByIdx = IndexByIfIndex(physAddrWalk, UniFiOids.IfPhysAddress),
+            AdminByIdx = IndexByIfIndex(adminStatusWalk, UniFiOids.IfAdminStatus),
+            LastChangeByIdx = IndexByIfIndex(lastChangeWalk, UniFiOids.IfLastChange),
+        };
+
+        _ifMetadataCache[cacheKey] = metadata;
+        return metadata;
     }
 
     private static void ParseHostResourcesMemory(List<Variable> storageVars, DeviceMetrics metrics)
@@ -883,4 +865,19 @@ public class SnmpPoller : ISnmpPoller
     }
 
     #endregion
+}
+
+internal sealed class InterfaceMetadataCache
+{
+    public DateTime CachedAt { get; init; }
+    public Dictionary<string, string> DescrByIdx { get; init; } = new();
+    public Dictionary<string, string> NameByIdx { get; init; } = new();
+    public Dictionary<string, string> AliasByIdx { get; init; } = new();
+    public Dictionary<string, string> TypeByIdx { get; init; } = new();
+    public Dictionary<string, string> MtuByIdx { get; init; } = new();
+    public Dictionary<string, string> SpeedByIdx { get; init; } = new();
+    public Dictionary<string, string> HighSpeedByIdx { get; init; } = new();
+    public Dictionary<string, string> PhysAddrByIdx { get; init; } = new();
+    public Dictionary<string, string> AdminByIdx { get; init; } = new();
+    public Dictionary<string, string> LastChangeByIdx { get; init; } = new();
 }
