@@ -33,6 +33,13 @@ public class DnsSecurityAnalyzer
         "one.one.one"  // Cloudflare 1.1.1.1 alternate domain
     ];
 
+    // Thresholds for IP-based DoH detection. A rule's destination IP list must
+    // match this many known DoH provider IPs spanning this many distinct providers
+    // before the rule is credited as DoH-bypass blocking. Avoids false positives
+    // from rules that incidentally block one or two DoH IPs for unrelated reasons.
+    private const int MinDohIpMatches = 3;
+    private const int MinDohProvidersMatched = 2;
+
     private readonly ThirdPartyDnsDetector _thirdPartyDetector;
 
     public DnsSecurityAnalyzer(ILogger<DnsSecurityAnalyzer> logger, ThirdPartyDnsDetector thirdPartyDetector)
@@ -612,6 +619,41 @@ public class DnsSecurityAnalyzer
                         result.Doh3RuleName = name;
                         _logger.LogDebug("Found DoH3 block rule: {Name} (zone={Zone}) with {Count} DNS domains",
                             name, destZoneId ?? "any", dnsProviderDomains.Count);
+                    }
+                }
+            }
+
+            // Check for IP-based DoH/DoH3 blocking (destination is a list of known DoH provider IPs).
+            // Catches rules using an IP group or inline IP list of DoH endpoints, which UniFi users
+            // frequently deploy as the primary or supplemental DoH-bypass mechanism. The MinDoh*
+            // thresholds avoid false positives from rules that happen to block one or two DoH IPs
+            // for unrelated reasons.
+            if ((targetsExternalZone || isLegacyLanIn) && matchingTarget == "IP" && rule.DestinationIps?.Count > 0)
+            {
+                var blocksDoh = FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp");
+                var blocksDoh3 = FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "udp");
+
+                if (blocksDoh || blocksDoh3)
+                {
+                    var (matchedCount, matchedProviders) = DohProviderRegistry.MatchKnownDohIps(rule.DestinationIps);
+
+                    if (matchedCount >= MinDohIpMatches && matchedProviders.Count >= MinDohProvidersMatched)
+                    {
+                        if (blocksDoh)
+                        {
+                            result.HasDohBlockRule = true;
+                            result.DohRuleName ??= name;
+                            _logger.LogDebug("Found IP-based DoH block rule: {Name} (zone={Zone}) matched {Count} IPs across {ProviderCount} providers: {Providers}",
+                                name, destZoneId ?? "any", matchedCount, matchedProviders.Count, string.Join(", ", matchedProviders));
+                        }
+
+                        if (blocksDoh3)
+                        {
+                            result.HasDoh3BlockRule = true;
+                            result.Doh3RuleName ??= name;
+                            _logger.LogDebug("Found IP-based DoH3 block rule: {Name} (zone={Zone}) matched {Count} IPs across {ProviderCount} providers: {Providers}",
+                                name, destZoneId ?? "any", matchedCount, matchedProviders.Count, string.Join(", ", matchedProviders));
+                        }
                     }
                 }
             }
