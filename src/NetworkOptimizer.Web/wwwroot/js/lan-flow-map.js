@@ -1579,14 +1579,14 @@ export class LanFlowMap {
             const now = Date.now();
             const elapsed = now - this._scrubberLastFire;
             clearTimeout(this._scrubberThrottleTimer);
-            if (elapsed >= 250) {
+            if (elapsed >= 1000) {
                 this._scrubberLastFire = now;
                 this._onScrubberChange(val);
             } else {
                 this._scrubberThrottleTimer = setTimeout(() => {
                     this._scrubberLastFire = Date.now();
                     this._onScrubberChange(val);
-                }, 250 - elapsed);
+                }, 1000 - elapsed);
             }
         });
         // User grabbing the thumb implicitly cancels any active historic playback.
