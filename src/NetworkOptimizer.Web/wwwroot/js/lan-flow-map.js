@@ -1592,8 +1592,11 @@ export class LanFlowMap {
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
                 if (this._mode === 'live' && this._playbackSpeed < 1) {
+                    const now = Date.now();
+                    const span = now - this._scrubberOrigin;
+                    const nearNow = span > 0 ? Math.floor((now - 5000 - this._scrubberOrigin) / span * 1000) : 997;
                     this._speedTransition = true;
-                    this._onScrubberChange(997);
+                    this._onScrubberChange(Math.min(nearNow, 997));
                     this._speedTransition = false;
                     this._startHistoricPlayback();
                 }
