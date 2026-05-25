@@ -2375,14 +2375,28 @@ export class LanFlowMap {
                 if (child.isMesh) candidates.push(child);
             }
         }
+        for (const group of this._cloudMeshes.values()) {
+            if (!group.visible) continue;
+            for (const child of group.children) {
+                if (child.isMesh) candidates.push(child);
+            }
+        }
         const hits = this._raycaster.intersectObjects(candidates, false);
         if (hits.length === 0) return;
         let g = hits[0].object;
-        while (g && !(g.userData?.node)) g = g.parent;
+        while (g && !(g.userData?.node || g.userData?.cloud)) g = g.parent;
         if (!g) return;
+
+        if (g.userData?.cloud) {
+            const cloud = g.userData.cloud;
+            if (cloud.kind === 0) {
+                this._showCloudContextMenu(e.clientX, e.clientY, cloud);
+            }
+            return;
+        }
+
         const node = g.userData.node;
         if (node.kind === NODE_KIND.Cloud || node.kind === NODE_KIND.VirtualHub) return;
-
         this._showContextMenu(e.clientX, e.clientY, node, g);
     }
 
@@ -2397,6 +2411,29 @@ export class LanFlowMap {
             e.stopPropagation();
             this._dismissContextMenu();
             this._enterReposition(node, group);
+        });
+        menu.appendChild(item);
+
+        const stageRect = this.stage.getBoundingClientRect();
+        menu.style.left = `${clientX - stageRect.left}px`;
+        menu.style.top = `${clientY - stageRect.top}px`;
+        this.stage.appendChild(menu);
+        this._contextMenuEl = menu;
+    }
+
+    _showCloudContextMenu(clientX, clientY, cloud) {
+        this._dismissContextMenu();
+        const menu = document.createElement('div');
+        menu.className = 'lan-flow-map-context-menu';
+        const item = document.createElement('div');
+        item.className = 'lan-flow-map-context-menu-item';
+        item.textContent = 'Run Upstream Discovery';
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._dismissContextMenu();
+            if (this._dotnetRef) {
+                this._dotnetRef.invokeMethodAsync('NavigateToUpstreamDiscovery');
+            }
         });
         menu.appendChild(item);
 

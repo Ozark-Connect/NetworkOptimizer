@@ -1035,6 +1035,17 @@ else
     }
 
     [JSInvokable]
+    public void NavigateToUpstreamDiscovery()
+    {
+        InvokeAsync(() =>
+        {
+            _activeTab = "setup";
+            NavigationManager.NavigateTo("/monitoring?tab=setup", forceLoad: false, replace: false);
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
     public async Task OnMapTimeChanged(string? isoTimestamp)
     {
         if (isoTimestamp == null)
