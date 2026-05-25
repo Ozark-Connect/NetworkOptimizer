@@ -650,7 +650,7 @@ public class UpstreamTracerService
         try
         {
             var result = await _localProbe.TracerouteAsync(target, maxHops: 30,
-                perHopTimeout: TimeSpan.FromSeconds(2),
+                perHopTimeout: TimeSpan.FromSeconds(1),
                 totalDeadline: TimeSpan.FromSeconds(10),
                 ct: ct);
             return (endpoint.Label, result);

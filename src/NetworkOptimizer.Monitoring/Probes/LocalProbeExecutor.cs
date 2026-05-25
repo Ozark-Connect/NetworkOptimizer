@@ -477,7 +477,7 @@ public class LocalProbeExecutor : IProbeExecutor
         // PTR resolution stays ON — hostnames like "cr1.stl1.example.net" are gold for the
         // wizard's hop-labelling logic (spec 5.5). Linux's resolver times out fast, so the
         // cost is bounded by the per-probe deadline anyway.
-        var args = $"-m {maxHops} -w {wait} {protoFlag} {target.Address}".Trim();
+        var args = $"-m {maxHops} -q 2 -w {wait} {protoFlag} {target.Address}".Trim();
         return ("traceroute", args);
     }
 }

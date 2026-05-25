@@ -68,18 +68,6 @@ public static class TracerouteOutputParser
                 continue;
             var rest = m.Groups["rest"].Value;
 
-            // Non-responding hop
-            if (rest.Trim().StartsWith("*"))
-            {
-                hops.Add(new TraceHop
-                {
-                    HopNumber = hopNum,
-                    Probes = CountStars(rest),
-                    Responses = 0
-                });
-                continue;
-            }
-
             string? hostname = null;
             string? address = null;
 
@@ -105,9 +93,22 @@ public static class TracerouteOutputParser
                     rttValues.Add(v);
             }
 
-            // Probes per hop is conventionally 3 in both Linux and busybox; count stars + RTTs
-            int probes = 3;
+            int stars = CountStars(rest);
             int responses = rttValues.Count;
+            int probes = stars + responses;
+            if (probes == 0) probes = 1;
+
+            // Fully non-responding hop (all probes timed out)
+            if (responses == 0)
+            {
+                hops.Add(new TraceHop
+                {
+                    HopNumber = hopNum,
+                    Probes = probes,
+                    Responses = 0
+                });
+                continue;
+            }
 
             hops.Add(new TraceHop
             {
