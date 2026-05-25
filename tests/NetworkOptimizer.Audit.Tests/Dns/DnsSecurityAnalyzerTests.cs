@@ -528,7 +528,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""destination"": {
                     ""port"": ""443"",
                     ""matching_target"": ""IP"",
-                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9"", ""94.140.14.14""]
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9"", ""94.140.14.14"", ""208.67.222.222""]
                 }
             }
         ]").RootElement;
@@ -602,7 +602,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""destination"": {
                     ""port"": ""443"",
                     ""matching_target"": ""IP"",
-                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9""]
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9"", ""208.67.222.222""]
                 }
             }
         ]").RootElement;
@@ -627,7 +627,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 ""destination"": {
                     ""port"": ""443"",
                     ""matching_target"": ""IP"",
-                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9""]
+                    ""ips"": [""1.1.1.1"", ""8.8.8.8"", ""9.9.9.9"", ""208.67.222.222""]
                 }
             }
         ]").RootElement;
@@ -672,7 +672,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
                     "1.1.1.1", "1.0.0.1",
                     "8.8.8.8", "8.8.4.4",
                     "9.9.9.9", "149.112.112.112",
-                    "94.140.14.14", "94.140.15.15"
+                    "94.140.14.14", "94.140.15.15",
+                    "208.67.222.222", "208.67.220.220"
                 }
             }
         };

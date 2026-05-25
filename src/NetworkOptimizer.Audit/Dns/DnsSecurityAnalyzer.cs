@@ -26,12 +26,9 @@ public class DnsSecurityAnalyzer
         "Cloudflare", "Google", "Quad9", "OpenDNS"
     };
 
-    // Thresholds for IP-based DoH detection. A rule's destination IP list must
-    // match this many known DoH provider IPs spanning this many distinct providers
-    // before the rule is credited as DoH-bypass blocking. Avoids false positives
+    // IP-based DoH detection still requires a minimum IP count to avoid false positives
     // from rules that incidentally block one or two DoH IPs for unrelated reasons.
     private const int MinDohIpMatches = 3;
-    private const int MinDohProvidersMatched = 2;
 
     private readonly ThirdPartyDnsDetector _thirdPartyDetector;
 
@@ -629,7 +626,7 @@ public class DnsSecurityAnalyzer
                 {
                     var (matchedCount, matchedProviders) = DohProviderRegistry.MatchKnownDohIps(rule.DestinationIps);
 
-                    if (matchedCount >= MinDohIpMatches && matchedProviders.Count >= MinDohProvidersMatched)
+                    if (matchedCount >= MinDohIpMatches && RequiredDohProviders.IsSubsetOf(matchedProviders))
                     {
                         if (blocksDoh)
                         {
