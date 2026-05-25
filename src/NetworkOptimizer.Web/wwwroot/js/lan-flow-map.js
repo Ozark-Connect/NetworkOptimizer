@@ -117,7 +117,7 @@ export class LanFlowMap {
         this.canvas = canvasEl;
         this.stage = canvasEl.parentElement || canvasEl;
         this.apiBase = options.apiBase ?? '/api/monitoring/lan-flow-map';
-        this.pollIntervalMs = options.pollIntervalMs ?? 2000;
+        this.pollIntervalMs = options.pollIntervalMs ?? 1000;
         this.onError = options.onError ?? ((err) => console.error('[LanFlowMap]', err));
 
         this._snapshot = null;

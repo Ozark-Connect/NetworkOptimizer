@@ -462,17 +462,21 @@ public class MonitoringCollectionAgent : BackgroundService
 
         // Gateways are the top of the topology - no parent switch to read their
         // uplink rate from. Use the SNMP rate on the gateway's actual WAN
-        // interface (wan1...wan6 uplink_ifname, e.g. eth6.228 for VLAN-tagged
+        // interface (wan1...wan6 uplink_ifname, e.g. eth6.100 for VLAN-tagged
         // or ppp3 for PPPoE) rather than port_table.IsUplink which may not be
         // set for non-standard connection types.
         foreach (var gw in devices.Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway))
         {
             var gwMac = NormalizeMac(gw.Mac);
 
-            // Primary: SNMP rate on the WAN uplink interface from wan1...wan6.
-            if (_cachedGatewayWanIfNames.TryGetValue(gwMac, out var wanIfName))
+            // Primary: SNMP rate on the WAN physical port. For VLAN-tagged WANs,
+            // use the parent port (eth6) not the sub-interface (eth6.100) since
+            // VLAN sub-interface counters double-count on some kernels.
+            var rateIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
+            rateIfName ??= _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
+            if (rateIfName != null)
             {
-                var portRate = _liveStats.GetPortRate(gwMac, wanIfName);
+                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
                 if (portRate != null)
                 {
                     // Gateway WAN perspective: port TX (DownBps) = data toward
@@ -1345,6 +1349,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
     private Dictionary<string, string> _cachedGatewayWanIfNames = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _cachedGatewayWanPhysicalIfNames = new(StringComparer.OrdinalIgnoreCase);
 
     // Gateway LAN IP cache. UniFi reports the gateway's "ip" as the WAN public IP
     // which never answers SNMP from inside the LAN. The actual SNMP-reachable IP is
@@ -1440,9 +1445,10 @@ public class MonitoringCollectionAgent : BackgroundService
             _cachedDevicesAt = DateTime.UtcNow;
 
             // Extract gateway WAN uplink_ifname from raw device JSON so the
-            // gateway rate override uses the correct interface (e.g. eth6.228
+            // gateway rate override uses the correct interface (e.g. eth6.100
             // for VLAN-tagged, ppp3 for PPPoE) instead of the physical port.
             var gwIfNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var gwPhysIfNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var rawJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
@@ -1459,13 +1465,17 @@ public class MonitoringCollectionAgent : BackgroundService
                         if (type != "ugw" && type != "udm" && type != "uxg") continue;
                         var mac = dev.TryGetProperty("mac", out var mp) ? mp.GetString() : null;
                         if (string.IsNullOrEmpty(mac)) continue;
+                        var normalizedMac = mac.ToLowerInvariant().Replace('-', ':');
                         for (int i = 1; i <= 6; i++)
                         {
                             if (!dev.TryGetProperty($"wan{i}", out var wanObj)) continue;
                             var uplinkIf = wanObj.TryGetProperty("uplink_ifname", out var up) ? up.GetString() : null;
                             if (!string.IsNullOrEmpty(uplinkIf))
                             {
-                                gwIfNames[mac.ToLowerInvariant().Replace('-', ':')] = uplinkIf;
+                                gwIfNames[normalizedMac] = uplinkIf;
+                                var physIf = wanObj.TryGetProperty("ifname", out var pf) ? pf.GetString() : null;
+                                if (!string.IsNullOrEmpty(physIf))
+                                    gwPhysIfNames[normalizedMac] = physIf;
                                 break;
                             }
                         }
@@ -1477,6 +1487,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 _logger.LogDebug(ex, "Failed to extract gateway WAN ifnames from raw JSON");
             }
             _cachedGatewayWanIfNames = gwIfNames;
+            _cachedGatewayWanPhysicalIfNames = gwPhysIfNames;
 
             return filtered;
         }

@@ -253,7 +253,7 @@ public class MonitoringPathView
                         if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
                     }
 
-                    // Physical port name (e.g. "eth6" for VLAN-tagged "eth6.228",
+                    // Physical port name (e.g. "eth6" for VLAN-tagged "eth6.100",
                     // same as uplinkIfname for non-VLAN connections).
                     var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
 
@@ -305,9 +305,13 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
-            if (!string.IsNullOrEmpty(wan.UplinkIfName))
+            // For VLAN sub-interfaces (eth6.100), use the physical parent (eth6)
+            // for rate stats - VLAN sub-interface SNMP counters double-count on
+            // some kernels. For non-VLAN WANs, PhysicalIfName == UplinkIfName.
+            var rateIfName = wan.PhysicalIfName ?? wan.UplinkIfName;
+            if (!string.IsNullOrEmpty(rateIfName))
             {
-                var portRate = _liveStats.GetPortRate(gwMac, wan.UplinkIfName);
+                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
                 if (portRate != null)
                 {
                     // GetPortRate convention: DownBps = port TX, UpBps = port RX.
