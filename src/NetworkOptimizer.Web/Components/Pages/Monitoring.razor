@@ -136,7 +136,7 @@ else
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="Run Upstream Discovery to set ISP targets" @onclick="NavigateToUpstreamDiscovery">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
@@ -147,7 +147,7 @@ else
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="Run Upstream Discovery to set ISP targets" @onclick="NavigateToUpstreamDiscovery">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
@@ -159,7 +159,7 @@ else
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="Run Upstream Discovery to set transit targets" @onclick="NavigateToUpstreamDiscovery">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
@@ -170,7 +170,7 @@ else
                 }
                 else
                 {
-                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="Run Upstream Discovery to set transit targets" @onclick="NavigateToUpstreamDiscovery">?</span></div>
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
                 }
                 <div class="stat-label">Transit Loss</div>
             </div>
@@ -732,6 +732,9 @@ else
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "discover")]
+    public string? DiscoverParam { get; set; }
+
     private string? _lastTabParam;
 
     private bool _upstreamDiscoveryPendingSave =>
@@ -798,14 +801,22 @@ else
         return "live";
     }
 
-    private void SetActiveTab(string tab)
+    private async void SetActiveTab(string tab)
     {
         if (tab != "setup" && !_monitoringReady) return;
+        if (_upstreamDiscoveryPendingSave && tab != _activeTab)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");
+            if (!confirmed) return;
+        }
         _activeTab = tab;
         var uri = "/monitoring?tab=" + tab;
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
+
+    private bool _scrollToDiscoveryPending;
 
     protected override void OnParametersSet()
     {
@@ -820,6 +831,12 @@ else
             }
         }
         _lastTabParam = TabParam;
+
+        if (DiscoverParam == "1" && _activeTab == "performance")
+        {
+            _forceExpandUpstream = true;
+            _scrollToDiscoveryPending = true;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -1099,7 +1116,7 @@ else
             _activeTab = "performance";
             _forceExpandUpstream = true;
             StateHasChanged();
-            await Task.Delay(150);
+            await Task.Delay(500);
             await JS.InvokeVoidAsync("eval", @"
                 (function() {
                     var el = document.getElementById('upstream-discovery');
@@ -1627,6 +1644,25 @@ else
             _latencyChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
             catch { }
+        }
+
+        if (_scrollToDiscoveryPending && _activeTab == "performance")
+        {
+            _scrollToDiscoveryPending = false;
+            _forceExpandUpstream = false;
+            await Task.Delay(500);
+            await JS.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('upstream-discovery');
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        el.style.transition = 'outline-color 0.3s';
+                        el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                        el.style.outlineOffset = '4px';
+                        el.style.borderRadius = '12px';
+                        setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                    }
+                })();");
         }
 
         // Device health charts - Devices tab only
