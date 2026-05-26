@@ -4249,9 +4249,27 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<string>("CountryCode")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("DestAsn")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DestAsnOrg")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DestCity")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DestCountryCode")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("DestIp")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<double?>("DestLatitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("DestLongitude")
+                        .HasColumnType("REAL");
 
                     b.Property<int>("DestPort")
                         .HasColumnType("INTEGER");
@@ -4266,6 +4284,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<long?>("FlowDurationMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("GeoEnriched")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("InnerAlertId")
@@ -4343,6 +4364,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("Category")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -4359,10 +4383,20 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Label")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("SourceIp")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Category", "Enabled");
+
+                    b.HasIndex("Category", "SourceIp");
 
                     b.ToTable("ThreatNoiseFilters", (string)null);
                 });

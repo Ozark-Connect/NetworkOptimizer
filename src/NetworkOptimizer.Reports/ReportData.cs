@@ -561,6 +561,15 @@ public class PortSecuritySummary
 /// </summary>
 public class ThreatSummaryData
 {
+    /// <summary>Rows in the Top Threat Sources table of the stored audit PDF.</summary>
+    public const int DefaultTopSourcesRows = 5;
+
+    /// <summary>Rows in each categorized table of the stored audit PDF.</summary>
+    public const int DefaultCategoryRows = 10;
+
+    /// <summary>Upper bound for either row count on a download.</summary>
+    public const int MaxRows = 100;
+
     public int TotalEvents { get; set; }
     public int TotalBlocked { get; set; }
     public int TotalDetected { get; set; }
@@ -569,6 +578,26 @@ public class ThreatSummaryData
     public Dictionary<string, int> ByKillChain { get; set; } = new();
     public List<ThreatSourceEntry> TopSources { get; set; } = new();
     public List<ExposedServiceEntry> ExposedServices { get; set; } = new();
+
+    /// <summary>
+    /// Source IPs matching enabled Infrastructure-category noise filters. Shown
+    /// in a separate "Known Infrastructure Activity" sub-table so the user can
+    /// see what was excluded from the main Top Threat Sources table.
+    /// </summary>
+    public List<ThreatSourceEntry> InfrastructureSources { get; set; } = new();
+
+    /// <summary>
+    /// Source IPs matching enabled TrustedUser-category noise filters. Shown
+    /// in a separate "Trusted User Activity" sub-table.
+    /// </summary>
+    public List<ThreatSourceEntry> TrustedUserSources { get; set; } = new();
+
+    /// <summary>
+    /// Aggregate event count for events suppressed from the top threat sources
+    /// table because they matched Infrastructure or TrustedUser filters. Used
+    /// for the "X events suppressed" header line.
+    /// </summary>
+    public int SuppressedEventCount { get; set; }
 }
 
 public class ThreatSourceEntry
@@ -577,6 +606,13 @@ public class ThreatSourceEntry
     public string? CountryCode { get; set; }
     public string? AsnOrg { get; set; }
     public int EventCount { get; set; }
+
+    /// <summary>
+    /// Human-readable label from the matching noise filter for categorized
+    /// sub-tables (e.g., "Network Optimizer (self)"). Null for the main
+    /// Top Threat Sources table.
+    /// </summary>
+    public string? Label { get; set; }
 }
 
 public class ExposedServiceEntry

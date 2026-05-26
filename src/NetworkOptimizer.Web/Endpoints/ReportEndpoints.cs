@@ -42,17 +42,25 @@ public static class ReportEndpoints
         // Audit Report PDF download endpoints (serves pre-generated PDFs)
         // Auth handled by middleware for all /api/* paths
         // Uses strongly-typed int to prevent path traversal attacks
-        group.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, AuditService auditService) =>
+        group.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, int? topSources, int? categoryRows, AuditService auditService) =>
         {
-            var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId);
+            var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId, Rows(topSources, categoryRows));
             return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
         });
 
         // Get the latest audit report PDF (works across restarts since it queries database)
-        group.MapGet("/api/reports/latest/pdf", async (AuditService auditService) =>
+        group.MapGet("/api/reports/latest/pdf", async (int? topSources, int? categoryRows, AuditService auditService) =>
         {
-            var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync();
+            var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync(Rows(topSources, categoryRows));
             return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
         });
     }
+
+    // Threat table row counts for the PDF; null when neither is given, so the stored PDF is served.
+    private static ThreatReportRows? Rows(int? topSources, int? categoryRows) =>
+        topSources == null && categoryRows == null
+            ? null
+            : new ThreatReportRows(
+                topSources ?? NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows,
+                categoryRows ?? NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows);
 }
