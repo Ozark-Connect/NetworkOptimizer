@@ -1019,8 +1019,7 @@ public class UpstreamTracerService
             if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
             if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = hop.AsnName;
             if (!string.IsNullOrEmpty(hop.PtrHostname)) existing.PtrHostname = hop.PtrHostname;
-            if (existing.Enabled)
-                existing.LastVerified = DateTime.UtcNow;
+            existing.LastVerified = DateTime.UtcNow;
         }
     }
 
@@ -1069,8 +1068,7 @@ public class UpstreamTracerService
             // (legacy rows from before the GeoLite2 path landed had nulls).
             if (transit.AsnNumber > 0) existing.AsnNumber = transit.AsnNumber;
             if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
-            if (existing.Enabled)
-                existing.LastVerified = DateTime.UtcNow;
+            existing.LastVerified = DateTime.UtcNow;
         }
     }
 

@@ -342,7 +342,7 @@
 
     private static string RelativeTime(DateTime when)
     {
-        var delta = DateTime.UtcNow - when.ToUniversalTime();
+        var delta = DateTime.UtcNow - DateTime.SpecifyKind(when, DateTimeKind.Utc);
         if (delta < TimeSpan.Zero) return "just now";
         if (delta < TimeSpan.FromSeconds(15)) return "just now";
         if (delta < TimeSpan.FromMinutes(1)) return $"{(int)delta.TotalSeconds}s ago";
