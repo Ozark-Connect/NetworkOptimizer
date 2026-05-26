@@ -222,25 +222,62 @@ public class LanFlowMapService
             }
             else if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
             {
-                // For infrastructure uplinks the child device's aggregate is the most
-                // live measurement we have on every tick. The empirical convention from
-                // the AP badge work: aggregateInBps holds the upload-direction value
-                // (data flowing toward the gateway), aggregateOutBps holds downloads.
-                // The link's particle layer expects DownstreamBps to be downloads
-                // (parent -> child, blue) and UpstreamBps to be uploads
-                // (child -> parent, green), so map accordingly.
-                var childDev = ExtractDeviceMacFromUplinkId(link.Id);
-                if (!string.IsNullOrEmpty(childDev))
+                // Primary: parent's trunk port via PortKey (same SNMP-fed path
+                // that wired client links use, 5 s cadence).
+                if (!string.IsNullOrEmpty(link.PortKey))
                 {
-                    var stats = _liveStats.GetForDevice(childDev);
-                    if (stats != null && stats.LastRateUpdate.HasValue)
+                    var (parentMac, pIfName) = ParsePortKey(link.PortKey);
+                    var portRate = _liveStats.GetPortRate(parentMac, pIfName);
+                    if (portRate != null)
                     {
                         rates = new LinkLiveRates
                         {
-                            DownstreamBps = stats.RateOutBps ?? 0,
-                            UpstreamBps = stats.RateInBps ?? 0,
-                            AsOf = stats.LastRateUpdate.Value,
+                            DownstreamBps = portRate.DownBps,
+                            UpstreamBps = portRate.UpBps,
+                            AsOf = portRate.LastUpdate,
                         };
+                    }
+                }
+                // Fallback: child's own uplink port.
+                if (rates == null)
+                {
+                    var childDev = ExtractDeviceMacFromUplinkId(link.Id);
+                    if (!string.IsNullOrEmpty(childDev))
+                    {
+                        var childNode = snapshot.Nodes.FirstOrDefault(n =>
+                            string.Equals(n.Mac, childDev, StringComparison.OrdinalIgnoreCase));
+                        if (childNode?.UplinkIfName != null)
+                        {
+                            var portRate = _liveStats.GetPortRate(childDev, childNode.UplinkIfName);
+                            if (portRate != null)
+                            {
+                                rates = new LinkLiveRates
+                                {
+                                    DownstreamBps = portRate.UpBps,
+                                    UpstreamBps = portRate.DownBps,
+                                    AsOf = portRate.LastUpdate,
+                                };
+                            }
+                        }
+                    }
+                }
+                // Last resort: device-level aggregate (covers APs whose radio
+                // interfaces don't map to per-port SNMP counters).
+                if (rates == null)
+                {
+                    var childDev = ExtractDeviceMacFromUplinkId(link.Id);
+                    if (!string.IsNullOrEmpty(childDev))
+                    {
+                        var stats = _liveStats.GetForDevice(childDev);
+                        if (stats != null && stats.LastRateUpdate.HasValue)
+                        {
+                            rates = new LinkLiveRates
+                            {
+                                DownstreamBps = stats.RateOutBps ?? 0,
+                                UpstreamBps = stats.RateInBps ?? 0,
+                                AsOf = stats.LastRateUpdate.Value,
+                            };
+                        }
                     }
                 }
             }
