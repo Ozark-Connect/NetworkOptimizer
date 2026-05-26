@@ -1468,11 +1468,11 @@ public class MonitoringCollectionAgent : BackgroundService
                         if (devType != NetworkOptimizer.Core.Enums.DeviceType.Gateway)
                         {
                             if (type != null && (type == "ugw" || type == "usg" || type == "udm" || type == "uxg" || type == "ucg"))
-                                _logger.LogDebug("WAN ifname: device {Name} ({Model}) type={Type} classified as {DevType} - unexpected",
+                                _logger.LogTrace("WAN ifname: device {Name} ({Model}) type={Type} classified as {DevType} - unexpected",
                                     name, model, type, devType);
                             continue;
                         }
-                        _logger.LogDebug("WAN ifname: processing gateway {Name} ({Model}) type={Type}", name, model, type);
+                        _logger.LogTrace("WAN ifname: processing gateway {Name} ({Model}) type={Type}", name, model, type);
                         var mac = dev.TryGetProperty("mac", out var mp) ? mp.GetString() : null;
                         if (string.IsNullOrEmpty(mac)) continue;
                         var normalizedMac = mac.ToLowerInvariant().Replace('-', ':');
@@ -1481,20 +1481,20 @@ public class MonitoringCollectionAgent : BackgroundService
                         {
                             if (!dev.TryGetProperty($"wan{i}", out var wanObj)) continue;
                             var uplinkIf = wanObj.TryGetProperty("uplink_ifname", out var up) ? up.GetString() : null;
-                            _logger.LogDebug("WAN ifname: {Name} wan{Idx} uplink_ifname={UplinkIf}", name, i, uplinkIf ?? "(null)");
+                            _logger.LogTrace("WAN ifname: {Name} wan{Idx} uplink_ifname={UplinkIf}", name, i, uplinkIf ?? "(null)");
                             if (!string.IsNullOrEmpty(uplinkIf))
                             {
                                 gwIfNames[normalizedMac] = uplinkIf;
                                 var physIf = wanObj.TryGetProperty("ifname", out var pf) ? pf.GetString() : null;
                                 if (!string.IsNullOrEmpty(physIf))
                                     gwPhysIfNames[normalizedMac] = physIf;
-                                _logger.LogDebug("WAN ifname: {Name} resolved uplink_ifname={UplinkIf} physIf={PhysIf}", name, uplinkIf, physIf ?? "(null)");
+                                _logger.LogTrace("WAN ifname: {Name} resolved uplink_ifname={UplinkIf} physIf={PhysIf}", name, uplinkIf, physIf ?? "(null)");
                                 foundWan = true;
                                 break;
                             }
                         }
                         if (!foundWan)
-                            _logger.LogDebug("WAN ifname: {Name} ({Model}) - no wan1..wan6 with uplink_ifname found", name, model);
+                            _logger.LogTrace("WAN ifname: {Name} ({Model}) - no wan1..wan6 with uplink_ifname found", name, model);
                     }
                 }
             }
