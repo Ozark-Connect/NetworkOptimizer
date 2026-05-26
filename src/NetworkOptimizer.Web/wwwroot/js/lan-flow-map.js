@@ -319,6 +319,7 @@ export class LanFlowMap {
         this._onKeyUp = (e) => {
             this._keys[e.key.toLowerCase()] = false;
             if (e.key === 'Shift') this._keys.shift = false;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') this._arrowScrubStart = null;
         };
         document.addEventListener('keydown', this._onKeyDown);
         document.addEventListener('keyup', this._onKeyUp);
@@ -1280,13 +1281,17 @@ export class LanFlowMap {
             }
 
             // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
+            // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
                 const now = performance.now();
+                if (!this._arrowScrubStart) this._arrowScrubStart = now;
                 if (!this._lastArrowScrub || now - this._lastArrowScrub >= 200) {
                     this._lastArrowScrub = now;
                     const range = this._panels.scrubberRange;
                     if (range) {
-                        const step = this._keys.shift ? 35 : 4;
+                        const held = now - this._arrowScrubStart;
+                        let step = held > 2000 ? 35 : held > 1000 ? 12 : 4;
+                        if (this._keys.shift) step = Math.max(step, 35);
                         const dir = this._keys['arrowright'] ? step : -step;
                         const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
                         range.value = val;
