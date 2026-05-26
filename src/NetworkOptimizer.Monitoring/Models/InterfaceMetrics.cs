@@ -194,10 +194,11 @@ public class InterfaceMetrics
         var desc = Description.ToLowerInvariant();
         var name = Name.ToLowerInvariant();
 
-        // Exclude common virtual/internal interfaces
-        var excludePatterns = new[]
+        if (desc == "lo" || name == "lo") return false;
+
+        var excludePrefixes = new[]
         {
-            "lo",        // Loopback
+            "loopback",  // Loopback (some devices use full name)
             "br-",       // Bridge
             "docker",    // Docker
             "veth",      // Virtual Ethernet
@@ -211,7 +212,7 @@ public class InterfaceMetrics
             "teql",      // Traffic equalizer
         };
 
-        foreach (var pattern in excludePatterns)
+        foreach (var pattern in excludePrefixes)
         {
             if (desc.StartsWith(pattern) || name.StartsWith(pattern))
                 return false;
