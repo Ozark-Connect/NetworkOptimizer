@@ -1111,26 +1111,30 @@ else
     [JSInvokable]
     public void NavigateToUpstreamDiscovery()
     {
-        InvokeAsync(async () =>
+        InvokeAsync(() =>
         {
             _activeTab = "performance";
             _forceExpandUpstream = true;
+            _scrollToDiscoveryPending = true;
             StateHasChanged();
-            await Task.Delay(500);
-            await JS.InvokeVoidAsync("eval", @"
-                (function() {
-                    var el = document.getElementById('upstream-discovery');
-                    if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        el.style.transition = 'outline-color 0.3s';
-                        el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                        el.style.outlineOffset = '4px';
-                        el.style.borderRadius = '12px';
-                        setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                    }
-                })();");
-            _forceExpandUpstream = false;
         });
+    }
+
+    private async Task ScrollToUpstreamDiscoveryAsync()
+    {
+        await Task.Delay(500);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('upstream-discovery');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
     }
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
@@ -1650,19 +1654,7 @@ else
         {
             _scrollToDiscoveryPending = false;
             _forceExpandUpstream = false;
-            await Task.Delay(500);
-            await JS.InvokeVoidAsync("eval", @"
-                (function() {
-                    var el = document.getElementById('upstream-discovery');
-                    if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        el.style.transition = 'outline-color 0.3s';
-                        el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                        el.style.outlineOffset = '4px';
-                        el.style.borderRadius = '12px';
-                        setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                    }
-                })();");
+            await ScrollToUpstreamDiscoveryAsync();
         }
 
         // Device health charts - Devices tab only
