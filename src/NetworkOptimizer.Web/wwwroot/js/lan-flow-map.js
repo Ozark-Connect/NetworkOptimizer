@@ -303,7 +303,8 @@ export class LanFlowMap {
                     return;
                 }
             }
-            if (!this._shouldAcceptKeys()) return;
+            const scrubberFocused = document.activeElement === this._panels?.scrubberRange;
+            if (!scrubberFocused && !this._shouldAcceptKeys()) return;
             if (e.key === ' ') {
                 e.preventDefault();
                 this._togglePlayPause();
