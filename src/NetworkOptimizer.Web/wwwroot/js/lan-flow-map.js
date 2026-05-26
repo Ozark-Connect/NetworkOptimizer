@@ -1282,7 +1282,7 @@ export class LanFlowMap {
 
             // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
             // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
-            // Shift multiplies by 3x on top of acceleration.
+            // Shift multiplies by 9x on top of acceleration.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
                 const now = performance.now();
                 if (!this._arrowScrubStart) this._arrowScrubStart = now;
