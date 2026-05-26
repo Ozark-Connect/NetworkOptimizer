@@ -1598,12 +1598,22 @@ export class LanFlowMap {
             </div>
         `;
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
-        range.addEventListener('input', (e) => this._onScrubberInput(Number(e.target.value)));
+        this._scrubberInputDebounce = null;
+        range.addEventListener('input', (e) => {
+            const val = Number(e.target.value);
+            this._onScrubberInput(val);
+            clearTimeout(this._scrubberInputDebounce);
+            this._scrubberInputDebounce = setTimeout(() => {
+                this._scrubberLastFire = Date.now();
+                this._onScrubberChange(val);
+            }, 500);
+        });
         this._scrubberThrottleTimer = null;
         this._scrubberLastFire = 0;
         range.addEventListener('change', (e) => {
             const val = Number(e.target.value);
             this._onScrubberInput(val);
+            clearTimeout(this._scrubberInputDebounce);
             const now = Date.now();
             const elapsed = now - this._scrubberLastFire;
             clearTimeout(this._scrubberThrottleTimer);
