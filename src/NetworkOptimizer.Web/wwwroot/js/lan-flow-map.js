@@ -1615,11 +1615,18 @@ export class LanFlowMap {
                 }
                 this._syncSpeedLabel();
             }
+            const now = Date.now();
+            const sinceLastFire = now - this._scrubberLastFire;
             clearTimeout(this._scrubberInputDebounce);
-            this._scrubberInputDebounce = setTimeout(() => {
-                this._scrubberLastFire = Date.now();
+            if (sinceLastFire >= 500) {
+                this._scrubberLastFire = now;
                 this._onScrubberChange(val);
-            }, 500);
+            } else {
+                this._scrubberInputDebounce = setTimeout(() => {
+                    this._scrubberLastFire = Date.now();
+                    this._onScrubberChange(val);
+                }, 500 - sinceLastFire);
+            }
         });
         this._scrubberThrottleTimer = null;
         this._scrubberLastFire = 0;
