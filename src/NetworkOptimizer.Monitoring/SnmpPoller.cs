@@ -355,9 +355,13 @@ public class SnmpPoller : ISnmpPoller
                 {
                     interfaces.Add(metrics);
                 }
+                else
+                {
+                    _logger.LogDebug("ShouldMonitor rejected ifIndex {Idx} desc={Desc} name={Name} on {Ip}", idx, descr, metrics.Name, ip);
+                }
             }
 
-            DebugLog($"Collected metrics for {interfaces.Count} interfaces");
+            DebugLog($"Collected metrics for {interfaces.Count} interfaces from {metadata.DescrByIdx.Count} in metadata");
         }
         catch (Exception ex)
         {

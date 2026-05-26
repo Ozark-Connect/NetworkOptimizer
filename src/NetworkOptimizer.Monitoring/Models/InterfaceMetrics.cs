@@ -194,24 +194,30 @@ public class InterfaceMetrics
         var desc = Description.ToLowerInvariant();
         var name = Name.ToLowerInvariant();
 
-        // Exclude common virtual/internal interfaces
-        var excludePatterns = new[]
+        var exactExclude = new[]
         {
-            "lo",        // Loopback
-            "br-",       // Bridge
-            "docker",    // Docker
-            "veth",      // Virtual Ethernet
-            "ifb",       // Intermediate Functional Block
-            "virbr",     // Virtual Bridge
-            "tun",       // Tunnel
-            "tap",       // TAP device
-            "null",      // Null interface
-            "device ",   // USB/PCI device descriptors (e.g. Qualcomm chipset "Device 17cb:1109")
-            "miireg",    // MII register access (not a network interface)
-            "teql",      // Traffic equalizer
+            "lo", "bond0", "dummy0", "sit0", "erspan0",
+            "gretap0",
+            "ip_vti0", "ip6_vti0", "ip6tnl0",
+            "soc0", "soc2", "pd99", "mld0", "scan0",
+            "miireg", "teql0",
+        };
+        foreach (var e in exactExclude)
+        {
+            if (desc == e || name == e) return false;
+        }
+
+        var excludePrefixes = new[]
+        {
+            "loopback",    // Loopback (some devices use full name)
+            "br0", "br-",  // Bridge (br0, br0.42, br-trunk)
+            "br1", "br2", "br3", "br4", "br5", "br6", "br7", "br8", "br9",  // Numbered bridges (br150, br200, br4040)
+            "switch0",     // Internal switch chip (switch0, switch0.1)
+            "mld-",        // Multicast listener discovery
+            "device ",     // USB/PCI descriptors (e.g. "Device 17cb:1109")
         };
 
-        foreach (var pattern in excludePatterns)
+        foreach (var pattern in excludePrefixes)
         {
             if (desc.StartsWith(pattern) || name.StartsWith(pattern))
                 return false;

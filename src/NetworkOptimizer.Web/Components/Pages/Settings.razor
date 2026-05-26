@@ -2317,7 +2317,7 @@
     private string _monitoringMessageClass = "success";
 
     // Editable InfluxDB connection inputs (loaded from MonitoringSettings)
-    private string _influxUrl = "http://localhost:8087";
+    private string _influxUrl = "http://localhost:8086";
     private string _influxToken = string.Empty;
     private bool _influxTokenIsSet = false;
     private string _influxOrg = "network-optimizer";
@@ -4669,7 +4669,7 @@
             _monitoringSettings = await SnmpDetection.GetOrCreateSettingsAsync();
             if (_monitoringSettings != null)
             {
-                _influxUrl = _monitoringSettings.InfluxDbUrl ?? "http://localhost:8087";
+                _influxUrl = _monitoringSettings.InfluxDbUrl ?? "http://localhost:8086";
                 _influxOrg = _monitoringSettings.InfluxDbOrg ?? "network-optimizer";
                 _influxBucket = _monitoringSettings.InfluxDbBucket ?? "network_monitoring";
                 _influxLongtermBucket = _monitoringSettings.InfluxDbLongtermBucket ?? "network_monitoring_longterm";
