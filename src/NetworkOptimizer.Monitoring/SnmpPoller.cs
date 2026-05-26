@@ -174,13 +174,13 @@ public class SnmpPoller : ISnmpPoller
 
         return await Task.Run(() =>
         {
+            var list = new List<Variable>();
             try
             {
                 DebugLog($"SNMP BulkWalk: {ip}:{_config.Port} OID={oid} MaxRep={maxRepetitions}");
 
                 var endpoint = new IPEndPoint(ip, _config.Port);
                 var table = new ObjectIdentifier(oid);
-                var list = new List<Variable>();
 
                 if (_config.Version == SnmpVersion.V3)
                 {
@@ -226,8 +226,8 @@ public class SnmpPoller : ISnmpPoller
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "SNMP BulkWalk failed for {Ip}:{Oid}", ip, oid);
-                return new List<Variable>();
+                _logger.LogDebug(ex, "SNMP BulkWalk failed for {Ip}:{Oid} (partial: {Count} variables)", ip, oid, list.Count);
+                return list;
             }
         });
     }

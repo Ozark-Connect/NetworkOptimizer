@@ -51,8 +51,9 @@ public class MonitoringCollectionAgent : BackgroundService
     // the lifetime of this app. Cheap, bounded, and avoids constantly hammering a
     // device that's just not going to answer (USW-Flex-Mini, for example).
     private readonly ConcurrentDictionary<string, int> _snmpFailures = new();
-    private readonly ConcurrentDictionary<string, byte> _snmpExcluded = new();
-    private const int SnmpFailureThreshold = 3;
+    private readonly ConcurrentDictionary<string, DateTime> _snmpExcluded = new();
+    private const int SnmpFailureThreshold = 10;
+    private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromHours(1);
     private readonly SemaphoreSlim _snmpGate = new(8);
 
     public MonitoringCollectionAgent(
@@ -231,7 +232,7 @@ public class MonitoringCollectionAgent : BackgroundService
             try
             {
                 var mac = NormalizeMac(device.Mac);
-                if (_snmpExcluded.ContainsKey(mac))
+                if (IsSnmpExcluded(mac))
                 {
                     // Device was previously determined to not support SNMP. Skip silently;
                     // rate data for this device will come from its parent switch port
@@ -649,7 +650,7 @@ public class MonitoringCollectionAgent : BackgroundService
             await _snmpGate.WaitAsync(ct);
             try
             {
-                if (_snmpExcluded.ContainsKey(NormalizeMac(device.Mac))) return;
+                if (IsSnmpExcluded(NormalizeMac(device.Mac))) return;
                 var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
                 if (!IPAddress.TryParse(pollIp, out var ip)) return;
                 var metrics = await poller.GetDeviceMetricsAsync(ip, device.Name);
@@ -737,7 +738,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
         foreach (var device in devices)
         {
-            if (_snmpExcluded.ContainsKey(NormalizeMac(device.Mac))) continue;
+            if (IsSnmpExcluded(NormalizeMac(device.Mac))) continue;
             try
             {
                 var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
@@ -1663,7 +1664,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private void NoteSnmpFailure(string normalizedMac)
     {
         if (string.IsNullOrEmpty(normalizedMac)) return;
-        if (_snmpExcluded.ContainsKey(normalizedMac)) return;
+        if (IsSnmpExcluded(normalizedMac)) return;
 
         var count = _snmpFailures.AddOrUpdate(normalizedMac, 1, (_, prev) => prev + 1);
         if (count < SnmpFailureThreshold) return;
@@ -1676,12 +1677,21 @@ public class MonitoringCollectionAgent : BackgroundService
         if (DateTime.UtcNow - liveStats.LastLatencyUpdate.Value > TimeSpan.FromMinutes(2)) return;
         if (!(liveStats.LatestRttMs.HasValue && liveStats.LatestRttMs.Value >= 0)) return;
 
-        if (_snmpExcluded.TryAdd(normalizedMac, 0))
+        if (_snmpExcluded.TryAdd(normalizedMac, DateTime.UtcNow))
         {
             _logger.LogInformation(
                 "Excluding {Mac} from SNMP polling for this app lifecycle - {Count} consecutive failures despite being reachable on ICMP. Device likely doesn't support SNMP.",
                 normalizedMac, count);
         }
+    }
+
+    private bool IsSnmpExcluded(string normalizedMac)
+    {
+        if (!_snmpExcluded.TryGetValue(normalizedMac, out var excludedAt)) return false;
+        if (DateTime.UtcNow - excludedAt < SnmpExclusionDuration) return true;
+        _snmpExcluded.TryRemove(normalizedMac, out _);
+        _snmpFailures.TryRemove(normalizedMac, out _);
+        return false;
     }
 
     /// <summary>Tells the dashboard which devices were dropped from SNMP polling.</summary>
