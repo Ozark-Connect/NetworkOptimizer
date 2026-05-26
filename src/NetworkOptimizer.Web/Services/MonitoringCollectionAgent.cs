@@ -1240,6 +1240,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _ = _influx.WriteInterfaceCountersAsync(
             deviceMac: mac,
             ifName: ifName,
+            portId: iface.PortId,
             direction: InterfaceDirection.Unknown, // topology-driven direction set in a later build
             bytesIn: iface.InOctets,
             bytesOut: iface.OutOctets,
