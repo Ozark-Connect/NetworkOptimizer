@@ -1647,6 +1647,7 @@ export class LanFlowMap {
                 }, 1000 - elapsed);
             }
         });
+        range.addEventListener('keydown', (e) => e.preventDefault());
         // User grabbing the thumb implicitly cancels any active historic playback.
         range.addEventListener('pointerdown', () => this._stopHistoricPlayback());
         const playPause = scrubber.querySelector('[data-role="playpause"]');
