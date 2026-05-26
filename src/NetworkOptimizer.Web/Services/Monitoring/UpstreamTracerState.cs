@@ -41,6 +41,7 @@ public enum TracerStep
     DiscoveringL2Neighbor,
     TracingAccessIsp,
     TracingTransitAsns,
+    VerifyingReachability,
     ReviewingResults,
     Done,
     Failed
