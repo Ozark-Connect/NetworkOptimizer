@@ -20,25 +20,15 @@ public class DnsSecurityAnalyzer
     private const string SettingsKeyDns = "dns";
     private const string SettingsKeyWanDns = "wan_dns";
 
-    // DNS provider domain patterns for detecting DoH/DoQ block rules
-    private static readonly string[] DnsProviderPatterns =
-    [
-        "dns",
-        "doh",
-        "cloudflare-dns",
-        "quad9",
-        "nextdns",
-        "adguard",
-        "opendns",
-        "one.one.one"  // Cloudflare 1.1.1.1 alternate domain
-    ];
+    // WEB and IP-based DoH detection requires coverage of all 4 major providers
+    private static readonly HashSet<string> RequiredDohProviders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Cloudflare", "Google", "Quad9", "OpenDNS"
+    };
 
-    // Thresholds for IP-based DoH detection. A rule's destination IP list must
-    // match this many known DoH provider IPs spanning this many distinct providers
-    // before the rule is credited as DoH-bypass blocking. Avoids false positives
+    // IP-based DoH detection still requires a minimum IP count to avoid false positives
     // from rules that incidentally block one or two DoH IPs for unrelated reasons.
     private const int MinDohIpMatches = 3;
-    private const int MinDohProvidersMatched = 2;
 
     private readonly ThirdPartyDnsDetector _thirdPartyDetector;
 
@@ -586,39 +576,38 @@ public class DnsSecurityAnalyzer
                 }
             }
 
-            // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)
-            // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
-            // For legacy systems, LAN_IN is also acceptable (gateway's DoH goes to configured providers, not blocked IPs)
+            // Check for DoH/DoH3 blocking (port 443 with web domains covering major DoH providers).
+            // Requires all 4 major providers (Cloudflare, Google, Quad9, OpenDNS) to be covered
+            // to prevent partial blocks from getting credit. Uses DohProviderRegistry hostname
+            // matching rather than loose substring patterns.
             if ((targetsExternalZone || isLegacyLanIn) && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
-                // Check if web domains include DNS providers
-                var dnsProviderDomains = webDomains.Where(d =>
-                    DnsProviderPatterns.Any(pattern => d.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                ).ToList();
+                var (matchedCount, matchedProviders) = DohProviderRegistry.MatchKnownDohDomains(webDomains);
 
-                if (dnsProviderDomains.Count > 0)
+                if (RequiredDohProviders.IsSubsetOf(matchedProviders))
                 {
-                    // DoH blocking (TCP 443)
-                    if (FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp"))
+                    var blocksDoh = FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "tcp");
+                    var blocksDoh3 = FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "udp");
+
+                    if (blocksDoh)
                     {
                         result.HasDohBlockRule = true;
-                        foreach (var domain in dnsProviderDomains)
+                        result.DohRuleName ??= name;
+                        foreach (var domain in webDomains)
                         {
-                            if (!result.DohBlockedDomains.Contains(domain))
+                            if (DohProviderRegistry.IdentifyProvider(domain) != null && !result.DohBlockedDomains.Contains(domain))
                                 result.DohBlockedDomains.Add(domain);
                         }
-                        result.DohRuleName = name;
-                        _logger.LogDebug("Found DoH block rule: {Name} (zone={Zone}) with {Count} DNS domains",
-                            name, destZoneId ?? "any", dnsProviderDomains.Count);
+                        _logger.LogDebug("Found DoH block rule: {Name} (zone={Zone}) matched {Count} domains across {ProviderCount} providers: {Providers}",
+                            name, destZoneId ?? "any", matchedCount, matchedProviders.Count, string.Join(", ", matchedProviders));
                     }
 
-                    // DoH3 blocking (UDP 443 / HTTP/3 over QUIC)
-                    if (FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "443", "udp"))
+                    if (blocksDoh3)
                     {
                         result.HasDoh3BlockRule = true;
-                        result.Doh3RuleName = name;
-                        _logger.LogDebug("Found DoH3 block rule: {Name} (zone={Zone}) with {Count} DNS domains",
-                            name, destZoneId ?? "any", dnsProviderDomains.Count);
+                        result.Doh3RuleName ??= name;
+                        _logger.LogDebug("Found DoH3 block rule: {Name} (zone={Zone}) matched {Count} domains across {ProviderCount} providers: {Providers}",
+                            name, destZoneId ?? "any", matchedCount, matchedProviders.Count, string.Join(", ", matchedProviders));
                     }
                 }
             }
@@ -637,7 +626,7 @@ public class DnsSecurityAnalyzer
                 {
                     var (matchedCount, matchedProviders) = DohProviderRegistry.MatchKnownDohIps(rule.DestinationIps);
 
-                    if (matchedCount >= MinDohIpMatches && matchedProviders.Count >= MinDohProvidersMatched)
+                    if (matchedCount >= MinDohIpMatches && RequiredDohProviders.IsSubsetOf(matchedProviders))
                     {
                         if (blocksDoh)
                         {
