@@ -26,6 +26,15 @@ public interface IThreatRepository
     Task<List<ThreatEvent>> GetEventsAsync(DateTime from, DateTime to, string? sourceIp = null, int? destPort = null, KillChainStage? stage = null, int limit = 1000, CancellationToken cancellationToken = default);
     Task<ThreatSummary> GetThreatSummaryAsync(DateTime from, DateTime to, CancellationToken cancellationToken = default);
     Task<List<SourceIpSummary>> GetTopSourcesAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Return aggregated event counts grouped by source IP, restricted to source IPs that
+    /// match an enabled noise filter of the given category. Bypasses the BaseQuery noise
+    /// filter exclusion (since the whole point is to see what was suppressed). Used by
+    /// the audit report to render the "Known Infrastructure Activity" and "Trusted User
+    /// Activity" sub-tables.
+    /// </summary>
+    Task<List<SourceIpSummary>> GetSourcesByCategoryAsync(DateTime from, DateTime to, ThreatFilterCategory category, int count = 20, CancellationToken cancellationToken = default);
     Task<List<TargetPortSummary>> GetTopTargetedPortsAsync(DateTime from, DateTime to, int count = 10, CancellationToken cancellationToken = default);
     Task<Dictionary<string, int>> GetCountryDistributionAsync(DateTime from, DateTime to, ThreatAction? actionFilter = null, CancellationToken cancellationToken = default);
     Task<List<TimelineBucket>> GetTimelineAsync(DateTime from, DateTime to, int bucketMinutes = 60, CancellationToken cancellationToken = default);
@@ -64,6 +73,21 @@ public interface IThreatRepository
     Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default);
     Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default);
     Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Demote a system filter (IsSystem=false) and disable it (Enabled=false). Used when
+    /// the optimizer's self-IP changes - the prior entry is no longer "the optimizer's
+    /// own IP" so we strip the system lock and disable it, but keep the row for audit
+    /// history. User can delete via UI when ready.
+    /// </summary>
+    Task DemoteAndDisableSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-promote a demoted filter back to IsSystem=true and re-enable it. Used when the
+    /// optimizer's self-IP changes back to a previously-known address rather than creating
+    /// a duplicate row.
+    /// </summary>
+    Task PromoteToSystemFilterAsync(int filterId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -90,6 +114,18 @@ public record SourceIpSummary
     public int? Asn { get; set; }
     public string? AsnOrg { get; set; }
     public int MaxSeverity { get; init; }
+
+    /// <summary>
+    /// When returned from GetSourcesByCategoryAsync, the human-readable label from
+    /// the matching noise filter (e.g., "Network Optimizer (self)").
+    /// </summary>
+    public string? Label { get; set; }
+
+    /// <summary>
+    /// When returned from GetSourcesByCategoryAsync, the category of the matching
+    /// noise filter. Null for results from GetTopSourcesAsync.
+    /// </summary>
+    public ThreatFilterCategory? MatchedFilterCategory { get; set; }
 
     // CrowdSec CTI enrichment (populated post-query by dashboard service)
     public string? CrowdSecReputation { get; set; }
