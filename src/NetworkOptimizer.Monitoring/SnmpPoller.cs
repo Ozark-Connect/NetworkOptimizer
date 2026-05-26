@@ -333,7 +333,8 @@ public class SnmpPoller : ISnmpPoller
                     DeviceHostname = hostname ?? string.Empty,
                     Timestamp = DateTime.UtcNow,
                     Description = descr,
-                    Name = GetString(metadata.AliasByIdx, idx) ?? GetString(metadata.NameByIdx, idx) ?? string.Empty,
+                    Name = ResolveIfName(GetString(metadata.AliasByIdx, idx), GetString(metadata.NameByIdx, idx)),
+                    PortId = GetString(metadata.NameByIdx, idx) ?? string.Empty,
                     Type = ParseInt(metadata.TypeByIdx, idx),
                     Mtu = ParseInt(metadata.MtuByIdx, idx),
                     Speed = speed,
@@ -768,6 +769,17 @@ public class SnmpPoller : ISnmpPoller
         }
 
         return dict;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex EthNRegex = new(@"^eth\d+", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static string ResolveIfName(string? ifAlias, string? ifName)
+    {
+        if (!string.IsNullOrEmpty(ifName)
+            && EthNRegex.IsMatch(ifName)
+            && (string.IsNullOrEmpty(ifAlias) || !EthNRegex.IsMatch(ifAlias)))
+            return ifName;
+        return ifAlias ?? ifName ?? string.Empty;
     }
 
     private static string? GetString(Dictionary<string, string> dict, string idx)

@@ -244,6 +244,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     public Task WriteInterfaceCountersAsync(
         string deviceMac,
         string ifName,
+        string? portId,
         InterfaceDirection direction,
         long bytesIn,
         long bytesOut,
@@ -262,6 +263,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         var point = PointData.Measurement("interface_counters")
             .Tag("device_mac", NormalizeMac(deviceMac))
             .Tag("if_name", ifName)
+            .Tag("port_id", portId ?? "")
             .Tag("direction", direction.ToString().ToLowerInvariant())
             .Field("bytes_in", bytesIn)
             .Field("bytes_out", bytesOut)

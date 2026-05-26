@@ -21,6 +21,12 @@ public class InterfaceMetrics
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
+    /// Raw ifName from SNMP (e.g. "eth8" on gateways, "0/1" on switches).
+    /// Stable physical port identifier independent of user-assigned aliases.
+    /// </summary>
+    public string PortId { get; set; } = string.Empty;
+
+    /// <summary>
     /// Interface type (ifType)
     /// </summary>
     public int Type { get; set; }

@@ -1240,6 +1240,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _ = _influx.WriteInterfaceCountersAsync(
             deviceMac: mac,
             ifName: ifName,
+            portId: iface.PortId,
             direction: InterfaceDirection.Unknown, // topology-driven direction set in a later build
             bytesIn: iface.InOctets,
             bytesOut: iface.OutOctets,
@@ -1462,23 +1463,39 @@ public class MonitoringCollectionAgent : BackgroundService
                     foreach (var dev in devArray.EnumerateArray())
                     {
                         var type = dev.TryGetProperty("type", out var tp) ? tp.GetString() : null;
-                        if (type != "ugw" && type != "udm" && type != "uxg") continue;
+                        var model = dev.TryGetProperty("model", out var mdl) ? mdl.GetString() : null;
+                        var name = dev.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+                        var devType = type != null ? NetworkOptimizer.Core.Enums.DeviceTypeExtensions.FromUniFiApiType(type) : (NetworkOptimizer.Core.Enums.DeviceType?)null;
+                        if (devType != NetworkOptimizer.Core.Enums.DeviceType.Gateway)
+                        {
+                            if (type != null && (type == "ugw" || type == "usg" || type == "udm" || type == "uxg" || type == "ucg"))
+                                _logger.LogTrace("WAN ifname: device {Name} ({Model}) type={Type} classified as {DevType} - unexpected",
+                                    name, model, type, devType);
+                            continue;
+                        }
+                        _logger.LogTrace("WAN ifname: processing gateway {Name} ({Model}) type={Type}", name, model, type);
                         var mac = dev.TryGetProperty("mac", out var mp) ? mp.GetString() : null;
                         if (string.IsNullOrEmpty(mac)) continue;
                         var normalizedMac = mac.ToLowerInvariant().Replace('-', ':');
+                        bool foundWan = false;
                         for (int i = 1; i <= 6; i++)
                         {
                             if (!dev.TryGetProperty($"wan{i}", out var wanObj)) continue;
                             var uplinkIf = wanObj.TryGetProperty("uplink_ifname", out var up) ? up.GetString() : null;
+                            _logger.LogTrace("WAN ifname: {Name} wan{Idx} uplink_ifname={UplinkIf}", name, i, uplinkIf ?? "(null)");
                             if (!string.IsNullOrEmpty(uplinkIf))
                             {
                                 gwIfNames[normalizedMac] = uplinkIf;
                                 var physIf = wanObj.TryGetProperty("ifname", out var pf) ? pf.GetString() : null;
                                 if (!string.IsNullOrEmpty(physIf))
                                     gwPhysIfNames[normalizedMac] = physIf;
+                                _logger.LogTrace("WAN ifname: {Name} resolved uplink_ifname={UplinkIf} physIf={PhysIf}", name, uplinkIf, physIf ?? "(null)");
+                                foundWan = true;
                                 break;
                             }
                         }
+                        if (!foundWan)
+                            _logger.LogTrace("WAN ifname: {Name} ({Model}) - no wan1..wan6 with uplink_ifname found", name, model);
                     }
                 }
             }
