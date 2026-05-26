@@ -20,7 +20,7 @@ public class DnsSecurityAnalyzer
     private const string SettingsKeyDns = "dns";
     private const string SettingsKeyWanDns = "wan_dns";
 
-    // DNS provider domain patterns for detecting DoH/DoQ block rules
+    // WEB and IP-based DoH detection requires coverage of all 4 major providers
     private static readonly HashSet<string> RequiredDohProviders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Cloudflare", "Google", "Quad9", "OpenDNS"
