@@ -180,6 +180,7 @@ builder.Services.AddSingleton<UniFiSshService>();
 // Register cellular modem providers (one per supported vendor transport).
 // CellularModemService resolves the right provider per ModemConfiguration.
 builder.Services.AddSingleton<ICellularModemProvider, QmicliModemProvider>();
+builder.Services.AddSingleton<ICellularModemProvider, NetgearNighthawkHotspotProvider>();
 
 // Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
 builder.Services.AddSingleton<CellularModemService>();
