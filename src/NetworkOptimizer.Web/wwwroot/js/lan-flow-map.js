@@ -1292,7 +1292,7 @@ export class LanFlowMap {
                     if (range) {
                         const held = now - this._arrowScrubStart;
                         let step = held > 2000 ? 35 : held > 1000 ? 12 : 4;
-                        if (this._keys.shift) step *= 3;
+                        if (this._keys.shift) step *= 9;
                         const dir = this._keys['arrowright'] ? step : -step;
                         const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
                         range.value = val;
