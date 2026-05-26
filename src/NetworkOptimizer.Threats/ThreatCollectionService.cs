@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -97,6 +100,11 @@ public class ThreatCollectionService : BackgroundService
 
         // Attempt auto-download of MaxMind databases if configured and missing/stale
         await TryAutoDownloadGeoDatabasesAsync(stoppingToken);
+
+        // Ensure a locked Infrastructure-category noise filter exists for our own IP
+        // so the optimizer's own scanning traffic does not dominate the audit report's
+        // Top Threat Sources table.
+        await EnsureSelfInfrastructureFilterAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -740,6 +748,138 @@ public class ThreatCollectionService : BackgroundService
         var retention = await settings.GetSettingAsync("threats.retention_days", ct);
         if (retention != null && int.TryParse(retention, out var days) && days >= 1)
             _retentionDays = days;
+    }
+
+    /// <summary>
+    /// Detect the primary local IPv4 address and ensure an enabled, system-managed
+    /// Infrastructure-category noise filter exists for it. This stops the optimizer's
+    /// own port scans and probes from dominating the Top Threat Sources table in
+    /// audit PDFs. The entry is marked IsSystem so the UI prevents deletion while
+    /// the LXC is at this IP.
+    ///
+    /// On IP change (e.g., new DHCP lease) the prior system entry is demoted to
+    /// IsSystem=false and disabled, but kept in the table so the user can review
+    /// it for audit-history purposes and clean up when ready. If the same IP later
+    /// returns, the existing entry is re-promoted to IsSystem=true and re-enabled
+    /// rather than creating a duplicate.
+    /// </summary>
+    private async Task EnsureSelfInfrastructureFilterAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var selfIp = GetPrimaryLocalIpv4();
+            if (string.IsNullOrEmpty(selfIp))
+            {
+                _logger.LogDebug("Could not determine primary local IPv4 address, skipping self-filter registration");
+                return;
+            }
+
+            using var scope = _scopeFactory.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+
+            var existing = await repository.GetNoiseFiltersAsync(cancellationToken);
+
+            // If an active system entry for the current IP already exists, nothing to do.
+            var activeSystemMatch = existing.FirstOrDefault(f =>
+                f.IsSystem &&
+                f.Enabled &&
+                f.Category == ThreatFilterCategory.Infrastructure &&
+                string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal));
+            if (activeSystemMatch != null)
+                return;
+
+            // Step 1: demote and disable any active system self-entries for OTHER IPs.
+            // The IP changed, so the old entry no longer represents this host. Keep the
+            // row for audit history; user can delete via UI once it's no longer needed.
+            var staleSystemEntries = existing
+                .Where(f => f.IsSystem &&
+                            f.Category == ThreatFilterCategory.Infrastructure &&
+                            (f.Label ?? string.Empty).Contains("(self)", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal))
+                .ToList();
+
+            foreach (var stale in staleSystemEntries)
+            {
+                await repository.DemoteAndDisableSystemFilterAsync(stale.Id, cancellationToken);
+                _logger.LogInformation(
+                    "Demoted stale system self-filter for {OldIp} (IP changed to {NewIp})",
+                    stale.SourceIp, selfIp);
+            }
+
+            // Step 2: if there is an existing entry for the current IP that was previously
+            // demoted (we came back to this IP), re-promote and re-enable it rather than
+            // creating a duplicate. Match on exact IP and Infrastructure category.
+            var revivable = existing.FirstOrDefault(f =>
+                f.Category == ThreatFilterCategory.Infrastructure &&
+                string.Equals(f.SourceIp, selfIp, StringComparison.Ordinal) &&
+                (f.Label ?? string.Empty).Contains("(self)", StringComparison.OrdinalIgnoreCase));
+
+            if (revivable != null)
+            {
+                await repository.PromoteToSystemFilterAsync(revivable.Id, cancellationToken);
+                _logger.LogInformation("Re-promoted existing self-filter for {SelfIp}", selfIp);
+                return;
+            }
+
+            // Step 3: no existing entry, create a fresh one.
+            var filter = new ThreatNoiseFilter
+            {
+                SourceIp = selfIp,
+                Category = ThreatFilterCategory.Infrastructure,
+                Label = "Network Optimizer (self)",
+                Description = "Auto-detected. Suppresses the optimizer's own scanning traffic from threat tables.",
+                IsSystem = true,
+                Enabled = true
+            };
+
+            await repository.SaveNoiseFilterAsync(filter, cancellationToken);
+            _logger.LogInformation("Registered system Infrastructure filter for self IP {SelfIp}", selfIp);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to ensure self infrastructure filter");
+        }
+    }
+
+    /// <summary>
+    /// Return the primary local IPv4 address by inspecting the route used for
+    /// outbound traffic. Uses a UDP socket connect (no packets actually sent)
+    /// to a public-routed address to ask the OS which interface would be used.
+    /// </summary>
+    private static string? GetPrimaryLocalIpv4()
+    {
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            // Connect on UDP does not transmit anything; it just selects the route.
+            // 1.1.1.1 is a stable public IP for route selection.
+            socket.Connect("1.1.1.1", 65530);
+            if (socket.LocalEndPoint is IPEndPoint ep)
+                return ep.Address.ToString();
+        }
+        catch
+        {
+            // Fall through to interface enumeration.
+        }
+
+        // Fallback: pick the first up, non-loopback, non-virtual interface with an IPv4 address.
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up) continue;
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+
+            foreach (var addr in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (addr.Address.AddressFamily == AddressFamily.InterNetwork &&
+                    !IPAddress.IsLoopback(addr.Address))
+                {
+                    return addr.Address.ToString();
+                }
+            }
+        }
+
+        return null;
     }
 
     private async Task TryAutoDownloadGeoDatabasesAsync(CancellationToken cancellationToken)

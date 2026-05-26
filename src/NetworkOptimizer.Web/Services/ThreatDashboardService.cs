@@ -65,14 +65,35 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
+            // Load all enabled filters once. Top Sources uses Noise-only so categorized
+            // sources (Infrastructure / TrustedUser) appear in the main table with a
+            // badge. Other dashboard widgets (kill chain, ports, patterns) keep the
+            // full-filter behavior so categorized noise does not dominate charts.
+            var allEnabled = (await _repository.GetNoiseFiltersAsync(cancellationToken))
+                .Where(f => f.Enabled)
+                .ToList();
+            var nonNoiseFilters = allEnabled
+                .Where(f => f.Category != ThreatFilterCategory.Noise)
+                .ToList();
+
+            // Top Sources: respect the master filter-active toggle, but when filters are
+            // active, only Noise-category exclusions apply here. Infrastructure and
+            // TrustedUser rows remain in the table for the badge to surface.
+            if (FiltersDisabled)
+            {
+                _repository.SetNoiseFilters([]);
+            }
+            else
+            {
+                _repository.SetNoiseFilters(
+                    allEnabled.Where(f => f.Category == ThreatFilterCategory.Noise).ToList());
+            }
             _repository.SetSeverityFilter(SeverityFilter);
-            var summary = await _repository.GetThreatSummaryAsync(from, to, cancellationToken);
-            var killChain = await _repository.GetKillChainDistributionAsync(from, to, cancellationToken);
             var topSources = await _repository.GetTopSourcesAsync(from, to, 10, cancellationToken);
 
-            // Re-enrich geo data directly on source IPs.
-            // Event-level CountryCode/AsnOrg may reflect the destination for flow events with private sources.
+            // Re-enrich geo data directly on source IPs. Event-level CountryCode/AsnOrg
+            // is null for RFC1918 sources post-fix, but this also handles older rows
+            // that might still have stale values until the migration scrub runs.
             foreach (var source in topSources)
             {
                 var geo = _geoService.Enrich(source.SourceIp);
@@ -80,10 +101,27 @@ public class ThreatDashboardService
                 source.City = geo.City;
                 source.Asn = geo.Asn;
                 source.AsnOrg = geo.AsnOrg;
+
+                // Attach matched category for badge rendering. Exact-match filters take
+                // precedence over CIDR matches when both apply.
+                var match = nonNoiseFilters
+                    .Where(f => f.Matches(source.SourceIp, null, null))
+                    .OrderBy(f => f.SourceIp != null && f.SourceIp.Contains('/') ? 1 : 0)
+                    .FirstOrDefault();
+                if (match != null)
+                {
+                    source.MatchedFilterCategory = match.Category;
+                    source.Label = match.Label;
+                }
             }
 
+            // All other dashboard queries: apply the master toggle uniformly with the
+            // full filter set, so categorized noise stays out of charts and pattern lists.
+            await ApplyNoiseFiltersToRepository(cancellationToken);
             var topPorts = await _repository.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
             var patterns = await _repository.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
+            var summary = await _repository.GetThreatSummaryAsync(from, to, cancellationToken);
+            var killChain = await _repository.GetKillChainDistributionAsync(from, to, cancellationToken);
             _repository.SetSeverityFilter(null);
 
             // Enrich from DB cache (instant, no API calls) so previously looked-up IPs show badges

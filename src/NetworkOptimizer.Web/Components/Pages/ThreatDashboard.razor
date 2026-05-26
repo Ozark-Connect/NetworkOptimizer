@@ -196,12 +196,25 @@
                                class="noise-filter-input" style="width:80px;" />
                     </div>
                     <div>
+                        <label class="noise-filter-label">Category</label>
+                        <select @bind="_newFilterCategory" class="noise-filter-input" style="width:140px;">
+                            <option value="@ThreatFilterCategory.Noise">Noise (hide)</option>
+                            <option value="@ThreatFilterCategory.Infrastructure">Infrastructure</option>
+                            <option value="@ThreatFilterCategory.TrustedUser">Trusted User</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="noise-filter-label">Label</label>
+                        <input type="text" @bind="_newFilterLabel" placeholder="optional - e.g. DNS proxy"
+                               class="noise-filter-input" style="width:200px;" />
+                    </div>
+                    <div>
                         <label class="noise-filter-label">Description</label>
                         <input type="text" @bind="_newFilterDescription" placeholder="optional"
                                class="noise-filter-input" style="width:200px;" />
                     </div>
                     <button class="btn btn-sm btn-primary" @onclick="AddNoiseFilterAsync">Add Filter</button>
-                    @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription))
+                    @if (!string.IsNullOrEmpty(_newFilterSourceIp) || !string.IsNullOrEmpty(_newFilterDestIp) || !string.IsNullOrEmpty(_newFilterDestPort) || !string.IsNullOrEmpty(_newFilterDescription) || !string.IsNullOrEmpty(_newFilterLabel))
                     {
                         <button class="btn btn-sm btn-secondary" @onclick="ClearFilterForm">Clear</button>
                     }
@@ -217,8 +230,10 @@
                                     <th>Source IP</th>
                                     <th>Dest IP</th>
                                     <th>Dest Port</th>
+                                    <th>Category</th>
+                                    <th>Label</th>
                                     <th>Description</th>
-                                    <th style="width:100px;">Actions</th>
+                                    <th style="width:120px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -228,15 +243,25 @@
                                         <td><code>@(filter.SourceIp ?? "*")</code></td>
                                         <td><code>@(filter.DestIp ?? "*")</code></td>
                                         <td><code>@(filter.DestPort?.ToString() ?? "*")</code></td>
-                                        <td>@filter.Description</td>
+                                        <td>@FormatCategory(filter.Category)</td>
+                                        <td>@(filter.Label ?? "")</td>
+                                        <td>
+                                            @filter.Description
+                                            @if (filter.IsSystem)
+                                            {
+                                                <span class="badge badge-secondary" style="margin-left:0.5rem;font-size:0.75rem;">system</span>
+                                            }
+                                        </td>
                                         <td>
                                             <div style="display:flex; gap:0.25rem;">
                                                 <button class="btn btn-sm btn-secondary" @onclick="() => ToggleFilterAsync(filter)"
-                                                        data-tooltip="@(filter.Enabled ? "Disable" : "Enable")" data-tooltip-hover-only>
+                                                        disabled="@filter.IsSystem"
+                                                        data-tooltip="@(filter.IsSystem ? "System entry - cannot disable" : (filter.Enabled ? "Disable" : "Enable"))" data-tooltip-hover-only>
                                                     @(filter.Enabled ? "On" : "Off")
                                                 </button>
                                                 <button class="btn btn-sm btn-danger" @onclick="() => DeleteFilterAsync(filter)"
-                                                        data-tooltip="Delete filter" data-tooltip-hover-only>X</button>
+                                                        disabled="@filter.IsSystem"
+                                                        data-tooltip="@(filter.IsSystem ? "System entry - cannot delete" : "Delete filter")" data-tooltip-hover-only>X</button>
                                             </div>
                                         </td>
                                     </tr>
@@ -457,6 +482,7 @@ else
                                     <th class="hide-mobile">ASN</th>
                                     <th>Events</th>
                                     <th>Severity</th>
+                                    <th>Category</th>
                                     @if (_crowdSecEnabled)
                                     {
                                         <th class="hide-mobile">Reputation</th>
@@ -474,6 +500,20 @@ else
                                         <td>
                                             <span class="severity-dot" style="background:@GetSeverityColor(source.MaxSeverity);"></span>
                                             @GetSeverityLabel(source.MaxSeverity)
+                                        </td>
+                                        <td>
+                                            @if (source.MatchedFilterCategory == ThreatFilterCategory.Infrastructure)
+                                            {
+                                                <span class="category-badge category-infrastructure" data-tooltip="@(source.Label ?? "Matches an Infrastructure filter")" data-tooltip-hover-only>Infrastructure</span>
+                                            }
+                                            else if (source.MatchedFilterCategory == ThreatFilterCategory.TrustedUser)
+                                            {
+                                                <span class="category-badge category-trusted-user" data-tooltip="@(source.Label ?? "Matches a Trusted User filter")" data-tooltip-hover-only>Trusted User</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted-sm">-</span>
+                                            }
                                         </td>
                                         @if (_crowdSecEnabled)
                                         {
@@ -1755,6 +1795,8 @@ else
     .category-direction { background: rgba(59, 130, 246, 0.1); color: var(--text-secondary); }
     .category-type { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary); }
     .category-neutral { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary); }
+    .category-infrastructure { background: rgba(127, 119, 221, 0.15); color: #7f77dd; }
+    .category-trusted-user { background: rgba(29, 158, 117, 0.15); color: #1d9e75; }
 
     /* Noise filter active count badge */
     .noise-filter-badge {
@@ -2205,6 +2247,8 @@ else
     private string _newFilterDestIp = "";
     private string _newFilterDestPort = "";
     private string _newFilterDescription = "";
+    private ThreatFilterCategory _newFilterCategory = ThreatFilterCategory.Noise;
+    private string _newFilterLabel = "";
 
     // Search state
     private string _searchText = "";
@@ -3751,17 +3795,25 @@ else
             SourceIp = string.IsNullOrWhiteSpace(_newFilterSourceIp) ? null : _newFilterSourceIp.Trim(),
             DestIp = string.IsNullOrWhiteSpace(_newFilterDestIp) ? null : _newFilterDestIp.Trim(),
             DestPort = int.TryParse(_newFilterDestPort, out var p) ? p : null,
+            Category = _newFilterCategory,
+            Label = string.IsNullOrWhiteSpace(_newFilterLabel) ? null : _newFilterLabel.Trim(),
             Description = string.IsNullOrWhiteSpace(_newFilterDescription) ? BuildFilterDescription() : _newFilterDescription.Trim()
         };
 
         // Must have at least one field
         if (filter.SourceIp == null && filter.DestIp == null && filter.DestPort == null) return;
 
+        // Infrastructure and TrustedUser categories require a source IP - otherwise there
+        // is no way to surface the matched events in the categorized sub-tables.
+        if (filter.Category != ThreatFilterCategory.Noise && filter.SourceIp == null) return;
+
         await DashboardService.SaveNoiseFilterAsync(filter);
         _newFilterSourceIp = "";
         _newFilterDestIp = "";
         _newFilterDestPort = "";
         _newFilterDescription = "";
+        _newFilterLabel = "";
+        _newFilterCategory = ThreatFilterCategory.Noise;
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }
@@ -3772,6 +3824,8 @@ else
         _newFilterDestIp = "";
         _newFilterDestPort = "";
         _newFilterDescription = "";
+        _newFilterLabel = "";
+        _newFilterCategory = ThreatFilterCategory.Noise;
     }
 
     private string BuildFilterDescription()
@@ -3785,6 +3839,8 @@ else
 
     private async Task ToggleFilterAsync(ThreatNoiseFilter filter)
     {
+        // System entries cannot be toggled. UI also disables the button.
+        if (filter.IsSystem) return;
         await DashboardService.ToggleNoiseFilterAsync(filter.Id, !filter.Enabled);
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
@@ -3792,10 +3848,19 @@ else
 
     private async Task DeleteFilterAsync(ThreatNoiseFilter filter)
     {
+        // System entries cannot be deleted. UI also disables the button.
+        if (filter.IsSystem) return;
         await DashboardService.DeleteNoiseFilterAsync(filter.Id);
         await LoadNoiseFiltersAsync();
         await LoadDataAsync();
     }
+
+    private static string FormatCategory(ThreatFilterCategory category) => category switch
+    {
+        ThreatFilterCategory.Infrastructure => "Infrastructure",
+        ThreatFilterCategory.TrustedUser => "Trusted User",
+        _ => "Noise"
+    };
 
     private async Task QuickFilterFromDrilldown(string? sourceIp, string? destIp, int? destPort)
     {

@@ -1655,6 +1655,32 @@
                 </select>
             </div>
 
+            <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem; font-size: 1rem;">Audit Report Display Limits</h3>
+            <p class="section-description" style="margin-top: 0;">
+                How many source IPs appear in each section of the audit PDF / Markdown report.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">Top Threat Sources (main table)</label>
+                <input type="number" class="form-control" @bind="threatTopSourcesMainLimit"
+                       min="1" max="100" style="max-width: 120px;" />
+                <small class="form-help">Maximum rows in the main "Top Threat Sources" table. Default: 5.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Categorized Sub-Tables</label>
+                <input type="number" class="form-control" @bind="threatTopSourcesCategoryLimit"
+                       min="1" max="100" style="max-width: 120px;" />
+                <small class="form-help">Maximum rows in each categorized sub-table (Known Infrastructure Activity, Trusted User Activity). Default: 10.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Category Query Fetch Size</label>
+                <input type="number" class="form-control" @bind="threatSourcesByCategoryQueryLimit"
+                       min="1" max="500" style="max-width: 120px;" />
+                <small class="form-help">Candidate row count fetched from the DB per category before trimming to the display limit above. Default: 20.</small>
+            </div>
+
             <div id="maxmind" style="margin-top: 1.25rem; padding: 1rem; background: var(--bg-primary); border-radius: 8px;">
                 <div class="info-row">
                     <span class="info-label">GeoLite2 Database:</span>
@@ -2296,6 +2322,9 @@
     private bool threatCollectionEnabled = true;
     private int threatPollInterval = 5;
     private int threatRetentionDays = 90;
+    private int threatTopSourcesMainLimit = 5;
+    private int threatTopSourcesCategoryLimit = 10;
+    private int threatSourcesByCategoryQueryLimit = 20;
     private string threatGeoStatus = "Checking...";
     private bool savingThreatSettings = false;
     private string threatSettingsMessage = "";
@@ -4421,6 +4450,15 @@
             var retention = await SystemSettings.GetAsync("threats.retention_days");
             if (int.TryParse(retention, out var r)) threatRetentionDays = r;
 
+            var topSrcMain = await SystemSettings.GetAsync("threats.top_sources_main_limit");
+            if (int.TryParse(topSrcMain, out var tsm) && tsm > 0) threatTopSourcesMainLimit = tsm;
+
+            var topSrcCat = await SystemSettings.GetAsync("threats.top_sources_category_limit");
+            if (int.TryParse(topSrcCat, out var tsc) && tsc > 0) threatTopSourcesCategoryLimit = tsc;
+
+            var srcByCat = await SystemSettings.GetAsync("threats.sources_by_category_query_limit");
+            if (int.TryParse(srcByCat, out var sbc) && sbc > 0) threatSourcesByCategoryQueryLimit = sbc;
+
             // Build geo database status from service properties
             if (GeoService.IsCityAvailable && GeoService.IsAsnAvailable)
                 threatGeoStatus = "City and ASN databases loaded";
@@ -4467,6 +4505,18 @@
             await SystemSettings.SetAsync("threats.enabled", threatCollectionEnabled ? "true" : "false");
             await SystemSettings.SetAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
             await SystemSettings.SetAsync("threats.retention_days", threatRetentionDays.ToString());
+
+            // Clamp to sane ranges before persisting. UI input enforces min/max but a
+            // direct DB write could bypass that, so guard again here.
+            var mainLimit = Math.Clamp(threatTopSourcesMainLimit, 1, 100);
+            var categoryLimit = Math.Clamp(threatTopSourcesCategoryLimit, 1, 100);
+            var categoryQueryLimit = Math.Clamp(threatSourcesByCategoryQueryLimit, 1, 500);
+            threatTopSourcesMainLimit = mainLimit;
+            threatTopSourcesCategoryLimit = categoryLimit;
+            threatSourcesByCategoryQueryLimit = categoryQueryLimit;
+            await SystemSettings.SetAsync("threats.top_sources_main_limit", mainLimit.ToString());
+            await SystemSettings.SetAsync("threats.top_sources_category_limit", categoryLimit.ToString());
+            await SystemSettings.SetAsync("threats.sources_by_category_query_limit", categoryQueryLimit.ToString());
 
             if (!string.IsNullOrEmpty(maxmindAccountId))
             {
