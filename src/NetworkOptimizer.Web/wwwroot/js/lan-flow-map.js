@@ -1602,6 +1602,19 @@ export class LanFlowMap {
         range.addEventListener('input', (e) => {
             const val = Number(e.target.value);
             this._onScrubberInput(val);
+            if (this._mode === 'live' && val < 9998) {
+                this._mode = 'historic';
+                this._paused = true;
+                this._syncPlayPauseIcon();
+                this._stopHistoricPlayback();
+                if (this._panels.modeBadge) {
+                    this._panels.modeBadge.textContent = 'Historic';
+                    this._panels.modeBadge.classList.add('is-historic');
+                    this._panels.modeBadge.style.cursor = 'pointer';
+                    this._panels.modeBadge.setAttribute('data-tooltip', 'Click to return to live');
+                }
+                this._syncSpeedLabel();
+            }
             clearTimeout(this._scrubberInputDebounce);
             this._scrubberInputDebounce = setTimeout(() => {
                 this._scrubberLastFire = Date.now();
