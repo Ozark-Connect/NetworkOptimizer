@@ -3,7 +3,8 @@ using System.ComponentModel.DataAnnotations;
 namespace NetworkOptimizer.Storage.Models;
 
 /// <summary>
-/// Configuration for a cellular modem that can be polled via SSH
+/// Configuration for a cellular modem that can be polled via SSH or HTTP.
+/// The Provider column routes to the matching ICellularModemProvider.
 /// </summary>
 public class ModemConfiguration
 {
@@ -15,32 +16,43 @@ public class ModemConfiguration
     [MaxLength(100)]
     public string Name { get; set; } = "";
 
-    /// <summary>Hostname or IP address for SSH connection</summary>
+    /// <summary>
+    /// Provider key (e.g. "qmicli", "netgear-nighthawk-hotspot") that
+    /// selects which ICellularModemProvider handles this modem.
+    /// </summary>
+    [Required]
+    [MaxLength(50)]
+    public string Provider { get; set; } = "qmicli";
+
+    /// <summary>Hostname or IP address for the modem (SSH for qmicli, HTTP for Netgear)</summary>
     [Required]
     [MaxLength(255)]
     public string Host { get; set; } = "";
 
-    /// <summary>SSH port (default 22)</summary>
+    /// <summary>SSH port (default 22). Unused by HTTP providers.</summary>
     public int Port { get; set; } = 22;
 
-    /// <summary>SSH username</summary>
+    /// <summary>SSH username. Empty string for HTTP providers that do not require it.</summary>
     [Required]
     [MaxLength(100)]
     public string Username { get; set; } = "";
 
-    /// <summary>SSH password (encrypted at rest)</summary>
+    /// <summary>SSH password or HTTP admin password (encrypted at rest)</summary>
     [MaxLength(500)]
     public string? Password { get; set; }
 
-    /// <summary>Path to SSH private key file (alternative to password)</summary>
+    /// <summary>Path to SSH private key file (alternative to password). qmicli only.</summary>
     [MaxLength(500)]
     public string? PrivateKeyPath { get; set; }
 
-    /// <summary>Modem type for determining which commands to run</summary>
+    /// <summary>Modem model or type for display (e.g. "U5G-Max", "Nighthawk M5")</summary>
     [MaxLength(50)]
     public string ModemType { get; set; } = "U5G-Max";
 
-    /// <summary>QMI device path (e.g., /dev/wwan0qmi0)</summary>
+    /// <summary>
+    /// Transport-specific path. For qmicli this is the QMI device
+    /// (e.g. /dev/wwan0qmi0). Other providers ignore it.
+    /// </summary>
     [MaxLength(100)]
     public string QmiDevice { get; set; } = "/dev/wwan0qmi0";
 
