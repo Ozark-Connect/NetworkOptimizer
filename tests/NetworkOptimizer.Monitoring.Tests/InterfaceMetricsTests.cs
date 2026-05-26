@@ -288,146 +288,78 @@ public class InterfaceMetricsTests
 
     [Theory]
     [InlineData("lo", "Loopback")]
-    [InlineData("lo0", "lo0")]
     public void ShouldMonitor_Loopback_ReturnsFalse(string description, string name)
     {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
+        var metrics = new InterfaceMetrics { Description = description, Name = name };
         metrics.ShouldMonitor().Should().BeFalse();
     }
 
     [Theory]
     [InlineData("br-lan", "Bridge LAN")]
     [InlineData("br-guest", "Bridge Guest")]
+    [InlineData("br0", "br0")]
+    [InlineData("br0.42", "br0.42")]
+    [InlineData("br150", "br150")]
     public void ShouldMonitor_BridgeInterfaces_ReturnsFalse(string description, string name)
     {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
+        var metrics = new InterfaceMetrics { Description = description, Name = name };
         metrics.ShouldMonitor().Should().BeFalse();
     }
 
     [Theory]
-    [InlineData("docker0", "Docker Bridge")]
-    [InlineData("docker_gwbridge", "Docker Gateway")]
-    public void ShouldMonitor_DockerInterfaces_ReturnsFalse(string description, string name)
+    [InlineData("switch0", "switch0")]
+    [InlineData("switch0.1", "switch0.1")]
+    public void ShouldMonitor_SwitchChip_ReturnsFalse(string description, string name)
     {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
+        var metrics = new InterfaceMetrics { Description = description, Name = name };
         metrics.ShouldMonitor().Should().BeFalse();
     }
 
     [Theory]
-    [InlineData("veth1234", "veth")]
-    [InlineData("veth0ab1", "Container Interface")]
-    public void ShouldMonitor_VethInterfaces_ReturnsFalse(string description, string name)
+    [InlineData("bond0", "bond0")]
+    [InlineData("dummy0", "dummy0")]
+    [InlineData("sit0", "sit0")]
+    [InlineData("erspan0", "erspan0")]
+    [InlineData("gretap0", "gretap0")]
+    [InlineData("ip_vti0", "ip_vti0")]
+    [InlineData("ip6_vti0", "ip6_vti0")]
+    [InlineData("ip6tnl0", "ip6tnl0")]
+    [InlineData("soc0", "soc0")]
+    [InlineData("pd99", "pd99")]
+    [InlineData("mld0", "mld0")]
+    [InlineData("scan0", "scan0")]
+    public void ShouldMonitor_KernelDefaults_ReturnsFalse(string description, string name)
     {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
-        metrics.ShouldMonitor().Should().BeFalse();
-    }
-
-    [Theory]
-    [InlineData("ifb0", "ifb0")]
-    [InlineData("ifb1", "IFB Device")]
-    public void ShouldMonitor_IfbInterfaces_ReturnsFalse(string description, string name)
-    {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
-        metrics.ShouldMonitor().Should().BeFalse();
-    }
-
-    [Theory]
-    [InlineData("virbr0", "Virtual Bridge")]
-    [InlineData("virbr1", "virbr1")]
-    public void ShouldMonitor_VirbrInterfaces_ReturnsFalse(string description, string name)
-    {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
+        var metrics = new InterfaceMetrics { Description = description, Name = name };
         metrics.ShouldMonitor().Should().BeFalse();
     }
 
     [Theory]
     [InlineData("tun0", "OpenVPN Tunnel")]
-    [InlineData("tun1", "tun1")]
-    public void ShouldMonitor_TunnelInterfaces_ReturnsFalse(string description, string name)
-    {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
-        metrics.ShouldMonitor().Should().BeFalse();
-    }
-
-    [Theory]
     [InlineData("tap0", "TAP Device")]
-    [InlineData("tap1", "tap1")]
-    public void ShouldMonitor_TapInterfaces_ReturnsFalse(string description, string name)
+    [InlineData("docker0", "Docker Bridge")]
+    [InlineData("veth1234", "veth")]
+    [InlineData("ifb0", "ifb0")]
+    [InlineData("virbr0", "Virtual Bridge")]
+    [InlineData("null0", "Null Interface")]
+    [InlineData("gre0", "GRE Tunnel")]
+    [InlineData("wgclt1", "WireGuard")]
+    [InlineData("honeypot0", "Honeypot")]
+    [InlineData("wwan0", "Cellular Modem")]
+    public void ShouldMonitor_MonitorableInterfaces_ReturnsTrue(string description, string name)
     {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
-        metrics.ShouldMonitor().Should().BeFalse();
+        var metrics = new InterfaceMetrics { Description = description, Name = name };
+        metrics.ShouldMonitor().Should().BeTrue();
     }
 
     [Theory]
-    [InlineData("null0", "Null Interface")]
-    [InlineData("null1", "null1")]
-    public void ShouldMonitor_NullInterfaces_ReturnsFalse(string description, string name)
+    [InlineData("Port 1", "Loft Lower")]
+    [InlineData("Port 2", "Lobby Switch")]
+    [InlineData("Port 3", "Loading Dock")]
+    public void ShouldMonitor_UserAliasesStartingWithLo_ReturnsTrue(string description, string name)
     {
-        // Arrange
-        var metrics = new InterfaceMetrics
-        {
-            Description = description,
-            Name = name
-        };
-
-        // Act & Assert
-        metrics.ShouldMonitor().Should().BeFalse();
+        var metrics = new InterfaceMetrics { Description = description, Name = name };
+        metrics.ShouldMonitor().Should().BeTrue();
     }
 
     [Theory]
@@ -474,11 +406,9 @@ public class InterfaceMetricsTests
     [Fact]
     public void ShouldMonitor_CaseInsensitive()
     {
-        // Arrange
         var metrics1 = new InterfaceMetrics { Description = "LO", Name = "Loopback" };
-        var metrics2 = new InterfaceMetrics { Description = "DOCKER0", Name = "Docker" };
+        var metrics2 = new InterfaceMetrics { Description = "BR0", Name = "Bridge" };
 
-        // Act & Assert
         metrics1.ShouldMonitor().Should().BeFalse();
         metrics2.ShouldMonitor().Should().BeFalse();
     }
@@ -486,14 +416,12 @@ public class InterfaceMetricsTests
     [Fact]
     public void ShouldMonitor_ChecksNameIfDescriptionMatches()
     {
-        // Arrange - description doesn't match but name starts with excluded pattern
         var metrics = new InterfaceMetrics
         {
             Description = "Something Else",
-            Name = "docker0"
+            Name = "switch0.1"
         };
 
-        // Act & Assert
         metrics.ShouldMonitor().Should().BeFalse();
     }
 
