@@ -1282,6 +1282,7 @@ export class LanFlowMap {
 
             // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
             // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
+            // Shift multiplies by 3x on top of acceleration.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
                 const now = performance.now();
                 if (!this._arrowScrubStart) this._arrowScrubStart = now;
@@ -1291,7 +1292,7 @@ export class LanFlowMap {
                     if (range) {
                         const held = now - this._arrowScrubStart;
                         let step = held > 2000 ? 35 : held > 1000 ? 12 : 4;
-                        if (this._keys.shift) step = Math.max(step, 35);
+                        if (this._keys.shift) step *= 3;
                         const dir = this._keys['arrowright'] ? step : -step;
                         const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
                         range.value = val;
@@ -1299,6 +1300,8 @@ export class LanFlowMap {
                         range.dispatchEvent(new Event('change'));
                     }
                 }
+            } else {
+                this._arrowScrubStart = null;
             }
 
             // Freeze particle motion while paused (Live or Historic) so the
