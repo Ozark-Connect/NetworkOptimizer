@@ -77,7 +77,7 @@
                 }
                 else if (hasResults)
                 {
-                    <a href="/api/reports/latest/pdf" class="btn btn-secondary" download>
+                    <a href="@LatestPdfUrl" class="btn btn-secondary" download>
                         Download PDF
                     </a>
                 }
@@ -109,6 +109,19 @@
                         <input type="checkbox" @bind="includeDnsSecurity" />
                         <span>DNS Security</span>
                     </label>
+                </div>
+
+                <div class="audit-pdf-rows">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">PDF: Top Threat Sources rows</label>
+                            <input type="number" class="form-control" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" @bind="_pdfTopSourcesRows" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">PDF: rows per filter category</label>
+                            <input type="number" class="form-control" min="1" max="@NetworkOptimizer.Reports.ThreatSummaryData.MaxRows" @bind="_pdfCategoryRows" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1084,13 +1097,23 @@
 
     private string? exportError;
 
+    private int _pdfTopSourcesRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows;
+    private int _pdfCategoryRows = NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows;
+
+    // Default row counts serve the stored PDF; anything else regenerates it on the server.
+    private string LatestPdfUrl =>
+        _pdfTopSourcesRows == NetworkOptimizer.Reports.ThreatSummaryData.DefaultTopSourcesRows &&
+        _pdfCategoryRows == NetworkOptimizer.Reports.ThreatSummaryData.DefaultCategoryRows
+            ? "/api/reports/latest/pdf"
+            : $"/api/reports/latest/pdf?topSources={_pdfTopSourcesRows}&categoryRows={_pdfCategoryRows}";
+
     private async Task DownloadLatestPdf()
     {
         try
         {
             // Use JS fetch + blob to force download - Safari PWA opens PDFs inline with <a download>
             await JSRuntime.InvokeVoidAsync("eval", @"
-                fetch('/api/reports/latest/pdf')
+                fetch('" + LatestPdfUrl + @"')
                     .then(r => r.blob())
                     .then(b => {
                         const a = document.createElement('a');
