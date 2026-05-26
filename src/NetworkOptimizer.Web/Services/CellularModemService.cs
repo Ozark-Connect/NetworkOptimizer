@@ -29,9 +29,10 @@ public class CellularModemService : ICellularModemService
     private const string DefaultQmiDevice = "/dev/wwan0qmi0";
     private const int DefaultPollingIntervalSeconds = 300;
 
-    // Provider key for the existing Ubiquiti SSH+qmicli flow. All existing
-    // ModemConfiguration rows route here until commit 2 introduces a per-row
-    // Provider column.
+    // Default provider key for rows that have an empty Provider column
+    // (e.g. legacy rows persisted before this column existed). The
+    // EF migration backfills the column with "qmicli" so in practice
+    // this is only a defensive fallback.
     private const string DefaultProviderKey = "qmicli";
 
     public CellularModemService(
@@ -129,12 +130,14 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Dispatch a poll to the appropriate provider. Resolution is keyed by
-    /// DefaultProviderKey until commit 2 wires per-row Provider into routing.
+    /// Dispatch a poll to the appropriate provider based on the row's Provider column.
+    /// Empty Provider falls back to DefaultProviderKey so legacy rows keep polling.
     /// </summary>
     private async Task<CellularModemStats?> ExecutePollAsync(ModemConfiguration modem)
     {
-        var providerKey = DefaultProviderKey;
+        var providerKey = string.IsNullOrWhiteSpace(modem.Provider)
+            ? DefaultProviderKey
+            : modem.Provider;
 
         if (!_providers.TryGetValue(providerKey, out var provider))
         {

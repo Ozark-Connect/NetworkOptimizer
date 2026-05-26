@@ -625,6 +625,11 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("QmiDevice")
                         .IsRequired()
                         .HasMaxLength(100)
