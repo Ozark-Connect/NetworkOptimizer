@@ -808,7 +808,9 @@ from(bucket: ""{_longtermBucket}"")
     /// first match with loss > 1%.
     /// </summary>
     public async Task<RecentLossEvent?> FindRecentLossEventAsync(
-        DateTime? before = null, DateTime? after = null, CancellationToken ct = default)
+        DateTime? before = null, DateTime? after = null,
+        IReadOnlyCollection<string>? enabledTargetIds = null,
+        CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return null;
@@ -817,11 +819,18 @@ from(bucket: ""{_longtermBucket}"")
         var rangeStop = before ?? DateTime.UtcNow;
         var sortDesc = !after.HasValue;
 
+        var targetFilter = "";
+        if (enabledTargetIds != null && enabledTargetIds.Count > 0)
+        {
+            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $"r.target_id == \"{id}\""));
+            targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
+        }
+
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan"")
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan""){targetFilter}
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
   |> filter(fn: (r) => r._value > 1.0)
