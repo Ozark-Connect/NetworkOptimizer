@@ -1,5 +1,5 @@
-using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -7,9 +7,10 @@ using NetworkOptimizer.UniFi;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Service for polling cellular modem stats via SSH.
-/// Uses shared UniFiSshService for SSH operations.
-/// Auto-discovers U5G-Max modems from UniFi device list.
+/// Service for polling cellular modem stats.
+/// Delegates the per-vendor poll mechanics to an ICellularModemProvider
+/// resolved by ProviderKey; this class owns the timer, cache, persistence
+/// glue, and UniFi auto-discovery.
 /// </summary>
 public class CellularModemService : ICellularModemService
 {
@@ -17,6 +18,7 @@ public class CellularModemService : ICellularModemService
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshService _sshService;
     private readonly UniFiConnectionService _connectionService;
+    private readonly Dictionary<string, ICellularModemProvider> _providers;
     private readonly Timer? _pollingTimer;
     private readonly object _lock = new();
     private CellularModemStats? _lastStats;
@@ -27,16 +29,31 @@ public class CellularModemService : ICellularModemService
     private const string DefaultQmiDevice = "/dev/wwan0qmi0";
     private const int DefaultPollingIntervalSeconds = 300;
 
+    // Provider key for the existing Ubiquiti SSH+qmicli flow. All existing
+    // ModemConfiguration rows route here until commit 2 introduces a per-row
+    // Provider column.
+    private const string DefaultProviderKey = "qmicli";
+
     public CellularModemService(
         ILogger<CellularModemService> logger,
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
-        UniFiConnectionService connectionService)
+        UniFiConnectionService connectionService,
+        IEnumerable<ICellularModemProvider> providers)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
         _connectionService = connectionService;
+        _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
+
+        if (!_providers.ContainsKey(DefaultProviderKey))
+        {
+            _logger.LogError(
+                "Default cellular modem provider '{Key}' is not registered. " +
+                "Polling will fail until the provider is added to DI.",
+                DefaultProviderKey);
+        }
 
         // Start polling timer (checks every minute, but respects per-modem intervals)
         _pollingTimer = new Timer(state => _ = PollAllModemsAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1));
@@ -112,84 +129,47 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Execute SSH poll to modem via qmicli commands.
-    /// Runs signal, serving system, cell location, and band info queries in a single SSH session
-    /// (to avoid rate limiting), then delegates parsing to QmicliParser for each section.
+    /// Dispatch a poll to the appropriate provider. Resolution is keyed by
+    /// DefaultProviderKey until commit 2 wires per-row Provider into routing.
     /// </summary>
-    private async Task<CellularModemStats?> ExecutePollAsync(string host, string name, string model, string qmiDevice)
+    private async Task<CellularModemStats?> ExecutePollAsync(ModemConfiguration modem)
     {
-        _logger.LogInformation("Polling modem {Name} at {Host}", name, host);
+        var providerKey = DefaultProviderKey;
 
-        try
+        if (!_providers.TryGetValue(providerKey, out var provider))
         {
-            var stats = new CellularModemStats
-            {
-                ModemHost = host,
-                ModemName = name,
-                ModemModel = model,
-                Timestamp = DateTime.UtcNow
-            };
+            _logger.LogError(
+                "No cellular modem provider registered for key '{Key}' (modem {Name})",
+                providerKey, modem.Name);
+            return null;
+        }
 
-            var combinedCommand = $"echo '===SIGNAL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-signal-info; " +
-                                  $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
-                                  $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
-                                  $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info";
+        var context = ToPollContext(modem);
+        var stats = await provider.PollAsync(context);
 
-            var (success, output) = await _sshService.RunCommandAsync(host, combinedCommand);
-
-            if (!success)
-            {
-                _logger.LogWarning("Failed to poll modem {Name}: {Output}", name, output);
-                return null;
-            }
-
-            var sections = ParseCombinedOutput(output);
-
-            if (sections.TryGetValue("SIGNAL", out var signalOutput))
-            {
-                var (lte, nr5g) = QmicliParser.ParseSignalInfo(signalOutput);
-                stats.Lte = lte;
-                stats.Nr5g = nr5g;
-            }
-
-            if (sections.TryGetValue("SERVING", out var servingOutput))
-            {
-                var (regState, carrier, mcc, mnc, roaming) = QmicliParser.ParseServingSystem(servingOutput);
-                stats.RegistrationState = regState;
-                stats.Carrier = carrier;
-                stats.CarrierMcc = mcc;
-                stats.CarrierMnc = mnc;
-                stats.IsRoaming = roaming;
-            }
-
-            if (sections.TryGetValue("CELL", out var cellOutput))
-            {
-                var (servingCell, neighbors) = QmicliParser.ParseCellLocationInfo(cellOutput);
-                stats.ServingCell = servingCell;
-                stats.NeighborCells = neighbors;
-            }
-
-            if (sections.TryGetValue("BAND", out var bandOutput))
-            {
-                stats.ActiveBand = QmicliParser.ParseRfBandInfo(bandOutput);
-            }
-
+        if (stats != null)
+        {
             lock (_lock)
             {
                 _lastStats = stats;
             }
-
-            _logger.LogInformation("Successfully polled modem {Name}: {Carrier}, Signal Quality: {Quality}%",
-                name, stats.Carrier, stats.SignalQuality);
-
-            return stats;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error polling modem {Name}", name);
-            return null;
-        }
+
+        return stats;
     }
+
+    private static ModemPollContext ToPollContext(ModemConfiguration modem) => new()
+    {
+        Id = modem.Id,
+        Name = modem.Name,
+        Host = modem.Host,
+        Port = modem.Port,
+        Username = string.IsNullOrEmpty(modem.Username) ? null : modem.Username,
+        Password = string.IsNullOrEmpty(modem.Password) ? null : modem.Password,
+        PrivateKeyPath = string.IsNullOrEmpty(modem.PrivateKeyPath) ? null : modem.PrivateKeyPath,
+        ModemType = modem.ModemType,
+        TransportPath = modem.QmiDevice,
+    };
 
     /// <summary>
     /// Test SSH connection to a modem using shared credentials
@@ -200,13 +180,13 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Poll a modem - fetches stats via SSH and updates LastPolled timestamp
+    /// Poll a modem - fetches stats via the resolved provider and updates LastPolled timestamp
     /// </summary>
     public async Task<(bool success, string message)> PollModemAsync(ModemConfiguration modem)
     {
         try
         {
-            var stats = await ExecutePollAsync(modem.Host, modem.Name, modem.ModemType, modem.QmiDevice);
+            var stats = await ExecutePollAsync(modem);
 
             if (stats != null)
             {
@@ -277,12 +257,12 @@ public class CellularModemService : ICellularModemService
         {
             _isPolling = true;
 
-            // Check if SSH is configured
+            // qmicli modems require SSH credentials; other providers (e.g. the
+            // HTTP-based Netgear Nighthawk hotspot) handle their own auth. Fetch
+            // SSH availability once per cycle so qmicli modems skip gracefully
+            // when SSH isn't configured, without blocking the entire poll loop.
             var sshSettings = await _sshService.GetSettingsAsync();
-            if (!sshSettings.Enabled || !sshSettings.HasCredentials)
-            {
-                return; // SSH not configured, skip polling
-            }
+            var sshAvailable = sshSettings.Enabled && sshSettings.HasCredentials;
 
             // Only poll configured and enabled modems (not auto-discovered ones)
             // Auto-discovered modems must be added to config before they're polled
@@ -293,6 +273,16 @@ public class CellularModemService : ICellularModemService
 
             foreach (var modem in modems)
             {
+                var providerKey = string.IsNullOrWhiteSpace(modem.Provider)
+                    ? DefaultProviderKey
+                    : modem.Provider;
+
+                // Skip qmicli modems if SSH isn't configured - other providers handle their own auth
+                if (providerKey == DefaultProviderKey && !sshAvailable)
+                {
+                    continue;
+                }
+
                 // Check if it's time to poll this modem
                 if (modem.LastPolled.HasValue)
                 {
@@ -334,40 +324,6 @@ public class CellularModemService : ICellularModemService
         {
             _logger.LogWarning(ex, "Failed to update modem config after poll");
         }
-    }
-
-    /// <summary>
-    /// Parse combined SSH output into sections by marker
-    /// </summary>
-    private static Dictionary<string, string> ParseCombinedOutput(string output)
-    {
-        var sections = new Dictionary<string, string>();
-        var markers = new[] { "===SIGNAL===", "===SERVING===", "===CELL===", "===BAND===" };
-        var keys = new[] { "SIGNAL", "SERVING", "CELL", "BAND" };
-
-        for (int i = 0; i < markers.Length; i++)
-        {
-            var startIndex = output.IndexOf(markers[i]);
-            if (startIndex == -1) continue;
-
-            startIndex += markers[i].Length;
-
-            // Find end (next marker or end of string)
-            var endIndex = output.Length;
-            for (int j = i + 1; j < markers.Length; j++)
-            {
-                var nextMarker = output.IndexOf(markers[j], startIndex);
-                if (nextMarker != -1)
-                {
-                    endIndex = nextMarker;
-                    break;
-                }
-            }
-
-            sections[keys[i]] = output.Substring(startIndex, endIndex - startIndex).Trim();
-        }
-
-        return sections;
     }
 
     public void Dispose()

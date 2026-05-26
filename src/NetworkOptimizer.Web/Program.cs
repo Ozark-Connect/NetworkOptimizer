@@ -12,7 +12,9 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.CellularModemProviders;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.WiFi.Models;
 using Serilog;
@@ -174,6 +176,10 @@ builder.Services.AddSingleton<IGatewaySshService, GatewaySshService>();
 
 // Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
 builder.Services.AddSingleton<UniFiSshService>();
+
+// Register cellular modem providers (one per supported vendor transport).
+// CellularModemService resolves the right provider per ModemConfiguration.
+builder.Services.AddSingleton<ICellularModemProvider, QmicliModemProvider>();
 
 // Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
 builder.Services.AddSingleton<CellularModemService>();
