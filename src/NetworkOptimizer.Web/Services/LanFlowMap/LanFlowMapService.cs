@@ -135,11 +135,12 @@ public class LanFlowMapService
         GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);
 
-        // WAN interface names for InfluxDB rate queries. Use the physical port
-        // name (not VLAN sub-interface) to match what SNMP records accurately.
+        // WAN interface names for InfluxDB rate queries. Include both physical
+        // and uplink names so PPPoE (ppp*) is covered when the physical port
+        // has no active counters.
         var wans = await _pathView.GetWansAsync(ct);
         snapshot.WanIfNames = wans
-            .Select(w => w.PhysicalIfName ?? w.UplinkIfName)
+            .SelectMany(w => new[] { w.PhysicalIfName, w.UplinkIfName })
             .Where(n => !string.IsNullOrEmpty(n))
             .Select(n => n!)
             .Distinct()
@@ -348,16 +349,21 @@ public class LanFlowMapService
         var gwNode = snapshot.Nodes.FirstOrDefault(n => n.Kind == LanNodeKind.Gateway);
         var gwMac = gwNode?.Mac;
 
-        // Build WAN interface → physical ifname mapping for per-WAN rate queries.
-        var wanIfNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Build WAN interface → ifname candidates for per-WAN rate queries.
+        // Physical port first, uplink (ppp* for PPPoE) as fallback.
+        var wanIfNameMap = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var wans = await _pathView.GetWansAsync(ct);
             foreach (var w in wans)
             {
-                var rateIf = w.PhysicalIfName ?? w.UplinkIfName;
-                if (!string.IsNullOrEmpty(rateIf))
-                    wanIfNameMap[w.WanInterface] = rateIf;
+                var candidates = new[] { w.PhysicalIfName, w.UplinkIfName }
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Select(n => n!)
+                    .Distinct()
+                    .ToArray();
+                if (candidates.Length > 0)
+                    wanIfNameMap[w.WanInterface] = candidates;
             }
         }
         catch { }
@@ -406,14 +412,19 @@ public class LanFlowMapService
                     var wanIface = link.Id.StartsWith("wan-link-", StringComparison.Ordinal)
                         ? link.Id.Substring("wan-link-".Length) : null;
                     if (wanIface != null
-                        && wanIfNameMap.TryGetValue(wanIface, out var rateIf)
+                        && wanIfNameMap.TryGetValue(wanIface, out var rateIfs)
                         && !string.IsNullOrEmpty(gwMac)
                         && ratesByDevice.TryGetValue(gwMac, out var gwRates))
                     {
-                        var closest = gwRates
-                            .Where(p => string.Equals(p.IfName, rateIf, StringComparison.OrdinalIgnoreCase))
-                            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                            .FirstOrDefault();
+                        MonitoringInfluxClient.InterfaceRatePoint? closest = null;
+                        foreach (var rateIf in rateIfs)
+                        {
+                            closest = gwRates
+                                .Where(p => string.Equals(p.IfName, rateIf, StringComparison.OrdinalIgnoreCase))
+                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                .FirstOrDefault();
+                            if (closest != null) break;
+                        }
                         if (closest != null)
                         {
                             // rate_in_bps = downloads, rate_out_bps = uploads

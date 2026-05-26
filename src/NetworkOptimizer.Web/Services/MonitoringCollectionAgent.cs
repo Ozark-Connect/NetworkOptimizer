@@ -469,21 +469,21 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             var gwMac = NormalizeMac(gw.Mac);
 
-            // Primary: SNMP rate on the WAN physical port. For VLAN-tagged WANs,
-            // use the parent port (eth6) not the sub-interface (eth6.100) since
-            // VLAN sub-interface counters double-count on some kernels.
-            var rateIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
-            rateIfName ??= _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
-            if (rateIfName != null)
+            // SNMP rate on the WAN interface. Try physical port first (eth6),
+            // then the logical uplink (ppp2 for PPPoE, eth6.100 for VLAN-tagged).
+            // VLAN sub-interfaces double-count on some kernels so physical wins,
+            // but PPPoE makes the physical port inactive so ppp* carries the data.
+            var physIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
+            var uplinkIfName = _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
+            var portRate = physIfName != null ? _liveStats.GetPortRate(gwMac, physIfName) : null;
+            if (portRate == null && uplinkIfName != null && uplinkIfName != physIfName)
+                portRate = _liveStats.GetPortRate(gwMac, uplinkIfName);
+            if (portRate != null)
             {
-                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
-                if (portRate != null)
-                {
-                    // Gateway WAN perspective: port TX (DownBps) = data toward
-                    // internet = uploads; port RX (UpBps) = from internet = downloads.
-                    _liveStats.RecordInterfaceAggregate(gw.Mac, portRate.DownBps, portRate.UpBps, nowOverride);
-                    continue;
-                }
+                // Gateway WAN perspective: port TX (DownBps) = data toward
+                // internet = uploads; port RX (UpBps) = from internet = downloads.
+                _liveStats.RecordInterfaceAggregate(gw.Mac, portRate.DownBps, portRate.UpBps, nowOverride);
+                continue;
             }
 
             // Fallback: PortTable IsUplink + PortIdx. Covers gateways where
