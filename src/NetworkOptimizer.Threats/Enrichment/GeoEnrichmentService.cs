@@ -243,8 +243,10 @@ public class GeoEnrichmentService : IDisposable
                     continue;
                 }
 
-                // Download to temp file, then extract
+                // Download to temp file, then extract to a staging path so we never
+                // write over an .mmdb that DatabaseReader still has open.
                 var tempPath = Path.Combine(dataPath, $"{edition}.tar.gz");
+                var stagingFile = Path.Combine(dataPath, $"{edition}.mmdb.tmp");
                 try
                 {
                     await using (var fs = File.Create(tempPath))
@@ -260,8 +262,7 @@ public class GeoEnrichmentService : IDisposable
                         continue;
                     }
 
-                    // Extract .mmdb from tar.gz using .NET built-in libraries
-                    var targetFile = Path.Combine(dataPath, $"{edition}.mmdb");
+                    // Extract .mmdb from tar.gz to a staging file
                     var extracted = false;
 
                     await using var fileStream = File.OpenRead(tempPath);
@@ -272,10 +273,10 @@ public class GeoEnrichmentService : IDisposable
                     {
                         if (entry.Name.EndsWith(".mmdb", StringComparison.OrdinalIgnoreCase) && entry.DataStream != null)
                         {
-                            await using var outFile = File.Create(targetFile);
+                            await using var outFile = File.Create(stagingFile);
                             await entry.DataStream.CopyToAsync(outFile, cancellationToken);
                             extracted = true;
-                            _logger.LogInformation("Extracted {Edition}.mmdb ({Size:F1} MB)", edition, new FileInfo(targetFile).Length / 1_048_576.0);
+                            _logger.LogInformation("Extracted {Edition}.mmdb ({Size:F1} MB)", edition, new FileInfo(stagingFile).Length / 1_048_576.0);
                             break;
                         }
                     }
@@ -297,16 +298,42 @@ public class GeoEnrichmentService : IDisposable
             }
         }
 
+        // At least one edition succeeded - dispose readers so we can replace the live files,
+        // then move staged files into place and re-initialize.
+        if (errors.Count < editions.Length)
+        {
+            DisposeReaders();
+
+            foreach (var edition in editions)
+            {
+                var staging = Path.Combine(dataPath, $"{edition}.mmdb.tmp");
+                if (!File.Exists(staging)) continue;
+                var target = Path.Combine(dataPath, $"{edition}.mmdb");
+                try
+                {
+                    File.Move(staging, target, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to move staged {Edition}.mmdb into place", edition);
+                    errors.Add($"{edition}: {ex.Message}");
+                }
+            }
+
+            Initialize(dataPath);
+        }
+
+        // Clean up any leftover staging files on full failure
+        foreach (var edition in editions)
+        {
+            var staging = Path.Combine(dataPath, $"{edition}.mmdb.tmp");
+            try { if (File.Exists(staging)) File.Delete(staging); } catch { /* ignore */ }
+        }
+
         if (errors.Count == 0)
-        {
-            Reload(dataPath);
             return (true, "Both databases downloaded and loaded successfully.");
-        }
         else if (errors.Count < editions.Length)
-        {
-            Reload(dataPath);
             return (true, $"Partial success. Errors: {string.Join("; ", errors)}");
-        }
 
         return (false, $"Download failed: {string.Join("; ", errors)}");
     }
@@ -316,6 +343,12 @@ public class GeoEnrichmentService : IDisposable
     /// </summary>
     public void Reload(string dataPath)
     {
+        DisposeReaders();
+        Initialize(dataPath);
+    }
+
+    private void DisposeReaders()
+    {
         lock (_initLock)
         {
             _cityReader?.Dispose();
@@ -324,8 +357,6 @@ public class GeoEnrichmentService : IDisposable
             _asnReader = null;
             _initialized = false;
         }
-
-        Initialize(dataPath);
     }
 
     public void Dispose()
