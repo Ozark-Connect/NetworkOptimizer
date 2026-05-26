@@ -15,8 +15,13 @@ public static class MonitoringInvestigateEndpoints
             DateTime? after,
             CancellationToken ct) =>
         {
+            await using var dbForIds = await dbFactory.CreateDbContextAsync(ct);
+            var enabledIds = await dbForIds.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled)
+                .Select(t => t.TargetId)
+                .ToListAsync(ct);
             var result = await influx.FindRecentLossEventAsync(
-                before?.ToUniversalTime(), after?.ToUniversalTime(), ct);
+                before?.ToUniversalTime(), after?.ToUniversalTime(), enabledIds, ct);
             if (result == null)
                 return Results.Ok(new { found = false });
 

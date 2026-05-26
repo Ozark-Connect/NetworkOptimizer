@@ -1523,7 +1523,8 @@ else
         StateHasChanged();
         try
         {
-            var result = await InfluxClient.FindRecentLossEventAsync(before, after);
+            var enabledIds = _targets.Where(t => t.Enabled).Select(t => t.TargetId).ToList();
+            var result = await InfluxClient.FindRecentLossEventAsync(before, after, enabledIds);
             if (result == null)
             {
                 _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
