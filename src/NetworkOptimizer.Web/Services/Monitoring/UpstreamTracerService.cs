@@ -226,6 +226,7 @@ public class UpstreamTracerService
             if (!await DiscoverL2NeighborAsync(ct)) return;
             await TraceAccessIspAsync(ct);
             await TraceTransitAsnsAsync(ct);
+            await VerifyReachabilityAsync(ct);
             State.Step = TracerStep.ReviewingResults;
             State.CurrentActivity = "Review the discovered upstream path. Confirm to commit.";
             State.CompletedAt = DateTime.UtcNow;
@@ -789,6 +790,47 @@ public class UpstreamTracerService
         State.CurrentActivity = candidates.Count > 0
             ? $"Discovered {transitCount} transit ASN(s) and {proxyCount} path-end target(s)."
             : "No transit ASNs or path-end targets identified.";
+    }
+
+    private async Task VerifyReachabilityAsync(CancellationToken ct)
+    {
+        State.Step = TracerStep.VerifyingReachability;
+
+        var allTargets = new List<(string Address, ProbeMode Mode, Action Disable)>();
+        foreach (var hop in State.AccessHops)
+            allTargets.Add((hop.Address, hop.RespondedTo, () => hop.Enabled = false));
+        foreach (var transit in State.TransitAsns.Where(t => t.HopAddress != null && t.Method == DiscoveryMethod.DirectRouter))
+            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, () => transit.Enabled = false));
+
+        if (allTargets.Count == 0) return;
+
+        State.CurrentActivity = $"Pinging {allTargets.Count} candidate(s) to verify reachability...";
+
+        var tasks = allTargets.Select(async t =>
+        {
+            var result = await _localProbe.PingAsync(
+                new ProbeTarget(t.Address, t.Mode),
+                count: 2,
+                perPingTimeout: TimeSpan.FromSeconds(2),
+                ct: ct);
+            return (t, result);
+        });
+
+        var results = await Task.WhenAll(tasks);
+        var unreachable = 0;
+        foreach (var (t, result) in results)
+        {
+            if (!result.Success)
+            {
+                t.Disable();
+                unreachable++;
+                _logger.LogDebug("Ping check failed for {Address} - excluding from proposed targets", t.Address);
+            }
+        }
+
+        State.CurrentActivity = unreachable > 0
+            ? $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and were excluded."
+            : $"All {allTargets.Count} target(s) responded to ping.";
     }
 
     /// <summary>

@@ -309,22 +309,22 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
-            // For VLAN sub-interfaces (eth6.100), use the physical parent (eth6)
-            // for rate stats - VLAN sub-interface SNMP counters double-count on
-            // some kernels. For non-VLAN WANs, PhysicalIfName == UplinkIfName.
-            var rateIfName = wan.PhysicalIfName ?? wan.UplinkIfName;
-            if (!string.IsNullOrEmpty(rateIfName))
+            // Try physical port first (eth6), then logical uplink (ppp2 / eth6.100).
+            // VLAN sub-interfaces double-count on some kernels so physical wins,
+            // but PPPoE makes the physical port inactive so ppp* carries the data.
+            PortLiveRate? portRate = null;
+            if (!string.IsNullOrEmpty(wan.PhysicalIfName))
+                portRate = _liveStats.GetPortRate(gwMac, wan.PhysicalIfName);
+            if (portRate == null && !string.IsNullOrEmpty(wan.UplinkIfName) && wan.UplinkIfName != wan.PhysicalIfName)
+                portRate = _liveStats.GetPortRate(gwMac, wan.UplinkIfName);
+            if (portRate != null)
             {
-                var portRate = _liveStats.GetPortRate(gwMac, rateIfName);
-                if (portRate != null)
-                {
-                    // GetPortRate convention: DownBps = port TX, UpBps = port RX.
-                    // WAN port: TX = to internet = uploads (LiveRateInBps),
-                    //           RX = from internet = downloads (LiveRateOutBps).
-                    wan.LiveRateInBps = portRate.DownBps;
-                    wan.LiveRateOutBps = portRate.UpBps;
-                    continue;
-                }
+                // GetPortRate convention: DownBps = port TX, UpBps = port RX.
+                // WAN port: TX = to internet = uploads (LiveRateInBps),
+                //           RX = from internet = downloads (LiveRateOutBps).
+                wan.LiveRateInBps = portRate.DownBps;
+                wan.LiveRateOutBps = portRate.UpBps;
+                continue;
             }
             var deviceLive = _liveStats.GetForDevice(gwMac);
             wan.LiveRateInBps = deviceLive?.RateInBps;
