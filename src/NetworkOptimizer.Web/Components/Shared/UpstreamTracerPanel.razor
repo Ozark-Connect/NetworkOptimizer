@@ -287,6 +287,12 @@
     private DateTime _lastReviewCheck = DateTime.MinValue;
     private bool _justSaved;
 
+    protected override void OnParametersSet()
+    {
+        if (ForceExpand && _collapsed)
+            _collapsed = false;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Tracer.RehydrateFromDbAsync();

@@ -20,6 +20,10 @@
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
+@inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
+
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
+                ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
 
 <PageTitle>Monitoring - Network Optimizer</PageTitle>
 
@@ -86,6 +90,24 @@ else
     @* ──────────────── Tab: Live View ──────────────── *@
     @if (_activeTab == "live" && _monitoringReady)
     {
+        var hasIspTargets = HasUpstreamTargets(MonitoringTargetType.AccessIsp);
+        var hasTransitTargets = HasUpstreamTargets(MonitoringTargetType.Transit);
+
+        if (!hasIspTargets || !hasTransitTargets)
+        {
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <div class="banner-content">
+                    <span class="banner-icon banner-icon-info">i</span>
+                    <div class="banner-text" style="flex: 1;">
+                        Run Upstream Discovery to identify your ISP and transit hops for latency and loss tracking.
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-primary" @onclick="NavigateToUpstreamDiscovery">Run Upstream Discovery</button>
+                    </div>
+                </div>
+            </div>
+        }
+
         <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
@@ -108,20 +130,48 @@ else
             </div>
             @{ var ispTarget = GetMeanTargetStats(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card">
-                <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
+                @if (hasIspTargets)
+                {
+                    <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
+                }
+                else
+                {
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                }
                 <div class="stat-label">ISP RTT</div>
             </div>
             <div class="monitoring-stat-card">
-                <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
+                @if (hasIspTargets)
+                {
+                    <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
+                }
+                else
+                {
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                }
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card">
-                <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
+                @if (hasTransitTargets)
+                {
+                    <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
+                }
+                else
+                {
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                }
                 <div class="stat-label">Transit RTT</div>
             </div>
             <div class="monitoring-stat-card">
-                <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
+                @if (hasTransitTargets)
+                {
+                    <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
+                }
+                else
+                {
+                    <div class="stat-value"><span class="tooltip-icon stat-hint-icon" data-tooltip="No targets set - <a href='/monitoring?tab=performance&amp;discover=1'>Run Upstream Discovery</a>">?</span></div>
+                }
                 <div class="stat-label">Transit Loss</div>
             </div>
         </div>
@@ -657,6 +707,12 @@ else
     .stat-danger {
         color: var(--danger-color);
     }
+    .stat-hint-icon {
+        width: 22px;
+        height: 22px;
+        font-size: 13px;
+        cursor: pointer;
+    }
     @@media (max-width: 768px) {
         .monitoring-stat-cards {
             gap: 0.5rem;
@@ -676,7 +732,13 @@ else
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "discover")]
+    public string? DiscoverParam { get; set; }
+
     private string? _lastTabParam;
+
+    private bool _upstreamDiscoveryPendingSave =>
+        UpstreamTracer.State.Step == NetworkOptimizer.Web.Services.Monitoring.TracerStep.ReviewingResults;
 
     private SnmpDetectionState _snmpState = SnmpDetectionState.NotChecked;
     private bool _detecting;
@@ -739,14 +801,22 @@ else
         return "live";
     }
 
-    private void SetActiveTab(string tab)
+    private async void SetActiveTab(string tab)
     {
         if (tab != "setup" && !_monitoringReady) return;
+        if (_upstreamDiscoveryPendingSave && tab != _activeTab)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");
+            if (!confirmed) return;
+        }
         _activeTab = tab;
         var uri = "/monitoring?tab=" + tab;
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
     }
+
+    private bool _scrollToDiscoveryPending;
 
     protected override void OnParametersSet()
     {
@@ -761,6 +831,12 @@ else
             }
         }
         _lastTabParam = TabParam;
+
+        if (DiscoverParam == "1" && _activeTab == "performance")
+        {
+            _forceExpandUpstream = true;
+            _scrollToDiscoveryPending = true;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -1035,26 +1111,41 @@ else
     [JSInvokable]
     public void NavigateToUpstreamDiscovery()
     {
-        InvokeAsync(async () =>
+        InvokeAsync(() =>
         {
             _activeTab = "performance";
             _forceExpandUpstream = true;
+            _scrollToDiscoveryPending = true;
             StateHasChanged();
-            await Task.Delay(150);
-            await JS.InvokeVoidAsync("eval", @"
-                (function() {
-                    var el = document.getElementById('upstream-discovery');
-                    if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        el.style.transition = 'outline-color 0.3s';
-                        el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                        el.style.outlineOffset = '4px';
-                        el.style.borderRadius = '12px';
-                        setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
-                    }
-                })();");
-            _forceExpandUpstream = false;
         });
+    }
+
+    private async Task ScrollToUpstreamDiscoveryAsync()
+    {
+        await Task.Delay(500);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('upstream-discovery');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (_upstreamDiscoveryPendingSave)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");
+            if (!confirmed)
+                context.PreventNavigation();
+        }
     }
 
     [JSInvokable]
@@ -1253,6 +1344,9 @@ else
     }
 
     // ─── Stat card helpers ───
+
+    private bool HasUpstreamTargets(MonitoringTargetType type) =>
+        _targets.Any(t => t.TargetType == type && t.Enabled);
 
     private (double download, double upload) GetWanRates()
     {
@@ -1554,6 +1648,13 @@ else
             _latencyChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
             catch { }
+        }
+
+        if (_scrollToDiscoveryPending && _activeTab == "performance")
+        {
+            _scrollToDiscoveryPending = false;
+            _forceExpandUpstream = false;
+            await ScrollToUpstreamDiscoveryAsync();
         }
 
         // Device health charts - Devices tab only
