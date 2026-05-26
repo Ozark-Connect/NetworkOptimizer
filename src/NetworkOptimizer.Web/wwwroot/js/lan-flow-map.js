@@ -303,7 +303,8 @@ export class LanFlowMap {
                     return;
                 }
             }
-            if (!this._shouldAcceptKeys()) return;
+            const scrubberFocused = document.activeElement === this._panels?.scrubberRange;
+            if (!scrubberFocused && !this._shouldAcceptKeys()) return;
             if (e.key === ' ') {
                 e.preventDefault();
                 this._togglePlayPause();
@@ -318,6 +319,7 @@ export class LanFlowMap {
         this._onKeyUp = (e) => {
             this._keys[e.key.toLowerCase()] = false;
             if (e.key === 'Shift') this._keys.shift = false;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') this._arrowScrubStart = null;
         };
         document.addEventListener('keydown', this._onKeyDown);
         document.addEventListener('keyup', this._onKeyUp);
@@ -1279,13 +1281,18 @@ export class LanFlowMap {
             }
 
             // Left/right arrow: scrub timeline. Throttled to 5 ticks/sec.
+            // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
+            // Shift multiplies by 9x on top of acceleration.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
                 const now = performance.now();
+                if (!this._arrowScrubStart) this._arrowScrubStart = now;
                 if (!this._lastArrowScrub || now - this._lastArrowScrub >= 200) {
                     this._lastArrowScrub = now;
                     const range = this._panels.scrubberRange;
                     if (range) {
-                        const step = this._keys.shift ? 35 : 4;
+                        const held = now - this._arrowScrubStart;
+                        let step = held > 2000 ? 35 : held > 1000 ? 12 : 4;
+                        if (this._keys.shift) step *= 9;
                         const dir = this._keys['arrowright'] ? step : -step;
                         const val = Math.max(0, Math.min(10000, Number(range.value) + dir));
                         range.value = val;
@@ -1293,6 +1300,8 @@ export class LanFlowMap {
                         range.dispatchEvent(new Event('change'));
                     }
                 }
+            } else {
+                this._arrowScrubStart = null;
             }
 
             // Freeze particle motion while paused (Live or Historic) so the
@@ -1598,12 +1607,42 @@ export class LanFlowMap {
             </div>
         `;
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
-        range.addEventListener('input', (e) => this._onScrubberInput(Number(e.target.value)));
+        this._scrubberInputDebounce = null;
+        range.addEventListener('input', (e) => {
+            const val = Number(e.target.value);
+            this._onScrubberInput(val);
+            if (this._mode === 'live' && val < 9998) {
+                this._mode = 'historic';
+                this._paused = true;
+                this._syncPlayPauseIcon();
+                this._stopHistoricPlayback();
+                if (this._panels.modeBadge) {
+                    this._panels.modeBadge.textContent = 'Historic';
+                    this._panels.modeBadge.classList.add('is-historic');
+                    this._panels.modeBadge.style.cursor = 'pointer';
+                    this._panels.modeBadge.setAttribute('data-tooltip', 'Click to return to live');
+                }
+                this._syncSpeedLabel();
+            }
+            const now = Date.now();
+            const sinceLastFire = now - this._scrubberLastFire;
+            clearTimeout(this._scrubberInputDebounce);
+            if (sinceLastFire >= 500) {
+                this._scrubberLastFire = now;
+                this._onScrubberChange(val);
+            } else {
+                this._scrubberInputDebounce = setTimeout(() => {
+                    this._scrubberLastFire = Date.now();
+                    this._onScrubberChange(val);
+                }, 500 - sinceLastFire);
+            }
+        });
         this._scrubberThrottleTimer = null;
         this._scrubberLastFire = 0;
         range.addEventListener('change', (e) => {
             const val = Number(e.target.value);
             this._onScrubberInput(val);
+            clearTimeout(this._scrubberInputDebounce);
             const now = Date.now();
             const elapsed = now - this._scrubberLastFire;
             clearTimeout(this._scrubberThrottleTimer);
