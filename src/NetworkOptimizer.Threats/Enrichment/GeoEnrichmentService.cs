@@ -246,7 +246,6 @@ public class GeoEnrichmentService : IDisposable
                 // Download to temp file, then extract to a staging path so we never
                 // write over an .mmdb that DatabaseReader still has open.
                 var tempPath = Path.Combine(dataPath, $"{edition}.tar.gz");
-                var targetFile = Path.Combine(dataPath, $"{edition}.mmdb");
                 var stagingFile = Path.Combine(dataPath, $"{edition}.mmdb.tmp");
                 try
                 {
