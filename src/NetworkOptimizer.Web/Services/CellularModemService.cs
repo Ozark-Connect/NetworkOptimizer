@@ -183,6 +183,26 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
+    /// Provider-aware probe. Resolves the provider for the configuration
+    /// and asks it to verify reachability and (where applicable) auth.
+    /// Used by the Settings page Probe & Detect button.
+    /// </summary>
+    public async Task<(bool success, string message)> ProbeModemAsync(ModemConfiguration modem)
+    {
+        var providerKey = string.IsNullOrWhiteSpace(modem.Provider)
+            ? DefaultProviderKey
+            : modem.Provider;
+
+        if (!_providers.TryGetValue(providerKey, out var provider))
+        {
+            return (false, $"No provider registered for key '{providerKey}'");
+        }
+
+        var context = ToPollContext(modem);
+        return await provider.TestConnectionAsync(context);
+    }
+
+    /// <summary>
     /// Poll a modem - fetches stats via the resolved provider and updates LastPolled timestamp
     /// </summary>
     public async Task<(bool success, string message)> PollModemAsync(ModemConfiguration modem)
