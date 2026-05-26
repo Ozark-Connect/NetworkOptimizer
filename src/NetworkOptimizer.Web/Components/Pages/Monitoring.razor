@@ -793,16 +793,13 @@ else
             catch { }
         }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
 
-        if (_snmpState == SnmpDetectionState.NotChecked && ConnectionService.IsConnected)
+        _ = Task.Run(async () =>
         {
-            await RunDetection();
-        }
-        else if (_snmpState == SnmpDetectionState.NotChecked)
-        {
-            await ConnectionService.WaitForConnectionAsync();
+            if (!ConnectionService.IsConnected)
+                await ConnectionService.WaitForConnectionAsync();
             if (ConnectionService.IsConnected)
-                await RunDetection();
-        }
+                await InvokeAsync(RunDetection);
+        });
     }
 
     private void LoadInfluxStateFromSettings(MonitoringSettings settings)
@@ -905,7 +902,7 @@ else
 
     private async void OnConnectionChanged()
     {
-        if (ConnectionService.IsConnected && _snmpState == SnmpDetectionState.NotChecked)
+        if (ConnectionService.IsConnected)
         {
             await InvokeAsync(async () =>
             {
