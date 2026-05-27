@@ -407,7 +407,7 @@ class LanFlowMap2D {
 
     _fitAll(){
         if(!this._root)return;
-        const margin=40;
+        const margin=10;
         const sx=(this._cw-margin*2)/this._bw;
         const sy=(this._ch-margin*2)/this._bh;
         this._scale=Math.min(sx,sy,2);
@@ -728,11 +728,12 @@ class LanFlowMap2D {
     _calcBounds(){
         let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
         const exp=(x,y,r)=>{x0=Math.min(x0,x-r);y0=Math.min(y0,y-r);x1=Math.max(x1,x+r);y1=Math.max(y1,y+r);};
-        const vis=(n)=>{exp(n.x,n.y,G.boxW+20);for(const c of n.infra)vis(c);for(const c of n.clients.slice(0,G.maxClients))exp(c.x,c.y,G.clientCellW/2);};
+        const vis=(n)=>{exp(n.x,n.y,G.boxW);for(const c of n.infra)vis(c);for(const c of n.clients.slice(0,G.maxClients))exp(c.x,c.y,G.clientCellW/2);};
         vis(this._root);
-        for(const c of this._clouds)exp(c.x,c.y,G.cloudR+40);
-        this._bx=x0-G.pad; this._by=y0-G.pad;
-        this._bw=(x1-x0)+G.pad*2; this._bh=(y1-y0)+G.pad*2+30;
+        for(const c of this._clouds)exp(c.x,c.y,G.cloudR+30);
+        const p=20;
+        this._bx=x0-p; this._by=y0-p;
+        this._bw=(x1-x0)+p*2; this._bh=(y1-y0)+p*2;
     }
 
     // ---- Image preloading ----
