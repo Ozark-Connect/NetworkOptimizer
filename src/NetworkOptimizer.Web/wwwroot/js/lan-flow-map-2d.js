@@ -447,6 +447,10 @@ class LanFlowMap2D {
         let hit=null;
 
         const checkNode=(n)=>{
+            if(n.d.kind===NK.VirtualHub){
+                if(Math.abs(w.x-n.x)<20&&Math.abs(w.y-n.y)<20)hit=n;
+                return;
+            }
             if(Math.abs(w.x-n.x)<G.boxW/2&&Math.abs(w.y-n.y)<G.boxH/2)hit=n;
             for(const c of n.infra)checkNode(c);
             for(const c of n.clients.slice(0,G.maxClients)){
@@ -457,16 +461,71 @@ class LanFlowMap2D {
 
         if(hit&&hit!==this._hoverNode){
             this._hoverNode=hit;
-            const name=hit.d.name||hit.d.ip||hit.d.mac||'';
-            if(name){
-                this._tooltip.textContent=name;
-                this._tooltip.style.display='block';
-                this._tooltip.style.left=(sx+12)+'px';
-                this._tooltip.style.top=(sy-8)+'px';
-            }
+            this._showTooltip(hit,sx,sy);
+        } else if(hit&&hit===this._hoverNode){
+            this._tooltip.style.left=(sx+14)+'px';
+            this._tooltip.style.top=(sy+14)+'px';
         } else if(!hit){
             this._hideTooltip();
         }
+    }
+
+    _showTooltip(node,sx,sy){
+        const d=node.d;
+        const esc=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        const rows=[];
+        if(d.ip)rows.push(['IP',d.ip]);
+        if(d.mac)rows.push(['MAC',d.mac]);
+        if(d.model)rows.push(['Model',d.model]);
+        if(d.band)rows.push(['Band',`${d.band} GHz`]);
+        if(d.ssid)rows.push(['SSID',d.ssid]);
+        if(d.signalDbm)rows.push(['Signal',`${d.signalDbm} dBm`]);
+        if(d.switchPortName)rows.push(['Switch port',d.switchPortName]);
+        if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
+        if(d.network)rows.push(['Network',d.network]);
+
+        const badges=flowData.getNodeBadges();
+        const b=badges?.[d.id];
+        if(b?.cpuPercent!=null)rows.push(['CPU',`${b.cpuPercent.toFixed(0)}%`]);
+        if(b?.memoryUsedPercent!=null)rows.push(['Memory',`${b.memoryUsedPercent.toFixed(0)}%`]);
+        if(b?.temperatureC!=null)rows.push(['Temp',`${b.temperatureC.toFixed(0)} °C`]);
+        if(b?.uptimeSeconds!=null){
+            const days=Math.floor(b.uptimeSeconds/86400);
+            const hrs=Math.floor((b.uptimeSeconds%86400)/3600);
+            rows.push(['Uptime',days>0?`${days}d ${hrs}h`:`${hrs}h`]);
+        }
+
+        // Rates: fabric devices use badge, clients use link rates
+        const isFab=d.kind===NK.Gateway||d.kind===NK.Switch||d.kind===NK.AP;
+        let inBps=0,outBps=0,any=false;
+        if(isFab&&b){
+            if(b.fabricIngressBps!=null||b.fabricEgressBps!=null){
+                inBps=b.fabricIngressBps||0;outBps=b.fabricEgressBps||0;any=true;
+            }else if(b.aggregateInBps!=null||b.aggregateOutBps!=null){
+                inBps=b.aggregateInBps||0;outBps=b.aggregateOutBps||0;any=true;
+            }
+        }else{
+            for(const e of this._edges){
+                if(e.lk.fromNodeId!==d.id&&e.lk.toNodeId!==d.id)continue;
+                const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+                if(!r)continue;
+                any=true;
+                const dl=r.downstreamBps||0,ul=r.upstreamBps||0;
+                if(e.lk.toNodeId===d.id){inBps+=dl;outBps+=ul;}
+                else{inBps+=ul;outBps+=dl;}
+            }
+        }
+        if(any){
+            if(isFab){rows.push(['Ingress',formatBps(inBps)]);rows.push(['Egress',formatBps(outBps)]);}
+            else{rows.push(['Download',formatBps(inBps)]);rows.push(['Upload',formatBps(outBps)]);}
+        }
+
+        this._tooltip.innerHTML=
+            `<div style="font-weight:600;margin-bottom:3px">${esc(d.name||d.mac||'')}</div>`
+            +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
+        this._tooltip.style.display='block';
+        this._tooltip.style.left=(sx+14)+'px';
+        this._tooltip.style.top=(sy+14)+'px';
     }
 
     _hideTooltip(){
@@ -865,7 +924,17 @@ class LanFlowMap2D {
                 if(cap>0){
                     ctx.globalAlpha=1;
                     const mx=(e._x1+e._x2)/2, my=(e._y1+e._y2)/2;
-                    const txt=formatSpeed(cap);
+                    // Wireless links (mesh/wifi): show asymmetric PHY rates if available
+                    // Check both endpoints - the mesh AP or wifi client has the PHY rates
+                    let txt;
+                    const n1=e.fn?.d, n2=e.tn?.d;
+                    const phy=n2?.phyTxKbps?n2:n1?.phyTxKbps?n1:null;
+                    if((e.lk.kind===LK.MeshBackhaul||e.lk.band)&&phy?.phyTxKbps&&phy?.phyRxKbps){
+                        const tx=phy.phyTxKbps/1000, rx=phy.phyRxKbps/1000;
+                        txt=`↓${formatSpeed(rx)} ↑${formatSpeed(tx)}`;
+                    }else{
+                        txt=formatSpeed(cap);
+                    }
                     ctx.font=`${G.rateFont}px ${FONT}`;
                     const tw=ctx.measureText(txt).width+12;
                     ctx.fillStyle=C.labelBg;
