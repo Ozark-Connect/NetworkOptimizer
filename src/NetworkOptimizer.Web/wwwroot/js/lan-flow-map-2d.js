@@ -464,27 +464,40 @@ class LanFlowMap2D {
     }
 
     _widths(n){
-        // Compute each infra child's width first
         for(const c of n.infra)this._widths(c);
 
-        // Infra children: max 3 per row, rows stacked vertically
+        // If node has both infra and clients, merge clients into the
+        // infra grid so a lone wired device doesn't waste a whole column.
+        // Pure-client nodes (APs with only WiFi clients) use compact grid.
+        const mixed = n.infra.length > 0 && n.clients.length > 0;
         const INFRA_COLS = 3;
-        let maxRowW = 0;
-        for(let i=0;i<n.infra.length;i+=INFRA_COLS){
-            const row=n.infra.slice(i,i+INFRA_COLS);
-            let rw=row.reduce((s,c)=>s+c.w,0);
-            if(row.length>1)rw+=(row.length-1)*G.infraGap;
-            maxRowW=Math.max(maxRowW,rw);
-        }
 
-        const nc=Math.min(n.clients.length,G.maxClients);
-        const cols=Math.min(nc,G.clientCols);
-        const cw=cols>0?cols*G.clientCellW:0;
-        const self=isClient(n.d.kind)?G.clientCellW:G.boxW+30;
-        let childW=0;
-        if(maxRowW>0&&cw>0)childW=maxRowW+G.infraGap+cw;
-        else childW=maxRowW+cw;
-        n.w=Math.max(self,childW);
+        if (mixed) {
+            // Combined list: infra subtrees + clients (each clientCellW wide)
+            const items = [...n.infra.map(c => c.w), ...n.clients.slice(0, G.maxClients).map(() => G.clientCellW)];
+            let maxRowW = 0;
+            for (let i = 0; i < items.length; i += INFRA_COLS) {
+                const row = items.slice(i, i + INFRA_COLS);
+                let rw = row.reduce((s, w) => s + w, 0);
+                if (row.length > 1) rw += (row.length - 1) * G.infraGap;
+                maxRowW = Math.max(maxRowW, rw);
+            }
+            n.w = Math.max(G.boxW + 30, maxRowW);
+        } else if (n.infra.length > 0) {
+            let maxRowW = 0;
+            for (let i = 0; i < n.infra.length; i += INFRA_COLS) {
+                const row = n.infra.slice(i, i + INFRA_COLS);
+                let rw = row.reduce((s, c) => s + c.w, 0);
+                if (row.length > 1) rw += (row.length - 1) * G.infraGap;
+                maxRowW = Math.max(maxRowW, rw);
+            }
+            n.w = Math.max(G.boxW + 30, maxRowW);
+        } else {
+            const nc = Math.min(n.clients.length, G.maxClients);
+            const cols = Math.min(nc, G.clientCols);
+            const cw = cols > 0 ? cols * G.clientCellW : 0;
+            n.w = Math.max(isClient(n.d.kind) ? G.clientCellW : G.boxW + 30, cw);
+        }
     }
 
     _positions(n,lx,depth){
@@ -493,49 +506,73 @@ class LanFlowMap2D {
         if(n.infra.length===0&&n.clients.length===0){n.x=lx+n.w/2;return;}
 
         const INFRA_COLS=3;
-        const infraRows=[];
-        for(let i=0;i<n.infra.length;i+=INFRA_COLS)infraRows.push(n.infra.slice(i,i+INFRA_COLS));
-        const infraRowCount=infraRows.length;
-
+        const mixed=n.infra.length>0&&n.clients.length>0;
         const nc=Math.min(n.clients.length,G.maxClients);
-        const cols=Math.min(nc,G.clientCols);
-        const cw=cols>0?cols*G.clientCellW:0;
 
-        // Compute infra max row width for centering
-        let maxRowW=0;
-        for(const row of infraRows){
-            let rw=row.reduce((s,c)=>s+c.w,0);
-            if(row.length>1)rw+=(row.length-1)*G.infraGap;
-            maxRowW=Math.max(maxRowW,rw);
+        if(mixed){
+            // Merge infra + clients into one grid, rows of 3
+            // Each item is {type:'infra',node} or {type:'client',node}
+            const items=[
+                ...n.infra.map(c=>({type:'infra',node:c,w:c.w})),
+                ...n.clients.slice(0,nc).map(c=>({type:'client',node:c,w:G.clientCellW})),
+            ];
+            const rows=[];
+            for(let i=0;i<items.length;i+=INFRA_COLS)rows.push(items.slice(i,i+INFRA_COLS));
+
+            let firstRowItems=[];
+            for(let ri=0;ri<rows.length;ri++){
+                const row=rows[ri];
+                let rw=row.reduce((s,it)=>s+it.w,0);
+                if(row.length>1)rw+=(row.length-1)*G.infraGap;
+                let cur=lx+(n.w-rw)/2;
+                const childDepth=depth+1+ri;
+                for(const it of row){
+                    if(it.type==='infra'){
+                        this._positions(it.node,cur,childDepth);
+                    }else{
+                        it.node.x=cur+it.w/2;
+                        it.node.y=yOff+childDepth*G.tierGap;
+                    }
+                    cur+=it.w+G.infraGap;
+                    if(ri===0)firstRowItems.push(it.node);
+                }
+            }
+            if(firstRowItems.length>0)n.x=(Math.min(...firstRowItems.map(c=>c.x))+Math.max(...firstRowItems.map(c=>c.x)))/2;
+            else n.x=lx+n.w/2;
+
+        } else if(n.infra.length>0){
+            // Pure infra, rows of 3
+            const rows=[];
+            for(let i=0;i<n.infra.length;i+=INFRA_COLS)rows.push(n.infra.slice(i,i+INFRA_COLS));
+
+            let firstRowKids=[];
+            for(let ri=0;ri<rows.length;ri++){
+                const row=rows[ri];
+                let rw=row.reduce((s,c)=>s+c.w,0);
+                if(row.length>1)rw+=(row.length-1)*G.infraGap;
+                let cur=lx+(n.w-rw)/2;
+                const childDepth=depth+1+ri;
+                for(const c of row){this._positions(c,cur,childDepth);cur+=c.w+G.infraGap;}
+                if(ri===0)firstRowKids=row;
+            }
+            if(firstRowKids.length>0)n.x=(Math.min(...firstRowKids.map(c=>c.x))+Math.max(...firstRowKids.map(c=>c.x)))/2;
+            else n.x=lx+n.w/2;
+
+        } else {
+            // Pure clients - compact grid
+            const cols=Math.min(nc,G.clientCols);
+            const cw=cols*G.clientCellW;
+            const gridLeft=lx+(n.w-cw)/2;
+            const clientY=yOff+(depth+1)*G.tierGap;
+            for(let i=0;i<nc;i++){
+                const col=i%cols,row=Math.floor(i/cols);
+                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2;
+                n.clients[i].y=clientY+row*G.clientCellH;
+            }
+            const placed=n.clients.slice(0,nc);
+            if(placed.length>0)n.x=(Math.min(...placed.map(c=>c.x))+Math.max(...placed.map(c=>c.x)))/2;
+            else n.x=lx+n.w/2;
         }
-
-        let combW=0;
-        if(maxRowW>0&&cw>0)combW=maxRowW+G.infraGap+cw;
-        else combW=maxRowW+cw;
-
-        // Place infra children in rows of 3
-        for(let ri=0;ri<infraRows.length;ri++){
-            const row=infraRows[ri];
-            let rw=row.reduce((s,c)=>s+c.w,0);
-            if(row.length>1)rw+=(row.length-1)*G.infraGap;
-            let cur=lx+(n.w-combW)/2+(maxRowW-rw)/2;
-            const childDepth=depth+1+ri;
-            for(const c of row){this._positions(c,cur,childDepth);cur+=c.w+G.infraGap;}
-        }
-
-        // Place clients to the right of infra
-        const clientStartX=lx+(n.w-combW)/2+(maxRowW>0?maxRowW+G.infraGap:0);
-        const clientY=yOff+(depth+1)*G.tierGap;
-        for(let i=0;i<nc;i++){
-            const col=i%cols,row=Math.floor(i/cols);
-            n.clients[i].x=clientStartX+col*G.clientCellW+G.clientCellW/2;
-            n.clients[i].y=clientY+row*G.clientCellH;
-        }
-
-        // Center parent over first row of infra + clients
-        const firstRowKids=[...(infraRows[0]||[]),...n.clients.slice(0,nc)];
-        if(firstRowKids.length>0)n.x=(Math.min(...firstRowKids.map(c=>c.x))+Math.max(...firstRowKids.map(c=>c.x)))/2;
-        else n.x=lx+n.w/2;
     }
 
     _placeClouds(){
