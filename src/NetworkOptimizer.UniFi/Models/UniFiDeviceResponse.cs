@@ -70,6 +70,12 @@ public class UniFiDeviceResponse
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
+    [JsonPropertyName("snmp_contact")]
+    public string? SnmpContact { get; set; }
+
+    [JsonPropertyName("snmp_location")]
+    public string? SnmpLocation { get; set; }
+
     /// <summary>
     /// Gets the best available friendly product name using the product database lookup
     /// </summary>

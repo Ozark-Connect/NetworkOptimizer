@@ -232,13 +232,14 @@ public class MonitoringCollectionAgent : BackgroundService
             try
             {
                 var mac = NormalizeMac(device.Mac);
-                if (IsSnmpExcluded(mac))
-                {
-                    // Device was previously determined to not support SNMP. Skip silently;
-                    // rate data for this device will come from its parent switch port
-                    // (for APs) or be absent.
+
+                // UniFi requires snmp_location or snmp_contact to be set for
+                // SNMP to be enabled on a device. Both empty/null = SNMP off.
+                if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
                     return;
-                }
+
+                if (IsSnmpExcluded(mac))
+                    return;
                 try
                 {
                     var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
@@ -1432,7 +1433,7 @@ public class MonitoringCollectionAgent : BackgroundService
     // the default fast tier interval (5s) - the data is always at most one fast tick
     // stale, and slower tiers piggyback on whatever the fast tier just fetched.
     // Concurrent callers serialize on _deviceFetchLock so a miss doesn't fan out.
-    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(30);
     private List<UniFiDeviceResponse> _cachedDevices = new();
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
@@ -1755,14 +1756,10 @@ public class MonitoringCollectionAgent : BackgroundService
         var count = _snmpFailures.AddOrUpdate(normalizedMac, 1, (_, prev) => prev + 1);
         if (count < SnmpFailureThreshold) return;
 
-        // Only exclude when the device is actually reachable. If our fabric ping has
-        // returned at least once in the last 2 minutes, we know it's online; otherwise
-        // it might just be down, and we'll re-try SNMP when it comes back.
-        var liveStats = _liveStats.GetForDevice(normalizedMac);
-        if (liveStats == null || !liveStats.LastLatencyUpdate.HasValue) return;
-        if (DateTime.UtcNow - liveStats.LastLatencyUpdate.Value > TimeSpan.FromMinutes(2)) return;
-        if (!(liveStats.LatestRttMs.HasValue && liveStats.LatestRttMs.Value >= 0)) return;
-
+        // Exclude after threshold regardless of ping reachability. The 1-hour TTL
+        // handles retry when the device comes back or gets SNMP enabled. Not all
+        // devices are ping targets, so requiring ICMP would leave many non-SNMP
+        // devices burning the timeout forever.
         if (_snmpExcluded.TryAdd(normalizedMac, DateTime.UtcNow))
         {
             _logger.LogInformation(

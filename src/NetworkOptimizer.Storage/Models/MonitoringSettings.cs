@@ -101,6 +101,10 @@ public class MonitoringSettings
 
     public bool Flex25GLatencyMigrated { get; set; }
 
+    /// <summary>JSON map of MAC → exclusion timestamp for devices that don't support SNMP.
+    /// Persisted so exclusions survive container restarts without re-learning.</summary>
+    public string? SnmpExcludedDevicesJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
