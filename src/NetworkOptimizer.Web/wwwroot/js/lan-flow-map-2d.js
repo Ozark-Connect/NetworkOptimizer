@@ -1135,6 +1135,10 @@ class LanFlowMap2D {
         }
         ctx.globalCompositeOperation='source-over';
         ctx.globalAlpha=1;
+
+        // Labels on top of everything (including particles)
+        this._drawLinkSpeedLabels(ctx);
+        this._drawRateLabels(ctx);
     }
 
     _drawStatic(){
@@ -1160,9 +1164,6 @@ class LanFlowMap2D {
         if(this._isCloudVisible())this._drawAllClouds(ctx);
         // Infra + client nodes
         this._drawAllNodes(ctx,this._root);
-        // All labels on top (capacity + live rates + node rates)
-        this._drawLinkSpeedLabels(ctx);
-        this._drawRateLabels(ctx);
     }
 
     // ---- Link drawing ----
