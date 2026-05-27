@@ -1080,6 +1080,8 @@ class LanFlowMap2D {
 
         ctx.globalCompositeOperation='lighter';
         for(const s of this._streams){
+            if(s.edge._isWan&&!this._isCloudVisible())continue;
+            if(s.edge._isCl){const child=s.edge.tn||s.edge.fn;if(child&&!this._isNodeVisible(child))continue;}
             ctx.fillStyle=s.color;
             for(const sl of s.slots){
                 if(sl.t<0)continue;
