@@ -14,6 +14,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js';
+import * as flowData from './lan-flow-data.js';
 
 const COLORS = {
     background: 0x202023,
@@ -457,6 +458,7 @@ export class LanFlowMap {
             if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
             const snap = await res.json();
             this._snapshot = snap;
+            flowData.publishSnapshot(snap);
 
             this._layoutNodes(snap);
             this._rebuildBuildings(snap);
@@ -500,6 +502,7 @@ export class LanFlowMap {
             const res = await fetch(`${this.apiBase}/live`, { credentials: 'same-origin' });
             if (!res.ok) return;
             const update = await res.json();
+            flowData.publishLive(update);
             this._currentBadges = update.nodeBadges || {};
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {

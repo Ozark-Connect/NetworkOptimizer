@@ -1,11 +1,13 @@
 // 2D hierarchical LAN topology diagram.
-// Renders SVG consuming the same API endpoints as the 3D LAN Flow Map.
-// Animated data-flow particles show real-time traffic direction and rate.
+// Subscribes to lan-flow-data.js (published by the 3D map) so there are
+// zero duplicate API calls. Renders SVG with animated data-flow particles.
+
+import * as flowData from './lan-flow-data.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
 // ---- Color palette (matches 3D map) ----
-const COLORS = {
+const C = {
     bg:           '#202023',
     gateway:      '#facc15',
     switchNode:   '#9aa6b2',
@@ -26,212 +28,129 @@ const COLORS = {
     textSec:      '#cbd5e1',
     textMuted:    '#9ca3af',
     labelBg:      'rgba(16,24,32,0.82)',
-    cloudStroke:  '#3b82f6',
+    globeStroke:  '#3b82f6',
 };
 
-const NODE_KIND = {
-    Gateway: 0, Switch: 1, AccessPoint: 2,
-    WiredClient: 3, WifiClient: 4, Cloud: 5, VirtualHub: 6,
-};
-const LINK_KIND = {
-    Uplink: 0, WiredClient: 1, WifiClient: 2,
-    Wan: 3, Transit: 4, MeshBackhaul: 5,
-};
+const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
+const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
 
 // ---- Layout geometry ----
-const L = {
-    tierGap:       130,
-    cloudGap:      90,
-    infraGap:      80,
-    clientGap:     6,
-    clientSize:    18,
-    clientCols:    12,
-    maxClients:    60,
-    infraW:        60,
-    infraH:        48,
-    cloudR:        28,
-    cornerR:       12,
-    padding:       60,
-    pipeBase:      2,
-    pipeMax:       5.5,
-    particleR:     3,
-    labelFont:     11,
-    rateFont:      10,
-    nameFont:      11,
+const G = {
+    tierGap:     140,
+    cloudGap:    100,
+    infraGap:    90,
+    clientGap:   6,
+    clientR:     7,
+    clientCols:  14,
+    maxClients:  80,
+    iconSize:    52,
+    boxW:        68,
+    boxH:        60,
+    cloudR:      30,
+    cornerR:     12,
+    pad:         80,
+    pipeBase:    2,
+    pipeMax:     6,
+    labelFont:   11,
+    rateFont:    10,
+    nameFont:    11,
 };
 
-const RATE_THRESHOLD = 1_000_000;
+// ---- Helpers ----
 
-// ---- Utility ----
-
-function svg(tag, attrs, parent) {
+function el(tag, a, p) {
     const e = document.createElementNS(NS, tag);
-    if (attrs) for (const [k, v] of Object.entries(attrs)) {
-        if (v != null) e.setAttribute(k, String(v));
-    }
-    if (parent) parent.appendChild(e);
+    if (a) for (const [k, v] of Object.entries(a)) if (v != null) e.setAttribute(k, String(v));
+    if (p) p.appendChild(e);
     return e;
 }
 
-function hexToRgb(h) {
-    return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-}
-function rgbHex(r, g, b) {
-    return '#' + [r, g, b].map(c => Math.round(Math.max(0, Math.min(255, c))).toString(16).padStart(2, '0')).join('');
-}
-function lerpColor(a, b, t) {
-    const [r1, g1, b1] = hexToRgb(a), [r2, g2, b2] = hexToRgb(b);
-    return rgbHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
-}
+function hexRgb(h) { return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
+function rgbHex(r,g,b) { return '#'+[r,g,b].map(c=>Math.round(Math.max(0,Math.min(255,c))).toString(16).padStart(2,'0')).join(''); }
+function lerp(a,b,t) { return a+(b-a)*t; }
+function lerpColor(a,b,t) { const [r1,g1,b1]=hexRgb(a),[r2,g2,b2]=hexRgb(b); return rgbHex(lerp(r1,r2,t),lerp(g1,g2,t),lerp(b1,b2,t)); }
 
-function bandColor(band) {
-    if (band === '2.4') return COLORS.band24;
-    if (band === '5')   return COLORS.band5;
-    if (band === '6')   return COLORS.band6;
-    return null;
+function bandClr(b) { return b==='2.4'?C.band24:b==='5'?C.band5:b==='6'?C.band6:null; }
+function nodeClr(k, b) {
+    if (k===NK.Gateway) return C.gateway;
+    if (k===NK.Switch) return C.switchNode;
+    if (k===NK.AP) return C.ap;
+    if (k===NK.WiredClient) return C.wiredClient;
+    if (k===NK.WifiClient) return bandClr(b)||C.wifiClient;
+    if (k===NK.Cloud) return C.cloud;
+    if (k===NK.VirtualHub) return C.virtualHub;
+    return C.textMuted;
 }
+function isInfra(k) { return k<=NK.AP || k===NK.VirtualHub; }
+function isClient(k) { return k===NK.WiredClient || k===NK.WifiClient; }
 
-function nodeColor(kind, band) {
-    switch (kind) {
-        case NODE_KIND.Gateway:     return COLORS.gateway;
-        case NODE_KIND.Switch:      return COLORS.switchNode;
-        case NODE_KIND.AccessPoint: return COLORS.ap;
-        case NODE_KIND.WiredClient: return COLORS.wiredClient;
-        case NODE_KIND.WifiClient:  return bandColor(band) || COLORS.wifiClient;
-        case NODE_KIND.Cloud:       return COLORS.cloud;
-        case NODE_KIND.VirtualHub:  return COLORS.virtualHub;
-        default: return COLORS.textMuted;
-    }
+function pipeClr(u, band) {
+    const cool = bandClr(band) || C.pipeCool;
+    if (u<0.7) return cool;
+    if (u<0.9) return lerpColor(cool, C.pipeWarm, (u-0.7)/0.2);
+    return lerpColor(C.pipeWarm, C.pipeHot, Math.min((u-0.9)/0.1, 1));
 }
-
-function isInfra(kind) {
-    return kind <= NODE_KIND.AccessPoint || kind === NODE_KIND.VirtualHub;
-}
-function isClient(kind) {
-    return kind === NODE_KIND.WiredClient || kind === NODE_KIND.WifiClient;
-}
-
-function pipeColorForUtil(util, band) {
-    const cool = bandColor(band) || COLORS.pipeCool;
-    if (util < 0.7) return cool;
-    if (util < 0.9) return lerpColor(cool, COLORS.pipeWarm, (util - 0.7) / 0.2);
-    return lerpColor(COLORS.pipeWarm, COLORS.pipeHot, Math.min((util - 0.9) / 0.1, 1));
-}
-
-function pipeWidth(capacityBps) {
-    if (!capacityBps || capacityBps <= 0) return L.pipeBase;
-    const gbps = capacityBps / 1e9;
-    const t = Math.log10(Math.max(gbps, 0.01)) + 2;
-    return L.pipeBase + Math.min(t, 3.5) * 0.8;
+function pipeW(cap) {
+    if (!cap||cap<=0) return G.pipeBase;
+    const t = Math.log10(Math.max(cap/1e9, 0.01))+2;
+    return G.pipeBase + Math.min(t, 3.5)*0.9;
 }
 
 function formatBps(bps) {
-    if (!Number.isFinite(bps) || bps <= 0) return '';
-    const units = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'];
-    let i = 0, v = bps;
-    while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
-    return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+    if (!Number.isFinite(bps)||bps<=0) return '';
+    const u=['bps','Kbps','Mbps','Gbps','Tbps'];
+    let i=0, v=bps;
+    while (v>=1000&&i<u.length-1){v/=1000;i++;}
+    return `${v>=100?v.toFixed(0):v.toFixed(1)} ${u[i]}`;
 }
-
-function formatLinkSpeed(mbps) {
+function formatSpeed(mbps) {
     if (!mbps) return '';
-    if (mbps >= 1000) {
-        const g = mbps / 1000;
-        return `${g % 1 === 0 ? g.toFixed(0) : g.toFixed(1)} Gbps`;
-    }
+    if (mbps>=1000){const g=mbps/1000;return `${g%1===0?g.toFixed(0):g.toFixed(1)} Gbps`;}
     return `${mbps} Mbps`;
 }
 
-// ---- Orthogonal path computation ----
+// ---- Orthogonal path (H→R→V never diagonal) ----
 
 function orthoPath(x1, y1, x2, y2) {
-    const r = L.cornerR;
-    if (Math.abs(x1 - x2) < 0.5) return `M${x1} ${y1}L${x2} ${y2}`;
-
-    const midY = (y1 + y2) / 2;
-    const dx = x2 - x1;
-    const s = dx > 0 ? 1 : -1;
-    const ax = Math.abs(dx);
-    const hv = Math.abs(y2 - y1) / 2;
-    const cr = Math.min(r, ax / 2, hv);
-    if (cr < 1) return `M${x1} ${y1}L${x1} ${midY}L${x2} ${midY}L${x2} ${y2}`;
-
-    return `M${x1} ${y1}`
-        + `L${x1} ${midY - cr}`
-        + `Q${x1} ${midY} ${x1 + s * cr} ${midY}`
-        + `L${x2 - s * cr} ${midY}`
-        + `Q${x2} ${midY} ${x2} ${midY + cr}`
-        + `L${x2} ${y2}`;
+    const r = G.cornerR;
+    if (Math.abs(x1-x2)<0.5) return `M${x1} ${y1}L${x2} ${y2}`;
+    const midY=(y1+y2)/2, dx=x2-x1, s=dx>0?1:-1, ax=Math.abs(dx), hv=Math.abs(y2-y1)/2;
+    const cr=Math.min(r, ax/2, hv);
+    if (cr<1) return `M${x1} ${y1}L${x1} ${midY}L${x2} ${midY}L${x2} ${y2}`;
+    return `M${x1} ${y1}L${x1} ${midY-cr}Q${x1} ${midY} ${x1+s*cr} ${midY}L${x2-s*cr} ${midY}Q${x2} ${midY} ${x2} ${midY+cr}L${x2} ${y2}`;
 }
 
-function orthoLength(x1, y1, x2, y2) {
-    if (Math.abs(x1 - x2) < 0.5) return Math.abs(y2 - y1);
-    const ax = Math.abs(x2 - x1);
-    const hv = Math.abs(y2 - y1) / 2;
-    const cr = Math.min(L.cornerR, ax / 2, hv);
-    if (cr < 1) return Math.abs(y2 - y1) + ax;
-    return (hv - cr) * 2 + Math.PI * cr + (ax - 2 * cr);
+function orthoLen(x1, y1, x2, y2) {
+    if (Math.abs(x1-x2)<0.5) return Math.abs(y2-y1);
+    const ax=Math.abs(x2-x1), hv=Math.abs(y2-y1)/2, cr=Math.min(G.cornerR, ax/2, hv);
+    if (cr<1) return Math.abs(y2-y1)+ax;
+    return (hv-cr)*2+Math.PI*cr+(ax-2*cr);
 }
 
-function orthoPointAt(x1, y1, x2, y2, t) {
-    const dy = y2 - y1;
-    if (Math.abs(x2 - x1) < 0.5) return { x: x1, y: y1 + dy * t };
-
-    const midY = (y1 + y2) / 2;
-    const dx = x2 - x1;
-    const s = dx > 0 ? 1 : -1;
-    const ax = Math.abs(dx);
-    const hv = Math.abs(dy) / 2;
-    const cr = Math.min(L.cornerR, ax / 2, hv);
-    if (cr < 1) {
-        const s1 = hv, s2 = ax, total = s1 + s2 + hv;
-        let d = t * total;
-        if (d <= s1) return { x: x1, y: y1 + d };
-        d -= s1;
-        if (d <= s2) return { x: x1 + s * d, y: midY };
-        d -= s2;
-        return { x: x2, y: midY + d };
+function orthoAt(x1, y1, x2, y2, t) {
+    const dy=y2-y1;
+    if (Math.abs(x2-x1)<0.5) return {x:x1, y:y1+dy*t};
+    const midY=(y1+y2)/2, dx=x2-x1, s=dx>0?1:-1, ax=Math.abs(dx), hv=Math.abs(dy)/2;
+    const cr=Math.min(G.cornerR, ax/2, hv);
+    if (cr<1) {
+        const tot=hv+ax+hv; let d=t*tot;
+        if (d<=hv) return {x:x1,y:y1+d}; d-=hv;
+        if (d<=ax) return {x:x1+s*d,y:midY}; d-=ax;
+        return {x:x2,y:midY+d};
     }
-
-    const s1 = hv - cr;
-    const s2 = (Math.PI / 2) * cr;
-    const s3 = ax - 2 * cr;
-    const s4 = s2;
-    const s5 = hv - cr;
-    const total = s1 + s2 + s3 + s4 + s5;
-    let d = t * total;
-
-    if (d <= s1) return { x: x1, y: y1 + d };
-    d -= s1;
-    if (d <= s2) {
-        const a = (d / s2) * (Math.PI / 2);
-        return { x: x1 + s * cr * Math.sin(a), y: (midY - cr) + cr * (1 - Math.cos(a)) };
-    }
-    d -= s2;
-    if (d <= s3) return { x: x1 + s * (cr + d), y: midY };
-    d -= s3;
-    if (d <= s4) {
-        const a = (d / s4) * (Math.PI / 2);
-        return {
-            x: (x2 - s * cr) + s * cr * Math.sin(a),
-            y: midY + cr * (1 - Math.cos(a)),
-        };
-    }
-    d -= s4;
-    return { x: x2, y: midY + cr + d };
+    const s1=hv-cr, s2=Math.PI/2*cr, s3=ax-2*cr, s4=s2, s5=hv-cr;
+    const tot=s1+s2+s3+s4+s5; let d=t*tot;
+    if (d<=s1) return {x:x1,y:y1+d}; d-=s1;
+    if (d<=s2) {const a=d/s2*Math.PI/2; return {x:x1+s*cr*Math.sin(a),y:midY-cr+cr*(1-Math.cos(a))};} d-=s2;
+    if (d<=s3) return {x:x1+s*(cr+d),y:midY}; d-=s3;
+    if (d<=s4) {const a=d/s4*Math.PI/2; return {x:(x2-s*cr)+s*cr*Math.sin(a),y:midY+cr*(1-Math.cos(a))};} d-=s4;
+    return {x:x2, y:midY+cr+d};
 }
 
-// ---- Layout tree node ----
+// ---- Layout tree ----
 
-class TNode {
-    constructor(data) {
-        this.d = data;
-        this.infraChildren = [];
-        this.clientChildren = [];
-        this.x = 0;
-        this.y = 0;
-        this.w = 0;
-    }
+class TN {
+    constructor(d) { this.d=d; this.infra=[]; this.clients=[]; this.x=0; this.y=0; this.w=0; }
 }
 
 // ---- Main class ----
@@ -239,36 +158,63 @@ class TNode {
 class LanFlowMap2D {
     constructor(container) {
         this._el = container;
-        this._svgRoot = null;
+        this._svg = null;
         this._gLinks = null;
+        this._gParts = null;
         this._gNodes = null;
-        this._gParticles = null;
         this._gLabels = null;
 
-        this._snapshot = null;
-        this._treeNodes = new Map();
         this._root = null;
+        this._treeMap = new Map();
         this._clouds = [];
-        this._linkEdges = [];
+        this._edges = [];
         this._liveRates = {};
 
         this._particles = [];
         this._animId = 0;
         this._lastFrame = 0;
-        this._pollId = 0;
+        this._unsub = null;
+
+        // Viewport / pan-zoom state
+        this._vx = 0; this._vy = 0; this._vw = 800; this._vh = 600;
+        this._zoom = 1;
+        this._panX = 0; this._panY = 0;
+        this._baseVx = 0; this._baseVy = 0; this._baseVw = 800; this._baseVh = 600;
+        this._dragging = false;
+        this._dragStart = null;
     }
 
     async start() {
         this._createSvg();
-        await this._loadSnapshot();
-        this._startPolling();
+
+        const snap = flowData.getSnapshot();
+        if (snap) {
+            this._liveRates = { ...flowData.getLiveRates() };
+            this._buildLayout(snap);
+            this._renderAll();
+        }
+
+        this._unsub = flowData.subscribe((ev) => {
+            if (ev === 'snapshot') {
+                const s = flowData.getSnapshot();
+                if (s) {
+                    this._liveRates = { ...flowData.getLiveRates() };
+                    this._buildLayout(s);
+                    this._renderAll();
+                }
+            } else if (ev === 'live') {
+                Object.assign(this._liveRates, flowData.getLiveRates());
+                this._updateRates();
+            }
+        });
+
         this._lastFrame = performance.now();
         this._animate();
     }
 
     dispose() {
         cancelAnimationFrame(this._animId);
-        clearInterval(this._pollId);
+        if (this._unsub) this._unsub();
         this._el.innerHTML = '';
         this._particles = [];
     }
@@ -277,747 +223,598 @@ class LanFlowMap2D {
 
     _createSvg() {
         this._el.innerHTML = '';
-        const s = svg('svg', {
-            'xmlns': NS,
-            'preserveAspectRatio': 'xMidYMin meet',
-            'class': 'lan-flow-map-2d-svg',
-        }, this._el);
-        this._svgRoot = s;
+        const s = el('svg', { xmlns: NS, 'preserveAspectRatio': 'xMidYMin meet', class: 'lfm2d' }, this._el);
+        this._svg = s;
 
-        const defs = svg('defs', null, s);
+        const defs = el('defs', null, s);
+        // Glow for particles
+        const pg = el('filter', { id: 'pg', x:'-80%', y:'-80%', width:'260%', height:'260%' }, defs);
+        el('feGaussianBlur', { in:'SourceGraphic', stdDeviation:'2.5', result:'b' }, pg);
+        const m = el('feMerge', null, pg);
+        el('feMergeNode', { in:'b' }, m);
+        el('feMergeNode', { in:'SourceGraphic' }, m);
 
-        // Glow filter for infra nodes
-        const glow = svg('filter', { id: 'node-glow', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs);
-        svg('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: '4', result: 'blur' }, glow);
-        const merge = svg('feMerge', null, glow);
-        svg('feMergeNode', { in: 'blur' }, merge);
-        svg('feMergeNode', { in: 'SourceGraphic' }, merge);
+        this._gLinks = el('g', { class:'links' }, s);
+        this._gParts = el('g', { class:'particles' }, s);
+        this._gNodes = el('g', { class:'nodes' }, s);
+        this._gLabels = el('g', { class:'labels' }, s);
 
-        // Particle glow
-        const pglow = svg('filter', { id: 'particle-glow', x: '-100%', y: '-100%', width: '300%', height: '300%' }, defs);
-        svg('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: '2', result: 'blur' }, pglow);
-        const pm = svg('feMerge', null, pglow);
-        svg('feMergeNode', { in: 'blur' }, pm);
-        svg('feMergeNode', { in: 'SourceGraphic' }, pm);
-
-        this._gLinks = svg('g', { class: 'links' }, s);
-        this._gParticles = svg('g', { class: 'particles' }, s);
-        this._gNodes = svg('g', { class: 'nodes' }, s);
-        this._gLabels = svg('g', { class: 'labels' }, s);
+        // Pan/zoom events
+        s.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+        s.addEventListener('pointerdown', (e) => this._onPointerDown(e));
+        s.addEventListener('pointermove', (e) => this._onPointerMove(e));
+        s.addEventListener('pointerup', (e) => this._onPointerUp(e));
+        s.addEventListener('pointerleave', (e) => this._onPointerUp(e));
     }
 
-    // ---- Data loading ----
+    // ---- Pan / Zoom ----
 
-    async _loadSnapshot() {
-        try {
-            const r = await fetch('/api/monitoring/lan-flow-map/snapshot');
-            if (!r.ok) return;
-            this._snapshot = await r.json();
-        } catch { return; }
+    _onWheel(e) {
+        e.preventDefault();
+        const rect = this._svg.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) / rect.width;
+        const my = (e.clientY - rect.top) / rect.height;
 
-        this._liveRates = this._snapshot.liveRates || {};
-        this._buildLayout();
-        this._renderAll();
+        const factor = e.deltaY > 0 ? 1.12 : 1 / 1.12;
+        const nw = this._vw * factor;
+        const nh = this._vh * factor;
+
+        // Zoom toward mouse position
+        this._vx += (this._vw - nw) * mx;
+        this._vy += (this._vh - nh) * my;
+        this._vw = nw;
+        this._vh = nh;
+        this._applyViewBox();
     }
 
-    async _pollLive() {
-        try {
-            const r = await fetch('/api/monitoring/lan-flow-map/live');
-            if (!r.ok) return;
-            const update = await r.json();
-            if (update.linkRates) {
-                Object.assign(this._liveRates, update.linkRates);
-                this._updateRates();
-            }
-        } catch { /* swallow */ }
+    _onPointerDown(e) {
+        if (e.button !== 0) return;
+        this._dragging = true;
+        this._dragStart = { x: e.clientX, y: e.clientY, vx: this._vx, vy: this._vy };
+        this._svg.style.cursor = 'grabbing';
+        this._svg.setPointerCapture(e.pointerId);
     }
 
-    _startPolling() {
-        this._pollId = setInterval(() => this._pollLive(), 3000);
+    _onPointerMove(e) {
+        if (!this._dragging || !this._dragStart) return;
+        const rect = this._svg.getBoundingClientRect();
+        const sx = this._vw / rect.width;
+        const sy = this._vh / rect.height;
+        this._vx = this._dragStart.vx - (e.clientX - this._dragStart.x) * sx;
+        this._vy = this._dragStart.vy - (e.clientY - this._dragStart.y) * sy;
+        this._applyViewBox();
+    }
+
+    _onPointerUp(e) {
+        if (!this._dragging) return;
+        this._dragging = false;
+        this._dragStart = null;
+        this._svg.style.cursor = 'grab';
+    }
+
+    _applyViewBox() {
+        this._svg.setAttribute('viewBox', `${this._vx} ${this._vy} ${this._vw} ${this._vh}`);
+    }
+
+    _fitAll() {
+        this._vx = this._baseVx;
+        this._vy = this._baseVy;
+        this._vw = this._baseVw;
+        this._vh = this._baseVh;
+        this._applyViewBox();
     }
 
     // ---- Layout ----
 
-    _buildLayout() {
-        const snap = this._snapshot;
-        if (!snap) return;
+    _buildLayout(snap) {
+        const byId = new Map();
+        for (const n of snap.nodes) byId.set(n.id, new TN(n));
+        this._treeMap = byId;
 
-        const nodesById = new Map();
-        for (const n of snap.nodes) nodesById.set(n.id, new TNode(n));
-        this._treeNodes = nodesById;
-
-        // Build parent-child tree
         let root = null;
-        for (const [, tn] of nodesById) {
-            if (tn.d.kind === NODE_KIND.Gateway) root = tn;
-            if (tn.d.parentId && nodesById.has(tn.d.parentId)) {
-                const parent = nodesById.get(tn.d.parentId);
-                if (isClient(tn.d.kind)) {
-                    parent.clientChildren.push(tn);
-                } else if (tn.d.kind !== NODE_KIND.Cloud) {
-                    parent.infraChildren.push(tn);
-                }
+        for (const [, tn] of byId) {
+            if (tn.d.kind === NK.Gateway) root = tn;
+            const pid = tn.d.parentId;
+            if (pid && byId.has(pid)) {
+                const par = byId.get(pid);
+                if (isClient(tn.d.kind)) par.clients.push(tn);
+                else if (tn.d.kind !== NK.Cloud) par.infra.push(tn);
             }
         }
         this._root = root;
+        this._clouds = (snap.clouds||[]).map(c => ({ d:c, x:0, y:0 }));
 
-        // Clouds
-        this._clouds = (snap.clouds || []).map(c => ({ data: c, x: 0, y: 0 }));
-
-        // Link edges
-        this._linkEdges = [];
-        for (const link of snap.links) {
-            this._linkEdges.push({
-                link,
-                fromNode: nodesById.get(link.fromNodeId),
-                toNode: nodesById.get(link.toNodeId),
-            });
+        this._edges = [];
+        for (const lk of snap.links) {
+            this._edges.push({ lk, fn: byId.get(lk.fromNodeId), tn: byId.get(lk.toNodeId) });
         }
 
         if (!root) return;
-        this._computeWidths(root);
-        const totalW = root.w;
-        this._assignPositions(root, L.padding, 0);
-        this._positionClouds();
+        this._widths(root);
+        this._positions(root, G.pad, 0);
+        this._placeClouds();
     }
 
-    _computeWidths(node) {
-        // Infra children
-        let infraW = 0;
-        for (const child of node.infraChildren) {
-            this._computeWidths(child);
-            infraW += child.w;
-        }
-        if (node.infraChildren.length > 1)
-            infraW += (node.infraChildren.length - 1) * L.infraGap;
+    _widths(n) {
+        let iw = 0;
+        for (const c of n.infra) { this._widths(c); iw += c.w; }
+        if (n.infra.length > 1) iw += (n.infra.length - 1) * G.infraGap;
 
-        // Client grid
-        const nc = Math.min(node.clientChildren.length, L.maxClients);
-        const cols = Math.min(nc, L.clientCols);
-        const clientGridW = cols > 0 ? cols * (L.clientSize + L.clientGap) - L.clientGap : 0;
+        const nc = Math.min(n.clients.length, G.maxClients);
+        const cols = Math.min(nc, G.clientCols);
+        const cw = cols > 0 ? cols * (G.clientR * 2 + G.clientGap) - G.clientGap : 0;
 
-        // Node's own min width
-        const selfW = isClient(node.d.kind) ? L.clientSize : L.infraW + 40;
+        const self = isClient(n.d.kind) ? G.clientR * 2 : G.boxW + 30;
+        let childW = 0;
+        if (iw > 0 && cw > 0) childW = iw + G.infraGap + cw;
+        else childW = iw + cw;
 
-        // Combined: infra and client grids side by side
-        let childrenW = 0;
-        if (infraW > 0 && clientGridW > 0) {
-            childrenW = infraW + L.infraGap + clientGridW;
-        } else {
-            childrenW = infraW + clientGridW;
-        }
-
-        node.w = Math.max(selfW, childrenW);
+        n.w = Math.max(self, childW);
     }
 
-    _assignPositions(node, leftX, depth) {
-        const yBase = L.padding + 60;
-        node.y = yBase + depth * L.tierGap;
+    _positions(n, lx, depth) {
+        const yOff = G.pad + 80;
+        n.y = yOff + depth * G.tierGap;
 
-        if (node.infraChildren.length === 0 && node.clientChildren.length === 0) {
-            node.x = leftX + node.w / 2;
+        if (n.infra.length === 0 && n.clients.length === 0) {
+            n.x = lx + n.w / 2;
             return;
         }
 
-        let infraW = node.infraChildren.reduce((s, c) => s + c.w, 0);
-        if (node.infraChildren.length > 1)
-            infraW += (node.infraChildren.length - 1) * L.infraGap;
+        let iw = n.infra.reduce((s, c) => s + c.w, 0);
+        if (n.infra.length > 1) iw += (n.infra.length - 1) * G.infraGap;
 
-        const nc = Math.min(node.clientChildren.length, L.maxClients);
-        const cols = Math.min(nc, L.clientCols);
-        const clientGridW = cols > 0 ? cols * (L.clientSize + L.clientGap) - L.clientGap : 0;
+        const nc = Math.min(n.clients.length, G.maxClients);
+        const cols = Math.min(nc, G.clientCols);
+        const cw = cols > 0 ? cols * (G.clientR * 2 + G.clientGap) - G.clientGap : 0;
 
-        let combinedW = 0;
-        if (infraW > 0 && clientGridW > 0) combinedW = infraW + L.infraGap + clientGridW;
-        else combinedW = infraW + clientGridW;
+        let combW = 0;
+        if (iw > 0 && cw > 0) combW = iw + G.infraGap + cw;
+        else combW = iw + cw;
 
-        let cursor = leftX + (node.w - combinedW) / 2;
+        let cur = lx + (n.w - combW) / 2;
 
-        // Place infra children
-        for (const child of node.infraChildren) {
-            this._assignPositions(child, cursor, depth + 1);
-            cursor += child.w + L.infraGap;
+        for (const c of n.infra) {
+            this._positions(c, cur, depth + 1);
+            cur += c.w + G.infraGap;
         }
 
-        // Place clients in grid
         if (nc > 0) {
-            const gridLeft = cursor - (infraW > 0 ? 0 : 0);
-            const clientY = yBase + (depth + 1) * L.tierGap;
+            const clientY = yOff + (depth + 1) * G.tierGap;
+            const cellW = G.clientR * 2 + G.clientGap;
             for (let i = 0; i < nc; i++) {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-                const cn = node.clientChildren[i];
-                cn.x = gridLeft + col * (L.clientSize + L.clientGap) + L.clientSize / 2;
-                cn.y = clientY + row * (L.clientSize + L.clientGap);
+                const col = i % cols, row = Math.floor(i / cols);
+                const cn = n.clients[i];
+                cn.x = cur + col * cellW + G.clientR;
+                cn.y = clientY + row * cellW;
             }
         }
 
-        // Center parent over all children
-        const allKids = [
-            ...node.infraChildren,
-            ...node.clientChildren.slice(0, nc),
-        ];
-        if (allKids.length > 0) {
-            const minX = Math.min(...allKids.map(c => c.x));
-            const maxX = Math.max(...allKids.map(c => c.x));
-            node.x = (minX + maxX) / 2;
+        const allK = [...n.infra, ...n.clients.slice(0, nc)];
+        if (allK.length > 0) {
+            n.x = (Math.min(...allK.map(c => c.x)) + Math.max(...allK.map(c => c.x))) / 2;
         } else {
-            node.x = leftX + node.w / 2;
+            n.x = lx + n.w / 2;
         }
     }
 
-    _positionClouds() {
+    _placeClouds() {
         if (!this._root || this._clouds.length === 0) return;
-        const gx = this._root.x;
-        const gy = this._root.y;
-        const total = this._clouds.length;
-        const spacing = L.cloudGap;
-        const startX = gx - ((total - 1) * spacing) / 2;
-
+        const gx = this._root.x, gy = this._root.y;
+        const total = this._clouds.length, sp = G.cloudGap;
+        const sx = gx - ((total - 1) * sp) / 2;
         for (let i = 0; i < total; i++) {
-            this._clouds[i].x = startX + i * spacing;
-            this._clouds[i].y = gy - L.tierGap;
+            this._clouds[i].x = sx + i * sp;
+            this._clouds[i].y = gy - G.tierGap;
         }
     }
 
-    // ---- Rendering ----
+    // ---- Render ----
 
     _renderAll() {
         this._gLinks.innerHTML = '';
         this._gNodes.innerHTML = '';
-        this._gParticles.innerHTML = '';
+        this._gParts.innerHTML = '';
         this._gLabels.innerHTML = '';
         this._particles = [];
 
-        if (!this._root) {
-            this._renderEmpty();
-            return;
-        }
-
-        this._setViewBox();
-        this._renderCloudLinks();
-        this._renderTreeLinks(this._root);
-        this._renderClouds();
-        this._renderTreeNodes(this._root);
-        this._updateRates();
-    }
-
-    _renderEmpty() {
-        const t = svg('text', {
-            x: '50%', y: '200',
-            'text-anchor': 'middle',
-            fill: COLORS.textMuted,
-            'font-size': '14',
-            'font-family': 'system-ui, sans-serif',
-        }, this._svgRoot);
-        t.textContent = 'Waiting for topology data...';
-        this._svgRoot.setAttribute('viewBox', '0 0 800 400');
-    }
-
-    _setViewBox() {
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-        const expand = (x, y, r) => {
-            minX = Math.min(minX, x - r);
-            minY = Math.min(minY, y - r);
-            maxX = Math.max(maxX, x + r);
-            maxY = Math.max(maxY, y + r);
-        };
-
-        const visit = (node) => {
-            expand(node.x, node.y, L.infraW);
-            for (const c of node.infraChildren) visit(c);
-            for (const c of node.clientChildren.slice(0, L.maxClients))
-                expand(c.x, c.y, L.clientSize);
-        };
-        visit(this._root);
-        for (const c of this._clouds) expand(c.x, c.y, L.cloudR + 20);
-
-        const pad = L.padding;
-        const vx = minX - pad;
-        const vy = minY - pad;
-        const vw = (maxX - minX) + pad * 2;
-        const vh = (maxY - minY) + pad * 2 + 30;
-        this._svgRoot.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
-    }
-
-    // ---- Link rendering ----
-
-    _renderCloudLinks() {
         if (!this._root) return;
-        const gw = this._root;
-        const gwTop = gw.y - L.infraH / 2;
+
+        this._calcViewBox();
+        this._drawCloudLinks();
+        this._drawTreeLinks(this._root);
+        this._drawClouds();
+        this._drawTree(this._root);
+        this._drawToolbar();
+        this._updateRates();
+        this._svg.style.cursor = 'grab';
+    }
+
+    _calcViewBox() {
+        let x0=Infinity, y0=Infinity, x1=-Infinity, y1=-Infinity;
+        const exp = (x, y, r) => { x0=Math.min(x0,x-r); y0=Math.min(y0,y-r); x1=Math.max(x1,x+r); y1=Math.max(y1,y+r); };
+        const vis = (n) => {
+            exp(n.x, n.y, G.boxW);
+            for (const c of n.infra) vis(c);
+            for (const c of n.clients.slice(0, G.maxClients)) exp(c.x, c.y, G.clientR + 8);
+        };
+        vis(this._root);
+        for (const c of this._clouds) exp(c.x, c.y, G.cloudR + 30);
+
+        const p = G.pad;
+        this._baseVx = x0 - p;
+        this._baseVy = y0 - p;
+        this._baseVw = (x1 - x0) + p * 2;
+        this._baseVh = (y1 - y0) + p * 2 + 50;
+        this._fitAll();
+    }
+
+    // ---- Cloud links ----
+
+    _drawCloudLinks() {
+        if (!this._root) return;
+        const gw = this._root, gwT = gw.y - G.boxH / 2;
 
         for (const cloud of this._clouds) {
-            const cy = cloud.y + L.cloudR + 6;
-            const linkData = this._linkEdges.find(e =>
-                (e.link.kind === LINK_KIND.Wan || e.link.kind === LINK_KIND.Transit)
-                && ((e.link.fromNodeId === cloud.data.id || e.link.toNodeId === cloud.data.id)
-                    || (e.fromNode?.d.kind === NODE_KIND.Gateway && e.toNode?.d.kind === NODE_KIND.Cloud))
-            );
+            const cy = cloud.y + G.cloudR + 8;
+            const edge = this._edges.find(e =>
+                (e.lk.kind === LK.Wan || e.lk.kind === LK.Transit)
+                && (e.lk.fromNodeId === cloud.d.id || e.lk.toNodeId === cloud.d.id));
 
-            const pathD = orthoPath(cloud.x, cy, gw.x, gwTop);
-            const pathEl = svg('path', {
-                d: pathD,
-                fill: 'none',
-                stroke: COLORS.pipeCool,
-                'stroke-width': linkData ? pipeWidth(linkData.link.capacityBps) : L.pipeBase,
-                'stroke-linecap': 'round',
-                opacity: '0.7',
-            }, this._gLinks);
+            const d = orthoPath(cloud.x, cy, gw.x, gwT);
+            const pe = el('path', { d, fill:'none', stroke:C.pipeCool,
+                'stroke-width': edge ? pipeW(edge.lk.capacityBps) : G.pipeBase,
+                'stroke-linecap':'round', opacity:'0.65' }, this._gLinks);
 
-            if (linkData) {
-                linkData._pathEl = pathEl;
-                linkData._x1 = cloud.x; linkData._y1 = cy;
-                linkData._x2 = gw.x; linkData._y2 = gwTop;
-                linkData._isWan = true;
+            if (edge) {
+                edge._pe = pe;
+                edge._x1 = cloud.x; edge._y1 = cy;
+                edge._x2 = gw.x; edge._y2 = gwT;
+                edge._isWan = true;
             }
         }
 
         // Transit links between clouds
-        const sortedClouds = [...this._clouds].sort((a, b) => a.data.order - b.data.order);
-        for (let i = 0; i < sortedClouds.length - 1; i++) {
-            const a = sortedClouds[i], b = sortedClouds[i + 1];
-            const edge = this._linkEdges.find(e =>
-                e.link.kind === LINK_KIND.Transit
-                && ((e.link.fromNodeId === a.data.id && e.link.toNodeId === b.data.id)
-                    || (e.link.fromNodeId === b.data.id && e.link.toNodeId === a.data.id))
-            );
+        const sc = [...this._clouds].sort((a, b) => a.d.order - b.d.order);
+        for (let i = 0; i < sc.length - 1; i++) {
+            const a = sc[i], b = sc[i + 1];
+            const edge = this._edges.find(e =>
+                e.lk.kind === LK.Transit
+                && ((e.lk.fromNodeId === a.d.id && e.lk.toNodeId === b.d.id)
+                    || (e.lk.fromNodeId === b.d.id && e.lk.toNodeId === a.d.id)));
             if (!edge) continue;
-
-            const pathD = `M${a.x + L.cloudR + 4} ${a.y}L${b.x - L.cloudR - 4} ${b.y}`;
-            const pathEl = svg('path', {
-                d: pathD,
-                fill: 'none',
-                stroke: COLORS.pipeCool,
-                'stroke-width': L.pipeBase,
-                'stroke-linecap': 'round',
-                'stroke-dasharray': '6 4',
-                opacity: '0.5',
+            const pe = el('path', {
+                d: `M${a.x+G.cloudR+4} ${a.y}L${b.x-G.cloudR-4} ${b.y}`,
+                fill:'none', stroke:C.pipeCool, 'stroke-width':G.pipeBase,
+                'stroke-linecap':'round', 'stroke-dasharray':'6 4', opacity:'0.45'
             }, this._gLinks);
-            edge._pathEl = pathEl;
-            edge._x1 = a.x + L.cloudR + 4; edge._y1 = a.y;
-            edge._x2 = b.x - L.cloudR - 4; edge._y2 = b.y;
+            edge._pe = pe;
+            edge._x1 = a.x+G.cloudR+4; edge._y1 = a.y;
+            edge._x2 = b.x-G.cloudR-4; edge._y2 = b.y;
         }
     }
 
-    _renderTreeLinks(node) {
-        const parentBottom = node.y + L.infraH / 2;
+    // ---- Tree links ----
 
-        for (const child of node.infraChildren) {
-            const childTop = child.y - L.infraH / 2;
-            this._drawLink(node, child, parentBottom, childTop, false);
-            this._renderTreeLinks(child);
+    _drawTreeLinks(n) {
+        const pB = n.y + G.boxH / 2;
+        for (const c of n.infra) {
+            this._drawLink(n, c, pB, c.y - G.boxH / 2, false);
+            this._drawTreeLinks(c);
         }
-
-        for (const child of node.clientChildren.slice(0, L.maxClients)) {
-            const childTop = child.y - L.clientSize / 2;
-            this._drawLink(node, child, parentBottom, childTop, true);
+        for (const c of n.clients.slice(0, G.maxClients)) {
+            this._drawLink(n, c, pB, c.y - G.clientR, true);
         }
     }
 
-    _drawLink(parent, child, y1, y2, isClientLink) {
-        const edge = this._linkEdges.find(e =>
-            (e.link.fromNodeId === parent.d.id && e.link.toNodeId === child.d.id)
-            || (e.link.fromNodeId === child.d.id && e.link.toNodeId === parent.d.id)
-        );
+    _drawLink(par, child, y1, y2, isCl) {
+        const edge = this._edges.find(e =>
+            (e.lk.fromNodeId === par.d.id && e.lk.toNodeId === child.d.id)
+            || (e.lk.fromNodeId === child.d.id && e.lk.toNodeId === par.d.id));
 
-        const band = edge?.link.band;
-        const coolColor = bandColor(band) || COLORS.pipeCool;
+        const band = edge?.lk.band;
+        const cool = bandClr(band) || C.pipeCool;
 
-        const pathD = orthoPath(parent.x, y1, child.x, y2);
-        const pathEl = svg('path', {
-            d: pathD,
-            fill: 'none',
-            stroke: coolColor,
-            'stroke-width': edge ? pipeWidth(edge.link.capacityBps) : L.pipeBase,
-            'stroke-linecap': 'round',
-            opacity: isClientLink ? '0.35' : '0.6',
-        }, this._gLinks);
+        const d = orthoPath(par.x, y1, child.x, y2);
+        const pe = el('path', { d, fill:'none', stroke:cool,
+            'stroke-width': edge ? pipeW(edge.lk.capacityBps) : G.pipeBase,
+            'stroke-linecap':'round', opacity: isCl ? '0.3' : '0.55' }, this._gLinks);
 
         if (edge) {
-            edge._pathEl = pathEl;
-            edge._x1 = parent.x; edge._y1 = y1;
+            edge._pe = pe; edge._x1 = par.x; edge._y1 = y1;
             edge._x2 = child.x; edge._y2 = y2;
-            edge._isClientLink = isClientLink;
-            edge._band = band;
+            edge._isCl = isCl; edge._band = band;
         }
 
-        // Capacity label for infra links
-        if (!isClientLink && edge?.link.capacityBps) {
-            const cap = edge.link.capacityBps / 1e6;
-            if (cap > 0) {
-                const label = formatLinkSpeed(cap);
-                const midX = (parent.x + child.x) / 2;
-                const midY = (y1 + y2) / 2;
-                this._renderCapLabel(midX, midY, label);
-            }
+        if (!isCl && edge?.lk.capacityBps) {
+            const cap = edge.lk.capacityBps / 1e6;
+            if (cap > 0) this._capLabel((par.x + child.x) / 2, (y1 + y2) / 2, formatSpeed(cap));
         }
     }
 
-    _renderCapLabel(x, y, text) {
-        const g = svg('g', { transform: `translate(${x},${y})` }, this._gLabels);
-
-        const tw = text.length * 5.5 + 12;
-        svg('rect', {
-            x: -tw / 2, y: -8,
-            width: tw, height: 16,
-            rx: 4,
-            fill: COLORS.labelBg,
-        }, g);
-
-        const t = svg('text', {
-            x: 0, y: 4,
-            'text-anchor': 'middle',
-            fill: COLORS.textMuted,
-            'font-size': L.rateFont,
-            'font-family': 'system-ui, sans-serif',
-        }, g);
-        t.textContent = text;
+    _capLabel(x, y, txt) {
+        const g = el('g', { transform:`translate(${x},${y})` }, this._gLabels);
+        const tw = txt.length * 5.5 + 12;
+        el('rect', { x:-tw/2, y:-8, width:tw, height:16, rx:4, fill:C.labelBg }, g);
+        const t = el('text', { x:0, y:4, 'text-anchor':'middle', fill:C.textMuted,
+            'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, g);
+        t.textContent = txt;
     }
 
-    // ---- Cloud rendering ----
+    // ---- Cloud nodes ----
 
-    _renderClouds() {
+    _drawClouds() {
         for (const cloud of this._clouds) {
-            const g = svg('g', { transform: `translate(${cloud.x},${cloud.y})` }, this._gNodes);
-            const r = L.cloudR;
+            const g = el('g', { transform:`translate(${cloud.x},${cloud.y})` }, this._gNodes);
+            const r = G.cloudR;
 
-            // Wireframe globe
-            svg('circle', { cx: 0, cy: 0, r, fill: 'none', stroke: COLORS.cloudStroke, 'stroke-width': 1.5, opacity: 0.8 }, g);
-            svg('ellipse', { cx: 0, cy: 0, rx: r * 0.5, ry: r, fill: 'none', stroke: COLORS.cloudStroke, 'stroke-width': 1, opacity: 0.4 }, g);
-            svg('ellipse', { cx: 0, cy: 0, rx: r, ry: r * 0.35, fill: 'none', stroke: COLORS.cloudStroke, 'stroke-width': 1, opacity: 0.4 }, g);
-            svg('ellipse', { cx: 0, cy: 0, rx: r, ry: r * 0.65, fill: 'none', stroke: COLORS.cloudStroke, 'stroke-width': 0.7, opacity: 0.25 }, g);
+            // Blue wireframe globe
+            el('circle', { cx:0, cy:0, r, fill:'none', stroke:C.globeStroke, 'stroke-width':1.5, opacity:0.8 }, g);
+            el('ellipse', { cx:0, cy:0, rx:r*0.45, ry:r, fill:'none', stroke:C.globeStroke, 'stroke-width':1, opacity:0.35 }, g);
+            el('ellipse', { cx:0, cy:0, rx:r, ry:r*0.35, fill:'none', stroke:C.globeStroke, 'stroke-width':1, opacity:0.35 }, g);
+            el('ellipse', { cx:0, cy:0, rx:r, ry:r*0.65, fill:'none', stroke:C.globeStroke, 'stroke-width':0.7, opacity:0.2 }, g);
+            el('circle', { cx:0, cy:0, r:r-1, fill:C.globeStroke, opacity:0.05 }, g);
 
-            // Subtle fill
-            svg('circle', { cx: 0, cy: 0, r: r - 1, fill: COLORS.cloudStroke, opacity: 0.06 }, g);
+            const name = cloud.d.asnName || cloud.d.name || 'WAN';
+            const lb = el('text', { x:0, y:r+18, 'text-anchor':'middle', fill:C.textSec,
+                'font-size':G.nameFont, 'font-family':'system-ui,sans-serif', 'font-weight':500 }, g);
+            lb.textContent = name;
 
-            // Name label below
-            const name = cloud.data.asnName || cloud.data.name || 'WAN';
-            const label = svg('text', {
-                x: 0, y: r + 16,
-                'text-anchor': 'middle',
-                fill: COLORS.textSec,
-                'font-size': L.nameFont,
-                'font-family': 'system-ui, sans-serif',
-                'font-weight': 500,
-            }, g);
-            label.textContent = name;
-
-            // RTT badge
-            cloud._rttEl = svg('text', {
-                x: 0, y: r + 30,
-                'text-anchor': 'middle',
-                fill: COLORS.textMuted,
-                'font-size': L.rateFont - 1,
-                'font-family': 'system-ui, sans-serif',
-            }, g);
-            this._updateCloudBadge(cloud);
+            cloud._rtt = el('text', { x:0, y:r+31, 'text-anchor':'middle', fill:C.textMuted,
+                'font-size':G.rateFont-1, 'font-family':'system-ui,sans-serif' }, g);
+            this._cloudBadge(cloud);
         }
     }
 
-    _updateCloudBadge(cloud) {
-        if (!cloud._rttEl) return;
-        const d = cloud.data;
-        let txt = '';
-        if (d.rttAvgMs != null) txt += `${d.rttAvgMs.toFixed(1)} ms`;
-        if (d.lossPercent != null && d.lossPercent > 0) {
-            txt += txt ? ' / ' : '';
-            txt += `${d.lossPercent.toFixed(1)}% loss`;
-        }
-        cloud._rttEl.textContent = txt;
+    _cloudBadge(c) {
+        if (!c._rtt) return;
+        const d = c.d; let t = '';
+        if (d.rttAvgMs != null) t += `${d.rttAvgMs.toFixed(1)} ms`;
+        if (d.lossPercent && d.lossPercent > 0) t += (t ? ' / ' : '') + `${d.lossPercent.toFixed(1)}% loss`;
+        c._rtt.textContent = t;
     }
 
-    // ---- Node rendering ----
+    // ---- Infrastructure + client nodes ----
 
-    _renderTreeNodes(node) {
-        this._renderInfraNode(node);
-        for (const child of node.infraChildren) this._renderTreeNodes(child);
-        for (const child of node.clientChildren.slice(0, L.maxClients)) {
-            this._renderClientNode(child);
-        }
-        // "+N more" indicator
-        if (node.clientChildren.length > L.maxClients) {
-            const last = node.clientChildren[L.maxClients - 1];
-            const extra = node.clientChildren.length - L.maxClients;
-            const t = svg('text', {
-                x: last.x + L.clientSize + 8,
-                y: last.y + 4,
-                fill: COLORS.textMuted,
-                'font-size': L.rateFont,
-                'font-family': 'system-ui, sans-serif',
-            }, this._gLabels);
+    _drawTree(n) {
+        this._drawInfra(n);
+        for (const c of n.infra) this._drawTree(c);
+        for (const c of n.clients.slice(0, G.maxClients)) this._drawClient(c);
+        if (n.clients.length > G.maxClients) {
+            const last = n.clients[G.maxClients - 1];
+            const extra = n.clients.length - G.maxClients;
+            const t = el('text', { x:last.x + G.clientR + 10, y:last.y + 4,
+                fill:C.textMuted, 'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, this._gLabels);
             t.textContent = `+${extra}`;
         }
     }
 
-    _renderInfraNode(node) {
-        const g = svg('g', {
-            transform: `translate(${node.x},${node.y})`,
-            class: 'infra-node',
-        }, this._gNodes);
+    _drawInfra(n) {
+        const g = el('g', { transform:`translate(${n.x},${n.y})`, class:'inf' }, this._gNodes);
+        const color = nodeClr(n.d.kind);
+        const hw = G.boxW / 2, hh = G.boxH / 2;
 
-        const color = nodeColor(node.d.kind);
-        const hw = L.infraW / 2;
-        const hh = L.infraH / 2;
-        const iconSize = 40;
+        // Glow
+        el('rect', { x:-hw-5, y:-hh-5, width:G.boxW+10, height:G.boxH+10,
+            rx:14, fill:color, opacity:0.07 }, g);
 
-        // Glow ring behind
-        svg('rect', {
-            x: -hw - 4, y: -hh - 4,
-            width: L.infraW + 8, height: L.infraH + 8,
-            rx: 12,
-            fill: color,
-            opacity: 0.08,
-            filter: 'url(#node-glow)',
-        }, g);
+        // Card
+        el('rect', { x:-hw, y:-hh, width:G.boxW, height:G.boxH, rx:10,
+            fill:'#1a1d23', stroke:color, 'stroke-width':1.5,
+            opacity: n.d.online ? 1 : 0.35 }, g);
 
-        // Background card
-        svg('rect', {
-            x: -hw, y: -hh,
-            width: L.infraW, height: L.infraH,
-            rx: 8,
-            fill: '#1a1d23',
-            stroke: color,
-            'stroke-width': 1.5,
-            opacity: node.d.online ? 1 : 0.4,
-        }, g);
-
-        // Device icon or fallback
-        if (node.d.model) {
-            const imgPath = `/images/devices/${node.d.model.toLowerCase().replace(/ /g, '-')}.png`;
-            const img = svg('image', {
-                href: imgPath,
-                x: -iconSize / 2, y: -iconSize / 2,
-                width: iconSize, height: iconSize,
-                opacity: node.d.online ? 1 : 0.4,
-            }, g);
-            img.addEventListener('error', () => {
-                img.remove();
-                this._renderFallbackIcon(g, node, color, iconSize);
-            }, { once: true });
+        // Device icon (large, fills the card)
+        const iSz = G.iconSize;
+        if (n.d.model) {
+            const path = `/images/devices/${n.d.model.toLowerCase().replace(/ /g, '-')}.png`;
+            const img = el('image', { href:path, x:-iSz/2, y:-iSz/2, width:iSz, height:iSz,
+                opacity: n.d.online ? 1 : 0.35 }, g);
+            img.addEventListener('error', () => { img.remove(); this._fallback(g, n, color); }, { once: true });
         } else {
-            this._renderFallbackIcon(g, node, color, iconSize);
+            this._fallback(g, n, color);
         }
 
-        // Name label below
-        const name = node.d.name || node.d.model || '';
+        // Name
+        const name = n.d.name || n.d.model || '';
         if (name) {
-            const displayName = name.length > 14 ? name.slice(0, 13) + '…' : name;
-            const t = svg('text', {
-                x: 0, y: hh + 16,
-                'text-anchor': 'middle',
-                fill: COLORS.text,
-                'font-size': L.nameFont,
-                'font-family': 'system-ui, sans-serif',
-                'font-weight': 500,
-            }, g);
-            t.textContent = displayName;
+            const dn = name.length > 16 ? name.slice(0, 15) + '…' : name;
+            const t = el('text', { x:0, y:hh+17, 'text-anchor':'middle', fill:C.text,
+                'font-size':G.nameFont, 'font-family':'system-ui,sans-serif', 'font-weight':500 }, g);
+            t.textContent = dn;
         }
 
-        // Rate label (updated dynamically)
-        node._rateGroup = svg('g', { transform: `translate(0, ${hh + 30})` }, g);
-        node._rateDown = svg('text', {
-            x: -4, y: 0,
-            'text-anchor': 'end',
-            fill: COLORS.downstream,
-            'font-size': L.rateFont,
-            'font-family': 'system-ui, sans-serif',
-        }, node._rateGroup);
-        node._rateUp = svg('text', {
-            x: 4, y: 0,
-            'text-anchor': 'start',
-            fill: COLORS.upstream,
-            'font-size': L.rateFont,
-            'font-family': 'system-ui, sans-serif',
-        }, node._rateGroup);
+        // Rate label area
+        n._rd = el('text', { x:-3, y:hh+31, 'text-anchor':'end', fill:C.downstream,
+            'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, g);
+        n._ru = el('text', { x:3, y:hh+31, 'text-anchor':'start', fill:C.upstream,
+            'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, g);
     }
 
-    _renderFallbackIcon(g, node, color, size) {
-        const hs = size / 2;
-        svg('rect', {
-            x: -hs + 4, y: -hs + 4,
-            width: size - 8, height: size - 8,
-            rx: 6,
-            fill: color,
-            opacity: 0.2,
-        }, g);
-        const letter = (node.d.name || 'D').charAt(0).toUpperCase();
-        const t = svg('text', {
-            x: 0, y: 5,
-            'text-anchor': 'middle',
-            fill: color,
-            'font-size': 16,
-            'font-weight': 600,
-            'font-family': 'system-ui, sans-serif',
-        }, g);
-        t.textContent = letter;
+    _fallback(g, n, color) {
+        const s = G.iconSize / 2 - 6;
+        el('rect', { x:-s, y:-s, width:s*2, height:s*2, rx:6, fill:color, opacity:0.2 }, g);
+        const t = el('text', { x:0, y:6, 'text-anchor':'middle', fill:color,
+            'font-size':18, 'font-weight':600, 'font-family':'system-ui,sans-serif' }, g);
+        t.textContent = (n.d.name || 'D').charAt(0).toUpperCase();
     }
 
-    _renderClientNode(node) {
-        const g = svg('g', {
-            transform: `translate(${node.x},${node.y})`,
-            class: 'client-node',
-        }, this._gNodes);
+    _drawClient(n) {
+        const g = el('g', { transform:`translate(${n.x},${n.y})`, class:'cl' }, this._gNodes);
+        const color = nodeClr(n.d.kind, n.d.band);
+        const r = G.clientR;
+        const op = n.d.online ? 0.7 : 0.2;
 
-        const color = nodeColor(node.d.kind, node.d.band);
-        const r = L.clientSize / 2 - 1;
-
-        if (node.d.kind === NODE_KIND.WifiClient) {
-            // Circle for WiFi client
-            svg('circle', {
-                cx: 0, cy: 0, r,
-                fill: color,
-                opacity: node.d.online ? 0.7 : 0.2,
-            }, g);
-            // WiFi arc indicator
-            svg('path', {
-                d: `M${-3} ${-1}Q0 ${-5} 3 ${-1}`,
-                fill: 'none',
-                stroke: '#fff',
-                'stroke-width': 1,
-                opacity: 0.5,
-            }, g);
+        if (n.d.kind === NK.WifiClient) {
+            el('circle', { cx:0, cy:0, r, fill:color, opacity:op }, g);
+            // Tiny wifi arc
+            el('path', { d:`M${-2.5} ${-0.5}Q0 ${-4} 2.5 ${-0.5}`, fill:'none',
+                stroke:'#fff', 'stroke-width':0.8, opacity:0.5 }, g);
         } else {
-            // Rounded rect for wired client (monitor shape)
-            const s = r * 1.4;
-            svg('rect', {
-                x: -s, y: -s + 1,
-                width: s * 2, height: s * 1.6,
-                rx: 2,
-                fill: color,
-                opacity: node.d.online ? 0.6 : 0.2,
-            }, g);
-            // Stand
-            svg('line', {
-                x1: 0, y1: s * 0.6 + 1,
-                x2: 0, y2: s + 1,
-                stroke: color,
-                'stroke-width': 1.5,
-                opacity: node.d.online ? 0.6 : 0.2,
-            }, g);
+            // Small monitor shape
+            const s = r * 0.9;
+            el('rect', { x:-s, y:-s+0.5, width:s*2, height:s*1.5, rx:1.5, fill:color, opacity:op }, g);
+            el('line', { x1:0, y1:s*0.5+0.5, x2:0, y2:s+1, stroke:color, 'stroke-width':1.2, opacity:op }, g);
         }
 
-        // Tooltip via data-tooltip
-        const name = node.d.name || node.d.ip || '';
+        const name = n.d.name || n.d.ip || '';
         if (name) g.setAttribute('data-tooltip', name);
+    }
+
+    // ---- Toolbar ----
+
+    _drawToolbar() {
+        const tb = document.createElement('div');
+        tb.className = 'lfm2d-toolbar';
+        tb.innerHTML = `<button class="lfm2d-btn" data-action="zin" title="Zoom in">+</button>`
+            + `<button class="lfm2d-btn" data-action="zout" title="Zoom out">&minus;</button>`
+            + `<button class="lfm2d-btn" data-action="fit" title="Fit all">&#x2922;</button>`;
+        tb.addEventListener('click', (e) => {
+            const a = e.target.closest('[data-action]')?.dataset.action;
+            if (a === 'zin') { this._zoomBy(0.8); }
+            else if (a === 'zout') { this._zoomBy(1.25); }
+            else if (a === 'fit') { this._fitAll(); }
+        });
+        this._el.appendChild(tb);
+    }
+
+    _zoomBy(factor) {
+        const cx = this._vx + this._vw / 2;
+        const cy = this._vy + this._vh / 2;
+        this._vw *= factor;
+        this._vh *= factor;
+        this._vx = cx - this._vw / 2;
+        this._vy = cy - this._vh / 2;
+        this._applyViewBox();
     }
 
     // ---- Rate updates ----
 
     _updateRates() {
-        this._updateNodeRateLabels();
-        this._updatePipeColors();
+        this._updateLabels();
+        this._updatePipes();
+        this._updateCloudStats();
         this._syncParticles();
     }
 
-    _updateNodeRateLabels() {
+    _updateLabels() {
         if (!this._root) return;
+        // Use node badges from the shared data (same source as 3D map).
+        // fabricIngress/Egress for switches, aggregateIn/Out for APs.
+        // Direction: blue ↓ = download = data flowing toward leaves.
+        const badges = flowData.getNodeBadges();
 
-        const nodeRates = new Map();
-        for (const edge of this._linkEdges) {
-            const rates = this._liveRates[edge.link.portKey] || this._liveRates[edge.link.id];
-            if (!rates) continue;
-            const down = rates.downstreamBps ?? rates.DownstreamBps ?? 0;
-            const up = rates.upstreamBps ?? rates.UpstreamBps ?? 0;
+        const upd = (n) => {
+            if (n._rd) {
+                let downBps = 0, upBps = 0, any = false;
+                const b = badges?.[n.d.id];
+                const hasFab = b && (b.fabricIngressBps != null || b.fabricEgressBps != null);
+                const hasAgg = b && (b.aggregateInBps != null || b.aggregateOutBps != null);
 
-            // Accumulate on parent infrastructure node
-            for (const nodeId of [edge.link.fromNodeId, edge.link.toNodeId]) {
-                const tn = this._treeNodes.get(nodeId);
-                if (tn && isInfra(tn.d.kind)) {
-                    const cur = nodeRates.get(nodeId) || { down: 0, up: 0 };
-                    cur.down += down;
-                    cur.up += up;
-                    nodeRates.set(nodeId, cur);
+                if (hasFab) {
+                    downBps = b.fabricIngressBps || 0;
+                    upBps = b.fabricEgressBps || 0;
+                    any = downBps > 0 || upBps > 0;
+                } else if (hasAgg) {
+                    // APs: aggregateIn = client data arriving at AP, aggregateOut = data leaving AP.
+                    // Label is gateway-relative (↓=from gateway) so APs swap.
+                    if (n.d.kind === NK.AP) {
+                        downBps = b.aggregateOutBps || 0;
+                        upBps = b.aggregateInBps || 0;
+                    } else {
+                        downBps = b.aggregateInBps || 0;
+                        upBps = b.aggregateOutBps || 0;
+                    }
+                    any = downBps > 0 || upBps > 0;
+                } else {
+                    // Fallback: sum adjacent link rates
+                    for (const e of this._edges) {
+                        if (e.lk.fromNodeId !== n.d.id && e.lk.toNodeId !== n.d.id) continue;
+                        const r = this._liveRates[e.lk.portKey] || this._liveRates[e.lk.id];
+                        if (!r) continue;
+                        any = true;
+                        downBps += r.downstreamBps ?? 0;
+                        upBps += r.upstreamBps ?? 0;
+                    }
                 }
-            }
-        }
 
-        const updateNode = (node) => {
-            const r = nodeRates.get(node.d.id);
-            if (node._rateDown) {
-                const d = r?.down || 0;
-                const u = r?.up || 0;
-                node._rateDown.textContent = d > RATE_THRESHOLD ? '↓ ' + formatBps(d) : '';
-                node._rateUp.textContent = u > RATE_THRESHOLD ? '↑ ' + formatBps(u) : '';
+                n._rd.textContent = (any && downBps > 100000) ? '↓' + formatBps(downBps) : '';
+                n._ru.textContent = (any && upBps > 100000) ? '↑' + formatBps(upBps) : '';
             }
-            for (const c of node.infraChildren) updateNode(c);
+            for (const c of n.infra) upd(c);
         };
-        updateNode(this._root);
+        upd(this._root);
     }
 
-    _updatePipeColors() {
-        for (const edge of this._linkEdges) {
-            if (!edge._pathEl) continue;
-            const rates = this._liveRates[edge.link.portKey] || this._liveRates[edge.link.id];
-            if (!rates) continue;
-            const down = rates.downstreamBps ?? rates.DownstreamBps ?? 0;
-            const up = rates.upstreamBps ?? rates.UpstreamBps ?? 0;
-            const cap = edge.link.capacityBps || 1e9;
-            const util = Math.max(down, up) / cap;
-            const color = pipeColorForUtil(Math.min(util, 1), edge._band);
-            edge._pathEl.setAttribute('stroke', color);
-            const op = edge._isClientLink ? 0.35 + util * 0.4 : 0.5 + util * 0.5;
-            edge._pathEl.setAttribute('opacity', String(Math.min(op, 1)));
+    _updatePipes() {
+        for (const e of this._edges) {
+            if (!e._pe) continue;
+            const r = this._liveRates[e.lk.portKey] || this._liveRates[e.lk.id];
+            if (!r) continue;
+            const dn = r.downstreamBps ?? 0, up = r.upstreamBps ?? 0;
+            const cap = e.lk.capacityBps || 1e9;
+            const u = Math.max(dn, up) / cap;
+            e._pe.setAttribute('stroke', pipeClr(Math.min(u, 1), e._band));
+            const op = e._isCl ? 0.3 + u * 0.45 : 0.5 + u * 0.5;
+            e._pe.setAttribute('opacity', String(Math.min(op, 1)));
         }
     }
 
-    // ---- Particle system ----
+    _updateCloudStats() {
+        const cs = flowData.getCloudStats();
+        for (const cloud of this._clouds) {
+            const live = cs?.[cloud.d.id];
+            if (live) {
+                if (live.rttAvgMs != null) cloud.d.rttAvgMs = live.rttAvgMs;
+                if (live.lossPercent != null) cloud.d.lossPercent = live.lossPercent;
+            }
+            this._cloudBadge(cloud);
+        }
+    }
+
+    // ---- Particle system (matches 3D map emission model) ----
 
     _syncParticles() {
-        // Remove all existing particles
-        this._gParticles.innerHTML = '';
+        this._gParts.innerHTML = '';
         this._particles = [];
 
-        for (const edge of this._linkEdges) {
-            if (!edge._pathEl || edge._isClientLink) continue;
-            const rates = this._liveRates[edge.link.portKey] || this._liveRates[edge.link.id];
-            if (!rates) continue;
-            const down = rates.downstreamBps ?? rates.DownstreamBps ?? 0;
-            const up = rates.upstreamBps ?? rates.UpstreamBps ?? 0;
+        for (const e of this._edges) {
+            if (!e._pe || e._isCl) continue;
+            const r = this._liveRates[e.lk.portKey] || this._liveRates[e.lk.id];
+            const dn = r?.downstreamBps ?? 0;
+            const up = r?.upstreamBps ?? 0;
+            const len = orthoLen(e._x1, e._y1, e._x2, e._y2);
+            if (len < 5) continue;
 
-            const len = orthoLength(edge._x1, edge._y1, edge._x2, edge._y2);
-            if (len < 10) continue;
+            // Downstream particles
+            if (dn > 0) this._spawnStream(e, dn, 1, C.downstream);
+            // Upstream particles
+            if (up > 0) this._spawnStream(e, up, -1, C.upstream);
+        }
+    }
 
-            // Downstream particles (flow along path direction: parent → child)
-            if (down > RATE_THRESHOLD) {
-                const count = Math.min(Math.ceil(Math.log10(Math.max(down, 1)) / 2.5), 5);
-                const speed = 0.3 + Math.min(Math.log10(Math.max(down, 1)) / 11, 1) * 0.7;
-                for (let i = 0; i < count; i++) {
-                    const el = svg('circle', {
-                        r: L.particleR,
-                        fill: COLORS.downstream,
-                        opacity: 0.85,
-                        filter: 'url(#particle-glow)',
-                    }, this._gParticles);
-                    this._particles.push({
-                        el, edge,
-                        t: i / count,
-                        speed,
-                        dir: 1,
-                    });
-                }
-            }
+    _spawnStream(edge, bps, dir, color) {
+        // 3D map formula: intensity = log10(max(bps,1)) / 11, clamped 0..1
+        const intensity = Math.max(0, Math.min(1, Math.log10(Math.max(bps, 1)) / 11));
+        // Emission density - how many particles visible at once
+        // density² * 12 = emissions/sec. At steady state ~density²*12 / velocity particles in flight.
+        const density = intensity;
+        // Particle size: squared curve matching 3D map
+        const size = 1.5 + (intensity * intensity) * 5;
+        // Velocity: 0..1 range, normalized per-second fraction of path
+        const vel = 0.15 + intensity * 0.45;
+        // Count: density²*12 is emission rate; at vel speed, in-flight ≈ emission/vel
+        const count = Math.max(1, Math.min(Math.ceil(density * density * 12 / Math.max(vel, 0.1)), 10));
 
-            // Upstream particles (flow against path: child → parent)
-            if (up > RATE_THRESHOLD) {
-                const count = Math.min(Math.ceil(Math.log10(Math.max(up, 1)) / 2.5), 5);
-                const speed = 0.3 + Math.min(Math.log10(Math.max(up, 1)) / 11, 1) * 0.7;
-                for (let i = 0; i < count; i++) {
-                    const el = svg('circle', {
-                        r: L.particleR,
-                        fill: COLORS.upstream,
-                        opacity: 0.85,
-                        filter: 'url(#particle-glow)',
-                    }, this._gParticles);
-                    this._particles.push({
-                        el, edge,
-                        t: i / count,
-                        speed,
-                        dir: -1,
-                    });
-                }
-            }
+        for (let i = 0; i < count; i++) {
+            const dot = el('circle', {
+                r: size, fill: color, opacity: 0.85, filter: 'url(#pg)',
+            }, this._gParts);
+            this._particles.push({
+                el: dot, edge,
+                t: i / count + (Math.random() * 0.05),
+                speed: vel * (0.85 + Math.random() * 0.3),
+                dir, size,
+            });
         }
     }
 
@@ -1031,11 +828,7 @@ class LanFlowMap2D {
             if (p.t > 1) p.t -= 1;
             if (p.t < 0) p.t += 1;
 
-            const pt = orthoPointAt(
-                p.edge._x1, p.edge._y1,
-                p.edge._x2, p.edge._y2,
-                p.t
-            );
+            const pt = orthoAt(p.edge._x1, p.edge._y1, p.edge._x2, p.edge._y2, p.t);
             p.el.setAttribute('cx', pt.x);
             p.el.setAttribute('cy', pt.y);
         }
@@ -1045,17 +838,16 @@ class LanFlowMap2D {
 }
 
 // ---- Module exports ----
-
-let _instance = null;
+let _inst = null;
 
 export async function mount(containerId) {
-    if (_instance) { _instance.dispose(); _instance = null; }
-    const el = document.getElementById(containerId);
-    if (!el) return;
-    _instance = new LanFlowMap2D(el);
-    await _instance.start();
+    if (_inst) { _inst.dispose(); _inst = null; }
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    _inst = new LanFlowMap2D(container);
+    await _inst.start();
 }
 
 export function unmount() {
-    if (_instance) { _instance.dispose(); _instance = null; }
+    if (_inst) { _inst.dispose(); _inst = null; }
 }

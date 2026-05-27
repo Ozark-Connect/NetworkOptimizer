@@ -743,6 +743,7 @@ else
     .lan-flow-map-2d-body {
         padding: 0;
         background: #202023;
+        position: relative;
     }
     .lan-flow-map-2d-stage {
         width: 100%;
@@ -755,11 +756,38 @@ else
         height: auto;
         min-height: 420px;
     }
-    .lan-flow-map-2d-stage .infra-node {
+    .lan-flow-map-2d-stage .cl {
         cursor: default;
     }
-    .lan-flow-map-2d-stage .client-node {
-        cursor: default;
+    .lan-flow-map-2d-stage svg {
+        cursor: grab;
+    }
+    .lfm2d-toolbar {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        z-index: 2;
+    }
+    .lfm2d-btn {
+        width: 32px;
+        height: 32px;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        background: rgba(26,29,35,0.9);
+        color: var(--text-secondary);
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+    .lfm2d-btn:hover {
+        background: rgba(51,56,68,0.9);
+        color: var(--text-primary);
     }
 </style>
 
