@@ -705,16 +705,16 @@ public class MonitoringCollectionAgent : BackgroundService
                 long? uptime = ss != null ? (long?)ParseJsonDouble(ss.Uptime) : null;
                 double? temp = ParseDeviceTemperature(device);
 
-                // Only supplement fields SNMP didn't already provide this cycle.
+                // SNMP devices: only supplement fields SNMP doesn't provide.
+                // SNMP covers CPU/mem/uptime reliably. Temperature is the gap -
+                // most switches don't report temp via SNMP but the UniFi API has it.
+                // Always write API temp for SNMP devices; skip CPU/mem/uptime.
                 if (snmpActive)
                 {
-                    var existing = _liveStats.GetForDevice(mac);
-                    var fresh = existing?.LastHealthUpdate >= now.AddSeconds(-35);
-                    if (fresh && existing?.CpuPercent != null) cpu = null;
-                    if (fresh && existing?.MemoryUsedPercent != null) mem = null;
-                    if (fresh && existing?.TemperatureC != null) temp = null;
+                    cpu = null;
+                    mem = null;
                     uptime = null;
-                    if (cpu == null && mem == null && temp == null) continue;
+                    if (temp == null) continue;
                 }
 
                 if (cpu == null && mem == null && temp == null) continue;
