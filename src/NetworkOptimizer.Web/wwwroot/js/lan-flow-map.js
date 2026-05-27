@@ -459,6 +459,12 @@ export class LanFlowMap {
             const snap = await res.json();
             this._snapshot = snap;
             flowData.publishSnapshot(snap);
+            // Seed cloudStats from snapshot clouds so RTT labels show immediately
+            const seedCloudStats = {};
+            for (const c of (snap.clouds || [])) {
+                seedCloudStats[c.id] = { rttAvgMs: c.rttAvgMs, lossPercent: c.lossPercent, success: c.rttAvgMs != null };
+            }
+            flowData.publishLive({ cloudStats: seedCloudStats });
 
             this._layoutNodes(snap);
             this._rebuildBuildings(snap);
@@ -470,6 +476,7 @@ export class LanFlowMap {
             this._buildFloatingLabels(snap);
             this._applyOverlayVisibility();
             this._applyLiveRates(snap.liveRates || {});
+            this._refreshCloudRttLabels();
         } catch (err) {
             this.onError(err);
         }
