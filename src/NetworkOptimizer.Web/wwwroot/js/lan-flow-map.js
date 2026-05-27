@@ -3182,3 +3182,5 @@ export async function reload() {
     if (!_instance) return;
     await _instance._reloadSnapshot();
 }
+
+export function getInstance() { return _instance; }

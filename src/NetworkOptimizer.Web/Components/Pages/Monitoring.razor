@@ -747,12 +747,7 @@ else
     }
     .lan-flow-map-2d-stage {
         width: 100%;
-        height: 620px;
-        position: relative;
-        overflow: clip;
-    }
-    .lan-flow-map-2d-stage.lan-flow-map-fullscreen {
-        overflow: visible;
+        height: clamp(520px, 70vh, 820px);
     }
     .lfm2d-canvas {
         display: block;

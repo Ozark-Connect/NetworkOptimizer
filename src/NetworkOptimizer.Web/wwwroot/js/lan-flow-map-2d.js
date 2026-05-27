@@ -351,27 +351,27 @@ class LanFlowMap2D {
                 <span data-role="right" style="min-width:10ch">Live</span>
             </div>`;
         // Forward all interactions to the 3D map
-        const fwd=()=>window.__lanFlowMap;
+        const fwd=()=>window.__lanFlowMap?.getInstance?.();
         const sRange=scrubber.querySelector('.lan-flow-map-scrubber-range');
         sRange.addEventListener('input',(e)=>{
-            const m=fwd();if(m?._instance){
-                const r=m._instance._panels?.scrubberRange;
+            const inst=fwd();if(inst){
+                const r=inst._panels?.scrubberRange;
                 if(r){r.value=e.target.value;r.dispatchEvent(new Event('input'));}
             }
         });
         sRange.addEventListener('change',(e)=>{
-            const m=fwd();if(m?._instance){
-                const r=m._instance._panels?.scrubberRange;
+            const inst=fwd();if(inst){
+                const r=inst._panels?.scrubberRange;
                 if(r){r.value=e.target.value;r.dispatchEvent(new Event('change'));}
             }
         });
         scrubber.querySelector('[data-role="playpause"]').addEventListener('click',()=>{
-            const m=fwd();if(m?._instance)m._instance._togglePlayPause();
+            const inst=fwd();if(inst)inst._togglePlayPause();
         });
         for(const btn of scrubber.querySelectorAll('.lan-flow-map-speed-step')){
             btn.addEventListener('click',()=>{
-                const m=fwd();if(m?._instance){
-                    const ob=m._instance._panels?.scrubber?.querySelector(`.lan-flow-map-speed-step[data-dir="${btn.dataset.dir}"]`);
+                const inst=fwd();if(inst){
+                    const ob=inst._panels?.scrubber?.querySelector(`.lan-flow-map-speed-step[data-dir="${btn.dataset.dir}"]`);
                     if(ob)ob.click();
                 }
             });
