@@ -755,6 +755,11 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private static double? ParseDeviceTemperature(UniFiDeviceResponse device)
     {
+        // general_temperature: simple numeric field on switches (e.g., 72)
+        if (device.GeneralTemperature.HasValue && device.GeneralTemperature.Value > 0)
+            return device.GeneralTemperature.Value;
+
+        // temperatures: structured array on gateways, bare integer on some devices
         if (device.Temperatures == null || device.Temperatures.Value.ValueKind == System.Text.Json.JsonValueKind.Undefined)
             return null;
 

@@ -150,6 +150,9 @@ public class UniFiDeviceResponse
     [JsonPropertyName("temperatures")]
     public System.Text.Json.JsonElement? Temperatures { get; set; }
 
+    [JsonPropertyName("general_temperature")]
+    public double? GeneralTemperature { get; set; }
+
     // Wi-Fi specific (APs only)
     /// <summary>
     /// Radio configuration table - per-radio settings (channel, tx_power, antenna)
