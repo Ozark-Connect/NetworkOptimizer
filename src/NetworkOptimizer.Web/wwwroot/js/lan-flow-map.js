@@ -1431,7 +1431,7 @@ export class LanFlowMap {
         if (!parentPos) return;
         // Scatter near parent
         const angle = Math.random() * Math.PI * 2;
-        const dist = 3 + Math.random() * 4;
+        const dist = 6 + Math.random() * 6;
         const pos = {
             x: parentPos.x + Math.cos(angle) * dist,
             y: parentPos.y - 1.5 + Math.random(),
