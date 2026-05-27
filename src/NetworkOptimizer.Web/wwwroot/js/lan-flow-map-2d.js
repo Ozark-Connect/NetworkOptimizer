@@ -36,7 +36,7 @@ const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackha
 // ---- Layout geometry ----
 const G = {
     tierGap:     170,
-    cloudGap:    100,
+    cloudGap:    160,
     infraGap:    90,
     clientCellW: 145,
     clientCellH: 50,
