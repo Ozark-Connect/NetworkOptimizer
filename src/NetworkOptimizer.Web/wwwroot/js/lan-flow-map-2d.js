@@ -109,21 +109,25 @@ function withAlpha(hex, a) {
 }
 
 // ---- Orthogonal path helpers ----
+// All accept an optional midYOff to vertically stagger sibling links.
 
-function orthoLen(x1,y1,x2,y2) {
+function orthoLen(x1,y1,x2,y2,midYOff) {
     if(Math.abs(x1-x2)<0.5)return Math.abs(y2-y1);
-    const ax=Math.abs(x2-x1),hv=Math.abs(y2-y1)/2,cr=Math.min(G.cornerR,ax/2,hv);
-    if(cr<1)return Math.abs(y2-y1)+ax;
-    return (hv-cr)*2+Math.PI*cr+(ax-2*cr);
+    const my=(y1+y2)/2+(midYOff||0);
+    const top=my-y1, bot=y2-my;
+    const ax=Math.abs(x2-x1),cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
+    if(cr<1)return top+ax+bot;
+    return (top-cr)+(bot-cr)+Math.PI*cr+(ax-2*cr);
 }
 
-function orthoAt(x1,y1,x2,y2,t) {
-    const dy=y2-y1;
-    if(Math.abs(x2-x1)<0.5)return{x:x1,y:y1+dy*t};
-    const midY=(y1+y2)/2,dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx),hv=Math.abs(dy)/2;
-    const cr=Math.min(G.cornerR,ax/2,hv);
-    if(cr<1){const tot=hv+ax+hv;let d=t*tot;if(d<=hv)return{x:x1,y:y1+d};d-=hv;if(d<=ax)return{x:x1+s*d,y:midY};d-=ax;return{x:x2,y:midY+d};}
-    const s1=hv-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2,s5=hv-cr;
+function orthoAt(x1,y1,x2,y2,t,midYOff) {
+    if(Math.abs(x2-x1)<0.5)return{x:x1,y:y1+(y2-y1)*t};
+    const midY=(y1+y2)/2+(midYOff||0);
+    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
+    const top=midY-y1,bot=y2-midY;
+    const cr=Math.min(G.cornerR,ax/2,Math.min(top,bot));
+    if(cr<1){const tot=top+ax+bot;let d=t*tot;if(d<=top)return{x:x1,y:y1+d};d-=top;if(d<=ax)return{x:x1+s*d,y:midY};d-=ax;return{x:x2,y:midY+d};}
+    const s1=top-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2,s5=bot-cr;
     const tot=s1+s2+s3+s4+s5;let d=t*tot;
     if(d<=s1)return{x:x1,y:y1+d};d-=s1;
     if(d<=s2){const a=d/s2*Math.PI/2;return{x:x1+s*cr*Math.sin(a),y:midY-cr+cr*(1-Math.cos(a))};}d-=s2;
@@ -132,12 +136,14 @@ function orthoAt(x1,y1,x2,y2,t) {
     return{x:x2,y:midY+cr+d};
 }
 
-function strokeOrtho(ctx,x1,y1,x2,y2) {
+function strokeOrtho(ctx,x1,y1,x2,y2,midYOff) {
     const r=G.cornerR;
     ctx.beginPath();
     if(Math.abs(x1-x2)<0.5){ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();return;}
-    const midY=(y1+y2)/2,dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx),hv=Math.abs(y2-y1)/2;
-    const cr=Math.min(r,ax/2,hv);
+    const midY=(y1+y2)/2+(midYOff||0);
+    const dx=x2-x1,s=dx>0?1:-1,ax=Math.abs(dx);
+    const top=midY-y1,bot=y2-midY;
+    const cr=Math.min(r,ax/2,Math.min(top,bot));
     ctx.moveTo(x1,y1);
     if(cr<1){ctx.lineTo(x1,midY);ctx.lineTo(x2,midY);ctx.lineTo(x2,y2);ctx.stroke();return;}
     ctx.lineTo(x1,midY-cr);
@@ -159,7 +165,8 @@ class Stream {
         this.edge=edge; this.dir=dir; this.color=color;
         this.density=0; this.velNorm=0; this.dotSize=0.4;
         this.spawnAcc=0;
-        this.pathLen=orthoLen(edge._x1,edge._y1,edge._x2,edge._y2);
+        this.midYOff=edge._midYOff||0;
+        this.pathLen=orthoLen(edge._x1,edge._y1,edge._x2,edge._y2,this.midYOff);
         this.slots=[];
         for(let i=0;i<MAX_DOTS;i++)this.slots.push({t:-1,size:0});
         this._seeded=false;
@@ -258,6 +265,7 @@ class LanFlowMap2D {
                 Object.assign(this._liveRates,flowData.getLiveRates());
                 this._updateStreamRates();
                 this._updateCloudStats();
+                this._needsStaticRedraw=true;
             }
         });
         this._lastFrame=performance.now();
@@ -484,25 +492,32 @@ class LanFlowMap2D {
         this._updateStreamRates();
     }
 
-    // Get the ordered list of children for layout purposes.
-    // If a node has both infra and clients, merge clients in (sorted: infra first).
-    // If only clients, group into a compact grid virtual node.
-    _layoutChildren(n){
-        const nc=Math.min(n.clients.length,G.maxClients);
-        if(n.infra.length>0){
-            // Mixed or pure infra: merge clients into the child list
-            return[...n.infra,...n.clients.slice(0,nc)];
-        }
-        // Pure clients
-        return n.clients.slice(0,nc);
-    }
-
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
-        const kids=this._layoutChildren(n);
         const selfW=isClient(n.d.kind)?G.clientCellW:G.boxW+40;
-        const GAP=isClient(n.d.kind)?8:40;
+        const nc=Math.min(n.clients.length,G.maxClients);
+
+        // Pure-client nodes (APs with only WiFi clients): compact grid
+        if(n.infra.length===0&&nc>0){
+            const cols=Math.min(nc,G.clientCols);
+            const rows=Math.ceil(nc/cols);
+            const gridW=cols*G.clientCellW;
+            const gridH=rows*G.clientCellH;
+            n._isGrid=true;
+            n._gridCols=cols;
+            // Contour: node at depth 0, grid rectangle at depth 1
+            n._contour=[
+                {l:-selfW/2,r:selfW/2},
+                {l:-gridW/2,r:gridW/2},
+            ];
+            n._kidOffsets=[];
+            n._kids=[];
+            return;
+        }
+
+        // Infra children (+ any direct clients merged in)
+        const kids=n.infra.length>0?[...n.infra,...n.clients.slice(0,nc)]:[];
 
         if(kids.length===0){
             n._contour=[{l:-selfW/2,r:selfW/2}];
@@ -511,12 +526,10 @@ class LanFlowMap2D {
             return;
         }
 
-        // Recursively compute each child's contour
         for(const k of kids)this._contourLayout(k);
 
-        // Place children left to right, checking contour overlap at every depth
+        const GAP=40;
         const offsets=[];
-        // groupRight[d] = rightmost extent at depth d of all placed children so far
         let groupRight=[];
 
         for(let i=0;i<kids.length;i++){
@@ -531,7 +544,6 @@ class LanFlowMap2D {
                     if(needed>minOff)minOff=needed;
                 }
                 offsets[i]=minOff;
-                // Merge into group contour
                 for(let d=0;d<cc.length;d++){
                     const sr=cc[d].r+minOff;
                     if(d<groupRight.length){if(sr>groupRight[d])groupRight[d]=sr;}
@@ -540,7 +552,6 @@ class LanFlowMap2D {
             }
         }
 
-        // Center children around x=0
         const firstL=offsets[0]+kids[0]._contour[0].l;
         const lastR=offsets[offsets.length-1]+kids[kids.length-1]._contour[0].r;
         const center=(firstL+lastR)/2;
@@ -549,11 +560,9 @@ class LanFlowMap2D {
         n._kidOffsets=centered;
         n._kids=kids;
 
-        // Build node's own contour: self at depth 0, children shifted at depth 1+
         const contour=[{l:-selfW/2,r:selfW/2}];
         let maxD=0;
         for(const k of kids)if(k._contour.length>maxD)maxD=k._contour.length;
-
         for(let d=0;d<maxD;d++){
             let l=Infinity,r=-Infinity;
             for(let i=0;i<kids.length;i++){
@@ -570,11 +579,26 @@ class LanFlowMap2D {
         n._contour=contour;
     }
 
-    // Convert relative offsets to absolute x,y positions
     _assignAbsoluteXY(n,absX,depth){
         const yOff=G.pad+80;
         n.x=absX;
         n.y=yOff+depth*G.tierGap;
+
+        // Client grid: place clients in compact rows
+        if(n._isGrid){
+            const nc=Math.min(n.clients.length,G.maxClients);
+            const cols=n._gridCols;
+            const gridW=cols*G.clientCellW;
+            const gridLeft=absX-gridW/2;
+            const clientY=yOff+(depth+1)*G.tierGap;
+            for(let i=0;i<nc;i++){
+                const col=i%cols,row=Math.floor(i/cols);
+                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2;
+                n.clients[i].y=clientY+row*G.clientCellH;
+            }
+            return;
+        }
+
         const kids=n._kids||[];
         const offsets=n._kidOffsets||[];
         for(let i=0;i<kids.length;i++){
@@ -594,23 +618,32 @@ class LanFlowMap2D {
         const gw=this._root;
         if(!gw)return;
         const gwT=gw.y-G.boxH/2;
+        const STAGGER=6;
 
+        // WAN cloud links - stagger by index
+        const wanEdges=[];
         for(const cloud of this._clouds){
             const cy=cloud.y+G.cloudR+8;
             const edge=this._edges.find(e=>
                 (e.lk.kind===LK.Wan||e.lk.kind===LK.Transit)
                 &&(e.lk.fromNodeId===cloud.d.id||e.lk.toNodeId===cloud.d.id));
-            if(edge){edge._x1=cloud.x;edge._y1=cy;edge._x2=gw.x;edge._y2=gwT;edge._isWan=true;}
+            if(edge){edge._x1=cloud.x;edge._y1=cy;edge._x2=gw.x;edge._y2=gwT;edge._isWan=true;wanEdges.push(edge);}
         }
+        const wanMid=(wanEdges.length-1)/2;
+        for(let i=0;i<wanEdges.length;i++)wanEdges[i]._midYOff=(i-wanMid)*STAGGER;
 
+        // Tree links - stagger siblings from same parent
         const matchTree=(n)=>{
             const pB=n.y+G.boxH/2;
+            const allKids=[...n.infra,...n.clients.slice(0,G.maxClients)];
+            const sibEdges=[];
+
             for(const c of n.infra){
                 const cT=c.y-G.boxH/2;
                 const edge=this._edges.find(e=>
                     (e.lk.fromNodeId===n.d.id&&e.lk.toNodeId===c.d.id)
                     ||(e.lk.fromNodeId===c.d.id&&e.lk.toNodeId===n.d.id));
-                if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=false;}
+                if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=false;sibEdges.push(edge);}
                 matchTree(c);
             }
             for(const c of n.clients.slice(0,G.maxClients)){
@@ -618,7 +651,13 @@ class LanFlowMap2D {
                 const edge=this._edges.find(e=>
                     (e.lk.fromNodeId===n.d.id&&e.lk.toNodeId===c.d.id)
                     ||(e.lk.fromNodeId===c.d.id&&e.lk.toNodeId===n.d.id));
-                if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=true;edge._band=edge.lk.band;}
+                if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=true;edge._band=edge.lk.band;sibEdges.push(edge);}
+            }
+
+            // Stagger horizontal segments of siblings that share the same parent
+            if(sibEdges.length>1){
+                const mid=(sibEdges.length-1)/2;
+                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
             }
         };
         matchTree(gw);
@@ -628,7 +667,7 @@ class LanFlowMap2D {
         this._streams=[];
         for(const e of this._edges){
             if(e._x1==null)continue;
-            const len=orthoLen(e._x1,e._y1,e._x2,e._y2);
+            const len=orthoLen(e._x1,e._y1,e._x2,e._y2,e._midYOff);
             if(len<5)continue;
             e._sDown=new Stream(e,1,C.downstream);
             e._sUp=new Stream(e,-1,C.upstream);
@@ -715,7 +754,7 @@ class LanFlowMap2D {
             ctx.fillStyle=s.color;
             for(const sl of s.slots){
                 if(sl.t<0)continue;
-                const pt=orthoAt(s.edge._x1,s.edge._y1,s.edge._x2,s.edge._y2,sl.t);
+                const pt=orthoAt(s.edge._x1,s.edge._y1,s.edge._x2,s.edge._y2,sl.t,s.midYOff);
                 ctx.globalAlpha=0.85;
                 ctx.beginPath();
                 ctx.arc(pt.x,pt.y,sl.size,0,Math.PI*2);
@@ -766,7 +805,7 @@ class LanFlowMap2D {
             ctx.lineWidth=pipeW(e.lk.capacityBps);
             ctx.lineCap='round';
             ctx.globalAlpha=e._isCl?0.3+u*0.45:0.5+u*0.5;
-            strokeOrtho(ctx,e._x1,e._y1,e._x2,e._y2);
+            strokeOrtho(ctx,e._x1,e._y1,e._x2,e._y2,e._midYOff);
 
             // Capacity label on infra links
             if(!e._isCl&&e.lk.capacityBps){
