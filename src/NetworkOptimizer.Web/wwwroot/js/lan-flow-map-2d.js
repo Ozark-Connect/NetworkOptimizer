@@ -39,9 +39,10 @@ const G = {
     tierGap:     140,
     cloudGap:    100,
     infraGap:    90,
-    clientGap:   6,
+    clientCellW: 68,
+    clientCellH: 38,
     clientR:     7,
-    clientCols:  14,
+    clientCols:  10,
     maxClients:  80,
     iconSize:    52,
     boxW:        68,
@@ -54,6 +55,7 @@ const G = {
     labelFont:   11,
     rateFont:    10,
     nameFont:    11,
+    clientNameFont: 9,
 };
 
 // ---- Helpers ----
@@ -171,7 +173,7 @@ class Stream {
         // Particle pool: t < 0 means inactive
         this._slots = [];
         for (let i = 0; i < MAX_DOTS; i++) {
-            const dot = el('circle', { r: 0.75, fill: color, opacity: 0, filter: 'url(#pg)' }, layer);
+            const dot = el('circle', { r: 0.4, fill: color, opacity: 0, filter: 'url(#pg)' }, layer);
             this._slots.push({ el: dot, t: -1, size: 0 });
         }
     }
@@ -179,7 +181,7 @@ class Stream {
     setRate(bps) {
         const intensity = Math.max(0, Math.min(1, Math.log10(Math.max(bps, 1)) / 11));
         this._density = intensity;
-        this._dotSize = 0.75 + (intensity * intensity) * 2.5;
+        this._dotSize = 0.4 + (intensity * intensity) * 1.2;
         this._velocity = 0.15 + intensity * 0.45;
     }
 
@@ -440,12 +442,11 @@ class LanFlowMap2D {
 
         const nc = Math.min(n.clients.length, G.maxClients);
         const cols = Math.min(nc, G.clientCols);
-        const cw = cols > 0 ? cols * (G.clientR * 2 + G.clientGap) - G.clientGap : 0;
+        const cw = cols > 0 ? cols * G.clientCellW : 0;
 
-        const self = isClient(n.d.kind) ? G.clientR * 2 : G.boxW + 30;
-        let childW = 0;
-        if (iw > 0 && cw > 0) childW = iw + G.infraGap + cw;
-        else childW = iw + cw;
+        const self = isClient(n.d.kind) ? G.clientCellW : G.boxW + 30;
+        // Clients go in a centered row BELOW infra, so width = max(infra, clients)
+        const childW = Math.max(iw, cw);
 
         n.w = Math.max(self, childW);
     }
@@ -459,38 +460,40 @@ class LanFlowMap2D {
             return;
         }
 
+        // Infra children: centered row at depth+1
         let iw = n.infra.reduce((s, c) => s + c.w, 0);
         if (n.infra.length > 1) iw += (n.infra.length - 1) * G.infraGap;
 
-        const nc = Math.min(n.clients.length, G.maxClients);
-        const cols = Math.min(nc, G.clientCols);
-        const cw = cols > 0 ? cols * (G.clientR * 2 + G.clientGap) - G.clientGap : 0;
-
-        let combW = 0;
-        if (iw > 0 && cw > 0) combW = iw + G.infraGap + cw;
-        else combW = iw + cw;
-
-        let cur = lx + (n.w - combW) / 2;
-
+        let cur = lx + (n.w - iw) / 2;
         for (const c of n.infra) {
             this._positions(c, cur, depth + 1);
             cur += c.w + G.infraGap;
         }
 
+        // Client children: centered grid rows BELOW infra (separate tier)
+        const nc = Math.min(n.clients.length, G.maxClients);
         if (nc > 0) {
-            const clientY = yOff + (depth + 1) * G.tierGap;
-            const cellW = G.clientR * 2 + G.clientGap;
+            const cols = Math.min(nc, G.clientCols);
+            const gridW = cols * G.clientCellW;
+            const gridLeft = lx + (n.w - gridW) / 2;
+            // If infra children exist, clients go one tier further down
+            const clientDepth = n.infra.length > 0 ? depth + 2 : depth + 1;
+            const clientY = yOff + clientDepth * G.tierGap;
+
             for (let i = 0; i < nc; i++) {
                 const col = i % cols, row = Math.floor(i / cols);
                 const cn = n.clients[i];
-                cn.x = cur + col * cellW + G.clientR;
-                cn.y = clientY + row * cellW;
+                cn.x = gridLeft + col * G.clientCellW + G.clientCellW / 2;
+                cn.y = clientY + row * G.clientCellH;
             }
         }
 
-        const allK = [...n.infra, ...n.clients.slice(0, nc)];
-        if (allK.length > 0) {
-            n.x = (Math.min(...allK.map(c => c.x)) + Math.max(...allK.map(c => c.x))) / 2;
+        // Center parent over infra children (clients are secondary)
+        if (n.infra.length > 0) {
+            n.x = (Math.min(...n.infra.map(c => c.x)) + Math.max(...n.infra.map(c => c.x))) / 2;
+        } else if (nc > 0) {
+            const placed = n.clients.slice(0, nc);
+            n.x = (Math.min(...placed.map(c => c.x)) + Math.max(...placed.map(c => c.x))) / 2;
         } else {
             n.x = lx + n.w / 2;
         }
@@ -536,7 +539,7 @@ class LanFlowMap2D {
         const vis = (n) => {
             exp(n.x, n.y, G.boxW);
             for (const c of n.infra) vis(c);
-            for (const c of n.clients.slice(0, G.maxClients)) exp(c.x, c.y, G.clientR + 8);
+            for (const c of n.clients.slice(0, G.maxClients)) exp(c.x, c.y, G.clientCellW / 2);
         };
         vis(this._root);
         for (const c of this._clouds) exp(c.x, c.y, G.cloudR + 30);
@@ -770,18 +773,23 @@ class LanFlowMap2D {
 
         if (n.d.kind === NK.WifiClient) {
             el('circle', { cx:0, cy:0, r, fill:color, opacity:op }, g);
-            // Tiny wifi arc
             el('path', { d:`M${-2.5} ${-0.5}Q0 ${-4} 2.5 ${-0.5}`, fill:'none',
                 stroke:'#fff', 'stroke-width':0.8, opacity:0.5 }, g);
         } else {
-            // Small monitor shape
             const s = r * 0.9;
             el('rect', { x:-s, y:-s+0.5, width:s*2, height:s*1.5, rx:1.5, fill:color, opacity:op }, g);
             el('line', { x1:0, y1:s*0.5+0.5, x2:0, y2:s+1, stroke:color, 'stroke-width':1.2, opacity:op }, g);
         }
 
+        // Visible name label below
         const name = n.d.name || n.d.ip || '';
-        if (name) g.setAttribute('data-tooltip', name);
+        if (name) {
+            const dn = name.length > 10 ? name.slice(0, 9) + '…' : name;
+            const t = el('text', { x:0, y:r + 11, 'text-anchor':'middle', fill:C.textMuted,
+                'font-size':G.clientNameFont, 'font-family':'system-ui,sans-serif' }, g);
+            t.textContent = dn;
+            g.setAttribute('data-tooltip', name);
+        }
     }
 
     // ---- Toolbar ----
@@ -882,11 +890,11 @@ class LanFlowMap2D {
             const op = e._isCl ? 0.3 + u * 0.45 : 0.5 + u * 0.5;
             e._pe.setAttribute('opacity', String(Math.min(op, 1)));
 
-            // Live rate label on links
+            // Live rate label - show both directions when either exceeds threshold
             if (e._rlD) {
                 if (dn > THRESH || up > THRESH) {
-                    e._rlD.textContent = dn > THRESH ? '↓' + formatBps(dn) : '';
-                    e._rlU.textContent = up > THRESH ? '↑' + formatBps(up) : '';
+                    e._rlD.textContent = '↓' + (dn > 0 ? formatBps(dn) : '0 bps');
+                    e._rlU.textContent = '↑' + (up > 0 ? formatBps(up) : '0 bps');
                     const tw = Math.max((e._rlD.textContent.length + e._rlU.textContent.length) * 5 + 16, 40);
                     e._rlBg.setAttribute('x', -tw / 2);
                     e._rlBg.setAttribute('width', tw);
