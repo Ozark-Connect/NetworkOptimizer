@@ -77,7 +77,7 @@ public class TopologySnapshotService : ITopologySnapshotService
                 _clientProvider.Client,
                 _loggerFactory.CreateLogger<UniFiDiscovery>());
 
-            var topology = await discovery.DiscoverTopologyAsync();
+            var topology = await discovery.DiscoverTopologyAsync(useCache: false);
             if (topology == null)
             {
                 _logger.LogWarning("Cannot capture snapshot - topology discovery failed");

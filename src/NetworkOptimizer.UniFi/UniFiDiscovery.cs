@@ -24,12 +24,12 @@ public class UniFiDiscovery
     /// Discovers all UniFi devices via controller API
     /// Returns devices with full metadata from controller
     /// </summary>
-    public async Task<List<DiscoveredDevice>> DiscoverDevicesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<DiscoveredDevice>> DiscoverDevicesAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         _logger.LogTrace("Starting UniFi device discovery via API");
 
         // Fetch devices and network configs in parallel
-        var devicesTask = _apiClient.GetDevicesAsync(cancellationToken);
+        var devicesTask = _apiClient.GetDevicesAsync(cancellationToken, useCache);
         var networksTask = _apiClient.GetNetworkConfigsAsync(cancellationToken);
 
         await Task.WhenAll(devicesTask, networksTask);
@@ -329,11 +329,11 @@ public class UniFiDiscovery
     /// <summary>
     /// Gets comprehensive network topology including devices and their connections
     /// </summary>
-    public async Task<NetworkTopology> DiscoverTopologyAsync(CancellationToken cancellationToken = default)
+    public async Task<NetworkTopology> DiscoverTopologyAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         _logger.LogInformation("Starting network topology discovery");
 
-        var devicesTask = DiscoverDevicesAsync(cancellationToken);
+        var devicesTask = DiscoverDevicesAsync(cancellationToken, useCache);
         var clientsTask = DiscoverClientsAsync(cancellationToken);
         var networksTask = _apiClient.GetNetworkConfigsAsync(cancellationToken);
 
