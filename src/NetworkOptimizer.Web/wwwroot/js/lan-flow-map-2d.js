@@ -1224,9 +1224,9 @@ class LanFlowMap2D {
                         const parts=txt.split(' ↑');
                         ctx.textBaseline='middle';
                         ctx.textAlign='right'; ctx.fillStyle=C.downstream;
-                        ctx.fillText(parts[0],mx-1,my);
+                        ctx.fillText(parts[0],mx-4,my);
                         ctx.textAlign='left'; ctx.fillStyle=C.upstream;
-                        ctx.fillText('↑'+parts[1],mx+1,my);
+                        ctx.fillText('↑'+parts[1],mx+4,my);
                     }
                 }
             }
@@ -1441,9 +1441,9 @@ class LanFlowMap2D {
                     ctx.textBaseline='top';
                     const dTxt='↓'+formatBps(downBps), uTxt='↑'+formatBps(upBps);
                     ctx.textAlign='right'; ctx.fillStyle=C.downstream;
-                    ctx.fillText(dTxt,n.x-2,n._rateY);
+                    ctx.fillText(dTxt,n.x-4,n._rateY);
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
-                    ctx.fillText(uTxt,n.x+2,n._rateY);
+                    ctx.fillText(uTxt,n.x+4,n._rateY);
                 }
             }
             for(const c of n.infra)drawNodeRate(c);
@@ -1470,9 +1470,9 @@ class LanFlowMap2D {
                 ctx.fill();
                 ctx.textBaseline='middle';
                 ctx.textAlign='right'; ctx.fillStyle=C.downstream;
-                ctx.fillText(dTxt,mx-2,my);
+                ctx.fillText(dTxt,mx-4,my);
                 ctx.textAlign='left'; ctx.fillStyle=C.upstream;
-                ctx.fillText(uTxt,mx+2,my);
+                ctx.fillText(uTxt,mx+4,my);
             }
         }
     }
