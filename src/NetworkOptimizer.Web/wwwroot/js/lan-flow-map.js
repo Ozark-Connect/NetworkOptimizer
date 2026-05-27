@@ -1391,14 +1391,17 @@ export class LanFlowMap {
                     const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
                     if (!res.ok) return;
                     const snap = await res.json();
-                    // Detect topology change: if node/link count differs, full rebuild
-                    const prevNodes = this._snapshot?.nodes?.length ?? 0;
-                    const prevLinks = this._snapshot?.links?.length ?? 0;
-                    const newNodes = snap.nodes?.length ?? 0;
-                    const newLinks = snap.links?.length ?? 0;
+                    // Detect infrastructure topology change (devices added/removed).
+                    // Client churn is frequent on large networks - don't rebuild for it.
+                    const prevInfra = (this._snapshot?.nodes ?? [])
+                        .filter(n => n.kind <= NODE_KIND.AccessPoint || n.kind === NODE_KIND.VirtualHub).length;
+                    const newInfra = (snap.nodes ?? [])
+                        .filter(n => n.kind <= NODE_KIND.AccessPoint || n.kind === NODE_KIND.VirtualHub).length;
+                    const prevWanLinks = (this._snapshot?.links ?? []).filter(n => n.kind === LINK_KIND.Wan).length;
+                    const newWanLinks = (snap.links ?? []).filter(n => n.kind === LINK_KIND.Wan).length;
                     this._snapshot = snap;
                     flowData.publishSnapshot(snap);
-                    if (newNodes !== prevNodes || newLinks !== prevLinks) {
+                    if (newInfra !== prevInfra || newWanLinks !== prevWanLinks) {
                         await this._reloadSnapshot();
                     } else {
                         this._applyLiveRates(snap.liveRates || {});

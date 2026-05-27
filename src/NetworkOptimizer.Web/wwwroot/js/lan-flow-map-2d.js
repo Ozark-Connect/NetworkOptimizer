@@ -263,15 +263,15 @@ class LanFlowMap2D {
                         this._buildLayout(s);
                         this._loadImages(s).then(()=>{this._fitAll();this._needsStaticRedraw=true;});
                     }else{
-                        // Refresh: detect topology change by link count
-                        const newLinkCount=s.links?.length||0;
-                        const curLinkCount=this._edges?.length||0;
-                        if(newLinkCount!==curLinkCount){
-                            // Topology changed: full rebuild, keep view
+                        // Detect infrastructure change (devices, not just client churn)
+                        const infraCount=(nodes)=>(nodes||[]).filter(n=>n.kind<=3||n.kind===6).length;
+                        const prevInfra=infraCount(this._snapshot?.nodes);
+                        const newInfra=infraCount(s.nodes);
+                        if(newInfra!==prevInfra){
                             this._buildLayout(s);
                             this._loadImages(s).then(()=>{this._needsStaticRedraw=true;});
                         }else{
-                            // Same topology: just update data (clouds, node props)
+                            // Client churn or same topology: update data in place
                             this._updateSnapshotData(s);
                             this._needsStaticRedraw=true;
                         }
@@ -816,7 +816,11 @@ class LanFlowMap2D {
                 c.d.lossPercent=fresh.lossPercent;
             }
         }
-        // Update node data (PHY rates, online status) on existing tree nodes
+        // Update node data and detect client changes per parent
+        const newNodeMap=new Map();
+        for(const n of snap.nodes)newNodeMap.set(n.id,n);
+
+        let clientsChanged=false;
         for(const n of snap.nodes){
             const tn=this._treeMap.get(n.id);
             if(tn){
@@ -825,7 +829,18 @@ class LanFlowMap2D {
                 tn.d.phyRxKbps=n.phyRxKbps;
                 tn.d.band=n.band;
                 tn.d.signalDbm=n.signalDbm;
+            }else if(isClient(n.kind)){
+                clientsChanged=true;
             }
+        }
+        // Check for removed clients
+        for(const[id,tn]of this._treeMap){
+            if(isClient(tn.d.kind)&&!newNodeMap.has(id))clientsChanged=true;
+        }
+        // If clients changed, do a targeted layout rebuild
+        if(clientsChanged){
+            this._liveRates={...flowData.getLiveRates()};
+            this._buildLayout(snap);
         }
     }
 
