@@ -31,7 +31,7 @@ public static class DeviceHealthChartEndpoints
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == MonitoringTargetType.Fabric && t.Enabled)
+                .Where(t => t.TargetType == MonitoringTargetType.Fabric)
                 .OrderBy(t => t.Name)
                 .Select(t => new { t.TargetId, t.Name, t.DeviceMac })
                 .ToListAsync(ct);

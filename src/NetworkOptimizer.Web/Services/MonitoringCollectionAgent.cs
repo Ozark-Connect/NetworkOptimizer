@@ -1159,6 +1159,33 @@ public class MonitoringCollectionAgent : BackgroundService
             .Where(t => t.TargetType == MonitoringTargetType.Fabric)
             .ToDictionaryAsync(t => t.TargetId, ct);
 
+        var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+        var needsFlex25GMigration = settings != null && !settings.Flex25GLatencyMigrated;
+        var deviceModelByMac = needsFlex25GMigration
+            ? devices.Where(d => !string.IsNullOrEmpty(d.Mac))
+                .ToDictionary(d => NormalizeMac(d.Mac), d => d, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        if (needsFlex25GMigration)
+        {
+            int disabled = 0;
+            foreach (var existing in existingByTargetId.Values)
+            {
+                if (!existing.AutoDiscovered || !existing.Enabled) continue;
+                if (string.IsNullOrEmpty(existing.DeviceMac)) continue;
+                if (deviceModelByMac!.TryGetValue(existing.DeviceMac, out var dev)
+                    && UniFi.UniFiProductDatabase.IsFlex25G(dev.Model, dev.Shortname))
+                {
+                    existing.Enabled = false;
+                    disabled++;
+                    _logger.LogInformation("Disabled latency probing for Flex 2.5G target {Name} ({Mac})",
+                        existing.Name, existing.DeviceMac);
+                }
+            }
+            settings!.Flex25GLatencyMigrated = true;
+            _logger.LogInformation("Flex 2.5G latency migration complete, disabled {Count} target(s)", disabled);
+        }
+
         bool changed = false;
         foreach (var d in devices)
         {
@@ -1175,6 +1202,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 continue;
             }
 
+            var enableLatency = !UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname);
             db.MonitoringTargets.Add(new MonitoringTarget
             {
                 TargetId = targetId,
@@ -1186,14 +1214,14 @@ public class MonitoringCollectionAgent : BackgroundService
                 VantagePoint = "server",
                 PollIntervalSeconds = 5,
                 PingCount = 3,
-                Enabled = true,
+                Enabled = enableLatency,
                 AutoDiscovered = true,
                 AutoLabel = DescribeDeviceType(d.DeviceType),
                 CreatedAt = DateTime.UtcNow
             });
             changed = true;
         }
-        if (changed) await db.SaveChangesAsync(ct);
+        if (changed || needsFlex25GMigration) await db.SaveChangesAsync(ct);
     }
 
     // ---- Helpers ----

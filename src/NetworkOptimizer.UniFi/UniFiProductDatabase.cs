@@ -707,6 +707,18 @@ public static class UniFiProductDatabase
         return CanRunIperf3(productName);
     }
 
+    private static readonly HashSet<string> Flex25GProductNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "USW-Flex-2.5G-8",
+        "USW-Flex-2.5G-8-PoE"
+    };
+
+    public static bool IsFlex25G(string? model, string? shortname)
+    {
+        var productName = GetBestProductName(model, shortname);
+        return !string.IsNullOrEmpty(productName) && Flex25GProductNames.Contains(productName);
+    }
+
     /// <summary>
     /// Check if a model code represents a cellular/LTE modem
     /// </summary>

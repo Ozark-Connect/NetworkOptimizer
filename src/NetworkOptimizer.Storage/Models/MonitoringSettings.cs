@@ -99,6 +99,8 @@ public class MonitoringSettings
     [MaxLength(500)]
     public string? LastInfluxDbError { get; set; }
 
+    public bool Flex25GLatencyMigrated { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
