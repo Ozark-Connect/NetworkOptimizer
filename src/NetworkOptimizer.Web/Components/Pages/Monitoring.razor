@@ -213,6 +213,16 @@ else
                 <div class="stat-label">Fabric Egress</div>
             </div>
         </div>
+
+        <!-- 2D LAN hierarchy map -->
+        <div class="card lan-flow-map-2d-card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">LAN Topology</h2>
+            </div>
+            <div class="card-body lan-flow-map-2d-body">
+                <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -726,6 +736,31 @@ else
             font-size: 1rem;
         }
     }
+
+    .lan-flow-map-2d-card {
+        overflow: hidden;
+    }
+    .lan-flow-map-2d-body {
+        padding: 0;
+        background: #202023;
+    }
+    .lan-flow-map-2d-stage {
+        width: 100%;
+        min-height: 420px;
+        overflow: hidden;
+    }
+    .lan-flow-map-2d-stage svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        min-height: 420px;
+    }
+    .lan-flow-map-2d-stage .infra-node {
+        cursor: default;
+    }
+    .lan-flow-map-2d-stage .client-node {
+        cursor: default;
+    }
 </style>
 
 @code {
@@ -774,6 +809,7 @@ else
 
     // Chart mount tracking
     private bool _mapMounted = false;
+    private bool _map2dMounted = false;
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
@@ -1632,6 +1668,24 @@ else
             catch { }
         }
 
+        // 2D hierarchy map - Live tab only
+        if (_activeTab == "live" && _monitoringReady && !_map2dMounted)
+        {
+            _map2dMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage'); }})();");
+            }
+            catch { _map2dMounted = false; }
+        }
+        else if (_activeTab != "live" && _map2dMounted)
+        {
+            _map2dMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap2d?.unmount();"); }
+            catch { }
+        }
+
         // Latency charts - Performance tab only
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
@@ -1723,6 +1777,11 @@ else
         if (_mapMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_map2dMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap2d?.unmount();").AsTask(); }
             catch { }
         }
     }
