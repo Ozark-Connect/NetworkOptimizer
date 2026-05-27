@@ -724,8 +724,36 @@ from(bucket: ""{_longtermBucket}"")
     public record ClientThroughputPoint
     {
         public DateTime Time { get; init; }
+        public string? ClientMac { get; init; }
         public double? TxThroughputBps { get; init; }
         public double? RxThroughputBps { get; init; }
+    }
+
+    public async Task<IReadOnlyList<ClientThroughputPoint>> QueryAllClientThroughputAsync(
+        string measurement,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")";
+
+        var results = new List<ClientThroughputPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new ClientThroughputPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                ClientMac = record.GetValueByKey("client_mac") as string,
+                TxThroughputBps = AsDoubleOrNull(record.GetValueByKey("tx_throughput_bps")),
+                RxThroughputBps = AsDoubleOrNull(record.GetValueByKey("rx_throughput_bps")),
+            });
+        }
+        return results;
     }
 
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryClientThroughputAsync(

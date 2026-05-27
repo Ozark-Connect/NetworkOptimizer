@@ -467,6 +467,35 @@ public class LanFlowMapService
             }
         }
 
+        // Batch pre-fetch all client throughput from InfluxDB (one query per
+        // measurement instead of N queries per client). Keyed by client MAC.
+        var wifiClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var allWifi = await _influx.QueryAllClientThroughputAsync("wifi_client", from, to, ct);
+            foreach (var p in allWifi)
+            {
+                if (string.IsNullOrEmpty(p.ClientMac)) continue;
+                if (!wifiClientRates.TryGetValue(p.ClientMac, out var existing)
+                    || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
+                    wifiClientRates[p.ClientMac] = p;
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Historic WiFi client batch query failed"); }
+        try
+        {
+            var allWired = await _influx.QueryAllClientThroughputAsync("wired_client", from, to, ct);
+            foreach (var p in allWired)
+            {
+                if (string.IsNullOrEmpty(p.ClientMac)) continue;
+                if (!wiredClientRates.TryGetValue(p.ClientMac, out var existing)
+                    || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
+                    wiredClientRates[p.ClientMac] = p;
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Historic wired client batch query failed"); }
+
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
         foreach (var link in snapshot.Links)
         {
@@ -603,26 +632,33 @@ public class LanFlowMapService
                                 rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
                         }
                     }
-                    // Fallback: wired_client measurement in InfluxDB
+                    // Fallback: wired_client from batch pre-fetch
                     if (rates == null)
                     {
                         var clientMac = ExtractWiredClientMacFromLinkId(link.Id);
-                        if (!string.IsNullOrEmpty(clientMac))
+                        if (!string.IsNullOrEmpty(clientMac) && wiredClientRates.TryGetValue(clientMac, out var wp))
                         {
-                            var r = await QueryClientThroughputAsync("wired_client", clientMac, at, from, to, ct);
-                            if (r != null) rates = r;
+                            rates = new LinkLiveRates
+                            {
+                                DownstreamBps = wp.TxThroughputBps ?? 0,
+                                UpstreamBps = wp.RxThroughputBps ?? 0,
+                                AsOf = wp.Time,
+                            };
                         }
                     }
                     if (rates != null) update.LinkRates[link.Id] = rates;
                 }
                 else if (link.Kind == LanLinkKind.WifiClient)
                 {
-                    // WiFi client throughput from wifi_client measurement
                     var clientMac = ExtractWifiClientMacFromLinkId(link.Id);
-                    if (!string.IsNullOrEmpty(clientMac))
+                    if (!string.IsNullOrEmpty(clientMac) && wifiClientRates.TryGetValue(clientMac, out var wp))
                     {
-                        var r = await QueryClientThroughputAsync("wifi_client", clientMac, at, from, to, ct);
-                        if (r != null) update.LinkRates[link.Id] = r;
+                        update.LinkRates[link.Id] = new LinkLiveRates
+                        {
+                            DownstreamBps = wp.TxThroughputBps ?? 0,
+                            UpstreamBps = wp.RxThroughputBps ?? 0,
+                            AsOf = wp.Time,
+                        };
                     }
                 }
             }
