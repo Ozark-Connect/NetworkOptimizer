@@ -534,18 +534,27 @@ class LanFlowMap2D {
         const selfW=isClient(n.d.kind)?G.clientCellW:G.boxW+40;
         const nc=Math.min(n.clients.length,G.maxClients);
 
+        // VirtualHub: treat as a leaf (children won't be rendered)
+        if(n.d.kind===NK.VirtualHub){
+            const hubW=G.clientCellW;
+            n._contour=[{l:-hubW/2,r:hubW/2}];
+            n._kidOffsets=[];
+            n._kids=[];
+            return;
+        }
+
         // Pure-client nodes (APs with only WiFi clients): compact grid
         if(n.infra.length===0&&nc>0){
             const cols=Math.min(nc,G.clientCols);
             const rows=Math.ceil(nc/cols);
             const gridW=cols*G.clientCellW;
-            const gridH=rows*G.clientCellH;
+            const staggerExtra=rows>1?G.clientCellW/2:0;
             n._isGrid=true;
             n._gridCols=cols;
-            // Contour: node at depth 0, grid rectangle at depth 1
+            // Contour: node at depth 0, grid rectangle at depth 1 (widened for stagger)
             n._contour=[
                 {l:-selfW/2,r:selfW/2},
-                {l:-gridW/2,r:gridW/2},
+                {l:-gridW/2,r:gridW/2+staggerExtra},
             ];
             n._kidOffsets=[];
             n._kids=[];
@@ -620,16 +629,19 @@ class LanFlowMap2D {
         n.x=absX;
         n.y=yOff+depth*G.tierGap;
 
-        // Client grid: place clients in compact rows
+        // Client grid: compact rows with honeycomb stagger so vertical links
+        // from the parent fan out to different x positions per row.
         if(n._isGrid){
             const nc=Math.min(n.clients.length,G.maxClients);
             const cols=n._gridCols;
             const gridW=cols*G.clientCellW;
             const gridLeft=absX-gridW/2;
             const clientY=yOff+(depth+1)*G.tierGap;
+            const stagger=G.clientCellW/2;
             for(let i=0;i<nc;i++){
                 const col=i%cols,row=Math.floor(i/cols);
-                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2;
+                const rowOff=(row%2)*stagger;
+                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
                 n.clients[i].y=clientY+row*G.clientCellH;
             }
             return;
@@ -908,6 +920,11 @@ class LanFlowMap2D {
     // ---- Node drawing ----
 
     _drawAllNodes(ctx,n){
+        // VirtualHub: show as compact label with member count, skip children
+        if(n.d.kind===NK.VirtualHub){
+            this._drawHubNode(ctx,n);
+            return;
+        }
         this._drawInfraNode(ctx,n);
         for(const c of n.infra)this._drawAllNodes(ctx,c);
         for(const c of n.clients.slice(0,G.maxClients))this._drawClientNode(ctx,c);
@@ -918,6 +935,28 @@ class LanFlowMap2D {
             ctx.textAlign='left'; ctx.textBaseline='middle';
             ctx.fillText(`+${n.clients.length-G.maxClients}`,last.x+G.clientR+10,last.y);
         }
+    }
+
+    _drawHubNode(ctx,n){
+        const x=n.x,y=n.y,color=C.virtualHub;
+        const memberCount=n.infra.length+n.clients.length;
+        const r=10;
+
+        // Small ring
+        ctx.strokeStyle=color; ctx.lineWidth=2; ctx.globalAlpha=0.6;
+        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+        ctx.fillStyle=withAlpha(color,0.1);
+        ctx.beginPath(); ctx.arc(x,y,r-1,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha=1;
+
+        // Label: "NAS Server (7)"
+        const name=n.d.name||'Hub';
+        const label=memberCount>0?`${name} (${memberCount})`:name;
+        const dn=label.length>28?label.slice(0,27)+'…':label;
+        ctx.fillStyle=C.textSec;
+        ctx.font=`${G.nameFont}px ${FONT}`;
+        ctx.textAlign='center'; ctx.textBaseline='top';
+        ctx.fillText(dn,x,y+r+4);
     }
 
     _drawInfraNode(ctx,n){
