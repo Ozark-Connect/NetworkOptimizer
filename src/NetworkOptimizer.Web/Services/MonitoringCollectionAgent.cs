@@ -942,18 +942,19 @@ public class MonitoringCollectionAgent : BackgroundService
             var clientMac = NormalizeMac(c.Mac);
 
             double? txBps = null, rxBps = null;
-            if (c.TxBytesRate > 0 || c.RxBytesRate > 0)
+            // Wired clients use wired-tx_bytes-r / wired-rx_bytes-r (not tx_bytes-r)
+            if (c.WiredTxBytesRate > 0 || c.WiredRxBytesRate > 0)
             {
-                txBps = c.TxBytesRate * 8.0;
-                rxBps = c.RxBytesRate * 8.0;
+                txBps = c.WiredTxBytesRate * 8.0;
+                rxBps = c.WiredRxBytesRate * 8.0;
             }
             else if (_wiredByteCache.TryGetValue(clientMac, out var prev))
             {
                 var elapsed = (now - prev.Timestamp).TotalSeconds;
                 if (elapsed > 0.5)
                 {
-                    long deltaTx = c.TxBytes - prev.TxBytes;
-                    long deltaRx = c.RxBytes - prev.RxBytes;
+                    long deltaTx = c.WiredTxBytes - prev.TxBytes;
+                    long deltaRx = c.WiredRxBytes - prev.RxBytes;
                     if (deltaTx >= 0 && deltaRx >= 0)
                     {
                         txBps = deltaTx * 8.0 / elapsed;
@@ -961,7 +962,7 @@ public class MonitoringCollectionAgent : BackgroundService
                     }
                 }
             }
-            _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+            _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
 
             _liveStats.RecordWiredClient(new WiredClientLiveSnapshot
             {
