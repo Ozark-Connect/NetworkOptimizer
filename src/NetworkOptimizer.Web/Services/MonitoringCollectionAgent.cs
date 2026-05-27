@@ -856,6 +856,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var wifiCount = clients.Count(c => !c.IsWired);
         var wiredCount = clients.Count(c => c.IsWired);
         _logger.LogDebug("WiFi tier: {Total} clients ({Wifi} wifi, {Wired} wired)", clients.Length, wifiCount, wiredCount);
+        long tickOffset = 0; // nanosecond offset per client to avoid InfluxDB dedup
         foreach (var c in clients)
         {
             if (c.IsWired) continue;
@@ -933,7 +934,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 txThroughputBps: txThroughputBps,
                 rxThroughputBps: rxThroughputBps,
                 isMlo: c.IsMlo,
-                timestamp: now);
+                timestamp: now.AddTicks(tickOffset++));
         }
 
         // Wired clients: collect throughput as fallback for non-SNMP switches.
@@ -984,7 +985,7 @@ public class MonitoringCollectionAgent : BackgroundService
                     clientMac: clientMac,
                     txThroughputBps: txBps,
                     rxThroughputBps: rxBps,
-                    timestamp: now);
+                    timestamp: now.AddTicks(tickOffset++));
             }
         }
 
