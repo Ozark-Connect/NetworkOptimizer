@@ -1391,22 +1391,137 @@ export class LanFlowMap {
                     const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
                     if (!res.ok) return;
                     const snap = await res.json();
-                    // Detect topology change (any node/link count difference).
-                    const prevNodes = this._snapshot?.nodes?.length ?? 0;
-                    const prevLinks = this._snapshot?.links?.length ?? 0;
-                    const newNodes = snap.nodes?.length ?? 0;
-                    const newLinks = snap.links?.length ?? 0;
+                    const prev = this._snapshot;
                     this._snapshot = snap;
                     flowData.publishSnapshot(snap);
-                    if (newNodes !== prevNodes || newLinks !== prevLinks) {
+
+                    // Diff: infrastructure change = full rebuild; client churn = incremental
+                    const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
+                    const prevInfraIds = new Set((prev?.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                    const newInfraIds = new Set((snap.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                    const infraChanged = prevInfraIds.size !== newInfraIds.size
+                        || [...prevInfraIds].some(id => !newInfraIds.has(id));
+
+                    if (infraChanged) {
                         await this._reloadSnapshot();
                     } else {
+                        // Incremental client add/remove
+                        const prevNodeIds = new Set((prev?.nodes ?? []).map(n => n.id));
+                        const newNodeIds = new Set((snap.nodes ?? []).map(n => n.id));
+                        const added = (snap.nodes ?? []).filter(n => !prevNodeIds.has(n.id));
+                        const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
+                        for (const id of removed) this._removeNodeIncremental(id);
+                        for (const node of added) this._addNodeIncremental(node, snap);
                         this._applyLiveRates(snap.liveRates || {});
                         this._refreshCloudRttLabels();
                     }
                 } catch { /* transient */ }
             }
         }, 30000);
+    }
+
+    // Incremental client add: create mesh near parent, create link pipe + particles.
+    _addNodeIncremental(node, snap) {
+        if (node.kind === NODE_KIND.Cloud) return;
+        // Position near parent: find the link to this node
+        const link = (snap.links ?? []).find(l => l.toNodeId === node.id || l.fromNodeId === node.id);
+        if (!link) return;
+        const parentId = link.fromNodeId === node.id ? link.toNodeId : link.fromNodeId;
+        const parentPos = this._positions.get(parentId);
+        if (!parentPos) return;
+        // Scatter near parent
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 3 + Math.random() * 4;
+        const pos = {
+            x: parentPos.x + Math.cos(angle) * dist,
+            y: parentPos.y - 1.5 + Math.random(),
+            z: parentPos.z + Math.sin(angle) * dist,
+            pinned: false,
+        };
+        this._positions.set(node.id, pos);
+
+        // Build node mesh (same as _buildNodes for a single node)
+        const radius = this._nodeRadius(node.kind);
+        const color = this._nodeColor(node.kind);
+        const group = new THREE.Group();
+        const halo = new THREE.Mesh(
+            new THREE.SphereGeometry(radius * 1.7, 24, 16),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }),
+        );
+        group.add(halo);
+        const baseEmissive = 0.45;
+        const core = this._makeDeviceCore(node.kind, radius, color, baseEmissive);
+        group.add(core);
+        group.position.set(pos.x, pos.y, pos.z);
+        if (!node.online) {
+            core.material.opacity = 0.55;
+            core.material.transparent = true;
+            halo.material.opacity = 0.05;
+        }
+        group.userData = { node, core, baseEmissive };
+        this.nodeGroup.add(group);
+        this._nodeMeshes.set(node.id, group);
+        if (node.name) {
+            const sprite = this._makeLabelSprite(node.name);
+            sprite.position.set(0, radius + 0.8, 0);
+            group.add(sprite);
+            this._labelSprites.set(node.id, sprite);
+        }
+
+        // Build link pipe + particles
+        const a = this._positions.get(link.fromNodeId);
+        const b = this._positions.get(link.toNodeId);
+        if (a && b) {
+            const pipe = this._makePipeMesh(a, b, link);
+            this.linkGroup.add(pipe);
+            const down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
+            const up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
+            this.particleGroup.add(down.mesh, up.mesh);
+            this._linkMeshes.set(link.id, { pipe, down, up, link });
+            this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
+        }
+    }
+
+    // Incremental client remove: dispose mesh, link, particles.
+    _removeNodeIncremental(nodeId) {
+        // Remove node mesh
+        const group = this._nodeMeshes.get(nodeId);
+        if (group) {
+            this.nodeGroup.remove(group);
+            group.traverse(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+                    else obj.material.dispose();
+                }
+            });
+            this._nodeMeshes.delete(nodeId);
+        }
+        this._labelSprites.delete(nodeId);
+        this._positions.delete(nodeId);
+
+        // Remove any links connected to this node
+        for (const [linkId, endpoints] of this._nodesByLink) {
+            if (endpoints[0] === nodeId || endpoints[1] === nodeId) {
+                const linkObj = this._linkMeshes.get(linkId);
+                if (linkObj) {
+                    this.linkGroup.remove(linkObj.pipe);
+                    linkObj.pipe.traverse(obj => {
+                        if (obj.geometry) obj.geometry.dispose();
+                        if (obj.material) obj.material.dispose();
+                    });
+                    this.particleGroup.remove(linkObj.down.mesh, linkObj.up.mesh);
+                    linkObj.down.mesh.geometry?.dispose();
+                    linkObj.up.mesh.geometry?.dispose();
+                    this._linkMeshes.delete(linkId);
+                }
+                this._nodesByLink.delete(linkId);
+            }
+        }
+
+        // Remove floating label if present
+        const label = this._floatingLabels.get(nodeId);
+        if (label) { label.el.remove(); this._floatingLabels.delete(nodeId); }
     }
 
     // Play/Pause: in Live mode, pause freezes rates by skipping the poll. In
