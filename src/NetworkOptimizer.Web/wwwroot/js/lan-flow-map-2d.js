@@ -258,12 +258,24 @@ class LanFlowMap2D {
                 const s=flowData.getSnapshot();
                 if(s){
                     this._liveRates={...flowData.getLiveRates()};
-                    const firstLoad=!this._root;
-                    this._buildLayout(s);
-                    this._loadImages(s).then(()=>{
-                        if(firstLoad)this._fitAll();
-                        this._needsStaticRedraw=true;
-                    });
+                    if(!this._root){
+                        // First load: full build + fit
+                        this._buildLayout(s);
+                        this._loadImages(s).then(()=>{this._fitAll();this._needsStaticRedraw=true;});
+                    }else{
+                        // Refresh: detect topology change by link count
+                        const newLinkCount=s.links?.length||0;
+                        const curLinkCount=this._edges?.length||0;
+                        if(newLinkCount!==curLinkCount){
+                            // Topology changed: full rebuild, keep view
+                            this._buildLayout(s);
+                            this._loadImages(s).then(()=>{this._needsStaticRedraw=true;});
+                        }else{
+                            // Same topology: just update data (clouds, node props)
+                            this._updateSnapshotData(s);
+                            this._needsStaticRedraw=true;
+                        }
+                    }
                 }
             }else if(ev==='live'){
                 Object.assign(this._liveRates,flowData.getLiveRates());
@@ -661,7 +673,8 @@ class LanFlowMap2D {
         this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
         this._matchEdges();
-        if(!this._streams||this._streams.length===0)this._initStreams();
+        // Always reinit streams - edges get new endpoint coords on rebuild
+        this._initStreams();
         this._calcBounds();
         this._updateStreamRates();
     }
@@ -792,6 +805,30 @@ class LanFlowMap2D {
         }
     }
 
+    _updateSnapshotData(snap){
+        // Update cloud data (ISP speeds, RTT) without rebuilding layout
+        for(const c of this._clouds){
+            const fresh=snap.clouds?.find(sc=>sc.id===c.d.id);
+            if(fresh){
+                c.d.ispDownloadMbps=fresh.ispDownloadMbps;
+                c.d.ispUploadMbps=fresh.ispUploadMbps;
+                c.d.rttAvgMs=fresh.rttAvgMs;
+                c.d.lossPercent=fresh.lossPercent;
+            }
+        }
+        // Update node data (PHY rates, online status) on existing tree nodes
+        for(const n of snap.nodes){
+            const tn=this._treeMap.get(n.id);
+            if(tn){
+                tn.d.online=n.online;
+                tn.d.phyTxKbps=n.phyTxKbps;
+                tn.d.phyRxKbps=n.phyRxKbps;
+                tn.d.band=n.band;
+                tn.d.signalDbm=n.signalDbm;
+            }
+        }
+    }
+
     _placeClouds(){
         if(!this._root||this._clouds.length===0)return;
         const gx=this._root.x,gy=this._root.y;
@@ -801,7 +838,7 @@ class LanFlowMap2D {
         const stagger=45;
         for(let i=0;i<total;i++){
             this._clouds[i].x=sx+i*sp;
-            this._clouds[i].y=baseY+(i%2)*stagger;
+            this._clouds[i].y=baseY+(1-i%2)*stagger;
         }
     }
 
@@ -1005,22 +1042,28 @@ class LanFlowMap2D {
             // Capacity / speed label on infra and WAN links
             if(!e._isCl){
                 ctx.globalAlpha=1;
-                // WAN: place on the upper vertical segment (cloud's own column)
-                // Infra: place at the link midpoint
                 const isWan=e._isWan;
                 const midY=(e._y1+e._y2)/2+(e._midYOff||0);
                 const mx=isWan?e._x1:(e._x1+e._x2)/2;
-                // WAN: place just above the horizontal routing segment
                 const my=isWan?midY-16:(e._y1+e._y2)/2;
                 let txt=null;
+                let txtColor=C.textMuted; // default muted; live rates override
 
                 if(isWan){
-                    const cloud=this._clouds.find(c=>
-                        e.lk.fromNodeId===c.d.id||e.lk.toNodeId===c.d.id);
-                    if(cloud?.d.ispDownloadMbps&&cloud?.d.ispUploadMbps){
-                        txt=`↓${formatSpeed(cloud.d.ispDownloadMbps)} ↑${formatSpeed(cloud.d.ispUploadMbps)}`;
-                    }else if(e.lk.capacityBps>0){
-                        txt=formatSpeed(e.lk.capacityBps/1e6);
+                    // Show live throughput when active, ISP expected when idle
+                    const lr=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+                    const ldn=lr?.downstreamBps??0, lup=lr?.upstreamBps??0;
+                    if(ldn>RATE_THRESH||lup>RATE_THRESH){
+                        txt='↓'+(ldn>0?formatBps(ldn):'0 bps')+' ↑'+(lup>0?formatBps(lup):'0 bps');
+                        txtColor=null; // use down/up colors
+                    }else{
+                        const cloud=this._clouds.find(c=>
+                            e.lk.fromNodeId===c.d.id||e.lk.toNodeId===c.d.id);
+                        if(cloud?.d.ispDownloadMbps&&cloud?.d.ispUploadMbps){
+                            txt=`↓${formatSpeed(cloud.d.ispDownloadMbps)} ↑${formatSpeed(cloud.d.ispUploadMbps)}`;
+                        }else if(e.lk.capacityBps>0){
+                            txt=formatSpeed(e.lk.capacityBps/1e6);
+                        }
                     }
                 }else if(e.lk.kind===LK.MeshBackhaul||e.lk.band){
                     // Mesh/wireless: show asymmetric PHY rates
@@ -1041,9 +1084,19 @@ class LanFlowMap2D {
                     ctx.fillStyle=C.labelBg;
                     this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
                     ctx.fill();
-                    ctx.fillStyle=C.textMuted;
-                    ctx.textAlign='center'; ctx.textBaseline='middle';
-                    ctx.fillText(txt,mx,my);
+                    if(txtColor){
+                        ctx.fillStyle=txtColor;
+                        ctx.textAlign='center'; ctx.textBaseline='middle';
+                        ctx.fillText(txt,mx,my);
+                    }else{
+                        // Directional colors: split at the space between ↑ and preceding text
+                        const parts=txt.split(' ↑');
+                        ctx.textBaseline='middle';
+                        ctx.textAlign='right'; ctx.fillStyle=C.downstream;
+                        ctx.fillText(parts[0],mx-1,my);
+                        ctx.textAlign='left'; ctx.fillStyle=C.upstream;
+                        ctx.fillText('↑'+parts[1],mx+1,my);
+                    }
                 }
             }
         }
@@ -1269,7 +1322,7 @@ class LanFlowMap2D {
         // Link rate labels
         ctx.font=`${G.rateFont}px ${FONT}`;
         for(const e of this._edges){
-            if(e._x1==null||e._isCl)continue;
+            if(e._x1==null||e._isCl||e._isWan)continue;
             const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
