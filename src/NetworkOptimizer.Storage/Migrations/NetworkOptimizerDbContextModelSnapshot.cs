@@ -665,6 +665,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("FastPollIntervalSeconds")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("Flex25GLatencyMigrated")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("InfluxDbBucket")
                         .IsRequired()
                         .HasMaxLength(100)
