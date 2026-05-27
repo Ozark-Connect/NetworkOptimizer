@@ -1351,11 +1351,10 @@ class LanFlowMap2D {
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
-                // WAN: place on lower vertical segment (gateway column)
-                // Infra: place below the capacity label
+                // Place on child's vertical segment below the capacity label
                 const midY=(e._y1+e._y2)/2+(e._midYOff||0);
-                const mx=e._isWan?e._x2:(e._x1+e._x2)/2;
-                const my=e._isWan?(midY+e._y2)/2:(e._y1+e._y2)/2+14;
+                const mx=e._x2;
+                const my=midY+38;
                 const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
                 const uTxt='↑'+(up>0?formatBps(up):'0 bps');
                 const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
