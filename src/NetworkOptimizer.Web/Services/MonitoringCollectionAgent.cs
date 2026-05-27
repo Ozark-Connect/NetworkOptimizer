@@ -874,25 +874,29 @@ public class MonitoringCollectionAgent : BackgroundService
             double? rxThroughputBps = null;
             if (c.TxBytesRate > 0 || c.RxBytesRate > 0)
             {
-                // tx_bytes-r / rx_bytes-r are bytes per second
                 txThroughputBps = c.TxBytesRate * 8.0;
                 rxThroughputBps = c.RxBytesRate * 8.0;
+                _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
             }
             else if (_wifiByteCache.TryGetValue(clientMac, out var prev))
             {
-                var elapsed = (now - prev.Timestamp).TotalSeconds;
-                if (elapsed > 0.5)
+                long deltaTx = c.TxBytes - prev.TxBytes;
+                long deltaRx = c.RxBytes - prev.RxBytes;
+                if (deltaTx > 0 || deltaRx > 0)
                 {
-                    long deltaTx = c.TxBytes - prev.TxBytes;
-                    long deltaRx = c.RxBytes - prev.RxBytes;
-                    if (deltaTx >= 0 && deltaRx >= 0)
+                    var elapsed = (now - prev.Timestamp).TotalSeconds;
+                    if (elapsed > 0.5)
                     {
                         txThroughputBps = deltaTx * 8.0 / elapsed;
                         rxThroughputBps = deltaRx * 8.0 / elapsed;
                     }
+                    _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
                 }
             }
-            _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+            else
+            {
+                _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+            }
 
             var snapshot = new WifiClientLiveSnapshot
             {
@@ -956,22 +960,33 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 txBps = c.WiredTxBytesRate * 8.0;
                 rxBps = c.WiredRxBytesRate * 8.0;
+                _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
             }
             else if (_wiredByteCache.TryGetValue(clientMac, out var prev))
             {
-                var elapsed = (now - prev.Timestamp).TotalSeconds;
-                if (elapsed > 0.5)
+                long deltaTx = c.WiredTxBytes - prev.TxBytes;
+                long deltaRx = c.WiredRxBytes - prev.RxBytes;
+                if (deltaTx > 0 || deltaRx > 0)
                 {
-                    long deltaTx = c.WiredTxBytes - prev.TxBytes;
-                    long deltaRx = c.WiredRxBytes - prev.RxBytes;
-                    if (deltaTx >= 0 && deltaRx >= 0)
+                    // Only compute rate when counters actually changed. Elapsed is
+                    // time since last CHANGE, not last poll - avoids 2x rate when
+                    // our poll misaligns with UniFi's counter update cadence.
+                    var elapsed = (now - prev.Timestamp).TotalSeconds;
+                    if (elapsed > 0.5)
                     {
                         txBps = deltaTx * 8.0 / elapsed;
                         rxBps = deltaRx * 8.0 / elapsed;
                     }
+                    _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
                 }
+                // When counters unchanged, DON'T update cache timestamp - preserves
+                // the real elapsed time for the next actual change.
             }
-            _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
+            else
+            {
+                // First poll: seed cache, no rate yet
+                _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
+            }
 
             _liveStats.RecordWiredClient(new WiredClientLiveSnapshot
             {
