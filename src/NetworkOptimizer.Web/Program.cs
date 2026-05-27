@@ -533,10 +533,25 @@ using (var scope = app.Services.CreateScope())
             }
         }
     }
+
+    // Clear stale migration locks left by a previous interrupted startup (#624).
+    // At app startup no other process can be migrating this SQLite DB, so any lock is stale.
+    cmd.Parameters.Clear();
+    cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsLock'";
+    if (cmd.ExecuteScalar() != null)
+    {
+        cmd.CommandText = "DELETE FROM __EFMigrationsLock";
+        var cleared = cmd.ExecuteNonQuery();
+        if (cleared > 0)
+            app.Logger.LogWarning("Cleared stale migration lock (likely from a previous interrupted startup)");
+    }
+
     conn.Close();
 
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
+    app.Logger.LogInformation("Applying database migrations...");
     db.Database.Migrate();
+    app.Logger.LogInformation("Database migrations complete");
 
     // Ensure WAL mode - config imports replace the DB with a DELETE-mode copy
     db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");

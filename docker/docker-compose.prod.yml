@@ -39,7 +39,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 120s
 
   # Network Optimizer Speed Test - customized OpenSpeedTest that sends results to Network Optimizer
   # Requires HOST_IP or HOST_NAME to be set in .env for result reporting

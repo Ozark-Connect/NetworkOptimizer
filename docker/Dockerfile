@@ -148,7 +148,7 @@ EXPOSE 8042
 EXPOSE 5201
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:8042/api/health || exit 1
 
 # Set ownership for app directories
