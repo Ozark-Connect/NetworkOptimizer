@@ -33,8 +33,11 @@ function _notify(event) {
 }
 
 export function publishSnapshot(snap) {
+    const firstLoad = !_snapshot;
     _snapshot = snap;
-    _liveRates = snap.liveRates || {};
+    // Only seed rates on first load. Subsequent refreshes must not clobber
+    // the fresh 1s-polled rates with stale snapshot-time values.
+    if (firstLoad) _liveRates = snap.liveRates || {};
     _notify('snapshot');
 }
 
