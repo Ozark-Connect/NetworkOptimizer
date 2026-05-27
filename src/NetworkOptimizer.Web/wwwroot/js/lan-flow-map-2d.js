@@ -39,10 +39,10 @@ const G = {
     tierGap:     140,
     cloudGap:    100,
     infraGap:    90,
-    clientCellW: 80,
+    clientCellW: 145,
     clientCellH: 50,
     clientR:     7,
-    clientCols:  8,
+    clientCols:  6,
     maxClients:  80,
     iconSize:    52,
     boxW:        68,
@@ -157,8 +157,8 @@ class TN {
 
 // ---- Persistent particle stream (mirrors 3D map's ParticleStream) ----
 
-const MAX_DOTS = 16;
-const EMIT_MAX = 12;
+const MAX_DOTS = 10;
+const EMIT_MAX = 10;
 
 class Stream {
     constructor(edge, dir, color, layer) {
@@ -173,7 +173,7 @@ class Stream {
         this._pathLen = orthoLen(edge._x1, edge._y1, edge._x2, edge._y2);
         this._slots = [];
         for (let i = 0; i < MAX_DOTS; i++) {
-            const dot = el('circle', { r: 0.4, fill: color, opacity: 0, filter: 'url(#pg)' }, layer);
+            const dot = el('circle', { r: 0.4, fill: color, opacity: 0 }, layer);
             this._slots.push({ el: dot, t: -1, size: 0 });
         }
     }
@@ -787,7 +787,7 @@ class LanFlowMap2D {
         // Visible name label below
         const name = n.d.name || n.d.ip || '';
         if (name) {
-            const dn = name.length > 14 ? name.slice(0, 13) + '…' : name;
+            const dn = name.length > 25 ? name.slice(0, 24) + '…' : name;
             const t = el('text', { x:0, y:r + 11, 'text-anchor':'middle', fill:C.textMuted,
                 'font-size':G.clientNameFont, 'font-family':'system-ui,sans-serif' }, g);
             t.textContent = dn;
