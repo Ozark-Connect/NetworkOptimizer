@@ -682,8 +682,10 @@ class LanFlowMap2D {
 
         // Tree links - stagger siblings from same parent
         const matchTree=(n)=>{
+            // VirtualHub: only match the hub's own uplink, skip its children
+            if(n.d.kind===NK.VirtualHub)return;
+
             const pB=n.y+G.boxH/2;
-            const allKids=[...n.infra,...n.clients.slice(0,G.maxClients)];
             const sibEdges=[];
 
             for(const c of n.infra){
@@ -949,9 +951,10 @@ class LanFlowMap2D {
         ctx.beginPath(); ctx.arc(x,y,r-1,0,Math.PI*2); ctx.fill();
         ctx.globalAlpha=1;
 
-        // Label: "NAS Server (7)"
+        // Label - name may already include count from the server
         const name=n.d.name||'Hub';
-        const label=memberCount>0?`${name} (${memberCount})`:name;
+        const hasCount=/\(\d+\)/.test(name);
+        const label=hasCount?name:memberCount>0?`${name} (${memberCount})`:name;
         const dn=label.length>28?label.slice(0,27)+'…':label;
         ctx.fillStyle=C.textSec;
         ctx.font=`${G.nameFont}px ${FONT}`;
