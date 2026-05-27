@@ -919,31 +919,27 @@ public class MonitoringCollectionAgent : BackgroundService
             };
             _liveStats.RecordWifiClient(snapshot);
 
-            // Skip InfluxDB write when throughput is zero - avoids polluting
-            // historic data with stale-counter cycles where UniFi hadn't updated
-            // tx_bytes between our polls.
-            if ((txThroughputBps ?? 0) <= 0 && (rxThroughputBps ?? 0) <= 0)
-                goto skipWifiInflux;
-
-            _ = _influx.WriteWifiClientAsync(
-                apMac: apMac,
-                band: band,
-                clientMac: clientMac,
-                signalDbm: c.Signal,
-                noiseDbm: c.Noise,
-                txRateKbps: c.TxRate > 0 ? c.TxRate : null,
-                rxRateKbps: c.RxRate > 0 ? c.RxRate : null,
-                channel: c.Channel,
-                channelWidth: c.ChannelWidth,
-                satisfaction: c.Satisfaction,
-                rssi: c.Rssi,
-                txBytes: c.TxBytes,
-                rxBytes: c.RxBytes,
-                txThroughputBps: txThroughputBps,
-                rxThroughputBps: rxThroughputBps,
-                isMlo: c.IsMlo,
-                timestamp: now.AddTicks(tickOffset++));
-        skipWifiInflux:;
+            if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
+            {
+                _ = _influx.WriteWifiClientAsync(
+                    apMac: apMac,
+                    band: band,
+                    clientMac: clientMac,
+                    signalDbm: c.Signal,
+                    noiseDbm: c.Noise,
+                    txRateKbps: c.TxRate > 0 ? c.TxRate : null,
+                    rxRateKbps: c.RxRate > 0 ? c.RxRate : null,
+                    channel: c.Channel,
+                    channelWidth: c.ChannelWidth,
+                    satisfaction: c.Satisfaction,
+                    rssi: c.Rssi,
+                    txBytes: c.TxBytes,
+                    rxBytes: c.RxBytes,
+                    txThroughputBps: txThroughputBps,
+                    rxThroughputBps: rxThroughputBps,
+                    isMlo: c.IsMlo,
+                    timestamp: now.AddTicks(tickOffset++));
+            }
         }
 
         // Wired clients: collect throughput as fallback for non-SNMP switches.
