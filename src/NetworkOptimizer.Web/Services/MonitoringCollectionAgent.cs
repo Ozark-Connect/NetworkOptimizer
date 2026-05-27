@@ -971,6 +971,18 @@ public class MonitoringCollectionAgent : BackgroundService
                 RxThroughputBps = rxBps,
                 LastUpdate = now,
             });
+
+            // Write to InfluxDB for historic playback
+            var swMac = NormalizeMac(c.SwMac ?? string.Empty);
+            if (!string.IsNullOrEmpty(swMac))
+            {
+                _ = _influx.WriteWiredClientAsync(
+                    switchMac: swMac,
+                    clientMac: clientMac,
+                    txThroughputBps: txBps,
+                    rxThroughputBps: rxBps,
+                    timestamp: now);
+            }
         }
 
         // Drop stale byte-cache entries for clients we haven't seen this cycle. Otherwise

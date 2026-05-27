@@ -586,22 +586,45 @@ public class LanFlowMapService
                         }
                     }
                 }
-                else if (link.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(link.PortKey))
+                else if (link.Kind == LanLinkKind.WiredClient)
                 {
-                    var (deviceMac, ifName) = ParsePortKey(link.PortKey);
-                    if (ratesByDevice.TryGetValue(deviceMac, out var pts))
+                    // Primary: SNMP port rate via PortKey
+                    LinkLiveRates? rates = null;
+                    if (!string.IsNullOrEmpty(link.PortKey))
                     {
-                        var closest = pts
-                            .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
-                            .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                            .FirstOrDefault();
-                        if (closest != null)
-                            update.LinkRates[link.Id] = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
+                        var (deviceMac, ifName) = ParsePortKey(link.PortKey);
+                        if (ratesByDevice.TryGetValue(deviceMac, out var pts))
+                        {
+                            var closest = pts
+                                .Where(p => string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase))
+                                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                                .FirstOrDefault();
+                            if (closest != null)
+                                rates = MapPortToLinkRates(link, closest.RateInBps ?? 0, closest.RateOutBps ?? 0, closest.Time);
+                        }
+                    }
+                    // Fallback: wired_client measurement in InfluxDB
+                    if (rates == null)
+                    {
+                        var clientMac = ExtractWiredClientMacFromLinkId(link.Id);
+                        if (!string.IsNullOrEmpty(clientMac))
+                        {
+                            var r = await QueryClientThroughputAsync("wired_client", clientMac, at, from, to, ct);
+                            if (r != null) rates = r;
+                        }
+                    }
+                    if (rates != null) update.LinkRates[link.Id] = rates;
+                }
+                else if (link.Kind == LanLinkKind.WifiClient)
+                {
+                    // WiFi client throughput from wifi_client measurement
+                    var clientMac = ExtractWifiClientMacFromLinkId(link.Id);
+                    if (!string.IsNullOrEmpty(clientMac))
+                    {
+                        var r = await QueryClientThroughputAsync("wifi_client", clientMac, at, from, to, ct);
+                        if (r != null) update.LinkRates[link.Id] = r;
                     }
                 }
-                // WifiClient links: wifi_client throughput is stored with client_mac as
-                // a field (not a tag), making per-client InfluxDB lookups expensive.
-                // Skipped for now; wifi leaves show snapshot rates during playback.
             }
             catch (Exception ex)
             {
@@ -1711,6 +1734,31 @@ public class LanFlowMapService
         "6e" or "6ghz" or "6 GHz" or "6" => "6",
         _ => null,
     };
+
+    private async Task<LinkLiveRates?> QueryClientThroughputAsync(
+        string measurement, string clientMac, DateTime at, DateTime from, DateTime to, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _influx.QueryClientThroughputAsync(measurement, clientMac, from, to, ct);
+            var closest = result
+                .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
+                .FirstOrDefault();
+            if (closest == null) return null;
+            // Tx = switch/AP→client = downstream, Rx = client→switch/AP = upstream
+            return new LinkLiveRates
+            {
+                DownstreamBps = closest.TxThroughputBps ?? 0,
+                UpstreamBps = closest.RxThroughputBps ?? 0,
+                AsOf = closest.Time,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Historic client throughput query failed for {Mac}", clientMac);
+            return null;
+        }
+    }
 
     private static string? ExtractWifiClientMacFromLinkId(string linkId)
     {
