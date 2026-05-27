@@ -153,6 +153,73 @@ class TN {
     constructor(d) { this.d=d; this.infra=[]; this.clients=[]; this.x=0; this.y=0; this.w=0; }
 }
 
+// ---- Persistent particle stream (mirrors 3D map's ParticleStream) ----
+
+const MAX_DOTS = 16;
+const EMIT_MAX = 12;
+
+class Stream {
+    constructor(edge, dir, color, layer) {
+        this._edge = edge;
+        this._dir = dir;
+        this._color = color;
+        this._layer = layer;
+        this._density = 0;
+        this._velocity = 0.15;
+        this._dotSize = 0.75;
+        this._spawnAcc = 0;
+        // Particle pool: t < 0 means inactive
+        this._slots = [];
+        for (let i = 0; i < MAX_DOTS; i++) {
+            const dot = el('circle', { r: 0.75, fill: color, opacity: 0, filter: 'url(#pg)' }, layer);
+            this._slots.push({ el: dot, t: -1, size: 0 });
+        }
+    }
+
+    setRate(bps) {
+        const intensity = Math.max(0, Math.min(1, Math.log10(Math.max(bps, 1)) / 11));
+        this._density = intensity;
+        this._dotSize = 0.75 + (intensity * intensity) * 2.5;
+        this._velocity = 0.15 + intensity * 0.45;
+    }
+
+    advance(dt) {
+        const e = this._edge;
+        // Emit new particles based on density
+        this._spawnAcc += this._density * this._density * EMIT_MAX * dt;
+        while (this._spawnAcc >= 1) {
+            this._spawnAcc -= (0.6 + Math.random() * 0.8);
+            for (const slot of this._slots) {
+                if (slot.t < 0) {
+                    slot.t = this._dir > 0 ? 0 : 1;
+                    slot.size = this._dotSize;
+                    slot.el.setAttribute('r', this._dotSize);
+                    slot.el.setAttribute('opacity', 0.85);
+                    break;
+                }
+            }
+        }
+
+        // Advance existing particles
+        for (const slot of this._slots) {
+            if (slot.t < 0) continue;
+            slot.t += this._velocity * dt * this._dir;
+            if (slot.t > 1 || slot.t < 0) {
+                slot.t = -1;
+                slot.el.setAttribute('opacity', 0);
+                continue;
+            }
+            const pt = orthoAt(e._x1, e._y1, e._x2, e._y2, slot.t);
+            slot.el.setAttribute('cx', pt.x);
+            slot.el.setAttribute('cy', pt.y);
+        }
+    }
+
+    dispose() {
+        for (const slot of this._slots) slot.el.remove();
+    }
+}
+
 // ---- Main class ----
 
 class LanFlowMap2D {
@@ -215,8 +282,9 @@ class LanFlowMap2D {
     dispose() {
         cancelAnimationFrame(this._animId);
         if (this._unsub) this._unsub();
+        if (this._streams) for (const s of this._streams) s.dispose();
+        this._streams = [];
         this._el.innerHTML = '';
-        this._particles = [];
     }
 
     // ---- SVG skeleton ----
@@ -442,11 +510,12 @@ class LanFlowMap2D {
     // ---- Render ----
 
     _renderAll() {
+        if (this._streams) for (const s of this._streams) s.dispose();
+        this._streams = [];
         this._gLinks.innerHTML = '';
         this._gNodes.innerHTML = '';
         this._gParts.innerHTML = '';
         this._gLabels.innerHTML = '';
-        this._particles = [];
 
         if (!this._root) return;
 
@@ -455,6 +524,7 @@ class LanFlowMap2D {
         this._drawTreeLinks(this._root);
         this._drawClouds();
         this._drawTree(this._root);
+        this._initStreams();
         this._drawToolbar();
         this._updateRates();
         this._svg.style.cursor = 'grab';
@@ -747,7 +817,7 @@ class LanFlowMap2D {
         this._updateLabels();
         this._updatePipes();
         this._updateCloudStats();
-        this._syncParticles();
+        this._updateStreamRates();
     }
 
     _updateLabels() {
@@ -842,50 +912,30 @@ class LanFlowMap2D {
         }
     }
 
-    // ---- Particle system (matches 3D map emission model) ----
+    // ---- Particle system (persistent emission, matching 3D map) ----
+    // Each link gets two Stream objects (downstream + upstream). setRate()
+    // adjusts emission parameters. advance(dt) spawns new dots and moves
+    // existing ones. Particles are never bulk-recreated on rate updates.
 
-    _syncParticles() {
-        this._gParts.innerHTML = '';
-        this._particles = [];
-
+    _initStreams() {
+        this._streams = [];
         for (const e of this._edges) {
             if (!e._pe || e._isCl) continue;
-            const r = this._liveRates[e.lk.portKey] || this._liveRates[e.lk.id];
-            const dn = r?.downstreamBps ?? 0;
-            const up = r?.upstreamBps ?? 0;
+            if (e._x1 == null) continue;
             const len = orthoLen(e._x1, e._y1, e._x2, e._y2);
             if (len < 5) continue;
-
-            // Downstream particles
-            if (dn > 0) this._spawnStream(e, dn, 1, C.downstream);
-            // Upstream particles
-            if (up > 0) this._spawnStream(e, up, -1, C.upstream);
+            e._sDown = new Stream(e, 1, C.downstream, this._gParts);
+            e._sUp   = new Stream(e, -1, C.upstream, this._gParts);
+            this._streams.push(e._sDown, e._sUp);
         }
     }
 
-    _spawnStream(edge, bps, dir, color) {
-        // 3D map formula: intensity = log10(max(bps,1)) / 11, clamped 0..1
-        const intensity = Math.max(0, Math.min(1, Math.log10(Math.max(bps, 1)) / 11));
-        // Emission density - how many particles visible at once
-        // density² * 12 = emissions/sec. At steady state ~density²*12 / velocity particles in flight.
-        const density = intensity;
-        // Particle size: squared curve matching 3D map, scaled for 2D SVG
-        const size = 0.75 + (intensity * intensity) * 2.5;
-        // Velocity: 0..1 range, normalized per-second fraction of path
-        const vel = 0.15 + intensity * 0.45;
-        // Count: density²*12 is emission rate; at vel speed, in-flight ≈ emission/vel
-        const count = Math.max(1, Math.min(Math.ceil(density * density * 12 / Math.max(vel, 0.1)), 10));
-
-        for (let i = 0; i < count; i++) {
-            const dot = el('circle', {
-                r: size, fill: color, opacity: 0.85, filter: 'url(#pg)',
-            }, this._gParts);
-            this._particles.push({
-                el: dot, edge,
-                t: i / count + (Math.random() * 0.05),
-                speed: vel * (0.85 + Math.random() * 0.3),
-                dir, size,
-            });
+    _updateStreamRates() {
+        for (const e of this._edges) {
+            if (!e._sDown) continue;
+            const r = this._liveRates[e.lk.portKey] || this._liveRates[e.lk.id];
+            e._sDown.setRate(r?.downstreamBps ?? 0);
+            e._sUp.setRate(r?.upstreamBps ?? 0);
         }
     }
 
@@ -894,15 +944,7 @@ class LanFlowMap2D {
         const dt = Math.min((now - this._lastFrame) / 1000, 0.1);
         this._lastFrame = now;
 
-        for (const p of this._particles) {
-            p.t += p.speed * dt * p.dir;
-            if (p.t > 1) p.t -= 1;
-            if (p.t < 0) p.t += 1;
-
-            const pt = orthoAt(p.edge._x1, p.edge._y1, p.edge._x2, p.edge._y2, p.t);
-            p.el.setAttribute('cx', pt.x);
-            p.el.setAttribute('cy', pt.y);
-        }
+        for (const s of this._streams) s.advance(dt);
 
         this._animId = requestAnimationFrame(() => this._animate());
     }
