@@ -759,7 +759,7 @@ deploy_application() {
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 120s
 
   network-optimizer-speedtest:
     image: ghcr.io/ozark-connect/speedtest:latest
