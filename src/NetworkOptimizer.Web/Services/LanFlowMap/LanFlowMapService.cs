@@ -951,7 +951,7 @@ public class LanFlowMapService
             var mac = NormalizeMac(d.Mac);
             anchors.TryGetValue(mac, out var anchor);
             var kind = MapDeviceKind(d);
-            snapshot.Nodes.Add(new LanNode
+            var node = new LanNode
             {
                 Id = "dev-" + mac,
                 Kind = kind,
@@ -960,7 +960,14 @@ public class LanFlowMapService
                 Model = d.FriendlyModelName,
                 Placement = anchor,
                 Online = d.State == 1,
-            });
+            };
+            if (string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase))
+            {
+                node.PhyTxKbps = d.UplinkTxRateKbps > 0 ? d.UplinkTxRateKbps : null;
+                node.PhyRxKbps = d.UplinkRxRateKbps > 0 ? d.UplinkRxRateKbps : null;
+                node.Band = NormalizeBand(d.UplinkRadioBand);
+            }
+            snapshot.Nodes.Add(node);
         }
 
         // Switches and gateway inherit interpolated placement from the centroid of any

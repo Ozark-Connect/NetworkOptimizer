@@ -36,7 +36,7 @@ const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackha
 // ---- Layout geometry ----
 const G = {
     tierGap:     170,
-    cloudGap:    160,
+    cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
     clientCellH: 50,
@@ -996,11 +996,13 @@ class LanFlowMap2D {
             // Capacity / speed label on infra and WAN links
             if(!e._isCl){
                 ctx.globalAlpha=1;
-                const mx=(e._x1+e._x2)/2, my=(e._y1+e._y2)/2;
+                // WAN labels go on the vertical segment near the cloud, not the shared midpoint
+                const isWan=e._isWan;
+                const mx=isWan?e._x1:(e._x1+e._x2)/2;
+                const my=isWan?e._y1+30:(e._y1+e._y2)/2;
                 let txt=null;
 
-                if(e._isWan){
-                    // WAN links: show ISP expected speeds from cloud data
+                if(isWan){
                     const cloud=this._clouds.find(c=>
                         e.lk.fromNodeId===c.d.id||e.lk.toNodeId===c.d.id);
                     if(cloud?.d.ispDownloadMbps&&cloud?.d.ispUploadMbps){
