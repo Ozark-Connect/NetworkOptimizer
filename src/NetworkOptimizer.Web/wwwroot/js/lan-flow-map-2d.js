@@ -344,6 +344,61 @@ class LanFlowMap2D {
         this._onKeyDown=(e)=>{if(e.key==='Escape'&&this._isFullscreen)this._toggleFullscreen();};
         document.addEventListener('keydown',this._onKeyDown);
 
+        // Filter + overlay state
+        this._filter={text:'',bands:{'2.4':true,'5':true,'6':true}};
+        const defaultOverlays={wifiClients:true,wiredClients:true,clouds:true};
+        try{const s=JSON.parse(localStorage.getItem('lanFlowMap2dOverlays'));this._overlays=s?{...defaultOverlays,...s}:{...defaultOverlays};}
+        catch{this._overlays={...defaultOverlays};}
+
+        // Filter panel (top-left, matching 3D style)
+        const filter=document.createElement('div');
+        filter.className='lan-flow-map-panel lan-flow-map-filter';
+        filter.innerHTML=`<div class="lan-flow-map-panel-title">Filter clients</div>
+            <div class="lan-flow-map-panel-body">
+                <input class="lan-flow-map-search" type="search" placeholder="Search by name or MAC" />
+                <div class="lan-flow-map-chips" data-chip-group="band">
+                    <span class="lan-flow-map-chip is-on" data-band="2.4">2.4 GHz</span>
+                    <span class="lan-flow-map-chip is-on" data-band="5">5 GHz</span>
+                    <span class="lan-flow-map-chip is-on" data-band="6">6 GHz</span>
+                </div>
+            </div>`;
+        filter.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
+            this._filter.text=(e.target.value||'').toLowerCase().trim();
+            this._needsStaticRedraw=true;
+        });
+        const bandChips=[...filter.querySelectorAll('.lan-flow-map-chip')];
+        bandChips.forEach(chip=>{
+            chip.addEventListener('click',()=>{
+                const b=chip.dataset.band;
+                const allOn=bandChips.every(c=>this._filter.bands[c.dataset.band]);
+                if(allOn){for(const c of bandChips){this._filter.bands[c.dataset.band]=(c.dataset.band===b);c.classList.toggle('is-on',this._filter.bands[c.dataset.band]);}}
+                else{const onlyThis=this._filter.bands[b]&&bandChips.every(c=>c.dataset.band===b||!this._filter.bands[c.dataset.band]);
+                    if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
+                    else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
+                this._needsStaticRedraw=true;
+            });
+        });
+        this._el.appendChild(filter);
+
+        // Overlays panel (top-right, matching 3D style)
+        const controls=document.createElement('div');
+        controls.className='lan-flow-map-panel lan-flow-map-controls';
+        controls.innerHTML=`<div class="lan-flow-map-panel-title">Overlays</div><div class="lan-flow-map-panel-body"></div>`;
+        const ctrlBody=controls.querySelector('.lan-flow-map-panel-body');
+        for(const[key,label]of[['wifiClients','Wi-Fi clients'],['wiredClients','Wired clients'],['clouds','WAN globes']]){
+            const row=document.createElement('div');
+            row.className=`lan-flow-map-toggle ${this._overlays[key]?'is-on':''}`;
+            row.innerHTML=`<span>${label}</span><span class="lan-flow-map-toggle-pill"></span>`;
+            row.addEventListener('click',()=>{
+                this._overlays[key]=!this._overlays[key];
+                row.classList.toggle('is-on',this._overlays[key]);
+                try{localStorage.setItem('lanFlowMap2dOverlays',JSON.stringify(this._overlays));}catch{}
+                this._needsStaticRedraw=true;
+            });
+            ctrlBody.appendChild(row);
+        }
+        this._el.appendChild(controls);
+
         // Toolbar
         const tb=document.createElement('div');
         tb.className='lfm2d-toolbar';
@@ -372,7 +427,7 @@ class LanFlowMap2D {
                 </div>
                 <span data-role="left">-24h</span>
                 <input class="lan-flow-map-scrubber-range" type="range" min="0" max="10000" value="10000" />
-                <span data-role="right" style="min-width:10ch">Live</span>
+                <span data-role="right">Live</span>
             </div>`;
         // Forward all interactions to the 3D map
         const fwd=()=>window.__lanFlowMap?.getInstance?.();
@@ -500,6 +555,25 @@ class LanFlowMap2D {
         this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
         this._scrubberEls.playPause.textContent=flowData.isPaused()?'▶':'⏸';
     }
+
+    _isNodeVisible(n){
+        const k=n.d.kind;
+        if(k===NK.WifiClient){
+            if(!this._overlays.wifiClients)return false;
+            if(n.d.band&&!this._filter.bands[n.d.band])return false;
+        }
+        if(k===NK.WiredClient&&!this._overlays.wiredClients)return false;
+        if(this._filter.text){
+            const t=this._filter.text;
+            const name=(n.d.name||'').toLowerCase();
+            const mac=(n.d.mac||'').toLowerCase();
+            const ip=(n.d.ip||'').toLowerCase();
+            if(!name.includes(t)&&!mac.includes(t)&&!ip.includes(t))return false;
+        }
+        return true;
+    }
+
+    _isCloudVisible(){return this._overlays.clouds;}
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
@@ -1038,8 +1112,8 @@ class LanFlowMap2D {
 
         // Links
         this._drawAllLinks(ctx);
-        // Clouds
-        this._drawAllClouds(ctx);
+        // Clouds (if overlay enabled)
+        if(this._isCloudVisible())this._drawAllClouds(ctx);
         // Infra + client nodes
         this._drawAllNodes(ctx,this._root);
         // Rate labels
@@ -1051,6 +1125,12 @@ class LanFlowMap2D {
     _drawAllLinks(ctx){
         for(const e of this._edges){
             if(e._x1==null)continue;
+            // Hide links to filtered-out nodes
+            if(e._isWan&&!this._isCloudVisible())continue;
+            if(e._isCl){
+                const child=e.tn||e.fn;
+                if(child&&!this._isNodeVisible(child))continue;
+            }
             const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
             const cap=e.lk.capacityBps||1e9;
@@ -1190,7 +1270,7 @@ class LanFlowMap2D {
         }
         this._drawInfraNode(ctx,n);
         for(const c of n.infra)this._drawAllNodes(ctx,c);
-        for(const c of n.clients.slice(0,G.maxClients))this._drawClientNode(ctx,c);
+        for(const c of n.clients.slice(0,G.maxClients)){if(this._isNodeVisible(c))this._drawClientNode(ctx,c);}
         if(n.clients.length>G.maxClients){
             const last=n.clients[G.maxClients-1];
             ctx.fillStyle=C.textMuted;
