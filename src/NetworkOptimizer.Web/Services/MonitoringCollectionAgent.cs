@@ -853,6 +853,9 @@ public class MonitoringCollectionAgent : BackgroundService
         }
 
         var now = DateTime.UtcNow;
+        var wifiCount = clients.Count(c => !c.IsWired);
+        var wiredCount = clients.Count(c => c.IsWired);
+        _logger.LogDebug("WiFi tier: {Total} clients ({Wifi} wifi, {Wired} wired)", clients.Length, wifiCount, wiredCount);
         foreach (var c in clients)
         {
             if (c.IsWired) continue;
