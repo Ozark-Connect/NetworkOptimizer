@@ -741,7 +741,7 @@ from(bucket: ""{_longtermBucket}"")
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
   |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-  |> filter(fn: (r) => exists r.tx_throughput_bps or exists r.rx_throughput_bps)";
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
 
         var results = new List<ClientThroughputPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))
