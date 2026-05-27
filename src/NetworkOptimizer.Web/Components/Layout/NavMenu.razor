@@ -21,12 +21,6 @@
                 <span class="nav-text">Network Tools</span>
             </NavLink>
         </li>
-        <li class="nav-item nav-sub-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/upnp-inspector">
-                <span class="nav-sub-icon">└</span>
-                <span class="nav-text">UPnP Inspector</span>
-            </NavLink>
-        </li>
         <li class="nav-item" @onclick="HandleNavClick">
             <NavLink class="nav-link" href="/config-optimizer">
                 <img src="/icons/tools.png" alt="" class="nav-icon-img" />
@@ -55,6 +49,12 @@
             <NavLink class="nav-link" href="/audit">
                 <img src="/icons/shield-v2.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Security Audit</span>
+            </NavLink>
+        </li>
+        <li class="nav-item nav-sub-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/upnp-inspector">
+                <span class="nav-sub-icon">└</span>
+                <span class="nav-text">UPnP Inspector</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
