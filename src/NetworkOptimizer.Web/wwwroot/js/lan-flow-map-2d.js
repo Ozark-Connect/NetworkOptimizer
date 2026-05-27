@@ -671,7 +671,7 @@ class LanFlowMap2D {
         // WAN cloud links - stagger by index
         const wanEdges=[];
         for(const cloud of this._clouds){
-            const cy=cloud.y+G.cloudR+8;
+            const cy=cloud.y+G.cloudR+1;
             const edge=this._edges.find(e=>
                 (e.lk.kind===LK.Wan||e.lk.kind===LK.Transit)
                 &&(e.lk.fromNodeId===cloud.d.id||e.lk.toNodeId===cloud.d.id));
@@ -689,7 +689,8 @@ class LanFlowMap2D {
             const sibEdges=[];
 
             for(const c of n.infra){
-                const cT=c.y-G.boxH/2;
+                // VirtualHub renders as a small ring (r=10), not a full box
+                const cT=c.d.kind===NK.VirtualHub?c.y-12:c.y-G.boxH/2;
                 const edge=this._edges.find(e=>
                     (e.lk.fromNodeId===n.d.id&&e.lk.toNodeId===c.d.id)
                     ||(e.lk.fromNodeId===c.d.id&&e.lk.toNodeId===n.d.id));
