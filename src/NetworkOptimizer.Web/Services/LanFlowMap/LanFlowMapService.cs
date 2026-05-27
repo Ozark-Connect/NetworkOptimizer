@@ -353,16 +353,30 @@ public class LanFlowMapService
             };
         }
 
-        // Cloud RTT from the in-memory target stats cache.
+        // Cloud RTT from the live monitoring target cache (same source as the
+        // ISP RTT stat card) so the globe label stays in lockstep.
         foreach (var cloud in snapshot.Clouds)
         {
-            // The cloud's RTT came from MonitoringPathView at build time - re-resolve it
-            // by querying the same source so the live tick is fresh.
+            double? rtt = cloud.RttAvgMs;
+            double? loss = cloud.LossPercent;
+            bool success = rtt.HasValue;
+
+            if (!string.IsNullOrEmpty(cloud.RttTargetId))
+            {
+                var live = _liveStats.GetTargetStats(cloud.RttTargetId);
+                if (live != null)
+                {
+                    rtt = live.RttAvgMs;
+                    loss = live.LossPercent;
+                    success = live.RttAvgMs.HasValue;
+                }
+            }
+
             update.CloudStats[cloud.Id] = new CloudLiveStats
             {
-                RttAvgMs = cloud.RttAvgMs,
-                LossPercent = cloud.LossPercent,
-                Success = cloud.RttAvgMs.HasValue,
+                RttAvgMs = rtt,
+                LossPercent = loss,
+                Success = success,
             };
         }
 
@@ -1225,6 +1239,7 @@ public class LanFlowMapService
             {
                 accessCloud.RttAvgMs = lastLive.Live.RttAvgMs;
                 accessCloud.LossPercent = lastLive.Live.LossPercent;
+                accessCloud.RttTargetId = lastLive.TargetId;
             }
             snapshot.Clouds.Add(accessCloud);
 

@@ -2139,9 +2139,11 @@ export class LanFlowMap {
             pill.style.top = `${y}px`;
         }
 
-        // Cloud RTT labels - positioned right below the WAN speed test pill
+        // Cloud RTT labels - positioned right below the WAN speed test pill.
+        // Only show if the label has content (set by _refreshCloudRttLabels).
         if (this._cloudRttLabels) {
             for (const [cloudId, lbl] of this._cloudRttLabels) {
+                if (!lbl.textContent) { lbl.classList.remove('is-visible'); continue; }
                 const group = this._cloudMeshes.get(cloudId);
                 if (!group) { lbl.classList.remove('is-visible'); continue; }
                 tmp.setFromMatrixPosition(group.matrixWorld);
@@ -2152,7 +2154,6 @@ export class LanFlowMap {
                 const x = (tmp.x * halfW) + halfW;
                 const y = -(tmp.y * halfH) + halfH;
                 const scale = Math.max(MIN_SCALE, Math.min(1.0, REF_DIST / Math.max(dist, 1)));
-                // Offset below the WAN pill by reading the pill's rendered height + margin
                 const wanIface = cloudId.replace('cloud-access-', '');
                 const pill = this._wanPills.get(wanIface);
                 const pillOffset = pill?.classList.contains('is-visible') ? (pill.offsetHeight * scale + 6) : 0;

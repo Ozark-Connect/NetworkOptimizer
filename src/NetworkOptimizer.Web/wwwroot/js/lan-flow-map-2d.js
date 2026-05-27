@@ -312,33 +312,44 @@ class LanFlowMap2D {
         for (const n of snap.nodes) byId.set(n.id, new TN(n));
         this._treeMap = byId;
 
+        // Build adjacency from LINKS (not parentId - parentId is sparse).
+        // This mirrors how the 3D map determines connectivity.
+        const adj = new Map();
+        for (const lk of snap.links) {
+            if (lk.kind === LK.Wan || lk.kind === LK.Transit) continue;
+            const a = lk.fromNodeId, b = lk.toNodeId;
+            if (!byId.has(a) || !byId.has(b)) continue;
+            if (!adj.has(a)) adj.set(a, []);
+            if (!adj.has(b)) adj.set(b, []);
+            adj.get(a).push({ to: b, lk });
+            adj.get(b).push({ to: a, lk });
+        }
+
+        // BFS from gateway to build tree
         let root = null;
         for (const [, tn] of byId) {
-            if (tn.d.kind === NK.Gateway) root = tn;
-            const pid = tn.d.parentId;
-            if (pid && byId.has(pid)) {
-                const par = byId.get(pid);
-                if (isClient(tn.d.kind)) par.clients.push(tn);
-                else if (tn.d.kind !== NK.Cloud) par.infra.push(tn);
-            }
+            if (tn.d.kind === NK.Gateway) { root = tn; break; }
         }
         this._root = root;
 
-        // Diagnostic: dump tree structure
         if (root) {
-            const dump = (n, depth) => {
-                const pad = '  '.repeat(depth);
-                console.log(`${pad}${n.d.name||n.d.id} (kind=${n.d.kind}) infra=${n.infra.length} clients=${n.clients.length}`);
-                for (const c of n.infra) dump(c, depth+1);
-            };
-            console.log(`[2D Map] Tree: ${byId.size} nodes, root=${root.d.name||root.d.id}`);
-            dump(root, 0);
-            const orphans = [...byId.values()].filter(tn => tn !== root && !tn.d.parentId && tn.d.kind !== NK.Cloud);
-            if (orphans.length) console.warn(`[2D Map] ${orphans.length} orphan nodes (no parentId):`, orphans.map(o => `${o.d.name||o.d.id} kind=${o.d.kind}`));
-            const unlinked = [...byId.values()].filter(tn => tn.d.parentId && !byId.has(tn.d.parentId));
-            if (unlinked.length) console.warn(`[2D Map] ${unlinked.length} nodes with parentId not in map:`, unlinked.map(o => `${o.d.name||o.d.id} parentId=${o.d.parentId}`));
-        } else {
-            console.warn('[2D Map] No gateway root found! Node kinds:', [...byId.values()].map(n => n.d.kind));
+            const visited = new Set([root.d.id]);
+            const queue = [root];
+            while (queue.length > 0) {
+                const par = queue.shift();
+                for (const { to } of (adj.get(par.d.id) || [])) {
+                    if (visited.has(to)) continue;
+                    visited.add(to);
+                    const child = byId.get(to);
+                    if (!child) continue;
+                    if (isClient(child.d.kind)) {
+                        par.clients.push(child);
+                    } else {
+                        par.infra.push(child);
+                        queue.push(child);
+                    }
+                }
+            }
         }
 
         this._clouds = (snap.clouds||[]).map(c => ({ d:c, x:0, y:0 }));
@@ -490,6 +501,17 @@ class LanFlowMap2D {
                 edge._x1 = cloud.x; edge._y1 = cy;
                 edge._x2 = gw.x; edge._y2 = gwT;
                 edge._isWan = true;
+
+                // WAN live rate label
+                const midX = (cloud.x + gw.x) / 2;
+                const midY = (cy + gwT) / 2 + 12;
+                const rg = el('g', { transform:`translate(${midX},${midY})`, class:'rate-lbl' }, this._gLabels);
+                const rbg = el('rect', { x:-50, y:-8, width:100, height:16, rx:4, fill:C.labelBg, opacity:0 }, rg);
+                const rd = el('text', { x:-3, y:4, 'text-anchor':'end', fill:C.downstream,
+                    'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, rg);
+                const ru = el('text', { x:3, y:4, 'text-anchor':'start', fill:C.upstream,
+                    'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, rg);
+                edge._rlG = rg; edge._rlBg = rbg; edge._rlD = rd; edge._rlU = ru;
             }
         }
 
@@ -548,6 +570,19 @@ class LanFlowMap2D {
         if (!isCl && edge?.lk.capacityBps) {
             const cap = edge.lk.capacityBps / 1e6;
             if (cap > 0) this._capLabel((par.x + child.x) / 2, (y1 + y2) / 2, formatSpeed(cap));
+        }
+
+        // Live rate label (updated dynamically) for non-client links
+        if (!isCl && edge) {
+            const midX = (par.x + child.x) / 2;
+            const midY = (y1 + y2) / 2 + 12;
+            const rg = el('g', { transform:`translate(${midX},${midY})`, class:'rate-lbl' }, this._gLabels);
+            const rbg = el('rect', { x:-50, y:-8, width:100, height:16, rx:4, fill:C.labelBg, opacity:0 }, rg);
+            const rd = el('text', { x:-3, y:4, 'text-anchor':'end', fill:C.downstream,
+                'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, rg);
+            const ru = el('text', { x:3, y:4, 'text-anchor':'start', fill:C.upstream,
+                'font-size':G.rateFont, 'font-family':'system-ui,sans-serif' }, rg);
+            edge._rlG = rg; edge._rlBg = rbg; edge._rlD = rd; edge._rlU = ru;
         }
     }
 
@@ -765,6 +800,7 @@ class LanFlowMap2D {
     }
 
     _updatePipes() {
+        const THRESH = 1_000_000;
         for (const e of this._edges) {
             if (!e._pe) continue;
             const r = this._liveRates[e.lk.portKey] || this._liveRates[e.lk.id];
@@ -775,6 +811,22 @@ class LanFlowMap2D {
             e._pe.setAttribute('stroke', pipeClr(Math.min(u, 1), e._band));
             const op = e._isCl ? 0.3 + u * 0.45 : 0.5 + u * 0.5;
             e._pe.setAttribute('opacity', String(Math.min(op, 1)));
+
+            // Live rate label on links
+            if (e._rlD) {
+                if (dn > THRESH || up > THRESH) {
+                    e._rlD.textContent = dn > THRESH ? '↓' + formatBps(dn) : '';
+                    e._rlU.textContent = up > THRESH ? '↑' + formatBps(up) : '';
+                    const tw = Math.max((e._rlD.textContent.length + e._rlU.textContent.length) * 5 + 16, 40);
+                    e._rlBg.setAttribute('x', -tw / 2);
+                    e._rlBg.setAttribute('width', tw);
+                    e._rlBg.setAttribute('opacity', 1);
+                } else {
+                    e._rlD.textContent = '';
+                    e._rlU.textContent = '';
+                    e._rlBg.setAttribute('opacity', 0);
+                }
+            }
         }
     }
 
