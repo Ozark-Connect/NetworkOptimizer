@@ -1982,6 +1982,7 @@ export class LanFlowMap {
             const res = await fetch(url, { credentials: 'same-origin' });
             if (!res.ok) return;
             const update = await res.json();
+            flowData.publishLive(update);
             this._applyLiveRates(update.linkRates || {});
             if (update.nodeBadges) this._currentBadges = update.nodeBadges;
         } catch (err) {
