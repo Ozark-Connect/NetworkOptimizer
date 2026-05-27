@@ -58,7 +58,7 @@ const G = {
 
 const RATE_THRESH = 1_000_000;
 const EMIT_MAX = 12;
-const MAX_DOTS = 14;
+const MAX_DOTS = 20;
 const FONT = 'system-ui, -apple-system, sans-serif';
 
 // ---- Helpers ----
@@ -177,7 +177,7 @@ class Stream {
         this.dotSize=0.4+(intensity*intensity)*1.2;
         // Constant visual speed: match 3D map (2.5 + intensity*4 scene-units/sec)
         // scaled to SVG pixels. Divide by path length for normalized t/sec.
-        const absPxSec=50+intensity*80;
+        const absPxSec=30+intensity*50;
         this.velNorm=absPxSec/Math.max(this.pathLen,1);
 
         // Pre-seed on first non-zero rate so the pipe is already populated
