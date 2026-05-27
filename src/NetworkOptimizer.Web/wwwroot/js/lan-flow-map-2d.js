@@ -1153,13 +1153,15 @@ class LanFlowMap2D {
 
         if(!this._root)return;
 
-        // Links
+        // Links (pipes only)
+        this._pendingLinkLabels=[];
         this._drawAllLinks(ctx);
         // Clouds (if overlay enabled)
         if(this._isCloudVisible())this._drawAllClouds(ctx);
         // Infra + client nodes
         this._drawAllNodes(ctx,this._root);
-        // Rate labels
+        // All labels on top (capacity + live rates + node rates)
+        this._drawLinkSpeedLabels(ctx);
         this._drawRateLabels(ctx);
     }
 
@@ -1225,29 +1227,33 @@ class LanFlowMap2D {
                     txt=formatSpeed(e.lk.capacityBps/1e6);
                 }
 
-                if(txt){
-                    ctx.font=`${G.rateFont}px ${FONT}`;
-                    const tw=ctx.measureText(txt).width+12;
-                    ctx.fillStyle=C.labelBg;
-                    this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
-                    ctx.fill();
-                    if(txtColor){
-                        ctx.fillStyle=txtColor;
-                        ctx.textAlign='center'; ctx.textBaseline='middle';
-                        ctx.fillText(txt,mx,my);
-                    }else{
-                        // Directional colors: split at the space between ↑ and preceding text
-                        const parts=txt.split(' ↑');
-                        ctx.textBaseline='middle';
-                        ctx.textAlign='right'; ctx.fillStyle=C.downstream;
-                        ctx.fillText(parts[0],mx-4,my);
-                        ctx.textAlign='left'; ctx.fillStyle=C.upstream;
-                        ctx.fillText('↑'+parts[1],mx+4,my);
-                    }
-                }
+                if(txt) this._pendingLinkLabels.push({mx,my,txt,txtColor});
             }
         }
         ctx.globalAlpha=1;
+    }
+
+    _drawLinkSpeedLabels(ctx){
+        ctx.font=`${G.rateFont}px ${FONT}`;
+        for(const{mx,my,txt,txtColor}of(this._pendingLinkLabels||[])){
+            const tw=ctx.measureText(txt).width+12;
+            ctx.fillStyle=C.labelBg;
+            ctx.globalAlpha=1;
+            this._roundRect(ctx,mx-tw/2,my-8,tw,16,4);
+            ctx.fill();
+            if(txtColor){
+                ctx.fillStyle=txtColor;
+                ctx.textAlign='center'; ctx.textBaseline='middle';
+                ctx.fillText(txt,mx,my);
+            }else{
+                const parts=txt.split(' ↑');
+                ctx.textBaseline='middle';
+                ctx.textAlign='right'; ctx.fillStyle=C.downstream;
+                ctx.fillText(parts[0],mx-4,my);
+                ctx.textAlign='left'; ctx.fillStyle=C.upstream;
+                ctx.fillText('↑'+parts[1],mx+4,my);
+            }
+        }
     }
 
     // ---- Cloud drawing ----
