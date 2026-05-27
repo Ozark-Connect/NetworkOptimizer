@@ -1206,12 +1206,22 @@ export class LanFlowMap {
         // position, fly to that instead of the default overview.
         this._flyInUntil = performance.now() + 1300;
         const sc = this._savedCamera;
-        this._flyInTargetCam = sc
-            ? new THREE.Vector3(sc.cx, sc.cy, sc.cz)
-            : new THREE.Vector3(60, 40, 60);
-        this._flyInTargetLookAt = sc
-            ? new THREE.Vector3(sc.tx, sc.ty, sc.tz)
-            : null;
+        if (sc) {
+            this._flyInTargetCam = new THREE.Vector3(sc.cx, sc.cy, sc.cz);
+            this._flyInTargetLookAt = new THREE.Vector3(sc.tx, sc.ty, sc.tz);
+        } else {
+            // Compute centroid of all positioned nodes so we aim at the actual
+            // topology, not hardcoded origin (which can be empty space when
+            // anchored APs shift the layout away from 0,0,0).
+            let cx = 0, cy = 0, cz = 0, n = 0;
+            for (const pos of this._positions.values()) {
+                cx += pos.x; cy += pos.y; cz += pos.z; n++;
+            }
+            if (n > 0) { cx /= n; cy /= n; cz /= n; }
+            this._flyInTargetCam = new THREE.Vector3(cx + 60, cy + 40, cz + 60);
+            this._flyInTargetLookAt = new THREE.Vector3(cx, cy, cz);
+            this.controls.target.set(cx, cy, cz);
+        }
         this._flyInStartCam = this.camera.position.clone();
 
         // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
