@@ -857,7 +857,7 @@ class LanFlowMap2D {
         const gx=this._root.x,gy=this._root.y;
         const total=this._clouds.length,sp=G.cloudGap;
         const sx=gx-((total-1)*sp)/2;
-        const baseY=gy-G.tierGap*1.4;
+        const baseY=gy-G.tierGap*1.6;
         const stagger=45;
         for(let i=0;i<total;i++){
             this._clouds[i].x=sx+i*sp;
