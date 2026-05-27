@@ -793,7 +793,12 @@ class LanFlowMap2D {
         const gx=this._root.x,gy=this._root.y;
         const total=this._clouds.length,sp=G.cloudGap;
         const sx=gx-((total-1)*sp)/2;
-        for(let i=0;i<total;i++){this._clouds[i].x=sx+i*sp;this._clouds[i].y=gy-G.tierGap;}
+        const baseY=gy-G.tierGap*1.4;
+        const stagger=45;
+        for(let i=0;i<total;i++){
+            this._clouds[i].x=sx+i*sp;
+            this._clouds[i].y=baseY+(i%2)*stagger;
+        }
     }
 
     _matchEdges(){
@@ -1044,20 +1049,32 @@ class LanFlowMap2D {
         for(const cloud of this._clouds){
             const cx=cloud.x, cy=cloud.y, r=G.cloudR;
 
-            // Globe wireframe
+            // Subtle radial fill
+            const grad=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,0,cx,cy,r);
+            grad.addColorStop(0,'rgba(59,130,246,0.08)');
+            grad.addColorStop(1,'rgba(59,130,246,0.02)');
+            ctx.fillStyle=grad;
+            ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+
+            // Outer circle
             ctx.strokeStyle=C.globeStroke;
             ctx.lineWidth=1.5; ctx.globalAlpha=0.8;
             ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
 
-            ctx.lineWidth=1; ctx.globalAlpha=0.35;
-            ctx.beginPath(); ctx.ellipse(cx,cy,r*0.45,r,0,0,Math.PI*2); ctx.stroke();
-            ctx.beginPath(); ctx.ellipse(cx,cy,r,r*0.35,0,0,Math.PI*2); ctx.stroke();
+            // Longitude lines (3 meridians at different tilts)
+            ctx.lineWidth=0.8; ctx.globalAlpha=0.3;
+            for(const rx of [0.15, 0.5, 0.85]){
+                ctx.beginPath(); ctx.ellipse(cx,cy,r*rx,r,0,0,Math.PI*2); ctx.stroke();
+            }
 
-            ctx.lineWidth=0.7; ctx.globalAlpha=0.2;
-            ctx.beginPath(); ctx.ellipse(cx,cy,r,r*0.65,0,0,Math.PI*2); ctx.stroke();
+            // Latitude lines (equator + two parallels)
+            for(const ry of [0.35, 0.65]){
+                ctx.beginPath(); ctx.ellipse(cx,cy,r,r*ry,0,0,Math.PI*2); ctx.stroke();
+            }
+            // Equator slightly brighter
+            ctx.globalAlpha=0.45; ctx.lineWidth=0.9;
+            ctx.beginPath(); ctx.ellipse(cx,cy,r,r*0.08,0,0,Math.PI*2); ctx.stroke();
 
-            ctx.fillStyle=C.globeStroke; ctx.globalAlpha=0.05;
-            ctx.beginPath(); ctx.arc(cx,cy,r-1,0,Math.PI*2); ctx.fill();
             ctx.globalAlpha=1;
 
             // Name
