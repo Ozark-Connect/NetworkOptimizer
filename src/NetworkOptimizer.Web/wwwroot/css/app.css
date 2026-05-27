@@ -14062,7 +14062,7 @@ a.affected-client:hover {
     margin-bottom: 0.45rem;
 }
 .lan-flow-map-controls {
-    top: 2.75rem;
+    top: 3rem;
     right: 0.75rem;
     min-width: 178px;
     display: flex;
@@ -14498,6 +14498,22 @@ a.affected-client:hover {
     display: none;
 }
 .lan-flow-map-wan-pill.is-visible {
+    display: block;
+}
+.lan-flow-map-cloud-rtt {
+    position: absolute;
+    transform: translate(-50%, 0%);
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--text-secondary);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    white-space: nowrap;
+    display: none;
+}
+.lan-flow-map-cloud-rtt.is-visible {
     display: block;
 }
 .lan-flow-map-tooltip {

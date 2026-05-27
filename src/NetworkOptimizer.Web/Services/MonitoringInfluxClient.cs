@@ -394,6 +394,26 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    public Task WriteWiredClientAsync(
+        string switchMac,
+        string clientMac,
+        double? txThroughputBps,
+        double? rxThroughputBps,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("wired_client")
+            .Tag("device_mac", NormalizeMac(switchMac))
+            .Field("client_mac", NormalizeMac(clientMac))
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (txThroughputBps.HasValue) point = point.Field("tx_throughput_bps", txThroughputBps.Value);
+        if (rxThroughputBps.HasValue) point = point.Field("rx_throughput_bps", rxThroughputBps.Value);
+
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
     public Task WriteSfpAsync(
         string deviceMac,
         string portName,
@@ -701,6 +721,71 @@ from(bucket: ""{_longtermBucket}"")
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
     /// rows ordered by time.
     /// </summary>
+    public record ClientThroughputPoint
+    {
+        public DateTime Time { get; init; }
+        public string? ClientMac { get; init; }
+        public double? TxThroughputBps { get; init; }
+        public double? RxThroughputBps { get; init; }
+    }
+
+    public async Task<IReadOnlyList<ClientThroughputPoint>> QueryAllClientThroughputAsync(
+        string measurement,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
+
+        var results = new List<ClientThroughputPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new ClientThroughputPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                ClientMac = record.GetValueByKey("client_mac") as string,
+                TxThroughputBps = AsDoubleOrNull(record.GetValueByKey("tx_throughput_bps")),
+                RxThroughputBps = AsDoubleOrNull(record.GetValueByKey("rx_throughput_bps")),
+            });
+        }
+        return results;
+    }
+
+    public async Task<IReadOnlyList<ClientThroughputPoint>> QueryClientThroughputAsync(
+        string measurement,
+        string clientMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
+        var mac = NormalizeMac(clientMac);
+        var flux = $@"from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""{measurement}"")
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => r.client_mac == ""{mac}"")";
+
+        var results = new List<ClientThroughputPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new ClientThroughputPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                TxThroughputBps = AsDoubleOrNull(record.GetValueByKey("tx_throughput_bps")),
+                RxThroughputBps = AsDoubleOrNull(record.GetValueByKey("rx_throughput_bps")),
+            });
+        }
+        return results;
+    }
+
     public async Task<IReadOnlyList<WifiClientHistoryPoint>> QueryWifiClientHistoryAsync(
         string apMac,
         string? band,

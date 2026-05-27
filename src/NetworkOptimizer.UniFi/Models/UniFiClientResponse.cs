@@ -158,6 +158,18 @@ public class UniFiClientResponse
     [JsonPropertyName("rx_bytes-r")]
     public double RxBytesRate { get; set; }
 
+    [JsonPropertyName("wired-tx_bytes")]
+    public long WiredTxBytes { get; set; }
+
+    [JsonPropertyName("wired-rx_bytes")]
+    public long WiredRxBytes { get; set; }
+
+    [JsonPropertyName("wired-tx_bytes-r")]
+    public double WiredTxBytesRate { get; set; }
+
+    [JsonPropertyName("wired-rx_bytes-r")]
+    public double WiredRxBytesRate { get; set; }
+
     // QoS and experience
     [JsonPropertyName("qos_policy_applied")]
     public bool QosPolicyApplied { get; set; }

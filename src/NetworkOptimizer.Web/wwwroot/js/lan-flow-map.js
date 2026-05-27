@@ -14,6 +14,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js';
+import * as flowData from './lan-flow-data.js';
 
 const COLORS = {
     background: 0x202023,
@@ -388,6 +389,7 @@ export class LanFlowMap {
         if (this._raf) cancelAnimationFrame(this._raf);
         if (this._pollTimer) clearInterval(this._pollTimer);
         if (this._historicPlaybackTimer) clearInterval(this._historicPlaybackTimer);
+        if (this._snapshotTimer) clearInterval(this._snapshotTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
@@ -457,6 +459,13 @@ export class LanFlowMap {
             if (!res.ok) throw new Error(`snapshot HTTP ${res.status}`);
             const snap = await res.json();
             this._snapshot = snap;
+            flowData.publishSnapshot(snap);
+            // Seed cloudStats from snapshot clouds so RTT labels show immediately
+            const seedCloudStats = {};
+            for (const c of (snap.clouds || [])) {
+                seedCloudStats[c.id] = { rttAvgMs: c.rttAvgMs, lossPercent: c.lossPercent, success: c.rttAvgMs != null };
+            }
+            flowData.publishLive({ cloudStats: seedCloudStats });
 
             this._layoutNodes(snap);
             this._rebuildBuildings(snap);
@@ -468,6 +477,7 @@ export class LanFlowMap {
             this._buildFloatingLabels(snap);
             this._applyOverlayVisibility();
             this._applyLiveRates(snap.liveRates || {});
+            this._refreshCloudRttLabels();
         } catch (err) {
             this.onError(err);
         }
@@ -500,6 +510,7 @@ export class LanFlowMap {
             const res = await fetch(`${this.apiBase}/live`, { credentials: 'same-origin' });
             if (!res.ok) return;
             const update = await res.json();
+            flowData.publishLive(update);
             this._currentBadges = update.nodeBadges || {};
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
@@ -1145,6 +1156,7 @@ export class LanFlowMap {
         // Refresh the device-rate text on the floating DOM labels.
         this._refreshDeviceLabelRates();
         this._refreshLinkLabels();
+        this._refreshCloudRttLabels();
     }
 
     _refreshLinkLabels() {
@@ -1194,12 +1206,22 @@ export class LanFlowMap {
         // position, fly to that instead of the default overview.
         this._flyInUntil = performance.now() + 1300;
         const sc = this._savedCamera;
-        this._flyInTargetCam = sc
-            ? new THREE.Vector3(sc.cx, sc.cy, sc.cz)
-            : new THREE.Vector3(60, 40, 60);
-        this._flyInTargetLookAt = sc
-            ? new THREE.Vector3(sc.tx, sc.ty, sc.tz)
-            : null;
+        if (sc) {
+            this._flyInTargetCam = new THREE.Vector3(sc.cx, sc.cy, sc.cz);
+            this._flyInTargetLookAt = new THREE.Vector3(sc.tx, sc.ty, sc.tz);
+        } else {
+            // Compute centroid of all positioned nodes so we aim at the actual
+            // topology, not hardcoded origin (which can be empty space when
+            // anchored APs shift the layout away from 0,0,0).
+            let cx = 0, cy = 0, cz = 0, n = 0;
+            for (const pos of this._positions.values()) {
+                cx += pos.x; cy += pos.y; cz += pos.z; n++;
+            }
+            if (n > 0) { cx /= n; cy /= n; cz /= n; }
+            this._flyInTargetCam = new THREE.Vector3(cx + 60, cy + 40, cz + 60);
+            this._flyInTargetLookAt = new THREE.Vector3(cx, cy, cz);
+            this.controls.target.set(cx, cy, cz);
+        }
         this._flyInStartCam = this.camera.position.clone();
 
         // Cap render rate at 120 fps. setAnimationLoop is the modern Three.js
@@ -1359,6 +1381,148 @@ export class LanFlowMap {
         this._pollTimer = setInterval(() => {
             if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
+        // Periodic light snapshot refresh (30s) to pick up data changes
+        // (mesh PHY rates, online status, ISP speeds) without re-running
+        // force layout or resetting the camera.
+        if (this._snapshotTimer) clearInterval(this._snapshotTimer);
+        this._snapshotTimer = setInterval(async () => {
+            if (this._mode === 'live' && !this._paused && !this._destroyed) {
+                try {
+                    const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
+                    if (!res.ok) return;
+                    const snap = await res.json();
+                    const prev = this._snapshot;
+                    this._snapshot = snap;
+                    flowData.publishSnapshot(snap);
+
+                    // Diff: infrastructure change = full rebuild; client churn = incremental
+                    const infraKinds = new Set([NODE_KIND.Gateway, NODE_KIND.Switch, NODE_KIND.AccessPoint, NODE_KIND.VirtualHub]);
+                    const prevInfraIds = new Set((prev?.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                    const newInfraIds = new Set((snap.nodes ?? []).filter(n => infraKinds.has(n.kind)).map(n => n.id));
+                    const infraChanged = prevInfraIds.size !== newInfraIds.size
+                        || [...prevInfraIds].some(id => !newInfraIds.has(id));
+
+                    if (infraChanged) {
+                        await this._reloadSnapshot();
+                    } else {
+                        // Incremental client add/remove
+                        const prevNodeIds = new Set((prev?.nodes ?? []).map(n => n.id));
+                        const newNodeIds = new Set((snap.nodes ?? []).map(n => n.id));
+                        const added = (snap.nodes ?? []).filter(n => !prevNodeIds.has(n.id));
+                        const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
+                        for (const id of removed) this._removeNodeIncremental(id);
+                        for (const node of added) this._addNodeIncremental(node, snap);
+                        // Don't apply snapshot liveRates - they're stale vs the 1s
+                        // live poll and would clobber fresh rates momentarily.
+                        this._refreshCloudRttLabels();
+                    }
+                } catch { /* transient */ }
+            }
+        }, 30000);
+    }
+
+    // Incremental client add: create mesh near parent, create link pipe + particles.
+    _addNodeIncremental(node, snap) {
+        if (node.kind === NODE_KIND.Cloud) return;
+        // Position near parent: find the link to this node
+        const link = (snap.links ?? []).find(l => l.toNodeId === node.id || l.fromNodeId === node.id);
+        if (!link) return;
+        const parentId = link.fromNodeId === node.id ? link.toNodeId : link.fromNodeId;
+        const parentPos = this._positions.get(parentId);
+        if (!parentPos) return;
+        // Scatter near parent
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 6 + Math.random() * 6;
+        const pos = {
+            x: parentPos.x + Math.cos(angle) * dist,
+            y: parentPos.y - 1.5 + Math.random(),
+            z: parentPos.z + Math.sin(angle) * dist,
+            pinned: false,
+        };
+        this._positions.set(node.id, pos);
+
+        // Build node mesh (same as _buildNodes for a single node)
+        const radius = this._nodeRadius(node.kind);
+        const color = this._nodeColor(node.kind);
+        const group = new THREE.Group();
+        const halo = new THREE.Mesh(
+            new THREE.SphereGeometry(radius * 1.7, 24, 16),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }),
+        );
+        group.add(halo);
+        const baseEmissive = 0.45;
+        const core = this._makeDeviceCore(node.kind, radius, color, baseEmissive);
+        group.add(core);
+        group.position.set(pos.x, pos.y, pos.z);
+        if (!node.online) {
+            core.material.opacity = 0.55;
+            core.material.transparent = true;
+            halo.material.opacity = 0.05;
+        }
+        group.userData = { node, core, baseEmissive };
+        this.nodeGroup.add(group);
+        this._nodeMeshes.set(node.id, group);
+        if (node.name) {
+            const sprite = this._makeLabelSprite(node.name);
+            sprite.position.set(0, radius + 0.8, 0);
+            group.add(sprite);
+            this._labelSprites.set(node.id, sprite);
+        }
+
+        // Build link pipe + particles
+        const a = this._positions.get(link.fromNodeId);
+        const b = this._positions.get(link.toNodeId);
+        if (a && b) {
+            const pipe = this._makePipeMesh(a, b, link);
+            this.linkGroup.add(pipe);
+            const down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
+            const up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
+            this.particleGroup.add(down.mesh, up.mesh);
+            this._linkMeshes.set(link.id, { pipe, down, up, link });
+            this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
+        }
+    }
+
+    // Incremental client remove: dispose mesh, link, particles.
+    _removeNodeIncremental(nodeId) {
+        // Remove node mesh
+        const group = this._nodeMeshes.get(nodeId);
+        if (group) {
+            this.nodeGroup.remove(group);
+            group.traverse(obj => {
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) {
+                    if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+                    else obj.material.dispose();
+                }
+            });
+            this._nodeMeshes.delete(nodeId);
+        }
+        this._labelSprites.delete(nodeId);
+        this._positions.delete(nodeId);
+
+        // Remove any links connected to this node
+        for (const [linkId, endpoints] of this._nodesByLink) {
+            if (endpoints[0] === nodeId || endpoints[1] === nodeId) {
+                const linkObj = this._linkMeshes.get(linkId);
+                if (linkObj) {
+                    this.linkGroup.remove(linkObj.pipe);
+                    linkObj.pipe.traverse(obj => {
+                        if (obj.geometry) obj.geometry.dispose();
+                        if (obj.material) obj.material.dispose();
+                    });
+                    this.particleGroup.remove(linkObj.down.mesh, linkObj.up.mesh);
+                    linkObj.down.mesh.geometry?.dispose();
+                    linkObj.up.mesh.geometry?.dispose();
+                    this._linkMeshes.delete(linkId);
+                }
+                this._nodesByLink.delete(linkId);
+            }
+        }
+
+        // Remove floating label if present
+        const label = this._floatingLabels.get(nodeId);
+        if (label) { label.el.remove(); this._floatingLabels.delete(nodeId); }
     }
 
     // Play/Pause: in Live mode, pause freezes rates by skipping the poll. In
@@ -1367,6 +1531,7 @@ export class LanFlowMap {
     _togglePlayPause() {
         this._paused = !this._paused;
         this._syncPlayPauseIcon();
+        flowData.publishPlayState(this._paused, this._mode);
         if (this._paused) {
             this._stopHistoricPlayback();
             return;
@@ -1400,10 +1565,11 @@ export class LanFlowMap {
             range.value = clamped;
             // Update the time label from the continuous timestamp, not the
             // integer slider position (which only moves every ~86s at 1x).
+            const rightLabel = (clamped >= 9998) ? 'Live' : _fmtDateTime(this._playbackTime);
             if (this._panels.scrubberRight) {
-                this._panels.scrubberRight.textContent =
-                    (clamped >= 9998) ? 'Live' : _fmtDateTime(this._playbackTime);
+                this._panels.scrubberRight.textContent = rightLabel;
             }
+            flowData.publishScrubber(clamped, rightLabel, this._playbackSpeed);
             tickCount++;
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
@@ -1881,10 +2047,11 @@ export class LanFlowMap {
     _onScrubberInput(value) {
         // Visual-only update while dragging - cheap label refresh.
         const at = this._scrubberValueToTime(value);
+        const rightLabel = (value >= 9998) ? 'Live' : _fmtDateTime(at);
         if (this._panels.scrubberRight) {
-            this._panels.scrubberRight.textContent =
-                (value >= 9998) ? 'Live' : _fmtDateTime(at);
+            this._panels.scrubberRight.textContent = rightLabel;
         }
+        flowData.publishScrubber(value, rightLabel, this._playbackSpeed);
     }
 
     async _onScrubberChange(value) {
@@ -1907,6 +2074,7 @@ export class LanFlowMap {
             this._paused = false;
             this._syncPlayPauseIcon();
             this._syncSpeedLabel();
+            flowData.publishPlayState(false, 'live');
             this._notifyStatCards(null);
             await this._pollLive();
             return;
@@ -1931,6 +2099,7 @@ export class LanFlowMap {
             this._syncPlayPauseIcon();
             this._stopHistoricPlayback();
         }
+        flowData.publishPlayState(this._paused, this._mode);
         this._notifyStatCards(at);
         await this._loadHistoric(at);
     }
@@ -1971,6 +2140,7 @@ export class LanFlowMap {
             const res = await fetch(url, { credentials: 'same-origin' });
             if (!res.ok) return;
             const update = await res.json();
+            flowData.publishLive(update);
             this._applyLiveRates(update.linkRates || {});
             if (update.nodeBadges) this._currentBadges = update.nodeBadges;
         } catch (err) {
@@ -2060,6 +2230,20 @@ export class LanFlowMap {
             this._wanPills.set(cloud.wanInterface, pill);
         }
 
+        // Cloud RTT labels: live-updating DOM element below each access cloud.
+        this._cloudRttLabels = this._cloudRttLabels || new Map();
+        for (const el of this._cloudRttLabels.values()) el.remove();
+        this._cloudRttLabels.clear();
+        for (const cloud of (snap.clouds || [])) {
+            if (cloud.kind !== 0 /* AccessIsp */) continue;
+            const lbl = document.createElement('div');
+            lbl.className = 'lan-flow-map-cloud-rtt';
+            lbl.style.left = '-9999px';
+            lbl.style.top = '-9999px';
+            this._labelsLayer.appendChild(lbl);
+            this._cloudRttLabels.set(cloud.id, lbl);
+        }
+
         // Hide the existing 3D sprite labels for devices we now show via DOM (keeps
         // the scene from double-labeling them).
         for (const [id, sprite] of this._labelSprites) {
@@ -2119,6 +2303,32 @@ export class LanFlowMap {
             pill.style.transformOrigin = 'center top';
             pill.style.left = `${x}px`;
             pill.style.top = `${y}px`;
+        }
+
+        // Cloud RTT labels - positioned right below the WAN speed test pill.
+        // Only show if the label has content (set by _refreshCloudRttLabels).
+        if (this._cloudRttLabels) {
+            for (const [cloudId, lbl] of this._cloudRttLabels) {
+                if (!lbl.textContent) { lbl.classList.remove('is-visible'); continue; }
+                const group = this._cloudMeshes.get(cloudId);
+                if (!group) { lbl.classList.remove('is-visible'); continue; }
+                tmp.setFromMatrixPosition(group.matrixWorld);
+                tmp.y -= NODE_RADIUS.cloud + 0.5;
+                const dist = tmp.distanceTo(camPos);
+                tmp.project(this.camera);
+                if (tmp.z > 1) { lbl.classList.remove('is-visible'); continue; }
+                const x = (tmp.x * halfW) + halfW;
+                const y = -(tmp.y * halfH) + halfH;
+                const scale = Math.max(MIN_SCALE, Math.min(1.0, REF_DIST / Math.max(dist, 1)));
+                const wanIface = cloudId.replace('cloud-access-', '');
+                const pill = this._wanPills.get(wanIface);
+                const pillOffset = pill?.classList.contains('is-visible') ? (pill.offsetHeight * scale + 6) : 0;
+                lbl.style.transform = `translate(-50%, 0%) scale(${scale.toFixed(3)})`;
+                lbl.style.transformOrigin = 'center top';
+                lbl.style.left = `${x}px`;
+                lbl.style.top = `${y + pillOffset}px`;
+                lbl.classList.add('is-visible');
+            }
         }
 
         // Link rate pills: positioned at the link midpoint. Visibility + text is
@@ -2260,6 +2470,23 @@ export class LanFlowMap {
             const ageLabel = formatAge(ageMs);
             pill.textContent = `Last test: ${dl.toFixed(0)} / ${ul.toFixed(0)} Mbps  ·  ${ageLabel}`;
             pill.classList.add('is-visible');
+        }
+    }
+
+    _refreshCloudRttLabels() {
+        if (!this._cloudRttLabels || this._cloudRttLabels.size === 0) return;
+        const cs = flowData.getCloudStats();
+        for (const [cloudId, lbl] of this._cloudRttLabels) {
+            const stats = cs?.[cloudId];
+            if (!stats || stats.rttAvgMs == null) {
+                lbl.classList.remove('is-visible');
+                continue;
+            }
+            const parts = [`${stats.rttAvgMs.toFixed(2)} ms`];
+            if (stats.lossPercent != null && stats.lossPercent > 0) {
+                parts.push(`${stats.lossPercent.toFixed(1)}% loss`);
+            }
+            lbl.textContent = parts.join('  ·  ');
         }
     }
 
@@ -3108,3 +3335,5 @@ export async function reload() {
     if (!_instance) return;
     await _instance._reloadSnapshot();
 }
+
+export function getInstance() { return _instance; }

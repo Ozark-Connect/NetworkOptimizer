@@ -213,6 +213,16 @@ else
                 <div class="stat-label">Fabric Egress</div>
             </div>
         </div>
+
+        <!-- 2D LAN hierarchy map -->
+        <div class="card lan-flow-map-2d-card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">LAN Topology Flow Map</h2>
+            </div>
+            <div class="card-body lan-flow-map-2d-body">
+                <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -726,6 +736,69 @@ else
             font-size: 1rem;
         }
     }
+
+    .lan-flow-map-2d-card {
+        overflow: hidden;
+    }
+    .lan-flow-map-2d-body {
+        padding: 0;
+        background: #202023;
+        position: relative;
+    }
+    .lan-flow-map-2d-stage {
+        width: 100%;
+        height: clamp(520px, 70vh, 820px);
+    }
+    .lfm2d-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+    .lfm2d-tooltip {
+        position: absolute;
+        background: rgba(16, 24, 32, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        padding: 0.5rem 0.65rem;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        color: var(--text-primary);
+        pointer-events: none;
+        display: none;
+        z-index: 10;
+        max-width: 260px;
+    }
+    .lan-flow-map-2d-stage .lan-flow-map-controls {
+        right: 3.1rem;
+        top: 0.75rem;
+    }
+    .lfm2d-toolbar {
+        position: absolute;
+        top: 48px;
+        right: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        z-index: 2;
+    }
+    .lfm2d-btn {
+        width: 32px;
+        height: 32px;
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px;
+        background: rgba(26,29,35,0.9);
+        color: var(--text-secondary);
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+    .lfm2d-btn:hover {
+        background: rgba(51,56,68,0.9);
+        color: var(--text-primary);
+    }
 </style>
 
 @code {
@@ -774,6 +847,7 @@ else
 
     // Chart mount tracking
     private bool _mapMounted = false;
+    private bool _map2dMounted = false;
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
@@ -1632,6 +1706,24 @@ else
             catch { }
         }
 
+        // 2D hierarchy map - Live tab only
+        if (_activeTab == "live" && _monitoringReady && !_map2dMounted)
+        {
+            _map2dMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage'); }})();");
+            }
+            catch { _map2dMounted = false; }
+        }
+        else if (_activeTab != "live" && _map2dMounted)
+        {
+            _map2dMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap2d?.unmount();"); }
+            catch { }
+        }
+
         // Latency charts - Performance tab only
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
@@ -1723,6 +1815,11 @@ else
         if (_mapMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_map2dMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__lanFlowMap2d?.unmount();").AsTask(); }
             catch { }
         }
     }

@@ -193,6 +193,17 @@ public class LanCloud
     /// <summary>Discovery pending state - the access cloud frame is real but
     /// upstream Hops haven't been resolved yet (tracer wizard not run / in progress).</summary>
     public bool IsDiscoveryPending { get; set; }
+
+    /// <summary>ISP expected download speed in Mbps (from UniFi WAN provider capabilities).</summary>
+    public int? IspDownloadMbps { get; set; }
+
+    /// <summary>ISP expected upload speed in Mbps (from UniFi WAN provider capabilities).</summary>
+    public int? IspUploadMbps { get; set; }
+
+    /// <summary>Monitoring target ID whose live RTT feeds this cloud's stats.
+    /// Server-side only; the live tick re-queries this for fresh RTT/loss.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? RttTargetId { get; set; }
 }
 
 public class LinkLiveRates

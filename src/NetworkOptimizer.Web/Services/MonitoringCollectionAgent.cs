@@ -232,13 +232,14 @@ public class MonitoringCollectionAgent : BackgroundService
             try
             {
                 var mac = NormalizeMac(device.Mac);
-                if (IsSnmpExcluded(mac))
-                {
-                    // Device was previously determined to not support SNMP. Skip silently;
-                    // rate data for this device will come from its parent switch port
-                    // (for APs) or be absent.
+
+                // UniFi requires snmp_location or snmp_contact to be set for
+                // SNMP to be enabled on a device. Both empty/null = SNMP off.
+                if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
                     return;
-                }
+
+                if (IsSnmpExcluded(mac))
+                    return;
                 try
                 {
                     var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
@@ -832,6 +833,7 @@ public class MonitoringCollectionAgent : BackgroundService
     /// clients with stale -r fields.
     /// </summary>
     private readonly ConcurrentDictionary<string, ClientByteSnapshot> _wifiByteCache = new();
+    private readonly ConcurrentDictionary<string, ClientByteSnapshot> _wiredByteCache = new();
     private readonly record struct ClientByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
 
     private async Task WifiClientTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
@@ -852,6 +854,10 @@ public class MonitoringCollectionAgent : BackgroundService
         }
 
         var now = DateTime.UtcNow;
+        var wifiCount = clients.Count(c => !c.IsWired);
+        var wiredCount = clients.Count(c => c.IsWired);
+        _logger.LogDebug("WiFi tier: {Total} clients ({Wifi} wifi, {Wired} wired)", clients.Length, wifiCount, wiredCount);
+        long tickOffset = 0; // nanosecond offset per client to avoid InfluxDB dedup
         foreach (var c in clients)
         {
             if (c.IsWired) continue;
@@ -868,25 +874,29 @@ public class MonitoringCollectionAgent : BackgroundService
             double? rxThroughputBps = null;
             if (c.TxBytesRate > 0 || c.RxBytesRate > 0)
             {
-                // tx_bytes-r / rx_bytes-r are bytes per second
                 txThroughputBps = c.TxBytesRate * 8.0;
                 rxThroughputBps = c.RxBytesRate * 8.0;
+                _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
             }
             else if (_wifiByteCache.TryGetValue(clientMac, out var prev))
             {
-                var elapsed = (now - prev.Timestamp).TotalSeconds;
-                if (elapsed > 0.5)
+                long deltaTx = c.TxBytes - prev.TxBytes;
+                long deltaRx = c.RxBytes - prev.RxBytes;
+                if (deltaTx > 0 || deltaRx > 0)
                 {
-                    long deltaTx = c.TxBytes - prev.TxBytes;
-                    long deltaRx = c.RxBytes - prev.RxBytes;
-                    if (deltaTx >= 0 && deltaRx >= 0)
+                    var elapsed = (now - prev.Timestamp).TotalSeconds;
+                    if (elapsed > 0.5)
                     {
                         txThroughputBps = deltaTx * 8.0 / elapsed;
                         rxThroughputBps = deltaRx * 8.0 / elapsed;
                     }
+                    _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
                 }
             }
-            _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+            else
+            {
+                _wifiByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+            }
 
             var snapshot = new WifiClientLiveSnapshot
             {
@@ -909,38 +919,102 @@ public class MonitoringCollectionAgent : BackgroundService
             };
             _liveStats.RecordWifiClient(snapshot);
 
-            // InfluxDB write. Per Gate 1: AP MAC + band are tags, client MAC is a
-            // field to bound cardinality (per-client MAC as a tag would be the classic
-            // InfluxDB cardinality bomb on networks with hundreds of clients).
-            _ = _influx.WriteWifiClientAsync(
-                apMac: apMac,
-                band: band,
-                clientMac: clientMac,
-                signalDbm: c.Signal,
-                noiseDbm: c.Noise,
-                txRateKbps: c.TxRate > 0 ? c.TxRate : null,
-                rxRateKbps: c.RxRate > 0 ? c.RxRate : null,
-                channel: c.Channel,
-                channelWidth: c.ChannelWidth,
-                satisfaction: c.Satisfaction,
-                rssi: c.Rssi,
-                txBytes: c.TxBytes,
-                rxBytes: c.RxBytes,
-                txThroughputBps: txThroughputBps,
-                rxThroughputBps: rxThroughputBps,
-                isMlo: c.IsMlo,
-                timestamp: now);
+            if ((txThroughputBps ?? 0) > 0 || (rxThroughputBps ?? 0) > 0)
+            {
+                _ = _influx.WriteWifiClientAsync(
+                    apMac: apMac,
+                    band: band,
+                    clientMac: clientMac,
+                    signalDbm: c.Signal,
+                    noiseDbm: c.Noise,
+                    txRateKbps: c.TxRate > 0 ? c.TxRate : null,
+                    rxRateKbps: c.RxRate > 0 ? c.RxRate : null,
+                    channel: c.Channel,
+                    channelWidth: c.ChannelWidth,
+                    satisfaction: c.Satisfaction,
+                    rssi: c.Rssi,
+                    txBytes: c.TxBytes,
+                    rxBytes: c.RxBytes,
+                    txThroughputBps: txThroughputBps,
+                    rxThroughputBps: rxThroughputBps,
+                    isMlo: c.IsMlo,
+                    timestamp: now.AddTicks(tickOffset++));
+            }
+        }
+
+        // Wired clients: collect throughput as fallback for non-SNMP switches.
+        // Uses the same tx_bytes/rx_bytes delta approach as WiFi clients.
+        foreach (var c in clients)
+        {
+            if (!c.IsWired) continue;
+            if (string.IsNullOrEmpty(c.Mac)) continue;
+            var clientMac = NormalizeMac(c.Mac);
+
+            double? txBps = null, rxBps = null;
+            // Wired clients use wired-tx_bytes-r / wired-rx_bytes-r (not tx_bytes-r)
+            if (c.WiredTxBytesRate > 0 || c.WiredRxBytesRate > 0)
+            {
+                txBps = c.WiredTxBytesRate * 8.0;
+                rxBps = c.WiredRxBytesRate * 8.0;
+                _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
+            }
+            else if (_wiredByteCache.TryGetValue(clientMac, out var prev))
+            {
+                long deltaTx = c.WiredTxBytes - prev.TxBytes;
+                long deltaRx = c.WiredRxBytes - prev.RxBytes;
+                if (deltaTx > 0 || deltaRx > 0)
+                {
+                    // Only compute rate when counters actually changed. Elapsed is
+                    // time since last CHANGE, not last poll - avoids 2x rate when
+                    // our poll misaligns with UniFi's counter update cadence.
+                    var elapsed = (now - prev.Timestamp).TotalSeconds;
+                    if (elapsed > 0.5)
+                    {
+                        txBps = deltaTx * 8.0 / elapsed;
+                        rxBps = deltaRx * 8.0 / elapsed;
+                    }
+                    _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
+                }
+                // When counters unchanged, DON'T update cache timestamp - preserves
+                // the real elapsed time for the next actual change.
+            }
+            else
+            {
+                // First poll: seed cache, no rate yet
+                _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.WiredTxBytes, c.WiredRxBytes);
+            }
+
+            _liveStats.RecordWiredClient(new WiredClientLiveSnapshot
+            {
+                ClientMac = clientMac,
+                TxThroughputBps = txBps,
+                RxThroughputBps = rxBps,
+                LastUpdate = now,
+            });
+
+            // Write to InfluxDB for historic playback (skip zero throughput)
+            var swMac = NormalizeMac(c.SwMac ?? string.Empty);
+            if (!string.IsNullOrEmpty(swMac) && ((txBps ?? 0) > 0 || (rxBps ?? 0) > 0))
+            {
+                _ = _influx.WriteWiredClientAsync(
+                    switchMac: swMac,
+                    clientMac: clientMac,
+                    txThroughputBps: txBps,
+                    rxThroughputBps: rxBps,
+                    timestamp: now.AddTicks(tickOffset++));
+            }
         }
 
         // Drop stale byte-cache entries for clients we haven't seen this cycle. Otherwise
         // a roamed/disconnected client's stale counter sits forever and gives a bogus
         // delta on reconnect.
-        var seenSet = new HashSet<string>(clients.Where(c => !c.IsWired).Select(c => NormalizeMac(c.Mac)));
+        var seenWifi = new HashSet<string>(clients.Where(c => !c.IsWired).Select(c => NormalizeMac(c.Mac)));
         foreach (var key in _wifiByteCache.Keys)
-        {
-            if (!seenSet.Contains(key))
-                _wifiByteCache.TryRemove(key, out _);
-        }
+            if (!seenWifi.Contains(key)) _wifiByteCache.TryRemove(key, out _);
+
+        var seenWired = new HashSet<string>(clients.Where(c => c.IsWired).Select(c => NormalizeMac(c.Mac)));
+        foreach (var key in _wiredByteCache.Keys)
+            if (!seenWired.Contains(key)) _wiredByteCache.TryRemove(key, out _);
     }
 
     /// <summary>
@@ -1374,7 +1448,7 @@ public class MonitoringCollectionAgent : BackgroundService
     // the default fast tier interval (5s) - the data is always at most one fast tick
     // stale, and slower tiers piggyback on whatever the fast tier just fetched.
     // Concurrent callers serialize on _deviceFetchLock so a miss doesn't fan out.
-    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(30);
     private List<UniFiDeviceResponse> _cachedDevices = new();
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
@@ -1697,14 +1771,10 @@ public class MonitoringCollectionAgent : BackgroundService
         var count = _snmpFailures.AddOrUpdate(normalizedMac, 1, (_, prev) => prev + 1);
         if (count < SnmpFailureThreshold) return;
 
-        // Only exclude when the device is actually reachable. If our fabric ping has
-        // returned at least once in the last 2 minutes, we know it's online; otherwise
-        // it might just be down, and we'll re-try SNMP when it comes back.
-        var liveStats = _liveStats.GetForDevice(normalizedMac);
-        if (liveStats == null || !liveStats.LastLatencyUpdate.HasValue) return;
-        if (DateTime.UtcNow - liveStats.LastLatencyUpdate.Value > TimeSpan.FromMinutes(2)) return;
-        if (!(liveStats.LatestRttMs.HasValue && liveStats.LatestRttMs.Value >= 0)) return;
-
+        // Exclude after threshold regardless of ping reachability. The 1-hour TTL
+        // handles retry when the device comes back or gets SNMP enabled. Not all
+        // devices are ping targets, so requiring ICMP would leave many non-SNMP
+        // devices burning the timeout forever.
         if (_snmpExcluded.TryAdd(normalizedMac, DateTime.UtcNow))
         {
             _logger.LogInformation(
