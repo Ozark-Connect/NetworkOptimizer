@@ -35,7 +35,7 @@ const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackha
 
 // ---- Layout geometry ----
 const G = {
-    tierGap:     140,
+    tierGap:     170,
     cloudGap:    100,
     infraGap:    90,
     clientCellW: 145,
@@ -430,7 +430,9 @@ class LanFlowMap2D {
         if(this._tooltip)this._tooltip.style.display='none';
     }
 
-    // ---- Layout (identical to SVG version) ----
+    // ---- Contour-based layout (Reingold-Tilford style) ----
+    // Computes left/right extent at every depth for each subtree, then pushes
+    // siblings apart until no depth overlaps. Guarantees zero cross-tree overlap.
 
     _buildLayout(snap){
         const byId=new Map();
@@ -473,8 +475,8 @@ class LanFlowMap2D {
         for(const lk of snap.links)this._edges.push({lk,fn:byId.get(lk.fromNodeId),tn:byId.get(lk.toNodeId)});
 
         if(!root)return;
-        this._widths(root);
-        this._positions(root,G.pad,0);
+        this._contourLayout(root);
+        this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
         this._matchEdges();
         this._initStreams();
@@ -482,115 +484,101 @@ class LanFlowMap2D {
         this._updateStreamRates();
     }
 
-    _widths(n){
-        for(const c of n.infra)this._widths(c);
-
-        // If node has both infra and clients, merge clients into the
-        // infra grid so a lone wired device doesn't waste a whole column.
-        // Pure-client nodes (APs with only WiFi clients) use compact grid.
-        const mixed = n.infra.length > 0 && n.clients.length > 0;
-        const INFRA_COLS = 3;
-
-        if (mixed) {
-            // Combined list: infra subtrees + clients (each clientCellW wide)
-            const items = [...n.infra.map(c => c.w), ...n.clients.slice(0, G.maxClients).map(() => G.clientCellW)];
-            let maxRowW = 0;
-            for (let i = 0; i < items.length; i += INFRA_COLS) {
-                const row = items.slice(i, i + INFRA_COLS);
-                let rw = row.reduce((s, w) => s + w, 0);
-                if (row.length > 1) rw += (row.length - 1) * G.infraGap;
-                maxRowW = Math.max(maxRowW, rw);
-            }
-            n.w = Math.max(G.boxW + 30, maxRowW);
-        } else if (n.infra.length > 0) {
-            let maxRowW = 0;
-            for (let i = 0; i < n.infra.length; i += INFRA_COLS) {
-                const row = n.infra.slice(i, i + INFRA_COLS);
-                let rw = row.reduce((s, c) => s + c.w, 0);
-                if (row.length > 1) rw += (row.length - 1) * G.infraGap;
-                maxRowW = Math.max(maxRowW, rw);
-            }
-            n.w = Math.max(G.boxW + 30, maxRowW);
-        } else {
-            const nc = Math.min(n.clients.length, G.maxClients);
-            const cols = Math.min(nc, G.clientCols);
-            const cw = cols > 0 ? cols * G.clientCellW : 0;
-            n.w = Math.max(isClient(n.d.kind) ? G.clientCellW : G.boxW + 30, cw);
+    // Get the ordered list of children for layout purposes.
+    // If a node has both infra and clients, merge clients in (sorted: infra first).
+    // If only clients, group into a compact grid virtual node.
+    _layoutChildren(n){
+        const nc=Math.min(n.clients.length,G.maxClients);
+        if(n.infra.length>0){
+            // Mixed or pure infra: merge clients into the child list
+            return[...n.infra,...n.clients.slice(0,nc)];
         }
+        // Pure clients
+        return n.clients.slice(0,nc);
     }
 
-    _positions(n,lx,depth){
-        const yOff=G.pad+80;
-        n.y=yOff+depth*G.tierGap;
-        if(n.infra.length===0&&n.clients.length===0){n.x=lx+n.w/2;return;}
+    // Compute contour (left/right extent at each depth relative to node x=0)
+    // and store relative child offsets on the node.
+    _contourLayout(n){
+        const kids=this._layoutChildren(n);
+        const selfW=isClient(n.d.kind)?G.clientCellW:G.boxW+40;
+        const GAP=isClient(n.d.kind)?8:40;
 
-        const INFRA_COLS=3;
-        const mixed=n.infra.length>0&&n.clients.length>0;
-        const nc=Math.min(n.clients.length,G.maxClients);
+        if(kids.length===0){
+            n._contour=[{l:-selfW/2,r:selfW/2}];
+            n._kidOffsets=[];
+            n._kids=[];
+            return;
+        }
 
-        if(mixed){
-            // Merge infra + clients into one grid, rows of 3
-            // Each item is {type:'infra',node} or {type:'client',node}
-            const items=[
-                ...n.infra.map(c=>({type:'infra',node:c,w:c.w})),
-                ...n.clients.slice(0,nc).map(c=>({type:'client',node:c,w:G.clientCellW})),
-            ];
-            const rows=[];
-            for(let i=0;i<items.length;i+=INFRA_COLS)rows.push(items.slice(i,i+INFRA_COLS));
+        // Recursively compute each child's contour
+        for(const k of kids)this._contourLayout(k);
 
-            let firstRowItems=[];
-            for(let ri=0;ri<rows.length;ri++){
-                const row=rows[ri];
-                let rw=row.reduce((s,it)=>s+it.w,0);
-                if(row.length>1)rw+=(row.length-1)*G.infraGap;
-                let cur=lx+(n.w-rw)/2;
-                const childDepth=depth+1+ri;
-                for(const it of row){
-                    if(it.type==='infra'){
-                        this._positions(it.node,cur,childDepth);
-                    }else{
-                        it.node.x=cur+it.w/2;
-                        it.node.y=yOff+childDepth*G.tierGap;
-                    }
-                    cur+=it.w+G.infraGap;
-                    if(ri===0)firstRowItems.push(it.node);
+        // Place children left to right, checking contour overlap at every depth
+        const offsets=[];
+        // groupRight[d] = rightmost extent at depth d of all placed children so far
+        let groupRight=[];
+
+        for(let i=0;i<kids.length;i++){
+            const cc=kids[i]._contour;
+            if(i===0){
+                offsets[0]=0;
+                groupRight=cc.map(c=>c.r);
+            }else{
+                let minOff=0;
+                for(let d=0;d<Math.min(groupRight.length,cc.length);d++){
+                    const needed=groupRight[d]-cc[d].l+GAP;
+                    if(needed>minOff)minOff=needed;
+                }
+                offsets[i]=minOff;
+                // Merge into group contour
+                for(let d=0;d<cc.length;d++){
+                    const sr=cc[d].r+minOff;
+                    if(d<groupRight.length){if(sr>groupRight[d])groupRight[d]=sr;}
+                    else groupRight.push(sr);
                 }
             }
-            if(firstRowItems.length>0)n.x=(Math.min(...firstRowItems.map(c=>c.x))+Math.max(...firstRowItems.map(c=>c.x)))/2;
-            else n.x=lx+n.w/2;
+        }
 
-        } else if(n.infra.length>0){
-            // Pure infra, rows of 3
-            const rows=[];
-            for(let i=0;i<n.infra.length;i+=INFRA_COLS)rows.push(n.infra.slice(i,i+INFRA_COLS));
+        // Center children around x=0
+        const firstL=offsets[0]+kids[0]._contour[0].l;
+        const lastR=offsets[offsets.length-1]+kids[kids.length-1]._contour[0].r;
+        const center=(firstL+lastR)/2;
+        const centered=offsets.map(o=>o-center);
 
-            let firstRowKids=[];
-            for(let ri=0;ri<rows.length;ri++){
-                const row=rows[ri];
-                let rw=row.reduce((s,c)=>s+c.w,0);
-                if(row.length>1)rw+=(row.length-1)*G.infraGap;
-                let cur=lx+(n.w-rw)/2;
-                const childDepth=depth+1+ri;
-                for(const c of row){this._positions(c,cur,childDepth);cur+=c.w+G.infraGap;}
-                if(ri===0)firstRowKids=row;
+        n._kidOffsets=centered;
+        n._kids=kids;
+
+        // Build node's own contour: self at depth 0, children shifted at depth 1+
+        const contour=[{l:-selfW/2,r:selfW/2}];
+        let maxD=0;
+        for(const k of kids)if(k._contour.length>maxD)maxD=k._contour.length;
+
+        for(let d=0;d<maxD;d++){
+            let l=Infinity,r=-Infinity;
+            for(let i=0;i<kids.length;i++){
+                const cc=kids[i]._contour;
+                if(d<cc.length){
+                    const sl=cc[d].l+centered[i];
+                    const sr=cc[d].r+centered[i];
+                    if(sl<l)l=sl;
+                    if(sr>r)r=sr;
+                }
             }
-            if(firstRowKids.length>0)n.x=(Math.min(...firstRowKids.map(c=>c.x))+Math.max(...firstRowKids.map(c=>c.x)))/2;
-            else n.x=lx+n.w/2;
+            if(l!==Infinity)contour.push({l,r});
+        }
+        n._contour=contour;
+    }
 
-        } else {
-            // Pure clients - compact grid
-            const cols=Math.min(nc,G.clientCols);
-            const cw=cols*G.clientCellW;
-            const gridLeft=lx+(n.w-cw)/2;
-            const clientY=yOff+(depth+1)*G.tierGap;
-            for(let i=0;i<nc;i++){
-                const col=i%cols,row=Math.floor(i/cols);
-                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2;
-                n.clients[i].y=clientY+row*G.clientCellH;
-            }
-            const placed=n.clients.slice(0,nc);
-            if(placed.length>0)n.x=(Math.min(...placed.map(c=>c.x))+Math.max(...placed.map(c=>c.x)))/2;
-            else n.x=lx+n.w/2;
+    // Convert relative offsets to absolute x,y positions
+    _assignAbsoluteXY(n,absX,depth){
+        const yOff=G.pad+80;
+        n.x=absX;
+        n.y=yOff+depth*G.tierGap;
+        const kids=n._kids||[];
+        const offsets=n._kidOffsets||[];
+        for(let i=0;i<kids.length;i++){
+            this._assignAbsoluteXY(kids[i],absX+offsets[i],depth+1);
         }
     }
 
@@ -607,7 +595,6 @@ class LanFlowMap2D {
         if(!gw)return;
         const gwT=gw.y-G.boxH/2;
 
-        // Match edges to their drawn endpoints
         for(const cloud of this._clouds){
             const cy=cloud.y+G.cloudR+8;
             const edge=this._edges.find(e=>
