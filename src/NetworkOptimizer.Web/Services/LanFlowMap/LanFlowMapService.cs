@@ -1241,6 +1241,15 @@ public class LanFlowMapService
                 accessCloud.LossPercent = lastLive.Live.LossPercent;
                 accessCloud.RttTargetId = lastLive.TargetId;
             }
+            // ISP expected speeds from UniFi WAN provider capabilities (cached in topology)
+            var wanNet = topology.Networks.FirstOrDefault(n =>
+                n.IsWan && n.WanNetworkgroup != null
+                && n.WanNetworkgroup.Equals(wan.WanInterface, StringComparison.OrdinalIgnoreCase));
+            if (wanNet?.WanDownloadMbps > 0)
+                accessCloud.IspDownloadMbps = wanNet.WanDownloadMbps;
+            if (wanNet?.WanUploadMbps > 0)
+                accessCloud.IspUploadMbps = wanNet.WanUploadMbps;
+
             snapshot.Clouds.Add(accessCloud);
 
             // WAN link: gateway -> access cloud directly. Capacity from WanSummary,

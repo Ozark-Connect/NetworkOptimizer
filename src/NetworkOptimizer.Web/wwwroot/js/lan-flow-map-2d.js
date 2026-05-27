@@ -993,23 +993,35 @@ class LanFlowMap2D {
             ctx.globalAlpha=e._isCl?0.3+u*0.45:0.5+u*0.5;
             strokeOrtho(ctx,e._x1,e._y1,e._x2,e._y2,e._midYOff);
 
-            // Capacity label on infra links
-            if(!e._isCl&&e.lk.capacityBps){
-                const cap=e.lk.capacityBps/1e6;
-                if(cap>0){
-                    ctx.globalAlpha=1;
-                    const mx=(e._x1+e._x2)/2, my=(e._y1+e._y2)/2;
-                    // Wireless links (mesh/wifi): show asymmetric PHY rates if available
-                    // Check both endpoints - the mesh AP or wifi client has the PHY rates
-                    let txt;
+            // Capacity / speed label on infra and WAN links
+            if(!e._isCl){
+                ctx.globalAlpha=1;
+                const mx=(e._x1+e._x2)/2, my=(e._y1+e._y2)/2;
+                let txt=null;
+
+                if(e._isWan){
+                    // WAN links: show ISP expected speeds from cloud data
+                    const cloud=this._clouds.find(c=>
+                        e.lk.fromNodeId===c.d.id||e.lk.toNodeId===c.d.id);
+                    if(cloud?.d.ispDownloadMbps&&cloud?.d.ispUploadMbps){
+                        txt=`↓${formatSpeed(cloud.d.ispDownloadMbps)} ↑${formatSpeed(cloud.d.ispUploadMbps)}`;
+                    }else if(e.lk.capacityBps>0){
+                        txt=formatSpeed(e.lk.capacityBps/1e6);
+                    }
+                }else if(e.lk.kind===LK.MeshBackhaul||e.lk.band){
+                    // Mesh/wireless: show asymmetric PHY rates
                     const n1=e.fn?.d, n2=e.tn?.d;
                     const phy=n2?.phyTxKbps?n2:n1?.phyTxKbps?n1:null;
-                    if((e.lk.kind===LK.MeshBackhaul||e.lk.band)&&phy?.phyTxKbps&&phy?.phyRxKbps){
-                        const tx=phy.phyTxKbps/1000, rx=phy.phyRxKbps/1000;
-                        txt=`↓${formatSpeed(rx)} ↑${formatSpeed(tx)}`;
-                    }else{
-                        txt=formatSpeed(cap);
+                    if(phy?.phyTxKbps&&phy?.phyRxKbps){
+                        txt=`↓${formatSpeed(phy.phyRxKbps/1000)} ↑${formatSpeed(phy.phyTxKbps/1000)}`;
+                    }else if(e.lk.capacityBps>0){
+                        txt=formatSpeed(e.lk.capacityBps/1e6);
                     }
+                }else if(e.lk.capacityBps>0){
+                    txt=formatSpeed(e.lk.capacityBps/1e6);
+                }
+
+                if(txt){
                     ctx.font=`${G.rateFont}px ${FONT}`;
                     const tw=ctx.measureText(txt).width+12;
                     ctx.fillStyle=C.labelBg;
