@@ -705,13 +705,16 @@ public class MonitoringCollectionAgent : BackgroundService
                 long? uptime = ss != null ? (long?)ParseJsonDouble(ss.Uptime) : null;
                 double? temp = ParseDeviceTemperature(device);
 
-                // SNMP devices already have CPU/mem/uptime - only supplement temp
+                // Only supplement fields SNMP didn't already provide this cycle.
                 if (snmpActive)
                 {
-                    cpu = null;
-                    mem = null;
+                    var existing = _liveStats.GetForDevice(mac);
+                    var fresh = existing?.LastHealthUpdate >= now.AddSeconds(-35);
+                    if (fresh && existing?.CpuPercent != null) cpu = null;
+                    if (fresh && existing?.MemoryUsedPercent != null) mem = null;
+                    if (fresh && existing?.TemperatureC != null) temp = null;
                     uptime = null;
-                    if (temp == null) continue;
+                    if (cpu == null && mem == null && temp == null) continue;
                 }
 
                 if (cpu == null && mem == null && temp == null) continue;
