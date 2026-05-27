@@ -39,10 +39,10 @@ const G = {
     tierGap:     140,
     cloudGap:    100,
     infraGap:    90,
-    clientCellW: 68,
-    clientCellH: 38,
+    clientCellW: 80,
+    clientCellH: 50,
     clientR:     7,
-    clientCols:  10,
+    clientCols:  8,
     maxClients:  80,
     iconSize:    52,
     boxW:        68,
@@ -167,10 +167,10 @@ class Stream {
         this._color = color;
         this._layer = layer;
         this._density = 0;
-        this._velocity = 0.15;
-        this._dotSize = 0.75;
+        this._velNorm = 0;
+        this._dotSize = 0.4;
         this._spawnAcc = 0;
-        // Particle pool: t < 0 means inactive
+        this._pathLen = orthoLen(edge._x1, edge._y1, edge._x2, edge._y2);
         this._slots = [];
         for (let i = 0; i < MAX_DOTS; i++) {
             const dot = el('circle', { r: 0.4, fill: color, opacity: 0, filter: 'url(#pg)' }, layer);
@@ -182,7 +182,10 @@ class Stream {
         const intensity = Math.max(0, Math.min(1, Math.log10(Math.max(bps, 1)) / 11));
         this._density = intensity;
         this._dotSize = 0.4 + (intensity * intensity) * 1.2;
-        this._velocity = 0.15 + intensity * 0.45;
+        // Constant visual speed: absolute SVG px/sec divided by path length
+        // (mirrors 3D: velocity = 2.5+intensity*4 scene-units/sec / link-length)
+        const absPxSec = 50 + intensity * 80;
+        this._velNorm = absPxSec / Math.max(this._pathLen, 1);
     }
 
     advance(dt) {
@@ -205,7 +208,7 @@ class Stream {
         // Advance existing particles
         for (const slot of this._slots) {
             if (slot.t < 0) continue;
-            slot.t += this._velocity * dt * this._dir;
+            slot.t += this._velNorm * dt * this._dir;
             if (slot.t > 1 || slot.t < 0) {
                 slot.t = -1;
                 slot.el.setAttribute('opacity', 0);
@@ -442,11 +445,14 @@ class LanFlowMap2D {
 
         const nc = Math.min(n.clients.length, G.maxClients);
         const cols = Math.min(nc, G.clientCols);
+        const rows = Math.ceil(nc / Math.max(cols, 1));
         const cw = cols > 0 ? cols * G.clientCellW : 0;
 
         const self = isClient(n.d.kind) ? G.clientCellW : G.boxW + 30;
-        // Clients go in a centered row BELOW infra, so width = max(infra, clients)
-        const childW = Math.max(iw, cw);
+        // Sum infra + client widths so each subtree gets its own space
+        let childW = 0;
+        if (iw > 0 && cw > 0) childW = iw + G.infraGap + cw;
+        else childW = iw + cw;
 
         n.w = Math.max(self, childW);
     }
@@ -460,40 +466,37 @@ class LanFlowMap2D {
             return;
         }
 
-        // Infra children: centered row at depth+1
+        // Compute sub-widths
         let iw = n.infra.reduce((s, c) => s + c.w, 0);
         if (n.infra.length > 1) iw += (n.infra.length - 1) * G.infraGap;
+        const nc = Math.min(n.clients.length, G.maxClients);
+        const cols = Math.min(nc, G.clientCols);
+        const cw = cols > 0 ? cols * G.clientCellW : 0;
 
-        let cur = lx + (n.w - iw) / 2;
+        let combW = 0;
+        if (iw > 0 && cw > 0) combW = iw + G.infraGap + cw;
+        else combW = iw + cw;
+
+        // All children at depth+1 - infra first, then clients right
+        let cur = lx + (n.w - combW) / 2;
+
         for (const c of n.infra) {
             this._positions(c, cur, depth + 1);
             cur += c.w + G.infraGap;
         }
 
-        // Client children: centered grid rows BELOW infra (separate tier)
-        const nc = Math.min(n.clients.length, G.maxClients);
-        if (nc > 0) {
-            const cols = Math.min(nc, G.clientCols);
-            const gridW = cols * G.clientCellW;
-            const gridLeft = lx + (n.w - gridW) / 2;
-            // If infra children exist, clients go one tier further down
-            const clientDepth = n.infra.length > 0 ? depth + 2 : depth + 1;
-            const clientY = yOff + clientDepth * G.tierGap;
-
-            for (let i = 0; i < nc; i++) {
-                const col = i % cols, row = Math.floor(i / cols);
-                const cn = n.clients[i];
-                cn.x = gridLeft + col * G.clientCellW + G.clientCellW / 2;
-                cn.y = clientY + row * G.clientCellH;
-            }
+        const clientY = yOff + (depth + 1) * G.tierGap;
+        for (let i = 0; i < nc; i++) {
+            const col = i % cols, row = Math.floor(i / cols);
+            const cn = n.clients[i];
+            cn.x = cur + col * G.clientCellW + G.clientCellW / 2;
+            cn.y = clientY + row * G.clientCellH;
         }
 
-        // Center parent over infra children (clients are secondary)
-        if (n.infra.length > 0) {
-            n.x = (Math.min(...n.infra.map(c => c.x)) + Math.max(...n.infra.map(c => c.x))) / 2;
-        } else if (nc > 0) {
-            const placed = n.clients.slice(0, nc);
-            n.x = (Math.min(...placed.map(c => c.x)) + Math.max(...placed.map(c => c.x))) / 2;
+        // Center parent over ALL children
+        const allK = [...n.infra, ...n.clients.slice(0, nc)];
+        if (allK.length > 0) {
+            n.x = (Math.min(...allK.map(c => c.x)) + Math.max(...allK.map(c => c.x))) / 2;
         } else {
             n.x = lx + n.w / 2;
         }
@@ -784,7 +787,7 @@ class LanFlowMap2D {
         // Visible name label below
         const name = n.d.name || n.d.ip || '';
         if (name) {
-            const dn = name.length > 10 ? name.slice(0, 9) + '…' : name;
+            const dn = name.length > 14 ? name.slice(0, 13) + '…' : name;
             const t = el('text', { x:0, y:r + 11, 'text-anchor':'middle', fill:C.textMuted,
                 'font-size':G.clientNameFont, 'font-family':'system-ui,sans-serif' }, g);
             t.textContent = dn;
@@ -928,7 +931,7 @@ class LanFlowMap2D {
     _initStreams() {
         this._streams = [];
         for (const e of this._edges) {
-            if (!e._pe || e._isCl) continue;
+            if (!e._pe) continue;
             if (e._x1 == null) continue;
             const len = orthoLen(e._x1, e._y1, e._x2, e._y2);
             if (len < 5) continue;
