@@ -313,8 +313,8 @@ public class LanFlowMapService
                         {
                             rates = new LinkLiveRates
                             {
-                                DownstreamBps = wc.RxThroughputBps ?? 0,
-                                UpstreamBps = wc.TxThroughputBps ?? 0,
+                                DownstreamBps = wc.TxThroughputBps ?? 0,
+                                UpstreamBps = wc.RxThroughputBps ?? 0,
                                 AsOf = wc.LastUpdate,
                             };
                         }
