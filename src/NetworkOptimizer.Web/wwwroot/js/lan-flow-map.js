@@ -1412,7 +1412,8 @@ export class LanFlowMap {
                         const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
                         for (const id of removed) this._removeNodeIncremental(id);
                         for (const node of added) this._addNodeIncremental(node, snap);
-                        this._applyLiveRates(snap.liveRates || {});
+                        // Don't apply snapshot liveRates - they're stale vs the 1s
+                        // live poll and would clobber fresh rates momentarily.
                         this._refreshCloudRttLabels();
                     }
                 } catch { /* transient */ }
