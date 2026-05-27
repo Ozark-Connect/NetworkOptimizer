@@ -413,6 +413,23 @@ class LanFlowMap2D {
         });
         this._el.appendChild(tb);
 
+        // Mode badge (bottom-left, matching 3D style)
+        const status=document.createElement('div');
+        status.className='lan-flow-map-panel lan-flow-map-status';
+        const modeBadge=document.createElement('span');
+        modeBadge.className='lan-flow-map-mode';
+        modeBadge.textContent='Live';
+        modeBadge.addEventListener('click',()=>{
+            const inst=window.__lanFlowMap?.getInstance?.();
+            if(inst&&inst._mode==='historic'){
+                const r=inst._panels?.scrubberRange;
+                if(r){r.value=10000;r.dispatchEvent(new Event('change'));}
+            }
+        });
+        status.appendChild(modeBadge);
+        this._el.appendChild(status);
+        this._modeBadge=modeBadge;
+
         // Mirror scrubber (synced from 3D map via shared data store).
         // Interactions forward to the 3D map's instance.
         const scrubber=document.createElement('div');
@@ -554,6 +571,14 @@ class LanFlowMap2D {
         this._scrubberEls.right.textContent=s.right;
         this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
         this._scrubberEls.playPause.textContent=flowData.isPaused()?'▶':'⏸';
+        // Mode badge
+        if(this._modeBadge){
+            const mode=flowData.getMode();
+            this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
+            this._modeBadge.classList.toggle('is-historic',mode==='historic');
+            this._modeBadge.style.cursor=mode==='historic'?'pointer':'';
+            this._modeBadge.setAttribute('data-tooltip',mode==='historic'?'Click to return to live':'');
+        }
     }
 
     _isNodeVisible(n){
