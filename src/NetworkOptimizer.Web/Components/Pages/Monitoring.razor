@@ -747,20 +747,26 @@ else
     }
     .lan-flow-map-2d-stage {
         width: 100%;
-        min-height: 420px;
+        height: 520px;
         overflow: hidden;
     }
-    .lan-flow-map-2d-stage svg {
+    .lfm2d-canvas {
         display: block;
         width: 100%;
-        height: auto;
-        min-height: 420px;
+        height: 100%;
     }
-    .lan-flow-map-2d-stage .cl {
-        cursor: default;
-    }
-    .lan-flow-map-2d-stage svg {
-        cursor: grab;
+    .lfm2d-tooltip {
+        position: absolute;
+        background: rgba(16, 24, 32, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        color: var(--text-primary);
+        pointer-events: none;
+        white-space: nowrap;
+        display: none;
+        z-index: 3;
     }
     .lfm2d-toolbar {
         position: absolute;
