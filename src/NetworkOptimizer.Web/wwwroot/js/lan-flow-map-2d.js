@@ -1067,8 +1067,9 @@ class LanFlowMap2D {
                 ctx.globalAlpha=1;
                 const isWan=e._isWan;
                 const midY=(e._y1+e._y2)/2+(e._midYOff||0);
-                const mx=isWan?e._x1:(e._x1+e._x2)/2;
-                const my=isWan?midY-28:(e._y1+e._y2)/2;
+                // WAN: on cloud's vertical above horizontal. Infra: on child's vertical below horizontal.
+                const mx=isWan?e._x1:e._x2;
+                const my=isWan?midY-28:midY+20;
                 let txt=null;
                 let txtColor=C.textMuted; // default muted; live rates override
 
