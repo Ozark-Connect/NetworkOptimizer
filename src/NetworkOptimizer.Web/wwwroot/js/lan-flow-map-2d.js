@@ -463,8 +463,14 @@ class LanFlowMap2D {
             this._hoverNode=hit;
             this._showTooltip(hit,sx,sy);
         } else if(hit&&hit===this._hoverNode){
-            this._tooltip.style.left=(sx+14)+'px';
-            this._tooltip.style.top=(sy+14)+'px';
+            const tr=this._tooltip.getBoundingClientRect();
+            const cr=this._el.getBoundingClientRect();
+            let tx=sx+14,ty=sy+14;
+            if(tx+tr.width>cr.width-4)tx=sx-tr.width-8;
+            if(ty+tr.height>cr.height-4)ty=sy-tr.height-8;
+            if(tx<4)tx=4; if(ty<4)ty=4;
+            this._tooltip.style.left=tx+'px';
+            this._tooltip.style.top=ty+'px';
         } else if(!hit){
             this._hideTooltip();
         }
@@ -524,8 +530,16 @@ class LanFlowMap2D {
             `<div style="font-weight:600;margin-bottom:3px">${esc(d.name||d.mac||'')}</div>`
             +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
         this._tooltip.style.display='block';
-        this._tooltip.style.left=(sx+14)+'px';
-        this._tooltip.style.top=(sy+14)+'px';
+        // Position dynamically to stay within the container
+        const tr=this._tooltip.getBoundingClientRect();
+        const cr=this._el.getBoundingClientRect();
+        let tx=sx+14, ty=sy+14;
+        if(tx+tr.width>cr.width-4)tx=sx-tr.width-8;
+        if(ty+tr.height>cr.height-4)ty=sy-tr.height-8;
+        if(tx<4)tx=4;
+        if(ty<4)ty=4;
+        this._tooltip.style.left=tx+'px';
+        this._tooltip.style.top=ty+'px';
     }
 
     _hideTooltip(){
@@ -1200,7 +1214,9 @@ class LanFlowMap2D {
         const dt=Math.min((now-this._lastFrame)/1000,0.1);
         this._lastFrame=now;
 
-        for(const s of this._streams)s.advance(dt);
+        if(!flowData.isPaused()){
+            for(const s of this._streams)s.advance(dt);
+        }
         this._draw();
 
         this._animId=requestAnimationFrame(()=>this._animate());

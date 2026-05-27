@@ -6,12 +6,16 @@ let _snapshot = null;
 let _liveRates = {};
 let _cloudStats = {};
 let _nodeBadges = {};
+let _paused = false;
+let _mode = 'live';
 let _listeners = new Set();
 
 export function getSnapshot()  { return _snapshot; }
 export function getLiveRates()  { return _liveRates; }
 export function getCloudStats() { return _cloudStats; }
 export function getNodeBadges() { return _nodeBadges; }
+export function isPaused()     { return _paused; }
+export function getMode()      { return _mode; }
 
 export function subscribe(fn) {
     _listeners.add(fn);
@@ -35,4 +39,10 @@ export function publishLive(update) {
     if (update.cloudStats)  _cloudStats = update.cloudStats;
     if (update.nodeBadges)  _nodeBadges = update.nodeBadges;
     _notify('live');
+}
+
+export function publishPlayState(paused, mode) {
+    _paused = paused;
+    _mode = mode;
+    _notify('playstate');
 }

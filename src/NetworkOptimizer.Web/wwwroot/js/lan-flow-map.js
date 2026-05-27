@@ -1378,6 +1378,7 @@ export class LanFlowMap {
     _togglePlayPause() {
         this._paused = !this._paused;
         this._syncPlayPauseIcon();
+        flowData.publishPlayState(this._paused, this._mode);
         if (this._paused) {
             this._stopHistoricPlayback();
             return;
@@ -1918,6 +1919,7 @@ export class LanFlowMap {
             this._paused = false;
             this._syncPlayPauseIcon();
             this._syncSpeedLabel();
+            flowData.publishPlayState(false, 'live');
             this._notifyStatCards(null);
             await this._pollLive();
             return;
@@ -1942,6 +1944,7 @@ export class LanFlowMap {
             this._syncPlayPauseIcon();
             this._stopHistoricPlayback();
         }
+        flowData.publishPlayState(this._paused, this._mode);
         this._notifyStatCards(at);
         await this._loadHistoric(at);
     }
