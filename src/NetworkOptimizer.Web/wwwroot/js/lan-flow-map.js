@@ -389,6 +389,7 @@ export class LanFlowMap {
         if (this._raf) cancelAnimationFrame(this._raf);
         if (this._pollTimer) clearInterval(this._pollTimer);
         if (this._historicPlaybackTimer) clearInterval(this._historicPlaybackTimer);
+        if (this._snapshotTimer) clearInterval(this._snapshotTimer);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
         if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
@@ -1370,6 +1371,14 @@ export class LanFlowMap {
         this._pollTimer = setInterval(() => {
             if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
+        // Periodic snapshot refresh (30s) to pick up topology changes
+        // (mesh PHY rates, new/removed devices, placement updates).
+        if (this._snapshotTimer) clearInterval(this._snapshotTimer);
+        this._snapshotTimer = setInterval(() => {
+            if (this._mode === 'live' && !this._paused && !this._destroyed) {
+                this._reloadSnapshot();
+            }
+        }, 30000);
     }
 
     // Play/Pause: in Live mode, pause freezes rates by skipping the poll. In
