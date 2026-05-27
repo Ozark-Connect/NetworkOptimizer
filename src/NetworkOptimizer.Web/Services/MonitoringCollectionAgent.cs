@@ -683,26 +683,36 @@ public class MonitoringCollectionAgent : BackgroundService
         });
         await Task.WhenAll(deviceTasks);
 
-        // Fallback: for non-SNMP devices, read CPU/mem/temp from the cached
-        // UniFi API device response (system-stats + temperatures fields).
-        // Same InfluxDB measurement + live cache as SNMP - seamless on the read side.
+        // UniFi API health pass: supplements or replaces SNMP health data.
+        // Non-SNMP devices: full fallback (CPU, mem, temp, uptime).
+        // SNMP devices: fill in gaps only (e.g., temperature on switches where
+        // SNMP doesn't report temp but UniFi API does).
         var now = DateTime.UtcNow;
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
             var snmpOn = !string.IsNullOrEmpty(device.SnmpContact) || !string.IsNullOrEmpty(device.SnmpLocation);
-            if (snmpOn && !IsSnmpExcluded(mac)) continue;
+            var snmpExcl = IsSnmpExcluded(mac);
+            var snmpActive = snmpOn && !snmpExcl;
 
             try
             {
                 var ss = device.SystemStatsSimple;
-                if (ss == null) continue;
+                if (ss == null && device.Temperatures == null) continue;
 
-                double? cpu = ParseJsonDouble(ss.Cpu);
-                double? mem = ParseJsonDouble(ss.Mem);
-                long? uptime = (long?)ParseJsonDouble(ss.Uptime);
-
+                double? cpu = ss != null ? ParseJsonDouble(ss.Cpu) : null;
+                double? mem = ss != null ? ParseJsonDouble(ss.Mem) : null;
+                long? uptime = ss != null ? (long?)ParseJsonDouble(ss.Uptime) : null;
                 double? temp = ParseDeviceTemperature(device);
+
+                // SNMP devices already have CPU/mem/uptime - only supplement temp
+                if (snmpActive)
+                {
+                    cpu = null;
+                    mem = null;
+                    uptime = null;
+                    if (temp == null) continue;
+                }
 
                 if (cpu == null && mem == null && temp == null) continue;
 
