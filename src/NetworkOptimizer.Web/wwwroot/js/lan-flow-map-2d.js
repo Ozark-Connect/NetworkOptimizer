@@ -258,8 +258,12 @@ class LanFlowMap2D {
                 const s=flowData.getSnapshot();
                 if(s){
                     this._liveRates={...flowData.getLiveRates()};
+                    const firstLoad=!this._root;
                     this._buildLayout(s);
-                    this._loadImages(s).then(()=>{this._fitAll();this._needsStaticRedraw=true;});
+                    this._loadImages(s).then(()=>{
+                        if(firstLoad)this._fitAll();
+                        this._needsStaticRedraw=true;
+                    });
                 }
             }else if(ev==='live'){
                 Object.assign(this._liveRates,flowData.getLiveRates());
@@ -657,7 +661,7 @@ class LanFlowMap2D {
         this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
         this._matchEdges();
-        this._initStreams();
+        if(!this._streams||this._streams.length===0)this._initStreams();
         this._calcBounds();
         this._updateStreamRates();
     }

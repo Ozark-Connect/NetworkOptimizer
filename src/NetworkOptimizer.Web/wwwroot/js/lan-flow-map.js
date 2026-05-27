@@ -1381,12 +1381,21 @@ export class LanFlowMap {
         this._pollTimer = setInterval(() => {
             if (this._mode === 'live' && !this._paused) this._pollLive();
         }, this.pollIntervalMs);
-        // Periodic snapshot refresh (30s) to pick up topology changes
-        // (mesh PHY rates, new/removed devices, placement updates).
+        // Periodic light snapshot refresh (30s) to pick up data changes
+        // (mesh PHY rates, online status, ISP speeds) without re-running
+        // force layout or resetting the camera.
         if (this._snapshotTimer) clearInterval(this._snapshotTimer);
-        this._snapshotTimer = setInterval(() => {
+        this._snapshotTimer = setInterval(async () => {
             if (this._mode === 'live' && !this._paused && !this._destroyed) {
-                this._reloadSnapshot();
+                try {
+                    const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
+                    if (!res.ok) return;
+                    const snap = await res.json();
+                    this._snapshot = snap;
+                    flowData.publishSnapshot(snap);
+                    this._applyLiveRates(snap.liveRates || {});
+                    this._refreshCloudRttLabels();
+                } catch { /* transient */ }
             }
         }, 30000);
     }
