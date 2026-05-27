@@ -1391,10 +1391,19 @@ export class LanFlowMap {
                     const res = await fetch(`${this.apiBase}/snapshot`, { credentials: 'same-origin' });
                     if (!res.ok) return;
                     const snap = await res.json();
+                    // Detect topology change: if node/link count differs, full rebuild
+                    const prevNodes = this._snapshot?.nodes?.length ?? 0;
+                    const prevLinks = this._snapshot?.links?.length ?? 0;
+                    const newNodes = snap.nodes?.length ?? 0;
+                    const newLinks = snap.links?.length ?? 0;
                     this._snapshot = snap;
                     flowData.publishSnapshot(snap);
-                    this._applyLiveRates(snap.liveRates || {});
-                    this._refreshCloudRttLabels();
+                    if (newNodes !== prevNodes || newLinks !== prevLinks) {
+                        await this._reloadSnapshot();
+                    } else {
+                        this._applyLiveRates(snap.liveRates || {});
+                        this._refreshCloudRttLabels();
+                    }
                 } catch { /* transient */ }
             }
         }, 30000);
