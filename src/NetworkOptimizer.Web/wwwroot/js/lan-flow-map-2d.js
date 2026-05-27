@@ -57,8 +57,8 @@ const G = {
 };
 
 const RATE_THRESH = 1_000_000;
-const EMIT_MAX = 10;
-const MAX_DOTS = 10;
+const EMIT_MAX = 12;
+const MAX_DOTS = 14;
 const FONT = 'system-ui, -apple-system, sans-serif';
 
 // ---- Helpers ----
@@ -162,18 +162,37 @@ class Stream {
         this.pathLen=orthoLen(edge._x1,edge._y1,edge._x2,edge._y2);
         this.slots=[];
         for(let i=0;i<MAX_DOTS;i++)this.slots.push({t:-1,size:0});
+        this._seeded=false;
     }
     setRate(bps){
         const intensity=Math.max(0,Math.min(1,Math.log10(Math.max(bps,1))/11));
         this.density=intensity;
         this.dotSize=0.4+(intensity*intensity)*1.2;
+        // Constant visual speed: match 3D map (2.5 + intensity*4 scene-units/sec)
+        // scaled to SVG pixels. Divide by path length for normalized t/sec.
         const absPxSec=50+intensity*80;
         this.velNorm=absPxSec/Math.max(this.pathLen,1);
+
+        // Pre-seed on first non-zero rate so the pipe is already populated
+        // instead of building up from empty over the first few seconds.
+        if(!this._seeded&&intensity>0){
+            this._seeded=true;
+            const emitPerSec=intensity*intensity*EMIT_MAX;
+            const traverseTime=1/Math.max(this.velNorm,0.001);
+            const steadyState=Math.min(Math.round(emitPerSec*traverseTime),MAX_DOTS);
+            for(let i=0;i<steadyState;i++){
+                this.slots[i].t=(i+0.5)/steadyState;
+                if(this.dir<0)this.slots[i].t=1-this.slots[i].t;
+                this.slots[i].size=this.dotSize;
+            }
+        }
     }
     advance(dt){
+        // Emission: density²*12 dots/sec, jittered ±20% (3D uses ±40% but
+        // shorter 2D links need tighter spacing to avoid visible gaps)
         this.spawnAcc+=this.density*this.density*EMIT_MAX*dt;
         while(this.spawnAcc>=1){
-            this.spawnAcc-=(0.6+Math.random()*0.8);
+            this.spawnAcc-=(0.8+Math.random()*0.4);
             for(const sl of this.slots){if(sl.t<0){sl.t=this.dir>0?0:1;sl.size=this.dotSize;break;}}
         }
         for(const sl of this.slots){
