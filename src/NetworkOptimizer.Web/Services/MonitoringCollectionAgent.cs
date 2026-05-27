@@ -1168,6 +1168,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         if (needsFlex25GMigration)
         {
+            int disabled = 0;
             foreach (var existing in existingByTargetId.Values)
             {
                 if (!existing.AutoDiscovered || !existing.Enabled) continue;
@@ -1176,9 +1177,13 @@ public class MonitoringCollectionAgent : BackgroundService
                     && UniFi.UniFiProductDatabase.IsFlex25G(dev.Model, dev.Shortname))
                 {
                     existing.Enabled = false;
+                    disabled++;
+                    _logger.LogInformation("Disabled latency probing for Flex 2.5G target {Name} ({Mac})",
+                        existing.Name, existing.DeviceMac);
                 }
             }
             settings!.Flex25GLatencyMigrated = true;
+            _logger.LogInformation("Flex 2.5G latency migration complete, disabled {Count} target(s)", disabled);
         }
 
         bool changed = false;
