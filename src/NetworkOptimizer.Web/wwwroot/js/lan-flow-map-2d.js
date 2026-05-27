@@ -255,7 +255,8 @@ class LanFlowMap2D {
         const mx = (e.clientX - rect.left) / rect.width;
         const my = (e.clientY - rect.top) / rect.height;
 
-        const factor = e.deltaY > 0 ? 1.12 : 1 / 1.12;
+        const step = 1 + Math.min(Math.abs(e.deltaY), 100) * 0.001;
+        const factor = e.deltaY > 0 ? step : 1 / step;
         const nw = this._vw * factor;
         const nh = this._vh * factor;
 
@@ -322,6 +323,24 @@ class LanFlowMap2D {
             }
         }
         this._root = root;
+
+        // Diagnostic: dump tree structure
+        if (root) {
+            const dump = (n, depth) => {
+                const pad = '  '.repeat(depth);
+                console.log(`${pad}${n.d.name||n.d.id} (kind=${n.d.kind}) infra=${n.infra.length} clients=${n.clients.length}`);
+                for (const c of n.infra) dump(c, depth+1);
+            };
+            console.log(`[2D Map] Tree: ${byId.size} nodes, root=${root.d.name||root.d.id}`);
+            dump(root, 0);
+            const orphans = [...byId.values()].filter(tn => tn !== root && !tn.d.parentId && tn.d.kind !== NK.Cloud);
+            if (orphans.length) console.warn(`[2D Map] ${orphans.length} orphan nodes (no parentId):`, orphans.map(o => `${o.d.name||o.d.id} kind=${o.d.kind}`));
+            const unlinked = [...byId.values()].filter(tn => tn.d.parentId && !byId.has(tn.d.parentId));
+            if (unlinked.length) console.warn(`[2D Map] ${unlinked.length} nodes with parentId not in map:`, unlinked.map(o => `${o.d.name||o.d.id} parentId=${o.d.parentId}`));
+        } else {
+            console.warn('[2D Map] No gateway root found! Node kinds:', [...byId.values()].map(n => n.d.kind));
+        }
+
         this._clouds = (snap.clouds||[]).map(c => ({ d:c, x:0, y:0 }));
 
         this._edges = [];
@@ -798,8 +817,8 @@ class LanFlowMap2D {
         // Emission density - how many particles visible at once
         // density² * 12 = emissions/sec. At steady state ~density²*12 / velocity particles in flight.
         const density = intensity;
-        // Particle size: squared curve matching 3D map
-        const size = 1.5 + (intensity * intensity) * 5;
+        // Particle size: squared curve matching 3D map, scaled for 2D SVG
+        const size = 0.75 + (intensity * intensity) * 2.5;
         // Velocity: 0..1 range, normalized per-second fraction of path
         const vel = 0.15 + intensity * 0.45;
         // Count: density²*12 is emission rate; at vel speed, in-flight ≈ emission/vel

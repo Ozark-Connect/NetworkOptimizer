@@ -1148,6 +1148,7 @@ export class LanFlowMap {
         // Refresh the device-rate text on the floating DOM labels.
         this._refreshDeviceLabelRates();
         this._refreshLinkLabels();
+        this._refreshCloudRttLabels();
     }
 
     _refreshLinkLabels() {
@@ -2063,6 +2064,20 @@ export class LanFlowMap {
             this._wanPills.set(cloud.wanInterface, pill);
         }
 
+        // Cloud RTT labels: live-updating DOM element below each access cloud.
+        this._cloudRttLabels = this._cloudRttLabels || new Map();
+        for (const el of this._cloudRttLabels.values()) el.remove();
+        this._cloudRttLabels.clear();
+        for (const cloud of (snap.clouds || [])) {
+            if (cloud.kind !== 0 /* AccessIsp */) continue;
+            const lbl = document.createElement('div');
+            lbl.className = 'lan-flow-map-cloud-rtt';
+            lbl.style.left = '-9999px';
+            lbl.style.top = '-9999px';
+            this._labelsLayer.appendChild(lbl);
+            this._cloudRttLabels.set(cloud.id, lbl);
+        }
+
         // Hide the existing 3D sprite labels for devices we now show via DOM (keeps
         // the scene from double-labeling them).
         for (const [id, sprite] of this._labelSprites) {
@@ -2122,6 +2137,31 @@ export class LanFlowMap {
             pill.style.transformOrigin = 'center top';
             pill.style.left = `${x}px`;
             pill.style.top = `${y}px`;
+        }
+
+        // Cloud RTT labels - positioned right below the WAN speed test pill
+        if (this._cloudRttLabels) {
+            for (const [cloudId, lbl] of this._cloudRttLabels) {
+                const group = this._cloudMeshes.get(cloudId);
+                if (!group) { lbl.classList.remove('is-visible'); continue; }
+                tmp.setFromMatrixPosition(group.matrixWorld);
+                tmp.y -= NODE_RADIUS.cloud + 0.5;
+                const dist = tmp.distanceTo(camPos);
+                tmp.project(this.camera);
+                if (tmp.z > 1) { lbl.classList.remove('is-visible'); continue; }
+                const x = (tmp.x * halfW) + halfW;
+                const y = -(tmp.y * halfH) + halfH;
+                const scale = Math.max(MIN_SCALE, Math.min(1.0, REF_DIST / Math.max(dist, 1)));
+                // Offset below the WAN pill by reading the pill's rendered height + margin
+                const wanIface = cloudId.replace('cloud-access-', '');
+                const pill = this._wanPills.get(wanIface);
+                const pillOffset = pill?.classList.contains('is-visible') ? (pill.offsetHeight * scale + 6) : 0;
+                lbl.style.transform = `translate(-50%, 0%) scale(${scale.toFixed(3)})`;
+                lbl.style.transformOrigin = 'center top';
+                lbl.style.left = `${x}px`;
+                lbl.style.top = `${y + pillOffset}px`;
+                lbl.classList.add('is-visible');
+            }
         }
 
         // Link rate pills: positioned at the link midpoint. Visibility + text is
@@ -2263,6 +2303,23 @@ export class LanFlowMap {
             const ageLabel = formatAge(ageMs);
             pill.textContent = `Last test: ${dl.toFixed(0)} / ${ul.toFixed(0)} Mbps  ·  ${ageLabel}`;
             pill.classList.add('is-visible');
+        }
+    }
+
+    _refreshCloudRttLabels() {
+        if (!this._cloudRttLabels || this._cloudRttLabels.size === 0) return;
+        const cs = flowData.getCloudStats();
+        for (const [cloudId, lbl] of this._cloudRttLabels) {
+            const stats = cs?.[cloudId];
+            if (!stats || stats.rttAvgMs == null) {
+                lbl.classList.remove('is-visible');
+                continue;
+            }
+            const parts = [`${stats.rttAvgMs.toFixed(2)} ms`];
+            if (stats.lossPercent != null && stats.lossPercent > 0) {
+                parts.push(`${stats.lossPercent.toFixed(1)}% loss`);
+            }
+            lbl.textContent = parts.join('  ·  ');
         }
     }
 
