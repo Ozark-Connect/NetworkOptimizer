@@ -1001,10 +1001,12 @@ class LanFlowMap2D {
             // Capacity / speed label on infra and WAN links
             if(!e._isCl){
                 ctx.globalAlpha=1;
-                // WAN labels go on the vertical segment near the cloud, not the shared midpoint
+                // WAN: place on the upper vertical segment (cloud's own column)
+                // Infra: place at the link midpoint
                 const isWan=e._isWan;
+                const midY=(e._y1+e._y2)/2+(e._midYOff||0);
                 const mx=isWan?e._x1:(e._x1+e._x2)/2;
-                const my=isWan?e._y1+30:(e._y1+e._y2)/2;
+                const my=isWan?(e._y1+midY)/2:(e._y1+e._y2)/2;
                 let txt=null;
 
                 if(isWan){
@@ -1267,7 +1269,11 @@ class LanFlowMap2D {
             if(!r)continue;
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
-                const mx=(e._x1+e._x2)/2, my=(e._y1+e._y2)/2+14;
+                // WAN: place on lower vertical segment (gateway column)
+                // Infra: place below the capacity label
+                const midY=(e._y1+e._y2)/2+(e._midYOff||0);
+                const mx=e._isWan?e._x2:(e._x1+e._x2)/2;
+                const my=e._isWan?(midY+e._y2)/2:(e._y1+e._y2)/2+14;
                 const dTxt='↓'+(dn>0?formatBps(dn):'0 bps');
                 const uTxt='↑'+(up>0?formatBps(up):'0 bps');
                 const tw=ctx.measureText(dTxt+' '+uTxt).width+14;
