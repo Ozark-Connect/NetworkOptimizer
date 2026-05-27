@@ -518,7 +518,8 @@ export class LanFlowMap {
         // devices have room to settle between the pinned APs without crowding.
         const sceneRadius = 30.0;
         const ANCHOR_SPREAD_FACTOR = 1.875;
-        const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
+        const boundsR = Number.isFinite(bounds.radius) ? bounds.radius : 1.0;
+        const scale = (sceneRadius / Math.max(boundsR, 1.0)) * ANCHOR_SPREAD_FACTOR;
 
         const positions = new Map();
         const anchors = new Map();
@@ -530,7 +531,8 @@ export class LanFlowMap {
 
         for (const node of snap.nodes) {
             const p = node.placement;
-            if (p && p.source === PLACEMENT_SOURCE.Anchor) {
+            if (p && p.source === PLACEMENT_SOURCE.Anchor
+                && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
                 // Vertical offset within the floor by device type:
                 // APs use their mount type, clients mid-floor, infra at desk level.
                 const isClient = node.kind === NODE_KIND.WiredClient || node.kind === NODE_KIND.WifiClient;
@@ -546,7 +548,8 @@ export class LanFlowMap {
                     pinned: true,
                 });
                 anchors.set(node.id, true);
-            } else if (p && p.source === PLACEMENT_SOURCE.Interpolated) {
+            } else if (p && p.source === PLACEMENT_SOURCE.Interpolated
+                && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
                 positions.set(node.id, {
                     x: -p.x * scale,
                     y: p.z * scale * 0.8 - 4,
@@ -977,7 +980,7 @@ export class LanFlowMap {
         const to = new THREE.Vector3(b.x, b.y, b.z);
         const dir = to.clone().sub(from);
         const length = dir.length();
-        if (length < 0.01) return new THREE.Group();
+        if (!Number.isFinite(length) || length < 0.01) return new THREE.Group();
 
         const baseRadius = this._pipeRadiusForCapacity(link.capacityBps);
         const geo = new THREE.CylinderGeometry(baseRadius, baseRadius, length, 14, 1, true);
@@ -2640,7 +2643,7 @@ export class LanFlowMap {
         const to = new THREE.Vector3(b.x, b.y, b.z);
         const dir = to.clone().sub(from);
         const length = dir.length();
-        if (length < 0.01) return;
+        if (!Number.isFinite(length) || length < 0.01) return;
 
         const mid = from.clone().add(to).multiplyScalar(0.5);
         pipe.position.copy(mid);
@@ -2670,7 +2673,8 @@ export class LanFlowMap {
         }
         const sceneRadius = 30.0;
         const ANCHOR_SPREAD_FACTOR = 1.875;
-        const scale = (sceneRadius / Math.max(bounds.radius, 1.0)) * ANCHOR_SPREAD_FACTOR;
+        const boundsR = Number.isFinite(bounds.radius) ? bounds.radius : 1.0;
+        const scale = (sceneRadius / Math.max(boundsR, 1.0)) * ANCHOR_SPREAD_FACTOR;
         const EARTH_RADIUS = 6_371_000.0;
 
         // Undo JS transform: posX = -(local.x * scale), posZ = local.y * scale
@@ -2776,7 +2780,12 @@ class ParticleStream {
         this._to = toV;
         this._direction = toV.clone().sub(fromV);
         this._length = this._direction.length();
-        this._direction.normalize();
+        if (Number.isFinite(this._length) && this._length > 0.001) {
+            this._direction.normalize();
+        } else {
+            this._length = 0;
+            this._direction.set(0, 1, 0);
+        }
 
         const MAX = 200;
         this._max = MAX;
