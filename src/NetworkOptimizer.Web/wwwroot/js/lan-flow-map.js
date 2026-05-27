@@ -1412,10 +1412,11 @@ export class LanFlowMap {
             range.value = clamped;
             // Update the time label from the continuous timestamp, not the
             // integer slider position (which only moves every ~86s at 1x).
+            const rightLabel = (clamped >= 9998) ? 'Live' : _fmtDateTime(this._playbackTime);
             if (this._panels.scrubberRight) {
-                this._panels.scrubberRight.textContent =
-                    (clamped >= 9998) ? 'Live' : _fmtDateTime(this._playbackTime);
+                this._panels.scrubberRight.textContent = rightLabel;
             }
+            flowData.publishScrubber(clamped, rightLabel, this._playbackSpeed);
             tickCount++;
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
@@ -1893,10 +1894,11 @@ export class LanFlowMap {
     _onScrubberInput(value) {
         // Visual-only update while dragging - cheap label refresh.
         const at = this._scrubberValueToTime(value);
+        const rightLabel = (value >= 9998) ? 'Live' : _fmtDateTime(at);
         if (this._panels.scrubberRight) {
-            this._panels.scrubberRight.textContent =
-                (value >= 9998) ? 'Live' : _fmtDateTime(at);
+            this._panels.scrubberRight.textContent = rightLabel;
         }
+        flowData.publishScrubber(value, rightLabel, this._playbackSpeed);
     }
 
     async _onScrubberChange(value) {

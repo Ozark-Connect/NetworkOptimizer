@@ -8,14 +8,18 @@ let _cloudStats = {};
 let _nodeBadges = {};
 let _paused = false;
 let _mode = 'live';
+let _scrubberValue = 10000;
+let _scrubberRight = 'Live';
+let _playbackSpeed = 1;
 let _listeners = new Set();
 
 export function getSnapshot()  { return _snapshot; }
 export function getLiveRates()  { return _liveRates; }
 export function getCloudStats() { return _cloudStats; }
 export function getNodeBadges() { return _nodeBadges; }
-export function isPaused()     { return _paused; }
-export function getMode()      { return _mode; }
+export function isPaused()       { return _paused; }
+export function getMode()        { return _mode; }
+export function getScrubber()    { return { value: _scrubberValue, right: _scrubberRight, speed: _playbackSpeed }; }
 
 export function subscribe(fn) {
     _listeners.add(fn);
@@ -45,4 +49,11 @@ export function publishPlayState(paused, mode) {
     _paused = paused;
     _mode = mode;
     _notify('playstate');
+}
+
+export function publishScrubber(value, rightLabel, speed) {
+    _scrubberValue = value;
+    _scrubberRight = rightLabel;
+    _playbackSpeed = speed;
+    _notify('scrubber');
 }

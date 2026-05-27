@@ -266,6 +266,8 @@ class LanFlowMap2D {
                 this._updateStreamRates();
                 this._updateCloudStats();
                 this._needsStaticRedraw=true;
+            }else if(ev==='scrubber'||ev==='playstate'){
+                this._syncScrubber();
             }
         });
         this._lastFrame=performance.now();
@@ -331,6 +333,56 @@ class LanFlowMap2D {
             else if(a==='fit')this._fitAll();
         });
         this._el.appendChild(tb);
+
+        // Mirror scrubber (synced from 3D map via shared data store).
+        // Interactions forward to the 3D map's instance.
+        const scrubber=document.createElement('div');
+        scrubber.className='lan-flow-map-scrubber';
+        scrubber.innerHTML=`
+            <div class="lan-flow-map-scrubber-row">
+                <button class="lan-flow-map-scrubber-playpause" data-role="playpause" type="button" aria-label="Pause">⏸</button>
+                <div class="lan-flow-map-speed-control" data-role="speed">
+                    <button class="lan-flow-map-speed-step" data-dir="-1" type="button" aria-label="Slower">-</button>
+                    <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
+                    <button class="lan-flow-map-speed-step" data-dir="1" type="button" aria-label="Faster">+</button>
+                </div>
+                <span data-role="left">-24h</span>
+                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="10000" value="10000" />
+                <span data-role="right" style="min-width:10ch">Live</span>
+            </div>`;
+        // Forward all interactions to the 3D map
+        const fwd=()=>window.__lanFlowMap;
+        const sRange=scrubber.querySelector('.lan-flow-map-scrubber-range');
+        sRange.addEventListener('input',(e)=>{
+            const m=fwd();if(m?._instance){
+                const r=m._instance._panels?.scrubberRange;
+                if(r){r.value=e.target.value;r.dispatchEvent(new Event('input'));}
+            }
+        });
+        sRange.addEventListener('change',(e)=>{
+            const m=fwd();if(m?._instance){
+                const r=m._instance._panels?.scrubberRange;
+                if(r){r.value=e.target.value;r.dispatchEvent(new Event('change'));}
+            }
+        });
+        scrubber.querySelector('[data-role="playpause"]').addEventListener('click',()=>{
+            const m=fwd();if(m?._instance)m._instance._togglePlayPause();
+        });
+        for(const btn of scrubber.querySelectorAll('.lan-flow-map-speed-step')){
+            btn.addEventListener('click',()=>{
+                const m=fwd();if(m?._instance){
+                    const ob=m._instance._panels?.scrubber?.querySelector(`.lan-flow-map-speed-step[data-dir="${btn.dataset.dir}"]`);
+                    if(ob)ob.click();
+                }
+            });
+        }
+        this._el.appendChild(scrubber);
+        this._scrubberEls={
+            range:sRange,
+            right:scrubber.querySelector('[data-role="right"]'),
+            playPause:scrubber.querySelector('[data-role="playpause"]'),
+            speedLabel:scrubber.querySelector('[data-role="speed-label"]'),
+        };
 
         // Events
         canvas.addEventListener('wheel',(e)=>this._onWheel(e),{passive:false});
@@ -414,6 +466,15 @@ class LanFlowMap2D {
         this._ox=this._bx+this._bw/2;
         this._oy=this._by+this._bh/2;
         this._needsStaticRedraw=true;
+    }
+
+    _syncScrubber(){
+        if(!this._scrubberEls)return;
+        const s=flowData.getScrubber();
+        this._scrubberEls.range.value=s.value;
+        this._scrubberEls.right.textContent=s.right;
+        this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
+        this._scrubberEls.playPause.textContent=flowData.isPaused()?'▶':'⏸';
     }
 
     _zoomBy(factor){
