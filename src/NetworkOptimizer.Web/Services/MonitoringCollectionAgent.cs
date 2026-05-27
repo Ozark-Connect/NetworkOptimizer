@@ -915,9 +915,12 @@ public class MonitoringCollectionAgent : BackgroundService
             };
             _liveStats.RecordWifiClient(snapshot);
 
-            // InfluxDB write. Per Gate 1: AP MAC + band are tags, client MAC is a
-            // field to bound cardinality (per-client MAC as a tag would be the classic
-            // InfluxDB cardinality bomb on networks with hundreds of clients).
+            // Skip InfluxDB write when throughput is zero - avoids polluting
+            // historic data with stale-counter cycles where UniFi hadn't updated
+            // tx_bytes between our polls.
+            if ((txThroughputBps ?? 0) <= 0 && (rxThroughputBps ?? 0) <= 0)
+                goto skipWifiInflux;
+
             _ = _influx.WriteWifiClientAsync(
                 apMac: apMac,
                 band: band,
@@ -936,6 +939,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 rxThroughputBps: rxThroughputBps,
                 isMlo: c.IsMlo,
                 timestamp: now.AddTicks(tickOffset++));
+        skipWifiInflux:;
         }
 
         // Wired clients: collect throughput as fallback for non-SNMP switches.
@@ -977,9 +981,9 @@ public class MonitoringCollectionAgent : BackgroundService
                 LastUpdate = now,
             });
 
-            // Write to InfluxDB for historic playback
+            // Write to InfluxDB for historic playback (skip zero throughput)
             var swMac = NormalizeMac(c.SwMac ?? string.Empty);
-            if (!string.IsNullOrEmpty(swMac))
+            if (!string.IsNullOrEmpty(swMac) && ((txBps ?? 0) > 0 || (rxBps ?? 0) > 0))
             {
                 _ = _influx.WriteWiredClientAsync(
                     switchMac: swMac,
