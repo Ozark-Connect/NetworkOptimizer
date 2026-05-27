@@ -130,9 +130,17 @@ function orthoAt(x1,y1,x2,y2,t,midYOff) {
     const s1=top-cr,s2=Math.PI/2*cr,s3=ax-2*cr,s4=s2,s5=bot-cr;
     const tot=s1+s2+s3+s4+s5;let d=t*tot;
     if(d<=s1)return{x:x1,y:y1+d};d-=s1;
-    if(d<=s2){const a=d/s2*Math.PI/2;return{x:x1+s*cr*Math.sin(a),y:midY-cr+cr*(1-Math.cos(a))};}d-=s2;
+    if(d<=s2){
+        // Quadratic bezier matching strokeOrtho: P0=(x1,midY-cr) P1=(x1,midY) P2=(x1+s*cr,midY)
+        const bt=d/s2,u=1-bt;
+        return{x:u*u*x1+2*u*bt*x1+bt*bt*(x1+s*cr), y:u*u*(midY-cr)+2*u*bt*midY+bt*bt*midY};
+    }d-=s2;
     if(d<=s3)return{x:x1+s*(cr+d),y:midY};d-=s3;
-    if(d<=s4){const a=d/s4*Math.PI/2;return{x:(x2-s*cr)+s*cr*Math.sin(a),y:midY+cr*(1-Math.cos(a))};}d-=s4;
+    if(d<=s4){
+        // Quadratic bezier: P0=(x2-s*cr,midY) P1=(x2,midY) P2=(x2,midY+cr)
+        const bt=d/s4,u=1-bt;
+        return{x:u*u*(x2-s*cr)+2*u*bt*x2+bt*bt*x2, y:u*u*midY+2*u*bt*midY+bt*bt*(midY+cr)};
+    }d-=s4;
     return{x:x2,y:midY+cr+d};
 }
 
