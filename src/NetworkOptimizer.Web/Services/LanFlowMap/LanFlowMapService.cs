@@ -281,27 +281,43 @@ public class LanFlowMapService
                     }
                 }
             }
-            else if (link.Kind == LanLinkKind.WiredClient && !string.IsNullOrEmpty(link.PortKey))
+            else if (link.Kind == LanLinkKind.WiredClient)
             {
-                // Wired client leaves don't have device-level monitoring stats - their
-                // throughput lives on the parent switch port, which the SNMP fast tier
-                // writes into MonitoringLiveStats.PortRates every ~5s. Look up by the
-                // (parentMac, ifName) key already encoded in link.PortKey.
-                var (parentMac, ifName) = ParsePortKey(link.PortKey);
-                if (!string.IsNullOrEmpty(parentMac) && !string.IsNullOrEmpty(ifName))
+                // Primary: parent switch port via SNMP (PortKey).
+                if (!string.IsNullOrEmpty(link.PortKey))
                 {
-                    var portRate = _liveStats.GetPortRate(parentMac, ifName);
-                    if (portRate != null)
+                    var (parentMac, ifName) = ParsePortKey(link.PortKey);
+                    if (!string.IsNullOrEmpty(parentMac) && !string.IsNullOrEmpty(ifName))
                     {
-                        // Direction mapping mirrors MapPortToLinkRates for an internal
-                        // (non-WAN) link: port TX (DownBps) = data toward leaf,
-                        // port RX (UpBps) = data from leaf.
-                        rates = new LinkLiveRates
+                        var portRate = _liveStats.GetPortRate(parentMac, ifName);
+                        if (portRate != null)
                         {
-                            DownstreamBps = portRate.DownBps,
-                            UpstreamBps = portRate.UpBps,
-                            AsOf = portRate.LastUpdate,
-                        };
+                            rates = new LinkLiveRates
+                            {
+                                DownstreamBps = portRate.DownBps,
+                                UpstreamBps = portRate.UpBps,
+                                AsOf = portRate.LastUpdate,
+                            };
+                        }
+                    }
+                }
+                // Fallback: UniFi client stats (for switches without SNMP).
+                // TX from the client's perspective = upload = upstream on the link.
+                if (rates == null)
+                {
+                    var clientMac = ExtractWiredClientMacFromLinkId(link.Id);
+                    if (!string.IsNullOrEmpty(clientMac))
+                    {
+                        var wc = _liveStats.GetWiredClient(clientMac);
+                        if (wc != null)
+                        {
+                            rates = new LinkLiveRates
+                            {
+                                DownstreamBps = wc.RxThroughputBps ?? 0,
+                                UpstreamBps = wc.TxThroughputBps ?? 0,
+                                AsOf = wc.LastUpdate,
+                            };
+                        }
                     }
                 }
             }
@@ -1703,6 +1719,9 @@ public class LanFlowMapService
             ? linkId.Substring(prefix.Length)
             : null;
     }
+
+    private static string? ExtractWiredClientMacFromLinkId(string linkId)
+        => ExtractWifiClientMacFromLinkId(linkId);
 
     private static string? ExtractDeviceMacFromUplinkId(string linkId)
     {

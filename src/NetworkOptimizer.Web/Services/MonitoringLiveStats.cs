@@ -116,6 +116,7 @@ public class MonitoringLiveStats
     private readonly ConcurrentDictionary<(string DeviceMac, string PortName), SfpLiveStats> _sfpStats = new();
     private readonly ConcurrentDictionary<string, TargetLiveStats> _targetStats = new();
     private readonly ConcurrentDictionary<string, WifiClientLiveSnapshot> _wifiClients = new();
+    private readonly ConcurrentDictionary<string, WiredClientLiveSnapshot> _wiredClients = new();
     // Per-port rate cache. Keyed by (deviceMac, ifName) so the SNMP fast tier
     // (clean 5s cadence) is the writer - the UniFi PortTable byte counters lag
     // ~30s server-side, so polling them every 5s yields a burst-then-zeros
@@ -285,6 +286,29 @@ public class MonitoringLiveStats
     /// <summary>Every currently-tracked WiFi client (across all APs).</summary>
     public IReadOnlyList<WifiClientLiveSnapshot> AllWifiClients() => _wifiClients.Values.ToList();
 
+    // ---- Wired clients (fallback for non-SNMP switches) ----
+
+    public void RecordWiredClient(WiredClientLiveSnapshot snapshot)
+    {
+        if (string.IsNullOrEmpty(snapshot.ClientMac)) return;
+        var key = Normalize(snapshot.ClientMac);
+        var fresh = snapshot with { ClientMac = key, ConsecutiveZeroPolls = 0 };
+        _wiredClients.AddOrUpdate(key, fresh, (_, prior) =>
+        {
+            var newTx = fresh.TxThroughputBps ?? 0;
+            var newRx = fresh.RxThroughputBps ?? 0;
+            if (newTx == 0 && newRx == 0 && ((prior.TxThroughputBps ?? 0) > 0 || (prior.RxThroughputBps ?? 0) > 0) && prior.ConsecutiveZeroPolls < 1)
+                return prior with { TxThroughputBps = prior.TxThroughputBps, RxThroughputBps = prior.RxThroughputBps, LastUpdate = fresh.LastUpdate, ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1 };
+            return fresh;
+        });
+    }
+
+    public WiredClientLiveSnapshot? GetWiredClient(string clientMac)
+    {
+        if (string.IsNullOrEmpty(clientMac)) return null;
+        return _wiredClients.TryGetValue(Normalize(clientMac), out var v) ? v : null;
+    }
+
     /// <summary>Drop stale entries — called periodically by the agent.</summary>
     public void Prune(TimeSpan maxAge)
     {
@@ -422,4 +446,17 @@ public record DeviceLiveStats
         return (LastRateUpdate.HasValue && (now - LastRateUpdate.Value) <= maxAge)
             || (LastLatencyUpdate.HasValue && (now - LastLatencyUpdate.Value) <= maxAge);
     }
+}
+
+/// <summary>
+/// Throughput snapshot for a wired client, derived from UniFi client stats.
+/// Used as a fallback when the parent switch lacks SNMP.
+/// </summary>
+public record WiredClientLiveSnapshot
+{
+    public required string ClientMac { get; init; }
+    public double? TxThroughputBps { get; init; }
+    public double? RxThroughputBps { get; init; }
+    public DateTime LastUpdate { get; init; }
+    public int ConsecutiveZeroPolls { get; init; }
 }

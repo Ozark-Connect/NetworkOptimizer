@@ -832,6 +832,7 @@ public class MonitoringCollectionAgent : BackgroundService
     /// clients with stale -r fields.
     /// </summary>
     private readonly ConcurrentDictionary<string, ClientByteSnapshot> _wifiByteCache = new();
+    private readonly ConcurrentDictionary<string, ClientByteSnapshot> _wiredByteCache = new();
     private readonly record struct ClientByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
 
     private async Task WifiClientTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
@@ -932,15 +933,55 @@ public class MonitoringCollectionAgent : BackgroundService
                 timestamp: now);
         }
 
+        // Wired clients: collect throughput as fallback for non-SNMP switches.
+        // Uses the same tx_bytes/rx_bytes delta approach as WiFi clients.
+        foreach (var c in clients)
+        {
+            if (!c.IsWired) continue;
+            if (string.IsNullOrEmpty(c.Mac)) continue;
+            var clientMac = NormalizeMac(c.Mac);
+
+            double? txBps = null, rxBps = null;
+            if (c.TxBytesRate > 0 || c.RxBytesRate > 0)
+            {
+                txBps = c.TxBytesRate * 8.0;
+                rxBps = c.RxBytesRate * 8.0;
+            }
+            else if (_wiredByteCache.TryGetValue(clientMac, out var prev))
+            {
+                var elapsed = (now - prev.Timestamp).TotalSeconds;
+                if (elapsed > 0.5)
+                {
+                    long deltaTx = c.TxBytes - prev.TxBytes;
+                    long deltaRx = c.RxBytes - prev.RxBytes;
+                    if (deltaTx >= 0 && deltaRx >= 0)
+                    {
+                        txBps = deltaTx * 8.0 / elapsed;
+                        rxBps = deltaRx * 8.0 / elapsed;
+                    }
+                }
+            }
+            _wiredByteCache[clientMac] = new ClientByteSnapshot(now, c.TxBytes, c.RxBytes);
+
+            _liveStats.RecordWiredClient(new WiredClientLiveSnapshot
+            {
+                ClientMac = clientMac,
+                TxThroughputBps = txBps,
+                RxThroughputBps = rxBps,
+                LastUpdate = now,
+            });
+        }
+
         // Drop stale byte-cache entries for clients we haven't seen this cycle. Otherwise
         // a roamed/disconnected client's stale counter sits forever and gives a bogus
         // delta on reconnect.
-        var seenSet = new HashSet<string>(clients.Where(c => !c.IsWired).Select(c => NormalizeMac(c.Mac)));
+        var seenWifi = new HashSet<string>(clients.Where(c => !c.IsWired).Select(c => NormalizeMac(c.Mac)));
         foreach (var key in _wifiByteCache.Keys)
-        {
-            if (!seenSet.Contains(key))
-                _wifiByteCache.TryRemove(key, out _);
-        }
+            if (!seenWifi.Contains(key)) _wifiByteCache.TryRemove(key, out _);
+
+        var seenWired = new HashSet<string>(clients.Where(c => c.IsWired).Select(c => NormalizeMac(c.Mac)));
+        foreach (var key in _wiredByteCache.Keys)
+            if (!seenWired.Contains(key)) _wiredByteCache.TryRemove(key, out _);
     }
 
     /// <summary>
