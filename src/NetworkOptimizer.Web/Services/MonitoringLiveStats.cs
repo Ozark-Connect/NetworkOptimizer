@@ -142,7 +142,7 @@ public class MonitoringLiveStats
             && (prior.DownBps > 0 || prior.UpBps > 0)
             && prior.ConsecutiveZeroPolls < 1)
         {
-            _logger.LogDebug(
+            _logger.LogTrace(
                 "Port rate hold: {Mac}/{If} was {Down:F0}/{Up:F0} bps, holding through single zero poll",
                 deviceMac, ifName, prior.DownBps, prior.UpBps);
             _portRates[key] = prior with
