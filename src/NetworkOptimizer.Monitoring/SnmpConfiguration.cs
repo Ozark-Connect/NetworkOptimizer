@@ -86,6 +86,18 @@ public class SnmpConfiguration
     public bool EnableDebugLogging { get; set; } = false;
 
     /// <summary>
+    /// Interval (seconds) for medium-tier polls: oper status, error/discard counters.
+    /// Aligned with MonitoringSettings.MediumPollIntervalSeconds.
+    /// </summary>
+    public int MediumPollIntervalSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Interval (seconds) for slow-tier polls: static interface metadata (name, speed, etc).
+    /// Aligned with MonitoringSettings.SlowPollIntervalSeconds.
+    /// </summary>
+    public int SlowPollIntervalSeconds { get; set; } = 300;
+
+    /// <summary>
     /// Maximum number of concurrent SNMP requests
     /// </summary>
     public int MaxConcurrentRequests { get; set; } = 10;
@@ -163,6 +175,8 @@ public class SnmpConfiguration
             PollingIntervalSeconds = PollingIntervalSeconds,
             UseHighCapacityCounters = UseHighCapacityCounters,
             HighCapacityThresholdMbps = HighCapacityThresholdMbps,
+            MediumPollIntervalSeconds = MediumPollIntervalSeconds,
+            SlowPollIntervalSeconds = SlowPollIntervalSeconds,
             EnableDebugLogging = EnableDebugLogging,
             MaxConcurrentRequests = MaxConcurrentRequests,
             ExcludeInterfacePatterns = new List<string>(ExcludeInterfacePatterns)

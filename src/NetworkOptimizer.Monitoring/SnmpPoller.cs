@@ -37,9 +37,8 @@ public class SnmpPoller : ISnmpPoller
     private readonly SnmpConfiguration _config;
     private readonly ILogger<SnmpPoller> _logger;
     private readonly ConcurrentDictionary<string, (ISnmpMessage Report, DateTime CachedAt)> _discoveryCache = new();
-    private readonly ConcurrentDictionary<string, InterfaceMetadataCache> _ifMetadataCache = new();
+    private readonly ConcurrentDictionary<string, DevicePollerCache> _deviceCache = new();
     private const int DiscoveryCacheTtlSeconds = 60;
-    private const int InterfaceMetadataCacheTtlSeconds = 60;
 
     public SnmpPoller(SnmpConfiguration config, ILogger<SnmpPoller> logger)
     {
@@ -247,17 +246,11 @@ public class SnmpPoller : ISnmpPoller
 
         try
         {
-            var interfacesTask = GetInterfaceMetricsAsync(ip, metrics.Hostname);
-
             await Task.WhenAll(
                 GetSystemMetrics(ip, metrics),
                 GetResourceMetrics(ip, metrics),
-                GetUniFiMetrics(ip, metrics),
-                interfacesTask
+                GetUniFiMetrics(ip, metrics)
             );
-
-            metrics.Interfaces = await interfacesTask;
-            metrics.InterfaceCount = metrics.Interfaces.Count;
 
             metrics.IsReachable = true;
         }
@@ -278,18 +271,52 @@ public class SnmpPoller : ISnmpPoller
         try
         {
             var cacheKey = ip.ToString();
-            var metadata = await GetOrRefreshInterfaceMetadataAsync(ip, cacheKey);
-            if (metadata == null || metadata.DescrByIdx.Count == 0)
+            var cache = _deviceCache.GetOrAdd(cacheKey, _ => new DevicePollerCache());
+            var now = DateTime.UtcNow;
+
+            // Slow tier: refresh static interface metadata when cache has expired
+            if (cache.Metadata == null ||
+                (now - cache.LastMetadataPoll).TotalSeconds >= _config.SlowPollIntervalSeconds)
             {
-                _logger.LogDebug("No interfaces found on device {Ip}", ip);
+                var metadata = await WalkInterfaceMetadataAsync(ip);
+                if (metadata == null)
+                {
+                    _logger.LogDebug("No interfaces found on device {Ip}", ip);
+                    return interfaces;
+                }
+                cache.Metadata = metadata;
+                cache.LastMetadataPoll = now;
+                DebugLog($"Slow tier: refreshed metadata for {ip} ({metadata.DescrByIdx.Count} interfaces)");
+            }
+
+            var meta = cache.Metadata;
+            if (meta.DescrByIdx.Count == 0)
+            {
+                _logger.LogDebug("No interfaces in cached metadata for {Ip}", ip);
                 return interfaces;
             }
 
-            // Only walk counters + operStatus on each call (the hot path)
-            var operStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfOperStatus);
-            var operByIdx = IndexByIfIndex(operStatusWalk, UniFiOids.IfOperStatus);
+            // Medium tier: refresh oper status + error/discard counters when cache has expired
+            if ((now - cache.LastOperPoll).TotalSeconds >= _config.MediumPollIntervalSeconds)
+            {
+                var operStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfOperStatus);
+                cache.OperStatusByIdx = IndexByIfIndex(operStatusWalk, UniFiOids.IfOperStatus);
 
-            // Counter walks - try HC first, fall back to 32-bit
+                var inErrors = await BulkWalkAsync(ip, UniFiOids.IfInErrors);
+                var outErrors = await BulkWalkAsync(ip, UniFiOids.IfOutErrors);
+                var inDiscards = await BulkWalkAsync(ip, UniFiOids.IfInDiscards);
+                var outDiscards = await BulkWalkAsync(ip, UniFiOids.IfOutDiscards);
+
+                cache.InErrorsByIdx = IndexByIfIndex(inErrors, UniFiOids.IfInErrors);
+                cache.OutErrorsByIdx = IndexByIfIndex(outErrors, UniFiOids.IfOutErrors);
+                cache.InDiscardsByIdx = IndexByIfIndex(inDiscards, UniFiOids.IfInDiscards);
+                cache.OutDiscardsByIdx = IndexByIfIndex(outDiscards, UniFiOids.IfOutDiscards);
+
+                cache.LastOperPoll = now;
+                DebugLog($"Medium tier: refreshed oper/error counters for {ip}");
+            }
+
+            // Fast tier: always walk HC traffic counters
             var hcInOctets = await BulkWalkAsync(ip, UniFiOids.IfHCInOctets);
             var hcOutOctets = await BulkWalkAsync(ip, UniFiOids.IfHCOutOctets);
 
@@ -301,28 +328,18 @@ public class SnmpPoller : ISnmpPoller
                 outOctets32 = await BulkWalkAsync(ip, UniFiOids.IfOutOctets);
             }
 
-            // Error counters
-            var inErrors = await BulkWalkAsync(ip, UniFiOids.IfInErrors);
-            var outErrors = await BulkWalkAsync(ip, UniFiOids.IfOutErrors);
-            var inDiscards = await BulkWalkAsync(ip, UniFiOids.IfInDiscards);
-            var outDiscards = await BulkWalkAsync(ip, UniFiOids.IfOutDiscards);
-
             var hcInOctetsByIdx = IndexByIfIndex(hcInOctets, UniFiOids.IfHCInOctets);
             var hcOutOctetsByIdx = IndexByIfIndex(hcOutOctets, UniFiOids.IfHCOutOctets);
             var inOctets32ByIdx = needFallback ? IndexByIfIndex(inOctets32!, UniFiOids.IfInOctets) : null;
             var outOctets32ByIdx = needFallback ? IndexByIfIndex(outOctets32!, UniFiOids.IfOutOctets) : null;
-            var inErrorsByIdx = IndexByIfIndex(inErrors, UniFiOids.IfInErrors);
-            var outErrorsByIdx = IndexByIfIndex(outErrors, UniFiOids.IfOutErrors);
-            var inDiscardsByIdx = IndexByIfIndex(inDiscards, UniFiOids.IfInDiscards);
-            var outDiscardsByIdx = IndexByIfIndex(outDiscards, UniFiOids.IfOutDiscards);
 
-            // Build interface metrics using cached metadata + fresh counters
-            foreach (var (idx, descr) in metadata.DescrByIdx)
+            // Build interface metrics: fresh counters + cached oper/error + cached metadata
+            foreach (var (idx, descr) in meta.DescrByIdx)
             {
                 if (!int.TryParse(idx, out var index)) continue;
 
-                var speed = ParseLong(metadata.SpeedByIdx, idx);
-                var highSpeed = ParseLong(metadata.HighSpeedByIdx, idx);
+                var speed = ParseLong(meta.SpeedByIdx, idx);
+                var highSpeed = ParseLong(meta.HighSpeedByIdx, idx);
                 var useHC = _config.UseHighCapacityCounters && !needFallback &&
                            (highSpeed >= _config.HighCapacityThresholdMbps || (speed / 1_000_000) >= _config.HighCapacityThresholdMbps);
 
@@ -333,22 +350,22 @@ public class SnmpPoller : ISnmpPoller
                     DeviceHostname = hostname ?? string.Empty,
                     Timestamp = DateTime.UtcNow,
                     Description = descr,
-                    Name = ResolveIfName(GetString(metadata.AliasByIdx, idx), GetString(metadata.NameByIdx, idx)),
-                    PortId = GetString(metadata.NameByIdx, idx) ?? string.Empty,
-                    Type = ParseInt(metadata.TypeByIdx, idx),
-                    Mtu = ParseInt(metadata.MtuByIdx, idx),
+                    Name = ResolveIfName(GetString(meta.AliasByIdx, idx), GetString(meta.NameByIdx, idx)),
+                    PortId = GetString(meta.NameByIdx, idx) ?? string.Empty,
+                    Type = ParseInt(meta.TypeByIdx, idx),
+                    Mtu = ParseInt(meta.MtuByIdx, idx),
                     Speed = speed,
                     HighSpeed = highSpeed,
-                    PhysicalAddress = GetString(metadata.PhysAddrByIdx, idx) ?? string.Empty,
-                    AdminStatus = ParseInt(metadata.AdminByIdx, idx),
-                    OperStatus = ParseInt(operByIdx, idx),
-                    LastChange = ParseLong(metadata.LastChangeByIdx, idx),
+                    PhysicalAddress = GetString(meta.PhysAddrByIdx, idx) ?? string.Empty,
+                    AdminStatus = ParseInt(meta.AdminByIdx, idx),
+                    OperStatus = ParseInt(cache.OperStatusByIdx, idx),
+                    LastChange = ParseLong(meta.LastChangeByIdx, idx),
                     InOctets = useHC ? ParseLong(hcInOctetsByIdx, idx) : ParseLong(inOctets32ByIdx ?? hcInOctetsByIdx, idx),
                     OutOctets = useHC ? ParseLong(hcOutOctetsByIdx, idx) : ParseLong(outOctets32ByIdx ?? hcOutOctetsByIdx, idx),
-                    InDiscards = ParseLong(inDiscardsByIdx, idx),
-                    InErrors = ParseLong(inErrorsByIdx, idx),
-                    OutDiscards = ParseLong(outDiscardsByIdx, idx),
-                    OutErrors = ParseLong(outErrorsByIdx, idx),
+                    InDiscards = ParseLong(cache.InDiscardsByIdx, idx),
+                    InErrors = ParseLong(cache.InErrorsByIdx, idx),
+                    OutDiscards = ParseLong(cache.OutDiscardsByIdx, idx),
+                    OutErrors = ParseLong(cache.OutErrorsByIdx, idx),
                 };
 
                 if (metrics.ShouldMonitor())
@@ -361,7 +378,7 @@ public class SnmpPoller : ISnmpPoller
                 }
             }
 
-            DebugLog($"Collected metrics for {interfaces.Count} interfaces from {metadata.DescrByIdx.Count} in metadata");
+            DebugLog($"Collected metrics for {interfaces.Count} interfaces from {meta.DescrByIdx.Count} in metadata");
         }
         catch (Exception ex)
         {
@@ -519,14 +536,8 @@ public class SnmpPoller : ISnmpPoller
         metrics.DeviceType = DetermineDeviceType(metrics.Model, metrics.Description);
     }
 
-    private async Task<InterfaceMetadataCache?> GetOrRefreshInterfaceMetadataAsync(IPAddress ip, string cacheKey)
+    private async Task<InterfaceMetadataCache?> WalkInterfaceMetadataAsync(IPAddress ip)
     {
-        if (_ifMetadataCache.TryGetValue(cacheKey, out var cached) &&
-            (DateTime.UtcNow - cached.CachedAt).TotalSeconds < InterfaceMetadataCacheTtlSeconds)
-        {
-            return cached;
-        }
-
         var descrWalk = await BulkWalkAsync(ip, UniFiOids.IfDescr);
         if (descrWalk.Count == 0) return null;
 
@@ -540,9 +551,8 @@ public class SnmpPoller : ISnmpPoller
         var adminStatusWalk = await BulkWalkAsync(ip, UniFiOids.IfAdminStatus);
         var lastChangeWalk = await BulkWalkAsync(ip, UniFiOids.IfLastChange);
 
-        var metadata = new InterfaceMetadataCache
+        return new InterfaceMetadataCache
         {
-            CachedAt = DateTime.UtcNow,
             DescrByIdx = IndexByIfIndex(descrWalk, UniFiOids.IfDescr),
             NameByIdx = IndexByIfIndex(nameWalk, UniFiOids.IfName),
             AliasByIdx = IndexByIfIndex(aliasWalk, UniFiOids.IfAlias),
@@ -554,9 +564,6 @@ public class SnmpPoller : ISnmpPoller
             AdminByIdx = IndexByIfIndex(adminStatusWalk, UniFiOids.IfAdminStatus),
             LastChangeByIdx = IndexByIfIndex(lastChangeWalk, UniFiOids.IfLastChange),
         };
-
-        _ifMetadataCache[cacheKey] = metadata;
-        return metadata;
     }
 
     private static void ParseHostResourcesMemory(List<Variable> storageVars, DeviceMetrics metrics)
@@ -892,9 +899,27 @@ public class SnmpPoller : ISnmpPoller
     #endregion
 }
 
+/// <summary>
+/// Per-device cache for tiered SNMP polling. Tracks last-polled timestamps for each tier
+/// so the poller skips walks whose data hasn't aged out yet.
+/// </summary>
+internal sealed class DevicePollerCache
+{
+    // Slow tier: static interface metadata (name, speed, type, etc.)
+    public InterfaceMetadataCache? Metadata { get; set; }
+    public DateTime LastMetadataPoll { get; set; } = DateTime.MinValue;
+
+    // Medium tier: operational status + error/discard counters
+    public DateTime LastOperPoll { get; set; } = DateTime.MinValue;
+    public Dictionary<string, string> OperStatusByIdx { get; set; } = new();
+    public Dictionary<string, string> InErrorsByIdx { get; set; } = new();
+    public Dictionary<string, string> OutErrorsByIdx { get; set; } = new();
+    public Dictionary<string, string> InDiscardsByIdx { get; set; } = new();
+    public Dictionary<string, string> OutDiscardsByIdx { get; set; } = new();
+}
+
 internal sealed class InterfaceMetadataCache
 {
-    public DateTime CachedAt { get; init; }
     public Dictionary<string, string> DescrByIdx { get; init; } = new();
     public Dictionary<string, string> NameByIdx { get; init; } = new();
     public Dictionary<string, string> AliasByIdx { get; init; } = new();

@@ -209,7 +209,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
-        var poller = BuildPoller(settings);
+        var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
 
         // Configure InfluxDB client (no-op if already configured)
@@ -641,7 +641,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
-        var poller = BuildPoller(settings);
+        var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
 
@@ -804,7 +804,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
-        var poller = BuildPoller(settings);
+        var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
 
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
@@ -1525,11 +1525,36 @@ public class MonitoringCollectionAgent : BackgroundService
         return (rateInBps, rateOutBps);
     }
 
+    private SnmpPoller? _cachedPoller;
+    private string _pollerConfigHash = string.Empty;
+
+    private SnmpPoller? GetOrBuildPoller(MonitoringSettings settings)
+    {
+        var hash = ComputePollerConfigHash(settings);
+        if (_cachedPoller != null && hash == _pollerConfigHash)
+            return _cachedPoller;
+
+        var poller = BuildPoller(settings);
+        if (poller != null)
+        {
+            _cachedPoller = poller;
+            _pollerConfigHash = hash;
+        }
+        return poller;
+    }
+
+    private static string ComputePollerConfigHash(MonitoringSettings s) =>
+        $"{s.SnmpVersion}|{s.SnmpCommunity}|{s.SnmpV3Username}|{s.SnmpV3AuthPassword}|{s.MediumPollIntervalSeconds}|{s.SlowPollIntervalSeconds}";
+
     private SnmpPoller? BuildPoller(MonitoringSettings settings)
     {
         try
         {
-            var cfg = new SnmpConfiguration();
+            var cfg = new SnmpConfiguration
+            {
+                MediumPollIntervalSeconds = settings.MediumPollIntervalSeconds,
+                SlowPollIntervalSeconds = settings.SlowPollIntervalSeconds
+            };
             if (settings.SnmpVersion == SnmpVersionSetting.V2c)
             {
                 cfg.Version = SnmpVersion.V2c;
