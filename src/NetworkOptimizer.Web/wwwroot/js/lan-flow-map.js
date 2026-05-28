@@ -1862,8 +1862,11 @@ export class LanFlowMap {
                     const now = Date.now();
                     const span = now - this._scrubberOrigin;
                     const nearNow = span > 0 ? Math.floor((now - 5000 - this._scrubberOrigin) / span * 10000) : 9997;
+                    const clamped = Math.min(nearNow, 9997);
+                    if (this._panels.scrubberRange) this._panels.scrubberRange.value = clamped;
+                    this._onScrubberInput(clamped);
                     this._speedTransition = true;
-                    this._onScrubberChange(Math.min(nearNow, 9997));
+                    this._onScrubberChange(clamped);
                     this._speedTransition = false;
                     this._startHistoricPlayback();
                 }
