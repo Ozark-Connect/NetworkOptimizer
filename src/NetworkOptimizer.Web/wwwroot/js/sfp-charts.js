@@ -97,8 +97,11 @@ function renderBadges(container) {
             <span>${escapeHtml(m.label)}</span>
         </button>`;
     }).join('');
-    el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-sfp]');
+            if (!btn) return;
             const id = btn.dataset.sfp;
 
             if (e.ctrlKey || e.metaKey) {
@@ -114,7 +117,7 @@ function renderBadges(container) {
             updateVisibility();
             renderBadges(container);
         });
-    });
+    }
 }
 
 function updateVisibility() {

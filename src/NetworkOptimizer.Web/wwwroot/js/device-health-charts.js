@@ -99,8 +99,11 @@ function renderBadges(container) {
             <span>${escapeHtml(d.name)}</span>
         </button>`;
     }).join('');
-    el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-mac]');
+            if (!btn) return;
             const mac = btn.dataset.mac;
 
             if (e.ctrlKey || e.metaKey) {
@@ -116,7 +119,7 @@ function renderBadges(container) {
             updateVisibility();
             renderBadges(container);
         });
-    });
+    }
 }
 
 function updateVisibility() {

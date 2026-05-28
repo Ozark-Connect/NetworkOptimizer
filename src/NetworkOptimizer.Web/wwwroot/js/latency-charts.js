@@ -161,8 +161,11 @@ function renderBadges(container) {
         </button>`;
     }).join('');
 
-    el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-target]');
+            if (!btn) return;
             const tid = btn.dataset.target;
             const name = targetMeta.find(t => t.id === tid)?.name || tid;
             const before = Object.fromEntries(targetMeta.map(t => [t.name, visibility[t.id] !== false]));
@@ -194,7 +197,7 @@ function renderBadges(container) {
             renderBadges(container);
             if (lastFetchData) renderStatsTable(container, lastFetchData);
         });
-    });
+    }
 }
 
 function updateChartVisibility(source) {
