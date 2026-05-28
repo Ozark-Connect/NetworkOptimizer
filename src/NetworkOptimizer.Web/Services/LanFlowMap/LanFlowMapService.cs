@@ -410,14 +410,10 @@ public class LanFlowMapService
 
         var snapshot = await BuildSnapshotAsync(ct);
 
-        var from = at - TimeSpan.FromSeconds(90);
-        var to = at + TimeSpan.FromSeconds(30);
-
         var gwNode = snapshot.Nodes.FirstOrDefault(n => n.Kind == LanNodeKind.Gateway);
         var gwMac = gwNode?.Mac;
 
         // Build WAN interface → ifname candidates for per-WAN rate queries.
-        // Physical port first, uplink (ppp* for PPPoE) as fallback.
         var wanIfNameMap = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         try
         {
@@ -435,66 +431,37 @@ public class LanFlowMapService
         }
         catch { }
 
-        // Pre-fetch interface_counters per device MAC so we don't re-query for
-        // every link on the same device. Covers WiredClient (PortKey), Uplink,
-        // MeshBackhaul, and WAN links.
-        var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
-        foreach (var link in snapshot.Links)
+        // Reuse cached InfluxDB results when the requested time falls within
+        // the previously fetched window. Fetches 5 min ahead so forward
+        // playback goes ~4 min before needing another round-trip.
+        var cached = _cache.HistoricData;
+        if (cached == null || at < cached.From || at > cached.To - TimeSpan.FromSeconds(30))
         {
-            if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
-            {
-                var mac = ExtractDeviceMacFromUplinkId(link.Id);
-                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
-            }
-            else if (!string.IsNullOrEmpty(link.PortKey))
-            {
-                var (mac, _) = ParsePortKey(link.PortKey);
-                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
-            }
-        }
-        var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
-            StringComparer.OrdinalIgnoreCase);
-        foreach (var mac in deviceMacs)
-        {
-            try
-            {
-                ratesByDevice[mac] = await _influx.QueryInterfaceRatesAsync(mac, from, to, null, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Historic rate fetch failed for device {Mac}", mac);
-            }
+            cached = await FetchHistoricDataAsync(at, snapshot, gwMac, ct);
+            _cache.HistoricData = cached;
         }
 
-        // Batch pre-fetch all client throughput from InfluxDB (one query per
-        // measurement instead of N queries per client). Keyed by client MAC.
+        var ratesByDevice = cached.RatesByDevice;
+        var from = cached.From;
+        var to = cached.To;
+
+        // Resolve closest client throughput points from cached data.
         var wifiClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in cached.WifiClients)
+        {
+            if (string.IsNullOrEmpty(p.ClientMac)) continue;
+            if (!wifiClientRates.TryGetValue(p.ClientMac, out var existing)
+                || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
+                wifiClientRates[p.ClientMac] = p;
+        }
         var wiredClientRates = new Dictionary<string, MonitoringInfluxClient.ClientThroughputPoint>(StringComparer.OrdinalIgnoreCase);
-        try
+        foreach (var p in cached.WiredClients)
         {
-            var allWifi = await _influx.QueryAllClientThroughputAsync("wifi_client", from, to, ct);
-            foreach (var p in allWifi)
-            {
-                if (string.IsNullOrEmpty(p.ClientMac)) continue;
-                if (!wifiClientRates.TryGetValue(p.ClientMac, out var existing)
-                    || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
-                    wifiClientRates[p.ClientMac] = p;
-            }
+            if (string.IsNullOrEmpty(p.ClientMac)) continue;
+            if (!wiredClientRates.TryGetValue(p.ClientMac, out var existing)
+                || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
+                wiredClientRates[p.ClientMac] = p;
         }
-        catch (Exception ex) { _logger.LogDebug(ex, "Historic WiFi client batch query failed"); }
-        try
-        {
-            var allWired = await _influx.QueryAllClientThroughputAsync("wired_client", from, to, ct);
-            foreach (var p in allWired)
-            {
-                if (string.IsNullOrEmpty(p.ClientMac)) continue;
-                if (!wiredClientRates.TryGetValue(p.ClientMac, out var existing)
-                    || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
-                    wiredClientRates[p.ClientMac] = p;
-            }
-        }
-        catch (Exception ex) { _logger.LogDebug(ex, "Historic wired client batch query failed"); }
 
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
         foreach (var link in snapshot.Links)
@@ -680,10 +647,9 @@ public class LanFlowMapService
             var mac = node.Mac;
             try
             {
-                var health = await _influx.QueryDeviceHealthAsync(mac, from, to, null, ct);
-                var healthPt = health
-                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                    .FirstOrDefault();
+                var healthPt = cached.HealthByDevice.TryGetValue(mac, out var healthPts)
+                    ? healthPts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).FirstOrDefault()
+                    : null;
 
                 double? fabIn = null, fabOut = null;
                 if ((node.Kind == LanNodeKind.Switch || node.Kind == LanNodeKind.Gateway)
@@ -730,6 +696,7 @@ public class LanFlowMapService
                     CpuPercent = healthPt?.CpuPercent,
                     MemoryUsedPercent = healthPt?.MemoryUsedPercent,
                     TemperatureC = healthPt?.TemperatureC,
+                    UptimeSeconds = healthPt?.UptimeSeconds,
                     FabricIngressBps = fabIn,
                     FabricEgressBps = fabOut,
                     AggregateInBps = aggIn,
@@ -754,16 +721,12 @@ public class LanFlowMapService
                     _ => (MonitoringTargetType?)null
                 };
                 if (targetType == null) continue;
-                var data = await _influx.QueryLatencyByTargetTypeAsync(targetType.Value, from, to, ct: ct);
                 MonitoringInfluxClient.LatencyPoint? best = null;
-                foreach (var (_, pts) in data)
+                if (cached.LatencyByTargetType.TryGetValue(targetType.Value, out var latPts))
                 {
-                    var closest = pts
+                    best = latPts
                         .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                         .FirstOrDefault();
-                    if (closest != null && (best == null
-                        || Math.Abs((closest.Time - at).TotalMilliseconds) < Math.Abs((best.Time - at).TotalMilliseconds)))
-                        best = closest;
                 }
                 if (best == null) continue;
                 update.CloudStats[cloud.Id] = new CloudLiveStats
@@ -1770,6 +1733,74 @@ public class LanFlowMapService
         "6e" or "6ghz" or "6 GHz" or "6" => "6",
         _ => null,
     };
+
+    private async Task<HistoricDataCache> FetchHistoricDataAsync(
+        DateTime at, LanFlowMapSnapshot snapshot, string? gwMac, CancellationToken ct)
+    {
+        var from = at - TimeSpan.FromSeconds(90);
+        var to = at + TimeSpan.FromMinutes(5);
+
+        var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
+        foreach (var link in snapshot.Links)
+        {
+            if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
+            {
+                var mac = ExtractDeviceMacFromUplinkId(link.Id);
+                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
+            }
+            else if (!string.IsNullOrEmpty(link.PortKey))
+            {
+                var (mac, _) = ParsePortKey(link.PortKey);
+                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
+            }
+        }
+
+        var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in deviceMacs)
+        {
+            try
+            {
+                ratesByDevice[mac] = await _influx.QueryInterfaceRatesRawAsync(mac, from, to, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Historic rate fetch failed for device {Mac}", mac);
+            }
+        }
+
+        IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> wifi = Array.Empty<MonitoringInfluxClient.ClientThroughputPoint>();
+        IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> wired = Array.Empty<MonitoringInfluxClient.ClientThroughputPoint>();
+        try { wifi = await _influx.QueryAllClientThroughputAsync("wifi_client", from, to, ct); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Historic WiFi client batch query failed"); }
+        try { wired = await _influx.QueryAllClientThroughputAsync("wired_client", from, to, ct); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Historic wired client batch query failed"); }
+
+        var healthByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.DeviceHealthPoint>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var node in snapshot.Nodes)
+        {
+            if (string.IsNullOrEmpty(node.Mac)) continue;
+            try
+            {
+                healthByDevice[node.Mac] = await _influx.QueryDeviceHealthRawAsync(node.Mac, from, to, ct);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "Historic health fetch failed for {Mac}", node.Mac); }
+        }
+
+        var latencyByType = new Dictionary<MonitoringTargetType, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>();
+        foreach (var targetType in new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit })
+        {
+            try
+            {
+                latencyByType[targetType] = await _influx.QueryLatencyByTargetTypeRawAsync(targetType, from, to, ct);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "Historic latency fetch failed for {Type}", targetType); }
+        }
+
+        return new HistoricDataCache(from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType);
+    }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(
         string measurement, string clientMac, DateTime at, DateTime from, DateTime to, CancellationToken ct)

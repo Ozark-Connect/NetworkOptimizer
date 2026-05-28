@@ -1556,7 +1556,7 @@ public class MonitoringCollectionAgent : BackgroundService
     // the default fast tier interval (5s) - the data is always at most one fast tick
     // stale, and slower tiers piggyback on whatever the fast tier just fetched.
     // Concurrent callers serialize on _deviceFetchLock so a miss doesn't fan out.
-    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(4);
     private List<UniFiDeviceResponse> _cachedDevices = new();
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);

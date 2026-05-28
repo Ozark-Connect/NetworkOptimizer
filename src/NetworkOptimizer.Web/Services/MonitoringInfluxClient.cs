@@ -507,6 +507,106 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
+    /// Returns raw rate_in_bps and rate_out_bps points paired in C#. Much cheaper
+    /// than the aggregated variant for short-range playback where data is already
+    /// at native 5s cadence.
+    /// </summary>
+    public async Task<IReadOnlyList<InterfaceRatePoint>> QueryInterfaceRatesRawAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<InterfaceRatePoint>();
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+";
+        var rateIn = new Dictionary<(string ifName, long ticks), double>();
+        var rateOut = new Dictionary<(string ifName, long ticks), double>();
+        var times = new Dictionary<(string ifName, long ticks), DateTime>();
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var ifName = record.GetValueByKey("if_name") as string ?? "?";
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (value == null) continue;
+
+            var key = (ifName, time.Ticks);
+            times[key] = time;
+            if (field == "rate_in_bps") rateIn[key] = value.Value;
+            else if (field == "rate_out_bps") rateOut[key] = value.Value;
+        }
+
+        var results = new List<InterfaceRatePoint>(times.Count);
+        foreach (var (key, time) in times)
+        {
+            results.Add(new InterfaceRatePoint
+            {
+                Time = time,
+                IfName = key.ifName,
+                RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
+                RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Batch variant: fetches interface rates for a set of devices in one query.
+    /// Returns results grouped by device MAC for caller-side partitioning.
+    /// </summary>
+    public async Task<Dictionary<string, List<InterfaceRatePoint>>> QueryBatchInterfaceRatesAsync(
+        IEnumerable<string> deviceMacs,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+        var macs = deviceMacs.Select(NormalizeMac).Distinct().ToList();
+        if (macs.Count == 0) return new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var macFilter = string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}"""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => {macFilter})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = record.GetValueByKey("device_mac") as string ?? "";
+            var point = new InterfaceRatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                IfName = record.GetValueByKey("if_name") as string ?? "?",
+                RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
+                RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
+            };
+            if (!results.TryGetValue(mac, out var list))
+            {
+                list = new List<InterfaceRatePoint>();
+                results[mac] = list;
+            }
+            list.Add(point);
+        }
+        return results;
+    }
+
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
         IReadOnlyList<string> wanIfNames,
@@ -573,7 +673,7 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -585,10 +685,97 @@ from(bucket: ""{_bucket}"")
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
                 MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
-                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c"))
+                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
+                UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds"))
             });
         }
         return results;
+    }
+
+    /// <summary>Raw device health query - no aggregation, pairs fields in C#.</summary>
+    public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthRawAsync(
+        string deviceMac, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<DeviceHealthPoint>();
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
+";
+        var cpu = new Dictionary<long, double>();
+        var mem = new Dictionary<long, double>();
+        var temp = new Dictionary<long, double>();
+        var uptime = new Dictionary<long, double>();
+        var times = new Dictionary<long, DateTime>();
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (value == null) continue;
+            var key = time.Ticks;
+            times[key] = time;
+            if (field == "cpu_percent") cpu[key] = value.Value;
+            else if (field == "memory_used_percent") mem[key] = value.Value;
+            else if (field == "temperature_c") temp[key] = value.Value;
+            else if (field == "uptime_seconds") uptime[key] = value.Value;
+        }
+
+        return times.Select(kv => new DeviceHealthPoint
+        {
+            Time = kv.Value,
+            CpuPercent = cpu.TryGetValue(kv.Key, out var c) ? c : null,
+            MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
+            TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
+            UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
+        }).ToList();
+    }
+
+    /// <summary>Raw latency query by target type - no aggregation, pairs fields in C#.</summary>
+    public async Task<IReadOnlyList<LatencyPoint>> QueryLatencyByTargetTypeRawAsync(
+        MonitoringTargetType targetType, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return Array.Empty<LatencyPoint>();
+        var typeTag = targetType.ToString().ToLowerInvariant();
+        var typeFilter = targetType == MonitoringTargetType.InternetService
+            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+            : $@"r.target_type == ""{typeTag}""";
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+";
+        var rtt = new Dictionary<(string targetId, long ticks), double>();
+        var loss = new Dictionary<(string targetId, long ticks), double>();
+        var times = new Dictionary<(string targetId, long ticks), DateTime>();
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var targetId = record.GetValueByKey("target_id") as string;
+            if (string.IsNullOrEmpty(targetId)) continue;
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (value == null) continue;
+            var key = (targetId, time.Ticks);
+            times[key] = time;
+            if (field == "rtt_avg_ms") rtt[key] = value.Value;
+            else if (field == "loss_percent") loss[key] = value.Value;
+        }
+
+        return times.Select(kv => new LatencyPoint
+        {
+            Time = kv.Value,
+            RttAvgMs = rtt.TryGetValue(kv.Key, out var r) ? r : null,
+            LossPercent = loss.TryGetValue(kv.Key, out var l) ? l : null,
+        }).ToList();
     }
 
     /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
@@ -1010,6 +1197,7 @@ from(bucket: ""{_longtermBucket}"")
         public double? CpuPercent { get; init; }
         public double? MemoryUsedPercent { get; init; }
         public double? TemperatureC { get; init; }
+        public long? UptimeSeconds { get; init; }
     }
 
     public record LatencyPoint

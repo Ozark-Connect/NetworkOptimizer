@@ -819,12 +819,15 @@ public class SnmpPoller : ISnmpPoller
         {
             if (targetType == typeof(int))
             {
+                if (data.TypeCode == SnmpType.TimeTicks && data is Lextm.SharpSnmpLib.TimeTicks ttInt)
+                    return (T)(object)(int)ttInt.ToUInt32();
+
                 if (int.TryParse(dataString, out var intValue))
                     return (T)(object)intValue;
 
                 if (data.TypeCode == SnmpType.TimeTicks)
                 {
-                    var match = Regex.Match(dataString, @"(\d+)");
+                    var match = Regex.Match(dataString, @"\((\d+)\)");
                     if (match.Success && int.TryParse(match.Groups[1].Value, out var tickValue))
                         return (T)(object)tickValue;
                 }
@@ -832,12 +835,15 @@ public class SnmpPoller : ISnmpPoller
 
             if (targetType == typeof(uint))
             {
+                if (data.TypeCode == SnmpType.TimeTicks && data is Lextm.SharpSnmpLib.TimeTicks ttUint)
+                    return (T)(object)ttUint.ToUInt32();
+
                 if (uint.TryParse(dataString, out var uintValue))
                     return (T)(object)uintValue;
 
                 if (data.TypeCode == SnmpType.TimeTicks)
                 {
-                    var match = Regex.Match(dataString, @"(\d+)");
+                    var match = Regex.Match(dataString, @"\((\d+)\)");
                     if (match.Success && uint.TryParse(match.Groups[1].Value, out var tickValue))
                         return (T)(object)tickValue;
                 }
@@ -845,12 +851,15 @@ public class SnmpPoller : ISnmpPoller
 
             if (targetType == typeof(long))
             {
+                if (data.TypeCode == SnmpType.TimeTicks && data is Lextm.SharpSnmpLib.TimeTicks tt)
+                    return (T)(object)(long)tt.ToUInt32();
+
                 if (long.TryParse(dataString, out var longValue))
                     return (T)(object)longValue;
 
                 if (data.TypeCode == SnmpType.TimeTicks)
                 {
-                    var match = Regex.Match(dataString, @"(\d+)");
+                    var match = Regex.Match(dataString, @"\((\d+)\)");
                     if (match.Success && long.TryParse(match.Groups[1].Value, out var tickValue))
                         return (T)(object)tickValue;
                 }

@@ -2,7 +2,7 @@
 // Subscribes to lan-flow-data.js (published by the 3D map) so there are
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
-import * as flowData from './lan-flow-data.js';
+import * as flowData from './lan-flow-data.js?v=1';
 
 // ---- Color palette (matches 3D map) ----
 const C = {
@@ -465,6 +465,26 @@ class LanFlowMap2D {
         // Forward all interactions to the 3D map
         const fwd=()=>window.__lanFlowMap?.getInstance?.();
         const sRange=scrubber.querySelector('.lan-flow-map-scrubber-range');
+        sRange.addEventListener('pointerdown',()=>{
+            const inst=fwd();if(inst)inst._stopHistoricPlayback?.();
+        });
+        sRange.addEventListener('keydown',(e)=>{
+            e.preventDefault();
+            const inst=fwd();if(!inst)return;
+            if(e.key===' '){inst._togglePlayPause();return;}
+            if(e.key==='Shift'){if(inst._keys)inst._keys.shift=true;return;}
+            const key=e.key.toLowerCase();
+            if(key==='arrowleft'||key==='arrowright'){
+                if(inst._keys)inst._keys[key]=true;
+            }
+        });
+        sRange.addEventListener('keyup',(e)=>{
+            const inst=fwd();if(!inst)return;
+            if(e.key==='Shift'){if(inst._keys)inst._keys.shift=false;return;}
+            const key=e.key.toLowerCase();
+            if(inst._keys)inst._keys[key]=false;
+            if(e.key==='ArrowLeft'||e.key==='ArrowRight')inst._arrowScrubStart=null;
+        });
         sRange.addEventListener('input',(e)=>{
             const inst=fwd();if(inst){
                 const r=inst._panels?.scrubberRange;
@@ -847,7 +867,7 @@ class LanFlowMap2D {
 
         for(const k of kids)this._contourLayout(k);
 
-        const GAP=40;
+        const GAP=20;
         const offsets=[];
         let groupRight=[];
 
@@ -1398,7 +1418,7 @@ class LanFlowMap2D {
         // Name label
         const name=n.d.name||n.d.model||'';
         if(name){
-            const dn=name.length>16?name.slice(0,15)+'…':name;
+            const dn=name.length>24?name.slice(0,23)+'…':name;
             ctx.fillStyle=C.text;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
@@ -1435,7 +1455,7 @@ class LanFlowMap2D {
         // Name label
         const name=n.d.name||n.d.ip||'';
         if(name){
-            const dn=name.length>25?name.slice(0,24)+'…':name;
+            const dn=name.length>32?name.slice(0,31)+'…':name;
             ctx.fillStyle=C.textMuted;
             ctx.font=`${G.clientFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';

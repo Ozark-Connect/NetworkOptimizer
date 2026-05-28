@@ -13,8 +13,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildBuildings } from './lan-flow-buildings.js';
-import * as flowData from './lan-flow-data.js';
+import { buildBuildings } from './lan-flow-buildings.js?v=1';
+import * as flowData from './lan-flow-data.js?v=1';
 
 const COLORS = {
     background: 0x202023,
@@ -1323,6 +1323,7 @@ export class LanFlowMap {
             // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
             // Shift multiplies by 9x on top of acceleration.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
+                if (this._historicPlaybackTimer) this._stopHistoricPlayback();
                 const now = performance.now();
                 if (!this._arrowScrubStart) this._arrowScrubStart = now;
                 if (!this._lastArrowScrub || now - this._lastArrowScrub >= 200) {
@@ -1545,8 +1546,8 @@ export class LanFlowMap {
         // Track playback as a continuous timestamp, not integer slider units.
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
-        this._playbackTime = this._historicAt
-            || this._scrubberValueToTime(Number(this._panels.scrubberRange?.value ?? 500));
+        this._playbackTime = this._scrubberValueToTime(
+            Number(this._panels.scrubberRange?.value ?? 500));
         let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
@@ -1573,18 +1574,16 @@ export class LanFlowMap {
             tickCount++;
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
-                this._playbackAdvancing = true;
-                try {
-                    if (clamped >= 9998) {
-                        this._stopHistoricPlayback();
-                        this._onScrubberChange(10000);
-                    } else {
-                        this._historicAt = this._playbackTime;
-                        this._notifyStatCards(this._playbackTime);
-                        this._loadHistoric(this._playbackTime);
+                if (clamped >= 9998) {
+                    if (this._historicPlaybackTimer) {
+                        clearInterval(this._historicPlaybackTimer);
+                        this._historicPlaybackTimer = null;
                     }
-                } finally {
-                    this._playbackAdvancing = false;
+                    this._onScrubberChange(10000);
+                } else {
+                    this._historicAt = this._playbackTime;
+                    this._notifyStatCards(this._playbackTime);
+                    this._loadHistoric(this._playbackTime);
                 }
             }
         }, TICK_MS);
@@ -1863,8 +1862,11 @@ export class LanFlowMap {
                     const now = Date.now();
                     const span = now - this._scrubberOrigin;
                     const nearNow = span > 0 ? Math.floor((now - 5000 - this._scrubberOrigin) / span * 10000) : 9997;
+                    const clamped = Math.min(nearNow, 9997);
+                    if (this._panels.scrubberRange) this._panels.scrubberRange.value = clamped;
+                    this._onScrubberInput(clamped);
                     this._speedTransition = true;
-                    this._onScrubberChange(Math.min(nearNow, 9997));
+                    this._onScrubberChange(clamped);
                     this._speedTransition = false;
                     this._startHistoricPlayback();
                 }
@@ -2094,10 +2096,10 @@ export class LanFlowMap {
         // method on every tick (to load the historic snapshot for the new
         // slider position); skip the auto-pause in that case or playback
         // would stop after one tick.
-        if (!this._playbackAdvancing && !this._speedTransition && !this._paused) {
+        if (this._mode !== 'historic') return;
+        if (!this._historicPlaybackTimer && !this._speedTransition && !this._paused) {
             this._paused = true;
             this._syncPlayPauseIcon();
-            this._stopHistoricPlayback();
         }
         flowData.publishPlayState(this._paused, this._mode);
         this._notifyStatCards(at);
@@ -2135,11 +2137,13 @@ export class LanFlowMap {
     }
 
     async _loadHistoric(at) {
+        const gen = this._historicGen = (this._historicGen || 0) + 1;
         try {
             const url = `${this.apiBase}/history?at=${encodeURIComponent(at.toISOString())}`;
             const res = await fetch(url, { credentials: 'same-origin' });
-            if (!res.ok) return;
+            if (!res.ok || gen !== this._historicGen) return;
             const update = await res.json();
+            if (gen !== this._historicGen) return;
             flowData.publishLive(update);
             this._applyLiveRates(update.linkRates || {});
             if (update.nodeBadges) this._currentBadges = update.nodeBadges;
