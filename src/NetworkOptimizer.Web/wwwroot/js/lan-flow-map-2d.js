@@ -596,8 +596,8 @@ class LanFlowMap2D {
     }
 
     _onMove(e){
-        if(!this._pointers.has(e.pointerId))return;
-        this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(this._pointers.has(e.pointerId))
+            this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
 
         if(this._pointers.size===2&&this._pinchStartDist>0){
             const pts=[...this._pointers.values()];
