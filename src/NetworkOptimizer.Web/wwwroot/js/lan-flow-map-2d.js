@@ -471,23 +471,19 @@ class LanFlowMap2D {
         sRange.addEventListener('keydown',(e)=>{
             e.preventDefault();
             const inst=fwd();if(!inst)return;
+            if(e.key===' '){inst._togglePlayPause();return;}
+            if(e.key==='Shift'){if(inst._keys)inst._keys.shift=true;return;}
             const key=e.key.toLowerCase();
             if(key==='arrowleft'||key==='arrowright'){
                 if(inst._keys)inst._keys[key]=true;
-            }else if(key==='shift'){
-                if(inst._keys)inst._keys.shift=true;
-            }else if(key===' '){
-                inst._togglePlayPause();
             }
         });
         sRange.addEventListener('keyup',(e)=>{
             const inst=fwd();if(!inst)return;
+            if(e.key==='Shift'){if(inst._keys)inst._keys.shift=false;return;}
             const key=e.key.toLowerCase();
-            if(key==='shift'){
-                if(inst._keys)inst._keys.shift=false;
-            }else if(inst._keys){
-                inst._keys[key]=false;
-            }
+            if(inst._keys)inst._keys[key]=false;
+            if(e.key==='ArrowLeft'||e.key==='ArrowRight')inst._arrowScrubStart=null;
         });
         sRange.addEventListener('input',(e)=>{
             const inst=fwd();if(inst){
