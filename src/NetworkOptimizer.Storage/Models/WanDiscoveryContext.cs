@@ -23,6 +23,9 @@ public class WanDiscoveryContext
     [MaxLength(200)]
     public string? L2NeighborOui { get; set; }
 
+    [MaxLength(50)]
+    public string? L2NeighborIp { get; set; }
+
     public AccessTechnology AccessTechnology { get; set; } = AccessTechnology.Unknown;
 
     public DateTime? LastDiscoveryAt { get; set; }

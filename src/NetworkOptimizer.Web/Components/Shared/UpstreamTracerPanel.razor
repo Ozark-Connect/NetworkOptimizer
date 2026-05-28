@@ -100,7 +100,7 @@
                     <label class="form-label">Access network technology</label>
                     <select class="form-control" style="max-width: 250px;"
                             value="@((int)_state.AccessTechnology)"
-                            @onchange="e => _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!)">
+                            @onchange="OnAccessTechChanged">
                         @foreach (var tech in Enum.GetValues<AccessTechnology>())
                         {
                             <option value="@((int)tech)">@FormatTechName(tech)</option>
@@ -163,7 +163,7 @@
                                         <th style="width: 40px;"></th>
                                         <th>Label</th>
                                         <th>Address</th>
-                                        <th>Hop</th>
+                                        <th>Source</th>
                                         <th>Role</th>
                                     </tr>
                                 </thead>
@@ -181,7 +181,7 @@
                                                        @onchange="e => hop.Label = (string)e.Value!" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
-                                            <td>@hop.HopNumber</td>
+                                            <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
                                             <td>@hop.Role.ToDisplayName()</td>
                                         </tr>
                                     }
@@ -383,6 +383,12 @@
         TracerStep.Idle => "status-disconnected",
         _ => "status-active"
     };
+
+    private void OnAccessTechChanged(ChangeEventArgs e)
+    {
+        _state.AccessTechnology = (AccessTechnology)int.Parse((string)e.Value!);
+        Tracer.RecomputeL2NeighborLabel();
+    }
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 

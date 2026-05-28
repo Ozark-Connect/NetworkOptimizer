@@ -25,7 +25,12 @@ public enum DiscoveryMethod
     /// back to a CDN path-proxy either. No MonitoringTarget row is created for this
     /// tier; the value exists so the cloud renderer can distinguish "we tried and
     /// failed" from "we never tried".</summary>
-    Unresolved = 3
+    Unresolved = 3,
+    /// <summary>Target IP discovered from the gateway's ARP/neighbor table on the WAN
+    /// interface (ip neigh show). This is the L2 neighbor - typically the OLT on GPON,
+    /// CMTS on DOCSIS, or BNG on PPPoE. Closest upstream device; may not appear in
+    /// traceroutes if it's L2-transparent.</summary>
+    L2Neighbor = 4
 }
 
 public class MonitoringTarget

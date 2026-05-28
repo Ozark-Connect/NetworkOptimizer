@@ -862,6 +862,10 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<System.DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("L2NeighborIp")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("L2NeighborMac")
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");

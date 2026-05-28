@@ -51,7 +51,8 @@ public static class MonitoringEnumDisplay
         UpstreamRole.Border => "Border",
         UpstreamRole.Transit => "Transit",
         UpstreamRole.PathProxy => "Path proxy",
-        UpstreamRole.AccessHop => "ISP hop",
+        UpstreamRole.AccessHop => "ISP hop", // not "Access hop" - post-access-layer hops were confusingly labeled
+        UpstreamRole.AccessGateway => "Access gateway",
         _ => r.ToString()
     };
 
@@ -70,6 +71,7 @@ public static class MonitoringEnumDisplay
         DiscoveryMethod.PathProxy => "Path-end",
         DiscoveryMethod.UserProvided => "User-added",
         DiscoveryMethod.Unresolved => "Unresolved",
+        DiscoveryMethod.L2Neighbor => "L2 neighbor",
         _ => m.ToString()
     };
 }
