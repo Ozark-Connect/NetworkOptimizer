@@ -534,7 +534,7 @@ class LanFlowMap2D {
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
-        canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);if(this._pointers.size===0)this._hideTooltip();});
+        canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);if(this._pointers.size===0&&e.pointerType==='mouse')this._hideTooltip();});
 
         // Resize
         this._resizeObs=new ResizeObserver(()=>this._resize());
