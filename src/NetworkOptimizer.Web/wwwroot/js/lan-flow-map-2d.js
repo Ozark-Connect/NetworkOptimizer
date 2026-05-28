@@ -465,6 +465,9 @@ class LanFlowMap2D {
         // Forward all interactions to the 3D map
         const fwd=()=>window.__lanFlowMap?.getInstance?.();
         const sRange=scrubber.querySelector('.lan-flow-map-scrubber-range');
+        sRange.addEventListener('pointerdown',()=>{
+            const inst=fwd();if(inst)inst._stopHistoricPlayback?.();
+        });
         sRange.addEventListener('input',(e)=>{
             const inst=fwd();if(inst){
                 const r=inst._panels?.scrubberRange;
