@@ -597,6 +597,9 @@ public class MonitoringCollectionAgent : BackgroundService
                             }
                             else
                             {
+                                // Device perspective: TX = device sends out (upstream away
+                                // from the device); RX = device receives (downstream toward
+                                // the device). Opposite convention vs the port path above.
                                 _deviceByteRateLatest[devKey] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
                                 _deviceBytePrev[devKey] = devCurrent;
                             }
@@ -1470,6 +1473,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     {
                         rateInBps = deltaIn * 8.0 / elapsed;
                         rateOutBps = deltaOut * 8.0 / elapsed;
+                        // Mirror into the read-side per-port cache so the 3D map's
+                        // live tick refreshes wired client leaf rates on the clean
+                        // 5s SNMP cadence (UniFi PortTable lags ~30s).
+                        // Direction: rateOutBps = port TX = data toward the leaf
+                        // (DownBps in cache convention); rateInBps = port RX = data
+                        // from the leaf (UpBps).
                         _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
                         _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
                     }
