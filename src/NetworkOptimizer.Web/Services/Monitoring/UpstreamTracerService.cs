@@ -964,7 +964,7 @@ public class UpstreamTracerService
             return UpstreamRole.Cmts;
         if (tech == AccessTechnology.PppoE)
             return UpstreamRole.Bng;
-        return UpstreamRole.AccessHop;
+        return UpstreamRole.AccessGateway;
     }
 
     private static string LabelL2Neighbor(string ip, string? ouiVendor, AccessTechnology tech)

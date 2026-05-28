@@ -51,7 +51,8 @@ public static class MonitoringEnumDisplay
         UpstreamRole.Border => "Border",
         UpstreamRole.Transit => "Transit",
         UpstreamRole.PathProxy => "Path proxy",
-        UpstreamRole.AccessHop => "Access hop",
+        UpstreamRole.AccessHop => "ISP hop", // not "Access hop" - post-access-layer hops were confusingly labeled
+        UpstreamRole.AccessGateway => "Access gateway",
         _ => r.ToString()
     };
 

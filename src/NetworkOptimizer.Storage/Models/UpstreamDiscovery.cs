@@ -11,7 +11,8 @@ public enum UpstreamRole
     Border = 4,
     Transit = 5,
     PathProxy = 6,
-    AccessHop = 7
+    AccessHop = 7,
+    AccessGateway = 8
 }
 
 public class UpstreamDiscovery
