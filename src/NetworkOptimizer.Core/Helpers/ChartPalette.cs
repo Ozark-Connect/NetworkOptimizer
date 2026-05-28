@@ -15,7 +15,7 @@ public static class ChartPalette
         "#ff8ab7", "#a463f2", "#97bbf5", "#9c6b4e", "#9498a0",
         // Tableau (8)
         "#4e79a7", "#f28e2c", "#e15759", "#76b7b2",
-        "#edc949", "#af7aa1", "#ff9da7", "#bab0ab",
+        "#edc949", "#af7aa1", "#ff9da7", "#d1b894",
         // D3 Paired (8)
         "#a6cee3", "#b2df8a", "#33a02c", "#e31a1c",
         "#fdbf6f", "#ff7f00", "#cab2d6", "#6a3d9a",
