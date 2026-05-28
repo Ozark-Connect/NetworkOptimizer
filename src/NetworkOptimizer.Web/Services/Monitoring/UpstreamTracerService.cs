@@ -994,6 +994,14 @@ public class UpstreamTracerService
         return string.IsNullOrEmpty(word) ? null : word.ToLowerInvariant();
     }
 
+    public void RecomputeL2NeighborLabel()
+    {
+        var hop = State.AccessHops.FirstOrDefault(h => h.Method == DiscoveryMethod.L2Neighbor);
+        if (hop == null) return;
+        hop.Role = InferL2NeighborRole(State.AccessTechnology, State.WanNeighborOuiVendor);
+        hop.Label = LabelL2Neighbor(State.WanNeighborOuiVendor, State.AccessTechnology, hop.AsnName);
+    }
+
     private static string NormalizeMacForId(string s) => s.Replace(".", "-").Replace(":", "-");
 
     // ---- Commit ----
