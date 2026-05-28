@@ -1097,7 +1097,7 @@
             Key = key,
             DisplayName = GetWanDisplayNameForKey(key),
             Color = WanColors[i % WanColors.Length],
-            IsSelected = previousSelection.TryGetValue(key, out var selected) && selected,
+            IsSelected = !previousSelection.TryGetValue(key, out var selected) || selected,
             DownloadData = new(),
             UploadData = new()
         }).ToList();
