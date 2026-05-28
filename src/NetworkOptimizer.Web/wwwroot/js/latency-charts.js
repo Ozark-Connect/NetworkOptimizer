@@ -164,13 +164,19 @@ function renderBadges(container) {
     el.querySelectorAll('button').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const tid = btn.dataset.target;
+            const name = targetMeta.find(t => t.id === tid)?.name || tid;
+            const before = Object.fromEntries(targetMeta.map(t => [t.name, visibility[t.id] !== false]));
 
             if (e.ctrlKey || e.metaKey) {
+                console.log(`[filter] Ctrl+Click "${name}"`, { before });
                 visibility[tid] = visibility[tid] === false ? undefined : false;
             } else {
                 const allVis = targetMeta.every(t => visibility[t.id] !== false);
                 const onlyThis = visibility[tid] !== false
                     && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
+
+                const branch = onlyThis ? 'onlyThis→showAll' : allVis ? 'allVis→solo' : 'toggle';
+                console.log(`[filter] Click "${name}" → ${branch}`, { before });
 
                 if (onlyThis) {
                     visibility = {};
@@ -180,17 +186,23 @@ function renderBadges(container) {
                     visibility[tid] = visibility[tid] === false;
                 }
             }
-            updateChartVisibility();
+
+            const after = Object.fromEntries(targetMeta.map(t => [t.name, visibility[t.id] !== false]));
+            console.log(`[filter] Result:`, { after });
+
+            updateChartVisibility('click');
             renderBadges(container);
             if (lastFetchData) renderStatsTable(container, lastFetchData);
         });
     });
 }
 
-function updateChartVisibility() {
+function updateChartVisibility(source) {
     if (!rttChart || !lossChart) return;
+    const applied = {};
     targetMeta.forEach((t, i) => {
         const vis = visibility[t.id] !== false;
+        applied[t.name] = vis;
         if (vis) {
             rttChart.showSeries(t.name);
             lossChart.showSeries(t.name);
@@ -199,6 +211,7 @@ function updateChartVisibility() {
             lossChart.hideSeries(t.name);
         }
     });
+    if (source) console.log(`[filter] updateChartVisibility(${source}):`, applied);
 }
 
 async function loadAndUpdate() {
@@ -228,7 +241,7 @@ async function loadAndUpdate() {
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
 
-    updateChartVisibility();
+    updateChartVisibility('poll');
 
     const container = document.getElementById(containerId);
     if (container) {
