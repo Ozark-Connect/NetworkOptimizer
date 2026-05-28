@@ -468,6 +468,21 @@ class LanFlowMap2D {
         sRange.addEventListener('pointerdown',()=>{
             const inst=fwd();if(inst)inst._stopHistoricPlayback?.();
         });
+        sRange.addEventListener('keydown',(e)=>{
+            e.preventDefault();
+            const inst=fwd();if(!inst)return;
+            const key=e.key.toLowerCase();
+            if(key==='arrowleft'||key==='arrowright'){
+                if(inst._keys)inst._keys[key]=true;
+            }else if(key===' '){
+                inst._togglePlayPause();
+            }
+        });
+        sRange.addEventListener('keyup',(e)=>{
+            const inst=fwd();if(!inst)return;
+            const key=e.key.toLowerCase();
+            if(inst._keys)inst._keys[key]=false;
+        });
         sRange.addEventListener('input',(e)=>{
             const inst=fwd();if(inst){
                 const r=inst._panels?.scrubberRange;
