@@ -249,6 +249,13 @@ class LanFlowMap2D {
         // Pan/zoom: offset in world coords + scale
         this._ox=0; this._oy=0; this._scale=1;
         this._dragging=false; this._dragStart=null;
+        // Multi-touch pinch zoom
+        this._pointers=new Map();
+        this._pinchStartDist=0;
+        this._pinchStartScale=1;
+        this._pinchStartCenter=null;
+        this._pinchStartOx=0;
+        this._pinchStartOy=0;
         // World bounds
         this._bx=0; this._by=0; this._bw=800; this._bh=600;
 
@@ -323,6 +330,7 @@ class LanFlowMap2D {
         canvas.style.height='100%';
         canvas.style.display='block';
         canvas.style.cursor='grab';
+        canvas.style.touchAction='none';
         this._el.appendChild(canvas);
         this._canvas=canvas;
         this._ctx=canvas.getContext('2d');
@@ -526,7 +534,7 @@ class LanFlowMap2D {
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
-        canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);this._hideTooltip();});
+        canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);if(this._pointers.size===0)this._hideTooltip();});
 
         // Resize
         this._resizeObs=new ResizeObserver(()=>this._resize());
@@ -566,14 +574,54 @@ class LanFlowMap2D {
     }
 
     _onDown(e){
-        if(e.button!==0)return;
+        this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        this._canvas.setPointerCapture(e.pointerId);
+
+        if(this._pointers.size===2){
+            this._dragging=false;
+            this._dragStart=null;
+            const pts=[...this._pointers.values()];
+            this._pinchStartDist=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
+            this._pinchStartScale=this._scale;
+            this._pinchStartCenter={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
+            this._pinchStartOx=this._ox;
+            this._pinchStartOy=this._oy;
+            return;
+        }
+
+        if(e.button!==0&&e.pointerType==='mouse')return;
         this._dragging=true;
         this._dragStart={x:e.clientX,y:e.clientY,ox:this._ox,oy:this._oy};
         this._canvas.style.cursor='grabbing';
-        this._canvas.setPointerCapture(e.pointerId);
     }
 
     _onMove(e){
+        if(!this._pointers.has(e.pointerId))return;
+        this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+
+        if(this._pointers.size===2&&this._pinchStartDist>0){
+            const pts=[...this._pointers.values()];
+            const dist=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
+            const center={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
+
+            const newScale=Math.max(0.05,Math.min(10,this._pinchStartScale*(dist/this._pinchStartDist)));
+
+            const rect=this._canvas.getBoundingClientRect();
+            const cx0=this._pinchStartCenter.x-rect.left;
+            const cy0=this._pinchStartCenter.y-rect.top;
+            const wx=(cx0-this._cw/2)/this._pinchStartScale+this._pinchStartOx;
+            const wy=(cy0-this._ch/2)/this._pinchStartScale+this._pinchStartOy;
+
+            const cx1=center.x-rect.left;
+            const cy1=center.y-rect.top;
+
+            this._scale=newScale;
+            this._ox=wx-(cx1-this._cw/2)/newScale;
+            this._oy=wy-(cy1-this._ch/2)/newScale;
+            this._needsStaticRedraw=true;
+            return;
+        }
+
         const rect=this._canvas.getBoundingClientRect();
         const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
         if(this._dragging&&this._dragStart){
@@ -587,11 +635,22 @@ class LanFlowMap2D {
         }
     }
 
-    _onUp(){
-        if(!this._dragging)return;
-        this._dragging=false;
-        this._dragStart=null;
-        this._canvas.style.cursor='grab';
+    _onUp(e){
+        this._pointers.delete(e.pointerId);
+        if(this._pointers.size<2)this._pinchStartDist=0;
+
+        if(this._pointers.size===1){
+            const remaining=[...this._pointers.values()][0];
+            this._dragging=true;
+            this._dragStart={x:remaining.x,y:remaining.y,ox:this._ox,oy:this._oy};
+            return;
+        }
+
+        if(this._pointers.size===0){
+            this._dragging=false;
+            this._dragStart=null;
+            this._canvas.style.cursor='grab';
+        }
     }
 
     _fitAll(){
