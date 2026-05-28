@@ -28,15 +28,6 @@ public class LanFlowMapService
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
 
-    private HistoricDataCache? _historicCache;
-
-    private record HistoricDataCache(
-        DateTime From,
-        DateTime To,
-        Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> RatesByDevice,
-        IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WifiClients,
-        IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WiredClients);
-
     public LanFlowMapService(
         IUniFiClientProvider connection,
         INetworkPathAnalyzer pathAnalyzer,
@@ -443,11 +434,11 @@ public class LanFlowMapService
         // Reuse cached InfluxDB results when the requested time falls within
         // the previously fetched window. Fetches 5 min ahead so forward
         // playback goes ~4 min before needing another round-trip.
-        var cached = _historicCache;
+        var cached = _cache.HistoricData;
         if (cached == null || at < cached.From || at > cached.To - TimeSpan.FromSeconds(30))
         {
             cached = await FetchHistoricDataAsync(at, snapshot, gwMac, ct);
-            _historicCache = cached;
+            _cache.HistoricData = cached;
         }
 
         var ratesByDevice = cached.RatesByDevice;

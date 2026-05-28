@@ -61,5 +61,16 @@ public class LanFlowMapCache
     {
         _snapshot = null;
         _snapshotAt = DateTime.MinValue;
+        HistoricData = null;
     }
+
+    /// <summary>Cached InfluxDB results for historic playback, shared across scoped service instances.</summary>
+    public HistoricDataCache? HistoricData { get; set; }
 }
+
+public record HistoricDataCache(
+    DateTime From,
+    DateTime To,
+    Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> RatesByDevice,
+    IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WifiClients,
+    IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WiredClients);
