@@ -696,6 +696,7 @@ public class LanFlowMapService
                     CpuPercent = healthPt?.CpuPercent,
                     MemoryUsedPercent = healthPt?.MemoryUsedPercent,
                     TemperatureC = healthPt?.TemperatureC,
+                    UptimeSeconds = healthPt?.UptimeSeconds,
                     FabricIngressBps = fabIn,
                     FabricEgressBps = fabOut,
                     AggregateInBps = aggIn,

@@ -673,7 +673,7 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -685,7 +685,8 @@ from(bucket: ""{_bucket}"")
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 CpuPercent = AsDoubleOrNull(record.GetValueByKey("cpu_percent")),
                 MemoryUsedPercent = AsDoubleOrNull(record.GetValueByKey("memory_used_percent")),
-                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c"))
+                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
+                UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds"))
             });
         }
         return results;
@@ -702,11 +703,12 @@ from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""device_health"")
   |> filter(fn: (r) => r.device_mac == ""{mac}"")
-  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"" or r._field == ""uptime_seconds"")
 ";
         var cpu = new Dictionary<long, double>();
         var mem = new Dictionary<long, double>();
         var temp = new Dictionary<long, double>();
+        var uptime = new Dictionary<long, double>();
         var times = new Dictionary<long, DateTime>();
 
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -720,6 +722,7 @@ from(bucket: ""{_bucket}"")
             if (field == "cpu_percent") cpu[key] = value.Value;
             else if (field == "memory_used_percent") mem[key] = value.Value;
             else if (field == "temperature_c") temp[key] = value.Value;
+            else if (field == "uptime_seconds") uptime[key] = value.Value;
         }
 
         return times.Select(kv => new DeviceHealthPoint
@@ -728,6 +731,7 @@ from(bucket: ""{_bucket}"")
             CpuPercent = cpu.TryGetValue(kv.Key, out var c) ? c : null,
             MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
             TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
+            UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
         }).ToList();
     }
 
@@ -1193,6 +1197,7 @@ from(bucket: ""{_longtermBucket}"")
         public double? CpuPercent { get; init; }
         public double? MemoryUsedPercent { get; init; }
         public double? TemperatureC { get; init; }
+        public long? UptimeSeconds { get; init; }
     }
 
     public record LatencyPoint
