@@ -1575,7 +1575,10 @@ export class LanFlowMap {
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
                 if (clamped >= 9998) {
-                    this._stopHistoricPlayback();
+                    if (this._historicPlaybackTimer) {
+                        clearInterval(this._historicPlaybackTimer);
+                        this._historicPlaybackTimer = null;
+                    }
                     this._onScrubberChange(10000);
                 } else {
                     this._historicAt = this._playbackTime;
@@ -2091,6 +2094,7 @@ export class LanFlowMap {
         // method on every tick (to load the historic snapshot for the new
         // slider position); skip the auto-pause in that case or playback
         // would stop after one tick.
+        if (this._mode !== 'historic') return;
         if (!this._playbackAdvancing && !this._speedTransition && !this._paused) {
             this._paused = true;
             this._syncPlayPauseIcon();
