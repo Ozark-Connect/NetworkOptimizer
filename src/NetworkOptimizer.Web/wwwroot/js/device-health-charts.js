@@ -4,6 +4,21 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
+const _colorCache = {};
+function hashColor(id) {
+    if (_colorCache[id]) return _colorCache[id];
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const used = new Set(Object.values(_colorCache));
+    let idx = h % PALETTE.length;
+    const start = idx;
+    while (used.has(PALETTE[idx])) {
+        idx = (idx + 1) % PALETTE.length;
+        if (idx === start) break;
+    }
+    _colorCache[id] = PALETTE[idx];
+    return PALETTE[idx];
+}
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
@@ -136,12 +151,12 @@ function updateVisibility() {
 async function loadAndUpdate() {
     const data = await fetchData();
     if (!data?.devices) return;
-    deviceMeta = data.devices.map((d, i) => ({
-        name: d.name, mac: d.mac, color: PALETTE[i % PALETTE.length],
+    deviceMeta = data.devices.map(d => ({
+        name: d.name, mac: d.mac, color: hashColor(d.mac),
     }));
-    const makeSeries = (field) => data.devices.map((d, i) => ({
+    const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
-        color: PALETTE[i % PALETTE.length],
+        color: hashColor(d.mac),
         data: (d.data || []).filter(p => p[field] != null).map(p => ({
             x: new Date(p.time).getTime(), y: p[field]
         })),
