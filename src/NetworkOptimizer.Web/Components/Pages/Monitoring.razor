@@ -507,6 +507,16 @@ else
                             </ol>
                             <p>Currently at: Settings → CyberSecure → Traffic Logging → SNMP Monitoring. This menu has moved between UniFi versions - the search term is the reliable way to find it.</p>
 
+                            <h4>Per-device SNMP</h4>
+                            <p>After enabling SNMP globally, you also need to enable it on each device you want to monitor:</p>
+                            <ol>
+                                <li>In UniFi Network, go to <strong>UniFi Devices</strong></li>
+                                <li>Select a device</li>
+                                <li>Open <strong>Settings</strong>, tick <strong>SNMP</strong> on</li>
+                                <li>Set a <strong>Location</strong> or <strong>Contact</strong> value, then <strong>Save</strong></li>
+                            </ol>
+                            <p>Devices without SNMP enabled will not report port-level traffic or health metrics.</p>
+
                             <h4>Recommended configuration</h4>
                             <p><strong>SNMP v1/v2c</strong> with a unique community string is recommended over v3. SNMPv3's per-packet authentication and encryption adds measurable CPU load to your gateway and fabric devices. The recommended security posture is a <strong>management VLAN</strong> isolating your network devices, not per-packet crypto.</p>
                         </div>
