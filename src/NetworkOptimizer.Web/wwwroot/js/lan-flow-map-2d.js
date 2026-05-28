@@ -847,7 +847,7 @@ class LanFlowMap2D {
 
         for(const k of kids)this._contourLayout(k);
 
-        const GAP=40;
+        const GAP=30;
         const offsets=[];
         let groupRight=[];
 
