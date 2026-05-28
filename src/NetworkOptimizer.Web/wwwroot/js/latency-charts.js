@@ -6,7 +6,22 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
+const _colorCache = {};
+function hashColor(id) {
+    if (_colorCache[id]) return _colorCache[id];
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const used = new Set(Object.values(_colorCache));
+    let idx = h % PALETTE.length;
+    const start = idx;
+    while (used.has(PALETTE[idx])) {
+        idx = (idx + 1) % PALETTE.length;
+        if (idx === start) break;
+    }
+    _colorCache[id] = PALETTE[idx];
+    return PALETTE[idx];
+}
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
@@ -161,25 +176,34 @@ function renderBadges(container) {
         </button>`;
     }).join('');
 
-    el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-target]');
+            if (!btn) return;
             const tid = btn.dataset.target;
-            const allVis = targetMeta.every(t => visibility[t.id] !== false);
-            const onlyThis = visibility[tid] !== false
-                && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
 
-            if (onlyThis) {
-                visibility = {};
-            } else if (allVis) {
-                targetMeta.forEach(t => visibility[t.id] = t.id === tid);
+            if (e.ctrlKey || e.metaKey) {
+                visibility[tid] = visibility[tid] === false ? undefined : false;
             } else {
-                visibility[tid] = visibility[tid] === false;
+                const allVis = targetMeta.every(t => visibility[t.id] !== false);
+                const onlyThis = visibility[tid] !== false
+                    && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
+
+                if (onlyThis) {
+                    visibility = {};
+                } else if (allVis) {
+                    targetMeta.forEach(t => visibility[t.id] = t.id === tid);
+                } else {
+                    visibility[tid] = visibility[tid] === false;
+                }
             }
+
             updateChartVisibility();
             renderBadges(container);
             if (lastFetchData) renderStatsTable(container, lastFetchData);
         });
-    });
+    }
 }
 
 function updateChartVisibility() {
@@ -200,21 +224,21 @@ async function loadAndUpdate() {
     const data = await fetchData();
     if (!data || !data.targets) return;
 
-    targetMeta = data.targets.map((t, i) => ({
+    targetMeta = data.targets.map(t => ({
         id: t.targetId,
         name: t.name,
-        color: PALETTE[i % PALETTE.length],
+        color: hashColor(t.name),
     }));
 
-    const rttSeries = data.targets.map((t, i) => ({
+    const rttSeries = data.targets.map(t => ({
         name: t.name,
-        color: PALETTE[i % PALETTE.length],
+        color: hashColor(t.name),
         data: (t.rtt || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
-    const lossSeries = data.targets.map((t, i) => ({
+    const lossSeries = data.targets.map(t => ({
         name: t.name,
-        color: PALETTE[i % PALETTE.length],
+        color: hashColor(t.name),
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 

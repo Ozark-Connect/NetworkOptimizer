@@ -661,6 +661,7 @@ public class MonitoringCollectionAgent : BackgroundService
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
 
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
+        var snmpHealthHits = new ConcurrentDictionary<string, bool>();
         var deviceTasks = devices.Select(async device =>
         {
             await _snmpGate.WaitAsync(ct);
@@ -682,6 +683,9 @@ public class MonitoringCollectionAgent : BackgroundService
                 var memPct = metrics.MemoryUsage > 0 ? metrics.MemoryUsage : (double?)null;
                 var temp = metrics.Temperature > 0 ? metrics.Temperature : (double?)null;
                 var uptime = metrics.Uptime > 0 ? metrics.Uptime / 100 : (long?)null;
+
+                if (cpu != null || memPct != null)
+                    snmpHealthHits[NormalizeMac(device.Mac)] = true;
 
                 await _influx.WriteDeviceHealthAsync(
                     deviceMac: device.Mac,
@@ -727,10 +731,10 @@ public class MonitoringCollectionAgent : BackgroundService
                 long? uptime = ss != null ? (long?)ParseJsonDouble(ss.Uptime) : null;
                 double? temp = ParseDeviceTemperature(device);
 
-                // SNMP devices: only supplement temp for switches (SNMP doesn't
-                // report switch temps). Gateway and APs get temp from SNMP already;
-                // writing API temp too creates dual-source Z-shape artifacts.
-                if (snmpActive)
+                // SNMP devices that actually returned health data: only supplement
+                // temp for switches. Devices where SNMP is configured but returned
+                // no health OIDs (e.g., USW-Flex-XG) fall through to full API data.
+                if (snmpActive && snmpHealthHits.ContainsKey(mac))
                 {
                     if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch) continue;
                     cpu = null;

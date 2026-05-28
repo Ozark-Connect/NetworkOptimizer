@@ -352,27 +352,27 @@ else
                 @* Severity Filter Badges (below chart, same pattern as WAN Speed Test) *@
                 <div class="wan-filter-badges">
                     <button class="wan-filter-badge @(ShowSev5 ? "active" : "inactive")"
-                            @onclick="() => ToggleSeverity(5)">
+                            @onclick="(e) => ToggleSeverity(5, e)">
                         <span class="wan-badge-dot" style="background-color: #ef4444"></span>
                         Critical
                     </button>
                     <button class="wan-filter-badge @(ShowSev4 ? "active" : "inactive")"
-                            @onclick="() => ToggleSeverity(4)">
+                            @onclick="(e) => ToggleSeverity(4, e)">
                         <span class="wan-badge-dot" style="background-color: #f97316"></span>
                         High
                     </button>
                     <button class="wan-filter-badge @(ShowSev3 ? "active" : "inactive")"
-                            @onclick="() => ToggleSeverity(3)">
+                            @onclick="(e) => ToggleSeverity(3, e)">
                         <span class="wan-badge-dot" style="background-color: #eab308"></span>
                         Medium
                     </button>
                     <button class="wan-filter-badge @(ShowSev2 ? "active" : "inactive")"
-                            @onclick="() => ToggleSeverity(2)">
+                            @onclick="(e) => ToggleSeverity(2, e)">
                         <span class="wan-badge-dot" style="background-color: #3b82f6"></span>
                         Low
                     </button>
                     <button class="wan-filter-badge @(ShowSev1 ? "active" : "inactive")"
-                            @onclick="() => ToggleSeverity(1)">
+                            @onclick="(e) => ToggleSeverity(1, e)">
                         <span class="wan-badge-dot" style="background-color: #10b981"></span>
                         Info
                     </button>
@@ -2779,7 +2779,7 @@ else
         await LoadDataAsync();
     }
 
-    private async Task ToggleSeverity(int level)
+    private async Task ToggleSeverity(int level, MouseEventArgs e)
     {
         switch (level)
         {

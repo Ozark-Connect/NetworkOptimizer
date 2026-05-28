@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
@@ -97,19 +97,27 @@ function renderBadges(container) {
             <span>${escapeHtml(m.label)}</span>
         </button>`;
     }).join('');
-    el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-sfp]');
+            if (!btn) return;
             const id = btn.dataset.sfp;
-            const allVis = moduleMeta.every(m => visibility[m.id] !== false);
-            const onlyThis = visibility[id] !== false
-                && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
-            if (onlyThis) { visibility = {}; }
-            else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
-            else { visibility[id] = visibility[id] === false; }
+
+            if (e.ctrlKey || e.metaKey) {
+                visibility[id] = visibility[id] === false ? undefined : false;
+            } else {
+                const allVis = moduleMeta.every(m => visibility[m.id] !== false);
+                const onlyThis = visibility[id] !== false
+                    && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
+                else { visibility[id] = visibility[id] === false; }
+            }
             updateVisibility();
             renderBadges(container);
         });
-    });
+    }
 }
 
 function updateVisibility() {

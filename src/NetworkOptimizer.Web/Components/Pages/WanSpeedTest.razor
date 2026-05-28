@@ -359,7 +359,7 @@
                         @foreach (var wan in _wanSeries)
                         {
                             <button class="wan-filter-badge @(wan.IsSelected ? "active" : "inactive")"
-                                    @onclick="@(() => ToggleWanFilter(wan.Key))">
+                                    @onclick="@((e) => ToggleWanFilter(wan.Key, e))">
                                 <span class="wan-badge-dot" style="background-color: @wan.Color"></span>
                                 @wan.DisplayName
                             </button>
@@ -651,16 +651,7 @@
     // Chart downsampling: max points per series when time range > 4 hrs
     private const int MaxChartPoints = 20;
 
-    // WAN color palette
-    private static readonly string[] WanColors = new[]
-    {
-        "#2ba89a", // teal
-        "#a78bfa", // purple
-        "#3b82f6", // blue
-        "#ef5858", // red
-        "#f59e0b", // amber
-        "#10b981"  // emerald
-    };
+    private static readonly string[] WanColors = ChartPalette.Colors;
 
     private class WanChartDataPoint
     {
@@ -700,11 +691,7 @@
         public int[] Indices { get; set; } = [];
     }
 
-    // Show all when none selected (or all selected) - same pattern as WiFi Optimizer Metrics
-    private bool _wanNoneSelected => !_wanSeries.Any(w => w.IsSelected);
-    private bool _wanAllSelected => _wanSeries.All(w => w.IsSelected);
-    private bool _wanShowAll => _wanNoneSelected || _wanAllSelected;
-    private bool IsWanVisible(WanSeriesInfo wan) => _wanShowAll || wan.IsSelected;
+    private bool IsWanVisible(WanSeriesInfo wan) => wan.IsSelected;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1106,7 +1093,7 @@
             Key = key,
             DisplayName = GetWanDisplayNameForKey(key),
             Color = WanColors[i % WanColors.Length],
-            IsSelected = previousSelection.TryGetValue(key, out var selected) && selected,
+            IsSelected = !previousSelection.TryGetValue(key, out var selected) || selected,
             DownloadData = new(),
             UploadData = new()
         }).ToList();
@@ -1432,12 +1419,27 @@
         await ReleaseCardHeight();
     }
 
-    private async Task ToggleWanFilter(string wanKey)
+    private async Task ToggleWanFilter(string wanKey, MouseEventArgs e)
     {
         var wan = _wanSeries.FirstOrDefault(w => w.Key == wanKey);
         if (wan == null) return;
 
-        wan.IsSelected = !wan.IsSelected;
+        if (e.CtrlKey || e.MetaKey)
+        {
+            wan.IsSelected = !wan.IsSelected;
+        }
+        else
+        {
+            var allVis = _wanSeries.All(w => w.IsSelected);
+            var onlyThis = wan.IsSelected && _wanSeries.Where(w => w.Key != wanKey).All(w => !w.IsSelected);
+
+            if (onlyThis)
+                foreach (var w in _wanSeries) w.IsSelected = true;
+            else if (allVis)
+                foreach (var w in _wanSeries) w.IsSelected = w.Key == wanKey;
+            else
+                wan.IsSelected = !wan.IsSelected;
+        }
 
         await LockCardHeight();
         _historyPage = 1;

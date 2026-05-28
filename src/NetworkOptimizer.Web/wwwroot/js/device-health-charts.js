@@ -3,7 +3,22 @@
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
+const _colorCache = {};
+function hashColor(id) {
+    if (_colorCache[id]) return _colorCache[id];
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const used = new Set(Object.values(_colorCache));
+    let idx = h % PALETTE.length;
+    const start = idx;
+    while (used.has(PALETTE[idx])) {
+        idx = (idx + 1) % PALETTE.length;
+        if (idx === start) break;
+    }
+    _colorCache[id] = PALETTE[idx];
+    return PALETTE[idx];
+}
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
@@ -99,19 +114,27 @@ function renderBadges(container) {
             <span>${escapeHtml(d.name)}</span>
         </button>`;
     }).join('');
-    el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-mac]');
+            if (!btn) return;
             const mac = btn.dataset.mac;
-            const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
-            const onlyThis = visibility[mac] !== false
-                && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
-            if (onlyThis) { visibility = {}; }
-            else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
-            else { visibility[mac] = visibility[mac] === false; }
+
+            if (e.ctrlKey || e.metaKey) {
+                visibility[mac] = visibility[mac] === false ? undefined : false;
+            } else {
+                const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
+                const onlyThis = visibility[mac] !== false
+                    && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
+                else { visibility[mac] = visibility[mac] === false; }
+            }
             updateVisibility();
             renderBadges(container);
         });
-    });
+    }
 }
 
 function updateVisibility() {
@@ -128,12 +151,12 @@ function updateVisibility() {
 async function loadAndUpdate() {
     const data = await fetchData();
     if (!data?.devices) return;
-    deviceMeta = data.devices.map((d, i) => ({
-        name: d.name, mac: d.mac, color: PALETTE[i % PALETTE.length],
+    deviceMeta = data.devices.map(d => ({
+        name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
-    const makeSeries = (field) => data.devices.map((d, i) => ({
+    const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
-        color: PALETTE[i % PALETTE.length],
+        color: hashColor(d.name),
         data: (d.data || []).filter(p => p[field] != null).map(p => ({
             x: new Date(p.time).getTime(), y: p[field]
         })),
@@ -266,7 +289,7 @@ export async function mount(elId) {
     tempChart = new ApexCharts(tempEl, { ...baseOpts(200, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''), series: [], colors: PALETTE });
     cpuChart = new ApexCharts(cpuEl, {
         ...baseOpts(200, 'CPU %', v => v != null ? v.toFixed(0) + '%' : ''),
-        yaxis: { min: 0, max: v => Math.max(v * 1.1, 50), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
+        yaxis: { min: 0, max: v => Math.max(v * 1.1, 30), title: { text: 'CPU %', style: { color: '#9ca3af' } }, labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(0) + '%' : '' } },
         series: [], colors: PALETTE,
     });
     memChart = new ApexCharts(memEl, {
