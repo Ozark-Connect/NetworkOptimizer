@@ -56,7 +56,7 @@ The Live View gives you two real-time topology maps. The 3D map is a Three.js vi
 
 Latency and packet loss charting covers four target categories (LAN fabric, ISP access, transit, and internet services) with per-target filter badges, time range presets from 15 minutes to 30 days, and sub-15ms query performance. Device health charts track temperature, CPU, and memory per device over time. SFP/ONT optical monitoring shows live RX/TX power, temperature, voltage, and bias current for PON modules, with automatic GPON vs XGS-PON detection.
 
-Upstream Path Discovery uses automated traceroute (ICMP and UDP probes) to map your ISP's access infrastructure, transit networks, and internet service endpoints. It identifies your OLT/CMTS, ISP edge routers, and transit ASNs, then visualizes them as cloud nodes on the topology maps with live RTT and loss stats.
+Upstream Path Discovery uses automated traceroute (ICMP and UDP probes) to map your ISP's access infrastructure, transit networks, and internet service endpoints. It identifies your OLT/CMTS, ISP edge routers, and transit ASNs with full latency and loss charting per hop category. The 2D map visualizes each WAN connection as a globe node with live RTT, loss, and ISP expected speeds.
 
 For the full changelog, see the [v1.17.0 release notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v1.17.0) and subsequent patch releases.
 
