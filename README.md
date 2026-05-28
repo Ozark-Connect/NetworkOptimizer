@@ -60,6 +60,10 @@ Upstream Path Discovery uses automated traceroute (ICMP and UDP probes) to map y
 
 For the full changelog, see the [v1.17.0 release notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v1.17.0) and subsequent patch releases.
 
+![3D LAN Flow Map](docs/images/monitoring-3d-map.png)
+
+![2D LAN Topology Flow Map](docs/images/monitoring-2d-map.png)
+
 ---
 
 You've set up VLANs, configured firewall rules, maybe even deployed a Pi-hole for DNS filtering. The UniFi controller gives you all this power, but it never actually tells you whether your configuration is any good. Are your firewall rules doing what you think they're doing? Is that IoT VLAN actually isolated, or did you miss something? When a device bypasses your DNS settings and phones home directly, would you even know?
