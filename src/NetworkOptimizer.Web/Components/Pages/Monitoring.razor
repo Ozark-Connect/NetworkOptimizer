@@ -692,6 +692,20 @@ else
                             }
                         }
                     </div>
+
+                    <details class="setup-guide" style="margin-top: 1.25rem;">
+                        <summary>Not seeing data for some devices?</summary>
+                        <div class="setup-guide-content">
+                            <p>SNMP must be enabled on each device individually in addition to the global console setting:</p>
+                            <ol>
+                                <li>In UniFi Network, go to <strong>UniFi Devices</strong></li>
+                                <li>Select a device</li>
+                                <li>Open <strong>Settings</strong>, tick <strong>SNMP</strong> on</li>
+                                <li>Set a <strong>Location</strong> or <strong>Contact</strong> value, then <strong>Save</strong></li>
+                            </ol>
+                            <p>Devices without per-device SNMP enabled will not report port-level traffic or health metrics.</p>
+                        </div>
+                    </details>
                 </div>
             </div>
         }
