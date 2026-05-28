@@ -2136,11 +2136,13 @@ export class LanFlowMap {
     }
 
     async _loadHistoric(at) {
+        const gen = this._historicGen = (this._historicGen || 0) + 1;
         try {
             const url = `${this.apiBase}/history?at=${encodeURIComponent(at.toISOString())}`;
             const res = await fetch(url, { credentials: 'same-origin' });
-            if (!res.ok) return;
+            if (!res.ok || gen !== this._historicGen) return;
             const update = await res.json();
+            if (gen !== this._historicGen) return;
             flowData.publishLive(update);
             this._applyLiveRates(update.linkRates || {});
             if (update.nodeBadges) this._currentBadges = update.nodeBadges;
