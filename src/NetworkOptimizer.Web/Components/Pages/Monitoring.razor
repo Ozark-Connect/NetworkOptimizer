@@ -842,8 +842,11 @@ else
         color: var(--text-primary);
     }
     @@media (max-width: 768px) {
-        .lan-flow-map-2d-card {
-            overflow: visible;
+        .lan-flow-map-2d-stage {
+            height: auto;
+        }
+        .lan-flow-map-2d-stage .lfm2d-canvas {
+            height: clamp(520px, 70vh, 820px);
         }
     }
 </style>

@@ -543,7 +543,7 @@ class LanFlowMap2D {
     }
 
     _resize(){
-        const rect=this._el.getBoundingClientRect();
+        const rect=this._canvas.getBoundingClientRect();
         this._dpr=window.devicePixelRatio||1;
         this._cw=rect.width; this._ch=rect.height;
         this._canvas.width=rect.width*this._dpr;
