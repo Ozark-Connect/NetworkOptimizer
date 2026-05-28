@@ -576,10 +576,12 @@ class LanFlowMap2D {
     _onDown(e){
         this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
         this._canvas.setPointerCapture(e.pointerId);
+        this._tapStart={x:e.clientX,y:e.clientY,id:e.pointerId};
 
         if(this._pointers.size===2){
             this._dragging=false;
             this._dragStart=null;
+            this._tapStart=null;
             const pts=[...this._pointers.values()];
             this._pinchStartDist=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
             this._pinchStartScale=this._scale;
@@ -625,6 +627,8 @@ class LanFlowMap2D {
         const rect=this._canvas.getBoundingClientRect();
         const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
         if(this._dragging&&this._dragStart){
+            if(this._tapStart&&Math.hypot(e.clientX-this._tapStart.x,e.clientY-this._tapStart.y)>=8)
+                this._tapStart=null;
             const dx=(e.clientX-this._dragStart.x)/this._scale;
             const dy=(e.clientY-this._dragStart.y)/this._scale;
             this._ox=this._dragStart.ox-dx;
@@ -636,6 +640,9 @@ class LanFlowMap2D {
     }
 
     _onUp(e){
+        const wasTap=this._tapStart&&this._tapStart.id===e.pointerId
+            &&Math.hypot(e.clientX-this._tapStart.x,e.clientY-this._tapStart.y)<8;
+
         this._pointers.delete(e.pointerId);
         if(this._pointers.size<2)this._pinchStartDist=0;
 
@@ -643,6 +650,7 @@ class LanFlowMap2D {
             const remaining=[...this._pointers.values()][0];
             this._dragging=true;
             this._dragStart={x:remaining.x,y:remaining.y,ox:this._ox,oy:this._oy};
+            this._tapStart=null;
             return;
         }
 
@@ -650,7 +658,14 @@ class LanFlowMap2D {
             this._dragging=false;
             this._dragStart=null;
             this._canvas.style.cursor='grab';
+
+            if(wasTap&&e.pointerType!=='mouse'){
+                const rect=this._canvas.getBoundingClientRect();
+                const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
+                this._hitTest(sx,sy);
+            }
         }
+        this._tapStart=null;
     }
 
     _fitAll(){

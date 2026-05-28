@@ -204,13 +204,15 @@ else
                 <div class="stat-label">Gateway Temp</div>
             </div>
             @{ var fabricLoad = GetTotalFabricLoad(); }
-            <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
-                <div class="stat-label">Fabric Ingress</div>
-            </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
-                <div class="stat-label">Fabric Egress</div>
+            <div class="monitoring-stat-pair">
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                    <div class="stat-label">Fabric Ingress</div>
+                </div>
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                    <div class="stat-label">Fabric Egress</div>
+                </div>
             </div>
         </div>
 
@@ -727,6 +729,15 @@ else
         min-width: 100px;
         text-align: center;
     }
+    .monitoring-stat-pair {
+        display: flex;
+        gap: 0.75rem;
+        flex: 2 1 250px;
+    }
+    .monitoring-stat-pair .monitoring-stat-card {
+        flex: 1 1 0;
+        min-width: 0;
+    }
     .monitoring-stat-card .stat-value {
         font-size: 1.3rem;
         font-weight: 600;
@@ -754,10 +765,15 @@ else
         .monitoring-stat-card {
             flex: 1 1 80px;
             min-width: 70px;
+            min-height: 58px;
             padding: 0.5rem 0.5rem;
         }
         .monitoring-stat-card .stat-value {
             font-size: 1rem;
+        }
+        .monitoring-stat-pair {
+            gap: 0.5rem;
+            flex-basis: 170px;
         }
     }
 
