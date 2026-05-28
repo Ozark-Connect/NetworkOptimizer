@@ -359,7 +359,7 @@
                         @foreach (var wan in _wanSeries)
                         {
                             <button class="wan-filter-badge @(wan.IsSelected ? "active" : "inactive")"
-                                    @onclick="@(() => ToggleWanFilter(wan.Key))">
+                                    @onclick="@((e) => ToggleWanFilter(wan.Key, e))">
                                 <span class="wan-badge-dot" style="background-color: @wan.Color"></span>
                                 @wan.DisplayName
                             </button>
@@ -651,16 +651,7 @@
     // Chart downsampling: max points per series when time range > 4 hrs
     private const int MaxChartPoints = 20;
 
-    // WAN color palette
-    private static readonly string[] WanColors = new[]
-    {
-        "#2ba89a", // teal
-        "#a78bfa", // purple
-        "#3b82f6", // blue
-        "#ef5858", // red
-        "#f59e0b", // amber
-        "#10b981"  // emerald
-    };
+    private static readonly string[] WanColors = ChartPalette.Colors;
 
     private class WanChartDataPoint
     {
@@ -1432,12 +1423,15 @@
         await ReleaseCardHeight();
     }
 
-    private async Task ToggleWanFilter(string wanKey)
+    private async Task ToggleWanFilter(string wanKey, MouseEventArgs e)
     {
         var wan = _wanSeries.FirstOrDefault(w => w.Key == wanKey);
         if (wan == null) return;
 
-        wan.IsSelected = !wan.IsSelected;
+        if (e.CtrlKey || e.MetaKey)
+            wan.IsSelected = false;
+        else
+            wan.IsSelected = !wan.IsSelected;
 
         await LockCardHeight();
         _historyPage = 1;
