@@ -545,27 +545,23 @@ public class MonitoringCollectionAgent : BackgroundService
                         long deltaRx = current.RxBytes - prev.RxBytes;
                         if (deltaTx >= 0 && deltaRx >= 0)
                         {
-                            // Tuple convention is aligned with the SNMP writer
-                            // at WriteInterfaceCounters so downstream consumers
-                            // see stable directions whether SNMP or this UniFi
-                            // PortTable writer was the one that ran last on a
-                            // given cycle: tuple = (rateIn=RX, rateOut=TX).
-                            //   - DownBps slot holds ifInOctets-style rate (RX,
-                            //     i.e. bytes received on this port; for a
-                            //     parent's port toward a child that's uploads
-                            //     coming up from the child).
-                            //   - UpBps slot holds ifOutOctets-style rate (TX,
-                            //     bytes transmitted; downloads toward the child).
-                            // NOTE: do NOT mirror into _liveStats per-port cache
-                            // here. UniFi PortTable byte counters update server-
-                            // side ~30s; at our 5s poll cadence that yields a
-                            // burst-then-zeros pattern that would clobber the
-                            // SNMP-fed _liveStats.RecordPortRate writes.
-                            _portRateLatest[key] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                            if (deltaTx == 0 && deltaRx == 0)
+                            {
+                                // Counters unchanged - UniFi hasn't refreshed
+                                // server-side yet. Keep the previous snapshot so
+                                // the next real change computes over the true
+                                // elapsed window.
+                            }
+                            else
+                            {
+                                _portRateLatest[key] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                                _portBytePrev[key] = current;
+                            }
                         }
                     }
                 }
-                _portBytePrev[key] = current;
+                if (!_portBytePrev.ContainsKey(key))
+                    _portBytePrev[key] = current;
             }
 
             // Device-level aggregate: UniFi's stat.tx_bytes / rx_bytes is the
@@ -585,14 +581,20 @@ public class MonitoringCollectionAgent : BackgroundService
                         long deltaRx = devCurrent.RxBytes - devPrev.RxBytes;
                         if (deltaTx >= 0 && deltaRx >= 0)
                         {
-                            // Device perspective: TX = device sends out (upstream away
-                            // from the device); RX = device receives (downstream toward
-                            // the device). Opposite convention vs the port path above.
-                            _deviceByteRateLatest[devKey] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                            if (deltaTx == 0 && deltaRx == 0)
+                            {
+                                // Counters unchanged - keep previous snapshot.
+                            }
+                            else
+                            {
+                                _deviceByteRateLatest[devKey] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                                _deviceBytePrev[devKey] = devCurrent;
+                            }
                         }
                     }
                 }
-                _deviceBytePrev[devKey] = devCurrent;
+                if (!_deviceBytePrev.ContainsKey(devKey))
+                    _deviceBytePrev[devKey] = devCurrent;
             }
         }
     }
