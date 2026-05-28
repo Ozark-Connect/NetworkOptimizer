@@ -1198,6 +1198,7 @@ class LanFlowMap2D {
                 const my=isWan?midY-28:midY+20;
                 let txt=null;
                 let txtColor=C.textMuted; // default muted; live rates override
+                let txtItalic=false;
 
                 if(isWan){
                     // Show live throughput when active, ISP expected when idle
@@ -1211,6 +1212,7 @@ class LanFlowMap2D {
                             e.lk.fromNodeId===c.d.id||e.lk.toNodeId===c.d.id);
                         if(cloud?.d.ispDownloadMbps&&cloud?.d.ispUploadMbps){
                             txt=`↓${formatSpeed(cloud.d.ispDownloadMbps)}  ↑${formatSpeed(cloud.d.ispUploadMbps)}`;
+                            txtColor='#6b7280'; txtItalic=true;
                         }else if(e.lk.capacityBps>0){
                             txt=formatSpeed(e.lk.capacityBps/1e6);
                         }
@@ -1228,15 +1230,18 @@ class LanFlowMap2D {
                     txt=formatSpeed(e.lk.capacityBps/1e6);
                 }
 
-                if(txt) this._pendingLinkLabels.push({mx,my,txt,txtColor});
+                if(txt) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
             }
         }
         ctx.globalAlpha=1;
     }
 
     _drawLinkSpeedLabels(ctx){
-        ctx.font=`${G.rateFont}px ${FONT}`;
-        for(const{mx,my,txt,txtColor}of(this._pendingLinkLabels||[])){
+        const normalFont=`${G.rateFont}px ${FONT}`;
+        const italicFont=`italic ${G.rateFont}px ${FONT}`;
+        ctx.font=normalFont;
+        for(const{mx,my,txt,txtColor,txtItalic}of(this._pendingLinkLabels||[])){
+            ctx.font=txtItalic?italicFont:normalFont;
             const tw=ctx.measureText(txt).width+12;
             ctx.fillStyle=C.labelBg;
             ctx.globalAlpha=1;
