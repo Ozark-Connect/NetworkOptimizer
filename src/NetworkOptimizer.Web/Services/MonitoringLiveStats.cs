@@ -13,6 +13,13 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class MonitoringLiveStats
 {
+    private readonly ILogger<MonitoringLiveStats> _logger;
+
+    public MonitoringLiveStats(ILogger<MonitoringLiveStats> logger)
+    {
+        _logger = logger;
+    }
+
     private readonly ConcurrentDictionary<string, DeviceLiveStats> _stats = new();
 
     /// <summary>Total bytes/sec across all monitored interfaces on this device, plus latency.</summary>
@@ -128,11 +135,28 @@ public class MonitoringLiveStats
     public void RecordPortRate(string deviceMac, string ifName, double downBps, double upBps, DateTime timestamp)
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return;
-        _portRates[(Normalize(deviceMac), ifName)] = new PortLiveRate
+        var key = (Normalize(deviceMac), ifName);
+        _portRates.TryGetValue(key, out var prior);
+        if (downBps == 0 && upBps == 0
+            && prior != null
+            && (prior.DownBps > 0 || prior.UpBps > 0)
+            && prior.ConsecutiveZeroPolls < 1)
+        {
+            _logger.LogTrace(
+                "Port rate hold: {Mac}/{If} was {Down:F0}/{Up:F0} bps, holding through single zero poll",
+                deviceMac, ifName, prior.DownBps, prior.UpBps);
+            _portRates[key] = prior with
+            {
+                LastUpdate = timestamp,
+                ConsecutiveZeroPolls = prior.ConsecutiveZeroPolls + 1,
+            };
+            return;
+        }
+        _portRates[key] = new PortLiveRate
         {
             DownBps = downBps,
             UpBps = upBps,
-            LastUpdate = timestamp
+            LastUpdate = timestamp,
         };
     }
 
@@ -414,6 +438,7 @@ public record PortLiveRate
     /// <summary>Upstream-from-leaf direction rate (parent port RX delta) in bps.</summary>
     public double UpBps { get; init; }
     public DateTime LastUpdate { get; init; }
+    public int ConsecutiveZeroPolls { get; init; }
 }
 
 public record DeviceLiveStats

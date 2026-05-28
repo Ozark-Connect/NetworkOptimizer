@@ -369,22 +369,33 @@ public class LanFlowMapService
             };
         }
 
-        // Cloud RTT from the live monitoring target cache (same source as the
-        // ISP RTT stat card) so the globe label stays in lockstep.
+        // Cloud RTT: pick the lowest RTT across all access hop targets for this
+        // WAN so the globe shows the nearest ISP infrastructure latency, not a
+        // deeper transit hop that happens to be last in the wizard ordering.
         foreach (var cloud in snapshot.Clouds)
         {
             double? rtt = cloud.RttAvgMs;
             double? loss = cloud.LossPercent;
             bool success = rtt.HasValue;
 
-            if (!string.IsNullOrEmpty(cloud.RttTargetId))
+            if (cloud.RttTargetIds.Count > 0)
             {
-                var live = _liveStats.GetTargetStats(cloud.RttTargetId);
-                if (live != null)
+                double? bestRtt = null;
+                double? bestLoss = null;
+                foreach (var targetId in cloud.RttTargetIds)
                 {
-                    rtt = live.RttAvgMs;
-                    loss = live.LossPercent;
-                    success = live.RttAvgMs.HasValue;
+                    var live = _liveStats.GetTargetStats(targetId);
+                    if (live?.RttAvgMs != null && (bestRtt == null || live.RttAvgMs.Value < bestRtt.Value))
+                    {
+                        bestRtt = live.RttAvgMs;
+                        bestLoss = live.LossPercent;
+                    }
+                }
+                if (bestRtt.HasValue)
+                {
+                    rtt = bestRtt;
+                    loss = bestLoss;
+                    success = true;
                 }
             }
 
@@ -1275,16 +1286,21 @@ public class LanFlowMapService
                 IsDiscoveryPending = wan.IsPrimary && upstream.Access.Hops.Count == 0,
                 Tier = wan.IsPrimary && upstream.Access.Hops.Count == 0 ? LanCloudTier.Unresolved : LanCloudTier.Solid,
             };
-            // RTT for the access cloud: pick the deepest hop with live data (closest to the
-            // ISP boundary). Wizard-output ordering puts BNG/CMTS/OLT toward the tail.
-            var lastLive = upstream.Access.Hops
-                .Reverse()
-                .FirstOrDefault(h => h.Live != null && h.Live.Success);
-            if (lastLive?.Live != null)
+            // Collect all access hop target IDs so the live tick can pick the
+            // lowest RTT across all of them (closest ISP infrastructure).
+            accessCloud.RttTargetIds = upstream.Access.Hops
+                .Where(h => !string.IsNullOrEmpty(h.TargetId))
+                .Select(h => h.TargetId)
+                .ToList();
+            // Seed the initial RTT from the lowest-latency hop with live data.
+            var bestLive = upstream.Access.Hops
+                .Where(h => h.Live != null && h.Live.Success && h.Live.RttAvgMs.HasValue)
+                .OrderBy(h => h.Live!.RttAvgMs!.Value)
+                .FirstOrDefault();
+            if (bestLive?.Live != null)
             {
-                accessCloud.RttAvgMs = lastLive.Live.RttAvgMs;
-                accessCloud.LossPercent = lastLive.Live.LossPercent;
-                accessCloud.RttTargetId = lastLive.TargetId;
+                accessCloud.RttAvgMs = bestLive.Live.RttAvgMs;
+                accessCloud.LossPercent = bestLive.Live.LossPercent;
             }
             // ISP expected speeds from UniFi WAN provider capabilities (cached in topology)
             var wanNet = topology.Networks.FirstOrDefault(n =>

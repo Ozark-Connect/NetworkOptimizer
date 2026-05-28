@@ -545,27 +545,33 @@ public class MonitoringCollectionAgent : BackgroundService
                         long deltaRx = current.RxBytes - prev.RxBytes;
                         if (deltaTx >= 0 && deltaRx >= 0)
                         {
-                            // Tuple convention is aligned with the SNMP writer
-                            // at WriteInterfaceCounters so downstream consumers
-                            // see stable directions whether SNMP or this UniFi
-                            // PortTable writer was the one that ran last on a
-                            // given cycle: tuple = (rateIn=RX, rateOut=TX).
-                            //   - DownBps slot holds ifInOctets-style rate (RX,
-                            //     i.e. bytes received on this port; for a
-                            //     parent's port toward a child that's uploads
-                            //     coming up from the child).
-                            //   - UpBps slot holds ifOutOctets-style rate (TX,
-                            //     bytes transmitted; downloads toward the child).
-                            // NOTE: do NOT mirror into _liveStats per-port cache
-                            // here. UniFi PortTable byte counters update server-
-                            // side ~30s; at our 5s poll cadence that yields a
-                            // burst-then-zeros pattern that would clobber the
-                            // SNMP-fed _liveStats.RecordPortRate writes.
-                            _portRateLatest[key] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                            if (deltaTx == 0 && deltaRx == 0)
+                            {
+                                // Counters unchanged - UniFi hasn't refreshed
+                                // server-side yet. Keep the previous snapshot so
+                                // the next real change computes over the true
+                                // elapsed window.
+                            }
+                            else
+                            {
+                                // Tuple convention is aligned with the SNMP writer
+                                // at WriteInterfaceCounters so downstream consumers
+                                // see stable directions whether SNMP or this UniFi
+                                // PortTable writer was the one that ran last on a
+                                // given cycle: tuple = (rateIn=RX, rateOut=TX).
+                                // NOTE: do NOT mirror into _liveStats per-port cache
+                                // here. UniFi PortTable byte counters update server-
+                                // side ~30s; at our 5s poll cadence that yields a
+                                // burst-then-zeros pattern that would clobber the
+                                // SNMP-fed _liveStats.RecordPortRate writes.
+                                _portRateLatest[key] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                                _portBytePrev[key] = current;
+                            }
                         }
                     }
                 }
-                _portBytePrev[key] = current;
+                if (!_portBytePrev.ContainsKey(key))
+                    _portBytePrev[key] = current;
             }
 
             // Device-level aggregate: UniFi's stat.tx_bytes / rx_bytes is the
@@ -585,14 +591,23 @@ public class MonitoringCollectionAgent : BackgroundService
                         long deltaRx = devCurrent.RxBytes - devPrev.RxBytes;
                         if (deltaTx >= 0 && deltaRx >= 0)
                         {
-                            // Device perspective: TX = device sends out (upstream away
-                            // from the device); RX = device receives (downstream toward
-                            // the device). Opposite convention vs the port path above.
-                            _deviceByteRateLatest[devKey] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                            if (deltaTx == 0 && deltaRx == 0)
+                            {
+                                // Counters unchanged - keep previous snapshot.
+                            }
+                            else
+                            {
+                                // Device perspective: TX = device sends out (upstream away
+                                // from the device); RX = device receives (downstream toward
+                                // the device). Opposite convention vs the port path above.
+                                _deviceByteRateLatest[devKey] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
+                                _deviceBytePrev[devKey] = devCurrent;
+                            }
                         }
                     }
                 }
-                _deviceBytePrev[devKey] = devCurrent;
+                if (!_deviceBytePrev.ContainsKey(devKey))
+                    _deviceBytePrev[devKey] = devCurrent;
             }
         }
     }
@@ -1446,19 +1461,32 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (deltaOut < 0 && !useHc) deltaOut += (long)uint.MaxValue + 1;
                 if (deltaIn >= 0 && deltaOut >= 0)
                 {
-                    rateInBps = deltaIn * 8.0 / elapsed;
-                    rateOutBps = deltaOut * 8.0 / elapsed;
-                    // Mirror into the read-side per-port cache so the 3D map's
-                    // live tick refreshes wired client leaf rates on the clean
-                    // 5s SNMP cadence (UniFi PortTable lags ~30s).
-                    // Direction: rateOutBps = port TX = data toward the leaf
-                    // (DownBps in cache convention); rateInBps = port RX = data
-                    // from the leaf (UpBps).
-                    _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+                    if (deltaIn == 0 && deltaOut == 0)
+                    {
+                        // Counters unchanged - device hasn't refreshed them yet.
+                        // Keep the previous cache entry so the next poll that sees
+                        // a real change computes delta/elapsed over the true window.
+                        // Prevents alternating 0 / 2x sawtooth in both the live
+                        // cache and InfluxDB.
+                    }
+                    else
+                    {
+                        rateInBps = deltaIn * 8.0 / elapsed;
+                        rateOutBps = deltaOut * 8.0 / elapsed;
+                        // Mirror into the read-side per-port cache so the 3D map's
+                        // live tick refreshes wired client leaf rates on the clean
+                        // 5s SNMP cadence (UniFi PortTable lags ~30s).
+                        // Direction: rateOutBps = port TX = data toward the leaf
+                        // (DownBps in cache convention); rateInBps = port RX = data
+                        // from the leaf (UpBps).
+                        _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+                        _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
+                    }
                 }
             }
         }
-        _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
+        if (!_counterCache.ContainsKey(key))
+            _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
 
         bool hcCounters = iface.HighSpeed >= 1000 || iface.Speed >= 1_000_000_000;
         long speedBps = iface.HighSpeed > 0 ? iface.HighSpeed * 1_000_000L : iface.Speed;

@@ -200,10 +200,10 @@ public class LanCloud
     /// <summary>ISP expected upload speed in Mbps (from UniFi WAN provider capabilities).</summary>
     public int? IspUploadMbps { get; set; }
 
-    /// <summary>Monitoring target ID whose live RTT feeds this cloud's stats.
-    /// Server-side only; the live tick re-queries this for fresh RTT/loss.</summary>
+    /// <summary>Monitoring target IDs for all access hops on this WAN.
+    /// Server-side only; the live tick picks the lowest RTT across all of them.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string? RttTargetId { get; set; }
+    public List<string> RttTargetIds { get; set; } = new();
 }
 
 public class LinkLiveRates

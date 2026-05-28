@@ -128,7 +128,7 @@ else
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
-            @{ var ispTarget = GetMeanTargetStats(MonitoringTargetType.AccessIsp); }
+            @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card">
                 @if (hasIspTargets)
                 {
@@ -1494,13 +1494,40 @@ else
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
-    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
+    private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
     {
         if (_historicSnapshot != null)
         {
             return type switch
             {
                 MonitoringTargetType.AccessIsp => (_historicSnapshot.IspRttMs, _historicSnapshot.IspLossPercent),
+                _ => (null, 0)
+            };
+        }
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+
+        // Pick the target with the lowest RTT (nearest ISP infrastructure).
+        double? bestRtt = null;
+        double bestLoss = 0;
+        foreach (var t in targets)
+        {
+            var s = LiveStats.GetTargetStats(t.TargetId);
+            if (s?.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
+            {
+                bestRtt = s.RttAvgMs;
+                bestLoss = s.LossPercent;
+            }
+        }
+        return (bestRtt, bestLoss);
+    }
+
+    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
+    {
+        if (_historicSnapshot != null)
+        {
+            return type switch
+            {
                 MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
                 _ => (null, 0)
             };
