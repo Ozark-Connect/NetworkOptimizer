@@ -651,11 +651,17 @@ public class MonitoringCollectionAgent : BackgroundService
             await _snmpGate.WaitAsync(ct);
             try
             {
+                if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
+                    return;
                 if (IsSnmpExcluded(NormalizeMac(device.Mac))) return;
                 var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
                 if (!IPAddress.TryParse(pollIp, out var ip)) return;
                 var metrics = await poller.GetDeviceMetricsAsync(ip, device.Name);
-                if (!metrics.IsReachable) return;
+                if (!metrics.IsReachable)
+                {
+                    NoteSnmpFailure(NormalizeMac(device.Mac));
+                    return;
+                }
 
                 var cpu = metrics.CpuUsage > 0 ? metrics.CpuUsage : (double?)null;
                 var memPct = metrics.MemoryUsage > 0 ? metrics.MemoryUsage : (double?)null;
@@ -678,6 +684,7 @@ public class MonitoringCollectionAgent : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Medium-tier health poll failed for {Device}", device.Mac);
+                NoteSnmpFailure(NormalizeMac(device.Mac));
             }
             finally { _snmpGate.Release(); }
         });
@@ -847,12 +854,19 @@ public class MonitoringCollectionAgent : BackgroundService
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
         foreach (var device in devices)
         {
+            if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
+                continue;
             if (IsSnmpExcluded(NormalizeMac(device.Mac))) continue;
             try
             {
                 var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
                 if (!IPAddress.TryParse(pollIp, out var ip)) continue;
                 var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
+                if (interfaces.Count == 0)
+                {
+                    NoteSnmpFailure(NormalizeMac(device.Mac));
+                    continue;
+                }
                 foreach (var iface in interfaces)
                 {
                     var ifName = string.IsNullOrEmpty(iface.Name) ? iface.Description : iface.Name;
@@ -916,6 +930,7 @@ public class MonitoringCollectionAgent : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Slow-tier metadata poll failed for {Device}", device.Mac);
+                NoteSnmpFailure(NormalizeMac(device.Mac));
             }
         }
         await db.SaveChangesAsync(ct);
