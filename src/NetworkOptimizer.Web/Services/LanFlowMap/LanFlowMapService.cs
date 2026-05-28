@@ -435,7 +435,8 @@ public class LanFlowMapService
         }
         catch { }
 
-        // Collect device MACs we need rates for, then batch into one InfluxDB query.
+        // Per-device queries use the tag index efficiently. Each is a fast
+        // indexed lookup; batching into one OR filter was slower (no index).
         var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
         foreach (var link in snapshot.Links)
@@ -451,15 +452,18 @@ public class LanFlowMapService
                 if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
             }
         }
-        Dictionary<string, List<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice;
-        try
+        var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in deviceMacs)
         {
-            ratesByDevice = await _influx.QueryBatchInterfaceRatesAsync(deviceMacs, from, to, ct: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Historic batch rate fetch failed");
-            ratesByDevice = new Dictionary<string, List<MonitoringInfluxClient.InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                ratesByDevice[mac] = await _influx.QueryInterfaceRatesAsync(mac, from, to, null, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Historic rate fetch failed for device {Mac}", mac);
+            }
         }
 
         // Batch pre-fetch all client throughput from InfluxDB (one query per
