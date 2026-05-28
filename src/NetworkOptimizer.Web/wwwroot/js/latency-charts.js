@@ -247,7 +247,7 @@ async function loadAndUpdate() {
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
 
-    updateChartVisibility('poll');
+    updateChartVisibility();
 
     const container = document.getElementById(containerId);
     if (container) {
