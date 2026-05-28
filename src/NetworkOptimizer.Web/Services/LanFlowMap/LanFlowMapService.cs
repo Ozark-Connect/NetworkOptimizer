@@ -435,11 +435,26 @@ public class LanFlowMapService
         }
         catch { }
 
-        // Single batch query for all device interface rates instead of N per-device queries.
+        // Collect device MACs we need rates for, then batch into one InfluxDB query.
+        var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
+        foreach (var link in snapshot.Links)
+        {
+            if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
+            {
+                var mac = ExtractDeviceMacFromUplinkId(link.Id);
+                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
+            }
+            else if (!string.IsNullOrEmpty(link.PortKey))
+            {
+                var (mac, _) = ParsePortKey(link.PortKey);
+                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
+            }
+        }
         Dictionary<string, List<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice;
         try
         {
-            ratesByDevice = await _influx.QueryAllInterfaceRatesAsync(from, to, ct: ct);
+            ratesByDevice = await _influx.QueryBatchInterfaceRatesAsync(deviceMacs, from, to, ct: ct);
         }
         catch (Exception ex)
         {

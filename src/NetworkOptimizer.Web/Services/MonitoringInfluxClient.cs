@@ -508,21 +508,27 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
-    /// Batch variant: fetches interface rates for ALL devices in one query.
+    /// Batch variant: fetches interface rates for a set of devices in one query.
     /// Returns results grouped by device MAC for caller-side partitioning.
     /// </summary>
-    public async Task<Dictionary<string, List<InterfaceRatePoint>>> QueryAllInterfaceRatesAsync(
+    public async Task<Dictionary<string, List<InterfaceRatePoint>>> QueryBatchInterfaceRatesAsync(
+        IEnumerable<string> deviceMacs,
         DateTime from,
         DateTime to,
         TimeSpan? aggregateWindow = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) return new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+        var macs = deviceMacs.Select(NormalizeMac).Distinct().ToList();
+        if (macs.Count == 0) return new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+
         var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var macFilter = string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}"""));
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => {macFilter})
   |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")

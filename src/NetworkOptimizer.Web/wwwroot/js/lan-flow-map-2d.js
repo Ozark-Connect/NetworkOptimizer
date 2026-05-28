@@ -847,7 +847,7 @@ class LanFlowMap2D {
 
         for(const k of kids)this._contourLayout(k);
 
-        const GAP=30;
+        const GAP=20;
         const offsets=[];
         let groupRight=[];
 
@@ -1398,7 +1398,7 @@ class LanFlowMap2D {
         // Name label
         const name=n.d.name||n.d.model||'';
         if(name){
-            const dn=name.length>16?name.slice(0,15)+'…':name;
+            const dn=name.length>24?name.slice(0,23)+'…':name;
             ctx.fillStyle=C.text;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
@@ -1435,7 +1435,7 @@ class LanFlowMap2D {
         // Name label
         const name=n.d.name||n.d.ip||'';
         if(name){
-            const dn=name.length>25?name.slice(0,24)+'…':name;
+            const dn=name.length>32?name.slice(0,31)+'…':name;
             ctx.fillStyle=C.textMuted;
             ctx.font=`${G.clientFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
