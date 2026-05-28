@@ -89,7 +89,7 @@ public class DiagnosticsService
             }
 
             // Fetch all required data in parallel
-            var devicesTask = _connectionService.Client.GetDevicesAsync();
+            var devicesTask = _connectionService.Client.GetDevicesAsync(useCache: false);
             var clientsTask = _connectionService.Client.GetClientsAsync();
             var networksTask = _connectionService.Client.GetNetworkConfigsAsync();
             var portProfilesTask = _connectionService.Client.GetPortProfilesAsync();

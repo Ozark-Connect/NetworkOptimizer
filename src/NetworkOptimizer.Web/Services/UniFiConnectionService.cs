@@ -4,6 +4,7 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -828,12 +829,25 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return _cachedNetworks;
         }
 
-        var discoveryLogger = _loggerFactory.CreateLogger<UniFiDiscovery>();
-        var discovery = new UniFiDiscovery(_client, discoveryLogger);
-        var topology = await discovery.DiscoverTopologyAsync(cancellationToken);
+        var networks = await _client.GetNetworkConfigsAsync(cancellationToken);
 
-        // Cache the result
-        _cachedNetworks = topology.Networks;
+        _cachedNetworks = networks?.Select(n => new NetworkInfo
+        {
+            Id = n.Id,
+            Name = n.Name,
+            Purpose = n.Purpose,
+            Enabled = n.Enabled,
+            VlanId = n.Vlan,
+            IpSubnet = n.IpSubnet,
+            IsDhcpEnabled = n.DhcpdEnabled,
+            DhcpRange = n.DhcpdEnabled ? $"{n.DhcpdStart} - {n.DhcpdStop}" : null,
+            Gateway = n.DhcpdGateway,
+            IsNat = n.IsNat,
+            WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
+            WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps,
+            WanNetworkgroup = n.WanNetworkgroup,
+            WanSmartqEnabled = n.WanSmartqEnabled
+        }).ToList() ?? new List<NetworkInfo>();
         _networkCacheTime = DateTime.UtcNow;
 
         return _cachedNetworks;

@@ -682,6 +682,114 @@ public class MonitoringCollectionAgent : BackgroundService
             finally { _snmpGate.Release(); }
         });
         await Task.WhenAll(deviceTasks);
+
+        // UniFi API health pass: supplements or replaces SNMP health data.
+        // Non-SNMP devices: full fallback (CPU, mem, temp, uptime).
+        // SNMP devices: fill in gaps only (e.g., temperature on switches where
+        // SNMP doesn't report temp but UniFi API does).
+        var now = DateTime.UtcNow;
+        foreach (var device in devices)
+        {
+            var mac = NormalizeMac(device.Mac);
+            var snmpOn = !string.IsNullOrEmpty(device.SnmpContact) || !string.IsNullOrEmpty(device.SnmpLocation);
+            var snmpExcl = IsSnmpExcluded(mac);
+            var snmpActive = snmpOn && !snmpExcl;
+
+            try
+            {
+                var ss = device.SystemStatsSimple;
+                if (ss == null && device.Temperatures == null) continue;
+
+                double? cpu = ss != null ? ParseJsonDouble(ss.Cpu) : null;
+                double? mem = ss != null ? ParseJsonDouble(ss.Mem) : null;
+                long? uptime = ss != null ? (long?)ParseJsonDouble(ss.Uptime) : null;
+                double? temp = ParseDeviceTemperature(device);
+
+                // SNMP devices: only supplement temp for switches (SNMP doesn't
+                // report switch temps). Gateway and APs get temp from SNMP already;
+                // writing API temp too creates dual-source Z-shape artifacts.
+                if (snmpActive)
+                {
+                    if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch) continue;
+                    cpu = null;
+                    mem = null;
+                    uptime = null;
+                    if (temp == null) continue;
+                }
+
+                if (cpu == null && mem == null && temp == null) continue;
+
+                await _influx.WriteDeviceHealthAsync(
+                    deviceMac: device.Mac,
+                    deviceType: DescribeDeviceType(device.DeviceType),
+                    cpuPercent: cpu,
+                    memoryTotalKb: null,
+                    memoryUsedKb: null,
+                    memoryUsedPercent: mem,
+                    temperatureC: temp,
+                    uptimeSeconds: uptime,
+                    timestamp: now);
+
+                _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "UniFi API health fallback failed for {Device}", device.Mac);
+            }
+        }
+    }
+
+    private static double? ParseJsonDouble(System.Text.Json.JsonElement? el)
+    {
+        if (el == null || el.Value.ValueKind == System.Text.Json.JsonValueKind.Undefined) return null;
+        if (el.Value.ValueKind == System.Text.Json.JsonValueKind.Number && el.Value.TryGetDouble(out var num)) return num;
+        if (el.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var s = el.Value.GetString()?.Trim();
+            if (double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                return parsed;
+        }
+        return null;
+    }
+
+    private static double? ParseDeviceTemperature(UniFiDeviceResponse device)
+    {
+        // general_temperature: simple numeric field on switches (e.g., 72)
+        if (device.GeneralTemperature.HasValue && device.GeneralTemperature.Value > 0)
+            return device.GeneralTemperature.Value;
+
+        // temperatures: structured array on gateways, bare integer on some devices
+        if (device.Temperatures == null || device.Temperatures.Value.ValueKind == System.Text.Json.JsonValueKind.Undefined)
+            return null;
+
+        var el = device.Temperatures.Value;
+
+        // Gateway: array of { name, type, value } - pick the CPU sensor
+        if (el.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var sensor in el.EnumerateArray())
+            {
+                var sType = sensor.TryGetProperty("type", out var t) ? t.GetString() : null;
+                if (string.Equals(sType, "cpu", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (sensor.TryGetProperty("value", out var v) && v.TryGetDouble(out var tempVal))
+                        return tempVal;
+                }
+            }
+            // No CPU sensor found, take the first one
+            foreach (var sensor in el.EnumerateArray())
+            {
+                if (sensor.TryGetProperty("value", out var v) && v.TryGetDouble(out var tempVal))
+                    return tempVal;
+            }
+        }
+
+        // Switch: bare integer
+        if (el.ValueKind == System.Text.Json.JsonValueKind.Number && el.TryGetDouble(out var bare))
+            return bare;
+
+        return null;
     }
 
     private async Task SlowTierCollectAsync(MonitoringSettings settings, CancellationToken ct)

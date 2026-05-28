@@ -1152,7 +1152,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             _clientProvider.Client,
             _loggerFactory.CreateLogger<UniFiDiscovery>());
 
-        var topology = await discovery.DiscoverTopologyAsync(cancellationToken);
+        var topology = await discovery.DiscoverTopologyAsync(cancellationToken, useCache: false);
 
         if (topology != null)
         {

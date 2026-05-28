@@ -24,12 +24,12 @@ public class UniFiDiscovery
     /// Discovers all UniFi devices via controller API
     /// Returns devices with full metadata from controller
     /// </summary>
-    public async Task<List<DiscoveredDevice>> DiscoverDevicesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<DiscoveredDevice>> DiscoverDevicesAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         _logger.LogTrace("Starting UniFi device discovery via API");
 
         // Fetch devices and network configs in parallel
-        var devicesTask = _apiClient.GetDevicesAsync(cancellationToken);
+        var devicesTask = _apiClient.GetDevicesAsync(cancellationToken, useCache);
         var networksTask = _apiClient.GetNetworkConfigsAsync(cancellationToken);
 
         await Task.WhenAll(devicesTask, networksTask);
@@ -151,10 +151,15 @@ public class UniFiDiscovery
     /// Allows: UDM (original Dream Machine), UDR, UX, etc. which have real Wi-Fi.
     /// </summary>
     internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
+        => IsGatewayOnlyConsole(device.FriendlyModelName);
+
+    internal static bool IsGatewayOnlyConsole(UniFiDeviceResponse device)
+        => IsGatewayOnlyConsole(device.FriendlyModelName);
+
+    private static bool IsGatewayOnlyConsole(string friendlyModelName)
     {
-        var name = device.FriendlyModelName;
-        return name.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
-               name.StartsWith("EFG", StringComparison.OrdinalIgnoreCase);
+        return friendlyModelName.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
+               friendlyModelName.StartsWith("EFG", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -253,56 +258,56 @@ public class UniFiDiscovery
                 Hostname = c.Hostname,
                 Name = c.Name,
                 IpAddress = ipAddress ?? string.Empty,
-            Network = c.Network,
-            NetworkId = c.NetworkId,
-            VirtualNetworkOverrideEnabled = c.VirtualNetworkOverrideEnabled,
-            VirtualNetworkOverrideId = c.VirtualNetworkOverrideId,
-            Vlan = c.Vlan,
-            IsWired = c.IsWired,
-            IsGuest = c.IsGuest,
-            IsBlocked = c.Blocked,
-            ConnectionType = DetermineConnectionType(c),
-            ConnectedToDeviceMac = c.IsWired ? c.SwMac : c.ApMac,
-            SwitchPort = c.SwPort,
-            Uptime = TimeSpan.FromSeconds(c.Uptime),
-            LastSeen = DateTimeOffset.FromUnixTimeSeconds(c.LastSeen).DateTime,
-            FirstSeen = DateTimeOffset.FromUnixTimeSeconds(c.FirstSeen).DateTime,
-            // Wireless-specific
-            Essid = c.Essid,
-            Channel = c.Channel,
-            Rssi = c.Rssi,
-            SignalStrength = c.Signal,
-            NoiseLevel = c.Noise,
-            RadioProtocol = c.RadioProto,
-            Radio = c.Radio,
-            // Wi-Fi 7 MLO
-            IsMlo = c.IsMlo ?? false,
-            MloLinks = c.MloDetails?.Select(m => new MloLink
-            {
-                Radio = m.Radio ?? "",
-                Channel = m.Channel,
-                ChannelWidth = m.ChannelWidth,
-                SignalDbm = m.Signal,
-                NoiseDbm = m.Noise,
-                TxRateKbps = m.TxRate,
-                RxRateKbps = m.RxRate
-            }).ToList(),
-            // Traffic stats
-            TxBytes = c.TxBytes,
-            RxBytes = c.RxBytes,
-            TxPackets = c.TxPackets,
-            RxPackets = c.RxPackets,
-            TxRate = c.TxRate,
-            RxRate = c.RxRate,
-            TxBytesRate = c.TxBytesRate,
-            RxBytesRate = c.RxBytesRate,
-            // QoS
-            Satisfaction = c.Satisfaction,
-            HasFixedIp = c.UseFixedIp,
-            FixedIp = c.FixedIp,
-            Note = c.Note,
-            Oui = c.Oui
-        };
+                Network = c.Network,
+                NetworkId = c.NetworkId,
+                VirtualNetworkOverrideEnabled = c.VirtualNetworkOverrideEnabled,
+                VirtualNetworkOverrideId = c.VirtualNetworkOverrideId,
+                Vlan = c.Vlan,
+                IsWired = c.IsWired,
+                IsGuest = c.IsGuest,
+                IsBlocked = c.Blocked,
+                ConnectionType = DetermineConnectionType(c),
+                ConnectedToDeviceMac = c.IsWired ? c.SwMac : c.ApMac,
+                SwitchPort = c.SwPort,
+                Uptime = TimeSpan.FromSeconds(c.Uptime),
+                LastSeen = DateTimeOffset.FromUnixTimeSeconds(c.LastSeen).DateTime,
+                FirstSeen = DateTimeOffset.FromUnixTimeSeconds(c.FirstSeen).DateTime,
+                // Wireless-specific
+                Essid = c.Essid,
+                Channel = c.Channel,
+                Rssi = c.Rssi,
+                SignalStrength = c.Signal,
+                NoiseLevel = c.Noise,
+                RadioProtocol = c.RadioProto,
+                Radio = c.Radio,
+                // Wi-Fi 7 MLO
+                IsMlo = c.IsMlo ?? false,
+                MloLinks = c.MloDetails?.Select(m => new MloLink
+                {
+                    Radio = m.Radio ?? "",
+                    Channel = m.Channel,
+                    ChannelWidth = m.ChannelWidth,
+                    SignalDbm = m.Signal,
+                    NoiseDbm = m.Noise,
+                    TxRateKbps = m.TxRate,
+                    RxRateKbps = m.RxRate
+                }).ToList(),
+                // Traffic stats
+                TxBytes = c.TxBytes,
+                RxBytes = c.RxBytes,
+                TxPackets = c.TxPackets,
+                RxPackets = c.RxPackets,
+                TxRate = c.TxRate,
+                RxRate = c.RxRate,
+                TxBytesRate = c.TxBytesRate,
+                RxBytesRate = c.RxBytesRate,
+                // QoS
+                Satisfaction = c.Satisfaction,
+                HasFixedIp = c.UseFixedIp,
+                FixedIp = c.FixedIp,
+                Note = c.Note,
+                Oui = c.Oui
+            };
         }).ToList();
 
         return discoveredClients;
@@ -329,11 +334,11 @@ public class UniFiDiscovery
     /// <summary>
     /// Gets comprehensive network topology including devices and their connections
     /// </summary>
-    public async Task<NetworkTopology> DiscoverTopologyAsync(CancellationToken cancellationToken = default)
+    public async Task<NetworkTopology> DiscoverTopologyAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         _logger.LogInformation("Starting network topology discovery");
 
-        var devicesTask = DiscoverDevicesAsync(cancellationToken);
+        var devicesTask = DiscoverDevicesAsync(cancellationToken, useCache);
         var clientsTask = DiscoverClientsAsync(cancellationToken);
         var networksTask = _apiClient.GetNetworkConfigsAsync(cancellationToken);
 
@@ -483,6 +488,13 @@ public class UniFiDiscovery
             hasUplinkToUniFiDevice,
             device.ConfigNetworkLan != null);
 
+        // Gateway-only consoles (UDM-Pro, UDM-SE, UDM-Beast, EFG) never become
+        // APs even if the API reports an uplink to another UniFi device.
+        if (IsGatewayOnlyConsole(device))
+        {
+            return DeviceType.Gateway;
+        }
+
         // If the gateway-class device has an uplink to another UniFi device,
         // it's acting as a mesh AP, not the network gateway (UDR/UX have integrated APs)
         if (hasUplinkToUniFiDevice)
@@ -527,8 +539,9 @@ public class UniFiDiscovery
         var hasUplinkToUniFiDevice = !string.IsNullOrEmpty(uplinkMac) &&
                                       allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
 
-        // If the UDM-type device has an uplink to another UniFi device,
-        // it's acting as a mesh AP, not the network gateway
+        if (IsGatewayOnlyConsole(device))
+            return DeviceType.Gateway;
+
         return hasUplinkToUniFiDevice ? DeviceType.AccessPoint : DeviceType.Gateway;
     }
 

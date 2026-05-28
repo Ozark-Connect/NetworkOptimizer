@@ -367,7 +367,7 @@ public class WanDataUsageService : BackgroundService
             var client = _connectionService.Client;
             if (client == null) return (null, 0);
 
-            var devices = await client.GetDevicesAsync(ct);
+            var devices = await client.GetDevicesAsync(ct, useCache: false);
             var gateway = devices?.FirstOrDefault(d => d.DeviceType == DeviceType.Gateway);
             if (gateway == null) return (null, 0);
 

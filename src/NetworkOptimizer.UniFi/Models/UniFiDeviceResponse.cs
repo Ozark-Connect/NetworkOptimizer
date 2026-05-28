@@ -144,6 +144,15 @@ public class UniFiDeviceResponse
     [JsonPropertyName("sys_stats")]
     public SystemStats? SystemStats { get; set; }
 
+    [JsonPropertyName("system-stats")]
+    public SystemStatsSimple? SystemStatsSimple { get; set; }
+
+    [JsonPropertyName("temperatures")]
+    public System.Text.Json.JsonElement? Temperatures { get; set; }
+
+    [JsonPropertyName("general_temperature")]
+    public double? GeneralTemperature { get; set; }
+
     // Wi-Fi specific (APs only)
     /// <summary>
     /// Radio configuration table - per-radio settings (channel, tx_power, antenna)
@@ -676,6 +685,18 @@ public class SystemStats
 
     [JsonPropertyName("loadavg_15")]
     public double? LoadAvg15 { get; set; }
+}
+
+public class SystemStatsSimple
+{
+    [JsonPropertyName("cpu")]
+    public System.Text.Json.JsonElement? Cpu { get; set; }
+
+    [JsonPropertyName("mem")]
+    public System.Text.Json.JsonElement? Mem { get; set; }
+
+    [JsonPropertyName("uptime")]
+    public System.Text.Json.JsonElement? Uptime { get; set; }
 }
 
 public class ConfigNetwork

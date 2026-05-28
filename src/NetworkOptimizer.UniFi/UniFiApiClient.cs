@@ -39,6 +39,9 @@ public class UniFiApiClient : IDisposable
     private string? _csrfToken;
     private readonly AsyncRetryPolicy _retryPolicy;
     private readonly SemaphoreSlim _authLock = new(1, 1);
+    private List<UniFiDeviceResponse>? _cachedDeviceResponses;
+    private DateTime _deviceResponseCacheTime = DateTime.MinValue;
+    private static readonly TimeSpan DeviceResponseCacheTtl = TimeSpan.FromSeconds(15);
     private bool _isAuthenticated = false;
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
@@ -622,9 +625,18 @@ public class UniFiApiClient : IDisposable
     /// GET /api/s/{site}/stat/device (standalone) - Get all UniFi devices
     /// Returns the large device payload with all port profiles, switch port details, etc.
     /// </summary>
-    public async Task<List<UniFiDeviceResponse>> GetDevicesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<UniFiDeviceResponse>> GetDevicesAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
-        _logger.LogTrace("Fetching all devices from site {Site}", _site);
+        if (useCache && _cachedDeviceResponses != null
+            && DateTime.UtcNow - _deviceResponseCacheTime < DeviceResponseCacheTtl)
+        {
+            _logger.LogTrace("Returning cached device response ({Count} devices, age {Age:F1}s)",
+                _cachedDeviceResponses.Count,
+                (DateTime.UtcNow - _deviceResponseCacheTime).TotalSeconds);
+            return _cachedDeviceResponses;
+        }
+
+        _logger.LogTrace("Fetching all devices from site {Site} (useCache={UseCache})", _site, useCache);
 
         var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiDeviceResponse>>(
             () => _httpClient!.GetAsync(BuildApiPath("stat/device"), cancellationToken),
@@ -633,6 +645,8 @@ public class UniFiApiClient : IDisposable
         if (response?.Meta.Rc == "ok")
         {
             _logger.LogTrace("Retrieved {Count} devices", response.Data.Count);
+            _cachedDeviceResponses = response.Data;
+            _deviceResponseCacheTime = DateTime.UtcNow;
             return response.Data;
         }
 
