@@ -691,6 +691,89 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>Raw device health query - no aggregation, pairs fields in C#.</summary>
+    public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthRawAsync(
+        string deviceMac, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<DeviceHealthPoint>();
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""cpu_percent"" or r._field == ""memory_used_percent"" or r._field == ""temperature_c"")
+";
+        var cpu = new Dictionary<long, double>();
+        var mem = new Dictionary<long, double>();
+        var temp = new Dictionary<long, double>();
+        var times = new Dictionary<long, DateTime>();
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (value == null) continue;
+            var key = time.Ticks;
+            times[key] = time;
+            if (field == "cpu_percent") cpu[key] = value.Value;
+            else if (field == "memory_used_percent") mem[key] = value.Value;
+            else if (field == "temperature_c") temp[key] = value.Value;
+        }
+
+        return times.Select(kv => new DeviceHealthPoint
+        {
+            Time = kv.Value,
+            CpuPercent = cpu.TryGetValue(kv.Key, out var c) ? c : null,
+            MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
+            TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
+        }).ToList();
+    }
+
+    /// <summary>Raw latency query by target type - no aggregation, pairs fields in C#.</summary>
+    public async Task<IReadOnlyList<LatencyPoint>> QueryLatencyByTargetTypeRawAsync(
+        MonitoringTargetType targetType, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return Array.Empty<LatencyPoint>();
+        var typeTag = targetType.ToString().ToLowerInvariant();
+        var typeFilter = targetType == MonitoringTargetType.InternetService
+            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+            : $@"r.target_type == ""{typeTag}""";
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+";
+        var rtt = new Dictionary<(string targetId, long ticks), double>();
+        var loss = new Dictionary<(string targetId, long ticks), double>();
+        var times = new Dictionary<(string targetId, long ticks), DateTime>();
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var targetId = record.GetValueByKey("target_id") as string;
+            if (string.IsNullOrEmpty(targetId)) continue;
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (value == null) continue;
+            var key = (targetId, time.Ticks);
+            times[key] = time;
+            if (field == "rtt_avg_ms") rtt[key] = value.Value;
+            else if (field == "loss_percent") loss[key] = value.Value;
+        }
+
+        return times.Select(kv => new LatencyPoint
+        {
+            Time = kv.Value,
+            RttAvgMs = rtt.TryGetValue(kv.Key, out var r) ? r : null,
+            LossPercent = loss.TryGetValue(kv.Key, out var l) ? l : null,
+        }).ToList();
+    }
+
     /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
     public async Task<Dictionary<string, List<LatencyPoint>>> QueryLatencyByTargetTypeAsync(
         MonitoringTargetType targetType,

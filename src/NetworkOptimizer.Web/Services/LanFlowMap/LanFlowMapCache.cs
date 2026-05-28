@@ -1,3 +1,6 @@
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.Monitoring;
+
 namespace NetworkOptimizer.Web.Services.LanFlowMap;
 
 /// <summary>
@@ -73,4 +76,6 @@ public record HistoricDataCache(
     DateTime To,
     Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>> RatesByDevice,
     IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WifiClients,
-    IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WiredClients);
+    IReadOnlyList<MonitoringInfluxClient.ClientThroughputPoint> WiredClients,
+    Dictionary<string, IReadOnlyList<MonitoringInfluxClient.DeviceHealthPoint>> HealthByDevice,
+    Dictionary<MonitoringTargetType, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>> LatencyByTargetType);

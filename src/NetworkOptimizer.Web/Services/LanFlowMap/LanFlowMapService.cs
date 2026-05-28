@@ -647,10 +647,9 @@ public class LanFlowMapService
             var mac = node.Mac;
             try
             {
-                var health = await _influx.QueryDeviceHealthAsync(mac, from, to, null, ct);
-                var healthPt = health
-                    .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
-                    .FirstOrDefault();
+                var healthPt = cached.HealthByDevice.TryGetValue(mac, out var healthPts)
+                    ? healthPts.OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds)).FirstOrDefault()
+                    : null;
 
                 double? fabIn = null, fabOut = null;
                 if ((node.Kind == LanNodeKind.Switch || node.Kind == LanNodeKind.Gateway)
@@ -721,16 +720,12 @@ public class LanFlowMapService
                     _ => (MonitoringTargetType?)null
                 };
                 if (targetType == null) continue;
-                var data = await _influx.QueryLatencyByTargetTypeAsync(targetType.Value, from, to, ct: ct);
                 MonitoringInfluxClient.LatencyPoint? best = null;
-                foreach (var (_, pts) in data)
+                if (cached.LatencyByTargetType.TryGetValue(targetType.Value, out var latPts))
                 {
-                    var closest = pts
+                    best = latPts
                         .OrderBy(p => Math.Abs((p.Time - at).TotalMilliseconds))
                         .FirstOrDefault();
-                    if (closest != null && (best == null
-                        || Math.Abs((closest.Time - at).TotalMilliseconds) < Math.Abs((best.Time - at).TotalMilliseconds)))
-                        best = closest;
                 }
                 if (best == null) continue;
                 update.CloudStats[cloud.Id] = new CloudLiveStats
@@ -1781,7 +1776,29 @@ public class LanFlowMapService
         try { wired = await _influx.QueryAllClientThroughputAsync("wired_client", from, to, ct); }
         catch (Exception ex) { _logger.LogDebug(ex, "Historic wired client batch query failed"); }
 
-        return new HistoricDataCache(from, to, ratesByDevice, wifi, wired);
+        var healthByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.DeviceHealthPoint>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var node in snapshot.Nodes)
+        {
+            if (string.IsNullOrEmpty(node.Mac)) continue;
+            try
+            {
+                healthByDevice[node.Mac] = await _influx.QueryDeviceHealthRawAsync(node.Mac, from, to, ct);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "Historic health fetch failed for {Mac}", node.Mac); }
+        }
+
+        var latencyByType = new Dictionary<MonitoringTargetType, IReadOnlyList<MonitoringInfluxClient.LatencyPoint>>();
+        foreach (var targetType in new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit })
+        {
+            try
+            {
+                latencyByType[targetType] = await _influx.QueryLatencyByTargetTypeRawAsync(targetType, from, to, ct);
+            }
+            catch (Exception ex) { _logger.LogDebug(ex, "Historic latency fetch failed for {Type}", targetType); }
+        }
+
+        return new HistoricDataCache(from, to, ratesByDevice, wifi, wired, healthByDevice, latencyByType);
     }
 
     private async Task<LinkLiveRates?> QueryClientThroughputAsync(
