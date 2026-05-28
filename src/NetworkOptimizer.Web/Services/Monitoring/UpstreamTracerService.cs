@@ -657,7 +657,7 @@ public class UpstreamTracerService
             var l2Hop = new AccessHopCandidate
             {
                 TargetId = $"access-l2-{NormalizeMacForId(State.WanNeighborIp)}",
-                Label = LabelL2Neighbor(State.WanNeighborIp, State.WanNeighborOuiVendor, State.AccessTechnology),
+                Label = LabelL2Neighbor(State.WanNeighborOuiVendor, State.AccessTechnology, l2Asn?.Name),
                 Address = State.WanNeighborIp,
                 AsnNumber = l2Asn?.Asn,
                 AsnName = l2Asn?.Name,
@@ -967,22 +967,31 @@ public class UpstreamTracerService
         return UpstreamRole.AccessGateway;
     }
 
-    private static string LabelL2Neighbor(string ip, string? ouiVendor, AccessTechnology tech)
+    private static string LabelL2Neighbor(string? ouiVendor, AccessTechnology tech, string? asnName)
     {
-        var roleName = tech switch
+        var vendor = FirstWord(ouiVendor);
+        var role = tech switch
         {
-            AccessTechnology.Gpon or AccessTechnology.XgsPon => "OLT",
-            AccessTechnology.Docsis => "CMTS",
-            AccessTechnology.PppoE => "BNG",
-            _ => null
+            AccessTechnology.Gpon or AccessTechnology.XgsPon => "olt",
+            AccessTechnology.Docsis => "cmts",
+            AccessTechnology.PppoE => "bng",
+            _ => "access"
         };
-        if (!string.IsNullOrEmpty(ouiVendor) && roleName != null)
-            return $"{ouiVendor} {roleName}";
-        if (!string.IsNullOrEmpty(ouiVendor))
-            return $"{ouiVendor} ({ip})";
-        if (roleName != null)
-            return $"{ip} ({roleName})";
-        return ip;
+        var techSuffix = (role == "access" && tech != AccessTechnology.Unknown)
+            ? $"-{tech.ToString().ToLowerInvariant()}"
+            : "";
+        var isp = FirstWord(asnName);
+
+        // e.g. "nokia-olt.att", "arris-cmts.comcast", "cisco-access-ethernet"
+        var prefix = vendor != null ? $"{vendor}-{role}{techSuffix}" : $"{role}{techSuffix}";
+        return isp != null ? $"{prefix}.{isp}" : prefix;
+    }
+
+    private static string? FirstWord(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var word = value.Split(' ', ',', '/', '(')[0].Trim();
+        return string.IsNullOrEmpty(word) ? null : word.ToLowerInvariant();
     }
 
     private static string NormalizeMacForId(string s) => s.Replace(".", "-").Replace(":", "-");
