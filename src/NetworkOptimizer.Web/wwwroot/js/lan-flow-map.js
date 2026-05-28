@@ -1546,8 +1546,8 @@ export class LanFlowMap {
         // Track playback as a continuous timestamp, not integer slider units.
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
-        this._playbackTime = this._historicAt
-            || this._scrubberValueToTime(Number(this._panels.scrubberRange?.value ?? 500));
+        this._playbackTime = this._scrubberValueToTime(
+            Number(this._panels.scrubberRange?.value ?? 500));
         let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
