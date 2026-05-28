@@ -227,18 +227,18 @@ async function loadAndUpdate() {
     targetMeta = data.targets.map(t => ({
         id: t.targetId,
         name: t.name,
-        color: hashColor(t.targetId),
+        color: hashColor(t.name),
     }));
 
     const rttSeries = data.targets.map(t => ({
         name: t.name,
-        color: hashColor(t.targetId),
+        color: hashColor(t.name),
         data: (t.rtt || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 
     const lossSeries = data.targets.map(t => ({
         name: t.name,
-        color: hashColor(t.targetId),
+        color: hashColor(t.name),
         data: (t.loss || []).map(p => ({ x: new Date(p.time).getTime(), y: p.value })),
     }));
 

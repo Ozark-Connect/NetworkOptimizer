@@ -152,11 +152,11 @@ async function loadAndUpdate() {
     const data = await fetchData();
     if (!data?.devices) return;
     deviceMeta = data.devices.map(d => ({
-        name: d.name, mac: d.mac, color: hashColor(d.mac),
+        name: d.name, mac: d.mac, color: hashColor(d.name),
     }));
     const makeSeries = (field) => data.devices.map(d => ({
         name: d.name,
-        color: hashColor(d.mac),
+        color: hashColor(d.name),
         data: (d.data || []).filter(p => p[field] != null).map(p => ({
             x: new Date(p.time).getTime(), y: p[field]
         })),
