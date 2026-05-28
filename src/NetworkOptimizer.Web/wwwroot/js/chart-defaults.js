@@ -16,7 +16,7 @@
         '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a',
         // D3 Set3 (7 — dropped #8dd3c7, #bebada, #fdb462)
         '#fb8072', '#80b1d3', '#b3de69', '#fccde5',
-        '#bc80bd', '#ccebc5', '#ffed6f'
+        '#bc80bd', '#ccebc5', '#b5508c'
     ];
     window.Apex = window.Apex || {};
     window.Apex.colors = palette;
