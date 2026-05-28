@@ -128,7 +128,7 @@ else
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
-            @{ var ispTarget = GetMeanTargetStats(MonitoringTargetType.AccessIsp); }
+            @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card">
                 @if (hasIspTargets)
                 {
@@ -151,7 +151,7 @@ else
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
+            @{ var transitTarget = GetBestTargetStats(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card">
                 @if (hasTransitTargets)
                 {
@@ -1494,7 +1494,7 @@ else
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
-    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
+    private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
     {
         if (_historicSnapshot != null)
         {
@@ -1508,15 +1508,19 @@ else
         var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
         if (targets.Count == 0) return (null, 0);
 
-        var rtts = new List<double>();
-        var losses = new List<double>();
+        // Pick the target with the lowest RTT (nearest ISP infrastructure).
+        double? bestRtt = null;
+        double bestLoss = 0;
         foreach (var t in targets)
         {
             var s = LiveStats.GetTargetStats(t.TargetId);
-            if (s?.RttAvgMs != null) rtts.Add(s.RttAvgMs.Value);
-            if (s != null) losses.Add(s.LossPercent);
+            if (s?.RttAvgMs != null && (bestRtt == null || s.RttAvgMs.Value < bestRtt.Value))
+            {
+                bestRtt = s.RttAvgMs;
+                bestLoss = s.LossPercent;
+            }
         }
-        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
+        return (bestRtt, bestLoss);
     }
 
     private (double ingress, double egress) GetTotalFabricLoad()
