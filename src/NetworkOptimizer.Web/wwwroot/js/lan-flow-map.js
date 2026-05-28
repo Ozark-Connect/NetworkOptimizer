@@ -1542,6 +1542,7 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
+        this._playbackAdvancing = true;
         // Track playback as a continuous timestamp, not integer slider units.
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
@@ -1573,24 +1574,20 @@ export class LanFlowMap {
             tickCount++;
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
-                this._playbackAdvancing = true;
-                try {
-                    if (clamped >= 9998) {
-                        this._stopHistoricPlayback();
-                        this._onScrubberChange(10000);
-                    } else {
-                        this._historicAt = this._playbackTime;
-                        this._notifyStatCards(this._playbackTime);
-                        this._loadHistoric(this._playbackTime);
-                    }
-                } finally {
-                    this._playbackAdvancing = false;
+                if (clamped >= 9998) {
+                    this._stopHistoricPlayback();
+                    this._onScrubberChange(10000);
+                } else {
+                    this._historicAt = this._playbackTime;
+                    this._notifyStatCards(this._playbackTime);
+                    this._loadHistoric(this._playbackTime);
                 }
             }
         }, TICK_MS);
     }
 
     _stopHistoricPlayback() {
+        this._playbackAdvancing = false;
         if (this._historicPlaybackTimer) {
             clearInterval(this._historicPlaybackTimer);
             this._historicPlaybackTimer = null;
