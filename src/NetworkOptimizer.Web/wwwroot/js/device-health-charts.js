@@ -100,14 +100,19 @@ function renderBadges(container) {
         </button>`;
     }).join('');
     el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (e) => {
             const mac = btn.dataset.mac;
-            const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
-            const onlyThis = visibility[mac] !== false
-                && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
-            if (onlyThis) { visibility = {}; }
-            else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
-            else { visibility[mac] = visibility[mac] === false; }
+
+            if (e.ctrlKey || e.metaKey) {
+                visibility[mac] = false;
+            } else {
+                const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
+                const onlyThis = visibility[mac] !== false
+                    && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
+                else { visibility[mac] = visibility[mac] === false; }
+            }
             updateVisibility();
             renderBadges(container);
         });

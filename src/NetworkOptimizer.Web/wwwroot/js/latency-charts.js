@@ -162,18 +162,23 @@ function renderBadges(container) {
     }).join('');
 
     el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (e) => {
             const tid = btn.dataset.target;
-            const allVis = targetMeta.every(t => visibility[t.id] !== false);
-            const onlyThis = visibility[tid] !== false
-                && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
 
-            if (onlyThis) {
-                visibility = {};
-            } else if (allVis) {
-                targetMeta.forEach(t => visibility[t.id] = t.id === tid);
+            if (e.ctrlKey || e.metaKey) {
+                visibility[tid] = false;
             } else {
-                visibility[tid] = visibility[tid] === false;
+                const allVis = targetMeta.every(t => visibility[t.id] !== false);
+                const onlyThis = visibility[tid] !== false
+                    && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
+
+                if (onlyThis) {
+                    visibility = {};
+                } else if (allVis) {
+                    targetMeta.forEach(t => visibility[t.id] = t.id === tid);
+                } else {
+                    visibility[tid] = visibility[tid] === false;
+                }
             }
             updateChartVisibility();
             renderBadges(container);

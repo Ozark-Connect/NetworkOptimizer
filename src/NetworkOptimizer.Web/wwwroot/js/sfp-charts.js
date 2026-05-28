@@ -98,14 +98,19 @@ function renderBadges(container) {
         </button>`;
     }).join('');
     el.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', (e) => {
             const id = btn.dataset.sfp;
-            const allVis = moduleMeta.every(m => visibility[m.id] !== false);
-            const onlyThis = visibility[id] !== false
-                && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
-            if (onlyThis) { visibility = {}; }
-            else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
-            else { visibility[id] = visibility[id] === false; }
+
+            if (e.ctrlKey || e.metaKey) {
+                visibility[id] = false;
+            } else {
+                const allVis = moduleMeta.every(m => visibility[m.id] !== false);
+                const onlyThis = visibility[id] !== false
+                    && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
+                else { visibility[id] = visibility[id] === false; }
+            }
             updateVisibility();
             renderBadges(container);
         });
