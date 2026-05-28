@@ -151,7 +151,7 @@ else
                 }
                 <div class="stat-label">ISP Loss</div>
             </div>
-            @{ var transitTarget = GetBestTargetStats(MonitoringTargetType.Transit); }
+            @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
             <div class="monitoring-stat-card">
                 @if (hasTransitTargets)
                 {
@@ -1501,7 +1501,6 @@ else
             return type switch
             {
                 MonitoringTargetType.AccessIsp => (_historicSnapshot.IspRttMs, _historicSnapshot.IspLossPercent),
-                MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
                 _ => (null, 0)
             };
         }
@@ -1521,6 +1520,30 @@ else
             }
         }
         return (bestRtt, bestLoss);
+    }
+
+    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
+    {
+        if (_historicSnapshot != null)
+        {
+            return type switch
+            {
+                MonitoringTargetType.Transit => (_historicSnapshot.TransitRttMs, _historicSnapshot.TransitLossPercent),
+                _ => (null, 0)
+            };
+        }
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+
+        var rtts = new List<double>();
+        var losses = new List<double>();
+        foreach (var t in targets)
+        {
+            var s = LiveStats.GetTargetStats(t.TargetId);
+            if (s?.RttAvgMs != null) rtts.Add(s.RttAvgMs.Value);
+            if (s != null) losses.Add(s.LossPercent);
+        }
+        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
     }
 
     private (double ingress, double egress) GetTotalFabricLoad()
