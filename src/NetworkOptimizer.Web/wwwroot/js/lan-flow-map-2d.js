@@ -326,8 +326,6 @@ class LanFlowMap2D {
         this._el.innerHTML='';
         const canvas=document.createElement('canvas');
         canvas.className='lfm2d-canvas';
-        canvas.style.width='100%';
-        canvas.style.height='100%';
         canvas.style.display='block';
         canvas.style.cursor='grab';
         canvas.style.touchAction='none';
