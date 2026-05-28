@@ -1323,6 +1323,7 @@ export class LanFlowMap {
             // Accelerates after holding: 4 → 12 → 35 units/tick over 2 seconds.
             // Shift multiplies by 9x on top of acceleration.
             if (this._keys?.['arrowleft'] || this._keys?.['arrowright']) {
+                if (this._historicPlaybackTimer) this._stopHistoricPlayback();
                 const now = performance.now();
                 if (!this._arrowScrubStart) this._arrowScrubStart = now;
                 if (!this._lastArrowScrub || now - this._lastArrowScrub >= 200) {
@@ -1542,7 +1543,6 @@ export class LanFlowMap {
 
     _startHistoricPlayback() {
         if (this._historicPlaybackTimer) return;
-        this._playbackAdvancing = true;
         // Track playback as a continuous timestamp, not integer slider units.
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
@@ -1590,7 +1590,6 @@ export class LanFlowMap {
     }
 
     _stopHistoricPlayback() {
-        this._playbackAdvancing = false;
         if (this._historicPlaybackTimer) {
             clearInterval(this._historicPlaybackTimer);
             this._historicPlaybackTimer = null;
@@ -2095,10 +2094,9 @@ export class LanFlowMap {
         // slider position); skip the auto-pause in that case or playback
         // would stop after one tick.
         if (this._mode !== 'historic') return;
-        if (!this._playbackAdvancing && !this._speedTransition && !this._paused) {
+        if (!this._historicPlaybackTimer && !this._speedTransition && !this._paused) {
             this._paused = true;
             this._syncPlayPauseIcon();
-            this._stopHistoricPlayback();
         }
         flowData.publishPlayState(this._paused, this._mode);
         this._notifyStatCards(at);
