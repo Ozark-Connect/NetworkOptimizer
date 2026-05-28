@@ -1446,19 +1446,26 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (deltaOut < 0 && !useHc) deltaOut += (long)uint.MaxValue + 1;
                 if (deltaIn >= 0 && deltaOut >= 0)
                 {
-                    rateInBps = deltaIn * 8.0 / elapsed;
-                    rateOutBps = deltaOut * 8.0 / elapsed;
-                    // Mirror into the read-side per-port cache so the 3D map's
-                    // live tick refreshes wired client leaf rates on the clean
-                    // 5s SNMP cadence (UniFi PortTable lags ~30s).
-                    // Direction: rateOutBps = port TX = data toward the leaf
-                    // (DownBps in cache convention); rateInBps = port RX = data
-                    // from the leaf (UpBps).
-                    _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+                    if (deltaIn == 0 && deltaOut == 0)
+                    {
+                        // Counters unchanged - device hasn't refreshed them yet.
+                        // Keep the previous cache entry so the next poll that sees
+                        // a real change computes delta/elapsed over the true window.
+                        // Prevents alternating 0 / 2x sawtooth in both the live
+                        // cache and InfluxDB.
+                    }
+                    else
+                    {
+                        rateInBps = deltaIn * 8.0 / elapsed;
+                        rateOutBps = deltaOut * 8.0 / elapsed;
+                        _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+                        _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
+                    }
                 }
             }
         }
-        _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
+        if (!_counterCache.ContainsKey(key))
+            _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
 
         bool hcCounters = iface.HighSpeed >= 1000 || iface.Speed >= 1_000_000_000;
         long speedBps = iface.HighSpeed > 0 ? iface.HighSpeed * 1_000_000L : iface.Speed;
