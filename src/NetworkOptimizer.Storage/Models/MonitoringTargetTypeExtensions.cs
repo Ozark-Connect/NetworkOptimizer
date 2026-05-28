@@ -51,7 +51,7 @@ public static class MonitoringEnumDisplay
         UpstreamRole.Border => "Border",
         UpstreamRole.Transit => "Transit",
         UpstreamRole.PathProxy => "Path proxy",
-        UpstreamRole.AccessHop => "ISP hop",
+        UpstreamRole.AccessHop => "Access hop",
         _ => r.ToString()
     };
 
