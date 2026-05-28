@@ -105,7 +105,9 @@ public class UpstreamRediscoveryService : BackgroundService
         // Tracer-origin targets only - user-added customs aren't part of the comparison.
         var targets = await db.MonitoringTargets
             .Where(t => t.DiscoveryMethod != null
-                && (t.DiscoveryMethod == DiscoveryMethod.DirectRouter || t.DiscoveryMethod == DiscoveryMethod.PathProxy))
+                && (t.DiscoveryMethod == DiscoveryMethod.DirectRouter
+                    || t.DiscoveryMethod == DiscoveryMethod.PathProxy
+                    || t.DiscoveryMethod == DiscoveryMethod.L2Neighbor))
             .Select(t => t.TargetId)
             .ToListAsync(ct);
         return new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);

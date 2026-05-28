@@ -163,7 +163,7 @@
                                         <th style="width: 40px;"></th>
                                         <th>Label</th>
                                         <th>Address</th>
-                                        <th>Hop</th>
+                                        <th>Source</th>
                                         <th>Role</th>
                                     </tr>
                                 </thead>
@@ -181,7 +181,7 @@
                                                        @onchange="e => hop.Label = (string)e.Value!" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
-                                            <td>@hop.HopNumber</td>
+                                            <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
                                             <td>@hop.Role.ToDisplayName()</td>
                                         </tr>
                                     }

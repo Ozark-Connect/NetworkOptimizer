@@ -22,6 +22,7 @@ public class UpstreamTracerState
     public bool IsDoubleNat { get; set; }
 
     public string? WanNeighborMac { get; set; }
+    public string? WanNeighborIp { get; set; }
     public string? WanNeighborOuiVendor { get; set; }
     public AccessTechnology AccessTechnology { get; set; } = AccessTechnology.Unknown;
 
@@ -62,6 +63,7 @@ public class AccessHopCandidate
     public UpstreamRole Role { get; set; }
     public int HopNumber { get; set; }
     public Core.Enums.ProbeMode RespondedTo { get; set; }
+    public DiscoveryMethod Method { get; set; } = DiscoveryMethod.DirectRouter;
     public bool Enabled { get; set; } = true;
 }
 

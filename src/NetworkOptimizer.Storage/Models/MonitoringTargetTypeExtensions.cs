@@ -70,6 +70,7 @@ public static class MonitoringEnumDisplay
         DiscoveryMethod.PathProxy => "Path-end",
         DiscoveryMethod.UserProvided => "User-added",
         DiscoveryMethod.Unresolved => "Unresolved",
+        DiscoveryMethod.L2Neighbor => "L2 neighbor",
         _ => m.ToString()
     };
 }

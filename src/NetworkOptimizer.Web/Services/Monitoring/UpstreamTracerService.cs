@@ -142,6 +142,7 @@ public class UpstreamTracerService
                 CompletedAt = ctx.LastDiscoveryAt,
                 WanInterface = ctx.WanInterface,
                 WanNeighborMac = ctx.L2NeighborMac,
+                WanNeighborIp = ctx.L2NeighborIp,
                 WanNeighborOuiVendor = ctx.L2NeighborOui,
                 AccessTechnology = ctx.AccessTechnology,
                 CurrentActivity = "Targets saved. The monitor is probing them on its regular cycle.",
@@ -156,6 +157,7 @@ public class UpstreamTracerService
                     Role = Enum.TryParse<UpstreamRole>(t.AutoLabel, out var role) ? role : UpstreamRole.AccessHop,
                     HopNumber = 0,
                     RespondedTo = t.DiscoveredProbeMode ?? t.ProbeMode,
+                    Method = t.DiscoveryMethod ?? DiscoveryMethod.DirectRouter,
                     Enabled = t.Enabled,
                 }).ToList(),
                 TransitAsns = transitRows.Select(t => new TransitAsnCandidate
@@ -446,6 +448,7 @@ public class UpstreamTracerService
         }
 
         string? neighborMac = null;
+        string? neighborIp = null;
         string? wanDevice = null;
 
         foreach (var ifaceCandidate in candidates)
@@ -456,10 +459,11 @@ public class UpstreamTracerService
             if (!ok || string.IsNullOrWhiteSpace(output)) continue;
 
             // Line shape: "x.x.x.x lladdr aa:bb:cc:dd:ee:ff REACHABLE"
-            var match = Regex.Match(output, @"lladdr\s+([0-9a-f:]{17})", RegexOptions.IgnoreCase);
+            var match = Regex.Match(output, @"^(\S+)\s+.*lladdr\s+([0-9a-f:]{17})", RegexOptions.IgnoreCase | RegexOptions.Multiline);
             if (match.Success)
             {
-                neighborMac = match.Groups[1].Value.ToLowerInvariant();
+                neighborIp = match.Groups[1].Value;
+                neighborMac = match.Groups[2].Value.ToLowerInvariant();
                 wanDevice = ifaceCandidate;
                 break;
             }
@@ -475,6 +479,7 @@ public class UpstreamTracerService
         }
 
         State.WanNeighborMac = neighborMac;
+        State.WanNeighborIp = neighborIp;
 
         // OUI lookup via the IEEE database service that's already loaded at app start
         // (~39k entries cached). The OuiVendors EF table is unused; this is the source
@@ -640,8 +645,33 @@ public class UpstreamTracerService
             Enabled = true
         }).ToList();
 
+        // Inject the L2 neighbor (from ip neigh) as the first access hop if it
+        // wasn't already found by traceroute. On GPON the OLT is typically
+        // L2-transparent and doesn't appear as a traceroute hop, but it may
+        // still respond to ICMP. The reachability check (step 5) will disable
+        // it if it doesn't respond.
+        if (!string.IsNullOrEmpty(State.WanNeighborIp)
+            && !State.AccessHops.Any(h => h.Address == State.WanNeighborIp))
+        {
+            var l2Asn = await _asnResolution.ResolveAsync(State.WanNeighborIp, ct);
+            var l2Hop = new AccessHopCandidate
+            {
+                TargetId = $"access-l2-{NormalizeMacForId(State.WanNeighborIp)}",
+                Label = LabelL2Neighbor(State.WanNeighborIp, State.WanNeighborOuiVendor, State.AccessTechnology),
+                Address = State.WanNeighborIp,
+                AsnNumber = l2Asn?.Asn,
+                AsnName = l2Asn?.Name,
+                Role = InferL2NeighborRole(State.AccessTechnology, State.WanNeighborOuiVendor),
+                HopNumber = 0,
+                RespondedTo = ProbeMode.Icmp,
+                Method = DiscoveryMethod.L2Neighbor,
+                Enabled = true
+            };
+            State.AccessHops.Insert(0, l2Hop);
+        }
+
         State.CurrentActivity = State.AccessHops.Count > 0
-            ? $"Identified {State.AccessHops.Count} access ISP hop(s) on AS{accessAsn}."
+            ? $"Identified {State.AccessHops.Count} access ISP hop(s){(accessAsn.HasValue ? $" on AS{accessAsn}" : "")}."
             : "No access-ISP hops responded. Discovery will continue but the access cloud will have no probed targets.";
     }
 
@@ -919,6 +949,42 @@ public class UpstreamTracerService
         return UpstreamRole.AccessHop;
     }
 
+    private static UpstreamRole InferL2NeighborRole(AccessTechnology tech, string? ouiVendor)
+    {
+        var vendor = ouiVendor?.ToLowerInvariant() ?? string.Empty;
+        var isOltVendor = vendor.Contains("calix") || vendor.Contains("nokia") || vendor.Contains("huawei")
+                          || vendor.Contains("zte") || vendor.Contains("alcatel") || vendor.Contains("adtran")
+                          || vendor.Contains("ubiquiti") || vendor.Contains("dzs") || vendor.Contains("dasan");
+        var isCmtsVendor = vendor.Contains("arris") || vendor.Contains("commscope") || vendor.Contains("casa")
+                           || vendor.Contains("cadant") || vendor.Contains("ubr");
+
+        if ((tech == AccessTechnology.Gpon || tech == AccessTechnology.XgsPon) && isOltVendor)
+            return UpstreamRole.Olt;
+        if (tech == AccessTechnology.Docsis && isCmtsVendor)
+            return UpstreamRole.Cmts;
+        if (tech == AccessTechnology.PppoE)
+            return UpstreamRole.Bng;
+        return UpstreamRole.AccessHop;
+    }
+
+    private static string LabelL2Neighbor(string ip, string? ouiVendor, AccessTechnology tech)
+    {
+        var roleName = tech switch
+        {
+            AccessTechnology.Gpon or AccessTechnology.XgsPon => "OLT",
+            AccessTechnology.Docsis => "CMTS",
+            AccessTechnology.PppoE => "BNG",
+            _ => null
+        };
+        if (!string.IsNullOrEmpty(ouiVendor) && roleName != null)
+            return $"{ouiVendor} {roleName}";
+        if (!string.IsNullOrEmpty(ouiVendor))
+            return $"{ouiVendor} ({ip})";
+        if (roleName != null)
+            return $"{ip} ({roleName})";
+        return ip;
+    }
+
     private static string NormalizeMacForId(string s) => s.Replace(".", "-").Replace(":", "-");
 
     // ---- Commit ----
@@ -958,6 +1024,7 @@ public class UpstreamTracerService
             db.WanDiscoveryContexts.Add(ctxRow);
         }
         ctxRow.L2NeighborMac = State.WanNeighborMac;
+        ctxRow.L2NeighborIp = State.WanNeighborIp;
         ctxRow.L2NeighborOui = State.WanNeighborOuiVendor;
         ctxRow.AccessTechnology = State.AccessTechnology;
         ctxRow.LastDiscoveryAt = DateTime.UtcNow;
@@ -998,7 +1065,7 @@ public class UpstreamTracerService
                 PingCount = 5,
                 Enabled = true,
                 AutoDiscovered = true,
-                DiscoveryMethod = DiscoveryMethod.DirectRouter,
+                DiscoveryMethod = hop.Method,
                 WanInterface = wanInterface,
                 PtrHostname = hop.PtrHostname,
                 AutoLabel = hop.Role.ToString(),
