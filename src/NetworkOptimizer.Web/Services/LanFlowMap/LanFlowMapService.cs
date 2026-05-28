@@ -435,36 +435,16 @@ public class LanFlowMapService
         }
         catch { }
 
-        // Pre-fetch interface_counters per device MAC so we don't re-query for
-        // every link on the same device. Covers WiredClient (PortKey), Uplink,
-        // MeshBackhaul, and WAN links.
-        var deviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!string.IsNullOrEmpty(gwMac)) deviceMacs.Add(gwMac);
-        foreach (var link in snapshot.Links)
+        // Single batch query for all device interface rates instead of N per-device queries.
+        Dictionary<string, List<MonitoringInfluxClient.InterfaceRatePoint>> ratesByDevice;
+        try
         {
-            if (link.Kind == LanLinkKind.Uplink || link.Kind == LanLinkKind.MeshBackhaul)
-            {
-                var mac = ExtractDeviceMacFromUplinkId(link.Id);
-                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
-            }
-            else if (!string.IsNullOrEmpty(link.PortKey))
-            {
-                var (mac, _) = ParsePortKey(link.PortKey);
-                if (!string.IsNullOrEmpty(mac)) deviceMacs.Add(mac);
-            }
+            ratesByDevice = await _influx.QueryAllInterfaceRatesAsync(from, to, ct: ct);
         }
-        var ratesByDevice = new Dictionary<string, IReadOnlyList<MonitoringInfluxClient.InterfaceRatePoint>>(
-            StringComparer.OrdinalIgnoreCase);
-        foreach (var mac in deviceMacs)
+        catch (Exception ex)
         {
-            try
-            {
-                ratesByDevice[mac] = await _influx.QueryInterfaceRatesAsync(mac, from, to, null, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Historic rate fetch failed for device {Mac}", mac);
-            }
+            _logger.LogDebug(ex, "Historic batch rate fetch failed");
+            ratesByDevice = new Dictionary<string, List<MonitoringInfluxClient.InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
         }
 
         // Batch pre-fetch all client throughput from InfluxDB (one query per

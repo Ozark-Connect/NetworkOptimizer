@@ -507,6 +507,47 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Batch variant: fetches interface rates for ALL devices in one query.
+    /// Returns results grouped by device MAC for caller-side partitioning.
+    /// </summary>
+    public async Task<Dictionary<string, List<InterfaceRatePoint>>> QueryAllInterfaceRatesAsync(
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<InterfaceRatePoint>>(StringComparer.OrdinalIgnoreCase);
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var mac = record.GetValueByKey("device_mac") as string ?? "";
+            var point = new InterfaceRatePoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                IfName = record.GetValueByKey("if_name") as string ?? "?",
+                RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
+                RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps"))
+            };
+            if (!results.TryGetValue(mac, out var list))
+            {
+                list = new List<InterfaceRatePoint>();
+                results[mac] = list;
+            }
+            list.Add(point);
+        }
+        return results;
+    }
+
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
         IReadOnlyList<string> wanIfNames,
