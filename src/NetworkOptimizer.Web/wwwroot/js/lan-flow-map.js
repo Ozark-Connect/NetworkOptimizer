@@ -92,6 +92,7 @@ const NODE_KIND = {
 // is the cutoff - low enough to surface most user-noticeable flows, high enough
 // that monitoring's own ping/loss probes don't render labels everywhere.
 const LINK_LABEL_THRESHOLD_BPS = 1_000_000;
+const WAN_LABEL_THRESHOLD_BPS = 500_000;
 
 // Camera-distance cutoff (scene units) above which leaf link labels
 // (WiredClient / WifiClient) stop rendering. Keeps the wide-angle view
@@ -1161,11 +1162,13 @@ export class LanFlowMap {
 
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
-        for (const [linkId, { el }] of this._linkLabels) {
+        for (const [linkId, { el, kind }] of this._linkLabels) {
             const r = this._currentRates?.[linkId];
             const down = r?.downstreamBps || 0;
             const up = r?.upstreamBps || 0;
-            if (down < LINK_LABEL_THRESHOLD_BPS && up < LINK_LABEL_THRESHOLD_BPS) {
+            const isWan = kind === LINK_KIND.Wan || kind === LINK_KIND.Transit;
+            const thresh = isWan ? WAN_LABEL_THRESHOLD_BPS : LINK_LABEL_THRESHOLD_BPS;
+            if (down < thresh && up < thresh) {
                 el.classList.remove('is-visible');
                 el._hasData = false;
                 continue;
