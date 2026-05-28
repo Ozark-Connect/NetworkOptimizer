@@ -2781,27 +2781,13 @@ else
 
     private async Task ToggleSeverity(int level, MouseEventArgs e)
     {
-        if (e.CtrlKey || e.MetaKey)
+        switch (level)
         {
-            switch (level)
-            {
-                case 5: _showSev5 = false; break;
-                case 4: _showSev4 = false; break;
-                case 3: _showSev3 = false; break;
-                case 2: _showSev2 = false; break;
-                case 1: _showSev1 = false; break;
-            }
-        }
-        else
-        {
-            switch (level)
-            {
-                case 5: _showSev5 = !_showSev5; break;
-                case 4: _showSev4 = !_showSev4; break;
-                case 3: _showSev3 = !_showSev3; break;
-                case 2: _showSev2 = !_showSev2; break;
-                case 1: _showSev1 = !_showSev1; break;
-            }
+            case 5: _showSev5 = !_showSev5; break;
+            case 4: _showSev4 = !_showSev4; break;
+            case 3: _showSev3 = !_showSev3; break;
+            case 2: _showSev2 = !_showSev2; break;
+            case 1: _showSev1 = !_showSev1; break;
         }
 
         await LoadDataAsync();

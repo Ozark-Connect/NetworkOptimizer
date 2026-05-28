@@ -166,7 +166,7 @@ function renderBadges(container) {
             const tid = btn.dataset.target;
 
             if (e.ctrlKey || e.metaKey) {
-                visibility[tid] = false;
+                visibility[tid] = visibility[tid] === false ? undefined : false;
             } else {
                 const allVis = targetMeta.every(t => visibility[t.id] !== false);
                 const onlyThis = visibility[tid] !== false

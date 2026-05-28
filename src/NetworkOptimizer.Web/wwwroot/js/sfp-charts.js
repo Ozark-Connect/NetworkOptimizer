@@ -102,7 +102,7 @@ function renderBadges(container) {
             const id = btn.dataset.sfp;
 
             if (e.ctrlKey || e.metaKey) {
-                visibility[id] = false;
+                visibility[id] = visibility[id] === false ? undefined : false;
             } else {
                 const allVis = moduleMeta.every(m => visibility[m.id] !== false);
                 const onlyThis = visibility[id] !== false

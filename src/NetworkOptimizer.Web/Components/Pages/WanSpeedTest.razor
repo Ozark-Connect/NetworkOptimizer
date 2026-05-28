@@ -691,11 +691,7 @@
         public int[] Indices { get; set; } = [];
     }
 
-    // Show all when none selected (or all selected) - same pattern as WiFi Optimizer Metrics
-    private bool _wanNoneSelected => !_wanSeries.Any(w => w.IsSelected);
-    private bool _wanAllSelected => _wanSeries.All(w => w.IsSelected);
-    private bool _wanShowAll => _wanNoneSelected || _wanAllSelected;
-    private bool IsWanVisible(WanSeriesInfo wan) => _wanShowAll || wan.IsSelected;
+    private bool IsWanVisible(WanSeriesInfo wan) => wan.IsSelected;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1429,9 +1425,21 @@
         if (wan == null) return;
 
         if (e.CtrlKey || e.MetaKey)
-            wan.IsSelected = false;
-        else
+        {
             wan.IsSelected = !wan.IsSelected;
+        }
+        else
+        {
+            var allVis = _wanSeries.All(w => w.IsSelected);
+            var onlyThis = wan.IsSelected && _wanSeries.Where(w => w.Key != wanKey).All(w => !w.IsSelected);
+
+            if (onlyThis)
+                foreach (var w in _wanSeries) w.IsSelected = true;
+            else if (allVis)
+                foreach (var w in _wanSeries) w.IsSelected = w.Key == wanKey;
+            else
+                wan.IsSelected = !wan.IsSelected;
+        }
 
         await LockCardHeight();
         _historyPage = 1;

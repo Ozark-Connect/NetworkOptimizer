@@ -104,7 +104,7 @@ function renderBadges(container) {
             const mac = btn.dataset.mac;
 
             if (e.ctrlKey || e.metaKey) {
-                visibility[mac] = false;
+                visibility[mac] = visibility[mac] === false ? undefined : false;
             } else {
                 const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
                 const onlyThis = visibility[mac] !== false
