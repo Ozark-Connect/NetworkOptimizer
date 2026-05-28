@@ -167,19 +167,13 @@ function renderBadges(container) {
             const btn = e.target.closest('button[data-target]');
             if (!btn) return;
             const tid = btn.dataset.target;
-            const name = targetMeta.find(t => t.id === tid)?.name || tid;
-            const before = Object.fromEntries(targetMeta.map(t => [t.name, visibility[t.id] !== false]));
 
             if (e.ctrlKey || e.metaKey) {
-                console.log(`[filter] Ctrl+Click "${name}"`, { before });
                 visibility[tid] = visibility[tid] === false ? undefined : false;
             } else {
                 const allVis = targetMeta.every(t => visibility[t.id] !== false);
                 const onlyThis = visibility[tid] !== false
                     && targetMeta.filter(t => t.id !== tid).every(t => visibility[t.id] === false);
-
-                const branch = onlyThis ? 'onlyThis→showAll' : allVis ? 'allVis→solo' : 'toggle';
-                console.log(`[filter] Click "${name}" → ${branch}`, { before });
 
                 if (onlyThis) {
                     visibility = {};
@@ -190,22 +184,17 @@ function renderBadges(container) {
                 }
             }
 
-            const after = Object.fromEntries(targetMeta.map(t => [t.name, visibility[t.id] !== false]));
-            console.log(`[filter] Result:`, { after });
-
-            updateChartVisibility('click');
+            updateChartVisibility();
             renderBadges(container);
             if (lastFetchData) renderStatsTable(container, lastFetchData);
         });
     }
 }
 
-function updateChartVisibility(source) {
+function updateChartVisibility() {
     if (!rttChart || !lossChart) return;
-    const applied = {};
     targetMeta.forEach((t, i) => {
         const vis = visibility[t.id] !== false;
-        applied[t.name] = vis;
         if (vis) {
             rttChart.showSeries(t.name);
             lossChart.showSeries(t.name);
@@ -214,7 +203,6 @@ function updateChartVisibility(source) {
             lossChart.hideSeries(t.name);
         }
     });
-    if (source) console.log(`[filter] updateChartVisibility(${source}):`, applied);
 }
 
 async function loadAndUpdate() {
