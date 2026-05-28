@@ -111,11 +111,11 @@ else
         <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: #3b82f6;">@FormatRate(wanRates.download)</div>
                 <div class="stat-label">WAN Download</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
@@ -765,7 +765,6 @@ else
         .monitoring-stat-card {
             flex: 1 1 80px;
             min-width: 70px;
-            min-height: 58px;
             padding: 0.5rem 0.5rem;
         }
         .monitoring-stat-card .stat-value {
@@ -774,6 +773,9 @@ else
         .monitoring-stat-pair {
             gap: 0.5rem;
             flex-basis: 170px;
+        }
+        .monitoring-stat-rate {
+            min-height: 68px;
         }
     }
 
