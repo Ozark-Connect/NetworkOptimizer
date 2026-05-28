@@ -2727,6 +2727,41 @@ select.form-control {
     border-top: 1px solid var(--border-color);
 }
 
+/* Hamburger Menu Button - hidden on desktop */
+.hamburger-btn {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    margin-right: 0.5rem;
+}
+
+.hamburger-btn span {
+    display: block;
+    width: 24px;
+    height: 3px;
+    background: var(--text-primary);
+    border-radius: 2px;
+    margin: 5px 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+/* Mobile logo - hidden on desktop */
+.mobile-logo {
+    display: none;
+}
+
+/* Sidebar Overlay - hidden on desktop */
+.sidebar-overlay {
+    display: none;
+}
+
+/* Hidden on desktop, shown only in mobile media query below */
+.pull-to-refresh {
+    display: none;
+}
+
 /* Responsive Design */
 @media (max-width: 1024px) {
     .content-grid {
@@ -2851,40 +2886,6 @@ select.form-control {
     }
 }
 
-/* Hamburger Menu Button - hidden on desktop */
-.hamburger-btn {
-    display: none;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.5rem;
-    margin-right: 0.5rem;
-}
-
-.hamburger-btn span {
-    display: block;
-    width: 24px;
-    height: 3px;
-    background: var(--text-primary);
-    border-radius: 2px;
-    margin: 5px 0;
-    transition: transform 0.3s ease, opacity 0.3s ease;
-}
-
-/* Mobile logo - hidden on desktop */
-.mobile-logo {
-    display: none;
-}
-
-/* Sidebar Overlay - hidden on desktop */
-.sidebar-overlay {
-    display: none;
-}
-
-/* Hidden on desktop, shown only in mobile media query below */
-.pull-to-refresh {
-    display: none;
-}
 
 @media (max-width: 768px) {
     /* Pull-to-refresh indicator */
