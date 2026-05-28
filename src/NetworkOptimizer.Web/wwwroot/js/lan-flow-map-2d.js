@@ -474,6 +474,8 @@ class LanFlowMap2D {
             const key=e.key.toLowerCase();
             if(key==='arrowleft'||key==='arrowright'){
                 if(inst._keys)inst._keys[key]=true;
+            }else if(key==='shift'){
+                if(inst._keys)inst._keys.shift=true;
             }else if(key===' '){
                 inst._togglePlayPause();
             }
@@ -481,7 +483,11 @@ class LanFlowMap2D {
         sRange.addEventListener('keyup',(e)=>{
             const inst=fwd();if(!inst)return;
             const key=e.key.toLowerCase();
-            if(inst._keys)inst._keys[key]=false;
+            if(key==='shift'){
+                if(inst._keys)inst._keys.shift=false;
+            }else if(inst._keys){
+                inst._keys[key]=false;
+            }
         });
         sRange.addEventListener('input',(e)=>{
             const inst=fwd();if(inst){
