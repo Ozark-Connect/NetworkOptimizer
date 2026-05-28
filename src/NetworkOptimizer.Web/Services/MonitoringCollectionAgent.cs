@@ -554,6 +554,16 @@ public class MonitoringCollectionAgent : BackgroundService
                             }
                             else
                             {
+                                // Tuple convention is aligned with the SNMP writer
+                                // at WriteInterfaceCounters so downstream consumers
+                                // see stable directions whether SNMP or this UniFi
+                                // PortTable writer was the one that ran last on a
+                                // given cycle: tuple = (rateIn=RX, rateOut=TX).
+                                // NOTE: do NOT mirror into _liveStats per-port cache
+                                // here. UniFi PortTable byte counters update server-
+                                // side ~30s; at our 5s poll cadence that yields a
+                                // burst-then-zeros pattern that would clobber the
+                                // SNMP-fed _liveStats.RecordPortRate writes.
                                 _portRateLatest[key] = (deltaRx * 8.0 / elapsed, deltaTx * 8.0 / elapsed);
                                 _portBytePrev[key] = current;
                             }
