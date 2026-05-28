@@ -705,12 +705,12 @@ public class MonitoringCollectionAgent : BackgroundService
                 long? uptime = ss != null ? (long?)ParseJsonDouble(ss.Uptime) : null;
                 double? temp = ParseDeviceTemperature(device);
 
-                // SNMP devices: only supplement fields SNMP doesn't provide.
-                // SNMP covers CPU/mem/uptime reliably. Temperature is the gap -
-                // most switches don't report temp via SNMP but the UniFi API has it.
-                // Always write API temp for SNMP devices; skip CPU/mem/uptime.
+                // SNMP devices: only supplement temp for switches (SNMP doesn't
+                // report switch temps). Gateway and APs get temp from SNMP already;
+                // writing API temp too creates dual-source Z-shape artifacts.
                 if (snmpActive)
                 {
+                    if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch) continue;
                     cpu = null;
                     mem = null;
                     uptime = null;
