@@ -508,6 +508,59 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Raw interface rate query for a single device - no aggregateWindow, no pivot.
+    /// Returns raw rate_in_bps and rate_out_bps points paired in C#. Much cheaper
+    /// than the aggregated variant for short-range playback where data is already
+    /// at native 5s cadence.
+    /// </summary>
+    public async Task<IReadOnlyList<InterfaceRatePoint>> QueryInterfaceRatesRawAsync(
+        string deviceMac,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<InterfaceRatePoint>();
+        var mac = NormalizeMac(deviceMac);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+";
+        var rateIn = new Dictionary<(string ifName, long ticks), double>();
+        var rateOut = new Dictionary<(string ifName, long ticks), double>();
+        var times = new Dictionary<(string ifName, long ticks), DateTime>();
+
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var ifName = record.GetValueByKey("if_name") as string ?? "?";
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var field = record.GetValueByKey("_field") as string;
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (value == null) continue;
+
+            var key = (ifName, time.Ticks);
+            times[key] = time;
+            if (field == "rate_in_bps") rateIn[key] = value.Value;
+            else if (field == "rate_out_bps") rateOut[key] = value.Value;
+        }
+
+        var results = new List<InterfaceRatePoint>(times.Count);
+        foreach (var (key, time) in times)
+        {
+            results.Add(new InterfaceRatePoint
+            {
+                Time = time,
+                IfName = key.ifName,
+                RateInBps = rateIn.TryGetValue(key, out var ri) ? ri : null,
+                RateOutBps = rateOut.TryGetValue(key, out var ro) ? ro : null,
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
     /// Batch variant: fetches interface rates for a set of devices in one query.
     /// Returns results grouped by device MAC for caller-side partitioning.
     /// </summary>

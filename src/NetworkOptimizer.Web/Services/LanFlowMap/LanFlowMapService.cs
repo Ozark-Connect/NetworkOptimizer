@@ -1766,7 +1766,7 @@ public class LanFlowMapService
         {
             try
             {
-                ratesByDevice[mac] = await _influx.QueryInterfaceRatesAsync(mac, from, to, null, ct);
+                ratesByDevice[mac] = await _influx.QueryInterfaceRatesRawAsync(mac, from, to, ct);
             }
             catch (Exception ex)
             {
