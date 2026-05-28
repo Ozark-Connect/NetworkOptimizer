@@ -4,6 +4,11 @@
 
 import * as flowData from './lan-flow-data.js?v=1';
 
+function demoMask(text) {
+    const dm = window.DemoMask;
+    return (dm?.isEnabled() && dm.maskString) ? (dm.maskString(text) ?? text) : text;
+}
+
 // ---- Color palette (matches 3D map) ----
 const C = {
     bg:           '#202023',
@@ -699,16 +704,17 @@ class LanFlowMap2D {
     _showTooltip(node,sx,sy){
         const d=node.d;
         const esc=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        const m=demoMask;
         const rows=[];
-        if(d.ip)rows.push(['IP',d.ip]);
-        if(d.mac)rows.push(['MAC',d.mac]);
+        if(d.ip)rows.push(['IP',m(d.ip)]);
+        if(d.mac)rows.push(['MAC',m(d.mac)]);
         if(d.model)rows.push(['Model',d.model]);
         if(d.band)rows.push(['Band',`${d.band} GHz`]);
-        if(d.ssid)rows.push(['SSID',d.ssid]);
+        if(d.ssid)rows.push(['SSID',m(d.ssid)]);
         if(d.signalDbm)rows.push(['Signal',`${d.signalDbm} dBm`]);
-        if(d.switchPortName)rows.push(['Switch port',d.switchPortName]);
+        if(d.switchPortName)rows.push(['Switch port',m(d.switchPortName)]);
         if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
-        if(d.network)rows.push(['Network',d.network]);
+        if(d.network)rows.push(['Network',m(d.network)]);
 
         const badges=flowData.getNodeBadges();
         const b=badges?.[d.id];
@@ -747,7 +753,7 @@ class LanFlowMap2D {
         }
 
         this._tooltip.innerHTML=
-            `<div style="font-weight:600;margin-bottom:3px">${esc(d.name||d.mac||'')}</div>`
+            `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
             +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
         this._tooltip.style.display='block';
         // Position dynamically to stay within the container
@@ -1317,7 +1323,7 @@ class LanFlowMap2D {
             ctx.globalAlpha=1;
 
             // Name
-            const name=cloud.d.asnName||cloud.d.name||'WAN';
+            const name=demoMask(cloud.d.asnName||cloud.d.name||'WAN');
             ctx.fillStyle=C.textSec;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
@@ -1368,7 +1374,7 @@ class LanFlowMap2D {
         ctx.globalAlpha=1;
 
         // Label - name may already include count from the server
-        const name=n.d.name||'Hub';
+        const name=demoMask(n.d.name||'Hub');
         const hasCount=/\(\d+\)/.test(name);
         const label=hasCount?name:memberCount>0?`${name} (${memberCount})`:name;
         const dn=label.length>28?label.slice(0,27)+'…':label;
@@ -1416,7 +1422,7 @@ class LanFlowMap2D {
         ctx.globalAlpha=1;
 
         // Name label
-        const name=n.d.name||n.d.model||'';
+        const name=demoMask(n.d.name||n.d.model||'');
         if(name){
             const dn=name.length>24?name.slice(0,23)+'…':name;
             ctx.fillStyle=C.text;
@@ -1453,7 +1459,7 @@ class LanFlowMap2D {
         ctx.globalAlpha=1;
 
         // Name label
-        const name=n.d.name||n.d.ip||'';
+        const name=demoMask(n.d.name||n.d.ip||'');
         if(name){
             const dn=name.length>32?name.slice(0,31)+'…':name;
             ctx.fillStyle=C.textMuted;
