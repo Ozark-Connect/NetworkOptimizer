@@ -318,6 +318,7 @@
 
 @code {
     [Parameter] public bool ForceExpand { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
 
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
@@ -385,6 +386,7 @@
         await Tracer.CommitResultsAsync();
         _state = Tracer.State;
         _justSaved = true;
+        await OnSaved.InvokeAsync();
         StateHasChanged();
 
         // Server side: invalidate the cached map snapshot so the next read

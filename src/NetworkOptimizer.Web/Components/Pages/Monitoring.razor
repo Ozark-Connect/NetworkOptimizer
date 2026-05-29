@@ -327,7 +327,7 @@ else
 
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" />
+            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
         </div>
 
         <div style="margin-top: 1.5rem;">
@@ -848,11 +848,7 @@ else
 
         _liveRefreshTimer = new System.Threading.Timer(_ =>
         {
-            try
-            {
-                if (_upstreamDiscoveryPendingSave) return;
-                _ = InvokeAsync(StateHasChanged);
-            }
+            try { _ = InvokeAsync(StateHasChanged); }
             catch { }
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
 
