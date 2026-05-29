@@ -895,12 +895,8 @@ public class UpstreamTracerService
             if (existingByAddress.TryGetValue(addr, out var existing))
             {
                 c.Enabled = existing.Enabled;
-                if (!string.IsNullOrEmpty(existing.Name)
-                    && c.Label != null
-                    && Regex.IsMatch(c.Label, @"\s\d+$"))
-                {
+                if (!string.IsNullOrEmpty(existing.Name))
                     c.Label = existing.Name;
-                }
             }
         }
         foreach (var hop in State.AccessHops)
@@ -908,6 +904,8 @@ public class UpstreamTracerService
             if (existingByAddress.TryGetValue(hop.Address, out var existing))
             {
                 hop.Enabled = existing.Enabled;
+                if (!string.IsNullOrEmpty(existing.Name))
+                    hop.Label = existing.Name;
             }
         }
 

@@ -412,6 +412,130 @@ public class UpstreamCommitTests : IDisposable
         target.Name.Should().Be("Hop A Final");
     }
 
+    [Fact]
+    public void Reconcile_absorbs_user_edited_name_for_transit()
+    {
+        var candidates = new List<TransitAsnCandidate>
+        {
+            MakeTransitCandidate("198.51.100.1", "Windstream ae6-0.agr01.ltrk01-ar.us", 7029, DiscoveryMethod.DirectRouter, true)
+        };
+        var existing = MakeDbTarget("198.51.100.1", "Windstream ae6-0.agr01.ltrk01-ar.us 1", MonitoringTargetType.Transit, enabled: true);
+        _db.MonitoringTargets.Add(existing);
+        _db.SaveChanges();
+
+        var byAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["198.51.100.1"] = existing
+        };
+
+        foreach (var c in candidates)
+        {
+            var addr = c.HopAddress ?? c.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            if (byAddress.TryGetValue(addr, out var ex))
+            {
+                c.Enabled = ex.Enabled;
+                if (!string.IsNullOrEmpty(ex.Name))
+                    c.Label = ex.Name;
+            }
+        }
+
+        candidates[0].Label.Should().Be("Windstream ae6-0.agr01.ltrk01-ar.us 1");
+        candidates[0].Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Reconcile_absorbs_user_edited_name_for_access()
+    {
+        var hops = new List<AccessHopCandidate>
+        {
+            MakeAccessHop("192.0.2.1", "YELCOT gassville-border", enabled: true)
+        };
+        var existing = MakeDbTarget("192.0.2.1", "YELCOT gassville-border 1", MonitoringTargetType.AccessIsp, enabled: true);
+        _db.MonitoringTargets.Add(existing);
+        _db.SaveChanges();
+
+        var byAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["192.0.2.1"] = existing
+        };
+
+        foreach (var hop in hops)
+        {
+            if (byAddress.TryGetValue(hop.Address, out var ex))
+            {
+                hop.Enabled = ex.Enabled;
+                if (!string.IsNullOrEmpty(ex.Name))
+                    hop.Label = ex.Name;
+            }
+        }
+
+        hops[0].Label.Should().Be("YELCOT gassville-border 1");
+    }
+
+    [Fact]
+    public void Reconcile_absorbs_name_for_pathproxy()
+    {
+        var candidates = new List<TransitAsnCandidate>
+        {
+            MakeTransitCandidate("203.0.113.1", "Cloudflare", 13335, DiscoveryMethod.PathProxy, true)
+        };
+        candidates[0].PathProxyTarget = "203.0.113.1";
+        var existing = MakeDbTarget("203.0.113.1", "Cloudflare Primary", MonitoringTargetType.InternetService, enabled: true);
+        _db.MonitoringTargets.Add(existing);
+        _db.SaveChanges();
+
+        var byAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["203.0.113.1"] = existing
+        };
+
+        foreach (var c in candidates)
+        {
+            var addr = c.HopAddress ?? c.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            if (byAddress.TryGetValue(addr, out var ex))
+            {
+                c.Enabled = ex.Enabled;
+                if (!string.IsNullOrEmpty(ex.Name))
+                    c.Label = ex.Name;
+            }
+        }
+
+        candidates[0].Label.Should().Be("Cloudflare Primary");
+    }
+
+    [Fact]
+    public void Reconcile_does_not_overwrite_with_empty_db_name()
+    {
+        var candidates = new List<TransitAsnCandidate>
+        {
+            MakeTransitCandidate("198.51.100.1", "Windstream agr01", 7029, DiscoveryMethod.DirectRouter, true)
+        };
+        var existing = MakeDbTarget("198.51.100.1", "", MonitoringTargetType.Transit, enabled: true);
+        _db.MonitoringTargets.Add(existing);
+        _db.SaveChanges();
+
+        var byAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["198.51.100.1"] = existing
+        };
+
+        foreach (var c in candidates)
+        {
+            var addr = c.HopAddress ?? c.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            if (byAddress.TryGetValue(addr, out var ex))
+            {
+                c.Enabled = ex.Enabled;
+                if (!string.IsNullOrEmpty(ex.Name))
+                    c.Label = ex.Name;
+            }
+        }
+
+        candidates[0].Label.Should().Be("Windstream agr01");
+    }
+
     // ---- Helpers ----
 
     private async Task CommitAsync(List<AccessHopCandidate> hops, List<TransitAsnCandidate> transits)
