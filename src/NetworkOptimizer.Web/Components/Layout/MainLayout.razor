@@ -202,7 +202,11 @@
         };
 
         attachListener(getScrollEl());
-        window.addEventListener('resize', function() { attachListener(getScrollEl()); });
+        window.addEventListener('resize', function() {
+            attachListener(getScrollEl());
+            var mc = document.querySelector('.main-content');
+            if (mc) mc.scrollTop = mc.scrollTop + 0;
+        });
 
         // Restart auto-hide timer when sidebar closes
         var sidebar = document.querySelector('.sidebar');
