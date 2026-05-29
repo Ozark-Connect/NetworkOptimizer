@@ -122,6 +122,7 @@ export class LanFlowMap {
         this.apiBase = options.apiBase ?? '/api/monitoring/lan-flow-map';
         this.pollIntervalMs = options.pollIntervalMs ?? 1000;
         this.onError = options.onError ?? ((err) => console.error('[LanFlowMap]', err));
+        this._storagePrefix = options.storagePrefix ?? 'lanFlowMap';
 
         this._snapshot = null;
         this._nodesByLink = new Map();
@@ -142,7 +143,7 @@ export class LanFlowMap {
             buildings: true,
         };
         try {
-            const saved = JSON.parse(localStorage.getItem('lanFlowMapOverlays'));
+            const saved = JSON.parse(localStorage.getItem(this._storagePrefix + 'Overlays'));
             this._overlays = saved ? { ...defaultOverlays, ...saved } : { ...defaultOverlays };
         } catch {
             this._overlays = { ...defaultOverlays };
@@ -240,7 +241,7 @@ export class LanFlowMap {
 
         // Restore persisted camera target for fly-in destination.
         try {
-            const saved = JSON.parse(localStorage.getItem('lanFlowMapCamera'));
+            const saved = JSON.parse(localStorage.getItem(this._storagePrefix + 'Camera'));
             if (saved) {
                 this._savedCamera = saved;
             }
@@ -254,7 +255,7 @@ export class LanFlowMap {
                 try {
                     const p = this.camera.position;
                     const t = this.controls.target;
-                    localStorage.setItem('lanFlowMapCamera', JSON.stringify({
+                    localStorage.setItem(this._storagePrefix + 'Camera', JSON.stringify({
                         cx: p.x, cy: p.y, cz: p.z,
                         tx: t.x, ty: t.y, tz: t.z,
                     }));
@@ -1698,7 +1699,7 @@ export class LanFlowMap {
                 row.classList.toggle('is-on', this._overlays[key]);
                 this._applyOverlayVisibility();
                 if (key === 'speedTests') this._renderSpeedTestOverlay();
-                try { localStorage.setItem('lanFlowMapOverlays', JSON.stringify(this._overlays)); } catch {}
+                try { localStorage.setItem(this._storagePrefix + 'Overlays', JSON.stringify(this._overlays)); } catch {}
             });
             controlsBody.appendChild(row);
         }

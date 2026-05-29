@@ -226,8 +226,9 @@ class Stream {
 
 // ---- Main class ----
 class LanFlowMap2D {
-    constructor(container){
+    constructor(container,opts){
         this._el=container;
+        this._storageKey=(opts?.storagePrefix||'lanFlowMap2d')+'Overlays';
         this._canvas=null;
         this._ctx=null;
         this._dpr=1;
@@ -267,6 +268,7 @@ class LanFlowMap2D {
     }
 
     async start(){
+        if(flowData.isPaused())flowData.publishPlayState(false,'live');
         this._createCanvas();
         const snap=flowData.getSnapshot();
         if(snap){
@@ -361,7 +363,7 @@ class LanFlowMap2D {
         // Filter + overlay state
         this._filter={text:'',bands:{'2.4':true,'5':true,'6':true}};
         const defaultOverlays={wifiClients:true,wiredClients:true,clouds:true};
-        try{const s=JSON.parse(localStorage.getItem('lanFlowMap2dOverlays'));this._overlays=s?{...defaultOverlays,...s}:{...defaultOverlays};}
+        try{const s=JSON.parse(localStorage.getItem(this._storageKey));this._overlays=s?{...defaultOverlays,...s}:{...defaultOverlays};}
         catch{this._overlays={...defaultOverlays};}
 
         // Filter panel (top-left, matching 3D style, collapsible on mobile)
@@ -424,7 +426,7 @@ class LanFlowMap2D {
             row.addEventListener('click',()=>{
                 this._overlays[key]=!this._overlays[key];
                 row.classList.toggle('is-on',this._overlays[key]);
-                try{localStorage.setItem('lanFlowMap2dOverlays',JSON.stringify(this._overlays));}catch{}
+                try{localStorage.setItem(this._storageKey,JSON.stringify(this._overlays));}catch{}
                 this._needsStaticRedraw=true;
                 if(this._isFitted)this._fitAll();
             });
@@ -1664,11 +1666,12 @@ class LanFlowMap2D {
 // ---- Module exports ----
 let _inst=null;
 
-export async function mount(containerId){
+export async function mount(containerId,opts){
     if(_inst){_inst.dispose();_inst=null;}
     const container=document.getElementById(containerId);
     if(!container)return;
-    _inst=new LanFlowMap2D(container);
+    _inst=new LanFlowMap2D(container,opts);
+    if(opts?.liveOnly)_inst._liveOnly=true;
     await _inst.start();
 }
 
