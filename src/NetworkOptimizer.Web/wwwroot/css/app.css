@@ -114,6 +114,7 @@ a:hover {
 .app-container {
     display: flex;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
 }
 
@@ -2800,6 +2801,7 @@ select.form-control {
         top: 0;
         left: 0;
         height: 100vh;
+        height: 100dvh;
         width: 280px;
         transform: translateX(-100%);
         transition: transform 0.3s ease;

@@ -776,7 +776,7 @@ class LanFlowMap2D {
             if(Math.abs(w.x-n.x)<G.boxW/2&&Math.abs(w.y-n.y)<G.boxH/2)hit=n;
             for(const c of n.infra)checkNode(c);
             for(const c of n.clients.slice(0,G.maxClients)){
-                if(Math.abs(w.x-c.x)<G.clientCellW/2&&Math.abs(w.y-c.y)<G.clientCellH/2)hit=c;
+                if(this._isNodeVisible(c)&&Math.abs(w.x-c.x)<G.clientCellW/2&&Math.abs(w.y-c.y)<G.clientCellH/2)hit=c;
             }
         };
         if(this._root)checkNode(this._root);
