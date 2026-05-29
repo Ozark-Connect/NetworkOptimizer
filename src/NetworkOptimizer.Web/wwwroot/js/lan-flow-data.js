@@ -60,3 +60,37 @@ export function publishScrubber(value, rightLabel, speed) {
     _playbackSpeed = speed;
     _notify('scrubber');
 }
+
+// Standalone data poller for contexts without the 3D map (e.g. dashboard).
+let _pollTimer = null;
+let _pollAbort = null;
+const API_BASE = '/api/monitoring/lan-flow-map';
+
+async function _fetchSnapshot(signal) {
+    const res = await fetch(`${API_BASE}/snapshot`, { credentials: 'same-origin', signal });
+    if (!res.ok) return;
+    const snap = await res.json();
+    publishSnapshot(snap);
+}
+
+async function _fetchLive(signal) {
+    const res = await fetch(`${API_BASE}/live`, { credentials: 'same-origin', signal });
+    if (!res.ok) return;
+    const update = await res.json();
+    publishLive(update);
+}
+
+export function startPolling(intervalMs = 3000) {
+    if (_pollTimer) return;
+    _pollAbort = new AbortController();
+    const signal = _pollAbort.signal;
+    _fetchSnapshot(signal).catch(() => {});
+    _pollTimer = setInterval(() => {
+        _fetchLive(signal).catch(() => {});
+    }, intervalMs);
+}
+
+export function stopPolling() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    if (_pollAbort) { _pollAbort.abort(); _pollAbort = null; }
+}

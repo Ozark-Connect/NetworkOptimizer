@@ -2,7 +2,8 @@
 // Subscribes to lan-flow-data.js (published by the 3D map) so there are
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
-import * as flowData from './lan-flow-data.js?v=1';
+// KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
+import * as flowData from './lan-flow-data.js?v=2';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -225,8 +226,9 @@ class Stream {
 
 // ---- Main class ----
 class LanFlowMap2D {
-    constructor(container){
+    constructor(container,opts){
         this._el=container;
+        this._storageKey=(opts?.storagePrefix||'lanFlowMap2d')+'Overlays';
         this._canvas=null;
         this._ctx=null;
         this._dpr=1;
@@ -262,9 +264,11 @@ class LanFlowMap2D {
 
         this._tooltip=null;
         this._hoverNode=null;
+        this._liveOnly=false;
     }
 
     async start(){
+        if(flowData.isPaused())flowData.publishPlayState(false,'live');
         this._createCanvas();
         const snap=flowData.getSnapshot();
         if(snap){
@@ -345,6 +349,7 @@ class LanFlowMap2D {
         const fsBtn=document.createElement('button');
         fsBtn.className='lan-flow-map-fullscreen-btn';
         fsBtn.setAttribute('data-tooltip','Fullscreen');
+        fsBtn.setAttribute('data-tooltip-hover-only','');
         fsBtn.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline>
             <polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>`;
@@ -359,7 +364,7 @@ class LanFlowMap2D {
         // Filter + overlay state
         this._filter={text:'',bands:{'2.4':true,'5':true,'6':true}};
         const defaultOverlays={wifiClients:true,wiredClients:true,clouds:true};
-        try{const s=JSON.parse(localStorage.getItem('lanFlowMap2dOverlays'));this._overlays=s?{...defaultOverlays,...s}:{...defaultOverlays};}
+        try{const s=JSON.parse(localStorage.getItem(this._storageKey));this._overlays=s?{...defaultOverlays,...s}:{...defaultOverlays};}
         catch{this._overlays={...defaultOverlays};}
 
         // Filter panel (top-left, matching 3D style, collapsible on mobile)
@@ -422,7 +427,7 @@ class LanFlowMap2D {
             row.addEventListener('click',()=>{
                 this._overlays[key]=!this._overlays[key];
                 row.classList.toggle('is-on',this._overlays[key]);
-                try{localStorage.setItem('lanFlowMap2dOverlays',JSON.stringify(this._overlays));}catch{}
+                try{localStorage.setItem(this._storageKey,JSON.stringify(this._overlays));}catch{}
                 this._needsStaticRedraw=true;
                 if(this._isFitted)this._fitAll();
             });
@@ -450,6 +455,7 @@ class LanFlowMap2D {
         const modeBadge=document.createElement('span');
         modeBadge.className='lan-flow-map-mode';
         modeBadge.textContent='Live';
+        modeBadge.setAttribute('data-tooltip-hover-only','');
         modeBadge.addEventListener('click',()=>{
             const inst=window.__lanFlowMap?.getInstance?.();
             if(inst&&inst._mode==='historic'){
@@ -700,7 +706,12 @@ class LanFlowMap2D {
             this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
             this._modeBadge.classList.toggle('is-historic',mode==='historic');
             this._modeBadge.style.cursor=mode==='historic'?'pointer':'';
-            this._modeBadge.setAttribute('data-tooltip',mode==='historic'?'Click to return to live':'');
+            if(mode==='historic'){
+                this._modeBadge.setAttribute('data-tooltip','Click to return to live');
+            }else{
+                this._modeBadge.removeAttribute('data-tooltip');
+                if(this._modeBadge._tippy)this._modeBadge._tippy.destroy();
+            }
         }
     }
 
@@ -1650,7 +1661,7 @@ class LanFlowMap2D {
         const dt=Math.min((now-this._lastFrame)/1000,0.1);
         this._lastFrame=now;
 
-        if(!flowData.isPaused()){
+        if(this._liveOnly||!flowData.isPaused()){
             for(const s of this._streams)s.advance(dt);
         }
         this._draw();
@@ -1662,14 +1673,25 @@ class LanFlowMap2D {
 // ---- Module exports ----
 let _inst=null;
 
-export async function mount(containerId){
+export async function mount(containerId,opts){
     if(_inst){_inst.dispose();_inst=null;}
     const container=document.getElementById(containerId);
     if(!container)return;
-    _inst=new LanFlowMap2D(container);
+    _inst=new LanFlowMap2D(container,opts);
+    if(opts?.liveOnly)_inst._liveOnly=true;
     await _inst.start();
 }
 
 export function unmount(){
     if(_inst){_inst.dispose();_inst=null;}
+}
+
+export function startDataPolling(){
+    if(_inst)_inst._liveOnly=true;
+    flowData.startPolling();
+}
+
+export function stopDataPolling(){
+    flowData.stopPolling();
+    if(_inst)_inst._liveOnly=false;
 }

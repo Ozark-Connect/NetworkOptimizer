@@ -1,0 +1,398 @@
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Core.Enums
+@implements IDisposable
+@inject MonitoringLiveStats LiveStats
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject UniFiConnectionService ConnectionService
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+
+@if (!_ready)
+{
+    <div class="sqm-unavailable">
+        <div class="sqm-status">
+            <span class="status-indicator status-disconnected"></span>
+            <span class="status-label">Monitoring not configured</span>
+        </div>
+        <p class="status-message">
+            Set up network monitoring to see live topology and traffic stats on the dashboard.
+        </p>
+        <div class="sqm-actions">
+            <a href="/monitoring" class="btn btn-primary">Open Monitoring</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="lv-panel">
+        <div class="monitoring-stat-cards">
+            @{ var wanRates = GetWanRates(); }
+            <div class="monitoring-stat-card monitoring-stat-rate">
+                <div class="stat-value" style="color: #3b82f6;">@FormatRate(wanRates.download)</div>
+                <div class="stat-label">WAN Download</div>
+            </div>
+            <div class="monitoring-stat-card monitoring-stat-rate">
+                <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
+                <div class="stat-label">WAN Upload</div>
+            </div>
+            @{ var gwLatency = GetGatewayLatency(); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
+                <div class="stat-label">Gateway RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
+                <div class="stat-label">Gateway Loss</div>
+            </div>
+            @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
+                <div class="stat-label">ISP RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
+                <div class="stat-label">ISP Loss</div>
+            </div>
+            @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
+                <div class="stat-label">Transit RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
+                <div class="stat-label">Transit Loss</div>
+            </div>
+        </div>
+
+        @if (MapMode == "3d")
+        {
+            <div class="card lv-map-card">
+                <div class="card-body lv-map-body">
+                    <div class="lan-flow-map-stage" id="dashboard-lan-flow-map-stage">
+                        <canvas id="dashboard-lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="card lv-map-card">
+                <div class="card-body lv-map-body">
+                    <div id="dashboard-lan-flow-map-2d-stage" class="lan-flow-map-2d-stage lv-map-2d-stage"></div>
+                </div>
+            </div>
+        }
+
+        <div class="monitoring-stat-cards">
+            @{ var gwStats = GetGatewayStats(); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
+                <div class="stat-label">Gateway CPU</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
+                <div class="stat-label">Gateway Memory</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
+                <div class="stat-label">Gateway Temp</div>
+            </div>
+            @{ var fabricLoad = GetTotalFabricLoad(); }
+            <div class="monitoring-stat-pair">
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                    <div class="stat-label">Fabric Ingress</div>
+                </div>
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                    <div class="stat-label">Fabric Egress</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .lv-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .lv-panel .monitoring-stat-card {
+        background: var(--bg-tertiary);
+    }
+    .lv-map-card {
+        overflow: hidden;
+        margin-bottom: 0;
+        padding: 0;
+    }
+    .lv-map-body {
+        padding: 0;
+        background: #202023;
+        position: relative;
+    }
+    .lv-map-2d-stage {
+        height: clamp(400px, 50vh, 600px);
+    }
+    .lv-panel .lan-flow-map-scrubber,
+    .lv-panel .lan-flow-map-status {
+        display: none;
+    }
+    #dashboard-lan-flow-map-stage {
+        position: relative;
+        width: 100%;
+        height: clamp(400px, 50vh, 600px);
+        background: var(--bg-primary);
+        border-radius: 0 0 8px 8px;
+        overflow: hidden;
+    }
+    #dashboard-lan-flow-map-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: var(--bg-primary);
+        outline: none;
+    }
+</style>
+
+@code {
+    [Parameter] public string MapMode { get; set; } = "2d";
+
+    private bool _ready;
+    private string? _gatewayMac;
+    private List<string> _gatewayWanIfNames = new();
+    private List<MonitoringTarget> _targets = new();
+    private System.Threading.Timer? _refreshTimer;
+    private bool _mapMounted;
+    private string? _mountedMode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try { await InvokeAsync(StateHasChanged); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_ready) return;
+
+        if (!_mapMounted || _mountedMode != MapMode)
+        {
+            if (_mapMounted) await UnmountMap();
+
+            _mapMounted = true;
+            _mountedMode = MapMode;
+            try
+            {
+                if (MapMode == "3d")
+                {
+                    await JS.InvokeVoidAsync("eval",
+                        "window.__dashMountMap3d = async function(canvasId) {" +
+                        $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
+                        "  window.__dashLanFlowMap = m;" +
+                        "  await m.mount(canvasId,{storagePrefix:'dashLanFlowMap'});" +
+                        "}");
+                    await JS.InvokeVoidAsync("__dashMountMap3d", "dashboard-lan-flow-map-canvas");
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("eval",
+                        $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
+                        "window.__dashLanFlowMap2d = m; m.startDataPolling(); " +
+                        "await m.mount('dashboard-lan-flow-map-2d-stage',{storagePrefix:'dashLanFlowMap2d',liveOnly:true}); })();");
+                }
+            }
+            catch { _mapMounted = false; _mountedMode = null; }
+        }
+    }
+
+    private async Task UnmountMap()
+    {
+        try
+        {
+            if (_mountedMode == "3d")
+                await JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap?.unmount();");
+            else
+                await JS.InvokeVoidAsync("eval",
+                    "window.__dashLanFlowMap2d?.stopDataPolling(); window.__dashLanFlowMap2d?.unmount();");
+        }
+        catch { }
+        _mapMounted = false;
+        _mountedMode = null;
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
+            if (settings == null || !settings.Enabled
+                || string.IsNullOrEmpty(settings.InfluxDbToken)
+                || string.IsNullOrEmpty(settings.InfluxDbUrl))
+            {
+                _ready = false;
+                return;
+            }
+
+            _targets = await db.MonitoringTargets.Where(t => t.Enabled).ToListAsync();
+
+            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+            if (devices != null)
+            {
+                var gw = devices.FirstOrDefault(d =>
+                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
+                _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
+            }
+
+            _ready = true;
+        }
+        catch
+        {
+            _ready = false;
+        }
+    }
+
+    private (double download, double upload) GetWanRates()
+    {
+        if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
+        double totalDown = 0, totalUp = 0;
+        foreach (var ifName in _gatewayWanIfNames)
+        {
+            var rate = LiveStats.GetPortRate(_gatewayMac, ifName);
+            if (rate == null) continue;
+            totalDown += rate.UpBps;
+            totalUp += rate.DownBps;
+        }
+        return (totalDown, totalUp);
+    }
+
+    private DeviceLiveStats? GetGatewayStats()
+    {
+        if (_gatewayMac == null) return null;
+        return LiveStats.GetForDevice(_gatewayMac);
+    }
+
+    private (double? rtt, double loss) GetGatewayLatency()
+    {
+        if (_gatewayMac == null) return (null, 0);
+        var gwFabric = _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && t.Enabled
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
+        if (gwFabric == null) return (null, 0);
+        var s = LiveStats.GetTargetStats(gwFabric.TargetId);
+        return (s?.RttAvgMs, s?.LossPercent ?? 0);
+    }
+
+    private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
+    {
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+        double? bestRtt = null;
+        double bestLoss = 0;
+        foreach (var t in targets)
+        {
+            var st = LiveStats.GetTargetStats(t.TargetId);
+            if (st?.RttAvgMs != null && (bestRtt == null || st.RttAvgMs.Value < bestRtt.Value))
+            {
+                bestRtt = st.RttAvgMs;
+                bestLoss = st.LossPercent;
+            }
+        }
+        return (bestRtt, bestLoss);
+    }
+
+    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
+    {
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+        var rtts = new List<double>();
+        var losses = new List<double>();
+        foreach (var t in targets)
+        {
+            var st = LiveStats.GetTargetStats(t.TargetId);
+            if (st?.RttAvgMs != null) rtts.Add(st.RttAvgMs.Value);
+            if (st != null) losses.Add(st.LossPercent);
+        }
+        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
+    }
+
+    private (double ingress, double egress) GetTotalFabricLoad()
+    {
+        double totalIn = 0, totalOut = 0;
+        var fabricMacs = _targets
+            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
+            .Select(t => t.DeviceMac!)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var mac in fabricMacs)
+        {
+            var stats = LiveStats.GetForDevice(mac);
+            if (stats == null) continue;
+            totalIn += stats.FabricIngressBps ?? 0;
+            totalOut += stats.FabricEgressBps ?? 0;
+        }
+        return (totalIn, totalOut);
+    }
+
+    private static string FormatRate(double? bps)
+    {
+        if (!bps.HasValue || bps.Value < 1) return "-";
+        var v = bps.Value;
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:0.#} Gbps";
+        if (v >= 1_000_000) return $"{v / 1_000_000:0.#} Mbps";
+        if (v >= 1_000) return $"{v / 1_000:0.#} Kbps";
+        return $"{v:0} bps";
+    }
+
+    private static string FormatRtt(double? ms)
+    {
+        if (!ms.HasValue) return "-";
+        return $"{ms.Value:0.##} ms";
+    }
+
+    private static string FormatLoss(double percent)
+    {
+        if (percent <= 0) return "0%";
+        return $"{percent:0.#}%";
+    }
+
+    private static string FormatPercent(double? val)
+    {
+        if (!val.HasValue) return "-";
+        return $"{val.Value:0.#}%";
+    }
+
+    private static string FormatTemp(double? val)
+    {
+        if (!val.HasValue) return "-";
+        return $"{val.Value:0.#} °C";
+    }
+
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        if (_mapMounted)
+        {
+            try
+            {
+                if (_mountedMode == "3d")
+                    _ = JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap?.unmount();");
+                else
+                    _ = JS.InvokeVoidAsync("eval",
+                        "window.__dashLanFlowMap2d?.stopDataPolling(); window.__dashLanFlowMap2d?.unmount();");
+            }
+            catch { }
+        }
+    }
+}

@@ -18,18 +18,19 @@ public static class DashboardCards
     public const string WiFiOptimizer = "wifi-optimizer";
     public const string RecentAlerts = "recent-alerts";
     public const string DeviceStatus = "device-status";
+    public const string LiveView = "live-view";
 
     /// <summary>All valid card IDs</summary>
     public static readonly string[] All =
     [
         StatsRow, SecurityPosture, SqmStatus, ThreatTrends, CellularStats, OntStats,
-        SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus
+        SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus, LiveView
     ];
 
     /// <summary>Default full-width cards</summary>
     public static readonly HashSet<string> DefaultFullWidth = new()
     {
-        StatsRow, DeviceStatus
+        StatsRow, DeviceStatus, LiveView
     };
 
     /// <summary>Display names for cards</summary>
@@ -45,6 +46,7 @@ public static class DashboardCards
         WiFiOptimizer => "Wi-Fi Optimizer",
         RecentAlerts => "Recent Audit Issues",
         DeviceStatus => "Device Status",
+        LiveView => "Live View",
         _ => cardId
     };
 }
@@ -103,6 +105,9 @@ public class DashboardCardConfig
     public string Id { get; set; } = string.Empty;
     public bool Visible { get; set; } = true;
     public bool FullWidth { get; set; }
+
+    /// <summary>Map rendering mode for the Live View card ("2d" or "3d")</summary>
+    public string? MapMode { get; set; }
 
     /// <summary>Card IDs stacked below this card in the same grid cell</summary>
     public List<string> StackedCards { get; set; } = new();
@@ -182,7 +187,7 @@ public class DashboardLayoutService
         var cards = DashboardCards.All.Select(id => new DashboardCardConfig
         {
             Id = id,
-            Visible = true,
+            Visible = id != DashboardCards.LiveView,
             FullWidth = DashboardCards.DefaultFullWidth.Contains(id)
         }).ToList();
 
@@ -208,7 +213,13 @@ public class DashboardLayoutService
         {
             if (!existingCardIds.Contains(cardId))
             {
-                layout.Cards.Add(new DashboardCardConfig { Id = cardId, Visible = true });
+                var isLiveView = cardId == DashboardCards.LiveView;
+                layout.Cards.Add(new DashboardCardConfig
+                {
+                    Id = cardId,
+                    Visible = !isLiveView,
+                    FullWidth = isLiveView || DashboardCards.DefaultFullWidth.Contains(cardId)
+                });
             }
         }
 
