@@ -77,7 +77,7 @@ public class UpstreamTracerService
         new("Microsoft", "13.107.42.14"),                            // AS8068  - M365 SharePoint anycast
         new("Fastly", "151.101.1.69"),                               // AS54113 - reaches local PoP via anycast
         new("Akamai", "23.0.0.1"),                                   // AS20940 - global netarch anycast loopback
-        new("AT&T", "12.1.1.1", IsTransitProbe: true)                 // AS7018  - probe to surface AT&T as transit
+        new("AT&T", "12.0.1.28", IsTransitProbe: true)                // AS7018  - probe to surface AT&T as transit
     };
 
     private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false);
