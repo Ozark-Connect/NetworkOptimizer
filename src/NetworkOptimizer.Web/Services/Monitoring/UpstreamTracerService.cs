@@ -1288,7 +1288,7 @@ public class UpstreamTracerService
         "LLC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P.", "LP",
         // International
         "GmbH", "AG", "KG", "e.K.", "S.A.", "S.A.S.", "S.r.l.",
-        "B.V.", "N.V.", "Pty", "A/S", "AB", "Oy", "AS"
+        "B.V.", "B.V", "N.V.", "N.V", "Pty", "A/S", "AB", "Oy", "AS"
     };
 
     /// <summary>
@@ -1297,7 +1297,7 @@ public class UpstreamTracerService
     /// </summary>
     internal static string CleanAsnName(string? name)
     {
-        if (string.IsNullOrWhiteSpace(name)) return name ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
         var cleaned = name.Trim().TrimEnd(',', '.');
         // Iterate to strip chains like "Telephone Company" or "Cable Communications LLC"
         bool changed;
@@ -1322,7 +1322,7 @@ public class UpstreamTracerService
     /// the org name is already prepended separately. Returns null if the
     /// hostname is unusable (IP-derived auto-PTR or too short).
     /// </summary>
-    private static string? FormatTransitHopLabel(string? hostname, string? ipAddress)
+    internal static string? FormatTransitHopLabel(string? hostname, string? ipAddress)
     {
         if (string.IsNullOrEmpty(hostname)) return null;
         var parts = hostname.Split('.');
