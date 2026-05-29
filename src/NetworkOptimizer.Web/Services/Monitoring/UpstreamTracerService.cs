@@ -606,20 +606,10 @@ public class UpstreamTracerService
         var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
-        // Access hops walk, capped at 3. Two cases:
-        //   - accessAsn known: skip any null-Asn hops in the prefix (a private
-        //     intermediate like an upstream modem at 192.168.x.x that survived
-        //     the gateway-IP filter); only break when we hit a hop with a
-        //     different non-null ASN. Without the skip, an AT&T-style setup
-        //     where the UniFi sits behind a residential gateway aborts the
-        //     access classification before reaching the first AT&T hop.
-        //   - accessAsn null (no public hop in the trace at all - fully
-        //     filtered carrier, all-CGNAT): take the first private hops as
-        //     access until a public ASN unexpectedly appears.
+        // Collect all hops in the access ASN from the merged pool.
         _accessHopsResolved = new List<AttributedHop>();
         foreach (var h in candidateHops)
         {
-            if (_accessHopsResolved.Count >= 3) break;
             if (accessAsn.HasValue)
             {
                 if (h.Asn == null) continue;
@@ -632,6 +622,34 @@ public class UpstreamTracerService
             _accessHopsResolved.Add(h);
         }
 
+        // Walk each individual trace to find border hops: an access-ASN hop
+        // whose next responding hop is in a different ASN. Different traces
+        // may exit through different border routers depending on the transit
+        // peer, so we union across all traces.
+        var borderIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (accessAsn.HasValue)
+        {
+            foreach (var (_, result) in results)
+            {
+                var hops = result.Hops
+                    .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address)
+                                && !_gatewayIps.Contains(h.Address))
+                    .OrderBy(h => h.HopNumber)
+                    .ToList();
+                for (int i = 0; i < hops.Count - 1; i++)
+                {
+                    var ip = hops[i].Address!;
+                    if (!byIp.TryGetValue(ip, out var attributed) || attributed.Asn?.Asn != accessAsn.Value)
+                        continue;
+                    var nextIp = hops[i + 1].Address!;
+                    if (!byIp.TryGetValue(nextIp, out var nextAttr))
+                        continue;
+                    if (nextAttr.Asn != null && nextAttr.Asn.Asn != accessAsn.Value)
+                        borderIps.Add(ip);
+                }
+            }
+        }
+
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
             TargetId = $"access-{NormalizeMacForId(h.Address)}",
@@ -640,7 +658,9 @@ public class UpstreamTracerService
             PtrHostname = h.Hostname,
             AsnNumber = h.Asn?.Asn,
             AsnName = h.Asn?.Name,
-            Role = InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
+            Role = borderIps.Contains(h.Address)
+                ? UpstreamRole.Border
+                : InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
             HopNumber = h.HopNumber,
             RespondedTo = h.RespondedTo,
             Enabled = true
@@ -940,14 +960,12 @@ public class UpstreamTracerService
                            || vendor.Contains("cadant") || vendor.Contains("ubr");
 
         if ((tech == AccessTechnology.Gpon || tech == AccessTechnology.XgsPon) && isOltVendor && hop.HopNumber == 1)
-            return UpstreamRole.Bng; // L2-transparent OLT means hop 1 is the BNG behind it.
+            return UpstreamRole.Bng;
         if (tech == AccessTechnology.Docsis && (isCmtsVendor || hop.HopNumber == 1))
             return UpstreamRole.Cmts;
         if (tech == AccessTechnology.PppoE && hop.HopNumber == 1)
             return UpstreamRole.Bng;
-        if (hop.HopNumber >= 2 && hop.HopNumber <= 3)
-            return UpstreamRole.Aggregation;
-        return UpstreamRole.AccessHop;
+        return UpstreamRole.Aggregation;
     }
 
     private static UpstreamRole InferL2NeighborRole(AccessTechnology tech, string? ouiVendor)
