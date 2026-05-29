@@ -11,7 +11,7 @@
     });
 
     function getScrollContainer() {
-        if (window.innerWidth <= 768) return document.querySelector('.main-content');
+        if (window.innerWidth <= 1024) return document.querySelector('.main-content');
         return document.querySelector('.page-content');
     }
 

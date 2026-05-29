@@ -354,7 +354,7 @@ export class LanFlowMap {
         document.dispatchEvent(new CustomEvent('lanflowmap-fullscreen', {
             detail: { fullscreen: !isFs }
         }));
-        setTimeout(() => this._handleResize(), 50);
+        requestAnimationFrame(() => requestAnimationFrame(() => this._handleResize()));
     }
 
     _handleResize() {
@@ -382,6 +382,8 @@ export class LanFlowMap {
 
     dispose() {
         this._destroyed = true;
+        if (this.stage.classList.contains('lan-flow-map-fullscreen'))
+            this.stage.classList.remove('lan-flow-map-fullscreen');
         if (this._repositionMode) this._exitRepositionMode();
         this._dismissContextMenu();
         // The render loop registered via setAnimationLoop checks _destroyed

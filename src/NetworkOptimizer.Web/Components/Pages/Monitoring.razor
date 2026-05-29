@@ -111,11 +111,11 @@ else
         <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: #3b82f6;">@FormatRate(wanRates.download)</div>
                 <div class="stat-label">WAN Download</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card monitoring-stat-rate">
                 <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
@@ -204,13 +204,15 @@ else
                 <div class="stat-label">Gateway Temp</div>
             </div>
             @{ var fabricLoad = GetTotalFabricLoad(); }
-            <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
-                <div class="stat-label">Fabric Ingress</div>
-            </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
-                <div class="stat-label">Fabric Egress</div>
+            <div class="monitoring-stat-pair">
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                    <div class="stat-label">Fabric Ingress</div>
+                </div>
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                    <div class="stat-label">Fabric Egress</div>
+                </div>
             </div>
         </div>
 
@@ -727,6 +729,15 @@ else
         min-width: 100px;
         text-align: center;
     }
+    .monitoring-stat-pair {
+        display: flex;
+        gap: 0.75rem;
+        flex: 2 1 250px;
+    }
+    .monitoring-stat-pair .monitoring-stat-card {
+        flex: 1 1 0;
+        min-width: 0;
+    }
     .monitoring-stat-card .stat-value {
         font-size: 1.3rem;
         font-weight: 600;
@@ -747,6 +758,11 @@ else
         font-size: 13px;
         cursor: pointer;
     }
+    @@media (max-width: 1024px) {
+        .monitoring-stat-rate {
+            min-height: 98px;
+        }
+    }
     @@media (max-width: 768px) {
         .monitoring-stat-cards {
             gap: 0.5rem;
@@ -758,6 +774,10 @@ else
         }
         .monitoring-stat-card .stat-value {
             font-size: 1rem;
+        }
+        .monitoring-stat-pair {
+            gap: 0.5rem;
+            flex-basis: 170px;
         }
     }
 
@@ -788,9 +808,11 @@ else
         line-height: 1.35;
         color: var(--text-primary);
         pointer-events: none;
-        display: none;
         z-index: 10;
         max-width: 260px;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.15s ease, visibility 0.15s ease;
     }
     .lan-flow-map-2d-stage .lan-flow-map-controls {
         right: 3.1rem;
@@ -822,6 +844,17 @@ else
     .lfm2d-btn:hover {
         background: rgba(51,56,68,0.9);
         color: var(--text-primary);
+    }
+    @@media (max-width: 768px) {
+        .lan-flow-map-2d-stage {
+            height: auto;
+        }
+        .lan-flow-map-2d-stage .lfm2d-canvas {
+            height: clamp(520px, 70vh, 820px);
+        }
+        .lan-flow-map-2d-stage.lan-flow-map-fullscreen .lfm2d-canvas {
+            height: 100%;
+        }
     }
 </style>
 

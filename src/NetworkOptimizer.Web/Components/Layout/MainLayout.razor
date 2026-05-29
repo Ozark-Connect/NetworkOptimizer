@@ -81,7 +81,7 @@
     // Targets .main-content (scroll container on mobile) and .page-content (desktop)
     (function() {
         function getScrollEl() {
-            if (window.innerWidth <= 768) return document.querySelector('.main-content');
+            if (window.innerWidth <= 1024) return document.querySelector('.main-content');
             return document.querySelector('.page-content');
         }
         var lastScrollTop = 0;
@@ -135,7 +135,7 @@
             }
 
             // Mobile-only: top bar hide/show, below-topbar offset
-            if (window.innerWidth <= 768) {
+            if (window.innerWidth <= 1024) {
                 var topBar = document.querySelector('.top-bar');
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
@@ -186,7 +186,7 @@
         // hidden=false: page nav (show bar, add padding)
         window.__setScrollState = function(hidden) {
             lastScrollTop = 0;
-            if (window.innerWidth <= 768) {
+            if (window.innerWidth <= 1024) {
                 var topBar = document.querySelector('.top-bar');
                 if (topBar) {
                     if (hidden) {
@@ -203,6 +203,9 @@
 
         attachListener(getScrollEl());
         window.addEventListener('resize', function() { attachListener(getScrollEl()); });
+        window.addEventListener('orientationchange', function() {
+            setTimeout(function() { window.scrollBy(0, 1); window.scrollBy(0, -1); }, 100);
+        });
 
         // Restart auto-hide timer when sidebar closes
         var sidebar = document.querySelector('.sidebar');
@@ -217,7 +220,7 @@
         window.__setPtrRef = function(ref) { window.__ptrDotNetRef = ref; };
         // Custom pull-to-refresh (replaces native, blocked by overscroll-behavior)
         (function() {
-            if (window.innerWidth > 768) return;
+            if (window.innerWidth > 1024) return;
             var container = document.querySelector('.main-content');
             var indicator = document.querySelector('.pull-to-refresh');
             if (!container || !indicator) return;

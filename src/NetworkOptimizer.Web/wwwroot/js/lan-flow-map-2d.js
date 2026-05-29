@@ -248,7 +248,15 @@ class LanFlowMap2D {
 
         // Pan/zoom: offset in world coords + scale
         this._ox=0; this._oy=0; this._scale=1;
+        this._isFitted=false;
         this._dragging=false; this._dragStart=null;
+        // Multi-touch pinch zoom
+        this._pointers=new Map();
+        this._pinchStartDist=0;
+        this._pinchStartScale=1;
+        this._pinchStartCenter=null;
+        this._pinchStartOx=0;
+        this._pinchStartOy=0;
         // World bounds
         this._bx=0; this._by=0; this._bw=800; this._bh=600;
 
@@ -319,10 +327,9 @@ class LanFlowMap2D {
         this._el.innerHTML='';
         const canvas=document.createElement('canvas');
         canvas.className='lfm2d-canvas';
-        canvas.style.width='100%';
-        canvas.style.height='100%';
         canvas.style.display='block';
         canvas.style.cursor='grab';
+        canvas.style.touchAction='none';
         this._el.appendChild(canvas);
         this._canvas=canvas;
         this._ctx=canvas.getContext('2d');
@@ -378,6 +385,7 @@ class LanFlowMap2D {
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
             this._needsStaticRedraw=true;
+            if(this._isFitted)this._fitAll();
         });
         const bandChips=[...filterBody.querySelectorAll('.lan-flow-map-chip')];
         bandChips.forEach(chip=>{
@@ -389,6 +397,7 @@ class LanFlowMap2D {
                     if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
                     else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
                 this._needsStaticRedraw=true;
+                if(this._isFitted)this._fitAll();
             });
         });
         this._el.appendChild(filter);
@@ -415,6 +424,7 @@ class LanFlowMap2D {
                 row.classList.toggle('is-on',this._overlays[key]);
                 try{localStorage.setItem('lanFlowMap2dOverlays',JSON.stringify(this._overlays));}catch{}
                 this._needsStaticRedraw=true;
+                if(this._isFitted)this._fitAll();
             });
             ctrlBody.appendChild(row);
         }
@@ -526,7 +536,7 @@ class LanFlowMap2D {
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
-        canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);this._hideTooltip();});
+        canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);if(this._pointers.size===0&&e.pointerType==='mouse')this._hideTooltip();});
 
         // Resize
         this._resizeObs=new ResizeObserver(()=>this._resize());
@@ -535,7 +545,7 @@ class LanFlowMap2D {
     }
 
     _resize(){
-        const rect=this._el.getBoundingClientRect();
+        const rect=this._canvas.getBoundingClientRect();
         this._dpr=window.devicePixelRatio||1;
         this._cw=rect.width; this._ch=rect.height;
         this._canvas.width=rect.width*this._dpr;
@@ -543,6 +553,7 @@ class LanFlowMap2D {
         this._staticCanvas.width=this._canvas.width;
         this._staticCanvas.height=this._canvas.height;
         this._needsStaticRedraw=true;
+        if(this._isFitted)this._fitAll();
     }
 
     // ---- Pan / Zoom ----
@@ -562,46 +573,117 @@ class LanFlowMap2D {
         const wAfter=this._screenToWorld(sx,sy);
         this._ox+=wBefore.x-wAfter.x;
         this._oy+=wBefore.y-wAfter.y;
+        this._isFitted=false;
         this._needsStaticRedraw=true;
     }
 
     _onDown(e){
-        if(e.button!==0)return;
+        this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        this._canvas.setPointerCapture(e.pointerId);
+        this._tapStart={x:e.clientX,y:e.clientY,id:e.pointerId};
+
+        if(this._pointers.size===2){
+            this._dragging=false;
+            this._dragStart=null;
+            this._tapStart=null;
+            const pts=[...this._pointers.values()];
+            this._pinchStartDist=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
+            this._pinchStartScale=this._scale;
+            this._pinchStartCenter={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
+            this._pinchStartOx=this._ox;
+            this._pinchStartOy=this._oy;
+            return;
+        }
+
+        if(e.button!==0&&e.pointerType==='mouse')return;
         this._dragging=true;
         this._dragStart={x:e.clientX,y:e.clientY,ox:this._ox,oy:this._oy};
         this._canvas.style.cursor='grabbing';
-        this._canvas.setPointerCapture(e.pointerId);
     }
 
     _onMove(e){
+        if(this._pointers.has(e.pointerId))
+            this._pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+
+        if(this._pointers.size===2&&this._pinchStartDist>0){
+            const pts=[...this._pointers.values()];
+            const dist=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
+            const center={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
+
+            const newScale=Math.max(0.05,Math.min(10,this._pinchStartScale*(dist/this._pinchStartDist)));
+
+            const rect=this._canvas.getBoundingClientRect();
+            const cx0=this._pinchStartCenter.x-rect.left;
+            const cy0=this._pinchStartCenter.y-rect.top;
+            const wx=(cx0-this._cw/2)/this._pinchStartScale+this._pinchStartOx;
+            const wy=(cy0-this._ch/2)/this._pinchStartScale+this._pinchStartOy;
+
+            const cx1=center.x-rect.left;
+            const cy1=center.y-rect.top;
+
+            this._scale=newScale;
+            this._ox=wx-(cx1-this._cw/2)/newScale;
+            this._oy=wy-(cy1-this._ch/2)/newScale;
+            this._isFitted=false;
+            this._needsStaticRedraw=true;
+            return;
+        }
+
         const rect=this._canvas.getBoundingClientRect();
         const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
         if(this._dragging&&this._dragStart){
+            if(this._tapStart&&Math.hypot(e.clientX-this._tapStart.x,e.clientY-this._tapStart.y)>=8)
+                this._tapStart=null;
             const dx=(e.clientX-this._dragStart.x)/this._scale;
             const dy=(e.clientY-this._dragStart.y)/this._scale;
             this._ox=this._dragStart.ox-dx;
             this._oy=this._dragStart.oy-dy;
+            this._isFitted=false;
             this._needsStaticRedraw=true;
         } else {
             this._hitTest(sx,sy);
         }
     }
 
-    _onUp(){
-        if(!this._dragging)return;
-        this._dragging=false;
-        this._dragStart=null;
-        this._canvas.style.cursor='grab';
+    _onUp(e){
+        const wasTap=this._tapStart&&this._tapStart.id===e.pointerId
+            &&Math.hypot(e.clientX-this._tapStart.x,e.clientY-this._tapStart.y)<8;
+
+        this._pointers.delete(e.pointerId);
+        if(this._pointers.size<2)this._pinchStartDist=0;
+
+        if(this._pointers.size===1){
+            const remaining=[...this._pointers.values()][0];
+            this._dragging=true;
+            this._dragStart={x:remaining.x,y:remaining.y,ox:this._ox,oy:this._oy};
+            this._tapStart=null;
+            return;
+        }
+
+        if(this._pointers.size===0){
+            this._dragging=false;
+            this._dragStart=null;
+            this._canvas.style.cursor='grab';
+
+            if(wasTap&&e.pointerType!=='mouse'){
+                const rect=this._canvas.getBoundingClientRect();
+                const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
+                this._hitTest(sx,sy);
+            }
+        }
+        this._tapStart=null;
     }
 
     _fitAll(){
         if(!this._root)return;
+        this._calcBounds(true);
         const margin=10;
         const sx=(this._cw-margin*2)/this._bw;
         const sy=(this._ch-margin*2)/this._bh;
         this._scale=Math.min(sx,sy,2);
         this._ox=this._bx+this._bw/2;
         this._oy=this._by+this._bh/2;
+        this._isFitted=true;
         this._needsStaticRedraw=true;
     }
 
@@ -643,6 +725,7 @@ class LanFlowMap2D {
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
+        this._isFitted=false;
         this._needsStaticRedraw=true;
     }
 
@@ -662,7 +745,7 @@ class LanFlowMap2D {
                 <polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>`;
             this._fsBtn.setAttribute('data-tooltip','Fullscreen');
         }
-        setTimeout(()=>{this._resize();this._fitAll();},50);
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{this._resize();this._fitAll();}));
     }
 
     // ---- Tooltip hit-test ----
@@ -679,7 +762,7 @@ class LanFlowMap2D {
             if(Math.abs(w.x-n.x)<G.boxW/2&&Math.abs(w.y-n.y)<G.boxH/2)hit=n;
             for(const c of n.infra)checkNode(c);
             for(const c of n.clients.slice(0,G.maxClients)){
-                if(Math.abs(w.x-c.x)<G.clientCellW/2&&Math.abs(w.y-c.y)<G.clientCellH/2)hit=c;
+                if(this._isNodeVisible(c)&&Math.abs(w.x-c.x)<G.clientCellW/2&&Math.abs(w.y-c.y)<G.clientCellH/2)hit=c;
             }
         };
         if(this._root)checkNode(this._root);
@@ -755,7 +838,8 @@ class LanFlowMap2D {
         this._tooltip.innerHTML=
             `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
             +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
-        this._tooltip.style.display='block';
+        this._tooltip.style.opacity='1';
+        this._tooltip.style.visibility='visible';
         // Position dynamically to stay within the container
         const tr=this._tooltip.getBoundingClientRect();
         const cr=this._el.getBoundingClientRect();
@@ -770,7 +854,7 @@ class LanFlowMap2D {
 
     _hideTooltip(){
         this._hoverNode=null;
-        if(this._tooltip)this._tooltip.style.display='none';
+        if(this._tooltip){this._tooltip.style.opacity='0';this._tooltip.style.visibility='hidden';}
     }
 
     // ---- Contour-based layout (Reingold-Tilford style) ----
@@ -1070,12 +1154,24 @@ class LanFlowMap2D {
         }
     }
 
-    _calcBounds(){
+    _calcBounds(visibleOnly){
         let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
         const exp=(x,y,r)=>{x0=Math.min(x0,x-r);y0=Math.min(y0,y-r);x1=Math.max(x1,x+r);y1=Math.max(y1,y+r);};
-        const vis=(n)=>{exp(n.x,n.y,G.boxW);for(const c of n.infra)vis(c);for(const c of n.clients.slice(0,G.maxClients))exp(c.x,c.y,G.clientCellW/2);};
-        vis(this._root);
-        for(const c of this._clouds)exp(c.x,c.y,G.cloudR+30);
+        const walk=(n)=>{
+            exp(n.x,n.y,G.boxW);
+            for(const c of n.infra)walk(c);
+            if(!visibleOnly){
+                for(const c of n.clients.slice(0,G.maxClients))exp(c.x,c.y,G.clientCellW/2);
+            }else{
+                for(const c of n.clients.slice(0,G.maxClients)){
+                    if(this._isNodeVisible(c))exp(c.x,c.y,G.clientCellW/2);
+                }
+            }
+        };
+        walk(this._root);
+        if(!visibleOnly||this._isCloudVisible()){
+            for(const c of this._clouds)exp(c.x,c.y,G.cloudR+30);
+        }
         const p=20;
         this._bx=x0-p; this._by=y0-p;
         this._bw=(x1-x0)+p*2; this._bh=(y1-y0)+p*2;

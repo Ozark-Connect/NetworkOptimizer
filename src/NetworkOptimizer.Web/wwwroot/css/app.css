@@ -114,6 +114,7 @@ a:hover {
 .app-container {
     display: flex;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
 }
 
@@ -2727,21 +2728,6 @@ select.form-control {
     border-top: 1px solid var(--border-color);
 }
 
-/* Responsive Design */
-@media (max-width: 1024px) {
-    .content-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .dashboard-card-wrapper.card-span-2 {
-        grid-column: span 1;
-    }
-}
-
 /* Hamburger Menu Button - hidden on desktop */
 .hamburger-btn {
     display: none;
@@ -2777,7 +2763,132 @@ select.form-control {
     display: none;
 }
 
-@media (max-width: 768px) {
+/* Responsive Design */
+@media (max-width: 1024px) {
+    .content-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-card-wrapper.card-span-2 {
+        grid-column: span 1;
+    }
+
+    /* Show hamburger button */
+    .hamburger-btn {
+        display: block;
+    }
+
+    /* Show mobile logo next to hamburger */
+    .mobile-logo {
+        display: block;
+        height: 60px;
+        margin: -0.5rem 0;
+        max-height: 20vw;
+    }
+
+    .mobile-logo img {
+        height: 100%;
+        width: auto;
+    }
+
+    /* Off-canvas sidebar */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        height: 100dvh;
+        width: 280px;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        z-index: 1000;
+        overflow-y: auto;
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    /* Overlay when sidebar is open */
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+    }
+
+    .sidebar-overlay.visible {
+        display: block;
+    }
+
+    /* Main content takes full width */
+    .main-content {
+        width: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior-y: contain;
+    }
+
+    .page-content {
+        overflow-y: visible;
+        flex: none;
+    }
+
+    /* Top bar adjustments */
+    .top-bar {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        height: auto;
+        padding: 0.75rem 1rem;
+        gap: 0.5rem;
+        transition: transform 0.2s ease;
+    }
+
+    .top-bar.top-bar-hidden {
+        position: absolute;
+        left: 0;
+        right: 0;
+        transform: translateY(-100%);
+    }
+
+    .app-footer {
+        padding: 0.5rem 1rem;
+        font-size: 0.6rem;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .app-footer.footer-visible {
+        opacity: 1;
+    }
+
+    /* Client dashboard identity bar: shift below top bar when it's visible */
+    .identity-bar.below-topbar {
+        top: 70px;
+    }
+
+    .status-indicators {
+        display: none;
+    }
+
+    .header-actions {
+        flex: 1;
+        justify-content: flex-end;
+    }
+
+    .timestamp {
+        font-size: 0.75rem;
+    }
+
     /* Pull-to-refresh indicator */
     .pull-to-refresh {
         position: absolute;
@@ -2819,108 +2930,9 @@ select.form-control {
         from { transform: rotate(0deg) scale(1.4); }
         to { transform: rotate(360deg) scale(1.4); }
     }
+}
 
-    /* Show hamburger button on mobile */
-    .hamburger-btn {
-        display: block;
-    }
-
-    /* Show mobile logo next to hamburger */
-    .mobile-logo {
-        display: block;
-        height: 60px;
-        margin: -0.5rem 0;
-        max-height: 20vw;
-    }
-
-    .mobile-logo img {
-        height: 100%;
-        width: auto;
-    }
-
-    /* Off-canvas sidebar */
-    .sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        height: 100vh;
-        width: 280px;
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-        z-index: 1000;
-        overflow-y: auto;
-    }
-
-    .sidebar.open {
-        transform: translateX(0);
-    }
-
-    /* Overlay when sidebar is open */
-    .sidebar-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 999;
-    }
-
-    .sidebar-overlay.visible {
-        display: block;
-    }
-
-    /* Main content takes full width */
-    .main-content {
-        width: 100%;
-    }
-
-    /* Top bar adjustments */
-    /* Mobile: main-content becomes scroll container, top bar is sticky */
-    .main-content {
-        overflow-y: auto;
-        overflow-x: hidden;
-        overscroll-behavior-y: contain;
-        /* scroll-padding-top set dynamically by JS based on top bar visibility */
-    }
-
-    .page-content {
-        overflow-y: visible;
-        flex: none;
-    }
-
-    .top-bar {
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        height: auto;
-        padding: 0.75rem 1rem;
-        gap: 0.5rem;
-        transition: transform 0.2s ease, margin 0.2s ease;
-    }
-
-    .top-bar.top-bar-hidden {
-        transform: translateY(-100%);
-        margin-bottom: -3rem;
-    }
-
-    .app-footer {
-        padding: 0.5rem 1rem;
-        font-size: 0.6rem;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    }
-
-    .app-footer.footer-visible {
-        opacity: 1;
-    }
-
-    /* Client dashboard identity bar: shift below top bar when it's visible */
-    .identity-bar.below-topbar {
-        top: 70px;
-    }
-
+@media (max-width: 768px) {
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
     .identity-bar .identity-name,
     .identity-bar .identity-meta {
@@ -2947,19 +2959,6 @@ select.form-control {
         margin-right: -16px;
         padding-left: 16px;
         padding-right: 16px;
-    }
-
-    .status-indicators {
-        display: none;
-    }
-
-    .header-actions {
-        flex: 1;
-        justify-content: flex-end;
-    }
-
-    .timestamp {
-        font-size: 0.75rem;
     }
 
     /* Content adjustments */
@@ -14527,11 +14526,14 @@ a.affected-client:hover {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    display: none;
     max-width: 260px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
 }
 .lan-flow-map-tooltip.is-visible {
-    display: block;
+    opacity: 1;
+    visibility: visible;
 }
 .lan-flow-map-tooltip-title {
     font-weight: 500;
@@ -14578,7 +14580,7 @@ a.affected-client:hover {
         top: 0.5rem;
     }
     .lan-flow-map-controls {
-        right: 2.5rem;
+        right: 3.1rem;
         top: 0.5rem;
     }
     .lan-flow-map-legend {
