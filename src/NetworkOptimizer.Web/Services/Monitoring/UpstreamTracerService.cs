@@ -652,10 +652,11 @@ public class UpstreamTracerService
             }
         }
 
+        var orgName = CleanAsnName(firstPublicHop?.Asn?.Name);
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
             TargetId = $"access-{NormalizeMacForId(h.Address)}",
-            Label = LabelAccessHop(h),
+            Label = "",
             Address = h.Address,
             PtrHostname = h.Hostname,
             AsnNumber = h.Asn?.Asn,
@@ -667,6 +668,17 @@ public class UpstreamTracerService
             RespondedTo = h.RespondedTo,
             Enabled = true
         }).ToList();
+
+        // Generate "<Org> <PTR-derived>" labels, same format as transit targets.
+        var accessIdx = 0;
+        foreach (var hop in State.AccessHops)
+        {
+            var ptrLabel = FormatTransitHopLabel(hop.PtrHostname, hop.Address);
+            if (ptrLabel != null)
+                hop.Label = $"{orgName} {ptrLabel}";
+            else
+                hop.Label = $"{orgName} {++accessIdx}";
+        }
 
         // Inject the L2 neighbor (from ip neigh) as the first access hop if it
         // wasn't already found by traceroute. On GPON the OLT is typically
@@ -680,7 +692,7 @@ public class UpstreamTracerService
             var l2Hop = new AccessHopCandidate
             {
                 TargetId = $"access-l2-{NormalizeMacForId(State.WanNeighborIp)}",
-                Label = LabelL2Neighbor(State.WanNeighborOuiVendor, State.AccessTechnology, l2Asn?.Name),
+                Label = $"{orgName} {LabelL2Role(State.WanNeighborOuiVendor, State.AccessTechnology)}",
                 Address = State.WanNeighborIp,
                 AsnNumber = l2Asn?.Asn,
                 AsnName = l2Asn?.Name,
@@ -923,32 +935,6 @@ public class UpstreamTracerService
             : $"All {allTargets.Count} target(s) responded to ping.";
     }
 
-    /// <summary>
-    /// Hop label priority per spec 5.5: PTR hostname > role inference > bare IP +
-    /// ISP name. PTRs that just encode the IP (e.g. "h1.2.3.4.static.ip.example.net")
-    /// fall through to bare IP since the encoded form is useless as a label.
-    /// Otherwise we strip just the trailing TLD label so the ISP-identifying SLD
-    /// stays in the label ("router-name.example" rather than "router-name").
-    /// </summary>
-    private static string LabelAccessHop(AttributedHop hop)
-    {
-        var ispName = hop.Asn?.Name;
-        if (!string.IsNullOrEmpty(hop.Hostname))
-        {
-            var parts = hop.Hostname.Split('.');
-            if (!IsIpDerivedHostname(parts, hop.Address))
-            {
-                // Strip only the final TLD label (.net/.com/...) so the SLD that
-                // names the ISP is preserved. If the hostname has only one label
-                // (e.g. "_gateway") just return it whole.
-                return parts.Length > 1
-                    ? string.Join('.', parts.Take(parts.Length - 1))
-                    : hop.Hostname;
-            }
-            // IP-encoded PTR; fall through to the bare-IP branch below.
-        }
-        return string.IsNullOrEmpty(ispName) ? hop.Address : $"{hop.Address} - {ispName}";
-    }
 
     /// <summary>
     /// True when the hostname looks like an automated IP-encoded reverse DNS entry
@@ -1025,7 +1011,7 @@ public class UpstreamTracerService
         return UpstreamRole.AccessGateway;
     }
 
-    private static string LabelL2Neighbor(string? ouiVendor, AccessTechnology tech, string? asnName)
+    private static string LabelL2Role(string? ouiVendor, AccessTechnology tech)
     {
         var vendor = FirstWord(ouiVendor);
         var role = tech switch
@@ -1038,11 +1024,7 @@ public class UpstreamTracerService
         var techSuffix = (role == "access" && tech != AccessTechnology.Unknown)
             ? $"-{tech.ToString().ToLowerInvariant()}"
             : "";
-        var isp = FirstWord(asnName);
-
-        // e.g. "nokia-olt.att", "arris-cmts.comcast", "cisco-access-ethernet"
-        var prefix = vendor != null ? $"{vendor}-{role}{techSuffix}" : $"{role}{techSuffix}";
-        return isp != null ? $"{prefix}.{isp}" : prefix;
+        return vendor != null ? $"{vendor}-{role}{techSuffix}" : $"{role}{techSuffix}";
     }
 
     private static string? FirstWord(string? value)
@@ -1057,7 +1039,8 @@ public class UpstreamTracerService
         var hop = State.AccessHops.FirstOrDefault(h => h.Method == DiscoveryMethod.L2Neighbor);
         if (hop == null) return;
         hop.Role = InferL2NeighborRole(State.AccessTechnology, State.WanNeighborOuiVendor);
-        hop.Label = LabelL2Neighbor(State.WanNeighborOuiVendor, State.AccessTechnology, hop.AsnName);
+        var org = CleanAsnName(hop.AsnName ?? State.AccessHops.FirstOrDefault(h => h.AsnName != null)?.AsnName);
+        hop.Label = $"{org} {LabelL2Role(State.WanNeighborOuiVendor, State.AccessTechnology)}";
     }
 
     private static string NormalizeMacForId(string s) => s.Replace(".", "-").Replace(":", "-");
