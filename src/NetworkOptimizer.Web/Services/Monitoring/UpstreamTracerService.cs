@@ -898,11 +898,11 @@ public class UpstreamTracerService
     {
         State.Step = TracerStep.VerifyingReachability;
 
-        var allTargets = new List<(string Address, ProbeMode Mode, Action Disable)>();
+        var allTargets = new List<(string Address, ProbeMode Mode, Action<double?> ApplyRtt, Action Disable)>();
         foreach (var hop in State.AccessHops)
-            allTargets.Add((hop.Address, hop.RespondedTo, () => hop.Enabled = false));
+            allTargets.Add((hop.Address, hop.RespondedTo, rtt => hop.VerifiedRttMs = rtt, () => hop.Enabled = false));
         foreach (var transit in State.TransitAsns.Where(t => t.HopAddress != null && t.Method == DiscoveryMethod.DirectRouter))
-            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, () => transit.Enabled = false));
+            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt, () => transit.Enabled = false));
 
         if (allTargets.Count == 0) return;
 
@@ -922,7 +922,11 @@ public class UpstreamTracerService
         var unreachable = 0;
         foreach (var (t, result) in results)
         {
-            if (!result.Success)
+            if (result.Success)
+            {
+                t.ApplyRtt(result.RttAvgMs);
+            }
+            else
             {
                 t.Disable();
                 unreachable++;
