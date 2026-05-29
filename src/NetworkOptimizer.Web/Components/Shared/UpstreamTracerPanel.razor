@@ -351,6 +351,7 @@
                 _ = InvokeAsync(async () =>
                 {
                     _state = Tracer.State;
+                    if (_state.Step == TracerStep.ReviewingResults) return;
                     if (DateTime.UtcNow - _lastReviewCheck > TimeSpan.FromMinutes(1))
                         await RefreshReviewFlagAsync();
                     StateHasChanged();
