@@ -1448,19 +1448,8 @@ else
     {
         if (_historicSnapshot != null)
             return (_historicSnapshot.FabricIngressBps, _historicSnapshot.FabricEgressBps);
-        double totalIn = 0, totalOut = 0;
-        var fabricMacs = _targets
-            .Where(t => t.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(t.DeviceMac))
-            .Select(t => t.DeviceMac!)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-        foreach (var mac in fabricMacs)
-        {
-            var stats = LiveStats.GetForDevice(mac);
-            if (stats == null) continue;
-            totalIn += stats.FabricIngressBps ?? 0;
-            totalOut += stats.FabricEgressBps ?? 0;
-        }
-        return (totalIn, totalOut);
+        var total = LiveStats.GetTotalFabricLoad();
+        return (total.IngressBps, total.EgressBps);
     }
 
     private static string FormatRate(double? bps)

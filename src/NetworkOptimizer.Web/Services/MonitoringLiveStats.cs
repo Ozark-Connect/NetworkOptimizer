@@ -186,6 +186,21 @@ public class MonitoringLiveStats
         };
     }
 
+    /// <summary>Total fabric ingress/egress across all devices in the cache.
+    /// Only devices with non-null fabric data contribute (APs are excluded
+    /// because the collection agent never calls RecordFabricSum for them).</summary>
+    public (double IngressBps, double EgressBps) GetTotalFabricLoad()
+    {
+        double totalIn = 0, totalOut = 0;
+        foreach (var kvp in _stats)
+        {
+            if (kvp.Value.FabricIngressBps == null && kvp.Value.FabricEgressBps == null) continue;
+            totalIn += kvp.Value.FabricIngressBps ?? 0;
+            totalOut += kvp.Value.FabricEgressBps ?? 0;
+        }
+        return (totalIn, totalOut);
+    }
+
     /// <summary>Latest SFP DDM snapshot for a given device port.</summary>
     public SfpLiveStats? GetSfpStats(string deviceMac, string portName)
     {
