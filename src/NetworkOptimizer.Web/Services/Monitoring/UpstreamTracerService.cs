@@ -845,10 +845,42 @@ public class UpstreamTracerService
             }
         }
 
-        // Reconcile with existing DB targets: match candidates against what's
-        // already committed. Enabled targets → pre-check; disabled targets →
-        // uncheck (respect user's previous decision). Absorb descriptive names
-        // over numbered fallbacks.
+        // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
+        // trace - not just traces that reached the literal endpoint - add the
+        // endpoint as a path-end monitoring target.
+        var pathProxyAsnsSeen = new HashSet<int>(candidates.Select(c => c.AsnNumber));
+        var asnsInTrace = new HashSet<int>(_mergedHops
+            .Where(h => h.Asn != null)
+            .Select(h => h.Asn!.Asn));
+        foreach (var endpoint in CdnRotation)
+        {
+            if (endpoint.IsTransitProbe) continue;
+            var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
+            if (destAsn == null) continue;
+            if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
+            var trace = State.Traces.FirstOrDefault(t =>
+                string.Equals(t.CdnEndpoint, endpoint.Address, StringComparison.OrdinalIgnoreCase));
+            bool reachedOrTraversed = (trace?.Reached ?? false) || asnsInTrace.Contains(destAsn.Asn);
+            if (!reachedOrTraversed) continue;
+            if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;
+
+            candidates.Add(new TransitAsnCandidate
+            {
+                AsnNumber = destAsn.Asn,
+                AsnName = CleanAsnName(destAsn.Name),
+                Label = endpoint.Label,
+                Method = DiscoveryMethod.PathProxy,
+                TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
+                HopAddress = endpoint.Address,
+                PathProxyTarget = endpoint.Address,
+                RespondedTo = ProbeMode.Icmp,
+                Enabled = true
+            });
+        }
+
+        // Reconcile ALL candidates (transit + path-end) and access hops against
+        // existing DB targets. Enabled → pre-check; disabled → uncheck.
+        // Absorb descriptive names over numbered fallbacks.
         await using var reconcileDb = await _dbFactory.CreateDbContextAsync(ct);
         var allExisting = await reconcileDb.MonitoringTargets
             .AsNoTracking()
@@ -865,7 +897,7 @@ public class UpstreamTracerService
                 c.Enabled = existing.Enabled;
                 if (!string.IsNullOrEmpty(existing.Name)
                     && c.Label != null
-                    && System.Text.RegularExpressions.Regex.IsMatch(c.Label, @"\s\d+$"))
+                    && Regex.IsMatch(c.Label, @"\s\d+$"))
                 {
                     c.Label = existing.Name;
                 }
@@ -877,48 +909,6 @@ public class UpstreamTracerService
             {
                 hop.Enabled = existing.Enabled;
             }
-        }
-
-        State.TransitAsns = candidates;
-
-        // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
-        // trace - not just traces that reached the literal endpoint - add the
-        // endpoint as a path-end monitoring target. The previous "only if Reached"
-        // gate missed destinations like Akamai whose anycast endpoints often
-        // don't respond to ICMP/UDP probes even though the trace clearly entered
-        // their network. Seeing the destination ASN attributed to any hop is a
-        // strong signal the path-end is monitorable.
-        var pathProxyAsnsSeen = new HashSet<int>(candidates.Select(c => c.AsnNumber));
-        var asnsInTrace = new HashSet<int>(_mergedHops
-            .Where(h => h.Asn != null)
-            .Select(h => h.Asn!.Asn));
-        foreach (var endpoint in CdnRotation)
-        {
-            // TransitProbe endpoints aren't destinations to monitor - their job
-            // was to surface their ASN as transit (handled above). Skip the
-            // path-end registration for them.
-            if (endpoint.IsTransitProbe) continue;
-            var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
-            if (destAsn == null) continue;
-            if (accessAsnNumbers.Contains(destAsn.Asn)) continue;
-            var trace = State.Traces.FirstOrDefault(t =>
-                string.Equals(t.CdnEndpoint, endpoint.Address, StringComparison.OrdinalIgnoreCase));
-            bool reachedOrTraversed = (trace?.Reached ?? false) || asnsInTrace.Contains(destAsn.Asn);
-            if (!reachedOrTraversed) continue;
-            if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;     // dedupe across CDNs
-
-            candidates.Add(new TransitAsnCandidate
-            {
-                AsnNumber = destAsn.Asn,
-                AsnName = CleanAsnName(destAsn.Name),
-                Label = endpoint.Label,
-                Method = DiscoveryMethod.PathProxy,
-                TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
-                HopAddress = endpoint.Address,
-                PathProxyTarget = endpoint.Address,
-                RespondedTo = ProbeMode.Icmp,
-                Enabled = true
-            });
         }
 
         State.TransitAsns = candidates;
