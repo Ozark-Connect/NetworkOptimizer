@@ -349,6 +349,7 @@ class LanFlowMap2D {
         const fsBtn=document.createElement('button');
         fsBtn.className='lan-flow-map-fullscreen-btn';
         fsBtn.setAttribute('data-tooltip','Fullscreen');
+        fsBtn.setAttribute('data-tooltip-hover-only','');
         fsBtn.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline>
             <polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>`;
@@ -454,6 +455,7 @@ class LanFlowMap2D {
         const modeBadge=document.createElement('span');
         modeBadge.className='lan-flow-map-mode';
         modeBadge.textContent='Live';
+        modeBadge.setAttribute('data-tooltip-hover-only','');
         modeBadge.addEventListener('click',()=>{
             const inst=window.__lanFlowMap?.getInstance?.();
             if(inst&&inst._mode==='historic'){
@@ -704,8 +706,12 @@ class LanFlowMap2D {
             this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
             this._modeBadge.classList.toggle('is-historic',mode==='historic');
             this._modeBadge.style.cursor=mode==='historic'?'pointer':'';
-            if(mode==='historic')this._modeBadge.setAttribute('data-tooltip','Click to return to live');
-            else this._modeBadge.removeAttribute('data-tooltip');
+            if(mode==='historic'){
+                this._modeBadge.setAttribute('data-tooltip','Click to return to live');
+            }else{
+                this._modeBadge.removeAttribute('data-tooltip');
+                if(this._modeBadge._tippy)this._modeBadge._tippy.destroy();
+            }
         }
     }
 
