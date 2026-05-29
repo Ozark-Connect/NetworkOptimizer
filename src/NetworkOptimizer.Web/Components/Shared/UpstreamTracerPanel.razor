@@ -98,7 +98,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Access network technology</label>
-                    <select class="form-control" style="max-width: 250px;"
+                    <select class="form-control" style="max-width: 250px;@(_state.AccessTechnology == AccessTechnology.Unknown ? " outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; border-radius: 6px;" : "")"
                             value="@((int)_state.AccessTechnology)"
                             @onchange="OnAccessTechChanged">
                         @foreach (var tech in Enum.GetValues<AccessTechnology>())
