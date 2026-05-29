@@ -14,7 +14,7 @@ public class CleanAsnNameTests
     [InlineData("AT&T Enterprises", "AT&T")]
     [InlineData("Level 3 Parent, LLC", "Level 3")]
     [InlineData("Cox Communications Inc.", "Cox")]
-    [InlineData("YELCOT TELEPHONE", "YELCOT")]
+    [InlineData("EXAMPLE TELEPHONE", "EXAMPLE")]
     [InlineData("Cisco OpenDNS, LLC", "Cisco OpenDNS")]
     [InlineData("Akamai International B.V.", "Akamai International")]
     [InlineData("Fastly, Inc.", "Fastly")]
@@ -58,15 +58,15 @@ public class FormatTransitHopLabelTests
     [InlineData("lag-101.ear1.LittleRock2.Level3.net", null, "lag-101.ear1.LittleRock2")]
     [InlineData("mcibbrj01.rd.ks.cox.net", null, "mcibbrj01.rd.ks")]
     [InlineData("ae25.25.ear1.Dallas1.net.lumen.tech", null, "ae25.25.ear1.Dallas1.net")]
-    [InlineData("ltrar-att-xconnect.yelcot.net", null, "ltrar-att-xconnect")]
+    [InlineData("rtr1-handoff.example.net", null, "rtr1-handoff")]
     public void Strips_sld_and_tld(string hostname, string? ip, string expected)
     {
         UpstreamTracerService.FormatTransitHopLabel(hostname, ip).Should().Be(expected);
     }
 
     [Theory]
-    [InlineData("h121.217.134.40.static.ip.windstream.net", "40.134.217.121")]
-    [InlineData("12.123.6.146", "12.123.6.146")]
+    [InlineData("h40.113.0.203.static.ip.example.net", "203.0.113.40")]
+    [InlineData("203.0.113.146", "203.0.113.146")]
     public void Returns_null_for_ip_derived_hostnames(string hostname, string ip)
     {
         UpstreamTracerService.FormatTransitHopLabel(hostname, ip).Should().BeNull();
@@ -275,28 +275,28 @@ public class UpstreamCommitTests : IDisposable
     [Fact]
     public async Task Rename_applies_to_disabled_targets()
     {
-        _db.MonitoringTargets.Add(MakeDbTarget("192.0.2.1", "gassville-bng-pon.yelcot", MonitoringTargetType.AccessIsp, enabled: true));
+        _db.MonitoringTargets.Add(MakeDbTarget("192.0.2.1", "bng01.example", MonitoringTargetType.AccessIsp, enabled: true));
         await _db.SaveChangesAsync();
 
-        var hop = MakeAccessHop("192.0.2.1", "YELCOT gassville-bng-pon", enabled: false);
+        var hop = MakeAccessHop("192.0.2.1", "EXAMPLE bng01", enabled: false);
 
         await CommitAsync(new List<AccessHopCandidate> { hop }, new List<TransitAsnCandidate>());
 
         var target = await _db.MonitoringTargets.FirstAsync(t => t.Address == "192.0.2.1");
         target.Enabled.Should().BeFalse();
-        target.Name.Should().Be("YELCOT gassville-bng-pon");
+        target.Name.Should().Be("EXAMPLE bng01");
     }
 
     [Fact]
     public async Task Asn_name_cleaned_on_save()
     {
-        var hop = MakeAccessHop("192.0.2.1", "YELCOT bng", enabled: true);
-        hop.AsnName = "YELCOT TELEPHONE";
+        var hop = MakeAccessHop("192.0.2.1", "EXAMPLE bng", enabled: true);
+        hop.AsnName = "EXAMPLE TELEPHONE";
 
         await CommitAsync(new List<AccessHopCandidate> { hop }, new List<TransitAsnCandidate>());
 
         var target = await _db.MonitoringTargets.FirstAsync(t => t.Address == "192.0.2.1");
-        target.AsnName.Should().Be("YELCOT");
+        target.AsnName.Should().Be("EXAMPLE");
     }
 
     [Fact]
@@ -449,9 +449,9 @@ public class UpstreamCommitTests : IDisposable
     {
         var hops = new List<AccessHopCandidate>
         {
-            MakeAccessHop("192.0.2.1", "YELCOT gassville-border", enabled: true)
+            MakeAccessHop("192.0.2.1", "EXAMPLE border01", enabled: true)
         };
-        var existing = MakeDbTarget("192.0.2.1", "YELCOT gassville-border 1", MonitoringTargetType.AccessIsp, enabled: true);
+        var existing = MakeDbTarget("192.0.2.1", "EXAMPLE border01 1", MonitoringTargetType.AccessIsp, enabled: true);
         _db.MonitoringTargets.Add(existing);
         _db.SaveChanges();
 
@@ -470,7 +470,7 @@ public class UpstreamCommitTests : IDisposable
             }
         }
 
-        hops[0].Label.Should().Be("YELCOT gassville-border 1");
+        hops[0].Label.Should().Be("EXAMPLE border01 1");
     }
 
     [Fact]
@@ -658,32 +658,32 @@ public class UpstreamCommitTests : IDisposable
 
     private static TransitAsnCandidate MakeTransitCandidate(string address, string label, int asn,
         DiscoveryMethod method, bool enabled) => new()
-    {
-        AsnNumber = asn,
-        AsnName = $"AS{asn}",
-        Label = label,
-        Method = method,
-        TargetId = $"transit-as{asn}-{address.Replace('.', '-')}",
-        HopAddress = address,
-        RespondedTo = ProbeMode.Icmp,
-        Enabled = enabled
-    };
+        {
+            AsnNumber = asn,
+            AsnName = $"AS{asn}",
+            Label = label,
+            Method = method,
+            TargetId = $"transit-as{asn}-{address.Replace('.', '-')}",
+            HopAddress = address,
+            RespondedTo = ProbeMode.Icmp,
+            Enabled = enabled
+        };
 
     private static MonitoringTarget MakeDbTarget(string address, string name,
         MonitoringTargetType type, bool enabled) => new()
-    {
-        TargetId = $"test-{address.Replace('.', '-')}",
-        Name = name,
-        Address = address,
-        ProbeMode = ProbeMode.Icmp,
-        TargetType = type,
-        VantagePoint = "server",
-        PollIntervalSeconds = 10,
-        PingCount = 5,
-        Enabled = enabled,
-        AutoDiscovered = true,
-        WanInterface = "wan",
-        CreatedAt = DateTime.UtcNow,
-        LastVerified = DateTime.UtcNow
-    };
+        {
+            TargetId = $"test-{address.Replace('.', '-')}",
+            Name = name,
+            Address = address,
+            ProbeMode = ProbeMode.Icmp,
+            TargetType = type,
+            VantagePoint = "server",
+            PollIntervalSeconds = 10,
+            PingCount = 5,
+            Enabled = enabled,
+            AutoDiscovered = true,
+            WanInterface = "wan",
+            CreatedAt = DateTime.UtcNow,
+            LastVerified = DateTime.UtcNow
+        };
 }
