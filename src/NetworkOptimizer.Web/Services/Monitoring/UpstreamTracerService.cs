@@ -606,20 +606,22 @@ public class UpstreamTracerService
         var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
-        // Collect all hops in the access ASN from the merged pool.
-        _accessHopsResolved = new List<AttributedHop>();
-        foreach (var h in candidateHops)
+        // Collect ALL hops in the access ASN from the merged pool. Filter-based,
+        // not sequential - the merged pool interleaves hops from different traces
+        // so a sequential walk breaks at the first non-access hop and misses
+        // access-ASN hops that only appear in certain traces (e.g. a second
+        // border router used for specific transit peers).
+        if (accessAsn.HasValue)
         {
-            if (accessAsn.HasValue)
-            {
-                if (h.Asn == null) continue;
-                if (h.Asn.Asn != accessAsn.Value) break;
-            }
-            else
-            {
-                if (h.Asn != null) break;
-            }
-            _accessHopsResolved.Add(h);
+            _accessHopsResolved = candidateHops
+                .Where(h => h.Asn?.Asn == accessAsn.Value)
+                .ToList();
+        }
+        else
+        {
+            _accessHopsResolved = candidateHops
+                .TakeWhile(h => h.Asn == null)
+                .ToList();
         }
 
         // Walk each individual trace to find border hops: an access-ASN hop
@@ -757,11 +759,20 @@ public class UpstreamTracerService
             if (!string.IsNullOrWhiteSpace(destAsn.Name)) destinationOrgs.Add(destAsn.Name.Trim());
         }
 
+        // Also exclude the transit-probe endpoints themselves from the hop pool.
+        // Their job is to force the path through a specific ASN so real transit
+        // routers surface - the endpoint IP itself is far away and not useful
+        // as a monitoring target.
+        var transitProbeAddresses = new HashSet<string>(
+            CdnRotation.Where(e => e.IsTransitProbe).Select(e => e.Address),
+            StringComparer.OrdinalIgnoreCase);
+
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
                         && !accessAsnNumbers.Contains(h.Asn.Asn)
                         && !destinationAsns.Contains(h.Asn.Asn)
-                        && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim())))
+                        && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
+                        && !transitProbeAddresses.Contains(h.Address))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
@@ -778,19 +789,21 @@ public class UpstreamTracerService
             // transit ASNs cleanly by monitoring the CDN destination instead.
             var asn = group.First().Asn!;
             var hopsInOrder = group.OrderBy(h => h.HopNumber).Take(3).ToList();
-            var chosen = hopsInOrder.First(); // already filtered to "responded" by attribution
 
-            candidates.Add(new TransitAsnCandidate
+            foreach (var hop in hopsInOrder)
             {
-                AsnNumber = asn.Asn,
-                AsnName = asn.Name,
-                Method = DiscoveryMethod.DirectRouter,
-                TargetId = $"transit-as{asn.Asn}",
-                HopAddress = chosen.Address,
-                HopHostname = chosen.Hostname,
-                RespondedTo = chosen.RespondedTo,
-                Enabled = true
-            });
+                candidates.Add(new TransitAsnCandidate
+                {
+                    AsnNumber = asn.Asn,
+                    AsnName = asn.Name,
+                    Method = DiscoveryMethod.DirectRouter,
+                    TargetId = $"transit-as{asn.Asn}-{NormalizeMacForId(hop.Address)}",
+                    HopAddress = hop.Address,
+                    HopHostname = hop.Hostname,
+                    RespondedTo = hop.RespondedTo,
+                    Enabled = hop == hopsInOrder.First()
+                });
+            }
         }
 
         State.TransitAsns = candidates;

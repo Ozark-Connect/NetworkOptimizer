@@ -191,7 +191,7 @@
                     </div>
                 }
 
-                @if (_state.TransitAsns.Count > 0)
+                @if (TransitRouters.Count > 0)
                 {
                     <div class="form-group">
                         <label class="form-label">Transit networks</label>
@@ -204,11 +204,10 @@
                                         <th>ASN</th>
                                         <th>Name</th>
                                         <th>Target hop</th>
-                                        <th>Method</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var asn in _state.TransitAsns)
+                                    @foreach (var asn in TransitRouters)
                                     {
                                         <tr class="@(asn.Enabled ? "" : "row-disabled")">
                                             <td>
@@ -218,16 +217,46 @@
                                             <td><code>AS@(asn.AsnNumber)</code></td>
                                             <td>@asn.AsnName</td>
                                             <td>
-                                                @if (!string.IsNullOrEmpty(asn.HopAddress))
+                                                <code>@asn.HopAddress</code>
+                                                @if (!string.IsNullOrEmpty(asn.HopHostname))
                                                 {
-                                                    <code>@asn.HopAddress</code>
-                                                }
-                                                else
-                                                {
-                                                    <span class="text-muted">-</span>
+                                                    <span class="text-muted"> (@asn.HopHostname)</span>
                                                 }
                                             </td>
-                                            <td>@asn.Method.ToDisplayName()</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (PathEndHosts.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Path-end Internet hosts</label>
+                        <p class="section-description">CDN and Internet services reachable through the discovered transit path.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"></th>
+                                        <th>ASN</th>
+                                        <th>Name</th>
+                                        <th>Endpoint</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var host in PathEndHosts)
+                                    {
+                                        <tr class="@(host.Enabled ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@host.Enabled"
+                                                       @onchange="e => host.Enabled = (bool)e.Value!" />
+                                            </td>
+                                            <td><code>AS@(host.AsnNumber)</code></td>
+                                            <td>@host.AsnName</td>
+                                            <td><code>@host.PathProxyTarget</code></td>
                                         </tr>
                                     }
                                 </tbody>
@@ -283,6 +312,8 @@
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
+    private List<TransitAsnCandidate> TransitRouters => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.DirectRouter).ToList();
+    private List<TransitAsnCandidate> PathEndHosts => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.PathProxy).ToList();
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;
     private bool _justSaved;
