@@ -202,10 +202,9 @@
         };
 
         attachListener(getScrollEl());
-        window.addEventListener('resize', function() {
-            attachListener(getScrollEl());
-            var mc = document.querySelector('.main-content');
-            if (mc) mc.scrollTop = mc.scrollTop + 0;
+        window.addEventListener('resize', function() { attachListener(getScrollEl()); });
+        window.addEventListener('orientationchange', function() {
+            setTimeout(function() { window.scrollBy(0, 1); window.scrollBy(0, -1); }, 100);
         });
 
         // Restart auto-hide timer when sidebar closes

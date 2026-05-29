@@ -551,12 +551,6 @@ class LanFlowMap2D {
     }
 
     _resize(){
-        if(this._isFullscreen){
-            const el=this._el;
-            el.style.position='static';
-            void el.offsetHeight;
-            el.style.position='';
-        }
         const rect=this._canvas.getBoundingClientRect();
         this._dpr=window.devicePixelRatio||1;
         this._cw=rect.width; this._ch=rect.height;
