@@ -848,7 +848,11 @@ else
 
         _liveRefreshTimer = new System.Threading.Timer(_ =>
         {
-            try { _ = InvokeAsync(StateHasChanged); }
+            try
+            {
+                if (_upstreamDiscoveryPendingSave) return;
+                _ = InvokeAsync(StateHasChanged);
+            }
             catch { }
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
 
