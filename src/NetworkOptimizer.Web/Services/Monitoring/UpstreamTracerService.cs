@@ -853,9 +853,9 @@ public class UpstreamTracerService
             .AsNoTracking()
             .Where(t => t.Enabled)
             .ToListAsync(ct);
-        var existingByAddress = existingTargets
-            .Where(t => !string.IsNullOrEmpty(t.Address))
-            .ToDictionary(t => t.Address, StringComparer.OrdinalIgnoreCase);
+        var existingByAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in existingTargets.Where(t => !string.IsNullOrEmpty(t.Address)))
+            existingByAddress.TryAdd(t.Address, t);
         foreach (var c in candidates)
         {
             var addr = c.HopAddress ?? c.PathProxyTarget;
