@@ -327,7 +327,7 @@ else
 
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
-            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" />
+            <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
         </div>
 
         <div style="margin-top: 1.5rem;">
@@ -800,7 +800,7 @@ else
     private async void SetActiveTab(string tab)
     {
         if (tab != "setup" && !_monitoringReady) return;
-        if (_upstreamDiscoveryPendingSave && tab != _activeTab)
+        if (_upstreamDiscoveryPendingSave && _activeTab == "performance" && tab != "performance")
         {
             var confirmed = await JS.InvokeAsync<bool>("confirm",
                 "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");
@@ -1135,7 +1135,10 @@ else
 
     private async Task OnBeforeInternalNavigation(LocationChangingContext context)
     {
-        if (_upstreamDiscoveryPendingSave)
+        // Only guard navigating away from the Monitoring page entirely.
+        // Tab switches within the page are handled by SetActiveTab.
+        if (_upstreamDiscoveryPendingSave
+            && !context.TargetLocation.Contains("/monitoring", StringComparison.OrdinalIgnoreCase))
         {
             var confirmed = await JS.InvokeAsync<bool>("confirm",
                 "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");

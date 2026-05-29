@@ -76,7 +76,8 @@ public class UpstreamTracerService
         new("Apple", "17.253.144.10"),                               // AS714
         new("Microsoft", "13.107.42.14"),                            // AS8068  - M365 SharePoint anycast
         new("Fastly", "151.101.1.69"),                               // AS54113 - reaches local PoP via anycast
-        new("Akamai", "23.0.0.1")                                    // AS20940 - global netarch anycast loopback
+        new("Akamai", "23.0.0.1"),                                   // AS20940 - global netarch anycast loopback
+        new("AT&T", "12.0.1.28", IsTransitProbe: true)                // AS7018  - probe to surface AT&T as transit
     };
 
     private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false);
@@ -197,11 +198,13 @@ public class UpstreamTracerService
         {
             if (_runningTask != null && !_runningTask.IsCompleted) return;
 
+            var preservedTech = State.AccessTechnology;
             State = new UpstreamTracerState
             {
                 Step = TracerStep.DetectingPublicIp,
                 StartedAt = DateTime.UtcNow,
-                CurrentActivity = "Reading WAN configuration from gateway..."
+                CurrentActivity = "Reading WAN configuration from gateway...",
+                AccessTechnology = preservedTech
             };
             _runningTask = Task.Run(() => RunAsync(ct), ct);
         }
@@ -605,45 +608,79 @@ public class UpstreamTracerService
         var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
 
-        // Access hops walk, capped at 3. Two cases:
-        //   - accessAsn known: skip any null-Asn hops in the prefix (a private
-        //     intermediate like an upstream modem at 192.168.x.x that survived
-        //     the gateway-IP filter); only break when we hit a hop with a
-        //     different non-null ASN. Without the skip, an AT&T-style setup
-        //     where the UniFi sits behind a residential gateway aborts the
-        //     access classification before reaching the first AT&T hop.
-        //   - accessAsn null (no public hop in the trace at all - fully
-        //     filtered carrier, all-CGNAT): take the first private hops as
-        //     access until a public ASN unexpectedly appears.
-        _accessHopsResolved = new List<AttributedHop>();
-        foreach (var h in candidateHops)
+        // Collect ALL hops in the access ASN from the merged pool. Filter-based,
+        // not sequential - the merged pool interleaves hops from different traces
+        // so a sequential walk breaks at the first non-access hop and misses
+        // access-ASN hops that only appear in certain traces (e.g. a second
+        // border router used for specific transit peers).
+        if (accessAsn.HasValue)
         {
-            if (_accessHopsResolved.Count >= 3) break;
-            if (accessAsn.HasValue)
-            {
-                if (h.Asn == null) continue;
-                if (h.Asn.Asn != accessAsn.Value) break;
-            }
-            else
-            {
-                if (h.Asn != null) break;
-            }
-            _accessHopsResolved.Add(h);
+            _accessHopsResolved = candidateHops
+                .Where(h => h.Asn?.Asn == accessAsn.Value)
+                .ToList();
+        }
+        else
+        {
+            _accessHopsResolved = candidateHops
+                .TakeWhile(h => h.Asn == null)
+                .ToList();
         }
 
+        // Walk each individual trace to find border hops: an access-ASN hop
+        // whose next responding hop is in a different ASN. Different traces
+        // may exit through different border routers depending on the transit
+        // peer, so we union across all traces.
+        var borderIps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (accessAsn.HasValue)
+        {
+            foreach (var (_, result) in results)
+            {
+                var hops = result.Hops
+                    .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address)
+                                && !_gatewayIps.Contains(h.Address))
+                    .OrderBy(h => h.HopNumber)
+                    .ToList();
+                for (int i = 0; i < hops.Count - 1; i++)
+                {
+                    var ip = hops[i].Address!;
+                    if (!byIp.TryGetValue(ip, out var attributed) || attributed.Asn?.Asn != accessAsn.Value)
+                        continue;
+                    var nextIp = hops[i + 1].Address!;
+                    if (!byIp.TryGetValue(nextIp, out var nextAttr))
+                        continue;
+                    if (nextAttr.Asn != null && nextAttr.Asn.Asn != accessAsn.Value)
+                        borderIps.Add(ip);
+                }
+            }
+        }
+
+        var orgName = CleanAsnName(firstPublicHop?.Asn?.Name);
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
             TargetId = $"access-{NormalizeMacForId(h.Address)}",
-            Label = LabelAccessHop(h),
+            Label = "",
             Address = h.Address,
             PtrHostname = h.Hostname,
             AsnNumber = h.Asn?.Asn,
             AsnName = h.Asn?.Name,
-            Role = InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
+            Role = borderIps.Contains(h.Address)
+                ? UpstreamRole.Border
+                : InferAccessRole(h, State.AccessTechnology, State.WanNeighborOuiVendor),
             HopNumber = h.HopNumber,
             RespondedTo = h.RespondedTo,
             Enabled = true
         }).ToList();
+
+        // Generate "<Org> <PTR-derived>" labels, same format as transit targets.
+        var accessIdx = 0;
+        foreach (var hop in State.AccessHops)
+        {
+            var ptrLabel = FormatTransitHopLabel(hop.PtrHostname, hop.Address);
+            if (ptrLabel != null)
+                hop.Label = $"{orgName} {ptrLabel}";
+            else
+                hop.Label = $"{orgName} {++accessIdx}";
+        }
 
         // Inject the L2 neighbor (from ip neigh) as the first access hop if it
         // wasn't already found by traceroute. On GPON the OLT is typically
@@ -657,7 +694,7 @@ public class UpstreamTracerService
             var l2Hop = new AccessHopCandidate
             {
                 TargetId = $"access-l2-{NormalizeMacForId(State.WanNeighborIp)}",
-                Label = LabelL2Neighbor(State.WanNeighborOuiVendor, State.AccessTechnology, l2Asn?.Name),
+                Label = $"{orgName} {LabelL2Role(State.WanNeighborOuiVendor, State.AccessTechnology)}",
                 Address = State.WanNeighborIp,
                 AsnNumber = l2Asn?.Asn,
                 AsnName = l2Asn?.Name,
@@ -736,11 +773,20 @@ public class UpstreamTracerService
             if (!string.IsNullOrWhiteSpace(destAsn.Name)) destinationOrgs.Add(destAsn.Name.Trim());
         }
 
+        // Also exclude the transit-probe endpoints themselves from the hop pool.
+        // Their job is to force the path through a specific ASN so real transit
+        // routers surface - the endpoint IP itself is far away and not useful
+        // as a monitoring target.
+        var transitProbeAddresses = new HashSet<string>(
+            CdnRotation.Where(e => e.IsTransitProbe).Select(e => e.Address),
+            StringComparer.OrdinalIgnoreCase);
+
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
                         && !accessAsnNumbers.Contains(h.Asn.Asn)
                         && !destinationAsns.Contains(h.Asn.Asn)
-                        && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim())))
+                        && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
+                        && !transitProbeAddresses.Contains(h.Address))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
@@ -757,39 +803,57 @@ public class UpstreamTracerService
             // transit ASNs cleanly by monitoring the CDN destination instead.
             var asn = group.First().Asn!;
             var hopsInOrder = group.OrderBy(h => h.HopNumber).Take(3).ToList();
-            var chosen = hopsInOrder.First(); // already filtered to "responded" by attribution
 
-            candidates.Add(new TransitAsnCandidate
+            foreach (var hop in hopsInOrder)
             {
-                AsnNumber = asn.Asn,
-                AsnName = asn.Name,
-                Method = DiscoveryMethod.DirectRouter,
-                TargetId = $"transit-as{asn.Asn}",
-                HopAddress = chosen.Address,
-                HopHostname = chosen.Hostname,
-                RespondedTo = chosen.RespondedTo,
-                Enabled = true
-            });
+                candidates.Add(new TransitAsnCandidate
+                {
+                    AsnNumber = asn.Asn,
+                    AsnName = CleanAsnName(asn.Name),
+                    Method = DiscoveryMethod.DirectRouter,
+                    TargetId = $"transit-as{asn.Asn}-{NormalizeMacForId(hop.Address)}",
+                    HopAddress = hop.Address,
+                    HopHostname = hop.Hostname,
+                    RespondedTo = hop.RespondedTo,
+                    Enabled = hop == hopsInOrder.First()
+                });
+            }
         }
 
-        State.TransitAsns = candidates;
+        // PTR-resolve candidate IPs that don't already have a hostname (e.g. from
+        // Windows managed traceroute or traces where the native binary didn't resolve).
+        // Only a handful of candidates, so the cost is negligible.
+        await ResolveHostnamesAsync(candidates, ct);
+
+        // Generate labels from PTR hostnames (strip TLD, filter IP-derived junk).
+        // Generate "<Org> <PTR-derived>" labels, or "<Org> 1/2/3" when no PTR.
+        var asnIndex = new Dictionary<int, int>();
+        foreach (var c in candidates)
+        {
+            if (c.Method == DiscoveryMethod.PathProxy) continue;
+            var ptrLabel = FormatTransitHopLabel(c.HopHostname, c.HopAddress);
+            if (ptrLabel != null)
+            {
+                c.Label = $"{c.AsnName} {ptrLabel}";
+            }
+            else
+            {
+                asnIndex.TryGetValue(c.AsnNumber, out var idx);
+                idx++;
+                asnIndex[c.AsnNumber] = idx;
+                c.Label = $"{c.AsnName} {idx}";
+            }
+        }
 
         // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
         // trace - not just traces that reached the literal endpoint - add the
-        // endpoint as a path-end monitoring target. The previous "only if Reached"
-        // gate missed destinations like Akamai whose anycast endpoints often
-        // don't respond to ICMP/UDP probes even though the trace clearly entered
-        // their network. Seeing the destination ASN attributed to any hop is a
-        // strong signal the path-end is monitorable.
+        // endpoint as a path-end monitoring target.
         var pathProxyAsnsSeen = new HashSet<int>(candidates.Select(c => c.AsnNumber));
         var asnsInTrace = new HashSet<int>(_mergedHops
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
         foreach (var endpoint in CdnRotation)
         {
-            // TransitProbe endpoints aren't destinations to monitor - their job
-            // was to surface their ASN as transit (handled above). Skip the
-            // path-end registration for them.
             if (endpoint.IsTransitProbe) continue;
             var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
             if (destAsn == null) continue;
@@ -798,12 +862,13 @@ public class UpstreamTracerService
                 string.Equals(t.CdnEndpoint, endpoint.Address, StringComparison.OrdinalIgnoreCase));
             bool reachedOrTraversed = (trace?.Reached ?? false) || asnsInTrace.Contains(destAsn.Asn);
             if (!reachedOrTraversed) continue;
-            if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;     // dedupe across CDNs
+            if (!pathProxyAsnsSeen.Add(destAsn.Asn)) continue;
 
             candidates.Add(new TransitAsnCandidate
             {
                 AsnNumber = destAsn.Asn,
-                AsnName = destAsn.Name,
+                AsnName = CleanAsnName(destAsn.Name),
+                Label = endpoint.Label,
                 Method = DiscoveryMethod.PathProxy,
                 TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
                 HopAddress = endpoint.Address,
@@ -811,6 +876,37 @@ public class UpstreamTracerService
                 RespondedTo = ProbeMode.Icmp,
                 Enabled = true
             });
+        }
+
+        // Reconcile ALL candidates (transit + path-end) and access hops against
+        // existing DB targets. Enabled → pre-check; disabled → uncheck.
+        // Absorb descriptive names over numbered fallbacks.
+        await using var reconcileDb = await _dbFactory.CreateDbContextAsync(ct);
+        var allExisting = await reconcileDb.MonitoringTargets
+            .AsNoTracking()
+            .ToListAsync(ct);
+        var existingByAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in allExisting.Where(t => !string.IsNullOrEmpty(t.Address)))
+            existingByAddress.TryAdd(t.Address, t);
+        foreach (var c in candidates)
+        {
+            var addr = c.HopAddress ?? c.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            if (existingByAddress.TryGetValue(addr, out var existing))
+            {
+                c.Enabled = existing.Enabled;
+                if (!string.IsNullOrEmpty(existing.Name))
+                    c.Label = existing.Name;
+            }
+        }
+        foreach (var hop in State.AccessHops)
+        {
+            if (existingByAddress.TryGetValue(hop.Address, out var existing))
+            {
+                hop.Enabled = existing.Enabled;
+                if (!string.IsNullOrEmpty(existing.Name))
+                    hop.Label = existing.Name;
+            }
         }
 
         State.TransitAsns = candidates;
@@ -826,11 +922,11 @@ public class UpstreamTracerService
     {
         State.Step = TracerStep.VerifyingReachability;
 
-        var allTargets = new List<(string Address, ProbeMode Mode, Action Disable)>();
+        var allTargets = new List<(string Address, ProbeMode Mode, Action<double?> ApplyRtt, Action MarkUnreachable)>();
         foreach (var hop in State.AccessHops)
-            allTargets.Add((hop.Address, hop.RespondedTo, () => hop.Enabled = false));
+            allTargets.Add((hop.Address, hop.RespondedTo, rtt => hop.VerifiedRttMs = rtt, () => { hop.Enabled = false; hop.Unreachable = true; }));
         foreach (var transit in State.TransitAsns.Where(t => t.HopAddress != null && t.Method == DiscoveryMethod.DirectRouter))
-            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, () => transit.Enabled = false));
+            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt, () => { transit.Enabled = false; transit.Unreachable = true; }));
 
         if (allTargets.Count == 0) return;
 
@@ -850,11 +946,15 @@ public class UpstreamTracerService
         var unreachable = 0;
         foreach (var (t, result) in results)
         {
-            if (!result.Success)
+            if (result.Success)
             {
-                t.Disable();
+                t.ApplyRtt(result.RttAvgMs);
+            }
+            else
+            {
+                t.MarkUnreachable();
                 unreachable++;
-                _logger.LogDebug("Ping check failed for {Address} - excluding from proposed targets", t.Address);
+                _logger.LogDebug("Ping check failed for {Address} - marked unreachable", t.Address);
             }
         }
 
@@ -863,32 +963,6 @@ public class UpstreamTracerService
             : $"All {allTargets.Count} target(s) responded to ping.";
     }
 
-    /// <summary>
-    /// Hop label priority per spec 5.5: PTR hostname > role inference > bare IP +
-    /// ISP name. PTRs that just encode the IP (e.g. "h1.2.3.4.static.ip.example.net")
-    /// fall through to bare IP since the encoded form is useless as a label.
-    /// Otherwise we strip just the trailing TLD label so the ISP-identifying SLD
-    /// stays in the label ("router-name.example" rather than "router-name").
-    /// </summary>
-    private static string LabelAccessHop(AttributedHop hop)
-    {
-        var ispName = hop.Asn?.Name;
-        if (!string.IsNullOrEmpty(hop.Hostname))
-        {
-            var parts = hop.Hostname.Split('.');
-            if (!IsIpDerivedHostname(parts, hop.Address))
-            {
-                // Strip only the final TLD label (.net/.com/...) so the SLD that
-                // names the ISP is preserved. If the hostname has only one label
-                // (e.g. "_gateway") just return it whole.
-                return parts.Length > 1
-                    ? string.Join('.', parts.Take(parts.Length - 1))
-                    : hop.Hostname;
-            }
-            // IP-encoded PTR; fall through to the bare-IP branch below.
-        }
-        return string.IsNullOrEmpty(ispName) ? hop.Address : $"{hop.Address} - {ispName}";
-    }
 
     /// <summary>
     /// True when the hostname looks like an automated IP-encoded reverse DNS entry
@@ -939,14 +1013,12 @@ public class UpstreamTracerService
                            || vendor.Contains("cadant") || vendor.Contains("ubr");
 
         if ((tech == AccessTechnology.Gpon || tech == AccessTechnology.XgsPon) && isOltVendor && hop.HopNumber == 1)
-            return UpstreamRole.Bng; // L2-transparent OLT means hop 1 is the BNG behind it.
+            return UpstreamRole.Bng;
         if (tech == AccessTechnology.Docsis && (isCmtsVendor || hop.HopNumber == 1))
             return UpstreamRole.Cmts;
         if (tech == AccessTechnology.PppoE && hop.HopNumber == 1)
             return UpstreamRole.Bng;
-        if (hop.HopNumber >= 2 && hop.HopNumber <= 3)
-            return UpstreamRole.Aggregation;
-        return UpstreamRole.AccessHop;
+        return UpstreamRole.Aggregation;
     }
 
     private static UpstreamRole InferL2NeighborRole(AccessTechnology tech, string? ouiVendor)
@@ -967,7 +1039,7 @@ public class UpstreamTracerService
         return UpstreamRole.AccessGateway;
     }
 
-    private static string LabelL2Neighbor(string? ouiVendor, AccessTechnology tech, string? asnName)
+    private static string LabelL2Role(string? ouiVendor, AccessTechnology tech)
     {
         var vendor = FirstWord(ouiVendor);
         var role = tech switch
@@ -980,11 +1052,7 @@ public class UpstreamTracerService
         var techSuffix = (role == "access" && tech != AccessTechnology.Unknown)
             ? $"-{tech.ToString().ToLowerInvariant()}"
             : "";
-        var isp = FirstWord(asnName);
-
-        // e.g. "nokia-olt.att", "arris-cmts.comcast", "cisco-access-ethernet"
-        var prefix = vendor != null ? $"{vendor}-{role}{techSuffix}" : $"{role}{techSuffix}";
-        return isp != null ? $"{prefix}.{isp}" : prefix;
+        return vendor != null ? $"{vendor}-{role}{techSuffix}" : $"{role}{techSuffix}";
     }
 
     private static string? FirstWord(string? value)
@@ -999,7 +1067,8 @@ public class UpstreamTracerService
         var hop = State.AccessHops.FirstOrDefault(h => h.Method == DiscoveryMethod.L2Neighbor);
         if (hop == null) return;
         hop.Role = InferL2NeighborRole(State.AccessTechnology, State.WanNeighborOuiVendor);
-        hop.Label = LabelL2Neighbor(State.WanNeighborOuiVendor, State.AccessTechnology, hop.AsnName);
+        var org = CleanAsnName(hop.AsnName ?? State.AccessHops.FirstOrDefault(h => h.AsnName != null)?.AsnName);
+        hop.Label = $"{org} {LabelL2Role(State.WanNeighborOuiVendor, State.AccessTechnology)}";
     }
 
     private static string NormalizeMacForId(string s) => s.Replace(".", "-").Replace(":", "-");
@@ -1025,9 +1094,31 @@ public class UpstreamTracerService
         {
             await UpsertTargetAsync(db, hop, wanInterface, ct);
         }
+        foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
+        {
+            var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
+            if (existing != null)
+            {
+                existing.Enabled = false;
+                existing.Name = hop.Label;
+                if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
+            }
+        }
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
             await UpsertTransitTargetAsync(db, transit, wanInterface, ct);
+        }
+        foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
+        {
+            var addr = transit.HopAddress ?? transit.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
+            if (existing != null)
+            {
+                existing.Enabled = false;
+                existing.Name = transit.Label ?? transit.AsnName;
+                if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
+            }
         }
 
         // Per-WAN tracer state. WanDiscoveryContexts is the new source of truth;
@@ -1076,7 +1167,7 @@ public class UpstreamTracerService
                 DiscoveredProbeMode = hop.RespondedTo,
                 TargetType = MonitoringTargetType.AccessIsp,
                 AsnNumber = hop.AsnNumber,
-                AsnName = hop.AsnName,
+                AsnName = CleanAsnName(hop.AsnName),
                 VantagePoint = "server",
                 PollIntervalSeconds = 10,
                 PingCount = 5,
@@ -1096,12 +1187,13 @@ public class UpstreamTracerService
             // preservation per locked decision 6b). Backfill ASN fields whenever a
             // current run resolves them - rows committed before the GeoLite2 fix
             // landed have nulls and never refreshed without this.
+            existing.Enabled = true;
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
             existing.WanInterface = wanInterface;
-            existing.Name = string.IsNullOrEmpty(existing.Name) ? hop.Label : existing.Name; // don't stomp user-renamed labels
+            existing.Name = hop.Label;
             if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
-            if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = hop.AsnName;
+            if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
             if (!string.IsNullOrEmpty(hop.PtrHostname)) existing.PtrHostname = hop.PtrHostname;
             existing.LastVerified = DateTime.UtcNow;
         }
@@ -1124,7 +1216,7 @@ public class UpstreamTracerService
             db.MonitoringTargets.Add(new MonitoringTarget
             {
                 TargetId = transit.TargetId,
-                Name = transit.AsnName,
+                Name = transit.Label ?? transit.AsnName,
                 Address = transit.HopAddress ?? transit.PathProxyTarget ?? "0.0.0.0",
                 ProbeMode = transit.RespondedTo ?? NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
                 DiscoveredProbeMode = transit.RespondedTo,
@@ -1135,6 +1227,7 @@ public class UpstreamTracerService
                 PollIntervalSeconds = 15,
                 PingCount = 5,
                 Enabled = true,
+                PtrHostname = transit.HopHostname,
                 AutoDiscovered = true,
                 DiscoveryMethod = transit.Method,
                 WanInterface = wanInterface,
@@ -1144,8 +1237,11 @@ public class UpstreamTracerService
         }
         else
         {
+            existing.Enabled = true;
+            existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
+            if (!string.IsNullOrEmpty(transit.HopHostname)) existing.PtrHostname = transit.HopHostname;
             existing.DiscoveryMethod = transit.Method;
             existing.WanInterface = wanInterface;
             // Refresh ASN bookkeeping in case the resolver picked up a name now
@@ -1154,6 +1250,83 @@ public class UpstreamTracerService
             if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
             existing.LastVerified = DateTime.UtcNow;
         }
+    }
+
+    /// <summary>
+    /// PTR-resolve any transit candidates that don't already have a hostname from
+    /// the traceroute output (e.g. Windows managed traceroute, or hops that only
+    /// appeared in -n traces). Mutates HopHostname in place.
+    /// </summary>
+    private static async Task ResolveHostnamesAsync(List<TransitAsnCandidate> candidates, CancellationToken ct)
+    {
+        var tasks = candidates
+            .Where(c => string.IsNullOrEmpty(c.HopHostname) && !string.IsNullOrEmpty(c.HopAddress))
+            .Select(async c =>
+            {
+                try
+                {
+                    var entry = await System.Net.Dns.GetHostEntryAsync(c.HopAddress!, ct);
+                    if (!string.IsNullOrEmpty(entry.HostName) && entry.HostName != c.HopAddress)
+                        c.HopHostname = entry.HostName;
+                }
+                catch { /* no PTR record — leave null */ }
+            });
+        await Task.WhenAll(tasks);
+    }
+
+    private static readonly string[] OrgSuffixes =
+    {
+        // Telco/ISP industry terms
+        "Communications", "Telephone", "Telecom", "Telecommunications",
+        "Broadband", "Internet", "Fiber", "Cable", "Wireless",
+        "Enterprises", "Services", "Technologies", "Networks", "Network",
+        "Electric Cooperative", "Cooperative", "Co-op",
+        // Corporate entity suffixes
+        "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",
+        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P.", "LP",
+        // International
+        "GmbH", "AG", "KG", "e.K.", "S.A.", "S.A.S.", "S.r.l.",
+        "B.V.", "B.V", "N.V.", "N.V", "Pty", "A/S", "AB", "Oy", "AS"
+    };
+
+    /// <summary>
+    /// Strip corporate suffixes from ASN org names.
+    /// "Windstream Communications" → "Windstream", "AT&amp;T Enterprises" → "AT&amp;T"
+    /// </summary>
+    internal static string CleanAsnName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+        var cleaned = name.Trim().TrimEnd(',', '.');
+        // Iterate to strip chains like "Telephone Company" or "Cable Communications LLC"
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var suffix in OrgSuffixes)
+            {
+                if (cleaned.EndsWith(" " + suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleaned = cleaned[..^(suffix.Length + 1)].TrimEnd(',', '.');
+                    changed = true;
+                }
+            }
+        } while (changed && cleaned.Contains(' '));
+        return cleaned.Trim();
+    }
+
+    /// <summary>
+    /// Generate a display label from a PTR hostname for transit targets.
+    /// Strips the last 2 labels (SLD + TLD, e.g. ".windstream.net") since
+    /// the org name is already prepended separately. Returns null if the
+    /// hostname is unusable (IP-derived auto-PTR or too short).
+    /// </summary>
+    internal static string? FormatTransitHopLabel(string? hostname, string? ipAddress)
+    {
+        if (string.IsNullOrEmpty(hostname)) return null;
+        var parts = hostname.Split('.');
+        if (IsIpDerivedHostname(parts, ipAddress ?? string.Empty)) return null;
+        if (parts.Length <= 2) return null;
+        return string.Join('.', parts.Take(parts.Length - 2));
     }
 
     private bool Fail(string message)

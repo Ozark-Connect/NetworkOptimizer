@@ -98,7 +98,7 @@
             {
                 <div class="form-group">
                     <label class="form-label">Access network technology</label>
-                    <select class="form-control" style="max-width: 250px;"
+                    <select class="form-control" style="max-width: 250px;@(_state.AccessTechnology == AccessTechnology.Unknown ? " outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; border-radius: 6px;" : "")"
                             value="@((int)_state.AccessTechnology)"
                             @onchange="OnAccessTechChanged">
                         @foreach (var tech in Enum.GetValues<AccessTechnology>())
@@ -165,24 +165,28 @@
                                         <th>Address</th>
                                         <th>Source</th>
                                         <th>Role</th>
+                                        <th>RTT</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var hop in _state.AccessHops)
                                     {
-                                        <tr class="@(hop.Enabled ? "" : "row-disabled")">
+                                        <tr class="@(hop.Unreachable ? "row-disabled" : hop.Enabled ? "" : "row-disabled")">
                                             <td>
                                                 <input type="checkbox" checked="@hop.Enabled"
+                                                       disabled="@hop.Unreachable"
                                                        @onchange="e => hop.Enabled = (bool)e.Value!" />
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
                                                        value="@hop.Label"
+                                                       disabled="@hop.Unreachable"
                                                        @onchange="e => hop.Label = (string)e.Value!" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
                                             <td>@hop.Role.ToDisplayName()</td>
+                                            <td>@(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -191,7 +195,7 @@
                     </div>
                 }
 
-                @if (_state.TransitAsns.Count > 0)
+                @if (TransitRouters.Count > 0)
                 {
                     <div class="form-group">
                         <label class="form-label">Transit networks</label>
@@ -201,33 +205,68 @@
                                 <thead>
                                     <tr>
                                         <th style="width: 40px;"></th>
+                                        <th>Label</th>
+                                        <th>Address</th>
                                         <th>ASN</th>
-                                        <th>Name</th>
-                                        <th>Target hop</th>
-                                        <th>Method</th>
+                                        <th>RTT</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var asn in _state.TransitAsns)
+                                    @foreach (var asn in TransitRouters)
                                     {
-                                        <tr class="@(asn.Enabled ? "" : "row-disabled")">
+                                        <tr class="@(asn.Unreachable ? "row-disabled" : asn.Enabled ? "" : "row-disabled")">
                                             <td>
                                                 <input type="checkbox" checked="@asn.Enabled"
+                                                       disabled="@asn.Unreachable"
                                                        @onchange="e => asn.Enabled = (bool)e.Value!" />
                                             </td>
-                                            <td><code>AS@(asn.AsnNumber)</code></td>
-                                            <td>@asn.AsnName</td>
                                             <td>
-                                                @if (!string.IsNullOrEmpty(asn.HopAddress))
-                                                {
-                                                    <code>@asn.HopAddress</code>
-                                                }
-                                                else
-                                                {
-                                                    <span class="text-muted">-</span>
-                                                }
+                                                <input type="text" class="form-control form-control-sm"
+                                                       value="@asn.Label"
+                                                       disabled="@asn.Unreachable"
+                                                       @onchange="e => asn.Label = (string)e.Value!" />
                                             </td>
-                                            <td>@asn.Method.ToDisplayName()</td>
+                                            <td><code>@asn.HopAddress</code></td>
+                                            <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
+                                            <td>@(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (PathEndHosts.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Path-end Internet hosts</label>
+                        <p class="section-description">CDN and Internet services reachable through the discovered transit path.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;"></th>
+                                        <th>Label</th>
+                                        <th>Endpoint</th>
+                                        <th>ASN</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var host in PathEndHosts)
+                                    {
+                                        <tr class="@(host.Enabled ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@host.Enabled"
+                                                       @onchange="e => host.Enabled = (bool)e.Value!" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       value="@host.Label"
+                                                       @onchange="e => host.Label = (string)e.Value!" />
+                                            </td>
+                                            <td><code>@host.PathProxyTarget</code></td>
+                                            <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
                                         </tr>
                                     }
                                 </tbody>
@@ -279,10 +318,13 @@
 
 @code {
     [Parameter] public bool ForceExpand { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
 
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
+    private List<TransitAsnCandidate> TransitRouters => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.DirectRouter).ToList();
+    private List<TransitAsnCandidate> PathEndHosts => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.PathProxy).ToList();
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;
     private bool _justSaved;
@@ -344,6 +386,7 @@
         await Tracer.CommitResultsAsync();
         _state = Tracer.State;
         _justSaved = true;
+        await OnSaved.InvokeAsync();
         StateHasChanged();
 
         // Server side: invalidate the cached map snapshot so the next read
@@ -414,6 +457,25 @@
         return string.IsNullOrEmpty(first.AsnName)
             ? $"AS{first.AsnNumber}"
             : $"AS{first.AsnNumber} ({first.AsnName})";
+    }
+
+    private static string? FormatPtrLabel(string? hostname, string? ip)
+    {
+        if (string.IsNullOrEmpty(hostname) || hostname == ip) return null;
+        var parts = hostname.Split('.');
+        if (parts.Length <= 1) return hostname;
+        var ipOctets = (ip ?? "").Split('.');
+        if (ipOctets.Length == 4)
+        {
+            int matches = 0;
+            foreach (var part in parts)
+                foreach (var octet in ipOctets)
+                    if (part == octet || part == "h" + octet || part.Contains("-" + octet + "-")
+                        || part.StartsWith(octet + "-") || part.EndsWith("-" + octet))
+                    { matches++; break; }
+            if (matches >= 2) return null;
+        }
+        return string.Join('.', parts.Take(parts.Length - 1));
     }
 
     public void Dispose() => _pollTimer?.Dispose();
