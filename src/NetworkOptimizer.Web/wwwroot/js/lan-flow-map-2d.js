@@ -704,7 +704,8 @@ class LanFlowMap2D {
             this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
             this._modeBadge.classList.toggle('is-historic',mode==='historic');
             this._modeBadge.style.cursor=mode==='historic'?'pointer':'';
-            this._modeBadge.setAttribute('data-tooltip',mode==='historic'?'Click to return to live':'');
+            if(mode==='historic')this._modeBadge.setAttribute('data-tooltip','Click to return to live');
+            else this._modeBadge.removeAttribute('data-tooltip');
         }
     }
 
