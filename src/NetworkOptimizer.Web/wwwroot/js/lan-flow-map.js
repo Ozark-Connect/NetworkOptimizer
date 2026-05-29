@@ -365,6 +365,11 @@ export class LanFlowMap {
     }
 
     _handleResize() {
+        if (this.stage.classList.contains('lan-flow-map-fullscreen')) {
+            this.stage.style.position = 'static';
+            void this.stage.offsetHeight;
+            this.stage.style.position = '';
+        }
         const rect = this.canvas.getBoundingClientRect();
         const width = Math.max(rect.width || this.canvas.clientWidth || 800, 320);
         const height = Math.max(rect.height || this.canvas.clientHeight || 480, 240);
