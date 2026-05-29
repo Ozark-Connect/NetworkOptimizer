@@ -1109,7 +1109,12 @@ public class UpstreamTracerService
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
         {
             var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
-            if (existing != null) existing.Enabled = false;
+            if (existing != null)
+            {
+                existing.Enabled = false;
+                existing.Name = hop.Label;
+                if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
+            }
         }
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
@@ -1120,7 +1125,12 @@ public class UpstreamTracerService
             var addr = transit.HopAddress ?? transit.PathProxyTarget;
             if (string.IsNullOrEmpty(addr)) continue;
             var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
-            if (existing != null) existing.Enabled = false;
+            if (existing != null)
+            {
+                existing.Enabled = false;
+                existing.Name = transit.Label ?? transit.AsnName;
+                if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
+            }
         }
 
         // Per-WAN tracer state. WanDiscoveryContexts is the new source of truth;
@@ -1189,6 +1199,7 @@ public class UpstreamTracerService
             // preservation per locked decision 6b). Backfill ASN fields whenever a
             // current run resolves them - rows committed before the GeoLite2 fix
             // landed have nulls and never refreshed without this.
+            existing.Enabled = true;
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
             existing.WanInterface = wanInterface;
@@ -1238,6 +1249,7 @@ public class UpstreamTracerService
         }
         else
         {
+            existing.Enabled = true;
             existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
