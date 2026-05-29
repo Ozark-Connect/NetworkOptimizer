@@ -740,6 +740,67 @@ a.stat-card-link:active {
     color: var(--text-secondary);
 }
 
+/* Monitoring Stat Cards (shared between Monitoring page and Dashboard Live View) */
+.monitoring-stat-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+.monitoring-stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 0.75rem 1rem;
+    flex: 1 1 120px;
+    min-width: 100px;
+    text-align: center;
+}
+.monitoring-stat-pair {
+    display: flex;
+    gap: 0.75rem;
+    flex: 2 1 250px;
+}
+.monitoring-stat-pair .monitoring-stat-card {
+    flex: 1 1 0;
+    min-width: 0;
+}
+.monitoring-stat-card .stat-value {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+.monitoring-stat-card .stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.monitoring-stat-card .stat-danger {
+    color: var(--danger-color);
+}
+@media (max-width: 1024px) {
+    .monitoring-stat-rate {
+        min-height: 98px;
+    }
+}
+@media (max-width: 768px) {
+    .monitoring-stat-cards {
+        gap: 0.5rem;
+    }
+    .monitoring-stat-card {
+        flex: 1 1 80px;
+        min-width: 70px;
+        padding: 0.5rem 0.5rem;
+    }
+    .monitoring-stat-card .stat-value {
+        font-size: 1rem;
+    }
+    .monitoring-stat-pair {
+        gap: 0.5rem;
+        flex-basis: 170px;
+    }
+}
+
 /* Responsive label helpers */
 .mobile-label { display: none; }
 .desktop-label { display: inline; }
