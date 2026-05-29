@@ -743,7 +743,6 @@ class LanFlowMap2D {
             el.parentNode.replaceChild(this._fsPlaceholder,el);
             document.body.appendChild(el);
             el.classList.add('lan-flow-map-fullscreen');
-            void el.offsetHeight;
             this._fsBtn.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="4 10 10 10 10 4"></polyline><polyline points="14 4 14 10 20 10"></polyline>
                 <polyline points="20 14 14 14 14 20"></polyline><polyline points="10 20 10 14 4 14"></polyline></svg>`;
@@ -759,7 +758,7 @@ class LanFlowMap2D {
                 <polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>`;
             this._fsBtn.setAttribute('data-tooltip','Fullscreen');
         }
-        setTimeout(()=>{this._resize();this._fitAll();},50);
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{this._resize();this._fitAll();}));
     }
 
     // ---- Tooltip hit-test ----
