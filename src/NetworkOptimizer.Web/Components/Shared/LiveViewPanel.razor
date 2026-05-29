@@ -46,6 +46,24 @@ else
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
+            @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
+                <div class="stat-label">ISP RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
+                <div class="stat-label">ISP Loss</div>
+            </div>
+            @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
+                <div class="stat-label">Transit RTT</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
+                <div class="stat-label">Transit Loss</div>
+            </div>
         </div>
 
         @if (MapMode == "3d")
@@ -113,6 +131,10 @@ else
     }
     .lv-map-2d-stage {
         height: clamp(400px, 50vh, 600px);
+    }
+    .lv-panel .lan-flow-map-scrubber,
+    .lv-panel .lan-flow-map-status {
+        display: none;
     }
     #dashboard-lan-flow-map-stage {
         position: relative;
@@ -263,6 +285,39 @@ else
         if (gwFabric == null) return (null, 0);
         var s = LiveStats.GetTargetStats(gwFabric.TargetId);
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
+    }
+
+    private (double? rtt, double loss) GetBestTargetStats(MonitoringTargetType type)
+    {
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+        double? bestRtt = null;
+        double bestLoss = 0;
+        foreach (var t in targets)
+        {
+            var st = LiveStats.GetTargetStats(t.TargetId);
+            if (st?.RttAvgMs != null && (bestRtt == null || st.RttAvgMs.Value < bestRtt.Value))
+            {
+                bestRtt = st.RttAvgMs;
+                bestLoss = st.LossPercent;
+            }
+        }
+        return (bestRtt, bestLoss);
+    }
+
+    private (double? rtt, double loss) GetMeanTargetStats(MonitoringTargetType type)
+    {
+        var targets = _targets.Where(t => t.TargetType == type && t.Enabled).ToList();
+        if (targets.Count == 0) return (null, 0);
+        var rtts = new List<double>();
+        var losses = new List<double>();
+        foreach (var t in targets)
+        {
+            var st = LiveStats.GetTargetStats(t.TargetId);
+            if (st?.RttAvgMs != null) rtts.Add(st.RttAvgMs.Value);
+            if (st != null) losses.Add(st.LossPercent);
+        }
+        return (rtts.Count > 0 ? rtts.Average() : null, losses.Count > 0 ? losses.Average() : 0);
     }
 
     private (double ingress, double egress) GetTotalFabricLoad()
