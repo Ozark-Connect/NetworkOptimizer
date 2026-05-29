@@ -758,6 +758,11 @@ else
         font-size: 13px;
         cursor: pointer;
     }
+    @@media (max-width: 1024px) {
+        .monitoring-stat-rate {
+            min-height: 98px;
+        }
+    }
     @@media (max-width: 768px) {
         .monitoring-stat-cards {
             gap: 0.5rem;
@@ -773,9 +778,6 @@ else
         .monitoring-stat-pair {
             gap: 0.5rem;
             flex-basis: 170px;
-        }
-        .monitoring-stat-rate {
-            min-height: 98px;
         }
     }
 
