@@ -1281,16 +1281,6 @@ public class UpstreamTracerService
         return string.Join('.', parts.Take(parts.Length - 2));
     }
 
-    private static string? FormatHopLabel(string? hostname, string? ipAddress)
-    {
-        if (string.IsNullOrEmpty(hostname)) return null;
-        var parts = hostname.Split('.');
-        if (IsIpDerivedHostname(parts, ipAddress ?? string.Empty)) return null;
-        return parts.Length > 1
-            ? string.Join('.', parts.Take(parts.Length - 1))
-            : hostname;
-    }
-
     private bool Fail(string message)
     {
         _logger.LogInformation("Upstream tracer stopped: {Message}", message);
