@@ -14523,11 +14523,14 @@ a.affected-client:hover {
     color: var(--text-primary);
     pointer-events: none;
     z-index: 10;
-    display: none;
     max-width: 260px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
 }
 .lan-flow-map-tooltip.is-visible {
-    display: block;
+    opacity: 1;
+    visibility: visible;
 }
 .lan-flow-map-tooltip-title {
     font-weight: 500;

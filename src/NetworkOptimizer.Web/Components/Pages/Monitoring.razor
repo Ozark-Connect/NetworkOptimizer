@@ -806,9 +806,11 @@ else
         line-height: 1.35;
         color: var(--text-primary);
         pointer-events: none;
-        display: none;
         z-index: 10;
         max-width: 260px;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.15s ease, visibility 0.15s ease;
     }
     .lan-flow-map-2d-stage .lan-flow-map-controls {
         right: 3.1rem;

@@ -828,7 +828,8 @@ class LanFlowMap2D {
         this._tooltip.innerHTML=
             `<div style="font-weight:600;margin-bottom:3px">${esc(m(d.name||d.mac||''))}</div>`
             +rows.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:${C.textMuted}">${k}</span><span>${esc(String(v))}</span></div>`).join('');
-        this._tooltip.style.display='block';
+        this._tooltip.style.opacity='1';
+        this._tooltip.style.visibility='visible';
         // Position dynamically to stay within the container
         const tr=this._tooltip.getBoundingClientRect();
         const cr=this._el.getBoundingClientRect();
@@ -843,7 +844,7 @@ class LanFlowMap2D {
 
     _hideTooltip(){
         this._hoverNode=null;
-        if(this._tooltip)this._tooltip.style.display='none';
+        if(this._tooltip){this._tooltip.style.opacity='0';this._tooltip.style.visibility='hidden';}
     }
 
     // ---- Contour-based layout (Reingold-Tilford style) ----
