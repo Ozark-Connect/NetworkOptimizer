@@ -851,15 +851,16 @@ public class UpstreamTracerService
         await using var reconcileDb = await _dbFactory.CreateDbContextAsync(ct);
         var existingTargets = await reconcileDb.MonitoringTargets
             .AsNoTracking()
-            .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.Transit || t.TargetType == MonitoringTargetType.AccessIsp))
+            .Where(t => t.Enabled)
             .ToListAsync(ct);
         var existingByAddress = existingTargets
             .Where(t => !string.IsNullOrEmpty(t.Address))
             .ToDictionary(t => t.Address, StringComparer.OrdinalIgnoreCase);
         foreach (var c in candidates)
         {
-            if (c.Method == DiscoveryMethod.PathProxy || string.IsNullOrEmpty(c.HopAddress)) continue;
-            if (existingByAddress.TryGetValue(c.HopAddress, out var existing))
+            var addr = c.HopAddress ?? c.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            if (existingByAddress.TryGetValue(addr, out var existing))
             {
                 c.Enabled = true;
                 if (!string.IsNullOrEmpty(existing.Name)
@@ -868,6 +869,14 @@ public class UpstreamTracerService
                 {
                     c.Label = existing.Name;
                 }
+            }
+        }
+        // Also reconcile access hops
+        foreach (var hop in State.AccessHops)
+        {
+            if (existingByAddress.TryGetValue(hop.Address, out var existing))
+            {
+                hop.Enabled = true;
             }
         }
 
@@ -1098,9 +1107,21 @@ public class UpstreamTracerService
         {
             await UpsertTargetAsync(db, hop, wanInterface, ct);
         }
+        foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
+        {
+            var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
+            if (existing != null) existing.Enabled = false;
+        }
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
             await UpsertTransitTargetAsync(db, transit, wanInterface, ct);
+        }
+        foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
+        {
+            var addr = transit.HopAddress ?? transit.PathProxyTarget;
+            if (string.IsNullOrEmpty(addr)) continue;
+            var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == addr, ct);
+            if (existing != null) existing.Enabled = false;
         }
 
         // Per-WAN tracer state. WanDiscoveryContexts is the new source of truth;
