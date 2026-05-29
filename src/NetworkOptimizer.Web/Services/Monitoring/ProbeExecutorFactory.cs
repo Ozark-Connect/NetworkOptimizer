@@ -1,7 +1,6 @@
-using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -20,6 +19,7 @@ public class ProbeExecutorFactory
 {
     private readonly LocalProbeExecutor _local;
     private readonly UniFiSshService _uniFiSsh;
+    private readonly IGatewaySshService _gatewaySsh;
     private readonly SshClientService _sshClient;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly UniFiConnectionService _connection;
@@ -29,6 +29,7 @@ public class ProbeExecutorFactory
     public ProbeExecutorFactory(
         LocalProbeExecutor local,
         UniFiSshService uniFiSsh,
+        IGatewaySshService gatewaySsh,
         SshClientService sshClient,
         ICredentialProtectionService credentialProtection,
         UniFiConnectionService connection,
@@ -37,6 +38,7 @@ public class ProbeExecutorFactory
     {
         _local = local;
         _uniFiSsh = uniFiSsh;
+        _gatewaySsh = gatewaySsh;
         _sshClient = sshClient;
         _credentialProtection = credentialProtection;
         _connection = connection;
@@ -57,7 +59,6 @@ public class ProbeExecutorFactory
 
         try
         {
-            // Look up the device's current management IP from topology.
             if (!_connection.IsConnected) return null;
             var devices = await _connection.GetDiscoveredDevicesAsync(ct);
             var device = devices?.FirstOrDefault(d =>
@@ -66,24 +67,42 @@ public class ProbeExecutorFactory
                               deviceMac.Replace('-', ':').ToLowerInvariant()));
             if (device == null || string.IsNullOrEmpty(device.DisplayIpAddress)) return null;
 
-            // Pull the user's UniFi SSH creds; require both username and a credential
-            // (password OR key path) before we attempt to construct anything.
-            var sshSettings = await _uniFiSsh.GetSettingsAsync();
-            if (sshSettings == null
-                || string.IsNullOrEmpty(sshSettings.Username)
-                || (string.IsNullOrEmpty(sshSettings.Password) && string.IsNullOrEmpty(sshSettings.PrivateKeyPath)))
+            SshConnectionInfo connection;
+
+            if (device.Type == DeviceType.Gateway)
             {
-                _logger.LogDebug("UniFi SSH credentials not configured; cannot build device vantage for {Mac}", deviceMac);
-                return null;
+                var gwSettings = await _gatewaySsh.GetSettingsAsync();
+                if (string.IsNullOrEmpty(gwSettings.Username)
+                    || (string.IsNullOrEmpty(gwSettings.Password) && string.IsNullOrEmpty(gwSettings.PrivateKeyPath)))
+                {
+                    _logger.LogDebug("Gateway SSH credentials not configured; cannot build gateway vantage for {Mac}", deviceMac);
+                    return null;
+                }
+
+                string? decryptedPassword = null;
+                if (!string.IsNullOrEmpty(gwSettings.Password))
+                    decryptedPassword = _credentialProtection.Decrypt(gwSettings.Password);
+
+                connection = SshConnectionInfo.FromGatewaySettings(gwSettings, decryptedPassword);
+            }
+            else
+            {
+                var sshSettings = await _uniFiSsh.GetSettingsAsync();
+                if (sshSettings == null
+                    || string.IsNullOrEmpty(sshSettings.Username)
+                    || (string.IsNullOrEmpty(sshSettings.Password) && string.IsNullOrEmpty(sshSettings.PrivateKeyPath)))
+                {
+                    _logger.LogDebug("UniFi SSH credentials not configured; cannot build device vantage for {Mac}", deviceMac);
+                    return null;
+                }
+
+                string? decryptedPassword = null;
+                if (!string.IsNullOrEmpty(sshSettings.Password))
+                    decryptedPassword = _credentialProtection.Decrypt(sshSettings.Password);
+
+                connection = SshConnectionInfo.FromUniFiSettings(sshSettings, device.DisplayIpAddress, decryptedPassword);
             }
 
-            string? decryptedPassword = null;
-            if (!string.IsNullOrEmpty(sshSettings.Password))
-            {
-                decryptedPassword = _credentialProtection.Decrypt(sshSettings.Password);
-            }
-
-            var connection = SshConnectionInfo.FromUniFiSettings(sshSettings, device.DisplayIpAddress, decryptedPassword);
             return new SshProbeExecutor(
                 _sshClient,
                 connection,

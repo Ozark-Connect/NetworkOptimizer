@@ -9,6 +9,7 @@
 @inject NetworkOptimizer.Monitoring.Probes.LocalProbeExecutor LocalProbe
 @inject ProbeExecutorFactory ExecutorFactory
 @inject UniFiConnectionService ConnectionService
+@inject ISqmService SqmService
 
 <PageTitle>Network Tools - Network Optimizer</PageTitle>
 
@@ -29,7 +30,7 @@
     <div class="card-body">
         <div class="form-group">
             <label class="form-label">From (vantage)</label>
-            <select class="form-control" @bind="_fromKey">
+            <select class="form-control" value="@_fromKey" @onchange="OnVantageChanged">
                 <option value="server">Network Optimizer server</option>
                 @foreach (var d in _devices)
                 {
@@ -51,6 +52,24 @@
                 </div>
             }
         </div>
+
+        @if (_isGatewaySelected && _wanInterfaces.Count > 1)
+        {
+            <div class="form-group">
+                <label class="form-label">WAN interface</label>
+                <select class="form-control" style="max-width: 360px;" @bind="_selectedWanInterface">
+                    <option value="">Auto (OS routing table)</option>
+                    @foreach (var wan in _wanInterfaces)
+                    {
+                        var wanLabel = !string.IsNullOrEmpty(wan.NetworkGroup)
+                            ? $"{wan.Name} ({wan.NetworkGroup}) - {wan.Interface}"
+                            : $"{wan.Name} - {wan.Interface}";
+                        <option value="@wan.Interface">@wanLabel</option>
+                    }
+                </select>
+                <p class="form-help">Bind the probe to a specific WAN link. Useful on multi-WAN gateways.</p>
+            </div>
+        }
 
         <div class="form-group">
             <label class="form-label">To (target)</label>
@@ -220,6 +239,9 @@
     private bool _sshCredentialsMissing;
 
     private List<DiscoveredDevice> _devices = new();
+    private List<WanInterfaceInfo> _wanInterfaces = new();
+    private string _selectedWanInterface = "";
+    private bool _isGatewaySelected;
 
     private PingProbeResult? _pingResult;
     private TracerouteResult? _traceResult;
@@ -228,9 +250,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var cap = await LocalProbe.GetCapabilityAsync();
-        _localCapabilities = cap.Describe();
-        await LoadDevicesAsync();
+        var capTask = LocalProbe.GetCapabilityAsync();
+        var devicesTask = LoadDevicesAsync();
+        var wanTask = LoadWanInterfacesAsync();
+        await Task.WhenAll(capTask, devicesTask, wanTask);
+        _localCapabilities = capTask.Result.Describe();
     }
 
     private async Task LoadDevicesAsync()
@@ -246,6 +270,34 @@
                 .ToList() ?? new();
         }
         catch { _devices = new(); }
+    }
+
+    private async Task LoadWanInterfacesAsync()
+    {
+        try
+        {
+            if (!ConnectionService.IsConnected) return;
+            _wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+        }
+        catch { _wanInterfaces = new(); }
+    }
+
+    private void OnVantageChanged(ChangeEventArgs e)
+    {
+        _fromKey = e.Value?.ToString() ?? "server";
+        _selectedWanInterface = "";
+        _sshCredentialsMissing = false;
+
+        if (_fromKey.StartsWith("device:"))
+        {
+            var mac = _fromKey.Substring("device:".Length);
+            var device = _devices.FirstOrDefault(d => d.Mac == mac);
+            _isGatewaySelected = device?.Type == DeviceType.Gateway;
+        }
+        else
+        {
+            _isGatewaySelected = false;
+        }
     }
 
     private void OnTargetPresetChange(ChangeEventArgs e)
@@ -303,7 +355,8 @@
                 _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
                 return;
             }
-            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null);
+            var iface = _isGatewaySelected && !string.IsNullOrEmpty(_selectedWanInterface) ? _selectedWanInterface : null;
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, iface);
             _pingResult = await executor.PingAsync(target, count: 5);
         }
         catch (Exception ex)
@@ -334,7 +387,8 @@
                 _runError = "Couldn't resolve the chosen vantage; check SSH credentials.";
                 return;
             }
-            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null);
+            var iface = _isGatewaySelected && !string.IsNullOrEmpty(_selectedWanInterface) ? _selectedWanInterface : null;
+            var target = new ProbeTarget(_targetAddress.Trim(), _probeMode, _probeMode == ProbeMode.Tcp ? _port : null, iface);
             _traceResult = await executor.TracerouteAsync(
                 target,
                 maxHops: 30,

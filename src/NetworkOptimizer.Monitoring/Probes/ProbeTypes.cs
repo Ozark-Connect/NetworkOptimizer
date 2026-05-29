@@ -25,7 +25,7 @@ public enum VantageKind
 /// What we're probing. Captures address + mode + optional port together so a target that
 /// only responds to TCP:443 stays probed that way (spec 5.4).
 /// </summary>
-public record ProbeTarget(string Address, ProbeMode Mode, int? Port = null)
+public record ProbeTarget(string Address, ProbeMode Mode, int? Port = null, string? SourceInterface = null)
 {
     public override string ToString() => Port.HasValue
         ? $"{Mode.ToString().ToLowerInvariant()}://{Address}:{Port}"

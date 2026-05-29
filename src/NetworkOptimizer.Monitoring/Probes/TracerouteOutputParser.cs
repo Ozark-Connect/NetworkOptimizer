@@ -143,6 +143,6 @@ public static class TracerouteOutputParser
         int count = 0;
         foreach (var ch in rest)
             if (ch == '*') count++;
-        return count == 0 ? 3 : count;
+        return count;
     }
 }

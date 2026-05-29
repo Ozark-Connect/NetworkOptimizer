@@ -49,6 +49,15 @@ public class SshProbeExecutor : IProbeExecutor
             var pingHelp = await _ssh.ExecuteCommandAsync(_connection, "ping -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
             var traceHelp = await _ssh.ExecuteCommandAsync(_connection, "traceroute -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
 
+            var traceOut0 = (traceHelp.Output + traceHelp.Error).ToLowerInvariant();
+            if (traceHelp.ExitCode == 127 || traceOut0.Contains("not found"))
+            {
+                _logger.LogDebug("traceroute not found on {Vantage}, attempting install", Vantage.Id);
+                await _ssh.ExecuteCommandAsync(_connection,
+                    "apt-get install -y traceroute 2>/dev/null || true", TimeSpan.FromSeconds(30), ct);
+                traceHelp = await _ssh.ExecuteCommandAsync(_connection, "traceroute -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
+            }
+
             var pingOut = (pingHelp.Output + pingHelp.Error).ToLowerInvariant();
             var traceOut = (traceHelp.Output + traceHelp.Error).ToLowerInvariant();
 
@@ -105,8 +114,9 @@ public class SshProbeExecutor : IProbeExecutor
 
         var timeoutSec = Math.Max(1, (int)(perPingTimeout?.TotalSeconds ?? 2));
         // -c count -W timeout. The deadline flag (-w) is iputils-only; -W is supported in both
-        // iputils and busybox. Quote address to be safe.
-        var cmd = $"ping -c {count} -W {timeoutSec} {ShellEscape(target.Address)}";
+        // iputils and busybox. -I binds to a specific interface for WAN selection.
+        var ifaceFlag = !string.IsNullOrEmpty(target.SourceInterface) ? $"-I {ShellEscape(target.SourceInterface)} " : "";
+        var cmd = $"ping {ifaceFlag}-c {count} -W {timeoutSec} {ShellEscape(target.Address)}";
 
         var result = await _ssh.ExecuteCommandAsync(_connection, cmd, TimeSpan.FromSeconds(timeoutSec * count + 10), ct);
         var combined = string.IsNullOrWhiteSpace(result.Output) ? result.Error : result.Output;
@@ -181,16 +191,18 @@ public class SshProbeExecutor : IProbeExecutor
         }
 
         var waitSec = Math.Max(1, (int)(perHopTimeout?.TotalSeconds ?? 2));
-        string flag = target.Mode switch
+        string modeFlag = target.Mode switch
         {
             ProbeMode.Icmp when cap.CanIcmpTraceroute => "-I",
             ProbeMode.Tcp when cap.CanTcpProbe => $"-T -p {target.Port ?? 80}",
             _ => string.Empty
         };
 
-        // Keep PTR resolution enabled — the wizard uses hostnames as labelling signals
-        // (spec 5.5). The per-hop wait timeout still bounds the slowdown.
-        var cmd = $"traceroute -m {maxHops} -w {waitSec} {flag} {ShellEscape(target.Address)}".Trim();
+        var parts = new List<string> { "traceroute", $"-m {maxHops}", $"-w {waitSec}" };
+        if (!string.IsNullOrEmpty(modeFlag)) parts.Add(modeFlag);
+        if (!string.IsNullOrEmpty(target.SourceInterface)) parts.Add($"-i {ShellEscape(target.SourceInterface)}");
+        parts.Add(ShellEscape(target.Address));
+        var cmd = string.Join(" ", parts);
         var overall = totalDeadline ?? TimeSpan.FromSeconds(10);
         var result = await _ssh.ExecuteCommandAsync(_connection, cmd, overall, ct);
 
