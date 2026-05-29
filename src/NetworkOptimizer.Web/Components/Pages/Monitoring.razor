@@ -800,7 +800,7 @@ else
     private async void SetActiveTab(string tab)
     {
         if (tab != "setup" && !_monitoringReady) return;
-        if (_upstreamDiscoveryPendingSave && tab != _activeTab)
+        if (_upstreamDiscoveryPendingSave && _activeTab == "performance" && tab != "performance")
         {
             var confirmed = await JS.InvokeAsync<bool>("confirm",
                 "Upstream Discovery results haven't been saved. If you leave now, you'll need to re-run discovery.\n\nLeave without saving?");
