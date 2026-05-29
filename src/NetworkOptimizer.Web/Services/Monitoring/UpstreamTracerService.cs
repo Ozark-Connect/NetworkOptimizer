@@ -843,6 +843,32 @@ public class UpstreamTracerService
             }
         }
 
+        // Reconcile with existing DB targets: if a candidate's address already
+        // exists and is enabled, pre-check it. If the existing target has a more
+        // descriptive name than the numbered fallback, absorb it.
+        await using var reconcileDb = await _dbFactory.CreateDbContextAsync(ct);
+        var existingTargets = await reconcileDb.MonitoringTargets
+            .AsNoTracking()
+            .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.Transit || t.TargetType == MonitoringTargetType.AccessIsp))
+            .ToListAsync(ct);
+        var existingByAddress = existingTargets
+            .Where(t => !string.IsNullOrEmpty(t.Address))
+            .ToDictionary(t => t.Address, StringComparer.OrdinalIgnoreCase);
+        foreach (var c in candidates)
+        {
+            if (c.Method == DiscoveryMethod.PathProxy || string.IsNullOrEmpty(c.HopAddress)) continue;
+            if (existingByAddress.TryGetValue(c.HopAddress, out var existing))
+            {
+                c.Enabled = true;
+                if (!string.IsNullOrEmpty(existing.Name)
+                    && c.Label != null
+                    && System.Text.RegularExpressions.Regex.IsMatch(c.Label, @"\s\d+$"))
+                {
+                    c.Label = existing.Name;
+                }
+            }
+        }
+
         State.TransitAsns = candidates;
 
         // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
