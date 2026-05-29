@@ -1673,3 +1673,11 @@ export async function mount(containerId){
 export function unmount(){
     if(_inst){_inst.dispose();_inst=null;}
 }
+
+export function startDataPolling(){
+    flowData.startPolling();
+}
+
+export function stopDataPolling(){
+    flowData.stopPolling();
+}

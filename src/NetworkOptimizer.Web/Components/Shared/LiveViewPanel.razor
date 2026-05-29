@@ -199,10 +199,8 @@ else
                 else
                 {
                     await JS.InvokeVoidAsync("eval",
-                        $"(async () => {{ " +
-                        $"const d = await import('{VersionedJs("/js/lan-flow-data.js")}'); d.startPolling(); " +
-                        $"const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
-                        "window.__dashLanFlowMap2d = m; await m.mount('dashboard-lan-flow-map-2d-stage'); })();");
+                        $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
+                        "window.__dashLanFlowMap2d = m; m.startDataPolling(); await m.mount('dashboard-lan-flow-map-2d-stage'); })();");
                 }
             }
             catch { _mapMounted = false; _mountedMode = null; }
@@ -217,8 +215,7 @@ else
                 await JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap?.unmount();");
             else
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ window.__dashLanFlowMap2d?.unmount(); " +
-                    $"const d = await import('{VersionedJs("/js/lan-flow-data.js")}'); d.stopPolling(); }})();");
+                    "window.__dashLanFlowMap2d?.stopDataPolling(); window.__dashLanFlowMap2d?.unmount();");
         }
         catch { }
         _mapMounted = false;
@@ -388,8 +385,7 @@ else
                     _ = JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap?.unmount();");
                 else
                     _ = JS.InvokeVoidAsync("eval",
-                        "window.__dashLanFlowMap2d?.unmount();" +
-                        "import('/js/lan-flow-data.js').then(d => d.stopPolling());");
+                        "window.__dashLanFlowMap2d?.stopDataPolling(); window.__dashLanFlowMap2d?.unmount();");
             }
             catch { }
         }
