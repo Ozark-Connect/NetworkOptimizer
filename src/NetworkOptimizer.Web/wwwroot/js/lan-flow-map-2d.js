@@ -248,6 +248,7 @@ class LanFlowMap2D {
 
         // Pan/zoom: offset in world coords + scale
         this._ox=0; this._oy=0; this._scale=1;
+        this._isFitted=false;
         this._dragging=false; this._dragStart=null;
         // Multi-touch pinch zoom
         this._pointers=new Map();
@@ -390,6 +391,7 @@ class LanFlowMap2D {
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
             this._needsStaticRedraw=true;
+            if(this._isFitted)this._fitAll();
         });
         const bandChips=[...filterBody.querySelectorAll('.lan-flow-map-chip')];
         bandChips.forEach(chip=>{
@@ -401,6 +403,7 @@ class LanFlowMap2D {
                     if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
                     else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
                 this._needsStaticRedraw=true;
+                if(this._isFitted)this._fitAll();
             });
         });
         this._el.appendChild(filter);
@@ -427,6 +430,7 @@ class LanFlowMap2D {
                 row.classList.toggle('is-on',this._overlays[key]);
                 try{localStorage.setItem('lanFlowMap2dOverlays',JSON.stringify(this._overlays));}catch{}
                 this._needsStaticRedraw=true;
+                if(this._isFitted)this._fitAll();
             });
             ctrlBody.appendChild(row);
         }
@@ -555,6 +559,7 @@ class LanFlowMap2D {
         this._staticCanvas.width=this._canvas.width;
         this._staticCanvas.height=this._canvas.height;
         this._needsStaticRedraw=true;
+        if(this._isFitted)this._fitAll();
     }
 
     // ---- Pan / Zoom ----
@@ -574,6 +579,7 @@ class LanFlowMap2D {
         const wAfter=this._screenToWorld(sx,sy);
         this._ox+=wBefore.x-wAfter.x;
         this._oy+=wBefore.y-wAfter.y;
+        this._isFitted=false;
         this._needsStaticRedraw=true;
     }
 
@@ -624,6 +630,7 @@ class LanFlowMap2D {
             this._scale=newScale;
             this._ox=wx-(cx1-this._cw/2)/newScale;
             this._oy=wy-(cy1-this._ch/2)/newScale;
+            this._isFitted=false;
             this._needsStaticRedraw=true;
             return;
         }
@@ -637,6 +644,7 @@ class LanFlowMap2D {
             const dy=(e.clientY-this._dragStart.y)/this._scale;
             this._ox=this._dragStart.ox-dx;
             this._oy=this._dragStart.oy-dy;
+            this._isFitted=false;
             this._needsStaticRedraw=true;
         } else {
             this._hitTest(sx,sy);
@@ -681,6 +689,7 @@ class LanFlowMap2D {
         this._scale=Math.min(sx,sy,2);
         this._ox=this._bx+this._bw/2;
         this._oy=this._by+this._bh/2;
+        this._isFitted=true;
         this._needsStaticRedraw=true;
     }
 
@@ -722,6 +731,7 @@ class LanFlowMap2D {
 
     _zoomBy(factor){
         this._scale=Math.max(0.05,Math.min(10,this._scale*factor));
+        this._isFitted=false;
         this._needsStaticRedraw=true;
     }
 
