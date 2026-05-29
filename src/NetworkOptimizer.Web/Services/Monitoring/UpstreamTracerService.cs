@@ -845,16 +845,16 @@ public class UpstreamTracerService
             }
         }
 
-        // Reconcile with existing DB targets: if a candidate's address already
-        // exists and is enabled, pre-check it. If the existing target has a more
-        // descriptive name than the numbered fallback, absorb it.
+        // Reconcile with existing DB targets: match candidates against what's
+        // already committed. Enabled targets → pre-check; disabled targets →
+        // uncheck (respect user's previous decision). Absorb descriptive names
+        // over numbered fallbacks.
         await using var reconcileDb = await _dbFactory.CreateDbContextAsync(ct);
-        var existingTargets = await reconcileDb.MonitoringTargets
+        var allExisting = await reconcileDb.MonitoringTargets
             .AsNoTracking()
-            .Where(t => t.Enabled)
             .ToListAsync(ct);
         var existingByAddress = new Dictionary<string, MonitoringTarget>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in existingTargets.Where(t => !string.IsNullOrEmpty(t.Address)))
+        foreach (var t in allExisting.Where(t => !string.IsNullOrEmpty(t.Address)))
             existingByAddress.TryAdd(t.Address, t);
         foreach (var c in candidates)
         {
@@ -862,7 +862,7 @@ public class UpstreamTracerService
             if (string.IsNullOrEmpty(addr)) continue;
             if (existingByAddress.TryGetValue(addr, out var existing))
             {
-                c.Enabled = true;
+                c.Enabled = existing.Enabled;
                 if (!string.IsNullOrEmpty(existing.Name)
                     && c.Label != null
                     && System.Text.RegularExpressions.Regex.IsMatch(c.Label, @"\s\d+$"))
@@ -871,12 +871,11 @@ public class UpstreamTracerService
                 }
             }
         }
-        // Also reconcile access hops
         foreach (var hop in State.AccessHops)
         {
             if (existingByAddress.TryGetValue(hop.Address, out var existing))
             {
-                hop.Enabled = true;
+                hop.Enabled = existing.Enabled;
             }
         }
 
