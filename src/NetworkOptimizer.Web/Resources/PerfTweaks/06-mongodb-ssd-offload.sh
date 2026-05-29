@@ -174,8 +174,8 @@ if [ -f "$SSD_DB_DIR/WiredTiger" ]; then
     # Compare timestamps: if eMMC data is newer than SSD, the SSD copy is stale
     # (e.g., after a removal that copied SSD back to eMMC, then ran on eMMC for a while).
     # Re-migrate to pick up the newer eMMC data.
-    EMMC_TS=$(stat -c %Y "$EMMC_DB_DIR/WiredTiger" 2>/dev/null || echo 0)
-    SSD_TS=$(stat -c %Y "$SSD_DB_DIR/WiredTiger" 2>/dev/null || echo 0)
+    EMMC_TS=$(stat -c %Y "$EMMC_DB_DIR/WiredTiger.turtle" 2>/dev/null || echo 0)
+    SSD_TS=$(stat -c %Y "$SSD_DB_DIR/WiredTiger.turtle" 2>/dev/null || echo 0)
     if [ "$EMMC_TS" -gt "$SSD_TS" ]; then
         log "SSD copy is stale (eMMC is newer). Will re-migrate."
         NEEDS_MIGRATION=true
