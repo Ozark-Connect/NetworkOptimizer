@@ -231,6 +231,7 @@
         DashboardCards.WiFiOptimizer => RenderWiFiOptimizer,
         DashboardCards.RecentAlerts => RenderRecentAlerts,
         DashboardCards.DeviceStatus => RenderDeviceStatus,
+        DashboardCards.LiveView => RenderLiveView,
         _ => builder => { }
     };
 
@@ -679,6 +680,31 @@
         </div>
     };
 
+    private RenderFragment RenderLiveView => __builder =>
+    {
+        <div class="card" id="live-view">
+            <div class="card-header">
+                <h2 class="card-title">Live View</h2>
+            </div>
+            <div class="card-body">
+                <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
+            </div>
+        </div>
+    };
+
+    private string GetLiveViewMapMode()
+    {
+        var card = _layout?.Cards.FirstOrDefault(c => c.Id == DashboardCards.LiveView);
+        return card?.MapMode ?? "2d";
+    }
+
+    private void ToggleMapMode(string cardId)
+    {
+        var card = _layout?.Cards.FirstOrDefault(c => c.Id == cardId);
+        if (card == null) return;
+        card.MapMode = card.MapMode == "3d" ? "2d" : "3d";
+    }
+
     // ──────────────────────────────────────────────────────────
     // Edit mode toolbar
     // ──────────────────────────────────────────────────────────
@@ -704,6 +730,12 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="8" height="14" rx="1"/><rect x="13" y="5" width="8" height="14" rx="1" opacity="0.3"/></svg>
                     }
                 </button>
+                @if (card.Id == DashboardCards.LiveView)
+                {
+                    <button class="card-edit-btn" @onclick="() => ToggleMapMode(card.Id)" data-tooltip="@((card.MapMode ?? "2d") == "2d" ? "Switch to 3D" : "Switch to 2D")">
+                        <span style="font-size: 10px; font-weight: 600; line-height: 14px;">@((card.MapMode ?? "2d") == "2d" ? "2D" : "3D")</span>
+                    </button>
+                }
                 <button class="card-edit-btn card-edit-btn-toggle" @onclick="() => ToggleCard(card.Id)" data-tooltip="@(card.Visible ? "Hide" : "Show")">
                     @if (card.Visible)
                     {
