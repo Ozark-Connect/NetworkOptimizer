@@ -795,7 +795,7 @@ public class UpstreamTracerService
                 candidates.Add(new TransitAsnCandidate
                 {
                     AsnNumber = asn.Asn,
-                    AsnName = asn.Name,
+                    AsnName = CleanAsnName(asn.Name),
                     Method = DiscoveryMethod.DirectRouter,
                     TargetId = $"transit-as{asn.Asn}-{NormalizeMacForId(hop.Address)}",
                     HopAddress = hop.Address,
@@ -805,6 +805,11 @@ public class UpstreamTracerService
                 });
             }
         }
+
+        // PTR-resolve candidate IPs that don't already have a hostname (e.g. from
+        // Windows managed traceroute or traces where the native binary didn't resolve).
+        // Only a handful of candidates, so the cost is negligible.
+        await ResolveHostnamesAsync(candidates, ct);
 
         State.TransitAsns = candidates;
 
@@ -837,7 +842,7 @@ public class UpstreamTracerService
             candidates.Add(new TransitAsnCandidate
             {
                 AsnNumber = destAsn.Asn,
-                AsnName = destAsn.Name,
+                AsnName = CleanAsnName(destAsn.Name),
                 Method = DiscoveryMethod.PathProxy,
                 TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
                 HopAddress = endpoint.Address,
@@ -1186,6 +1191,70 @@ public class UpstreamTracerService
             if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
             existing.LastVerified = DateTime.UtcNow;
         }
+    }
+
+    /// <summary>
+    /// PTR-resolve any transit candidates that don't already have a hostname from
+    /// the traceroute output (e.g. Windows managed traceroute, or hops that only
+    /// appeared in -n traces). Mutates HopHostname in place.
+    /// </summary>
+    private static async Task ResolveHostnamesAsync(List<TransitAsnCandidate> candidates, CancellationToken ct)
+    {
+        var tasks = candidates
+            .Where(c => string.IsNullOrEmpty(c.HopHostname) && !string.IsNullOrEmpty(c.HopAddress))
+            .Select(async c =>
+            {
+                try
+                {
+                    var entry = await System.Net.Dns.GetHostEntryAsync(c.HopAddress!, ct);
+                    if (!string.IsNullOrEmpty(entry.HostName) && entry.HostName != c.HopAddress)
+                        c.HopHostname = entry.HostName;
+                }
+                catch { /* no PTR record — leave null */ }
+            });
+        await Task.WhenAll(tasks);
+    }
+
+    private static readonly string[] OrgSuffixes =
+    {
+        "Communications", "Enterprises", "Parent", "Services", "Technologies",
+        "Telecom", "Telecommunications", "Holdings", "Group", "Networks",
+        "Corporation", "Incorporated", "Company",
+        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co",
+        "GmbH", "AG", "KG", "S.A.", "S.A.S.", "B.V.", "N.V.", "Pty"
+    };
+
+    /// <summary>
+    /// Strip corporate suffixes from ASN org names.
+    /// "Windstream Communications" → "Windstream", "AT&amp;T Enterprises" → "AT&amp;T"
+    /// </summary>
+    internal static string CleanAsnName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return name ?? string.Empty;
+        var cleaned = name.Trim().TrimEnd(',', '.');
+        foreach (var suffix in OrgSuffixes)
+        {
+            if (cleaned.EndsWith(" " + suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                cleaned = cleaned[..^(suffix.Length + 1)].TrimEnd(',', '.');
+            }
+        }
+        return cleaned.Trim();
+    }
+
+    /// <summary>
+    /// Generate a display label from a PTR hostname for transit/path-end targets.
+    /// Same logic as access hop labels: strip TLD, filter IP-derived auto-PTR junk.
+    /// Returns null if the hostname is unusable.
+    /// </summary>
+    private static string? FormatHopLabel(string? hostname, string? ipAddress)
+    {
+        if (string.IsNullOrEmpty(hostname)) return null;
+        var parts = hostname.Split('.');
+        if (IsIpDerivedHostname(parts, ipAddress ?? string.Empty)) return null;
+        return parts.Length > 1
+            ? string.Join('.', parts.Take(parts.Length - 1))
+            : hostname;
     }
 
     private bool Fail(string message)

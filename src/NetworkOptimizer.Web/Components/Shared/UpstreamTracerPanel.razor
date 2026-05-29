@@ -218,9 +218,10 @@
                                             <td>@asn.AsnName</td>
                                             <td>
                                                 <code>@asn.HopAddress</code>
-                                                @if (!string.IsNullOrEmpty(asn.HopHostname))
+                                                @{ var ptrLabel = FormatPtrLabel(asn.HopHostname, asn.HopAddress); }
+                                                @if (ptrLabel != null)
                                                 {
-                                                    <span class="text-muted"> (@asn.HopHostname)</span>
+                                                    <span class="text-muted"> (@ptrLabel)</span>
                                                 }
                                             </td>
                                         </tr>
@@ -445,6 +446,25 @@
         return string.IsNullOrEmpty(first.AsnName)
             ? $"AS{first.AsnNumber}"
             : $"AS{first.AsnNumber} ({first.AsnName})";
+    }
+
+    private static string? FormatPtrLabel(string? hostname, string? ip)
+    {
+        if (string.IsNullOrEmpty(hostname) || hostname == ip) return null;
+        var parts = hostname.Split('.');
+        if (parts.Length <= 1) return hostname;
+        var ipOctets = (ip ?? "").Split('.');
+        if (ipOctets.Length == 4)
+        {
+            int matches = 0;
+            foreach (var part in parts)
+                foreach (var octet in ipOctets)
+                    if (part == octet || part == "h" + octet || part.Contains("-" + octet + "-")
+                        || part.StartsWith(octet + "-") || part.EndsWith("-" + octet))
+                    { matches++; break; }
+            if (matches >= 2) return null;
+        }
+        return string.Join('.', parts.Take(parts.Length - 1));
     }
 
     public void Dispose() => _pollTimer?.Dispose();
