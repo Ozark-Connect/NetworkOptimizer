@@ -1144,7 +1144,7 @@ public class UpstreamTracerService
             existing.Address = hop.Address;
             existing.ProbeMode = hop.RespondedTo;
             existing.WanInterface = wanInterface;
-            existing.Name = string.IsNullOrEmpty(existing.Name) ? hop.Label : existing.Name; // don't stomp user-renamed labels
+            existing.Name = hop.Label;
             if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
             if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
             if (!string.IsNullOrEmpty(hop.PtrHostname)) existing.PtrHostname = hop.PtrHostname;
