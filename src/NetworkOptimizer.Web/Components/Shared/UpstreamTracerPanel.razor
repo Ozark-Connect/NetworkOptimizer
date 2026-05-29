@@ -171,20 +171,22 @@
                                 <tbody>
                                     @foreach (var hop in _state.AccessHops)
                                     {
-                                        <tr class="@(hop.Enabled ? "" : "row-disabled")">
+                                        <tr class="@(hop.Unreachable ? "row-disabled" : hop.Enabled ? "" : "row-disabled")">
                                             <td>
                                                 <input type="checkbox" checked="@hop.Enabled"
+                                                       disabled="@hop.Unreachable"
                                                        @onchange="e => hop.Enabled = (bool)e.Value!" />
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
                                                        value="@hop.Label"
+                                                       disabled="@hop.Unreachable"
                                                        @onchange="e => hop.Label = (string)e.Value!" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
                                             <td>@hop.Role.ToDisplayName()</td>
-                                            <td>@(hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")</td>
+                                            <td>@(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -212,19 +214,21 @@
                                 <tbody>
                                     @foreach (var asn in TransitRouters)
                                     {
-                                        <tr class="@(asn.Enabled ? "" : "row-disabled")">
+                                        <tr class="@(asn.Unreachable ? "row-disabled" : asn.Enabled ? "" : "row-disabled")">
                                             <td>
                                                 <input type="checkbox" checked="@asn.Enabled"
+                                                       disabled="@asn.Unreachable"
                                                        @onchange="e => asn.Enabled = (bool)e.Value!" />
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
                                                        value="@asn.Label"
+                                                       disabled="@asn.Unreachable"
                                                        @onchange="e => asn.Label = (string)e.Value!" />
                                             </td>
                                             <td><code>@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
-                                            <td>@(asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
+                                            <td>@(asn.Unreachable ? "Unreachable" : asn.VerifiedRttMs.HasValue ? $"{asn.VerifiedRttMs:F1} ms" : "-")</td>
                                         </tr>
                                     }
                                 </tbody>

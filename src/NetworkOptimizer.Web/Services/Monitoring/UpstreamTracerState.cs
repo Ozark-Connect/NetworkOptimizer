@@ -65,6 +65,7 @@ public class AccessHopCandidate
     public Core.Enums.ProbeMode RespondedTo { get; set; }
     public DiscoveryMethod Method { get; set; } = DiscoveryMethod.DirectRouter;
     public bool Enabled { get; set; } = true;
+    public bool Unreachable { get; set; }
     public double? VerifiedRttMs { get; set; }
 }
 
@@ -83,6 +84,7 @@ public class TransitAsnCandidate
     public string? HopHostname { get; set; }
     public Core.Enums.ProbeMode? RespondedTo { get; set; }
     public bool Enabled { get; set; } = true;
+    public bool Unreachable { get; set; }
     public double? VerifiedRttMs { get; set; }
     /// <summary>For PathProxy tier: the CDN endpoint we monitor as a proxy for this ASN.</summary>
     public string? PathProxyTarget { get; set; }

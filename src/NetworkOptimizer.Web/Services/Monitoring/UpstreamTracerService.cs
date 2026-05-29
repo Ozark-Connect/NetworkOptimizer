@@ -898,11 +898,11 @@ public class UpstreamTracerService
     {
         State.Step = TracerStep.VerifyingReachability;
 
-        var allTargets = new List<(string Address, ProbeMode Mode, Action<double?> ApplyRtt, Action Disable)>();
+        var allTargets = new List<(string Address, ProbeMode Mode, Action<double?> ApplyRtt, Action MarkUnreachable)>();
         foreach (var hop in State.AccessHops)
-            allTargets.Add((hop.Address, hop.RespondedTo, rtt => hop.VerifiedRttMs = rtt, () => hop.Enabled = false));
+            allTargets.Add((hop.Address, hop.RespondedTo, rtt => hop.VerifiedRttMs = rtt, () => { hop.Enabled = false; hop.Unreachable = true; }));
         foreach (var transit in State.TransitAsns.Where(t => t.HopAddress != null && t.Method == DiscoveryMethod.DirectRouter))
-            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt, () => transit.Enabled = false));
+            allTargets.Add((transit.HopAddress!, transit.RespondedTo ?? ProbeMode.Icmp, rtt => transit.VerifiedRttMs = rtt, () => { transit.Enabled = false; transit.Unreachable = true; }));
 
         if (allTargets.Count == 0) return;
 
@@ -928,9 +928,9 @@ public class UpstreamTracerService
             }
             else
             {
-                t.Disable();
+                t.MarkUnreachable();
                 unreachable++;
-                _logger.LogDebug("Ping check failed for {Address} - excluding from proposed targets", t.Address);
+                _logger.LogDebug("Ping check failed for {Address} - marked unreachable", t.Address);
             }
         }
 
