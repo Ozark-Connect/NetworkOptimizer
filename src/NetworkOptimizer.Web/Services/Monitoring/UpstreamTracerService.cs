@@ -198,11 +198,13 @@ public class UpstreamTracerService
         {
             if (_runningTask != null && !_runningTask.IsCompleted) return;
 
+            var preservedTech = State.AccessTechnology;
             State = new UpstreamTracerState
             {
                 Step = TracerStep.DetectingPublicIp,
                 StartedAt = DateTime.UtcNow,
-                CurrentActivity = "Reading WAN configuration from gateway..."
+                CurrentActivity = "Reading WAN configuration from gateway...",
+                AccessTechnology = preservedTech
             };
             _runningTask = Task.Run(() => RunAsync(ct), ct);
         }
