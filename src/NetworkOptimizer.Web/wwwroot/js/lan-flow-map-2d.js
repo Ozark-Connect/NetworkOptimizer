@@ -263,6 +263,7 @@ class LanFlowMap2D {
 
         this._tooltip=null;
         this._hoverNode=null;
+        this._liveOnly=false;
     }
 
     async start(){
@@ -1651,7 +1652,7 @@ class LanFlowMap2D {
         const dt=Math.min((now-this._lastFrame)/1000,0.1);
         this._lastFrame=now;
 
-        if(!flowData.isPaused()){
+        if(this._liveOnly||!flowData.isPaused()){
             for(const s of this._streams)s.advance(dt);
         }
         this._draw();
@@ -1676,9 +1677,11 @@ export function unmount(){
 }
 
 export function startDataPolling(){
+    if(_inst)_inst._liveOnly=true;
     flowData.startPolling();
 }
 
 export function stopDataPolling(){
     flowData.stopPolling();
+    if(_inst)_inst._liveOnly=false;
 }
