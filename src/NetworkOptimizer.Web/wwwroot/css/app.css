@@ -2884,10 +2884,7 @@ select.form-control {
     .timestamp {
         font-size: 0.75rem;
     }
-}
 
-
-@media (max-width: 768px) {
     /* Pull-to-refresh indicator */
     .pull-to-refresh {
         position: absolute;
@@ -2929,7 +2926,9 @@ select.form-control {
         from { transform: rotate(0deg) scale(1.4); }
         to { transform: rotate(360deg) scale(1.4); }
     }
+}
 
+@media (max-width: 768px) {
     /* Client dashboard identity bar: smooth collapse name/meta when scrolled down */
     .identity-bar .identity-name,
     .identity-bar .identity-meta {
