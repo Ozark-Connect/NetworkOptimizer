@@ -340,18 +340,11 @@ export class LanFlowMap {
         const isFs = el.classList.contains('lan-flow-map-fullscreen');
         if (isFs) {
             el.classList.remove('lan-flow-map-fullscreen');
-            if (this._fsPlaceholder?.parentNode) {
-                this._fsPlaceholder.parentNode.replaceChild(el, this._fsPlaceholder);
-                this._fsPlaceholder = null;
-            }
             this._panels.fullscreenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 8 3 3 8 3"></polyline><polyline points="16 3 21 3 21 8"></polyline>
                 <polyline points="21 16 21 21 16 21"></polyline><polyline points="8 21 3 21 3 16"></polyline></svg>`;
             this._panels.fullscreenBtn.setAttribute('data-tooltip', 'Fullscreen');
         } else {
-            this._fsPlaceholder = document.createComment('fs');
-            el.parentNode.replaceChild(this._fsPlaceholder, el);
-            document.body.appendChild(el);
             el.classList.add('lan-flow-map-fullscreen');
             this._panels.fullscreenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="4 10 10 10 10 4"></polyline><polyline points="14 4 14 10 20 10"></polyline>
@@ -389,13 +382,8 @@ export class LanFlowMap {
 
     dispose() {
         this._destroyed = true;
-        if (this.stage.classList.contains('lan-flow-map-fullscreen')) {
+        if (this.stage.classList.contains('lan-flow-map-fullscreen'))
             this.stage.classList.remove('lan-flow-map-fullscreen');
-            if (this._fsPlaceholder?.parentNode) {
-                this._fsPlaceholder.parentNode.replaceChild(this.stage, this._fsPlaceholder);
-                this._fsPlaceholder = null;
-            }
-        }
         if (this._repositionMode) this._exitRepositionMode();
         this._dismissContextMenu();
         // The render loop registered via setAnimationLoop checks _destroyed
