@@ -201,9 +201,9 @@
                                 <thead>
                                     <tr>
                                         <th style="width: 40px;"></th>
+                                        <th>Label</th>
+                                        <th>Address</th>
                                         <th>ASN</th>
-                                        <th>Name</th>
-                                        <th>Target hop</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -214,16 +214,13 @@
                                                 <input type="checkbox" checked="@asn.Enabled"
                                                        @onchange="e => asn.Enabled = (bool)e.Value!" />
                                             </td>
-                                            <td><code>AS@(asn.AsnNumber)</code></td>
-                                            <td>@asn.AsnName</td>
                                             <td>
-                                                <code>@asn.HopAddress</code>
-                                                @{ var ptrLabel = FormatPtrLabel(asn.HopHostname, asn.HopAddress); }
-                                                @if (ptrLabel != null)
-                                                {
-                                                    <span class="text-muted"> (@ptrLabel)</span>
-                                                }
+                                                <input type="text" class="form-control form-control-sm"
+                                                       value="@asn.Label"
+                                                       @onchange="e => asn.Label = (string)e.Value!" />
                                             </td>
+                                            <td><code>@asn.HopAddress</code></td>
+                                            <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
                                         </tr>
                                     }
                                 </tbody>
@@ -242,9 +239,9 @@
                                 <thead>
                                     <tr>
                                         <th style="width: 40px;"></th>
-                                        <th>ASN</th>
-                                        <th>Name</th>
+                                        <th>Label</th>
                                         <th>Endpoint</th>
+                                        <th>ASN</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -255,9 +252,13 @@
                                                 <input type="checkbox" checked="@host.Enabled"
                                                        @onchange="e => host.Enabled = (bool)e.Value!" />
                                             </td>
-                                            <td><code>AS@(host.AsnNumber)</code></td>
-                                            <td>@host.AsnName</td>
+                                            <td>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       value="@host.Label"
+                                                       @onchange="e => host.Label = (string)e.Value!" />
+                                            </td>
                                             <td><code>@host.PathProxyTarget</code></td>
+                                            <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
                                         </tr>
                                     }
                                 </tbody>

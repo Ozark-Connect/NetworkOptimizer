@@ -75,6 +75,7 @@ public class TransitAsnCandidate
 {
     public int AsnNumber { get; set; }
     public required string AsnName { get; set; }
+    public string? Label { get; set; }
     public DiscoveryMethod Method { get; set; }
     public string? TargetId { get; set; }              // null for Unresolved tier
     public string? HopAddress { get; set; }

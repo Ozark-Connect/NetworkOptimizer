@@ -811,6 +811,26 @@ public class UpstreamTracerService
         // Only a handful of candidates, so the cost is negligible.
         await ResolveHostnamesAsync(candidates, ct);
 
+        // Generate labels from PTR hostnames (strip TLD, filter IP-derived junk).
+        // Generate "<Org> <PTR-derived>" labels, or "<Org> 1/2/3" when no PTR.
+        var asnIndex = new Dictionary<int, int>();
+        foreach (var c in candidates)
+        {
+            if (c.Method == DiscoveryMethod.PathProxy) continue;
+            var ptrLabel = FormatTransitHopLabel(c.HopHostname, c.HopAddress);
+            if (ptrLabel != null)
+            {
+                c.Label = $"{c.AsnName} {ptrLabel}";
+            }
+            else
+            {
+                asnIndex.TryGetValue(c.AsnNumber, out var idx);
+                idx++;
+                asnIndex[c.AsnNumber] = idx;
+                c.Label = $"{c.AsnName} {idx}";
+            }
+        }
+
         State.TransitAsns = candidates;
 
         // Path-proxy: for every CDN destination whose ASN appeared anywhere in the
@@ -843,6 +863,7 @@ public class UpstreamTracerService
             {
                 AsnNumber = destAsn.Asn,
                 AsnName = CleanAsnName(destAsn.Name),
+                Label = endpoint.Label,
                 Method = DiscoveryMethod.PathProxy,
                 TargetId = $"path-{endpoint.Label.ToLowerInvariant()}-as{destAsn.Asn}",
                 HopAddress = endpoint.Address,
@@ -1113,7 +1134,7 @@ public class UpstreamTracerService
                 DiscoveredProbeMode = hop.RespondedTo,
                 TargetType = MonitoringTargetType.AccessIsp,
                 AsnNumber = hop.AsnNumber,
-                AsnName = hop.AsnName,
+                AsnName = CleanAsnName(hop.AsnName),
                 VantagePoint = "server",
                 PollIntervalSeconds = 10,
                 PingCount = 5,
@@ -1138,7 +1159,7 @@ public class UpstreamTracerService
             existing.WanInterface = wanInterface;
             existing.Name = string.IsNullOrEmpty(existing.Name) ? hop.Label : existing.Name; // don't stomp user-renamed labels
             if (hop.AsnNumber.HasValue) existing.AsnNumber = hop.AsnNumber;
-            if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = hop.AsnName;
+            if (!string.IsNullOrEmpty(hop.AsnName)) existing.AsnName = CleanAsnName(hop.AsnName);
             if (!string.IsNullOrEmpty(hop.PtrHostname)) existing.PtrHostname = hop.PtrHostname;
             existing.LastVerified = DateTime.UtcNow;
         }
@@ -1161,7 +1182,7 @@ public class UpstreamTracerService
             db.MonitoringTargets.Add(new MonitoringTarget
             {
                 TargetId = transit.TargetId,
-                Name = transit.AsnName,
+                Name = transit.Label ?? transit.AsnName,
                 Address = transit.HopAddress ?? transit.PathProxyTarget ?? "0.0.0.0",
                 ProbeMode = transit.RespondedTo ?? NetworkOptimizer.Core.Enums.ProbeMode.Icmp,
                 DiscoveredProbeMode = transit.RespondedTo,
@@ -1172,6 +1193,7 @@ public class UpstreamTracerService
                 PollIntervalSeconds = 15,
                 PingCount = 5,
                 Enabled = true,
+                PtrHostname = transit.HopHostname,
                 AutoDiscovered = true,
                 DiscoveryMethod = transit.Method,
                 WanInterface = wanInterface,
@@ -1181,8 +1203,10 @@ public class UpstreamTracerService
         }
         else
         {
+            existing.Name = transit.Label ?? transit.AsnName;
             existing.Address = transit.HopAddress ?? transit.PathProxyTarget ?? existing.Address;
             existing.ProbeMode = transit.RespondedTo ?? existing.ProbeMode;
+            if (!string.IsNullOrEmpty(transit.HopHostname)) existing.PtrHostname = transit.HopHostname;
             existing.DiscoveryMethod = transit.Method;
             existing.WanInterface = wanInterface;
             // Refresh ASN bookkeeping in case the resolver picked up a name now
@@ -1217,11 +1241,17 @@ public class UpstreamTracerService
 
     private static readonly string[] OrgSuffixes =
     {
-        "Communications", "Enterprises", "Parent", "Services", "Technologies",
-        "Telecom", "Telecommunications", "Holdings", "Group", "Networks",
-        "Corporation", "Incorporated", "Company",
-        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co",
-        "GmbH", "AG", "KG", "S.A.", "S.A.S.", "B.V.", "N.V.", "Pty"
+        // Telco/ISP industry terms
+        "Communications", "Telephone", "Telecom", "Telecommunications",
+        "Broadband", "Internet", "Fiber", "Cable", "Wireless",
+        "Enterprises", "Services", "Technologies", "Networks", "Network",
+        "Electric Cooperative", "Cooperative", "Co-op",
+        // Corporate entity suffixes
+        "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",
+        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P.", "LP",
+        // International
+        "GmbH", "AG", "KG", "e.K.", "S.A.", "S.A.S.", "S.r.l.",
+        "B.V.", "N.V.", "Pty", "A/S", "AB", "Oy", "AS"
     };
 
     /// <summary>
@@ -1232,21 +1262,38 @@ public class UpstreamTracerService
     {
         if (string.IsNullOrWhiteSpace(name)) return name ?? string.Empty;
         var cleaned = name.Trim().TrimEnd(',', '.');
-        foreach (var suffix in OrgSuffixes)
+        // Iterate to strip chains like "Telephone Company" or "Cable Communications LLC"
+        bool changed;
+        do
         {
-            if (cleaned.EndsWith(" " + suffix, StringComparison.OrdinalIgnoreCase))
+            changed = false;
+            foreach (var suffix in OrgSuffixes)
             {
-                cleaned = cleaned[..^(suffix.Length + 1)].TrimEnd(',', '.');
+                if (cleaned.EndsWith(" " + suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleaned = cleaned[..^(suffix.Length + 1)].TrimEnd(',', '.');
+                    changed = true;
+                }
             }
-        }
+        } while (changed && cleaned.Contains(' '));
         return cleaned.Trim();
     }
 
     /// <summary>
-    /// Generate a display label from a PTR hostname for transit/path-end targets.
-    /// Same logic as access hop labels: strip TLD, filter IP-derived auto-PTR junk.
-    /// Returns null if the hostname is unusable.
+    /// Generate a display label from a PTR hostname for transit targets.
+    /// Strips the last 2 labels (SLD + TLD, e.g. ".windstream.net") since
+    /// the org name is already prepended separately. Returns null if the
+    /// hostname is unusable (IP-derived auto-PTR or too short).
     /// </summary>
+    private static string? FormatTransitHopLabel(string? hostname, string? ipAddress)
+    {
+        if (string.IsNullOrEmpty(hostname)) return null;
+        var parts = hostname.Split('.');
+        if (IsIpDerivedHostname(parts, ipAddress ?? string.Empty)) return null;
+        if (parts.Length <= 2) return null;
+        return string.Join('.', parts.Take(parts.Length - 2));
+    }
+
     private static string? FormatHopLabel(string? hostname, string? ipAddress)
     {
         if (string.IsNullOrEmpty(hostname)) return null;
