@@ -2,7 +2,7 @@
 // Subscribes to lan-flow-data.js (published by the 3D map) so there are
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
-import * as flowData from './lan-flow-data.js?v=1';
+import * as flowData from './lan-flow-data.js?v=2';
 
 function demoMask(text) {
     const dm = window.DemoMask;

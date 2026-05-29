@@ -199,7 +199,9 @@ else
                 else
                 {
                     await JS.InvokeVoidAsync("eval",
-                        $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
+                        $"(async () => {{ " +
+                        $"const d = await import('{VersionedJs("/js/lan-flow-data.js")}'); d.startPolling(); " +
+                        $"const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
                         "window.__dashLanFlowMap2d = m; await m.mount('dashboard-lan-flow-map-2d-stage'); })();");
                 }
             }
@@ -214,7 +216,9 @@ else
             if (_mountedMode == "3d")
                 await JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap?.unmount();");
             else
-                await JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap2d?.unmount();");
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ window.__dashLanFlowMap2d?.unmount(); " +
+                    $"const d = await import('{VersionedJs("/js/lan-flow-data.js")}'); d.stopPolling(); }})();");
         }
         catch { }
         _mapMounted = false;
@@ -380,10 +384,12 @@ else
         {
             try
             {
-                _ = JS.InvokeVoidAsync("eval",
-                    _mountedMode == "3d"
-                        ? "window.__dashLanFlowMap?.unmount();"
-                        : "window.__dashLanFlowMap2d?.unmount();");
+                if (_mountedMode == "3d")
+                    _ = JS.InvokeVoidAsync("eval", "window.__dashLanFlowMap?.unmount();");
+                else
+                    _ = JS.InvokeVoidAsync("eval",
+                        "window.__dashLanFlowMap2d?.unmount();" +
+                        "import('/js/lan-flow-data.js').then(d => d.stopPolling());");
             }
             catch { }
         }
