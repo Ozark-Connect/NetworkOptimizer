@@ -555,19 +555,20 @@ using (var scope = app.Services.CreateScope())
 
     // FUSE/network filesystems (Unraid shfs, mergerfs, NFS, SMB) don't support the shared-memory
     // mmap that WAL mode requires, causing silent database corruption. Use DELETE mode instead.
-    if (StartupHelpers.IsFuseFilesystem(dbPath))
+    var (isFuseFs, detectedFsType) = StartupHelpers.DetectFilesystem(dbPath);
+    if (isFuseFs)
     {
         db.Database.ExecuteSqlRaw("PRAGMA journal_mode=DELETE;");
         app.Logger.LogWarning(
-            "FUSE/network filesystem detected - using DELETE journal mode to prevent database corruption. " +
+            "FUSE/network filesystem detected ({FilesystemType}) - using DELETE journal mode to prevent database corruption. " +
             "To use WAL mode (better performance), store the database on a direct filesystem " +
-            "(e.g., /mnt/cache instead of /mnt/user on Unraid)");
+            "(e.g., /mnt/cache instead of /mnt/user on Unraid)", detectedFsType);
     }
     else
     {
         // Ensure WAL mode - config imports replace the DB with a DELETE-mode copy
         db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
-        app.Logger.LogInformation("Database journal mode: WAL");
+        app.Logger.LogInformation("Database journal mode: WAL (filesystem: {FilesystemType})", detectedFsType);
     }
 
     // Seed default alert rules - insert any missing rules by EventTypePattern
@@ -1709,10 +1710,10 @@ class DigestStateStoreAdapter(NetworkOptimizer.Storage.Interfaces.ISettingsRepos
 
 static partial class StartupHelpers
 {
-    internal static bool IsFuseFilesystem(string filePath)
+    internal static (bool isFuse, string filesystemType) DetectFilesystem(string filePath)
     {
         if (!OperatingSystem.IsLinux())
-            return false;
+            return (false, "n/a");
 
         try
         {
@@ -1736,18 +1737,20 @@ static partial class StartupHelpers
             }
 
             if (string.IsNullOrEmpty(bestFsType))
-                return false;
+                return (false, "unknown");
 
-            return bestFsType.StartsWith("fuse", StringComparison.OrdinalIgnoreCase)
+            var isFuse = bestFsType.StartsWith("fuse", StringComparison.OrdinalIgnoreCase)
                 || bestFsType.Equals("nfs", StringComparison.OrdinalIgnoreCase)
                 || bestFsType.Equals("nfs4", StringComparison.OrdinalIgnoreCase)
                 || bestFsType.Equals("cifs", StringComparison.OrdinalIgnoreCase)
                 || bestFsType.Equals("smb", StringComparison.OrdinalIgnoreCase)
                 || bestFsType.Equals("9p", StringComparison.OrdinalIgnoreCase);
+
+            return (isFuse, bestFsType);
         }
         catch
         {
-            return false;
+            return (false, "unknown");
         }
     }
 }
