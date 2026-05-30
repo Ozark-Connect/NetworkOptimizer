@@ -211,6 +211,8 @@ For commercial NAS devices with container support.
 
 Community templates maintained by [@stefan-matic](https://github.com/stefan-matic/unraid-templates).
 
+> **Important: Database storage path.** Unraid's `/mnt/user/` paths use a FUSE filesystem (shfs) that is incompatible with SQLite's WAL journal mode. Network Optimizer detects this automatically and falls back to DELETE journal mode, which prevents database corruption but may cause occasional database busy errors under heavy monitoring load. For best performance, map the `/app/data` volume to a cache drive path (e.g., `/mnt/cache/appdata/network-optimizer/data`) instead of `/mnt/user/appdata/...`. This also applies to OMV setups using mergerfs and any deployment where the data volume is on NFS, SMB, or other network/FUSE mounts.
+
 ---
 Or use manual Docker Compose deployment (note: cannot be managed by Unraid GUI if deployed via compose)
 

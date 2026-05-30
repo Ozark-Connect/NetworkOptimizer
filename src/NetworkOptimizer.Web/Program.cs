@@ -553,8 +553,22 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
     app.Logger.LogInformation("Database migrations complete");
 
-    // Ensure WAL mode - config imports replace the DB with a DELETE-mode copy
-    db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+    // FUSE/network filesystems (Unraid shfs, mergerfs, NFS, SMB) don't support the shared-memory
+    // mmap that WAL mode requires, causing silent database corruption. Use DELETE mode instead.
+    if (StartupHelpers.IsFuseFilesystem(dbPath))
+    {
+        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=DELETE;");
+        app.Logger.LogWarning(
+            "FUSE/network filesystem detected - using DELETE journal mode to prevent database corruption. " +
+            "To use WAL mode (better performance), store the database on a direct filesystem " +
+            "(e.g., /mnt/cache instead of /mnt/user on Unraid)");
+    }
+    else
+    {
+        // Ensure WAL mode - config imports replace the DB with a DELETE-mode copy
+        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+        app.Logger.LogInformation("Database journal mode: WAL");
+    }
 
     // Seed default alert rules - insert any missing rules by EventTypePattern
     {
@@ -1690,5 +1704,50 @@ class DigestStateStoreAdapter(NetworkOptimizer.Storage.Interfaces.ISettingsRepos
     public async Task SetLastSentAsync(int channelId, DateTime sentAt, CancellationToken cancellationToken)
     {
         await settings.SaveSystemSettingAsync(Key(channelId), sentAt.ToString("O"), cancellationToken);
+    }
+}
+
+static partial class StartupHelpers
+{
+    internal static bool IsFuseFilesystem(string filePath)
+    {
+        if (!OperatingSystem.IsLinux())
+            return false;
+
+        try
+        {
+            var resolvedPath = Path.GetFullPath(filePath);
+            var bestMatch = string.Empty;
+            var bestFsType = string.Empty;
+
+            foreach (var line in File.ReadLines("/proc/mounts"))
+            {
+                var parts = line.Split(' ');
+                if (parts.Length < 3) continue;
+
+                var mountPoint = parts[1];
+                if (mountPoint.Length > bestMatch.Length
+                    && resolvedPath.StartsWith(mountPoint, StringComparison.Ordinal)
+                    && (mountPoint == "/" || resolvedPath.Length == mountPoint.Length || resolvedPath[mountPoint.Length] == '/'))
+                {
+                    bestMatch = mountPoint;
+                    bestFsType = parts[2];
+                }
+            }
+
+            if (string.IsNullOrEmpty(bestFsType))
+                return false;
+
+            return bestFsType.StartsWith("fuse", StringComparison.OrdinalIgnoreCase)
+                || bestFsType.Equals("nfs", StringComparison.OrdinalIgnoreCase)
+                || bestFsType.Equals("nfs4", StringComparison.OrdinalIgnoreCase)
+                || bestFsType.Equals("cifs", StringComparison.OrdinalIgnoreCase)
+                || bestFsType.Equals("smb", StringComparison.OrdinalIgnoreCase)
+                || bestFsType.Equals("9p", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

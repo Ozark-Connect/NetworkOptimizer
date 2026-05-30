@@ -374,7 +374,7 @@ public class SnmpPoller : ISnmpPoller
                 }
                 else
                 {
-                    _logger.LogDebug("ShouldMonitor rejected ifIndex {Idx} desc={Desc} name={Name} on {Ip}", idx, descr, metrics.Name, ip);
+                    _logger.LogTrace("ShouldMonitor rejected ifIndex {Idx} desc={Desc} name={Name} on {Ip}", idx, descr, metrics.Name, ip);
                 }
             }
 
