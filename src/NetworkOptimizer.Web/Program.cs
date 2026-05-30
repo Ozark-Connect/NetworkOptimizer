@@ -1726,7 +1726,9 @@ static partial class StartupHelpers
                 if (parts.Length < 3) continue;
 
                 var mountPoint = parts[1];
-                if (resolvedPath.StartsWith(mountPoint, StringComparison.Ordinal) && mountPoint.Length > bestMatch.Length)
+                if (mountPoint.Length > bestMatch.Length
+                    && resolvedPath.StartsWith(mountPoint, StringComparison.Ordinal)
+                    && (mountPoint == "/" || resolvedPath.Length == mountPoint.Length || resolvedPath[mountPoint.Length] == '/'))
                 {
                     bestMatch = mountPoint;
                     bestFsType = parts[2];
