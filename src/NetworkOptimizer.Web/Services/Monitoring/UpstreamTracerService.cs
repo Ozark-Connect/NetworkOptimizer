@@ -77,10 +77,11 @@ public class UpstreamTracerService
         new("Microsoft", "13.107.42.14"),                            // AS8068  - M365 SharePoint anycast
         new("Fastly", "151.101.1.69"),                               // AS54113 - reaches local PoP via anycast
         new("Akamai", "23.0.0.1"),                                   // AS20940 - global netarch anycast loopback
-        new("AT&T", "12.0.1.28", IsTransitProbe: true)                // AS7018  - probe to surface AT&T as transit
+        new("AT&T", "12.0.1.28", IsTransitProbe: true),               // AS7018  - probe to surface AT&T as transit
+        new("INDATEL", "216.176.4.153", IsTransitProbe: true, EndpointIsTransitHop: true) // AS30517 - INDATEL on GLC (Everstream) infra
     };
 
-    private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false);
+    private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false, bool EndpointIsTransitHop = false);
 
     public UpstreamTracerService(
         UniFiConnectionService connectionService,
@@ -776,9 +777,10 @@ public class UpstreamTracerService
         // Also exclude the transit-probe endpoints themselves from the hop pool.
         // Their job is to force the path through a specific ASN so real transit
         // routers surface - the endpoint IP itself is far away and not useful
-        // as a monitoring target.
+        // as a monitoring target. Exception: EndpointIsTransitHop means the
+        // endpoint itself is the transit router (small networks with one hop).
         var transitProbeAddresses = new HashSet<string>(
-            CdnRotation.Where(e => e.IsTransitProbe).Select(e => e.Address),
+            CdnRotation.Where(e => e.IsTransitProbe && !e.EndpointIsTransitHop).Select(e => e.Address),
             StringComparer.OrdinalIgnoreCase);
 
         var transitGroups = _mergedHops
