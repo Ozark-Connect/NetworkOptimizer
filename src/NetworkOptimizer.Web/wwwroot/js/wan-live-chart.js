@@ -27,7 +27,7 @@ function formatBps(v) {
 function buildOpts() {
     return {
         chart: {
-            type: 'line',
+            type: 'area',
             height: 175,
             background: 'transparent',
             toolbar: { show: false },
