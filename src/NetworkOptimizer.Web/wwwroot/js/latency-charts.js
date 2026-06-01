@@ -308,8 +308,8 @@ function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt) {
     if (v > lightAt) return `<span style="color:rgba(231,150,19,0.45)">${s}</span>`;
     return s;
 }
-function fmtLossMean(v) { return fmtLossColored(v, 1, 0.2, 0.05, 0); }
-function fmtLossMax(v) { return fmtLossColored(v, 5, 2, 0.5, 0); }
+function fmtLossMean(v) { return fmtLossColored(v, 1, 0.2, 0.05, 0.005); }
+function fmtLossMax(v) { return fmtLossColored(v, 5, 2, 0.5, 0.005); }
 
 function renderStatsTable(container, data) {
     const el = container.querySelector('.latency-stats-table');
