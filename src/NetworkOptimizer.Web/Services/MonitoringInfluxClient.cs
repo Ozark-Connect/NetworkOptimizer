@@ -824,7 +824,9 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
-    /// <summary>Mean RTT and loss across all ISP+Transit targets, aggregated per time window.</summary>
+    /// <summary>Mean RTT and loss across all ISP+Transit targets, aggregated per time window.
+    /// Averages per target_type first (so ISP and Transit contribute equally), then
+    /// averages the two category means to avoid sawtooth from uneven probe timing.</summary>
     public async Task<IReadOnlyList<LatencyPoint>> QueryMeanIspTransitLatencyAsync(
         DateTime from,
         DateTime to,
@@ -833,15 +835,18 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<LatencyPoint>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var window = aggregateWindow ?? TimeSpan.FromSeconds(
+            Math.Max(15, (int)((to - from).TotalSeconds / 150)));
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"")
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
-  |> group(columns: [""_field""])
+  |> group(columns: [""target_type"", ""_field""])
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> group(columns: [""_time"", ""_field""])
+  |> mean()
   |> group()
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
