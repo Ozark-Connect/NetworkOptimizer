@@ -97,7 +97,7 @@ function buildLossOpts() {
         v => v != null ? v.toFixed(1) + '%' : '',
         {
             yaxis: {
-                min: 0, max: m => Math.max(5, Math.ceil(m.max)),
+                min: 0, max: v => Math.max(v * 1.1, 5),
                 title: { text: '% loss', style: { color: '#9ca3af' } },
                 labels: {
                     style: { colors: '#9ca3af' },
