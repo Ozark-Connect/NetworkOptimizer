@@ -1703,8 +1703,12 @@ else
             try
             {
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{VersionedJs("/js/wan-live-chart.js")}'); " +
-                    "window.__wanLiveChart = m; await m.mount('monitoring-wan-live-chart'); }})();");
+                    "window.__mountWanLiveChart = async function(elId) {" +
+                    $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
+                    "  window.__wanLiveChart = m;" +
+                    "  await m.mount(elId);" +
+                    "}");
+                _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
             }
             catch { _wanLiveChartMounted = false; }
         }

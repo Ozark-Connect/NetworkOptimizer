@@ -166,41 +166,71 @@ async function loadHistory() {
         }
     }
 
-    // Compute mean RTT/loss across ISP+Transit targets per timestamp
-    const rttMap = new Map();
-    const lossMap = new Map();
-
-    function addTargetData(data) {
-        if (!data?.targets) return;
+    // Compute ISP and Transit RTT/loss separately to avoid sawtooth from
+    // interleaved timestamps. Then merge with LOCF (last observation carried
+    // forward) so each output point has the combined mean.
+    function meanTimeSeries(data) {
+        if (!data?.targets?.length) return new Map();
+        const byTime = new Map();
         for (const target of data.targets) {
             for (const p of (target.rtt || [])) {
                 const t = new Date(p.time).getTime();
                 if (p.value == null) continue;
-                if (!rttMap.has(t)) rttMap.set(t, []);
-                rttMap.get(t).push(p.value);
+                if (!byTime.has(t)) byTime.set(t, { rtts: [], losses: [] });
+                byTime.get(t).rtts.push(p.value);
             }
             for (const p of (target.loss || [])) {
                 const t = new Date(p.time).getTime();
                 if (p.value == null) continue;
-                if (!lossMap.has(t)) lossMap.set(t, []);
-                lossMap.get(t).push(p.value);
+                if (!byTime.has(t)) byTime.set(t, { rtts: [], losses: [] });
+                byTime.get(t).losses.push(p.value);
             }
         }
+        const result = new Map();
+        for (const [t, v] of byTime) {
+            result.set(t, {
+                rtt: v.rtts.length > 0 ? v.rtts.reduce((a, b) => a + b, 0) / v.rtts.length : null,
+                loss: v.losses.length > 0 ? v.losses.reduce((a, b) => a + b, 0) / v.losses.length : null,
+            });
+        }
+        return result;
     }
-    addTargetData(isp);
-    addTargetData(transit);
 
-    // Merge all timestamps and build buffer
-    const allTimes = new Set([...dlMap.keys(), ...rttMap.keys()]);
-    const sorted = [...allTimes].sort((a, b) => a - b);
+    const ispSeries = meanTimeSeries(isp);
+    const transitSeries = meanTimeSeries(transit);
 
-    buffer = sorted.map(t => ({
-        time: t,
-        download: dlMap.get(t) ?? null,
-        upload: ulMap.get(t) ?? null,
-        loss: lossMap.has(t) ? lossMap.get(t).reduce((a, b) => a + b, 0) / lossMap.get(t).length : null,
-        rtt: rttMap.has(t) ? rttMap.get(t).reduce((a, b) => a + b, 0) / rttMap.get(t).length : null,
-    }));
+    // Use only WAN rate timestamps for the buffer (throughput is the primary
+    // series); interpolate RTT/loss at each point using LOCF.
+    const wanTimes = [...dlMap.keys()].sort((a, b) => a - b);
+
+    const ispTimes = [...ispSeries.keys()].sort((a, b) => a - b);
+    const transitTimes = [...transitSeries.keys()].sort((a, b) => a - b);
+
+    function locfAt(sortedTimes, seriesMap, t) {
+        let best = null;
+        for (const st of sortedTimes) {
+            if (st > t) break;
+            best = seriesMap.get(st);
+        }
+        return best;
+    }
+
+    buffer = wanTimes.map(t => {
+        const ispVal = locfAt(ispTimes, ispSeries, t);
+        const transitVal = locfAt(transitTimes, transitSeries, t);
+
+        let rtt = null;
+        if (ispVal?.rtt != null && transitVal?.rtt != null) rtt = (ispVal.rtt + transitVal.rtt) / 2;
+        else if (ispVal?.rtt != null) rtt = ispVal.rtt;
+        else if (transitVal?.rtt != null) rtt = transitVal.rtt;
+
+        let loss = null;
+        if (ispVal?.loss != null && transitVal?.loss != null) loss = (ispVal.loss + transitVal.loss) / 2;
+        else if (ispVal?.loss != null) loss = ispVal.loss;
+        else if (transitVal?.loss != null) loss = transitVal.loss;
+
+        return { time: t, download: dlMap.get(t) ?? null, upload: ulMap.get(t) ?? null, loss, rtt };
+    });
 }
 
 async function pollLive() {
