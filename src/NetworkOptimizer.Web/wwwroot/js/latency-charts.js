@@ -302,7 +302,9 @@ function fmtRtt(v) { return v != null ? v.toFixed(3) : '-'; }
 function fmtLoss(v) {
     if (v == null) return '-';
     const s = v.toFixed(2) + '%';
-    return v > 0 ? `<span style="color:var(--danger-color)">${s}</span>` : s;
+    if (v > 0.2) return `<span style="color:var(--danger-color)">${s}</span>`;
+    if (v > 0) return `<span style="color:var(--warning-color)">${s}</span>`;
+    return s;
 }
 
 function renderStatsTable(container, data) {
