@@ -528,7 +528,7 @@
         // The panel renders its own empty-state when no monitored ONT exists, so the
         // card stays on the dashboard but tells the user how to enable it. Mirrors the
         // CellularStats card's "configure" affordance.
-        <div class="card">
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=sfp"))">
             <div class="card-header">
                 <h2 class="card-title">ONT Stats (GPON / XGS-PON)</h2>
             </div>
