@@ -378,6 +378,10 @@ a:hover {
 }
 .wan-live-chart-card > .card-body {
     padding: 0;
+    margin-right: -0.75rem;
+}
+.wan-live-chart-card .apexcharts-canvas {
+    min-height: 0;
 }
 .dashboard-grid .lv-panel > .wan-live-chart-card {
     margin-top: -0.5rem;
