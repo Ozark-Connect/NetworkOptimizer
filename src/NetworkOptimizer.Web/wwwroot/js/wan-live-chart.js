@@ -99,7 +99,6 @@ function buildOpts() {
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
                     formatter: v => v != null ? v.toFixed(0) + ' ms' : '',
-                    offsetX: -4,
                 },
                 axisBorder: { show: false },
                 axisTicks: { show: false },
@@ -108,7 +107,7 @@ function buildOpts() {
         grid: {
             borderColor: '#374151',
             strokeDashArray: 3,
-            padding: { left: 3, right: -14, top: -8, bottom: 0 },
+            padding: { left: 3, right: -6, top: -8, bottom: 0 },
             xaxis: { lines: { show: false } },
         },
         legend: { show: false },
