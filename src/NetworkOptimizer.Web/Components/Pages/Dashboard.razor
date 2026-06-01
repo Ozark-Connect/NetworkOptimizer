@@ -531,10 +531,10 @@
         // CellularStats card's "configure" affordance.
         <div class="card clickable-card" @onclick="NavigateToOntChart">
             <div class="card-header">
-                <h2 class="card-title">ONT Stats (GPON / XGS-PON)</h2>
+                <h2 class="card-title">@(_ontPanel?.HasAnyAe == true ? "Fiber Stats" : "ONT Stats (GPON / XGS-PON)")</h2>
             </div>
             <div class="card-body">
-                <OntStatsPanel @ref="_ontPanel" />
+                <OntStatsPanel @ref="_ontPanel" OnDataLoaded="StateHasChanged" />
             </div>
         </div>
     };

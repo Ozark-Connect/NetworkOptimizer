@@ -65,7 +65,7 @@ public static class SfpChartEndpoints
                 {
                     id = key,
                     label,
-                    isPon = s.IsPon,
+                    category = (int)s.Category,
                     sfpPart = s.SfpPart,
                     data = pts.Select(p => new
                     {

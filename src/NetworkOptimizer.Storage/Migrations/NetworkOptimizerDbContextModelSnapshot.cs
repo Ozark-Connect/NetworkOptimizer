@@ -1013,10 +1013,13 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("IsPon")
+                    b.Property<int>("Category")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsMonitoredOnt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LinkSpeedMbps")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("PortName")

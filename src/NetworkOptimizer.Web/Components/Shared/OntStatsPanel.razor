@@ -10,7 +10,7 @@
 {
     <div class="loading-state">
         <span class="spinner"></span>
-        <span>Loading ONT stats...</span>
+        <span>Loading fiber stats...</span>
     </div>
 }
 else if (_monitoredOnts.Count == 0)
@@ -18,11 +18,12 @@ else if (_monitoredOnts.Count == 0)
     <div class="sqm-unavailable">
         <div class="sqm-status">
             <span class="status-indicator status-disconnected"></span>
-            <span class="status-label">No ONT configured</span>
+            <span class="status-label">No fiber modules configured</span>
         </div>
         <p class="status-message">
             Network Optimizer auto-detects PON SFP modules (GPON / XGS-PON) on switch
-            and gateway ports. Promote one to a monitored ONT to see live optical levels here.
+            and gateway ports. Active Ethernet (P2P) modules can be promoted manually.
+            Mark a module as monitored to see live optical levels here.
         </p>
         <div class="sqm-actions">
             <a href="/monitoring" class="btn btn-primary" @onclick:stopPropagation>Open Monitoring</a>
@@ -33,7 +34,7 @@ else
 {
     var current = _monitoredOnts[_currentIndex];
     var stats = LiveStats.GetSfpStats(current.DeviceMac, current.PortName);
-    var rxClass = OpticalHealthClass(stats?.RxPowerDbm);
+    var rxClass = OpticalHealthClass(stats?.RxPowerDbm, current.Category);
     var deviceName = ResolveDeviceName(current.DeviceMac);
     var statusLabel = !string.IsNullOrEmpty(current.FriendlyName)
         ? $"{deviceName} - {current.FriendlyName}"
@@ -73,8 +74,8 @@ else
             <div class="metric-header">Optical</div>
             <div class="metric-content">
                 <div class="metric-row">
-                    <span class="metric-label">PON Type:</span>
-                    <span class="metric-value">@PonVariantLabel(current.SfpPart, current.SfpVendor)</span>
+                    <span class="metric-label">Link Type:</span>
+                    <span class="metric-value @(current.IsActiveEthernet ? "ont-ae-value" : "")">@LinkTypeLabel(current)</span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
@@ -113,7 +114,8 @@ else
                         <span class="metric-label">Link:</span>
                         <span class="metric-value">
                             @FormatLinkSpeed(current.LinkSpeedMbps.Value)
-                            @if (current.LinkSpeedMbps <= 1000
+                            @if (current.IsPon
+                                && current.LinkSpeedMbps <= 1000
                                 && PonVariantLabel(current.SfpPart, current.SfpVendor) == "GPON"
                                 && IsUpgradableGateway())
                             {
@@ -160,18 +162,27 @@ else
     .metric-value.ont-model-value {
         font-size: 0.95rem;
     }
+    .metric-value.ont-ae-value {
+        font-size: 1.1rem;
+    }
 </style>
 
 @code {
+    [Parameter]
+    public EventCallback OnDataLoaded { get; set; }
+
     private bool _isLoading = true;
     private List<MonitoredSfp> _monitoredOnts = new();
     private List<MonitoringTarget> _fabricTargets = new();
     private int _currentIndex = 0;
     private System.Threading.Timer? _refreshTimer;
 
+    public bool HasAnyAe => _monitoredOnts.Any(s => s.IsActiveEthernet);
+
     protected override async Task OnInitializedAsync()
     {
         await LoadOntsAsync();
+        await OnDataLoaded.InvokeAsync();
         _refreshTimer = new System.Threading.Timer(_ =>
         {
             try { _ = InvokeAsync(StateHasChanged); }
@@ -186,7 +197,7 @@ else
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             _monitoredOnts = await db.MonitoredSfps.AsNoTracking()
-                .Where(s => s.IsMonitoredOnt && s.IsPon)
+                .Where(s => s.IsMonitoredOnt && s.Category != SfpCategory.Standard)
                 .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)
                 .ToListAsync();
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
@@ -230,13 +241,23 @@ else
         StateHasChanged();
     }
 
-    // PON RX optical power health bands. Single-mode PON ONTs typically run -8 to -25 dBm
-    // under normal conditions; outside that range bracket is fiber attenuation or
-    // overdriven transmit on the other end.
-    private static string OpticalHealthClass(double? rxDbm)
+    private static string LinkTypeLabel(MonitoredSfp sfp) => sfp.Category switch
+    {
+        SfpCategory.ActiveEthernet => "Active Ethernet",
+        _ => NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)
+    };
+
+    private static string OpticalHealthClass(double? rxDbm, SfpCategory category)
     {
         if (!rxDbm.HasValue) return "";
         var v = rxDbm.Value;
+        if (category == SfpCategory.ActiveEthernet)
+        {
+            if (v >= -8 && v <= -1) return "signal-excellent";
+            if (v >= -10 && v <= 0) return "signal-good";
+            if (v >= -14 && v <= 1) return "signal-fair";
+            return "signal-poor";
+        }
         if (v >= -22 && v <= -8) return "signal-excellent";
         if (v >= -25 && v <= -6) return "signal-good";
         if (v >= -28 && v <= -4) return "signal-fair";
