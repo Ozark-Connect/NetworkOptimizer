@@ -107,7 +107,7 @@ function buildOpts() {
         grid: {
             borderColor: '#374151',
             strokeDashArray: 3,
-            padding: { left: 3, right: -5, top: -8, bottom: 0 },
+            padding: { left: 3, right: -10, top: -8, bottom: 0 },
             xaxis: { lines: { show: false } },
         },
         legend: { show: false },
