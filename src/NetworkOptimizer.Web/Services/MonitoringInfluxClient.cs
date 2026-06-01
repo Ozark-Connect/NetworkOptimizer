@@ -836,7 +836,7 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<LatencyPoint>();
         var window = aggregateWindow ?? TimeSpan.FromSeconds(
-            Math.Max(15, (int)((to - from).TotalSeconds / 150)));
+            Math.Max(20, (int)((to - from).TotalSeconds / 150)));
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
