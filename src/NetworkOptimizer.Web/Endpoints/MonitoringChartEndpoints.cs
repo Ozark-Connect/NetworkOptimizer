@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services;
 
@@ -8,6 +9,94 @@ public static class MonitoringChartEndpoints
 {
     public static void Map(WebApplication app)
     {
+        app.MapGet("/api/monitoring/live-stats", async (
+            MonitoringLiveStats liveStats,
+            UniFiConnectionService connectionService,
+            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            CancellationToken ct) =>
+        {
+            string? gatewayMac = null;
+            List<string>? wanIfNames = null;
+            try
+            {
+                var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
+                var gw = devices?.FirstOrDefault(d =>
+                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
+                wanIfNames = gw?.WanInterfaceNames;
+            }
+            catch { }
+
+            double wanDown = 0, wanUp = 0;
+            if (gatewayMac != null && wanIfNames != null)
+            {
+                foreach (var ifName in wanIfNames)
+                {
+                    var rate = liveStats.GetPortRate(gatewayMac, ifName);
+                    if (rate == null) continue;
+                    wanDown += rate.UpBps;
+                    wanUp += rate.DownBps;
+                }
+            }
+
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var targets = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled
+                    && (t.TargetType == MonitoringTargetType.AccessIsp
+                        || t.TargetType == MonitoringTargetType.Transit))
+                .Select(t => new { t.TargetId, t.TargetType })
+                .ToListAsync(ct);
+
+            double? bestIspRtt = null;
+            double ispLoss = 0;
+            var transitRtts = new List<double>();
+            var transitLosses = new List<double>();
+
+            foreach (var t in targets)
+            {
+                var st = liveStats.GetTargetStats(t.TargetId);
+                if (st == null) continue;
+
+                if (t.TargetType == MonitoringTargetType.AccessIsp)
+                {
+                    if (st.RttAvgMs != null && (bestIspRtt == null || st.RttAvgMs.Value < bestIspRtt.Value))
+                    {
+                        bestIspRtt = st.RttAvgMs;
+                        ispLoss = st.LossPercent;
+                    }
+                }
+                else
+                {
+                    if (st.RttAvgMs != null) transitRtts.Add(st.RttAvgMs.Value);
+                    transitLosses.Add(st.LossPercent);
+                }
+            }
+
+            var transitRtt = transitRtts.Count > 0
+                ? transitRtts.Average() : (double?)null;
+            var transitLoss = transitLosses.Count > 0
+                ? transitLosses.Average() : 0.0;
+
+            double? meanRtt = null;
+            if (bestIspRtt != null && transitRtt != null)
+                meanRtt = (bestIspRtt.Value + transitRtt.Value) / 2;
+            else meanRtt = bestIspRtt ?? transitRtt;
+
+            double meanLoss = 0;
+            if (bestIspRtt != null && transitRtts.Count > 0)
+                meanLoss = (ispLoss + transitLoss) / 2;
+            else if (bestIspRtt != null) meanLoss = ispLoss;
+            else if (transitLosses.Count > 0) meanLoss = transitLoss;
+
+            return Results.Ok(new
+            {
+                downloadBps = wanDown,
+                uploadBps = wanUp,
+                rttMs = meanRtt,
+                lossPercent = meanLoss,
+            });
+        });
+
         app.MapGet("/api/monitoring/chart-data", async (
             MonitoringInfluxClient influx,
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,

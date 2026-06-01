@@ -1,21 +1,18 @@
-// WAN live chart — real-time area+line chart fed by lan-flow-data.js pub/sub.
-// Shows download, upload, packet loss, and mean ISP/transit RTT as a rolling
-// ~5-minute window. Mounted from Blazor in LiveViewPanel and Monitoring Live tab.
+// WAN live chart — real-time area+line chart showing download, upload, packet
+// loss, and mean ISP/transit RTT. Pre-loads history from InfluxDB, then polls
+// /api/monitoring/live-stats for real-time updates.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=2';
 
-const MAX_POINTS = 100;
-const COLOR_DL    = '#3b82f6';
-const COLOR_UL    = '#10b981';
-const COLOR_LOSS  = '#ef4444';
-const COLOR_RTT   = '#d946ef';
+const HISTORY_MINUTES = 5;
+const POLL_MS = 3000;
+const COLOR_DL   = '#3b82f6';
+const COLOR_UL   = '#10b981';
+const COLOR_LOSS = '#ef4444';
+const COLOR_RTT  = '#d946ef';
 
 let chart = null;
-let unsub = null;
-let wanLinkIds = [];
-let ispCloudIds = [];
-let transitCloudIds = [];
+let pollTimer = null;
 let buffer = [];
 let elId = null;
 
@@ -36,26 +33,25 @@ function buildOpts() {
             toolbar: { show: false },
             zoom: { enabled: false },
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
-            sparkline: { enabled: false },
         },
         series: [
-            { name: 'Download',  type: 'area', data: [] },
-            { name: 'Upload',    type: 'area', data: [] },
-            { name: 'Loss',      type: 'area', data: [] },
-            { name: 'RTT',       type: 'line', data: [] },
+            { name: 'Download', type: 'area', data: [] },
+            { name: 'Upload',   type: 'area', data: [] },
+            { name: 'Loss',     type: 'area', data: [] },
+            { name: 'RTT',      type: 'line', data: [] },
         ],
         colors: [COLOR_DL, COLOR_UL, COLOR_LOSS, COLOR_RTT],
         stroke: {
             curve: 'smooth',
-            width: [2, 2, 1.5, 2],
+            width: [2.5, 2.5, 1.5, 1.5],
             dashArray: [0, 0, 0, 6],
         },
         fill: {
             type: ['gradient', 'gradient', 'gradient', 'none'],
             gradient: {
                 shadeIntensity: 0.4,
-                opacityFrom: [0.45, 0.35, 0.5, 0],
-                opacityTo:   [0.05, 0.05, 0.05, 0],
+                opacityFrom: [0.55, 0.45, 0.5, 0],
+                opacityTo:   [0.1,  0.08, 0.05, 0],
                 stops: [0, 95],
             },
         },
@@ -83,13 +79,8 @@ function buildOpts() {
                 },
                 axisBorder: { show: false },
                 axisTicks: { show: false },
-                title: { text: undefined },
             },
-            {
-                seriesName: 'Upload',
-                show: false,
-                min: 0,
-            },
+            { seriesName: 'Upload', show: false, min: 0 },
             {
                 seriesName: 'Loss',
                 opposite: true,
@@ -108,7 +99,6 @@ function buildOpts() {
                 },
                 axisBorder: { show: false },
                 axisTicks: { show: false },
-                title: { text: undefined },
             },
         ],
         grid: {
@@ -129,85 +119,12 @@ function buildOpts() {
                 { formatter: v => v != null ? v.toFixed(1) + ' ms' : '-' },
             ],
         },
-        noData: { text: 'Waiting for data...', style: { color: '#64748b', fontSize: '13px' } },
+        noData: { text: 'Loading...', style: { color: '#64748b', fontSize: '13px' } },
     };
 }
 
-function indexTopology() {
-    const snap = flowData.getSnapshot();
-    if (!snap) return;
-    wanLinkIds = (snap.links || []).filter(l => l.kind === 3).map(l => l.id);
-    ispCloudIds = (snap.clouds || []).filter(c => c.kind === 0).map(c => c.id);
-    transitCloudIds = (snap.clouds || []).filter(c => c.kind === 1).map(c => c.id);
-}
-
-function sampleNow() {
-    const rates = flowData.getLiveRates();
-    const clouds = flowData.getCloudStats();
-
-    let dlBps = 0, ulBps = 0;
-    for (const id of wanLinkIds) {
-        const r = rates[id];
-        if (!r) continue;
-        dlBps += r.downstreamBps || 0;
-        ulBps += r.upstreamBps || 0;
-    }
-
-    // ISP: best (lowest) RTT across ISP clouds, matching stat card logic
-    let ispRtt = null;
-    let ispLoss = null;
-    for (const id of ispCloudIds) {
-        const c = clouds[id];
-        if (!c) continue;
-        if (c.rttAvgMs != null && (ispRtt === null || c.rttAvgMs < ispRtt)) {
-            ispRtt = c.rttAvgMs;
-            ispLoss = c.lossPercent;
-        }
-    }
-
-    // Transit: mean RTT across transit clouds, matching stat card logic
-    const transitRtts = [];
-    const transitLosses = [];
-    for (const id of transitCloudIds) {
-        const c = clouds[id];
-        if (!c) continue;
-        if (c.rttAvgMs != null) transitRtts.push(c.rttAvgMs);
-        if (c.lossPercent != null) transitLosses.push(c.lossPercent);
-    }
-    const transitRtt = transitRtts.length > 0
-        ? transitRtts.reduce((a, b) => a + b, 0) / transitRtts.length : null;
-    const transitLoss = transitLosses.length > 0
-        ? transitLosses.reduce((a, b) => a + b, 0) / transitLosses.length : null;
-
-    // Mean of ISP and Transit RTT (new combined metric)
-    let meanRtt = null;
-    if (ispRtt != null && transitRtt != null) meanRtt = (ispRtt + transitRtt) / 2;
-    else if (ispRtt != null) meanRtt = ispRtt;
-    else if (transitRtt != null) meanRtt = transitRtt;
-
-    let meanLoss = null;
-    if (ispLoss != null && transitLoss != null) meanLoss = (ispLoss + transitLoss) / 2;
-    else if (ispLoss != null) meanLoss = ispLoss;
-    else if (transitLoss != null) meanLoss = transitLoss;
-
-    return {
-        time: Date.now(),
-        download: dlBps,
-        upload: ulBps,
-        loss: meanLoss,
-        rtt: meanRtt,
-    };
-}
-
-function pushAndUpdate() {
-    if (!wanLinkIds.length && !ispCloudIds.length && !transitCloudIds.length) return;
-
-    const pt = sampleNow();
-    buffer.push(pt);
-    if (buffer.length > MAX_POINTS) buffer = buffer.slice(-MAX_POINTS);
-
-    if (!chart) return;
-
+function updateChart() {
+    if (!chart || buffer.length === 0) return;
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
         { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
@@ -216,13 +133,91 @@ function pushAndUpdate() {
     ], false);
 }
 
-function onFlowEvent(event) {
-    if (event === 'snapshot') {
-        indexTopology();
-        pushAndUpdate();
-    } else if (event === 'live') {
-        pushAndUpdate();
+async function loadHistory() {
+    const to = new Date();
+    const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
+    const qFrom = from.toISOString();
+    const qTo = to.toISOString();
+
+    const [wanResp, ispResp, transitResp] = await Promise.all([
+        fetch(`/api/monitoring/wan-rate-chart?from=${qFrom}&to=${qTo}`, { credentials: 'same-origin' }).catch(() => null),
+        fetch(`/api/monitoring/chart-data?category=AccessIsp&from=${qFrom}&to=${qTo}`, { credentials: 'same-origin' }).catch(() => null),
+        fetch(`/api/monitoring/chart-data?category=Transit&from=${qFrom}&to=${qTo}`, { credentials: 'same-origin' }).catch(() => null),
+    ]);
+
+    const wan = wanResp?.ok ? await wanResp.json() : null;
+    const isp = ispResp?.ok ? await ispResp.json() : null;
+    const transit = transitResp?.ok ? await transitResp.json() : null;
+
+    // Build time-indexed maps from WAN rate data
+    const dlMap = new Map();
+    const ulMap = new Map();
+    if (wan) {
+        for (const p of (wan.download || [])) {
+            const t = new Date(p.time).getTime();
+            dlMap.set(t, p.value || 0);
+            if (!ulMap.has(t)) ulMap.set(t, 0);
+        }
+        for (const p of (wan.upload || [])) {
+            const t = new Date(p.time).getTime();
+            ulMap.set(t, p.value || 0);
+            if (!dlMap.has(t)) dlMap.set(t, 0);
+        }
     }
+
+    // Compute mean RTT/loss across ISP+Transit targets per timestamp
+    const rttMap = new Map();
+    const lossMap = new Map();
+
+    function addTargetData(data) {
+        if (!data?.targets) return;
+        for (const target of data.targets) {
+            for (const p of (target.rtt || [])) {
+                const t = new Date(p.time).getTime();
+                if (p.value == null) continue;
+                if (!rttMap.has(t)) rttMap.set(t, []);
+                rttMap.get(t).push(p.value);
+            }
+            for (const p of (target.loss || [])) {
+                const t = new Date(p.time).getTime();
+                if (p.value == null) continue;
+                if (!lossMap.has(t)) lossMap.set(t, []);
+                lossMap.get(t).push(p.value);
+            }
+        }
+    }
+    addTargetData(isp);
+    addTargetData(transit);
+
+    // Merge all timestamps and build buffer
+    const allTimes = new Set([...dlMap.keys(), ...rttMap.keys()]);
+    const sorted = [...allTimes].sort((a, b) => a - b);
+
+    buffer = sorted.map(t => ({
+        time: t,
+        download: dlMap.get(t) ?? null,
+        upload: ulMap.get(t) ?? null,
+        loss: lossMap.has(t) ? lossMap.get(t).reduce((a, b) => a + b, 0) / lossMap.get(t).length : null,
+        rtt: rttMap.has(t) ? rttMap.get(t).reduce((a, b) => a + b, 0) / rttMap.get(t).length : null,
+    }));
+}
+
+async function pollLive() {
+    try {
+        const resp = await fetch('/api/monitoring/live-stats', { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const d = await resp.json();
+        const cutoff = Date.now() - HISTORY_MINUTES * 60000;
+        buffer.push({
+            time: Date.now(),
+            download: d.downloadBps,
+            upload: d.uploadBps,
+            loss: d.lossPercent,
+            rtt: d.rttMs,
+        });
+        buffer = buffer.filter(p => p.time >= cutoff);
+        updateChart();
+    } catch { }
 }
 
 export async function mount(containerId) {
@@ -231,29 +226,20 @@ export async function mount(containerId) {
     if (!el) return;
 
     buffer = [];
-    wanLinkIds = [];
-    ispCloudIds = [];
-    transitCloudIds = [];
-
     if (chart) { chart.destroy(); chart = null; }
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
 
-    indexTopology();
-    if (wanLinkIds.length || ispCloudIds.length || transitCloudIds.length) {
-        pushAndUpdate();
-    }
+    await loadHistory();
+    updateChart();
 
-    unsub = flowData.subscribe(onFlowEvent);
+    pollTimer = setInterval(pollLive, POLL_MS);
 }
 
 export function unmount() {
-    if (unsub) { unsub(); unsub = null; }
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
-    wanLinkIds = [];
-    ispCloudIds = [];
-    transitCloudIds = [];
     elId = null;
 }
