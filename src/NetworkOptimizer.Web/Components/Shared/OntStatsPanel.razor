@@ -75,7 +75,7 @@ else
             <div class="metric-content">
                 <div class="metric-row">
                     <span class="metric-label">Link Type:</span>
-                    <span class="metric-value">@LinkTypeLabel(current)</span>
+                    <span class="metric-value @(current.IsActiveEthernet ? "ont-ae-value" : "")">@LinkTypeLabel(current)</span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
@@ -162,9 +162,15 @@ else
     .metric-value.ont-model-value {
         font-size: 0.95rem;
     }
+    .metric-value.ont-ae-value {
+        font-size: 1.1rem;
+    }
 </style>
 
 @code {
+    [Parameter]
+    public EventCallback OnDataLoaded { get; set; }
+
     private bool _isLoading = true;
     private List<MonitoredSfp> _monitoredOnts = new();
     private List<MonitoringTarget> _fabricTargets = new();
@@ -176,6 +182,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await LoadOntsAsync();
+        await OnDataLoaded.InvokeAsync();
         _refreshTimer = new System.Threading.Timer(_ =>
         {
             try { _ = InvokeAsync(StateHasChanged); }
