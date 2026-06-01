@@ -47,7 +47,8 @@ function buildOpts() {
             dashArray: [0, 0, 0, 6],
         },
         fill: {
-            type: ['gradient', 'gradient', 'gradient', 'none'],
+            type: ['gradient', 'gradient', 'gradient', 'solid'],
+            opacity: [1, 1, 1, 0],
             gradient: {
                 shadeIntensity: 0.4,
                 opacityFrom: [0.55, 0.45, 0.5, 0],
