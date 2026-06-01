@@ -299,13 +299,17 @@ function computeStats(values) {
 }
 
 function fmtRtt(v) { return v != null ? v.toFixed(3) : '-'; }
-function fmtLoss(v) {
+function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt) {
     if (v == null) return '-';
     const s = v.toFixed(2) + '%';
-    if (v > 0.2) return `<span style="color:var(--danger-color)">${s}</span>`;
-    if (v > 0) return `<span style="color:var(--warning-color)">${s}</span>`;
+    if (v >= redAt) return `<span style="color:var(--danger-color)">${s}</span>`;
+    if (v >= orangeAt) return `<span style="color:var(--accent-color)">${s}</span>`;
+    if (v >= yellowAt) return `<span style="color:var(--warning-color)">${s}</span>`;
+    if (v > lightAt) return `<span style="color:rgba(231,150,19,0.45)">${s}</span>`;
     return s;
 }
+function fmtLossMean(v) { return fmtLossColored(v, 1, 0.2, 0.05, 0); }
+function fmtLossMax(v) { return fmtLossColored(v, 5, 2, 0.5, 0); }
 
 function renderStatsTable(container, data) {
     const el = container.querySelector('.latency-stats-table');
@@ -328,7 +332,7 @@ function renderStatsTable(container, data) {
         return `<tr>
             <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(t.name)}</td>
             <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
-            <td>${fmtLoss(loss?.mean)}</td><td>${fmtLoss(loss?.max)}</td>
+            <td>${fmtLossMean(loss?.mean)}</td><td>${fmtLossMax(loss?.max)}</td>
         </tr>`;
     });
 
