@@ -3,7 +3,7 @@
 // ~5-minute window. Mounted from Blazor in LiveViewPanel and Monitoring Live tab.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import * as flowData from './lan-flow-data.js?v=1';
+import * as flowData from './lan-flow-data.js?v=2';
 
 const MAX_POINTS = 100;
 const COLOR_DL    = '#3b82f6';
