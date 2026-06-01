@@ -264,5 +264,9 @@ else
         ? $"{mbps / 1000.0:0.##} Gbps"
         : $"{mbps} Mbps";
 
+    public string? CurrentModuleKey => _monitoredOnts.Count > 0
+        ? $"{_monitoredOnts[_currentIndex].DeviceMac.Replace("-", ":").ToLowerInvariant()}:{_monitoredOnts[_currentIndex].PortName}"
+        : null;
+
     public void Dispose() => _refreshTimer?.Dispose();
 }
