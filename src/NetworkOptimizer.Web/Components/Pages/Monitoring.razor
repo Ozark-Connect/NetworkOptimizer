@@ -176,6 +176,13 @@ else
             </div>
         </div>
 
+        <!-- WAN live chart -->
+        <div class="card wan-live-chart-card" style="margin-top: 1rem;">
+            <div class="card-body wan-live-chart-body">
+                <div id="monitoring-wan-live-chart"></div>
+            </div>
+        </div>
+
         <!-- 3D LAN flow map -->
         <div class="card lan-flow-map-card" style="margin-top: 1.5rem;">
             <div class="card-header">
@@ -773,6 +780,7 @@ else
     // Chart mount tracking
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
+    private bool _wanLiveChartMounted = false;
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
@@ -1688,6 +1696,25 @@ else
             catch { }
         }
 
+        // WAN live chart - Live tab only
+        if (_activeTab == "live" && _monitoringReady && !_wanLiveChartMounted)
+        {
+            _wanLiveChartMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/wan-live-chart.js")}'); " +
+                    "window.__wanLiveChart = m; await m.mount('monitoring-wan-live-chart'); }})();");
+            }
+            catch { _wanLiveChartMounted = false; }
+        }
+        else if (_activeTab != "live" && _wanLiveChartMounted)
+        {
+            _wanLiveChartMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.unmount();"); }
+            catch { }
+        }
+
         // Latency charts - Performance tab only
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
@@ -1784,6 +1811,11 @@ else
         if (_sfpChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_wanLiveChartMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.unmount();").AsTask(); }
             catch { }
         }
         if (_mapMounted)

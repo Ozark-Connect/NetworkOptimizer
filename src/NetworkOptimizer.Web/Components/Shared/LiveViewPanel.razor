@@ -66,6 +66,12 @@ else
             </div>
         </div>
 
+        <div class="card wan-live-chart-card">
+            <div class="card-body wan-live-chart-body">
+                <div id="dashboard-wan-live-chart"></div>
+            </div>
+        </div>
+
         @if (MapMode == "3d")
         {
             <div class="card lv-map-card">
@@ -123,6 +129,13 @@ else
     .lv-panel .monitoring-stat-card {
         background: var(--bg-tertiary);
     }
+    .wan-live-chart-card {
+        overflow: hidden;
+        margin-bottom: 0;
+    }
+    .wan-live-chart-body {
+        padding: 0.5rem 0.25rem 0;
+    }
     .lv-map-card {
         overflow: hidden;
         margin-bottom: 0;
@@ -167,6 +180,7 @@ else
     private System.Threading.Timer? _refreshTimer;
     private bool _mapMounted;
     private string? _mountedMode;
+    private bool _chartMounted;
 
     protected override async Task OnInitializedAsync()
     {
@@ -209,6 +223,18 @@ else
                 }
             }
             catch { _mapMounted = false; _mountedMode = null; }
+        }
+
+        if (!_chartMounted)
+        {
+            _chartMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/wan-live-chart.js")}'); " +
+                    "window.__dashWanLiveChart = m; await m.mount('dashboard-wan-live-chart'); })();");
+            }
+            catch { _chartMounted = false; }
         }
     }
 
@@ -371,6 +397,11 @@ else
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        if (_chartMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__dashWanLiveChart?.unmount();"); }
+            catch { }
+        }
         if (_mapMounted)
         {
             try
