@@ -30,7 +30,7 @@ function formatBps(v) {
 function buildOpts() {
     return {
         chart: {
-            type: 'area',
+            type: 'line',
             height: 175,
             background: 'transparent',
             toolbar: { show: false },
@@ -117,18 +117,7 @@ function buildOpts() {
             padding: { left: 4, right: 4, top: -8, bottom: 0 },
             xaxis: { lines: { show: false } },
         },
-        legend: {
-            show: true,
-            position: 'top',
-            horizontalAlign: 'center',
-            floating: true,
-            offsetY: -4,
-            fontSize: '11px',
-            labels: { colors: '#9ca3af' },
-            markers: { size: 4, offsetX: -2 },
-            itemMargin: { horizontal: 8 },
-            customLegendItems: ['Download', 'Upload', 'Loss', 'RTT'],
-        },
+        legend: { show: false },
         tooltip: {
             theme: 'dark',
             shared: true,
@@ -164,17 +153,42 @@ function sampleNow() {
         ulBps += r.upstreamBps || 0;
     }
 
-    const rttVals = [];
-    const lossVals = [];
-    for (const id of [...ispCloudIds, ...transitCloudIds]) {
+    // ISP: best (lowest) RTT across ISP clouds, matching stat card logic
+    let ispRtt = null;
+    let ispLoss = null;
+    for (const id of ispCloudIds) {
         const c = clouds[id];
         if (!c) continue;
-        if (c.rttAvgMs != null) rttVals.push(c.rttAvgMs);
-        if (c.lossPercent != null) lossVals.push(c.lossPercent);
+        if (c.rttAvgMs != null && (ispRtt === null || c.rttAvgMs < ispRtt)) {
+            ispRtt = c.rttAvgMs;
+            ispLoss = c.lossPercent;
+        }
     }
 
-    const meanRtt = rttVals.length > 0 ? rttVals.reduce((a, b) => a + b, 0) / rttVals.length : null;
-    const meanLoss = lossVals.length > 0 ? lossVals.reduce((a, b) => a + b, 0) / lossVals.length : null;
+    // Transit: mean RTT across transit clouds, matching stat card logic
+    const transitRtts = [];
+    const transitLosses = [];
+    for (const id of transitCloudIds) {
+        const c = clouds[id];
+        if (!c) continue;
+        if (c.rttAvgMs != null) transitRtts.push(c.rttAvgMs);
+        if (c.lossPercent != null) transitLosses.push(c.lossPercent);
+    }
+    const transitRtt = transitRtts.length > 0
+        ? transitRtts.reduce((a, b) => a + b, 0) / transitRtts.length : null;
+    const transitLoss = transitLosses.length > 0
+        ? transitLosses.reduce((a, b) => a + b, 0) / transitLosses.length : null;
+
+    // Mean of ISP and Transit RTT (new combined metric)
+    let meanRtt = null;
+    if (ispRtt != null && transitRtt != null) meanRtt = (ispRtt + transitRtt) / 2;
+    else if (ispRtt != null) meanRtt = ispRtt;
+    else if (transitRtt != null) meanRtt = transitRtt;
+
+    let meanLoss = null;
+    if (ispLoss != null && transitLoss != null) meanLoss = (ispLoss + transitLoss) / 2;
+    else if (ispLoss != null) meanLoss = ispLoss;
+    else if (transitLoss != null) meanLoss = transitLoss;
 
     return {
         time: Date.now(),
