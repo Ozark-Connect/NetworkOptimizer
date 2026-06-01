@@ -99,7 +99,7 @@ function buildOpts() {
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
                     formatter: v => v != null ? v.toFixed(0) + ' ms' : '',
-                    offsetX: -10,
+                    offsetX: -4,
                 },
                 axisBorder: { show: false },
                 axisTicks: { show: false },
