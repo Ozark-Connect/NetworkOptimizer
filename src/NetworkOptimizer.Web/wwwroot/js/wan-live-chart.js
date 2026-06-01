@@ -60,6 +60,8 @@ function buildOpts() {
         dataLabels: { enabled: false },
         xaxis: {
             type: 'datetime',
+            min: Date.now() - HISTORY_MINUTES * 60000,
+            max: Date.now(),
             labels: {
                 show: true,
                 style: { colors: '#64748b', fontSize: '10px' },
@@ -126,6 +128,10 @@ function buildOpts() {
 
 function updateChart() {
     if (!chart || buffer.length === 0) return;
+    const now = Date.now();
+    chart.updateOptions({
+        xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+    }, false, false, false);
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
         { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
