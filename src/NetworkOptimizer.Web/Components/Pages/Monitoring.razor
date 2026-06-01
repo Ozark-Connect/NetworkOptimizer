@@ -1741,7 +1741,7 @@ else
             {
                 var sfpUrl = VersionedJs("/js/sfp-charts.js");
                 var soloJs = !string.IsNullOrEmpty(_soloSfpModuleId)
-                    ? $"m.soloModule('{_soloSfpModuleId.Replace("'", "\\'")}');"
+                    ? $"m.soloModule('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloSfpModuleId)}');"
                     : "";
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {soloJs} }})();");
