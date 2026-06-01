@@ -1,6 +1,14 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace NetworkOptimizer.Storage.Models;
+
+public enum SfpCategory
+{
+    Standard = 0,
+    Pon = 1,
+    ActiveEthernet = 2
+}
 
 public class MonitoredSfp
 {
@@ -19,11 +27,7 @@ public class MonitoredSfp
     [MaxLength(200)]
     public string? SfpVendor { get; set; }
 
-    /// <summary>
-    /// Whether this SFP is a Passive Optical Network module — GPON, XGS-PON, etc. Use
-    /// SfpPart / SfpCompliance to discriminate the specific PON variant if needed.
-    /// </summary>
-    public bool IsPon { get; set; }
+    public SfpCategory Category { get; set; }
 
     public bool IsMonitoredOnt { get; set; }
 
@@ -34,4 +38,13 @@ public class MonitoredSfp
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [NotMapped]
+    public bool IsPon => Category == SfpCategory.Pon;
+
+    [NotMapped]
+    public bool IsActiveEthernet => Category == SfpCategory.ActiveEthernet;
+
+    [NotMapped]
+    public bool IsOpticalLink => Category != SfpCategory.Standard;
 }

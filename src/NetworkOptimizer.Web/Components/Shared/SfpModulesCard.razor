@@ -17,9 +17,9 @@
         <div class="expand-content">
     <div class="card-body">
         <p class="section-description">
-            GPON / XGS-PON ONTs and other SFP modules detected on switch / gateway
-            ports. For PON modules, RX power typically sits between -15 and -25 dBm;
-            values weaker than -27 dBm may indicate a failing link.
+            SFP modules detected on switch / gateway ports. PON modules (GPON / XGS-PON)
+            are auto-promoted to monitoring. Active Ethernet (P2P) modules can be promoted
+            manually with "Set AE."
         </p>
         <div class="table-responsive">
         <table class="data-table">
@@ -60,12 +60,16 @@
                             {
                                 <span class="status-badge status-active">@PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)</span>
                             }
+                            else if (sfp.IsActiveEthernet)
+                            {
+                                <span class="status-badge status-active">AE / P2P</span>
+                            }
                             else
                             {
                                 <span class="status-badge status-connected">SFP</span>
                             }
                         </td>
-                        <td class="@RxClass(sfp.IsPon ? stats?.RxPowerDbm : null)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
+                        <td class="@RxClass(sfp.IsOpticalLink ? stats?.RxPowerDbm : null, sfp.Category)">@FormatOptical(stats?.RxPowerDbm, "dBm")</td>
                         <td>@FormatOptical(stats?.TxPowerDbm, "dBm")</td>
                         <td>@FormatOptical(stats?.TemperatureC, "°C")</td>
                         <td>@FormatOptical(stats?.VoltageV, "V")</td>
@@ -87,19 +91,34 @@
                                     Monitor
                                 </button>
                             }
-                            @if (!sfp.IsPon)
+                            @if (sfp.Category == SfpCategory.Standard)
                             {
                                 <button class="btn btn-sm btn-secondary"
-                                        @onclick="() => TogglePonAsync(sfp.Id, true)"
-                                        data-tooltip="Mark as PON module"
+                                        @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.Pon)"
+                                        data-tooltip="Mark as PON ONT module"
                                         style="margin-left: 0.25rem;">
-                                    Set PON
+                                    Set ONT
+                                </button>
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.ActiveEthernet)"
+                                        data-tooltip="Mark as Active Ethernet (P2P fiber)"
+                                        style="margin-left: 0.25rem;">
+                                    Set AE
                                 </button>
                             }
-                            else if (!IsPonAutoDetected(sfp))
+                            else if (sfp.IsPon && !IsPonAutoDetected(sfp))
                             {
                                 <button class="btn btn-sm btn-secondary"
-                                        @onclick="() => TogglePonAsync(sfp.Id, false)"
+                                        @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.Standard)"
+                                        data-tooltip="Mark as regular SFP"
+                                        style="margin-left: 0.25rem;">
+                                    Set SFP
+                                </button>
+                            }
+                            else if (sfp.IsActiveEthernet)
+                            {
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => SetCategoryAsync(sfp.Id, SfpCategory.Standard)"
                                         data-tooltip="Mark as regular SFP"
                                         style="margin-left: 0.25rem;">
                                     Set SFP
@@ -180,14 +199,16 @@ else
         catch { }
     }
 
-    private async Task TogglePonAsync(int sfpId, bool isPon)
+    private async Task SetCategoryAsync(int sfpId, SfpCategory category)
     {
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             var row = await db.MonitoredSfps.FindAsync(sfpId);
             if (row == null) return;
-            row.IsPon = isPon;
+            row.Category = category;
+            if (category != SfpCategory.Standard && !row.IsMonitoredOnt)
+                row.IsMonitoredOnt = true;
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             await OnSfpChanged.InvokeAsync();
@@ -239,10 +260,16 @@ else
         return $"{value.Value:0.##} {unit}";
     }
 
-    private static string RxClass(double? rxDbm)
+    private static string RxClass(double? rxDbm, SfpCategory category)
     {
         if (!rxDbm.HasValue) return string.Empty;
         var v = rxDbm.Value;
+        if (category == SfpCategory.ActiveEthernet)
+        {
+            if (v >= -10 && v <= 0) return "";
+            if (v >= -14 && v <= 1) return "signal-fair";
+            return "signal-poor";
+        }
         if (v >= -25 && v <= -8) return "";
         if (v >= -28 && v <= -5) return "signal-fair";
         return "signal-poor";

@@ -1,20 +1,25 @@
 using System.Collections.Concurrent;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
 /// <summary>
 /// Evaluates SFP DDM readings against thresholds and publishes alert events on
-/// state transitions (normal→breached). PON modules have tighter thresholds
-/// than generic SFP+ since their operating envelope is well-defined by ITU-T.
-/// Non-PON modules get a catch-all temperature threshold only.
+/// state transitions (normal->breached). PON and AE modules have tighter thresholds
+/// than generic SFP+ since their operating envelopes are well-defined.
 /// </summary>
 public class SfpAlertEvaluator
 {
     private const double PonRxPowerLowDbm = -25.0;
     private const double PonTxPowerHighDbm = 4.0;
     private const double PonTempHighC = 75.0;
+
+    private const double AeRxPowerLowDbm = -14.0;
+    private const double AeTxPowerHighDbm = 1.0;
+    private const double AeTempHighC = 80.0;
+
     private const double SfpTempHighC = 87.0;
 
     private const double TempHysteresisC = 5.0;
@@ -32,47 +37,55 @@ public class SfpAlertEvaluator
 
     public async ValueTask EvaluateAsync(
         string deviceMac, string portName, string? deviceName,
-        bool isPon,
+        SfpCategory category,
         double? rxPowerDbm, double? txPowerDbm, double? temperatureC,
         CancellationToken ct = default)
     {
         var key = $"{deviceMac}:{portName}";
         var state = _states.GetOrAdd(key, _ => new SfpAlertState());
         var portLabel = deviceName != null ? $"{deviceName} port {portName}" : $"port {portName}";
+        var catLabel = category switch { SfpCategory.Pon => "PON", SfpCategory.ActiveEthernet => "AE", _ => "SFP" };
 
         if (temperatureC.HasValue)
         {
-            var threshold = isPon ? PonTempHighC : SfpTempHighC;
+            var threshold = category switch
+            {
+                SfpCategory.Pon => PonTempHighC,
+                SfpCategory.ActiveEthernet => AeTempHighC,
+                _ => SfpTempHighC
+            };
             await CheckHighThreshold(state, "temp", temperatureC.Value, threshold, TempHysteresisC,
                 "monitoring.sfp_temperature",
                 $"SFP temperature on {portLabel}",
                 $"SFP temperature {temperatureC.Value:0.#} C exceeds {threshold} C threshold on {portLabel}",
-                deviceMac, portName, deviceName, isPon, ct);
+                deviceMac, portName, deviceName, category, ct);
         }
 
-        if (isPon && rxPowerDbm.HasValue)
+        if (category != SfpCategory.Standard && rxPowerDbm.HasValue)
         {
-            await CheckLowThreshold(state, "rx", rxPowerDbm.Value, PonRxPowerLowDbm, PowerHysteresisDbm,
+            var rxThreshold = category == SfpCategory.Pon ? PonRxPowerLowDbm : AeRxPowerLowDbm;
+            await CheckLowThreshold(state, "rx", rxPowerDbm.Value, rxThreshold, PowerHysteresisDbm,
                 "monitoring.sfp_rx_power",
-                $"PON RX power on {portLabel}",
-                $"PON RX power {rxPowerDbm.Value:0.##} dBm is below {PonRxPowerLowDbm} dBm on {portLabel}",
-                deviceMac, portName, deviceName, isPon, ct);
+                $"{catLabel} RX power on {portLabel}",
+                $"{catLabel} RX power {rxPowerDbm.Value:0.##} dBm is below {rxThreshold} dBm on {portLabel}",
+                deviceMac, portName, deviceName, category, ct);
         }
 
-        if (isPon && txPowerDbm.HasValue)
+        if (category != SfpCategory.Standard && txPowerDbm.HasValue)
         {
-            await CheckHighThreshold(state, "tx", txPowerDbm.Value, PonTxPowerHighDbm, PowerHysteresisDbm,
+            var txThreshold = category == SfpCategory.Pon ? PonTxPowerHighDbm : AeTxPowerHighDbm;
+            await CheckHighThreshold(state, "tx", txPowerDbm.Value, txThreshold, PowerHysteresisDbm,
                 "monitoring.sfp_tx_power",
-                $"PON TX power on {portLabel}",
-                $"PON TX power {txPowerDbm.Value:0.##} dBm exceeds {PonTxPowerHighDbm} dBm on {portLabel}",
-                deviceMac, portName, deviceName, isPon, ct);
+                $"{catLabel} TX power on {portLabel}",
+                $"{catLabel} TX power {txPowerDbm.Value:0.##} dBm exceeds {txThreshold} dBm on {portLabel}",
+                deviceMac, portName, deviceName, category, ct);
         }
     }
 
     private async ValueTask CheckHighThreshold(
         SfpAlertState state, string metric, double value, double threshold, double hysteresis,
         string eventType, string title, string message,
-        string deviceMac, string portName, string? deviceName, bool isPon,
+        string deviceMac, string portName, string? deviceName, SfpCategory category,
         CancellationToken ct)
     {
         var wasBreached = state.Breached.Contains(metric);
@@ -80,7 +93,7 @@ public class SfpAlertEvaluator
         if (value > threshold && !wasBreached)
         {
             state.Breached.Add(metric);
-            await PublishEvent(eventType, title, message, deviceMac, portName, deviceName, isPon, value, threshold, metric, ct);
+            await PublishEvent(eventType, title, message, deviceMac, portName, deviceName, category, value, threshold, metric, ct);
         }
         else if (value <= threshold - hysteresis && wasBreached)
         {
@@ -91,7 +104,7 @@ public class SfpAlertEvaluator
     private async ValueTask CheckLowThreshold(
         SfpAlertState state, string metric, double value, double threshold, double hysteresis,
         string eventType, string title, string message,
-        string deviceMac, string portName, string? deviceName, bool isPon,
+        string deviceMac, string portName, string? deviceName, SfpCategory category,
         CancellationToken ct)
     {
         var wasBreached = state.Breached.Contains(metric);
@@ -99,7 +112,7 @@ public class SfpAlertEvaluator
         if (value < threshold && !wasBreached)
         {
             state.Breached.Add(metric);
-            await PublishEvent(eventType, title, message, deviceMac, portName, deviceName, isPon, value, threshold, metric, ct);
+            await PublishEvent(eventType, title, message, deviceMac, portName, deviceName, category, value, threshold, metric, ct);
         }
         else if (value >= threshold + hysteresis && wasBreached)
         {
@@ -109,12 +122,14 @@ public class SfpAlertEvaluator
 
     private async ValueTask PublishEvent(
         string eventType, string title, string message,
-        string deviceMac, string portName, string? deviceName, bool isPon,
+        string deviceMac, string portName, string? deviceName, SfpCategory category,
         double value, double threshold, string metric,
         CancellationToken ct)
     {
         _logger.LogDebug("SFP threshold breached: {EventType} on {DeviceMac} port {Port} ({Metric}={Value})",
             eventType, deviceMac, portName, metric, value);
+
+        var catTag = category switch { SfpCategory.Pon => "pon", SfpCategory.ActiveEthernet => "ae", _ => "sfp" };
 
         await _eventBus.PublishAsync(new AlertEvent
         {
@@ -128,13 +143,13 @@ public class SfpAlertEvaluator
             MetricValue = value,
             ThresholdValue = threshold,
             SourceUrl = "/monitoring?tab=sfp",
-            Tags = ["monitoring", "sfp", isPon ? "pon" : "sfp"],
+            Tags = ["monitoring", "sfp", catTag],
             Context = new Dictionary<string, string>
             {
                 ["device_mac"] = deviceMac,
                 ["port_name"] = portName,
                 ["metric"] = metric,
-                ["is_pon"] = isPon.ToString()
+                ["sfp_category"] = category.ToString()
             }
         }, ct);
     }

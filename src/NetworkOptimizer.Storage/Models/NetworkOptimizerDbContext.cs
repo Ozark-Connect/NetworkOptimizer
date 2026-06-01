@@ -242,6 +242,10 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("MonitoredSfps");
             entity.HasIndex(e => new { e.DeviceMac, e.PortName }).IsUnique();
             entity.HasIndex(e => e.IsMonitoredOnt);
+            entity.Property(e => e.Category).HasConversion<int>();
+            entity.Ignore(e => e.IsPon);
+            entity.Ignore(e => e.IsActiveEthernet);
+            entity.Ignore(e => e.IsOpticalLink);
         });
 
         // OuiVendor configuration (lookup cache, primary key on OUI prefix)

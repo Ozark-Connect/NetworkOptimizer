@@ -856,11 +856,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     ? port.PortIdx.ToString()
                     : (port.Name ?? string.Empty);
                 if (string.IsNullOrEmpty(sfpPortName)) continue;
-                var isPon = existingSfps.TryGetValue((sfpMac, sfpPortName), out var sfpRow) && sfpRow.IsPon;
+                var sfpCategory = existingSfps.TryGetValue((sfpMac, sfpPortName), out var sfpRow)
+                    ? sfpRow.Category : SfpCategory.Standard;
                 try
                 {
                     await _sfpAlertEvaluator.EvaluateAsync(
-                        sfpMac, sfpPortName, device.Name, isPon,
+                        sfpMac, sfpPortName, device.Name, sfpCategory,
                         port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, ct);
                 }
                 catch (Exception ex)
@@ -1875,7 +1876,8 @@ public class MonitoringCollectionAgent : BackgroundService
             // the UI doesn't render the padding.
             var sfpPart = TrimSfpField(port.SfpPart);
             var sfpVendor = TrimSfpField(port.SfpVendor);
-            var isPon = IsPonModule(sfpPart, sfpVendor, port.SfpCompliance);
+            var category = IsPonModule(sfpPart, sfpVendor, port.SfpCompliance)
+                ? SfpCategory.Pon : SfpCategory.Standard;
             if (!existing.TryGetValue(key, out var row))
             {
                 row = new MonitoredSfp
@@ -1884,8 +1886,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     PortName = portName,
                     SfpPart = sfpPart,
                     SfpVendor = sfpVendor,
-                    IsPon = isPon,
-                    IsMonitoredOnt = isPon,
+                    Category = category,
+                    IsMonitoredOnt = category == SfpCategory.Pon,
                     LinkSpeedMbps = port.Speed > 0 ? port.Speed : null,
                     CreatedAt = timestamp,
                     UpdatedAt = timestamp
@@ -1897,7 +1899,8 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 row.SfpPart = sfpPart ?? row.SfpPart;
                 row.SfpVendor = sfpVendor ?? row.SfpVendor;
-                row.IsPon = isPon || row.IsPon;
+                if (category == SfpCategory.Pon && row.Category == SfpCategory.Standard)
+                    row.Category = SfpCategory.Pon;
                 if (port.Speed > 0) row.LinkSpeedMbps = port.Speed;
                 row.UpdatedAt = timestamp;
             }
