@@ -121,4 +121,40 @@ public static class NetworkFormatHelpers
 
         return "PON";
     }
+
+    private static readonly string[] OrgSuffixes =
+    {
+        "Communications", "Telephone", "Telecom", "Telecommunications",
+        "Broadband", "Internet", "Fiber", "Cable", "Wireless",
+        "Enterprises", "Services", "Technologies", "Networks", "Network",
+        "Electric Cooperative", "Cooperative", "Co-op",
+        "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",
+        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P.", "LP",
+        "GmbH", "AG", "KG", "e.K.", "S.A.", "S.A.S.", "S.r.l.",
+        "B.V.", "B.V", "N.V.", "N.V", "Pty", "A/S", "AB", "Oy", "AS"
+    };
+
+    /// <summary>
+    /// Strip corporate/industry suffixes from an organization name
+    /// ("Hisense Broadband Technologies Co Ltd" -> "Hisense").
+    /// </summary>
+    public static string CleanOrgName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+        var cleaned = name.Trim().TrimEnd(',', '.');
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var suffix in OrgSuffixes)
+            {
+                if (cleaned.EndsWith(" " + suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleaned = cleaned[..^(suffix.Length + 1)].TrimEnd(',', '.');
+                    changed = true;
+                }
+            }
+        } while (changed && cleaned.Contains(' '));
+        return cleaned.Trim();
+    }
 }

@@ -1301,45 +1301,8 @@ public class UpstreamTracerService
         await Task.WhenAll(tasks);
     }
 
-    private static readonly string[] OrgSuffixes =
-    {
-        // Telco/ISP industry terms
-        "Communications", "Telephone", "Telecom", "Telecommunications",
-        "Broadband", "Internet", "Fiber", "Cable", "Wireless",
-        "Enterprises", "Services", "Technologies", "Networks", "Network",
-        "Electric Cooperative", "Cooperative", "Co-op",
-        // Corporate entity suffixes
-        "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",
-        "LLC", "Inc", "Corp", "Ltd", "Limited", "Co", "L.P.", "LP",
-        // International
-        "GmbH", "AG", "KG", "e.K.", "S.A.", "S.A.S.", "S.r.l.",
-        "B.V.", "B.V", "N.V.", "N.V", "Pty", "A/S", "AB", "Oy", "AS"
-    };
-
-    /// <summary>
-    /// Strip corporate suffixes from ASN org names.
-    /// "Windstream Communications" → "Windstream", "AT&amp;T Enterprises" → "AT&amp;T"
-    /// </summary>
-    internal static string CleanAsnName(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
-        var cleaned = name.Trim().TrimEnd(',', '.');
-        // Iterate to strip chains like "Telephone Company" or "Cable Communications LLC"
-        bool changed;
-        do
-        {
-            changed = false;
-            foreach (var suffix in OrgSuffixes)
-            {
-                if (cleaned.EndsWith(" " + suffix, StringComparison.OrdinalIgnoreCase))
-                {
-                    cleaned = cleaned[..^(suffix.Length + 1)].TrimEnd(',', '.');
-                    changed = true;
-                }
-            }
-        } while (changed && cleaned.Contains(' '));
-        return cleaned.Trim();
-    }
+    internal static string CleanAsnName(string? name) =>
+        NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(name);
 
     /// <summary>
     /// Generate a display label from a PTR hostname for transit targets.
