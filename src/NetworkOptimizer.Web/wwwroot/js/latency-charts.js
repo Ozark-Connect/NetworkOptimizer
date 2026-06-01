@@ -299,17 +299,18 @@ function computeStats(values) {
 }
 
 function fmtRtt(v) { return v != null ? v.toFixed(3) : '-'; }
-function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt, decimals) {
+function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt, subtleAt, decimals) {
     if (v == null) return '-';
     const s = v.toFixed(decimals) + '%';
     if (v >= redAt) return `<span style="color:var(--danger-color)">${s}</span>`;
     if (v >= orangeAt) return `<span style="color:var(--accent-color)">${s}</span>`;
     if (v >= yellowAt) return `<span style="color:var(--warning-color)">${s}</span>`;
-    if (v > lightAt) return `<span style="color:rgba(231,150,19,0.45)">${s}</span>`;
+    if (v >= lightAt) return `<span style="color:#d4c06a">${s}</span>`;
+    if (v > subtleAt) return `<span style="color:#c8c4a8">${s}</span>`;
     return s;
 }
-function fmtLossMean(v) { return fmtLossColored(v, 1, 0.2, 0.05, 0.005, 3); }
-function fmtLossMax(v) { return fmtLossColored(v, 5, 2, 0.5, 0.005, 2); }
+function fmtLossMean(v) { return fmtLossColored(v, 1, 0.2, 0.05, 0.005, 0.0005, 3); }
+function fmtLossMax(v) { return fmtLossColored(v, 5, 2, 0.5, 0.005, 0.005, 2); }
 
 function renderStatsTable(container, data) {
     const el = container.querySelector('.latency-stats-table');
