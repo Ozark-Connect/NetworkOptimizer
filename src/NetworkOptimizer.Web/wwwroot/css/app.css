@@ -376,8 +376,12 @@ a:hover {
 .wan-live-chart-card {
     margin-bottom: 0;
 }
-.wan-live-chart-body {
+.wan-live-chart-card > .card-body {
     padding: 0;
+}
+.lv-panel > .wan-live-chart-card {
+    margin-top: -0.5rem;
+    margin-bottom: -0.5rem;
 }
 
 .card-header {

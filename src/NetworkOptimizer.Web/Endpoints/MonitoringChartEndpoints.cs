@@ -97,6 +97,70 @@ public static class MonitoringChartEndpoints
             });
         });
 
+        app.MapGet("/api/monitoring/wan-live-chart-data", async (
+            MonitoringInfluxClient influx,
+            UniFiConnectionService connectionService,
+            DateTime? from,
+            DateTime? to,
+            CancellationToken ct) =>
+        {
+            DateTime queryFrom, queryTo;
+            if (from.HasValue && to.HasValue)
+            {
+                queryFrom = from.Value.ToUniversalTime();
+                queryTo = to.Value.ToUniversalTime();
+            }
+            else
+            {
+                queryTo = DateTime.UtcNow;
+                queryFrom = queryTo.AddMinutes(-5);
+            }
+
+            string? gatewayMac = null;
+            List<string>? wanIfNames = null;
+            try
+            {
+                var devices = await connectionService.GetDiscoveredDevicesAsync(ct);
+                var gw = devices?.FirstOrDefault(d =>
+                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                gatewayMac = gw?.Mac;
+                wanIfNames = gw?.WanInterfaceNames;
+            }
+            catch { }
+
+            var wanTask = !string.IsNullOrEmpty(gatewayMac) && wanIfNames?.Count > 0
+                ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct)
+                : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>(Array.Empty<MonitoringInfluxClient.WanRatePoint>());
+            var rttTask = influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, ct: ct);
+
+            await Task.WhenAll(wanTask, rttTask);
+
+            var wanData = await wanTask;
+            var rttData = await rttTask;
+
+            var rttByTime = rttData.ToDictionary(
+                p => p.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5),
+                p => p);
+            MonitoringInfluxClient.LatencyPoint? lastRtt = null;
+
+            var points = wanData.Select(w =>
+            {
+                var bucket = w.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5);
+                if (rttByTime.TryGetValue(bucket, out var rtt)) lastRtt = rtt;
+
+                return new
+                {
+                    time = w.Time.ToString("o"),
+                    downloadBps = w.DownloadBps,
+                    uploadBps = w.UploadBps,
+                    rttMs = lastRtt?.RttAvgMs,
+                    lossPercent = lastRtt?.LossPercent,
+                };
+            });
+
+            return Results.Ok(new { points });
+        });
+
         app.MapGet("/api/monitoring/chart-data", async (
             MonitoringInfluxClient influx,
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
