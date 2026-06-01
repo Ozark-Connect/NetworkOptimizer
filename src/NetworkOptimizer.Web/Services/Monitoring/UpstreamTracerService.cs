@@ -778,17 +778,42 @@ public class UpstreamTracerService
         // Their job is to force the path through a specific ASN so real transit
         // routers surface - the endpoint IP itself is far away and not useful
         // as a monitoring target. Exception: EndpointIsTransitHop means the
-        // endpoint itself is the transit router (small networks with one hop).
+        // endpoint itself is the transit router (small networks with one hop),
+        // but only if its ASN is near the access network (within 2 ASN
+        // transitions: access → transit, or access → upstream → transit).
         var transitProbeAddresses = new HashSet<string>(
             CdnRotation.Where(e => e.IsTransitProbe && !e.EndpointIsTransitHop).Select(e => e.Address),
             StringComparer.OrdinalIgnoreCase);
+
+        // For EndpointIsTransitHop probes, build the set of ASNs that are
+        // within 2 ASN transitions of the access network. If the endpoint's
+        // ASN isn't in this set, it's not really our ISP's transit.
+        var endpointTransitHopAddresses = new HashSet<string>(
+            CdnRotation.Where(e => e.EndpointIsTransitHop).Select(e => e.Address),
+            StringComparer.OrdinalIgnoreCase);
+        var nearTransitAsns = new HashSet<int>();
+        if (endpointTransitHopAddresses.Count > 0)
+        {
+            var seen = new HashSet<int>();
+            foreach (var h in _mergedHops)
+            {
+                if (h.Asn == null || accessAsnNumbers.Contains(h.Asn.Asn)) continue;
+                if (seen.Add(h.Asn.Asn))
+                {
+                    nearTransitAsns.Add(h.Asn.Asn);
+                    if (seen.Count >= 2) break;
+                }
+            }
+        }
 
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
                         && !accessAsnNumbers.Contains(h.Asn.Asn)
                         && !destinationAsns.Contains(h.Asn.Asn)
                         && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
-                        && !transitProbeAddresses.Contains(h.Address))
+                        && !transitProbeAddresses.Contains(h.Address)
+                        && (!endpointTransitHopAddresses.Contains(h.Address)
+                            || nearTransitAsns.Contains(h.Asn.Asn)))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
