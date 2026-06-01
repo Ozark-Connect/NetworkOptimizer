@@ -379,6 +379,16 @@ export function navigateToTime(isoTimestamp) {
     startPoll();
 }
 
+export function soloModule(id) {
+    if (!moduleMeta.length) return;
+    const match = moduleMeta.find(m => m.id === id);
+    if (!match) return;
+    moduleMeta.forEach(m => { visibility[m.id] = m.id === id; });
+    updateVisibility();
+    const container = document.getElementById(containerId);
+    if (container) renderBadges(container);
+}
+
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }

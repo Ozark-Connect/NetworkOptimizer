@@ -25,7 +25,7 @@ else if (_monitoredOnts.Count == 0)
             and gateway ports. Promote one to a monitored ONT to see live optical levels here.
         </p>
         <div class="sqm-actions">
-            <a href="/monitoring" class="btn btn-primary">Open Monitoring</a>
+            <a href="/monitoring" class="btn btn-primary" @onclick:stopPropagation>Open Monitoring</a>
         </div>
     </div>
 }
@@ -61,9 +61,9 @@ else
         <div class="modem-nav">
             @if (_monitoredOnts.Count > 1)
             {
-                <button class="nav-btn" @onclick="Previous" disabled="@(_currentIndex == 0)">‹</button>
+                <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">‹</button>
                 <span class="modem-counter">@(_currentIndex + 1)/@_monitoredOnts.Count</span>
-                <button class="nav-btn" @onclick="Next" disabled="@(_currentIndex >= _monitoredOnts.Count - 1)">›</button>
+                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _monitoredOnts.Count - 1)">›</button>
             }
         </div>
     </div>
@@ -245,7 +245,7 @@ else
 
     private static string SfpModelLabel(string? vendor, string? part)
     {
-        var v = vendor?.Trim();
+        var v = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(vendor);
         var p = part?.Trim();
         if (string.IsNullOrEmpty(v) && string.IsNullOrEmpty(p)) return "";
         if (string.IsNullOrEmpty(v)) return p!;
@@ -263,6 +263,10 @@ else
     private static string FormatLinkSpeed(int mbps) => mbps >= 1000
         ? $"{mbps / 1000.0:0.##} Gbps"
         : $"{mbps} Mbps";
+
+    public string? CurrentModuleKey => _monitoredOnts.Count > 0
+        ? $"{_monitoredOnts[_currentIndex].DeviceMac.Replace("-", ":").ToLowerInvariant()}:{_monitoredOnts[_currentIndex].PortName}"
+        : null;
 
     public void Dispose() => _refreshTimer?.Dispose();
 }

@@ -730,6 +730,9 @@ else
     [SupplyParameterFromQuery(Name = "discover")]
     public string? DiscoverParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "sfp")]
+    public string? SfpParam { get; set; }
+
     private string? _lastTabParam;
 
     private bool _upstreamDiscoveryPendingSave =>
@@ -813,6 +816,8 @@ else
     }
 
     private bool _scrollToDiscoveryPending;
+    private bool _scrollToSfpChartsPending;
+    private string? _soloSfpModuleId;
 
     protected override void OnParametersSet()
     {
@@ -832,6 +837,12 @@ else
         {
             _forceExpandUpstream = true;
             _scrollToDiscoveryPending = true;
+        }
+
+        if (!string.IsNullOrEmpty(SfpParam) && _activeTab == "sfp")
+        {
+            _soloSfpModuleId = SfpParam;
+            _scrollToSfpChartsPending = true;
         }
     }
 
@@ -1129,6 +1140,18 @@ else
                     el.style.outlineOffset = '4px';
                     el.style.borderRadius = '12px';
                     setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
+    private async Task ScrollToSfpChartsAsync()
+    {
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('sfp-charts-container');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             })();");
     }
@@ -1717,8 +1740,11 @@ else
             try
             {
                 var sfpUrl = VersionedJs("/js/sfp-charts.js");
+                var soloJs = !string.IsNullOrEmpty(_soloSfpModuleId)
+                    ? $"m.soloModule('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloSfpModuleId)}');"
+                    : "";
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); }})();");
+                    $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {soloJs} }})();");
             }
             catch { _sfpChartsMounted = false; }
         }
@@ -1727,6 +1753,13 @@ else
             _sfpChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
             catch { }
+        }
+
+        if (_scrollToSfpChartsPending && _activeTab == "sfp" && _sfpChartsMounted)
+        {
+            _scrollToSfpChartsPending = false;
+            _soloSfpModuleId = null;
+            await ScrollToSfpChartsAsync();
         }
     }
 

@@ -184,6 +184,7 @@
     private bool _wanTestLoading = true;
     private bool _threatLoading = true;
     private bool _editMode;
+    private OntStatsPanel? _ontPanel;
     private DashboardLayout? _layout;
     private int deviceCount = 0;
     private int securityScore = 0;
@@ -528,12 +529,12 @@
         // The panel renders its own empty-state when no monitored ONT exists, so the
         // card stays on the dashboard but tells the user how to enable it. Mirrors the
         // CellularStats card's "configure" affordance.
-        <div class="card">
+        <div class="card clickable-card" @onclick="NavigateToOntChart">
             <div class="card-header">
                 <h2 class="card-title">ONT Stats (GPON / XGS-PON)</h2>
             </div>
             <div class="card-body">
-                <OntStatsPanel />
+                <OntStatsPanel @ref="_ontPanel" />
             </div>
         </div>
     };
@@ -1115,5 +1116,14 @@
             },
             Yaxis = new List<YAxis> { new YAxis { Min = 0 } }
         };
+    }
+
+    private void NavigateToOntChart()
+    {
+        var key = _ontPanel?.CurrentModuleKey;
+        var url = key != null
+            ? $"/monitoring?tab=sfp&sfp={Uri.EscapeDataString(key)}"
+            : "/monitoring?tab=sfp";
+        NavigationManager.NavigateTo(url);
     }
 }
