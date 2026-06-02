@@ -21,6 +21,8 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
+@inject ISystemSettingsService SystemSettings
+@inject DashboardLayoutService DashboardLayout
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -90,6 +92,16 @@ else
     @* ──────────────── Tab: Live View ──────────────── *@
     @if (_activeTab == "live" && _monitoringReady)
     {
+        if (!_liveViewOnDashboard)
+        {
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                <button class="btn btn-sm btn-outline-primary" @onclick="AddLiveViewToDashboardAsync"
+                        data-tooltip="Add Live View panel to the top of the Dashboard">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Add to Dashboard
+                </button>
+            </div>
+        }
+
         var hasIspTargets = HasUpstreamTargets(MonitoringTargetType.AccessIsp);
         var hasTransitTargets = HasUpstreamTargets(MonitoringTargetType.Transit);
 
@@ -109,6 +121,10 @@ else
         }
 
         <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
+        var gwFabricTargetId = GetGatewayFabricTargetId();
+        var gwFabricUrl = gwFabricTargetId != null
+            ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
+            : "/monitoring?tab=performance&category=Fabric";
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             <div class="monitoring-stat-card monitoring-stat-rate">
@@ -120,16 +136,16 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var gwLatency = GetGatewayLatency(); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 @if (hasIspTargets)
                 {
                     <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
@@ -140,7 +156,7 @@ else
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 @if (hasIspTargets)
                 {
                     <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
@@ -152,7 +168,7 @@ else
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 @if (hasTransitTargets)
                 {
                     <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
@@ -163,7 +179,7 @@ else
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 @if (hasTransitTargets)
                 {
                     <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
@@ -176,55 +192,25 @@ else
             </div>
         </div>
 
-        <!-- 3D LAN flow map -->
-        <div class="card lan-flow-map-card" style="margin-top: 1.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">3D LAN Flow Map</h2>
-            </div>
-            <div class="card-body lan-flow-map-body">
-                <div class="lan-flow-map-stage" id="lan-flow-map-stage">
-                    <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
-                </div>
+        <!-- WAN live chart -->
+        <div class="card wan-live-chart-card" style="margin-top: 0.5rem;">
+            <div class="card-body wan-live-chart-body">
+                <div id="monitoring-wan-live-chart"></div>
             </div>
         </div>
 
-        <!-- Bottom stat cards: Gateway health + fabric load -->
-        <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
-            @{ var gwStats = GetGatewayStats(); }
-            <div class="monitoring-stat-card">
-                <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
-                <div class="stat-label">Gateway CPU</div>
-            </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
-                <div class="stat-label">Gateway Memory</div>
-            </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
-                <div class="stat-label">Gateway Temp</div>
-            </div>
-            @{ var fabricLoad = GetTotalFabricLoad(); }
-            <div class="monitoring-stat-pair">
-                <div class="monitoring-stat-card">
-                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
-                    <div class="stat-label">Fabric Ingress</div>
-                </div>
-                <div class="monitoring-stat-card">
-                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
-                    <div class="stat-label">Fabric Egress</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 2D LAN hierarchy map -->
-        <div class="card lan-flow-map-2d-card" style="margin-top: 1.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">LAN Topology Flow Map</h2>
-            </div>
-            <div class="card-body lan-flow-map-2d-body">
-                <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
-            </div>
-        </div>
+        @if (_mapOrder2dFirst)
+        {
+            @Map2dCard
+            @GatewayStatCards
+            <div style="margin-top: 1rem;">@Map3dCard</div>
+        }
+        else
+        {
+            @Map3dCard
+            @GatewayStatCards
+            <div style="margin-top: 1rem;">@Map2dCard</div>
+        }
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -733,6 +719,15 @@ else
     [SupplyParameterFromQuery(Name = "sfp")]
     public string? SfpParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "device")]
+    public string? DeviceParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "category")]
+    public string? CategoryParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "target")]
+    public string? TargetParam { get; set; }
+
     private string? _lastTabParam;
 
     private bool _upstreamDiscoveryPendingSave =>
@@ -773,6 +768,7 @@ else
     // Chart mount tracking
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
+    private bool _wanLiveChartMounted = false;
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
@@ -818,6 +814,11 @@ else
     private bool _scrollToDiscoveryPending;
     private bool _scrollToSfpChartsPending;
     private string? _soloSfpModuleId;
+    private string? _soloDeviceMac;
+    private string? _preSelectCategory;
+    private string? _soloTargetId;
+    private bool _mapOrder2dFirst;
+    private bool _liveViewOnDashboard;
 
     protected override void OnParametersSet()
     {
@@ -831,7 +832,7 @@ else
                 StateHasChanged();
             }
         }
-        _lastTabParam = TabParam;
+        _lastTabParam = TabParam ?? _activeTab;
 
         if (DiscoverParam == "1" && _activeTab == "performance")
         {
@@ -844,6 +845,15 @@ else
             _soloSfpModuleId = SfpParam;
             _scrollToSfpChartsPending = true;
         }
+
+        if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
+            _soloDeviceMac = DeviceParam;
+
+        if (!string.IsNullOrEmpty(CategoryParam) && _activeTab == "performance")
+        {
+            _preSelectCategory = CategoryParam;
+            _soloTargetId = TargetParam;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -855,7 +865,12 @@ else
         LoadInfluxStateFromSettings(settings);
         await LoadTargetsAsync();
 
+        _mapOrder2dFirst = await SystemSettings.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
+        var dashLayout = await DashboardLayout.GetLayoutAsync();
+        _liveViewOnDashboard = dashLayout.Cards.Any(c => c.Id == DashboardCards.LiveView && c.Visible);
+
         _activeTab = ResolveDefaultTab();
+        _lastTabParam = TabParam ?? _activeTab;
 
         _liveRefreshTimer = new System.Threading.Timer(_ =>
         {
@@ -1403,18 +1418,124 @@ else
         return LiveStats.GetForDevice(_gatewayMac);
     }
 
+    private string? GetGatewayFabricTargetId()
+    {
+        if (_gatewayMac == null) return null;
+        return _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && t.Enabled
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase))?.TargetId;
+    }
+
+    private RenderFragment Map3dCard => __builder =>
+    {
+        <div class="card lan-flow-map-card" style="margin-top: 0.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">3D LAN Flow Map</h2>
+                <div class="card-header-right">
+                    <button class="card-edit-btn" @onclick="SwapMapOrderAsync" data-tooltip="Swap map order">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 3 7 21"/><polyline points="3 7 7 3 11 7"/><polyline points="17 21 17 3"/><polyline points="13 17 17 21 21 17"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body lan-flow-map-body">
+                <div class="lan-flow-map-stage" id="lan-flow-map-stage">
+                    <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment Map2dCard => __builder =>
+    {
+        <div class="card lan-flow-map-2d-card" style="margin-top: 0.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">LAN Topology Flow Map</h2>
+                <div class="card-header-right">
+                    <button class="card-edit-btn" @onclick="SwapMapOrderAsync" data-tooltip="Swap map order">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 3 7 21"/><polyline points="3 7 7 3 11 7"/><polyline points="17 21 17 3"/><polyline points="13 17 17 21 21 17"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body lan-flow-map-2d-body">
+                <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment GatewayStatCards => __builder =>
+    {
+        var gwStats = GetGatewayStats();
+        var gwDeviceUrl = _gatewayMac != null
+            ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
+            : "/monitoring?tab=devices";
+        <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
+                <div class="stat-label">Gateway CPU</div>
+            </div>
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
+                <div class="stat-label">Gateway Memory</div>
+            </div>
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
+                <div class="stat-label">Gateway Temp</div>
+            </div>
+            @{ var fabricLoad = GetTotalFabricLoad(); }
+            <div class="monitoring-stat-pair">
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                    <div class="stat-label">Fabric Ingress</div>
+                </div>
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                    <div class="stat-label">Fabric Egress</div>
+                </div>
+            </div>
+        </div>
+    };
+
+    private async Task SwapMapOrderAsync()
+    {
+        _mapOrder2dFirst = !_mapOrder2dFirst;
+        await SystemSettings.SetAsync(SystemSettingKeys.MonitoringLiveMapOrder,
+            _mapOrder2dFirst ? "2d-first" : null);
+        await JS.InvokeVoidAsync("eval", "window.location.replace('/monitoring?tab=live');");
+    }
+
+    private async Task AddLiveViewToDashboardAsync()
+    {
+        var layout = await DashboardLayout.GetLayoutAsync();
+        var card = layout.Cards.FirstOrDefault(c => c.Id == DashboardCards.LiveView);
+        if (card == null)
+        {
+            card = new DashboardCardConfig
+            {
+                Id = DashboardCards.LiveView,
+                Visible = true,
+                FullWidth = true,
+            };
+            layout.Cards.Insert(0, card);
+        }
+        else
+        {
+            card.Visible = true;
+            layout.Cards.Remove(card);
+            layout.Cards.Insert(0, card);
+        }
+        await DashboardLayout.SaveLayoutAsync(layout);
+        _liveViewOnDashboard = true;
+    }
+
     private (double? rtt, double loss) GetGatewayLatency()
     {
         if (_historicSnapshot != null)
             return (_historicSnapshot.GatewayRttMs, _historicSnapshot.GatewayLossPercent);
-        if (_gatewayMac == null) return (null, 0);
-        var gwFabric = _targets.FirstOrDefault(t =>
-            t.TargetType == MonitoringTargetType.Fabric
-            && t.Enabled
-            && !string.IsNullOrEmpty(t.DeviceMac)
-            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
-        if (gwFabric == null) return (null, 0);
-        var s = LiveStats.GetTargetStats(gwFabric.TargetId);
+        var targetId = GetGatewayFabricTargetId();
+        if (targetId == null) return (null, 0);
+        var s = LiveStats.GetTargetStats(targetId);
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
@@ -1688,6 +1809,29 @@ else
             catch { }
         }
 
+        // WAN live chart - Live tab only
+        if (_activeTab == "live" && _monitoringReady && !_wanLiveChartMounted)
+        {
+            _wanLiveChartMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    "window.__mountWanLiveChart = async function(elId) {" +
+                    $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
+                    "  window.__wanLiveChart = m;" +
+                    "  await m.mount(elId);" +
+                    "}");
+                _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
+            }
+            catch { _wanLiveChartMounted = false; }
+        }
+        else if (_activeTab != "live" && _wanLiveChartMounted)
+        {
+            _wanLiveChartMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.unmount();"); }
+            catch { }
+        }
+
         // Latency charts - Performance tab only
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
@@ -1695,8 +1839,17 @@ else
             try
             {
                 var chartsUrl = VersionedJs("/js/latency-charts.js");
+                var postMount = "";
+                if (!string.IsNullOrEmpty(_preSelectCategory))
+                {
+                    postMount = $"m.setCategory('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_preSelectCategory)}');";
+                    if (!string.IsNullOrEmpty(_soloTargetId))
+                        postMount += $"m.soloTarget('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
+                    _preSelectCategory = null;
+                    _soloTargetId = null;
+                }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); }})();");
+                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); {postMount} }})();");
             }
             catch { _latencyChartsMounted = false; }
         }
@@ -1721,8 +1874,14 @@ else
             try
             {
                 var healthUrl = VersionedJs("/js/device-health-charts.js");
+                var postMount = "";
+                if (!string.IsNullOrEmpty(_soloDeviceMac))
+                {
+                    postMount = $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloDeviceMac)}');";
+                    _soloDeviceMac = null;
+                }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); }})();");
+                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); {postMount} }})();");
             }
             catch { _healthChartsMounted = false; }
         }
@@ -1761,6 +1920,7 @@ else
             _soloSfpModuleId = null;
             await ScrollToSfpChartsAsync();
         }
+
     }
 
     public void Dispose()
@@ -1784,6 +1944,11 @@ else
         if (_sfpChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_wanLiveChartMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.unmount();").AsTask(); }
             catch { }
         }
         if (_mapMounted)

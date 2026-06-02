@@ -7,6 +7,7 @@
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 @inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JS
+@inject NavigationManager NavigationManager
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
 @if (!_ready)
@@ -26,6 +27,13 @@
 }
 else
 {
+    var gwFabricTargetId = GetGatewayFabricTargetId();
+    var gwFabricUrl = gwFabricTargetId != null
+        ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
+        : "/monitoring?tab=performance&category=Fabric";
+    var gwDeviceUrl = _gatewayMac != null
+        ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
+        : "/monitoring?tab=devices";
     <div class="lv-panel">
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
@@ -38,31 +46,37 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var gwLatency = GetGatewayLatency(); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
                 <div class="stat-label">Transit Loss</div>
+            </div>
+        </div>
+
+        <div class="card wan-live-chart-card">
+            <div class="card-body wan-live-chart-body">
+                <div id="dashboard-wan-live-chart"></div>
             </div>
         </div>
 
@@ -76,7 +90,7 @@ else
                 </div>
             </div>
         }
-        else
+        else if (MapMode != "off")
         {
             <div class="card lv-map-card">
                 <div class="card-body lv-map-body">
@@ -87,15 +101,15 @@ else
 
         <div class="monitoring-stat-cards">
             @{ var gwStats = GetGatewayStats(); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
@@ -167,6 +181,7 @@ else
     private System.Threading.Timer? _refreshTimer;
     private bool _mapMounted;
     private string? _mountedMode;
+    private bool _chartMounted;
 
     protected override async Task OnInitializedAsync()
     {
@@ -182,7 +197,7 @@ else
     {
         if (!_ready) return;
 
-        if (!_mapMounted || _mountedMode != MapMode)
+        if (MapMode != "off" && (!_mapMounted || _mountedMode != MapMode))
         {
             if (_mapMounted) await UnmountMap();
 
@@ -209,6 +224,22 @@ else
                 }
             }
             catch { _mapMounted = false; _mountedMode = null; }
+        }
+        else if (MapMode == "off" && _mapMounted)
+        {
+            await UnmountMap();
+        }
+
+        if (!_chartMounted)
+        {
+            _chartMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/wan-live-chart.js")}'); " +
+                    "window.__dashWanLiveChart = m; await m.mount('dashboard-wan-live-chart'); })();");
+            }
+            catch { _chartMounted = false; }
         }
     }
 
@@ -280,16 +311,21 @@ else
         return LiveStats.GetForDevice(_gatewayMac);
     }
 
-    private (double? rtt, double loss) GetGatewayLatency()
+    private string? GetGatewayFabricTargetId()
     {
-        if (_gatewayMac == null) return (null, 0);
-        var gwFabric = _targets.FirstOrDefault(t =>
+        if (_gatewayMac == null) return null;
+        return _targets.FirstOrDefault(t =>
             t.TargetType == MonitoringTargetType.Fabric
             && t.Enabled
             && !string.IsNullOrEmpty(t.DeviceMac)
-            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
-        if (gwFabric == null) return (null, 0);
-        var s = LiveStats.GetTargetStats(gwFabric.TargetId);
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase))?.TargetId;
+    }
+
+    private (double? rtt, double loss) GetGatewayLatency()
+    {
+        var targetId = GetGatewayFabricTargetId();
+        if (targetId == null) return (null, 0);
+        var s = LiveStats.GetTargetStats(targetId);
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
@@ -371,6 +407,11 @@ else
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+        if (_chartMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__dashWanLiveChart?.unmount();"); }
+            catch { }
+        }
         if (_mapMounted)
         {
             try

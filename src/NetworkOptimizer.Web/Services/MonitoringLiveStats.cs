@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -14,10 +16,18 @@ namespace NetworkOptimizer.Web.Services;
 public class MonitoringLiveStats
 {
     private readonly ILogger<MonitoringLiveStats> _logger;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
 
-    public MonitoringLiveStats(ILogger<MonitoringLiveStats> logger)
+    private List<(string TargetId, MonitoringTargetType TargetType)>? _ispTransitTargets;
+    private DateTime _ispTransitTargetsCacheTime;
+    private static readonly TimeSpan TargetCacheTtl = TimeSpan.FromSeconds(30);
+    private readonly Lock _targetCacheLock = new();
+
+    public MonitoringLiveStats(ILogger<MonitoringLiveStats> logger,
+        IDbContextFactory<NetworkOptimizerDbContext> dbFactory)
     {
         _logger = logger;
+        _dbFactory = dbFactory;
     }
 
     private readonly ConcurrentDictionary<string, DeviceLiveStats> _stats = new();
@@ -184,6 +194,33 @@ public class MonitoringLiveStats
             Success = success,
             LastUpdate = timestamp
         };
+    }
+
+    /// <summary>Cached list of enabled ISP+Transit monitoring targets. Refreshed every 30s.</summary>
+    public async Task<List<(string TargetId, MonitoringTargetType TargetType)>> GetIspTransitTargetsAsync(
+        CancellationToken ct = default)
+    {
+        lock (_targetCacheLock)
+        {
+            if (_ispTransitTargets != null && DateTime.UtcNow - _ispTransitTargetsCacheTime < TargetCacheTtl)
+                return _ispTransitTargets;
+        }
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var targets = await db.MonitoringTargets.AsNoTracking()
+            .Where(t => t.Enabled
+                && (t.TargetType == MonitoringTargetType.AccessIsp
+                    || t.TargetType == MonitoringTargetType.Transit))
+            .Select(t => new { t.TargetId, t.TargetType })
+            .ToListAsync(ct);
+
+        var result = targets.Select(t => (t.TargetId, t.TargetType)).ToList();
+        lock (_targetCacheLock)
+        {
+            _ispTransitTargets = result;
+            _ispTransitTargetsCacheTime = DateTime.UtcNow;
+        }
+        return result;
     }
 
     /// <summary>Total fabric ingress/egress across all devices in the cache.

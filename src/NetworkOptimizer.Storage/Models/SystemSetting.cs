@@ -54,4 +54,6 @@ public static class SystemSettingKeys
     // Dashboard layout preferences
     public const string DashboardLayout = "ui.dashboard_layout";
 
+    // Monitoring Live View map order ("3d-first" or "2d-first")
+    public const string MonitoringLiveMapOrder = "ui.monitoring_live_map_order";
 }

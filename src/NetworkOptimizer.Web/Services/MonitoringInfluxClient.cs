@@ -824,6 +824,57 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>Mean RTT and loss across all ISP+Transit targets, aggregated per time window.
+    /// Averages per target_type first (so ISP and Transit contribute equally), then
+    /// averages the two category means to avoid sawtooth from uneven probe timing.</summary>
+    public async Task<IReadOnlyList<LatencyPoint>> QueryMeanIspTransitLatencyAsync(
+        DateTime from,
+        DateTime to,
+        IReadOnlyList<string>? enabledTargetIds = null,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return Array.Empty<LatencyPoint>();
+        var window = aggregateWindow ?? TimeSpan.FromSeconds(
+            Math.Max(10, (int)((to - from).TotalSeconds / 150)));
+        var smoothWindow = TimeSpan.FromSeconds(Math.Max(60, window.TotalSeconds * 3));
+        var targetFilter = "";
+        if (enabledTargetIds is { Count: > 0 })
+        {
+            var idFilter = string.Join(" or ", enabledTargetIds.Select(id =>
+                $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+            targetFilter = $"\n  |> filter(fn: (r) => {idFilter})";
+        }
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
+  |> group(columns: [""target_type"", ""_field""])
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
+  |> fill(usePrevious: true)
+  |> group(columns: [""_time"", ""_field""])
+  |> mean()
+  |> group(columns: [""_field""])
+  |> timedMovingAverage(every: {ToFluxDuration(window)}, period: {ToFluxDuration(smoothWindow)})
+  |> group()
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<LatencyPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new LatencyPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
+                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
+            });
+        }
+        return results;
+    }
+
     /// <summary>Time-series of RTT and loss for a single monitoring target.</summary>
     public async Task<IReadOnlyList<LatencyPoint>> QueryLatencyAsync(
         string targetId,

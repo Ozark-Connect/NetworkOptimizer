@@ -373,6 +373,21 @@ a:hover {
     margin-bottom: 1.5rem;
 }
 
+.wan-live-chart-card {
+    margin-bottom: 0;
+}
+.wan-live-chart-card > .card-body {
+    padding: 0;
+    margin-right: -0.75rem;
+}
+.wan-live-chart-card .apexcharts-canvas {
+    min-height: 0;
+}
+.dashboard-grid .lv-panel > .wan-live-chart-card {
+    margin-top: -0.5rem;
+    margin-bottom: -0.5rem;
+}
+
 .card-header {
     padding: 12px 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -539,6 +554,13 @@ a:hover {
 
 .clickable-card:hover {
     background: var(--bg-tertiary);
+}
+.clickable-stat-card {
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+.clickable-stat-card:hover {
+    opacity: 0.8;
 }
 
 /* Speed Test Stats (Dashboard panel) */
