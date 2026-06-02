@@ -3597,6 +3597,13 @@
             return;
         }
 
+        if (isQuectelProvider && string.IsNullOrWhiteSpace(editingModem.Password) && string.IsNullOrWhiteSpace(editingModem.PrivateKeyPath))
+        {
+            modemMessage = "SSH password or private key path is required for GL-iNet modems";
+            modemMessageClass = "danger";
+            return;
+        }
+
         // HTTP-based providers don't use SSH/QMI fields
         if (isHttpProvider)
         {

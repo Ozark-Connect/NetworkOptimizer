@@ -798,6 +798,7 @@ public static class UniFiProductDatabase
 
         // U5G Backup (US/EU) uses QMI over QRTR (no /dev/cdc-wdm0 or /dev/wwan0qmi0)
         if (model.Equals("UMBBE633", StringComparison.OrdinalIgnoreCase) ||
+            model.Equals("UMBBE634", StringComparison.OrdinalIgnoreCase) ||
             model.StartsWith("U5G-Backup", StringComparison.OrdinalIgnoreCase) ||
             model.StartsWith("U5G-Antenna", StringComparison.OrdinalIgnoreCase) ||
             model.Equals("U5G-US", StringComparison.OrdinalIgnoreCase) ||

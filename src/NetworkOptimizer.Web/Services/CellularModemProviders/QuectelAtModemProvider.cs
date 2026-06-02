@@ -110,11 +110,16 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
 
     /// <summary>
     /// Build the AT command string. Uses gl_modem with optional bus path.
+    /// Validates the bus path to prevent shell injection.
     /// </summary>
     private static string BuildAtCommand(string? transportPath)
     {
         if (!string.IsNullOrWhiteSpace(transportPath))
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(transportPath, @"^[0-9A-Za-z._:-]+$"))
+                throw new ArgumentException($"Invalid USB bus path: {transportPath}");
             return $"gl_modem -B {transportPath} AT AT+QENG=\\\"servingcell\\\"";
+        }
 
         return "gl_modem AT AT+QENG=\\\"servingcell\\\"";
     }
