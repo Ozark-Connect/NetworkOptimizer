@@ -1741,7 +1741,7 @@ else
                     "window.__mountWanLiveChart = async function(elId) {" +
                     $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
                     "  window.__wanLiveChart = m;" +
-                    "  await m.mount(elId, {pollMs: 1000});" +
+                    "  await m.mount(elId);" +
                     "}");
                 _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
             }
