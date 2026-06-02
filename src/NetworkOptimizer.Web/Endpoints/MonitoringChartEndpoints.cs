@@ -12,7 +12,6 @@ public static class MonitoringChartEndpoints
         app.MapGet("/api/monitoring/live-stats", async (
             MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
             CancellationToken ct) =>
         {
             string? gatewayMac = null;
@@ -39,13 +38,7 @@ public static class MonitoringChartEndpoints
                 }
             }
 
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.Enabled
-                    && (t.TargetType == MonitoringTargetType.AccessIsp
-                        || t.TargetType == MonitoringTargetType.Transit))
-                .Select(t => new { t.TargetId, t.TargetType })
-                .ToListAsync(ct);
+            var targets = await liveStats.GetIspTransitTargetsAsync(ct);
 
             double? bestIspRtt = null;
             double ispLoss = 0;
