@@ -40,8 +40,8 @@ public static class MonitoringChartEndpoints
 
             var targets = await liveStats.GetIspTransitTargetsAsync(ct);
 
-            double? bestIspRtt = null;
-            double ispLoss = 0;
+            var ispRtts = new List<double>();
+            var ispLosses = new List<double>();
             var transitRtts = new List<double>();
             var transitLosses = new List<double>();
 
@@ -52,11 +52,8 @@ public static class MonitoringChartEndpoints
 
                 if (t.TargetType == MonitoringTargetType.AccessIsp)
                 {
-                    if (st.RttAvgMs != null && (bestIspRtt == null || st.RttAvgMs.Value < bestIspRtt.Value))
-                    {
-                        bestIspRtt = st.RttAvgMs;
-                        ispLoss = st.LossPercent;
-                    }
+                    if (st.RttAvgMs != null) ispRtts.Add(st.RttAvgMs.Value);
+                    ispLosses.Add(st.LossPercent);
                 }
                 else
                 {
@@ -65,21 +62,21 @@ public static class MonitoringChartEndpoints
                 }
             }
 
-            var transitRtt = transitRtts.Count > 0
-                ? transitRtts.Average() : (double?)null;
-            var transitLoss = transitLosses.Count > 0
-                ? transitLosses.Average() : 0.0;
+            var ispRtt = ispRtts.Count > 0 ? ispRtts.Average() : (double?)null;
+            var ispLoss = ispLosses.Count > 0 ? ispLosses.Average() : 0.0;
+            var transitRtt = transitRtts.Count > 0 ? transitRtts.Average() : (double?)null;
+            var transitLoss = transitLosses.Count > 0 ? transitLosses.Average() : 0.0;
 
             double? meanRtt = null;
-            if (bestIspRtt != null && transitRtt != null)
-                meanRtt = (bestIspRtt.Value + transitRtt.Value) / 2;
-            else meanRtt = bestIspRtt ?? transitRtt;
+            if (ispRtt != null && transitRtt != null)
+                meanRtt = (ispRtt.Value + transitRtt.Value) / 2;
+            else meanRtt = ispRtt ?? transitRtt;
 
             double meanLoss = 0;
-            if (bestIspRtt != null && transitRtts.Count > 0)
+            if (ispRtt != null && transitRtt != null)
                 meanLoss = (ispLoss + transitLoss) / 2;
-            else if (bestIspRtt != null) meanLoss = ispLoss;
-            else if (transitLosses.Count > 0) meanLoss = transitLoss;
+            else if (ispRtt != null) meanLoss = ispLoss;
+            else if (transitRtts.Count > 0) meanLoss = transitLoss;
 
             return Results.Ok(new
             {
