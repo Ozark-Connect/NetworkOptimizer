@@ -244,8 +244,9 @@ export async function seekTime(isoTimestamp) {
         }));
     } catch { return; }
     if (buffer.length === 0) return;
+    const maxTime = Math.min(at + halfWindow, Date.now());
     chart.updateOptions({
-        xaxis: { min: at - halfWindow, max: at + halfWindow },
+        xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
     }, false, false, false);
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
