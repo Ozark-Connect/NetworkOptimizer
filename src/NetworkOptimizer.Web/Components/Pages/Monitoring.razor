@@ -1499,28 +1499,10 @@ else
 
     private async Task SwapMapOrderAsync()
     {
-        if (_mapMounted)
-        {
-            _mapMounted = false;
-            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap?.unmount();"); }
-            catch { }
-        }
-        if (_map2dMounted)
-        {
-            _map2dMounted = false;
-            try { await JS.InvokeVoidAsync("eval", "window.__lanFlowMap2d?.unmount();"); }
-            catch { }
-        }
-        if (_wanLiveChartMounted)
-        {
-            _wanLiveChartMounted = false;
-            try { await JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.unmount();"); }
-            catch { }
-        }
-
         _mapOrder2dFirst = !_mapOrder2dFirst;
         await SystemSettings.SetAsync(SystemSettingKeys.MonitoringLiveMapOrder,
             _mapOrder2dFirst ? "2d-first" : null);
+        NavigationManager.NavigateTo("/monitoring?tab=live", forceLoad: true);
     }
 
     private async Task AddLiveViewToDashboardAsync()
@@ -1781,13 +1763,12 @@ else
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
                 await JS.InvokeVoidAsync("eval",
                     "window.__mountLanFlowMap = async function(canvasId, ref) {" +
-                    "  await new Promise(r => requestAnimationFrame(r));" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
                     "  await m.mount(canvasId);" +
                     "}");
-                _ = JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
+                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
             }
             catch { _mapMounted = false; }
         }
