@@ -96,7 +96,7 @@ function buildOpts() {
                 seriesName: 'RTT',
                 opposite: true,
                 min: 0,
-                max: v => { const m = Number(v); return (!m || m <= 0) ? 10 : Math.ceil((m * 1.3) / 5) * 5; },
+                max: 10,
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
                     formatter: v => v != null ? v.toFixed(0) : '',
@@ -129,11 +129,17 @@ function buildOpts() {
     };
 }
 
+function rttYMax() {
+    const maxRtt = buffer.reduce((m, p) => p.rtt != null && p.rtt > m ? p.rtt : m, 0);
+    return Math.ceil((Math.max(maxRtt, 5) * 1.3) / 5) * 5;
+}
+
 function updateChart() {
     if (!chart || buffer.length === 0) return;
     const now = Date.now();
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
     }, false, false, false);
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
@@ -248,6 +254,7 @@ export async function seekTime(isoTimestamp) {
     const maxTime = Math.min(at + halfWindow, Date.now());
     chart.updateOptions({
         xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
+        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
     }, false, false, false);
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
