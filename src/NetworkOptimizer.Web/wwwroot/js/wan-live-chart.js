@@ -44,7 +44,7 @@ function buildOpts() {
         colors: [COLOR_DL, COLOR_UL, COLOR_LOSS, COLOR_RTT],
         stroke: {
             curve: 'smooth',
-            width: [2.5, 2.5, 1.5, 1.5],
+            width: [2, 2, 1, 1],
             dashArray: [0, 0, 0, 6],
         },
         fill: {
