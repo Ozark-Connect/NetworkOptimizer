@@ -203,13 +203,13 @@ else
         {
             @Map2dCard
             @GatewayStatCards
-            @Map3dCard
+            <div style="margin-top: 1rem;">@Map3dCard</div>
         }
         else
         {
             @Map3dCard
             @GatewayStatCards
-            @Map2dCard
+            <div style="margin-top: 1rem;">@Map2dCard</div>
         }
     }
 
@@ -1449,7 +1449,7 @@ else
 
     private RenderFragment Map2dCard => __builder =>
     {
-        <div class="card lan-flow-map-2d-card" style="margin-top: 1.5rem;">
+        <div class="card lan-flow-map-2d-card" style="margin-top: 0.5rem;">
             <div class="card-header">
                 <h2 class="card-title">LAN Topology Flow Map</h2>
                 <div class="card-header-right">
@@ -1470,7 +1470,7 @@ else
         var gwDeviceUrl = _gatewayMac != null
             ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
             : "/monitoring?tab=devices";
-        <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
+        <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
