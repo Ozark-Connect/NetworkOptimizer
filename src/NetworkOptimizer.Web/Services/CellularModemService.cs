@@ -2,6 +2,7 @@ using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
@@ -19,6 +20,7 @@ public class CellularModemService : ICellularModemService
     private readonly UniFiSshService _sshService;
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
+    private readonly ICredentialProtectionService _credentialProtection;
     private readonly Dictionary<string, ICellularModemProvider> _providers;
     private readonly Timer? _pollingTimer;
     private readonly object _lock = new();
@@ -34,6 +36,7 @@ public class CellularModemService : ICellularModemService
         UniFiSshService sshService,
         UniFiConnectionService connectionService,
         MonitoringInfluxClient influx,
+        ICredentialProtectionService credentialProtection,
         IEnumerable<ICellularModemProvider> providers)
     {
         _logger = logger;
@@ -41,6 +44,7 @@ public class CellularModemService : ICellularModemService
         _sshService = sshService;
         _connectionService = connectionService;
         _influx = influx;
+        _credentialProtection = credentialProtection;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
         if (!_providers.ContainsKey(DefaultProviderKey))
@@ -164,18 +168,28 @@ public class CellularModemService : ICellularModemService
         return await provider.PollAsync(context);
     }
 
-    private static ModemPollContext ToPollContext(ModemConfiguration modem) => new()
+    private ModemPollContext ToPollContext(ModemConfiguration modem)
     {
-        Id = modem.Id,
-        Name = modem.Name,
-        Host = modem.Host,
-        Port = modem.Port,
-        Username = string.IsNullOrEmpty(modem.Username) ? null : modem.Username,
-        Password = string.IsNullOrEmpty(modem.Password) ? null : modem.Password,
-        PrivateKeyPath = string.IsNullOrEmpty(modem.PrivateKeyPath) ? null : modem.PrivateKeyPath,
-        ModemType = modem.ModemType,
-        TransportPath = modem.QmiDevice,
-    };
+        string? password = null;
+        if (!string.IsNullOrEmpty(modem.Password))
+        {
+            try { password = _credentialProtection.Decrypt(modem.Password); }
+            catch { password = modem.Password; }
+        }
+
+        return new ModemPollContext
+        {
+            Id = modem.Id,
+            Name = modem.Name,
+            Host = modem.Host,
+            Port = modem.Port,
+            Username = string.IsNullOrEmpty(modem.Username) ? null : modem.Username,
+            Password = password,
+            PrivateKeyPath = string.IsNullOrEmpty(modem.PrivateKeyPath) ? null : modem.PrivateKeyPath,
+            ModemType = modem.ModemType,
+            TransportPath = modem.QmiDevice,
+        };
+    }
 
     /// <summary>
     /// Provider-aware probe. Resolves the provider for the configuration
@@ -242,10 +256,16 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Add or update a modem configuration
+    /// Add or update a modem configuration.
+    /// Encrypts the password before persisting.
     /// </summary>
     public async Task<ModemConfiguration> SaveModemAsync(ModemConfiguration config)
     {
+        if (!string.IsNullOrEmpty(config.Password) && !_credentialProtection.IsEncrypted(config.Password))
+        {
+            config.Password = _credentialProtection.Encrypt(config.Password);
+        }
+
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         await repository.SaveModemConfigurationAsync(config);
