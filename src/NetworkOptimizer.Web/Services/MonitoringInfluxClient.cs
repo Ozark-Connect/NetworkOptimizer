@@ -837,7 +837,7 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<LatencyPoint>();
         var window = aggregateWindow ?? TimeSpan.FromSeconds(
             Math.Max(10, (int)((to - from).TotalSeconds / 150)));
-        var smoothWindow = TimeSpan.FromSeconds(Math.Max(30, window.TotalSeconds * 3));
+        var smoothWindow = TimeSpan.FromSeconds(Math.Max(120, window.TotalSeconds * 3));
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
