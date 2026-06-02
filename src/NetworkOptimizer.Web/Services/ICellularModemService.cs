@@ -4,9 +4,9 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Service for polling cellular modem stats via SSH.
-/// Uses shared UniFiSshService for SSH operations.
-/// Auto-discovers U5G-Max modems from UniFi device list.
+/// Service for polling cellular modem stats.
+/// Delegates transport-specific polling to ICellularModemProvider implementations.
+/// Auto-discovers UniFi modems from the controller device list.
 /// </summary>
 public interface ICellularModemService : IDisposable
 {
@@ -25,20 +25,21 @@ public interface ICellularModemService : IDisposable
     CellularModemStats? GetCachedStats(int modemId);
 
     /// <summary>
-    /// Auto-discover U5G-Max modems from UniFi device list.
+    /// Auto-discover UniFi cellular modems from the controller device list.
     /// </summary>
     /// <returns>A list of discovered modems.</returns>
     Task<List<DiscoveredModem>> DiscoverModemsAsync();
 
     /// <summary>
-    /// Test SSH connection to a modem using shared credentials.
+    /// Provider-aware probe. Resolves the provider for the configuration
+    /// and asks it to verify reachability and (where applicable) auth.
     /// </summary>
-    /// <param name="host">The host address of the modem.</param>
+    /// <param name="modem">The modem configuration to probe.</param>
     /// <returns>A tuple containing success status and message.</returns>
-    Task<(bool success, string message)> TestConnectionAsync(string host);
+    Task<(bool success, string message)> ProbeModemAsync(ModemConfiguration modem);
 
     /// <summary>
-    /// Poll a modem - fetches stats via SSH and updates LastPolled timestamp.
+    /// Poll a modem - fetches stats via the resolved provider and updates LastPolled timestamp.
     /// </summary>
     /// <param name="modem">The modem configuration to poll.</param>
     /// <returns>A tuple containing success status and message.</returns>

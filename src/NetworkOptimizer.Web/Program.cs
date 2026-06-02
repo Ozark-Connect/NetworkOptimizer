@@ -181,6 +181,7 @@ builder.Services.AddSingleton<UniFiSshService>();
 // CellularModemService resolves the right provider per ModemConfiguration.
 builder.Services.AddSingleton<ICellularModemProvider, QmicliModemProvider>();
 builder.Services.AddSingleton<ICellularModemProvider, NetgearNighthawkHotspotProvider>();
+builder.Services.AddSingleton<ICellularModemProvider, QuectelAtModemProvider>();
 
 // Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
 builder.Services.AddSingleton<CellularModemService>();
@@ -1582,6 +1583,7 @@ MonitoringChartEndpoints.Map(app);
 MonitoringInvestigateEndpoints.Map(app);
 DeviceHealthChartEndpoints.Map(app);
 SfpChartEndpoints.Map(app);
+CellularChartEndpoints.Map(app);
 
 app.Run();
 

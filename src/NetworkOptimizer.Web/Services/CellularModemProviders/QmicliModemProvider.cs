@@ -1,27 +1,22 @@
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
-using NetworkOptimizer.Web.Services;
 
 namespace NetworkOptimizer.Web.Services.CellularModemProviders;
 
 /// <summary>
-/// Cellular modem provider for Ubiquiti modems (U-LTE, U5G-Max, ...).
-/// Speaks SSH to the modem and runs qmicli commands, then parses the output
-/// with the existing static QmicliParser.
+/// Cellular modem provider for Ubiquiti modems (U-LTE, U5G-Max, U5G Backup, ...).
+/// Tries the uiwwand ubus command first (available on all modern UniFi modems),
+/// then falls back to raw qmicli commands for older firmware.
+/// SSH transport uses the shared UniFiSshService.
 /// </summary>
-/// <remarks>
-/// Behavior moved verbatim from CellularModemService.ExecutePollAsync.
-/// No protocol changes - same combined-command pattern, same section markers,
-/// same parser calls. The SSH transport remains UniFiSshService.
-/// </remarks>
 public sealed class QmicliModemProvider : ICellularModemProvider
 {
     /// <inheritdoc/>
     public string ProviderKey => "qmicli";
 
     /// <inheritdoc/>
-    public string DisplayName => "Ubiquiti modem (qmicli)";
+    public string DisplayName => "Ubiquiti modem (SSH)";
 
     private readonly ILogger<QmicliModemProvider> _logger;
     private readonly UniFiSshService _sshService;
@@ -39,12 +34,74 @@ public sealed class QmicliModemProvider : ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("Polling modem {Name} at {Host}", context.Name, context.Host);
+
+        // Try uiwwand first - available on all modern UniFi cellular modems
+        var stats = await TryPollViaUiwwandAsync(context);
+        if (stats != null)
+            return stats;
+
+        // Fall back to raw qmicli commands
+        return await PollViaQmicliAsync(context);
+    }
+
+    /// <summary>
+    /// Poll via UniFi's uiwwand daemon. Returns null if uiwwand is not available
+    /// on this device, allowing fallback to qmicli.
+    /// </summary>
+    private async Task<CellularModemStats?> TryPollViaUiwwandAsync(ModemPollContext context)
+    {
+        try
+        {
+            var command = "ubus call uiwwand call '{\"method\":\"get-radio-status\",\"params\":{}}'";
+            var (success, output) = await _sshService.RunCommandAsync(context.Host, command);
+
+            if (!success || string.IsNullOrWhiteSpace(output))
+            {
+                _logger.LogDebug("uiwwand not available on {Name}, falling back to qmicli", context.Name);
+                return null;
+            }
+
+            // ubus returns "not found" when the service doesn't exist,
+            // or a JSON object without "result" when the method is unknown
+            if (output.Contains("not found") || !output.Contains("\"result\""))
+            {
+                _logger.LogDebug("uiwwand not available on {Name}, falling back to qmicli", context.Name);
+                return null;
+            }
+
+            var stats = UiwwandParser.Parse(output, context.Host, context.Name, context.ModemType);
+
+            if (stats != null && stats.Lte == null && stats.Nr5g == null)
+            {
+                _logger.LogDebug("uiwwand returned no signal data for {Name}, trying qmicli", context.Name);
+                return null;
+            }
+
+            if (stats != null)
+            {
+                _logger.LogInformation(
+                    "Successfully polled modem {Name} via uiwwand: {Carrier}, Signal Quality: {Quality}%",
+                    context.Name, stats.Carrier, stats.SignalQuality);
+            }
+
+            return stats;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "uiwwand poll failed for {Name}, falling back to qmicli", context.Name);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Poll via raw qmicli commands. Fallback path when uiwwand is unavailable.
+    /// </summary>
+    private async Task<CellularModemStats?> PollViaQmicliAsync(ModemPollContext context)
+    {
         var qmiDevice = string.IsNullOrWhiteSpace(context.TransportPath)
             ? "/dev/wwan0qmi0"
             : context.TransportPath;
-
-        _logger.LogInformation("Polling modem {Name} at {Host} via qmicli",
-            context.Name, context.Host);
 
         try
         {
@@ -66,7 +123,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider
 
             if (!success)
             {
-                _logger.LogWarning("Failed to poll modem {Name}: {Output}", context.Name, output);
+                _logger.LogWarning("Failed to poll modem {Name} via qmicli: {Output}", context.Name, output);
                 return null;
             }
 
@@ -102,7 +159,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider
             }
 
             _logger.LogInformation(
-                "Successfully polled modem {Name}: {Carrier}, Signal Quality: {Quality}%",
+                "Successfully polled modem {Name} via qmicli: {Carrier}, Signal Quality: {Quality}%",
                 context.Name, stats.Carrier, stats.SignalQuality);
 
             return stats;
@@ -119,14 +176,11 @@ public sealed class QmicliModemProvider : ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        // Delegates to the existing UniFiSshService connection test.
-        // No protocol-level credential check beyond SSH reachability.
         return _sshService.TestConnectionAsync(context.Host);
     }
 
     /// <summary>
-    /// Split combined SSH output into sections by marker. Pulled verbatim
-    /// from the prior in-service helper so existing tests stay green.
+    /// Split combined SSH output into sections by marker.
     /// </summary>
     private static Dictionary<string, string> ParseCombinedOutput(string output)
     {
