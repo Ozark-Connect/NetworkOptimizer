@@ -703,7 +703,12 @@
     {
         var card = _layout?.Cards.FirstOrDefault(c => c.Id == cardId);
         if (card == null) return;
-        card.MapMode = card.MapMode == "3d" ? "2d" : "3d";
+        card.MapMode = (card.MapMode ?? "2d") switch
+        {
+            "2d" => "3d",
+            "3d" => "off",
+            _ => "2d",
+        };
     }
 
     // ──────────────────────────────────────────────────────────
@@ -733,8 +738,9 @@
                 </button>
                 @if (card.Id == DashboardCards.LiveView)
                 {
-                    <button class="card-edit-btn" @onclick="() => ToggleMapMode(card.Id)" data-tooltip="@((card.MapMode ?? "2d") == "2d" ? "Switch to 3D" : "Switch to 2D")">
-                        <span style="font-size: 10px; font-weight: 600; line-height: 14px;">@((card.MapMode ?? "2d") == "2d" ? "2D" : "3D")</span>
+                    <button class="card-edit-btn" @onclick="() => ToggleMapMode(card.Id)"
+                            data-tooltip="@((card.MapMode ?? "2d") switch { "2d" => "Switch to 3D", "3d" => "Turn map off", _ => "Switch to 2D" })">
+                        <span style="font-size: 10px; font-weight: 600; line-height: 14px;">@((card.MapMode ?? "2d") switch { "3d" => "3D", "off" => "Off", _ => "2D" })</span>
                     </button>
                 }
                 <button class="card-edit-btn card-edit-btn-toggle" @onclick="() => ToggleCard(card.Id)" data-tooltip="@(card.Visible ? "Hide" : "Show")">

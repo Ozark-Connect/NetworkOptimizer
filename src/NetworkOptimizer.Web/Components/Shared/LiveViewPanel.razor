@@ -90,7 +90,7 @@ else
                 </div>
             </div>
         }
-        else
+        else if (MapMode != "off")
         {
             <div class="card lv-map-card">
                 <div class="card-body lv-map-body">
@@ -197,7 +197,7 @@ else
     {
         if (!_ready) return;
 
-        if (!_mapMounted || _mountedMode != MapMode)
+        if (MapMode != "off" && (!_mapMounted || _mountedMode != MapMode))
         {
             if (_mapMounted) await UnmountMap();
 
@@ -224,6 +224,10 @@ else
                 }
             }
             catch { _mapMounted = false; _mountedMode = null; }
+        }
+        else if (MapMode == "off" && _mapMounted)
+        {
+            await UnmountMap();
         }
 
         if (!_chartMounted)
