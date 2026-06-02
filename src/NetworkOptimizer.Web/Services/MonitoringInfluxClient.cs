@@ -440,6 +440,54 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Write cellular modem signal metrics for time-series charting.
+    /// Tags identify the modem; fields capture all available signal/band/carrier data.
+    /// Written to the longterm bucket since cellular trends are useful over weeks/months.
+    /// </summary>
+    public Task WriteCellularAsync(
+        string modemId,
+        string modemName,
+        string provider,
+        string? networkMode,
+        string? carrier,
+        string? bandName,
+        int? channel,
+        int? bandwidthMhz,
+        double? rsrp,
+        double? rsrq,
+        double? snr,
+        double? rssi,
+        int? signalQuality,
+        int? signalBars,
+        bool? isRoaming,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("cellular")
+            .Tag("modem_id", modemId)
+            .Tag("modem_name", modemName)
+            .Tag("provider", provider)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (!string.IsNullOrEmpty(networkMode)) point = point.Tag("network_mode", networkMode);
+        if (!string.IsNullOrEmpty(carrier)) point = point.Field("carrier", carrier);
+        if (!string.IsNullOrEmpty(bandName)) point = point.Field("band", bandName);
+
+        if (rsrp.HasValue) point = point.Field("rsrp", rsrp.Value);
+        if (rsrq.HasValue) point = point.Field("rsrq", rsrq.Value);
+        if (snr.HasValue) point = point.Field("snr", snr.Value);
+        if (rssi.HasValue) point = point.Field("rssi", rssi.Value);
+        if (signalQuality.HasValue) point = point.Field("signal_quality", signalQuality.Value);
+        if (signalBars.HasValue) point = point.Field("signal_bars", signalBars.Value);
+        if (channel.HasValue) point = point.Field("channel", channel.Value);
+        if (bandwidthMhz.HasValue) point = point.Field("bandwidth_mhz", bandwidthMhz.Value);
+        if (isRoaming.HasValue) point = point.Field("roaming", isRoaming.Value);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
     public Task WriteEventAsync(
         string deviceMac,
         string eventType,
@@ -955,6 +1003,63 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     /// <summary>
+    /// Query cellular modem signal metrics over time. Groups by modem_id + network_mode
+    /// so LTE and NR5G are separate series (important for NSA dual-connectivity).
+    /// Reads from the longterm bucket.
+    /// </summary>
+    public async Task<Dictionary<string, List<CellularPoint>>> QueryCellularAsync(
+        DateTime from,
+        DateTime to,
+        string? modemId = null,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<CellularPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+
+        var modemFilter = !string.IsNullOrEmpty(modemId)
+            ? $@"|> filter(fn: (r) => r.modem_id == ""{SanitizeFluxString(modemId)}"")"
+            : "";
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""cellular"")
+  {modemFilter}
+  |> filter(fn: (r) => r._field == ""rsrp"" or r._field == ""rsrq"" or r._field == ""snr"" or r._field == ""rssi"" or r._field == ""signal_quality"" or r._field == ""band"" or r._field == ""carrier"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<CellularPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var modemKey = record.GetValueByKey("modem_id") as string ?? "";
+            var mode = record.GetValueByKey("network_mode") as string;
+            var key = string.IsNullOrEmpty(mode) ? modemKey : $"{modemKey}:{mode}";
+
+            if (!results.TryGetValue(key, out var list))
+            {
+                list = new List<CellularPoint>();
+                results[key] = list;
+            }
+            list.Add(new CellularPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                Rsrp = AsDoubleOrNull(record.GetValueByKey("rsrp")),
+                Rsrq = AsDoubleOrNull(record.GetValueByKey("rsrq")),
+                Snr = AsDoubleOrNull(record.GetValueByKey("snr")),
+                Rssi = AsDoubleOrNull(record.GetValueByKey("rssi")),
+                SignalQuality = AsIntOrNull(record.GetValueByKey("signal_quality")),
+                NetworkMode = mode,
+                Band = record.GetValueByKey("band") as string,
+                Carrier = record.GetValueByKey("carrier") as string,
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
     /// Historical WiFi client snapshots for timeline mode on the 3D map. Filter by
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
     /// rows ordered by time.
@@ -1125,6 +1230,15 @@ from(bucket: ""{_longtermBucket}"")
             ? parsed : null
     };
 
+    private static int? AsIntOrNull(object? v) => v switch
+    {
+        null => null,
+        int i => i,
+        long l => (int)l,
+        double d => (int)d,
+        _ => int.TryParse(v.ToString(), out var parsed) ? parsed : null
+    };
+
     /// <summary>
     /// Find the most recent packet loss event across ISP, Transit, and Internet targets
     /// (checked in that priority order). Returns the timestamp and target type of the
@@ -1265,6 +1379,19 @@ from(bucket: ""{_longtermBucket}"")
         public double? TxPowerDbm { get; init; }
         public double? TemperatureC { get; init; }
         public double? VoltageV { get; init; }
+    }
+
+    public record CellularPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? Rsrp { get; init; }
+        public double? Rsrq { get; init; }
+        public double? Snr { get; init; }
+        public double? Rssi { get; init; }
+        public int? SignalQuality { get; init; }
+        public string? NetworkMode { get; init; }
+        public string? Band { get; init; }
+        public string? Carrier { get; init; }
     }
 
     /// <summary>
