@@ -21,6 +21,8 @@
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
+@inject ISystemSettingsService SystemSettings
+@inject DashboardLayoutService DashboardLayout
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -90,6 +92,16 @@ else
     @* ──────────────── Tab: Live View ──────────────── *@
     @if (_activeTab == "live" && _monitoringReady)
     {
+        if (!_liveViewOnDashboard)
+        {
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                <button class="btn btn-sm btn-outline-primary" @onclick="AddLiveViewToDashboardAsync"
+                        data-tooltip="Add Live View panel to the top of the Dashboard">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Add to Dashboard
+                </button>
+            </div>
+        }
+
         var hasIspTargets = HasUpstreamTargets(MonitoringTargetType.AccessIsp);
         var hasTransitTargets = HasUpstreamTargets(MonitoringTargetType.Transit);
 
@@ -187,60 +199,18 @@ else
             </div>
         </div>
 
-        <!-- 3D LAN flow map -->
-        <div class="card lan-flow-map-card" style="margin-top: 0.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">3D LAN Flow Map</h2>
-            </div>
-            <div class="card-body lan-flow-map-body">
-                <div class="lan-flow-map-stage" id="lan-flow-map-stage">
-                    <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bottom stat cards: Gateway health + fabric load -->
-        <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
-            @{
-                var gwStats = GetGatewayStats();
-                var gwDeviceUrl = _gatewayMac != null
-                    ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
-                    : "/monitoring?tab=devices";
-            }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
-                <div class="stat-label">Gateway CPU</div>
-            </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
-                <div class="stat-label">Gateway Memory</div>
-            </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
-                <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
-                <div class="stat-label">Gateway Temp</div>
-            </div>
-            @{ var fabricLoad = GetTotalFabricLoad(); }
-            <div class="monitoring-stat-pair">
-                <div class="monitoring-stat-card">
-                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
-                    <div class="stat-label">Fabric Ingress</div>
-                </div>
-                <div class="monitoring-stat-card">
-                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
-                    <div class="stat-label">Fabric Egress</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 2D LAN hierarchy map -->
-        <div class="card lan-flow-map-2d-card" style="margin-top: 1.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">LAN Topology Flow Map</h2>
-            </div>
-            <div class="card-body lan-flow-map-2d-body">
-                <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
-            </div>
-        </div>
+        @if (_mapOrder2dFirst)
+        {
+            @Map2dCard
+            @GatewayStatCards
+            @Map3dCard
+        }
+        else
+        {
+            @Map3dCard
+            @GatewayStatCards
+            @Map2dCard
+        }
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -847,6 +817,8 @@ else
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
     private string? _soloTargetId;
+    private bool _mapOrder2dFirst;
+    private bool _liveViewOnDashboard;
 
     protected override void OnParametersSet()
     {
@@ -893,7 +865,12 @@ else
         LoadInfluxStateFromSettings(settings);
         await LoadTargetsAsync();
 
+        _mapOrder2dFirst = await SystemSettings.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
+        var dashLayout = await DashboardLayout.GetLayoutAsync();
+        _liveViewOnDashboard = dashLayout.Cards.Any(c => c.Id == DashboardCards.LiveView && c.Visible);
+
         _activeTab = ResolveDefaultTab();
+        _lastTabParam = TabParam ?? _activeTab;
 
         _liveRefreshTimer = new System.Threading.Timer(_ =>
         {
@@ -1449,6 +1426,96 @@ else
             && t.Enabled
             && !string.IsNullOrEmpty(t.DeviceMac)
             && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase))?.TargetId;
+    }
+
+    private RenderFragment Map3dCard => __builder =>
+    {
+        <div class="card lan-flow-map-card" style="margin-top: 0.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">3D LAN Flow Map</h2>
+                <div class="card-header-right">
+                    <button class="card-edit-btn" @onclick="SwapMapOrderAsync" data-tooltip="Swap map order">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 3 7 21"/><polyline points="3 7 7 3 11 7"/><polyline points="17 21 17 3"/><polyline points="13 17 17 21 21 17"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body lan-flow-map-body">
+                <div class="lan-flow-map-stage" id="lan-flow-map-stage">
+                    <canvas id="lan-flow-map-canvas" class="lan-flow-map-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment Map2dCard => __builder =>
+    {
+        <div class="card lan-flow-map-2d-card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">LAN Topology Flow Map</h2>
+                <div class="card-header-right">
+                    <button class="card-edit-btn" @onclick="SwapMapOrderAsync" data-tooltip="Swap map order">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 3 7 21"/><polyline points="3 7 7 3 11 7"/><polyline points="17 21 17 3"/><polyline points="13 17 17 21 21 17"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body lan-flow-map-2d-body">
+                <div id="lan-flow-map-2d-stage" class="lan-flow-map-2d-stage"></div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment GatewayStatCards => __builder =>
+    {
+        var gwStats = GetGatewayStats();
+        var gwDeviceUrl = _gatewayMac != null
+            ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
+            : "/monitoring?tab=devices";
+        <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
+                <div class="stat-label">Gateway CPU</div>
+            </div>
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
+                <div class="stat-label">Gateway Memory</div>
+            </div>
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
+                <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
+                <div class="stat-label">Gateway Temp</div>
+            </div>
+            @{ var fabricLoad = GetTotalFabricLoad(); }
+            <div class="monitoring-stat-pair">
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #3b82f6;">@FormatRate(fabricLoad.ingress)</div>
+                    <div class="stat-label">Fabric Ingress</div>
+                </div>
+                <div class="monitoring-stat-card">
+                    <div class="stat-value" style="color: #10b981;">@FormatRate(fabricLoad.egress)</div>
+                    <div class="stat-label">Fabric Egress</div>
+                </div>
+            </div>
+        </div>
+    };
+
+    private async Task SwapMapOrderAsync()
+    {
+        _mapOrder2dFirst = !_mapOrder2dFirst;
+        await SystemSettings.SetAsync(SystemSettingKeys.MonitoringLiveMapOrder,
+            _mapOrder2dFirst ? "2d-first" : null);
+    }
+
+    private async Task AddLiveViewToDashboardAsync()
+    {
+        var layout = await DashboardLayout.GetLayoutAsync();
+        var card = layout.Cards.FirstOrDefault(c => c.Id == DashboardCards.LiveView);
+        if (card != null)
+        {
+            card.Visible = true;
+            layout.Cards.Remove(card);
+            layout.Cards.Insert(0, card);
+        }
+        await DashboardLayout.SaveLayoutAsync(layout);
+        _liveViewOnDashboard = true;
     }
 
     private (double? rtt, double loss) GetGatewayLatency()
