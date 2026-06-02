@@ -1502,7 +1502,7 @@ else
         _mapOrder2dFirst = !_mapOrder2dFirst;
         await SystemSettings.SetAsync(SystemSettingKeys.MonitoringLiveMapOrder,
             _mapOrder2dFirst ? "2d-first" : null);
-        NavigationManager.NavigateTo("/monitoring?tab=live", forceLoad: true);
+        await JS.InvokeVoidAsync("eval", "window.location.replace('/monitoring?tab=live');");
     }
 
     private async Task AddLiveViewToDashboardAsync()
