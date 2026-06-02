@@ -553,7 +553,7 @@ a:hover {
 }
 
 .clickable-card:hover {
-    background: var(--bg-tertiary);
+    background: #1c1c1f;
 }
 .clickable-stat-card {
     cursor: pointer;

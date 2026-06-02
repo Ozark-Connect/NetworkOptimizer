@@ -81,6 +81,11 @@ else
                     disabled="@(!_monitoringReady)">
                 SFP Stats
             </button>
+            <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("cellular"))"
+                    disabled="@(!_monitoringReady)">
+                Cellular Stats
+            </button>
             <button class="wifi-view-tab @(_activeTab == "setup" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("setup"))">
                 Setup
@@ -455,6 +460,67 @@ else
         </div>
     }
 
+    @* ──────────────── Tab: Cellular Stats ──────────────── *@
+    @if (_activeTab == "cellular" && _monitoringReady)
+    {
+        <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <h2 class="card-title">Cellular Signal History</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                    <div class="time-range-selector" style="position: relative;">
+                        <button class="time-btn" data-range="0">15m</button>
+                        <button class="time-btn" data-range="1">1h</button>
+                        <button class="time-btn" data-range="6">6h</button>
+                        <button class="time-btn active" data-range="24">24h</button>
+                        <button class="time-btn" data-range="168">7d</button>
+                        <button class="time-btn" data-range="720">30d</button>
+                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </button>
+                        <div class="custom-range-popover" data-popover="custom-range">
+                            <div class="custom-range-form">
+                                <div class="custom-range-title">Custom Range</div>
+                                <div class="custom-range-field">
+                                    <label>From</label>
+                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                </div>
+                                <div class="custom-range-field">
+                                    <label>To</label>
+                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                </div>
+                                <div class="custom-range-actions">
+                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="cellular-filter-badges wan-filter-badges"></div>
+                <div class="chart-card">
+                    <div class="chart-header"><h3 class="chart-title">RSRP (Signal Power)</h3></div>
+                    <div class="cellular-rsrp-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">RSRQ (Signal Quality)</h3></div>
+                    <div class="cellular-rsrq-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">SNR (Signal-to-Noise)</h3></div>
+                    <div class="cellular-snr-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Signal Quality</h3></div>
+                    <div class="cellular-quality-chart"></div>
+                </div>
+            </div>
+        </div>
+    }
+
     @* ──────────────── Tab: Setup ──────────────── *@
     @if (_activeTab == "setup")
     {
@@ -728,7 +794,11 @@ else
     [SupplyParameterFromQuery(Name = "target")]
     public string? TargetParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "modem")]
+    public string? ModemParam { get; set; }
+
     private string? _lastTabParam;
+    private string? _soloCellularModemId;
 
     private bool _upstreamDiscoveryPendingSave =>
         UpstreamTracer.State.Step == NetworkOptimizer.Web.Services.Monitoring.TracerStep.ReviewingResults;
@@ -772,6 +842,7 @@ else
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
+    private bool _cellularChartsMounted;
 
     // Investigation state
     private bool _investigatingLoss;
@@ -783,7 +854,7 @@ else
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "live", "performance", "devices", "sfp", "setup"
+        "live", "performance", "devices", "sfp", "cellular", "setup"
     };
 
     private string ResolveDefaultTab()
@@ -844,6 +915,11 @@ else
         {
             _soloSfpModuleId = SfpParam;
             _scrollToSfpChartsPending = true;
+        }
+
+        if (!string.IsNullOrEmpty(ModemParam) && _activeTab == "cellular")
+        {
+            _soloCellularModemId = ModemParam;
         }
 
         if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
@@ -1921,6 +1997,29 @@ else
             await ScrollToSfpChartsAsync();
         }
 
+        // Cellular charts - Cellular tab only
+        if (_activeTab == "cellular" && _monitoringReady && !_cellularChartsMounted)
+        {
+            _cellularChartsMounted = true;
+            try
+            {
+                var cellularUrl = VersionedJs("/js/cellular-charts.js");
+                var soloJs = !string.IsNullOrEmpty(_soloCellularModemId)
+                    ? $"m.soloModem('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloCellularModemId)}');"
+                    : "";
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {soloJs} }})();");
+                _soloCellularModemId = null;
+            }
+            catch { _cellularChartsMounted = false; }
+        }
+        else if (_activeTab != "cellular" && _cellularChartsMounted)
+        {
+            _cellularChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__cellularCharts?.unmount();"); }
+            catch { }
+        }
+
     }
 
     public void Dispose()
@@ -1944,6 +2043,11 @@ else
         if (_sfpChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_cellularChartsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__cellularCharts?.unmount();").AsTask(); }
             catch { }
         }
         if (_wanLiveChartMounted)

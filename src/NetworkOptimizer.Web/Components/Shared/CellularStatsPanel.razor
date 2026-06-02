@@ -16,8 +16,16 @@
         <div class="sqm-unavailable">
             <div class="sqm-status">
                 <span class="status-indicator status-disconnected"></span>
-                <span class="status-label">No Data</span>
+                <span class="status-label">@(hasConfiguredModems && configuredModems.Count > 0 ? configuredModems[currentModemIndex].Name : "No Data")</span>
             </div>
+            @if (configuredModems.Count > 1)
+            {
+                <div class="modem-nav" style="margin-bottom: 0.75rem;">
+                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)">‹</button>
+                    <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
+                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
+                </div>
+            }
             <p class="status-message">
                 @if (hasConfiguredModems)
                 {
@@ -31,7 +39,7 @@
             <div class="sqm-actions">
                 @if (hasConfiguredModems)
                 {
-                    <button class="btn btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+                    <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
                         @if (isRefreshing)
                         {
                             <span class="spinner-sm"></span>
@@ -42,7 +50,7 @@
                         }
                     </button>
                 }
-                <a href="/settings#cellular-modem" class="btn btn-primary">@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
+                <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
             </div>
         </div>
     }
@@ -73,9 +81,9 @@
             <div class="modem-nav">
                 @if (configuredModems.Count > 1)
                 {
-                    <button class="nav-btn" @onclick="PreviousModem" disabled="@(currentModemIndex == 0)">‹</button>
+                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)">‹</button>
                     <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
-                    <button class="nav-btn" @onclick="NextModem" disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
+                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
                 }
             </div>
             <div class="device-icon">
@@ -84,18 +92,26 @@
         </div>
 
         <!-- Carrier Info -->
-        <div class="carrier-info">
-            <span class="carrier-name">@modemStats.Carrier</span>
-            <span class="network-mode-badge @GetNetworkModeBadgeClass()">@modemStats.NetworkModeLabel</span>
-            @if (modemStats.IsRoaming)
-            {
-                <span class="roaming-badge">Roaming</span>
-            }
-            <span class="registration-state">@modemStats.RegistrationState</span>
-        </div>
-        <div class="network-mode-description">
-            @modemStats.NetworkModeDescription
-        </div>
+        @if (modemStats.NetworkMode == CellularNetworkMode.Unknown)
+        {
+            <div class="carrier-info">
+                <span class="carrier-name" style="color: var(--text-muted);">No signal - modem may be connecting</span>
+            </div>
+        }
+        else
+        {
+            <div class="carrier-info">
+                <span class="carrier-name">@modemStats.Carrier</span>
+                <span class="network-mode-badge @GetNetworkModeBadgeClass()">@modemStats.NetworkModeLabel</span>
+                @if (modemStats.IsRoaming)
+                {
+                    <span class="roaming-badge">Roaming</span>
+                }
+            </div>
+            <div class="network-mode-description">
+                @modemStats.NetworkModeDescription
+            </div>
+        }
 
         <!-- Signal Metrics Grid -->
         <div class="cellular-metrics">
@@ -184,7 +200,7 @@
         }
 
         <div class="sqm-actions">
-            <button class="btn btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+            <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
                 @if (isRefreshing)
                 {
                     <span class="spinner-sm"></span>
@@ -194,7 +210,7 @@
                     <span>Refresh</span>
                 }
             </button>
-            <a href="/settings#cellular-modem" class="btn btn-primary">Modem Settings</a>
+            <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
         </div>
     }
 </div>
@@ -481,6 +497,13 @@
     private int currentModemIndex = 0;
     private System.Threading.Timer? _refreshTimer;
 
+    /// <summary>
+    /// The modem ID of the currently displayed modem, for deep-linking to charts.
+    /// </summary>
+    public string? CurrentModemId => configuredModems.Count > 0 && currentModemIndex < configuredModems.Count
+        ? configuredModems[currentModemIndex].Id.ToString()
+        : null;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadStats();
@@ -593,16 +616,18 @@
         {
             var modem = configuredModems[currentModemIndex];
             var cached = ModemService.GetCachedStats(modem.Id);
+            modemStats = cached;
+            StateHasChanged();
 
-            if (cached != null)
+            if (cached == null)
             {
-                modemStats = cached;
-                StateHasChanged();
-            }
-            else
-            {
-                // No cached stats - poll this modem
-                await RefreshStats();
+                // No cached stats - try polling, but don't block paging
+                var (success, _) = await ModemService.PollModemAsync(modem);
+                if (success)
+                {
+                    modemStats = ModemService.GetCachedStats(modem.Id);
+                    StateHasChanged();
+                }
             }
         }
     }
