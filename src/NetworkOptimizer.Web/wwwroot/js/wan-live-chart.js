@@ -95,8 +95,8 @@ function buildOpts() {
             {
                 seriesName: 'RTT',
                 opposite: true,
-                min: v => Math.max(0, v * 0.5),
-                max: v => v * 1.5,
+                min: 0,
+                max: v => Math.ceil((v * 1.3) / 5) * 5 || 10,
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
                     formatter: v => v != null ? v.toFixed(0) : '',
