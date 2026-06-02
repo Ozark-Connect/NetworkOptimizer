@@ -248,10 +248,13 @@ export class LanFlowMap {
         } catch {}
 
         // Persist camera on orbit change with 500ms debounce.
+        // Skip saves during the fly-in animation so we don't overwrite
+        // the saved position with intermediate fly-in frames.
         let camSaveTimer = null;
         this.controls.addEventListener('change', () => {
             clearTimeout(camSaveTimer);
             camSaveTimer = setTimeout(() => {
+                if (this._flyInUntil && performance.now() < this._flyInUntil) return;
                 try {
                     const p = this.camera.position;
                     const t = this.controls.target;
@@ -1540,6 +1543,7 @@ export class LanFlowMap {
         this._paused = !this._paused;
         this._syncPlayPauseIcon();
         flowData.publishPlayState(this._paused, this._mode);
+        this._notifyPlayState();
         if (this._paused) {
             this._stopHistoricPlayback();
             return;
@@ -2111,6 +2115,12 @@ export class LanFlowMap {
         flowData.publishPlayState(this._paused, this._mode);
         this._notifyStatCards(at);
         await this._loadHistoric(at);
+    }
+
+    _notifyPlayState() {
+        if (!this._dotnetRef) return;
+        this._dotnetRef.invokeMethodAsync('OnMapPlayStateChanged', this._paused, this._mode)
+            .catch(() => {});
     }
 
     _notifyStatCards(at) {

@@ -95,8 +95,8 @@ function buildOpts() {
             {
                 seriesName: 'RTT',
                 opposite: true,
-                min: v => Math.max(0, v * 0.5),
-                max: v => v * 1.5,
+                min: 0,
+                max: 10,
                 labels: {
                     style: { colors: '#9ca3af', fontSize: '10px' },
                     formatter: v => v != null ? v.toFixed(0) : '',
@@ -129,11 +129,19 @@ function buildOpts() {
     };
 }
 
+function rttYMax() {
+    const rtts = buffer.map(p => p.rtt).filter(v => v != null && v > 0).sort((a, b) => a - b);
+    if (rtts.length === 0) return 10;
+    const p95 = rtts[Math.floor(rtts.length * 0.95)];
+    return Math.ceil((p95 * 1.5) / 10) * 10;
+}
+
 function updateChart() {
     if (!chart || buffer.length === 0) return;
     const now = Date.now();
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
+        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
     }, false, false, false);
     chart.updateSeries([
         { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
@@ -201,6 +209,77 @@ export async function mount(containerId, opts) {
     const interval = opts?.pollMs || POLL_MS;
 
     pollTimer = setInterval(pollLive, interval);
+}
+
+export function pause() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+export function resume() {
+    if (!chart || pollTimer) return;
+    pollTimer = setInterval(pollLive, POLL_MS);
+}
+
+export async function seekTime(isoTimestamp) {
+    if (!chart) return;
+    if (!isoTimestamp) {
+        // Return to live mode - clear playhead annotation
+        chart.clearAnnotations();
+        if (pollTimer) return; // already live
+        buffer = [];
+        await loadHistory();
+        updateChart();
+        pollTimer = setInterval(pollLive, POLL_MS);
+        return;
+    }
+    // Historic mode: stop polling, fetch window centered on timestamp
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    const at = new Date(isoTimestamp).getTime();
+    const halfWindow = HISTORY_MINUTES * 60000 / 2;
+    const from = new Date(at - halfWindow);
+    const to = new Date(at + halfWindow);
+    try {
+        const resp = await fetch(
+            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
+            { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        buffer = (data.points || []).map(p => ({
+            time: new Date(p.time).getTime(),
+            download: p.downloadBps,
+            upload: p.uploadBps,
+            rtt: p.rttMs,
+            loss: p.lossPercent,
+        }));
+    } catch { return; }
+    if (buffer.length === 0) return;
+    const maxTime = Math.min(at + halfWindow, Date.now());
+    chart.updateOptions({
+        xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
+        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+    }, false, false, false);
+    chart.updateSeries([
+        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
+    ], false);
+
+    chart.clearAnnotations();
+    chart.addXaxisAnnotation({
+        x: at,
+        borderColor: '#f1f5f9',
+        strokeDashArray: 3,
+        opacity: 0.5,
+        label: {
+            text: new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            borderColor: 'transparent',
+            style: { background: 'transparent', color: '#f1f5f9', fontSize: '9px' },
+            position: 'front',
+            orientation: 'horizontal',
+            offsetY: -5,
+        }
+    });
 }
 
 export function unmount() {

@@ -1262,8 +1262,25 @@ else
     }
 
     [JSInvokable]
+    public void OnMapPlayStateChanged(bool paused, string mode)
+    {
+        if (!_wanLiveChartMounted) return;
+        if (paused)
+            _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.pause();");
+        else if (mode == "live")
+            _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.resume();");
+    }
+
+    [JSInvokable]
     public async Task OnMapTimeChanged(string? isoTimestamp)
     {
+        // Sync WAN live chart to the same timeline position
+        if (_wanLiveChartMounted)
+        {
+            try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.seekTime({(isoTimestamp != null ? $"'{isoTimestamp}'" : "null")});"); }
+            catch { }
+        }
+
         if (isoTimestamp == null)
         {
             _mapHistoricAt = null;
