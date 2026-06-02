@@ -1540,6 +1540,7 @@ export class LanFlowMap {
         this._paused = !this._paused;
         this._syncPlayPauseIcon();
         flowData.publishPlayState(this._paused, this._mode);
+        this._notifyPlayState();
         if (this._paused) {
             this._stopHistoricPlayback();
             return;
@@ -2111,6 +2112,12 @@ export class LanFlowMap {
         flowData.publishPlayState(this._paused, this._mode);
         this._notifyStatCards(at);
         await this._loadHistoric(at);
+    }
+
+    _notifyPlayState() {
+        if (!this._dotnetRef) return;
+        this._dotnetRef.invokeMethodAsync('OnMapPlayStateChanged', this._paused, this._mode)
+            .catch(() => {});
     }
 
     _notifyStatCards(at) {

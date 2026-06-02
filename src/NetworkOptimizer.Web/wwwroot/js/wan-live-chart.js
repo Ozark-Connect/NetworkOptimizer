@@ -203,6 +203,15 @@ export async function mount(containerId, opts) {
     pollTimer = setInterval(pollLive, interval);
 }
 
+export function pause() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+export function resume() {
+    if (!chart || pollTimer) return;
+    pollTimer = setInterval(pollLive, POLL_MS);
+}
+
 export async function seekTime(isoTimestamp) {
     if (!chart) return;
     if (!isoTimestamp) {
