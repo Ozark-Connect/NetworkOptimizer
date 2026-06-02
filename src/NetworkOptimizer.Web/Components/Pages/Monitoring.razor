@@ -832,7 +832,7 @@ else
                 StateHasChanged();
             }
         }
-        _lastTabParam = TabParam;
+        _lastTabParam = TabParam ?? _activeTab;
 
         if (DiscoverParam == "1" && _activeTab == "performance")
         {
@@ -1781,6 +1781,7 @@ else
                 _mapDotNetRef ??= DotNetObjectReference.Create(this);
                 await JS.InvokeVoidAsync("eval",
                     "window.__mountLanFlowMap = async function(canvasId, ref) {" +
+                    "  await new Promise(r => requestAnimationFrame(r));" +
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
