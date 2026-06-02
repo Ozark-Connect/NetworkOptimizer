@@ -76,9 +76,19 @@ else
     echo "Warning: config.js not found at $CONFIG_FILE"
 fi
 
+# Strip IPv6 listen directive if IPv6 is not available on the host.
+# Kernels with net.ipv6.conf.all.disable_ipv6=1 don't create /proc/net/if_inet6,
+# and nginx will refuse to start if it can't bind [::].
+NGINX_CONF="/etc/nginx/conf.d/default.conf"
+if [ ! -f /proc/net/if_inet6 ]; then
+    sed -i '/listen \[::\]/d' "$NGINX_CONF"
+    echo "IPv6 not available on host - binding IPv4 only"
+else
+    echo "IPv6 available - binding dual-stack"
+fi
+
 # Enforce canonical URL via 302 redirect (matches UI logic exactly)
 # Prevents browser caching issues on mobile
-NGINX_CONF="/etc/nginx/conf.d/default.conf"
 OST_PORT="${OPENSPEEDTEST_PORT:-3005}"
 OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
 
