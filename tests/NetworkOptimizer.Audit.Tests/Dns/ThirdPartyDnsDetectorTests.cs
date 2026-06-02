@@ -9,6 +9,7 @@ using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
 
+[Collection("ThirdPartyDns")]
 public class ThirdPartyDnsDetectorTests : IDisposable
 {
     private readonly Mock<ILogger<ThirdPartyDnsDetector>> _loggerMock;

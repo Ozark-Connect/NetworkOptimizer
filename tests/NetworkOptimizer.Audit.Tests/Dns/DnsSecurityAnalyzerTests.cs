@@ -13,6 +13,7 @@ using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
 
+[Collection("ThirdPartyDns")]
 public class DnsSecurityAnalyzerTests : IDisposable
 {
     private readonly DnsSecurityAnalyzer _analyzer;
