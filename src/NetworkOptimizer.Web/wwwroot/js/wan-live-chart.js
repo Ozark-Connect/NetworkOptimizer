@@ -203,6 +203,49 @@ export async function mount(containerId, opts) {
     pollTimer = setInterval(pollLive, interval);
 }
 
+export async function seekTime(isoTimestamp) {
+    if (!chart) return;
+    if (!isoTimestamp) {
+        // Return to live mode
+        if (pollTimer) return; // already live
+        buffer = [];
+        await loadHistory();
+        updateChart();
+        pollTimer = setInterval(pollLive, POLL_MS);
+        return;
+    }
+    // Historic mode: stop polling, fetch window centered on timestamp
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    const at = new Date(isoTimestamp).getTime();
+    const halfWindow = HISTORY_MINUTES * 60000 / 2;
+    const from = new Date(at - halfWindow);
+    const to = new Date(at + halfWindow);
+    try {
+        const resp = await fetch(
+            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
+            { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        buffer = (data.points || []).map(p => ({
+            time: new Date(p.time).getTime(),
+            download: p.downloadBps,
+            upload: p.uploadBps,
+            rtt: p.rttMs,
+            loss: p.lossPercent,
+        }));
+    } catch { return; }
+    if (buffer.length === 0) return;
+    chart.updateOptions({
+        xaxis: { min: at - halfWindow, max: at + halfWindow },
+    }, false, false, false);
+    chart.updateSeries([
+        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
+    ], false);
+}
+
 export function unmount() {
     mountGen++;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
