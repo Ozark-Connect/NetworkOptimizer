@@ -146,6 +146,7 @@ public class CellularModemService : ICellularModemService
         return null;
     }
 
+    // TODO: Move to ICellularModemProvider.RequiresSharedSsh property when adding a 4th provider
     /// <summary>
     /// Whether this modem's provider requires the shared UniFi SSH credentials.
     /// Providers with per-modem SSH credentials (quectel-at) handle their own auth.
