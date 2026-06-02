@@ -847,8 +847,6 @@ else
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
     private string? _soloTargetId;
-    private bool _scrollToDeviceChartsPending;
-    private bool _scrollToLatencyChartsPending;
 
     protected override void OnParametersSet()
     {
@@ -877,16 +875,12 @@ else
         }
 
         if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
-        {
             _soloDeviceMac = DeviceParam;
-            _scrollToDeviceChartsPending = true;
-        }
 
         if (!string.IsNullOrEmpty(CategoryParam) && _activeTab == "performance")
         {
             _preSelectCategory = CategoryParam;
             _soloTargetId = TargetParam;
-            _scrollToLatencyChartsPending = true;
         }
     }
 
@@ -1767,8 +1761,17 @@ else
             try
             {
                 var chartsUrl = VersionedJs("/js/latency-charts.js");
+                var postMount = "";
+                if (!string.IsNullOrEmpty(_preSelectCategory))
+                {
+                    postMount = $"m.setCategory('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_preSelectCategory)}');";
+                    if (!string.IsNullOrEmpty(_soloTargetId))
+                        postMount += $"m.soloTarget('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloTargetId)}');";
+                    _preSelectCategory = null;
+                    _soloTargetId = null;
+                }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); }})();");
+                    $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); {postMount} }})();");
             }
             catch { _latencyChartsMounted = false; }
         }
@@ -1793,8 +1796,14 @@ else
             try
             {
                 var healthUrl = VersionedJs("/js/device-health-charts.js");
+                var postMount = "";
+                if (!string.IsNullOrEmpty(_soloDeviceMac))
+                {
+                    postMount = $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloDeviceMac)}');";
+                    _soloDeviceMac = null;
+                }
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); }})();");
+                    $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); {postMount} }})();");
             }
             catch { _healthChartsMounted = false; }
         }
@@ -1834,36 +1843,6 @@ else
             await ScrollToSfpChartsAsync();
         }
 
-        if (_scrollToDeviceChartsPending && _activeTab == "devices" && _healthChartsMounted)
-        {
-            _scrollToDeviceChartsPending = false;
-            if (!string.IsNullOrEmpty(_soloDeviceMac))
-            {
-                var mac = _soloDeviceMac;
-                _soloDeviceMac = null;
-                try { await JS.InvokeVoidAsync("eval", $"window.__healthCharts?.soloDevice('{mac}');"); }
-                catch { }
-            }
-        }
-
-        if (_scrollToLatencyChartsPending && _activeTab == "performance" && _latencyChartsMounted)
-        {
-            _scrollToLatencyChartsPending = false;
-            if (!string.IsNullOrEmpty(_preSelectCategory))
-            {
-                var cat = _preSelectCategory;
-                var target = _soloTargetId;
-                _preSelectCategory = null;
-                _soloTargetId = null;
-                try
-                {
-                    await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{cat}');");
-                    if (!string.IsNullOrEmpty(target))
-                        await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.soloTarget('{target}');");
-                }
-                catch { }
-            }
-        }
     }
 
     public void Dispose()
