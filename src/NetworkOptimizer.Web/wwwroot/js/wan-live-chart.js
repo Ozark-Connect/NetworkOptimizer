@@ -181,8 +181,10 @@ async function pollLive() {
 }
 
 export async function mount(containerId, opts) {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (chart) { chart.destroy(); chart = null; }
+    buffer = [];
     const gen = ++mountGen;
-    unmount();
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
