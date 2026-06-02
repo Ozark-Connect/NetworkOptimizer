@@ -215,7 +215,8 @@ export function resume() {
 export async function seekTime(isoTimestamp) {
     if (!chart) return;
     if (!isoTimestamp) {
-        // Return to live mode
+        // Return to live mode - clear playhead annotation
+        chart.clearAnnotations();
         if (pollTimer) return; // already live
         buffer = [];
         await loadHistory();
@@ -254,6 +255,22 @@ export async function seekTime(isoTimestamp) {
         { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
         { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
     ], false);
+
+    chart.clearAnnotations();
+    chart.addXaxisAnnotation({
+        x: at,
+        borderColor: '#f1f5f9',
+        strokeDashArray: 3,
+        opacity: 0.5,
+        label: {
+            text: new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            borderColor: 'transparent',
+            style: { background: 'transparent', color: '#f1f5f9', fontSize: '9px' },
+            position: 'front',
+            orientation: 'horizontal',
+            offsetY: -5,
+        }
+    });
 }
 
 export function unmount() {
