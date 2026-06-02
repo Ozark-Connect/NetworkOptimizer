@@ -138,9 +138,12 @@ public static class MonitoringChartEndpoints
             var wanData = await wanTask;
             var rttData = await rttTask;
 
-            var rttByTime = rttData.ToDictionary(
-                p => p.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5),
-                p => p);
+            var rttByTime = new Dictionary<long, MonitoringInfluxClient.LatencyPoint>();
+            foreach (var p in rttData)
+            {
+                var bucket = p.Time.Ticks / (TimeSpan.TicksPerSecond * 5) * (TimeSpan.TicksPerSecond * 5);
+                rttByTime[bucket] = p;
+            }
             MonitoringInfluxClient.LatencyPoint? lastRtt = null;
 
             var points = wanData.Select(w =>
