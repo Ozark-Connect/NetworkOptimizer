@@ -90,7 +90,7 @@ function buildOpts() {
                 opposite: true,
                 show: false,
                 min: 0,
-                max: v => Math.max(v * 1.2, 2),
+                max: v => Math.max(v * 1.2, 5),
             },
             {
                 seriesName: 'RTT',
