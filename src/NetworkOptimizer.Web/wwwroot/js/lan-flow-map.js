@@ -248,10 +248,13 @@ export class LanFlowMap {
         } catch {}
 
         // Persist camera on orbit change with 500ms debounce.
+        // Skip saves during the fly-in animation so we don't overwrite
+        // the saved position with intermediate fly-in frames.
         let camSaveTimer = null;
         this.controls.addEventListener('change', () => {
             clearTimeout(camSaveTimer);
             camSaveTimer = setTimeout(() => {
+                if (this._flyInUntil && performance.now() < this._flyInUntil) return;
                 try {
                     const p = this.camera.position;
                     const t = this.controls.target;
