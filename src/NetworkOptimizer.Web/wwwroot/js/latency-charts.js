@@ -638,6 +638,32 @@ export function restoreState() {
     startPoll();
 }
 
+export function setCategory(cat) {
+    currentCategory = cat;
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('[data-category]').forEach(b => {
+            b.classList.toggle('active', b.dataset.category === cat);
+        });
+    }
+    visibility = {};
+    loadAndUpdate();
+    startPoll();
+}
+
+export function soloTarget(targetId) {
+    if (!targetMeta.length) return;
+    const match = targetMeta.find(t => t.id === targetId);
+    if (!match) return;
+    targetMeta.forEach(t => { visibility[t.id] = t.id === targetId; });
+    updateChartVisibility();
+    const container = document.getElementById(containerId);
+    if (container) {
+        renderBadges(container);
+        if (lastFetchData) renderStatsTable(container, lastFetchData);
+    }
+}
+
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }

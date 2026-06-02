@@ -109,6 +109,10 @@ else
         }
 
         <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
+        var gwFabricTargetId = GetGatewayFabricTargetId();
+        var gwFabricUrl = gwFabricTargetId != null
+            ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
+            : "/monitoring?tab=performance&category=Fabric";
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             <div class="monitoring-stat-card monitoring-stat-rate">
@@ -120,16 +124,16 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var gwLatency = GetGatewayLatency(); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
                 <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
                 <div class="stat-label">Gateway RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
                 <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
                 <div class="stat-label">Gateway Loss</div>
             </div>
             @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 @if (hasIspTargets)
                 {
                     <div class="stat-value">@FormatRtt(ispTarget.rtt)</div>
@@ -140,7 +144,7 @@ else
                 }
                 <div class="stat-label">ISP RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
                 @if (hasIspTargets)
                 {
                     <div class="stat-value @(ispTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(ispTarget.loss)</div>
@@ -152,7 +156,7 @@ else
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 @if (hasTransitTargets)
                 {
                     <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
@@ -163,7 +167,7 @@ else
                 }
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 @if (hasTransitTargets)
                 {
                     <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
@@ -197,16 +201,21 @@ else
 
         <!-- Bottom stat cards: Gateway health + fabric load -->
         <div class="monitoring-stat-cards" style="margin-top: 1.5rem;">
-            @{ var gwStats = GetGatewayStats(); }
-            <div class="monitoring-stat-card">
+            @{
+                var gwStats = GetGatewayStats();
+                var gwDeviceUrl = _gatewayMac != null
+                    ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
+                    : "/monitoring?tab=devices";
+            }
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
                 <div class="stat-label">Gateway Memory</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>
                 <div class="stat-label">Gateway Temp</div>
             </div>
@@ -740,6 +749,15 @@ else
     [SupplyParameterFromQuery(Name = "sfp")]
     public string? SfpParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "device")]
+    public string? DeviceParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "category")]
+    public string? CategoryParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "target")]
+    public string? TargetParam { get; set; }
+
     private string? _lastTabParam;
 
     private bool _upstreamDiscoveryPendingSave =>
@@ -826,6 +844,11 @@ else
     private bool _scrollToDiscoveryPending;
     private bool _scrollToSfpChartsPending;
     private string? _soloSfpModuleId;
+    private string? _soloDeviceMac;
+    private string? _preSelectCategory;
+    private string? _soloTargetId;
+    private bool _scrollToDeviceChartsPending;
+    private bool _scrollToLatencyChartsPending;
 
     protected override void OnParametersSet()
     {
@@ -851,6 +874,19 @@ else
         {
             _soloSfpModuleId = SfpParam;
             _scrollToSfpChartsPending = true;
+        }
+
+        if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
+        {
+            _soloDeviceMac = DeviceParam;
+            _scrollToDeviceChartsPending = true;
+        }
+
+        if (!string.IsNullOrEmpty(CategoryParam) && _activeTab == "performance")
+        {
+            _preSelectCategory = CategoryParam;
+            _soloTargetId = TargetParam;
+            _scrollToLatencyChartsPending = true;
         }
     }
 
@@ -1411,18 +1447,23 @@ else
         return LiveStats.GetForDevice(_gatewayMac);
     }
 
+    private string? GetGatewayFabricTargetId()
+    {
+        if (_gatewayMac == null) return null;
+        return _targets.FirstOrDefault(t =>
+            t.TargetType == MonitoringTargetType.Fabric
+            && t.Enabled
+            && !string.IsNullOrEmpty(t.DeviceMac)
+            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase))?.TargetId;
+    }
+
     private (double? rtt, double loss) GetGatewayLatency()
     {
         if (_historicSnapshot != null)
             return (_historicSnapshot.GatewayRttMs, _historicSnapshot.GatewayLossPercent);
-        if (_gatewayMac == null) return (null, 0);
-        var gwFabric = _targets.FirstOrDefault(t =>
-            t.TargetType == MonitoringTargetType.Fabric
-            && t.Enabled
-            && !string.IsNullOrEmpty(t.DeviceMac)
-            && t.DeviceMac.Replace("-", ":").Equals(_gatewayMac, StringComparison.OrdinalIgnoreCase));
-        if (gwFabric == null) return (null, 0);
-        var s = LiveStats.GetTargetStats(gwFabric.TargetId);
+        var targetId = GetGatewayFabricTargetId();
+        if (targetId == null) return (null, 0);
+        var s = LiveStats.GetTargetStats(targetId);
         return (s?.RttAvgMs, s?.LossPercent ?? 0);
     }
 
@@ -1706,7 +1747,7 @@ else
                     "window.__mountWanLiveChart = async function(elId) {" +
                     $"  const m = await import('{VersionedJs("/js/wan-live-chart.js")}');" +
                     "  window.__wanLiveChart = m;" +
-                    "  await m.mount(elId);" +
+                    "  await m.mount(elId, {pollMs: 1000});" +
                     "}");
                 _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
             }
@@ -1791,6 +1832,37 @@ else
             _scrollToSfpChartsPending = false;
             _soloSfpModuleId = null;
             await ScrollToSfpChartsAsync();
+        }
+
+        if (_scrollToDeviceChartsPending && _activeTab == "devices" && _healthChartsMounted)
+        {
+            _scrollToDeviceChartsPending = false;
+            if (!string.IsNullOrEmpty(_soloDeviceMac))
+            {
+                var mac = _soloDeviceMac;
+                _soloDeviceMac = null;
+                try { await JS.InvokeVoidAsync("eval", $"window.__healthCharts?.soloDevice('{mac}');"); }
+                catch { }
+            }
+        }
+
+        if (_scrollToLatencyChartsPending && _activeTab == "performance" && _latencyChartsMounted)
+        {
+            _scrollToLatencyChartsPending = false;
+            if (!string.IsNullOrEmpty(_preSelectCategory))
+            {
+                var cat = _preSelectCategory;
+                var target = _soloTargetId;
+                _preSelectCategory = null;
+                _soloTargetId = null;
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.setCategory('{cat}');");
+                    if (!string.IsNullOrEmpty(target))
+                        await JS.InvokeVoidAsync("eval", $"window.__latencyCharts?.soloTarget('{target}');");
+                }
+                catch { }
+            }
         }
     }
 

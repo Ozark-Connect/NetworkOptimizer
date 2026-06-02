@@ -555,6 +555,13 @@ a:hover {
 .clickable-card:hover {
     background: var(--bg-tertiary);
 }
+.clickable-stat-card {
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+.clickable-stat-card:hover {
+    opacity: 0.8;
+}
 
 /* Speed Test Stats (Dashboard panel) */
 .speed-test-stats {

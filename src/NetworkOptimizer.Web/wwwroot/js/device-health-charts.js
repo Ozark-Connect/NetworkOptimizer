@@ -363,6 +363,16 @@ export async function mount(elId) {
     startPoll();
 }
 
+export function soloDevice(mac) {
+    if (!deviceMeta.length) return;
+    const match = deviceMeta.find(d => d.mac === mac);
+    if (!match) return;
+    deviceMeta.forEach(d => { visibility[d.mac] = d.mac === mac; });
+    updateVisibility();
+    const container = document.getElementById(containerId);
+    if (container) renderBadges(container);
+}
+
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }

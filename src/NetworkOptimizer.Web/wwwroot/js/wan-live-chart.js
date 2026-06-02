@@ -179,7 +179,7 @@ async function pollLive() {
     } catch { }
 }
 
-export async function mount(containerId) {
+export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
@@ -192,8 +192,9 @@ export async function mount(containerId) {
 
     await loadHistory();
     updateChart();
+    const interval = opts?.pollMs || POLL_MS;
 
-    pollTimer = setInterval(pollLive, POLL_MS);
+    pollTimer = setInterval(pollLive, interval);
 }
 
 export function unmount() {
