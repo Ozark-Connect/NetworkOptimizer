@@ -1509,7 +1509,17 @@ else
     {
         var layout = await DashboardLayout.GetLayoutAsync();
         var card = layout.Cards.FirstOrDefault(c => c.Id == DashboardCards.LiveView);
-        if (card != null)
+        if (card == null)
+        {
+            card = new DashboardCardConfig
+            {
+                Id = DashboardCards.LiveView,
+                Visible = true,
+                FullWidth = true,
+            };
+            layout.Cards.Insert(0, card);
+        }
+        else
         {
             card.Visible = true;
             layout.Cards.Remove(card);
