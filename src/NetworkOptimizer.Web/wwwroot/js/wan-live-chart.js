@@ -84,7 +84,7 @@ function buildOpts() {
                 axisBorder: { show: false },
                 axisTicks: { show: false },
             },
-            { seriesName: 'Upload', show: false, min: 0 },
+            { seriesName: 'Download', show: false, min: 0 },
             {
                 seriesName: 'Loss',
                 opposite: true,
