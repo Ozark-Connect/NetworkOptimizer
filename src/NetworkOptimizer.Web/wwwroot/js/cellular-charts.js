@@ -282,6 +282,15 @@ function shiftWindow(container, direction) {
 }
 
 export async function mount(elId) {
+    // Reset all state in case unmount didn't complete (Blazor Dispose race)
+    stopPoll();
+    currentRangeHours = 24;
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
+    modemMeta = [];
+    visibility = {};
     containerId = elId;
     const container = document.getElementById(elId);
     if (!container) return;
@@ -393,10 +402,18 @@ export function soloModem(modemId) {
 export function unmount() {
     stopPoll();
     if (visibilityObserver) { visibilityObserver.disconnect(); visibilityObserver = null; }
+    if (fetchController) { fetchController.abort(); fetchController = null; }
     if (rsrpChart) { rsrpChart.destroy(); rsrpChart = null; }
     if (rsrqChart) { rsrqChart.destroy(); rsrqChart = null; }
     if (snrChart) { snrChart.destroy(); snrChart = null; }
     if (qualityChart) { qualityChart.destroy(); qualityChart = null; }
+    containerId = null;
     modemMeta = [];
     visibility = {};
+    currentRangeHours = 24;
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
+    isInViewport = true;
 }

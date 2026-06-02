@@ -218,8 +218,7 @@ public class CellularModemService : ICellularModemService
 
             if (stats != null)
             {
-                // Update LastPolled in database
-                await UpdateModemConfigAsync(modem.Id, null);
+                await UpdateModemConfigAsync(modem.Id, null, success: true);
 
                 lock (_lock)
                 {
@@ -234,14 +233,14 @@ public class CellularModemService : ICellularModemService
             }
             else
             {
-                await UpdateModemConfigAsync(modem.Id, "Poll returned no data");
+                await UpdateModemConfigAsync(modem.Id, "Poll returned no data", success: false);
                 return (false, "Failed to poll modem - no data returned");
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing modem {Name}", modem.Name);
-            await UpdateModemConfigAsync(modem.Id, ex.Message);
+            await UpdateModemConfigAsync(modem.Id, ex.Message, success: false);
             return (false, $"Error: {ex.Message}");
         }
     }
@@ -336,7 +335,7 @@ public class CellularModemService : ICellularModemService
         }
     }
 
-    private async Task UpdateModemConfigAsync(int modemId, string? error)
+    private async Task UpdateModemConfigAsync(int modemId, string? error, bool success)
     {
         try
         {
@@ -346,7 +345,8 @@ public class CellularModemService : ICellularModemService
             var config = await repository.GetModemConfigurationAsync(modemId);
             if (config != null)
             {
-                config.LastPolled = DateTime.UtcNow;
+                if (success)
+                    config.LastPolled = DateTime.UtcNow;
                 config.LastError = error;
                 config.UpdatedAt = DateTime.UtcNow;
                 await repository.SaveModemConfigurationAsync(config);
