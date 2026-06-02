@@ -191,6 +191,7 @@ export async function mount(containerId, opts) {
     await chart.render();
 
     await loadHistory();
+    await pollLive();
     updateChart();
     const interval = opts?.pollMs || POLL_MS;
 
