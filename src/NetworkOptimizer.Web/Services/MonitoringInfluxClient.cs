@@ -895,18 +895,24 @@ from(bucket: ""{_bucket}"")
             targetFilter = $"\n  |> filter(fn: (r) => {idFilter})";
         }
         var flux = $@"
-from(bucket: ""{_bucket}"")
+base = from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}
-  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
-  |> group(columns: [""target_type"", ""_field""])
+
+rtt = base
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
+  |> group(columns: [""_field""])
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
   |> fill(usePrevious: true)
-  |> group(columns: [""_time"", ""_field""])
-  |> mean()
-  |> group(columns: [""_field""])
   |> timedMovingAverage(every: {ToFluxDuration(window)}, period: {ToFluxDuration(smoothWindow)})
+
+loss = base
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> group(columns: [""_field""])
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+
+union(tables: [rtt, loss])
   |> group()
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
