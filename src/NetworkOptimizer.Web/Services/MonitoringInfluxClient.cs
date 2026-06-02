@@ -836,7 +836,8 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return Array.Empty<LatencyPoint>();
         var window = aggregateWindow ?? TimeSpan.FromSeconds(
-            Math.Max(30, (int)((to - from).TotalSeconds / 150)));
+            Math.Max(10, (int)((to - from).TotalSeconds / 150)));
+        var smoothWindow = TimeSpan.FromSeconds(Math.Max(30, window.TotalSeconds * 3));
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
@@ -844,9 +845,12 @@ from(bucket: ""{_bucket}"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"")
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""loss_percent"")
   |> group(columns: [""target_type"", ""_field""])
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
+  |> fill(usePrevious: true)
   |> group(columns: [""_time"", ""_field""])
   |> mean()
+  |> group(columns: [""_field""])
+  |> timedMovingAverage(every: {ToFluxDuration(window)}, period: {ToFluxDuration(smoothWindow)})
   |> group()
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";

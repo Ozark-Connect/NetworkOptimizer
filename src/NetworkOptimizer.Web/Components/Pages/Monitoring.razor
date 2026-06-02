@@ -1787,7 +1787,7 @@ else
                     "  window.__lanFlowMap = m;" +
                     "  await m.mount(canvasId);" +
                     "}");
-                await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
+                _ = JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
             }
             catch { _mapMounted = false; }
         }
