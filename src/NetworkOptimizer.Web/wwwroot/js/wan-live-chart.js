@@ -131,7 +131,7 @@ function buildOpts() {
 
 function rttYMax() {
     const maxRtt = buffer.reduce((m, p) => p.rtt != null && p.rtt > m ? p.rtt : m, 0);
-    return Math.ceil((Math.max(maxRtt, 5) * 1.3) / 5) * 5;
+    return Math.ceil((Math.max(maxRtt, 5) * 1.5) / 10) * 10;
 }
 
 function updateChart() {
