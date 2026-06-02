@@ -15,6 +15,7 @@ let chart = null;
 let pollTimer = null;
 let buffer = [];
 let elId = null;
+let mountGen = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -180,18 +181,20 @@ async function pollLive() {
 }
 
 export async function mount(containerId, opts) {
+    const gen = ++mountGen;
+    unmount();
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
 
-    buffer = [];
-    if (chart) { chart.destroy(); chart = null; }
-
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
+    if (gen !== mountGen) return;
 
     await loadHistory();
+    if (gen !== mountGen) return;
     await pollLive();
+    if (gen !== mountGen) return;
     updateChart();
     const interval = opts?.pollMs || POLL_MS;
 
@@ -199,6 +202,7 @@ export async function mount(containerId, opts) {
 }
 
 export function unmount() {
+    mountGen++;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
