@@ -92,6 +92,7 @@ public static class MonitoringChartEndpoints
 
         app.MapGet("/api/monitoring/wan-live-chart-data", async (
             MonitoringInfluxClient influx,
+            MonitoringLiveStats liveStats,
             UniFiConnectionService connectionService,
             DateTime? from,
             DateTime? to,
@@ -124,7 +125,9 @@ public static class MonitoringChartEndpoints
             var wanTask = !string.IsNullOrEmpty(gatewayMac) && wanIfNames?.Count > 0
                 ? influx.QueryGatewayWanRatesAsync(gatewayMac, wanIfNames, queryFrom, queryTo, ct: ct)
                 : Task.FromResult<IReadOnlyList<MonitoringInfluxClient.WanRatePoint>>(Array.Empty<MonitoringInfluxClient.WanRatePoint>());
-            var rttTask = influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, ct: ct);
+            var targets = await liveStats.GetIspTransitTargetsAsync(ct);
+            var targetIds = targets.Select(t => t.TargetId).ToList();
+            var rttTask = influx.QueryMeanIspTransitLatencyAsync(queryFrom, queryTo, targetIds, ct: ct);
 
             await Task.WhenAll(wanTask, rttTask);
 
