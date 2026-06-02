@@ -24,10 +24,14 @@ public static class UniFiProductDatabase
         "ULTEPEU",        // U-LTE-Backup-Pro (EU)
         "UMBBE630",       // U5G-Max
         "UMBBE631",       // U5G-Max-Outdoor
+        "UMBBE633",       // U5G Backup US (sysid e633)
+        "UMBBE634",       // U5G Backup EU (sysid e634)
 
         // Legacy/alternate codes
-        "U5GMAX",         // U5G-Max (legacy)
+        "U5GMAX",         // U5G Max (legacy)
         "ULTEPRO",        // U-LTE (legacy)
+        "U5G-US",         // U5G Backup (US SKU)
+        "U5G-EU",         // U5G Backup (EU SKU)
     };
 
     /// <summary>
@@ -422,6 +426,10 @@ public static class UniFiProductDatabase
         { "UCI", "UCI" },
         { "UMBBE630", "U5G-Max" },
         { "UMBBE631", "U5G-Max-Outdoor" },
+        // Unified display name - real SKUs are U5G-US / U5G-EU but we use a
+        // single non-regional name for cleaner UX and one device icon.
+        { "UMBBE633", "U5G-Backup" },
+        { "UMBBE634", "U5G-Backup" },
 
         // ----- Official: UPS -----
         { "USWDA23", "UPS-Tower" },
@@ -611,7 +619,17 @@ public static class UniFiProductDatabase
         { "UNVR", "UNVR" },
         { "UNVR-PRO", "UNVR-Pro" },
         { "U5GMAX", "U5G-Max" },
+        { "5G-Link", "U5G-Max" },
+        { "U5G-Link", "U5G-Max" },
+        { "5G-Link-Outdoor", "U5G-Max-Outdoor" },
+        { "U5G-Link-Outdoor", "U5G-Max-Outdoor" },
         { "ULTEPRO", "U-LTE" },
+        { "U5G-US", "U5G-Backup" },
+        { "U5G-EU", "U5G-Backup" },
+        { "U5G-Backup-US", "U5G-Backup" },
+        { "U5G-Backup-EU", "U5G-Backup" },
+        { "U5G-Antenna-US", "U5G-Backup" },
+        { "U5G-Antenna-EU", "U5G-Backup" },
         { "UDBPRO", "UDB-Pro" },
         { "UDBPROSECTOR", "UDB-Pro-Sector" },
         { "USPPLUG", "USP-Plug" },
@@ -759,7 +777,8 @@ public static class UniFiProductDatabase
 
     /// <summary>
     /// Get the default QMI device path for a cellular modem based on its model.
-    /// U-LTE devices use /dev/cdc-wdm0, U5G devices use /dev/wwan0qmi0.
+    /// U-LTE devices use /dev/cdc-wdm0, U5G Backup uses qrtr://3,
+    /// U5G-Max and other 5G modems use /dev/wwan0qmi0.
     /// </summary>
     /// <param name="model">The model code or product name</param>
     /// <returns>The default QMI device path for this modem type</returns>
@@ -775,6 +794,16 @@ public static class UniFiProductDatabase
             model.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase))
         {
             return "/dev/cdc-wdm0";
+        }
+
+        // U5G Backup (US/EU) uses QMI over QRTR (no /dev/cdc-wdm0 or /dev/wwan0qmi0)
+        if (model.Equals("UMBBE633", StringComparison.OrdinalIgnoreCase) ||
+            model.StartsWith("U5G-Backup", StringComparison.OrdinalIgnoreCase) ||
+            model.StartsWith("U5G-Antenna", StringComparison.OrdinalIgnoreCase) ||
+            model.Equals("U5G-US", StringComparison.OrdinalIgnoreCase) ||
+            model.Equals("U5G-EU", StringComparison.OrdinalIgnoreCase))
+        {
+            return "qrtr://3";
         }
 
         // U5G-Max and other 5G modems use /dev/wwan0qmi0

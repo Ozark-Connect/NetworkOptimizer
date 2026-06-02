@@ -18,6 +18,7 @@ public class CellularModemService : ICellularModemService
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshService _sshService;
     private readonly UniFiConnectionService _connectionService;
+    private readonly MonitoringInfluxClient _influx;
     private readonly Dictionary<string, ICellularModemProvider> _providers;
     private readonly Timer? _pollingTimer;
     private readonly object _lock = new();
@@ -25,14 +26,6 @@ public class CellularModemService : ICellularModemService
     private readonly Dictionary<int, CellularModemStats> _statsCache = new();
     private bool _isPolling;
 
-    // Default QMI device path for U5G-Max
-    private const string DefaultQmiDevice = "/dev/wwan0qmi0";
-    private const int DefaultPollingIntervalSeconds = 300;
-
-    // Default provider key for rows that have an empty Provider column
-    // (e.g. legacy rows persisted before this column existed). The
-    // EF migration backfills the column with "qmicli" so in practice
-    // this is only a defensive fallback.
     private const string DefaultProviderKey = "qmicli";
 
     public CellularModemService(
@@ -40,12 +33,14 @@ public class CellularModemService : ICellularModemService
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
         UniFiConnectionService connectionService,
+        MonitoringInfluxClient influx,
         IEnumerable<ICellularModemProvider> providers)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
         _connectionService = connectionService;
+        _influx = influx;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
         if (!_providers.ContainsKey(DefaultProviderKey))
@@ -84,7 +79,7 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Auto-discover U5G-Max modems from UniFi device list
+    /// Auto-discover UniFi cellular modems from the controller device list
     /// </summary>
     public async Task<List<DiscoveredModem>> DiscoverModemsAsync()
     {
@@ -119,7 +114,6 @@ public class CellularModemService : ICellularModemService
                         device.Name, displayModel, device.Ip);
                 }
             }
-
         }
         catch (Exception ex)
         {
@@ -130,35 +124,44 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Dispatch a poll to the appropriate provider based on the row's Provider column.
-    /// Empty Provider falls back to DefaultProviderKey so legacy rows keep polling.
+    /// Resolve the ICellularModemProvider for a modem configuration.
+    /// Falls back to DefaultProviderKey for legacy rows with empty Provider.
     /// </summary>
-    private async Task<CellularModemStats?> ExecutePollAsync(ModemConfiguration modem)
+    private ICellularModemProvider? ResolveProvider(ModemConfiguration modem)
     {
         var providerKey = string.IsNullOrWhiteSpace(modem.Provider)
             ? DefaultProviderKey
             : modem.Provider;
 
-        if (!_providers.TryGetValue(providerKey, out var provider))
-        {
-            _logger.LogError(
-                "No cellular modem provider registered for key '{Key}' (modem {Name})",
-                providerKey, modem.Name);
-            return null;
-        }
+        if (_providers.TryGetValue(providerKey, out var provider))
+            return provider;
+
+        _logger.LogError(
+            "No cellular modem provider registered for key '{Key}' (modem {Name})",
+            providerKey, modem.Name);
+        return null;
+    }
+
+    /// <summary>
+    /// Whether this modem's provider requires the shared UniFi SSH credentials.
+    /// Providers with per-modem SSH credentials (quectel-at) handle their own auth.
+    /// </summary>
+    private static bool RequiresSharedSsh(ModemConfiguration modem)
+    {
+        var key = string.IsNullOrWhiteSpace(modem.Provider) ? DefaultProviderKey : modem.Provider;
+        return string.Equals(key, "qmicli", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Dispatch a poll to the appropriate provider based on the row's Provider column.
+    /// </summary>
+    private async Task<CellularModemStats?> ExecutePollAsync(ModemConfiguration modem)
+    {
+        var provider = ResolveProvider(modem);
+        if (provider == null) return null;
 
         var context = ToPollContext(modem);
-        var stats = await provider.PollAsync(context);
-
-        if (stats != null)
-        {
-            lock (_lock)
-            {
-                _lastStats = stats;
-            }
-        }
-
-        return stats;
+        return await provider.PollAsync(context);
     }
 
     private static ModemPollContext ToPollContext(ModemConfiguration modem) => new()
@@ -175,28 +178,15 @@ public class CellularModemService : ICellularModemService
     };
 
     /// <summary>
-    /// Test SSH connection to a modem using shared credentials
-    /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync(string host)
-    {
-        return await _sshService.TestConnectionAsync(host);
-    }
-
-    /// <summary>
     /// Provider-aware probe. Resolves the provider for the configuration
     /// and asks it to verify reachability and (where applicable) auth.
     /// Used by the Settings page Probe & Detect button.
     /// </summary>
     public async Task<(bool success, string message)> ProbeModemAsync(ModemConfiguration modem)
     {
-        var providerKey = string.IsNullOrWhiteSpace(modem.Provider)
-            ? DefaultProviderKey
-            : modem.Provider;
-
-        if (!_providers.TryGetValue(providerKey, out var provider))
-        {
-            return (false, $"No provider registered for key '{providerKey}'");
-        }
+        var provider = ResolveProvider(modem);
+        if (provider == null)
+            return (false, $"No provider registered for '{modem.Provider}'");
 
         var context = ToPollContext(modem);
         return await provider.TestConnectionAsync(context);
@@ -222,6 +212,9 @@ public class CellularModemService : ICellularModemService
                     _statsCache[modem.Id] = stats;
                 }
 
+                // Write to InfluxDB for time-series charting
+                WriteCellularToInflux(modem, stats);
+
                 return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
             }
             else
@@ -239,7 +232,7 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Get all configured modems (legacy)
+    /// Get all configured modems
     /// </summary>
     public async Task<List<ModemConfiguration>> GetModemsAsync()
     {
@@ -249,7 +242,7 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Add or update a modem configuration (simplified - no SSH creds needed)
+    /// Add or update a modem configuration
     /// </summary>
     public async Task<ModemConfiguration> SaveModemAsync(ModemConfiguration config)
     {
@@ -268,8 +261,11 @@ public class CellularModemService : ICellularModemService
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         await repository.DeleteModemConfigurationAsync(id);
 
-        // Clear cached stats since the modem may have been the one producing them
-        _lastStats = null;
+        lock (_lock)
+        {
+            _statsCache.Remove(id);
+            _lastStats = null;
+        }
     }
 
     private async Task PollAllModemsAsync()
@@ -280,10 +276,9 @@ public class CellularModemService : ICellularModemService
         {
             _isPolling = true;
 
-            // qmicli modems require SSH credentials; other providers (e.g. the
-            // HTTP-based Netgear Nighthawk hotspot) handle their own auth. Fetch
-            // SSH availability once per cycle so qmicli modems skip gracefully
-            // when SSH isn't configured, without blocking the entire poll loop.
+            // SSH-based providers require SSH credentials; HTTP-based providers
+            // handle their own auth. Check once per cycle so SSH modems skip
+            // gracefully without blocking the entire poll loop.
             var sshSettings = await _sshService.GetSettingsAsync();
             var sshAvailable = sshSettings.Enabled && sshSettings.HasCredentials;
 
@@ -296,15 +291,8 @@ public class CellularModemService : ICellularModemService
 
             foreach (var modem in modems)
             {
-                var providerKey = string.IsNullOrWhiteSpace(modem.Provider)
-                    ? DefaultProviderKey
-                    : modem.Provider;
-
-                // Skip qmicli modems if SSH isn't configured - other providers handle their own auth
-                if (providerKey == DefaultProviderKey && !sshAvailable)
-                {
+                if (RequiresSharedSsh(modem) && !sshAvailable)
                     continue;
-                }
 
                 // Check if it's time to poll this modem
                 if (modem.LastPolled.HasValue)
@@ -346,6 +334,63 @@ public class CellularModemService : ICellularModemService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update modem config after poll");
+        }
+    }
+
+    /// <summary>
+    /// Write cellular signal metrics to InfluxDB for time-series charting.
+    /// In NSA mode, writes separate points for LTE and NR5G so both bands
+    /// are charted independently. Fire-and-forget; InfluxDB client handles
+    /// buffering and graceful skip when not configured.
+    /// </summary>
+    private void WriteCellularToInflux(ModemConfiguration modem, CellularModemStats stats)
+    {
+        var modemId = modem.Id.ToString();
+        var provider = modem.Provider ?? "qmicli";
+
+        // Write NR5G signal if present
+        if (stats.Nr5g?.Rsrp.HasValue == true)
+        {
+            _ = _influx.WriteCellularAsync(
+                modemId: modemId,
+                modemName: stats.ModemName,
+                provider: provider,
+                networkMode: stats.NetworkModeLabel,
+                carrier: stats.Carrier,
+                bandName: stats.ActiveBand?.BandName,
+                channel: stats.ActiveBand?.Channel,
+                bandwidthMhz: stats.ActiveBand?.BandwidthMhz,
+                rsrp: stats.Nr5g.Rsrp,
+                rsrq: stats.Nr5g.Rsrq,
+                snr: stats.Nr5g.Snr,
+                rssi: stats.Nr5g.Rssi,
+                signalQuality: stats.SignalQuality,
+                signalBars: stats.Nr5g.Bars,
+                isRoaming: stats.IsRoaming,
+                timestamp: stats.Timestamp);
+        }
+
+        // Write LTE signal (always present in LTE-only and NSA modes)
+        if (stats.Lte?.Rsrp.HasValue == true)
+        {
+            // Offset by 1 tick so InfluxDB doesn't overwrite the NR5G point
+            _ = _influx.WriteCellularAsync(
+                modemId: modemId,
+                modemName: stats.ModemName,
+                provider: provider,
+                networkMode: "LTE",
+                carrier: stats.Carrier,
+                bandName: null,
+                channel: null,
+                bandwidthMhz: null,
+                rsrp: stats.Lte.Rsrp,
+                rsrq: stats.Lte.Rsrq,
+                snr: stats.Lte.Snr,
+                rssi: stats.Lte.Rssi,
+                signalQuality: null,
+                signalBars: stats.Lte.Bars,
+                isRoaming: stats.IsRoaming,
+                timestamp: stats.Timestamp.AddTicks(1));
         }
     }
 

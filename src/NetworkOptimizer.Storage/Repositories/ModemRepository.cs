@@ -106,6 +106,7 @@ public class ModemRepository : IModemRepository
                     existing.PrivateKeyPath = config.PrivateKeyPath;
                     existing.ModemType = config.ModemType;
                     existing.QmiDevice = config.QmiDevice;
+                    existing.Provider = config.Provider;
                     existing.Enabled = config.Enabled;
                     existing.PollingIntervalSeconds = config.PollingIntervalSeconds;
                     existing.LastPolled = config.LastPolled;
