@@ -639,14 +639,16 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Monitor cellular modems (U5G-Max, etc.) for signal strength and cell info.
-                Stats are polled every 5 minutes. Requires SSH credentials configured above.
+                Monitor cellular modems (Ubiquiti U5G-Max, Netgear Nighthawk hotspots, etc.)
+                for signal strength and cell info. Stats are polled every 5 minutes.
+                SSH credentials are required only for qmicli (Ubiquiti) modems.
             </p>
 
-            @if (sshSettings?.HasCredentials != true)
+            @if (sshSettings?.HasCredentials != true &&
+                 modemConfigs.Any(m => string.IsNullOrEmpty(m.Provider) || m.Provider == "qmicli"))
             {
                 <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                    <strong>SSH credentials required:</strong> Configure Device SSH credentials above before adding modems.
+                    <strong>SSH credentials required:</strong> One or more configured modems use the qmicli provider, which needs SSH credentials. Configure them in the Device SSH section above.
                     <a href="#device-ssh" style="margin-left: 0.5rem;">Go to Device SSH Settings</a>
                 </div>
             }
@@ -791,26 +793,72 @@
                     {
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
-                                <label class="form-label">Name</label>
-                                <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
+                                <label class="form-label">Provider</label>
+                                <select class="form-control" @bind="editingModem.Provider">
+                                    <option value="qmicli">Ubiquiti modem (SSH + qmicli)</option>
+                                    <option value="netgear-nighthawk-hotspot">Netgear Nighthawk hotspot (HTTP)</option>
+                                </select>
+                                <small class="form-help">Selects the transport used to poll this modem.</small>
                             </div>
                             <div class="form-group" style="flex: 2;">
-                                <label class="form-label">Host / IP</label>
-                                <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
                             </div>
                         </div>
 
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
-                                <label class="form-label">QMI Device Path</label>
-                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="Enter path for your modem type" required />
-                                <small class="form-help">LTE modems: <code>/dev/cdc-wdm0</code> · 5G modems: <code>/dev/wwan0qmi0</code></small>
+                                <label class="form-label">Host / IP</label>
+                                <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
                                 <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" min="60" max="3600" />
                             </div>
                         </div>
+
+                        @if (editingModem.Provider == "qmicli")
+                        {
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 2;">
+                                    <label class="form-label">QMI Device Path</label>
+                                    <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="Enter path for your modem type" required />
+                                    <small class="form-help">LTE modems: <code>/dev/cdc-wdm0</code> · 5G modems: <code>/dev/wwan0qmi0</code></small>
+                                </div>
+                            </div>
+                        }
+                        else if (editingModem.Provider == "netgear-nighthawk-hotspot")
+                        {
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 2;">
+                                    <label class="form-label">Admin Password (optional)</label>
+                                    <input type="password" class="form-control" @bind="editingModem.Password" placeholder="Leave empty for anonymous mode" />
+                                    <small class="form-help">
+                                        Without a password, signal/band/cell metrics are still polled.
+                                        Setting the admin password unlocks throughput counters.
+                                    </small>
+                                </div>
+                                <div class="form-group" style="flex: 1; display: flex; align-items: flex-end;">
+                                    <button class="btn btn-secondary" type="button" @onclick="ProbeModem" disabled="@probingModem">
+                                        @if (probingModem)
+                                        {
+                                            <span class="spinner"></span>
+                                            <span>Probing...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Probe &amp; Detect</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(probeResult))
+                            {
+                                <div class="alert alert-@probeResultClass" style="margin-top: 0.5rem;">
+                                    @probeResult
+                                </div>
+                            }
+                        }
 
                         <div class="form-group">
                             <label class="form-check">
@@ -2158,7 +2206,10 @@
 
     // Cellular Modem
     private List<ModemConfiguration> modemConfigs = new();
-    private ModemConfiguration editingModem = new() { Port = 22, Username = "root", QmiDevice = "", PollingIntervalSeconds = 300, Enabled = true };
+    private ModemConfiguration editingModem = new() { Provider = "qmicli", Port = 22, Username = "root", QmiDevice = "", PollingIntervalSeconds = 300, Enabled = true };
+    private bool probingModem = false;
+    private string probeResult = "";
+    private string probeResultClass = "";
     private string modemStatus = "Unknown";
     private bool savingModem = false;
     private string modemMessage = "";
@@ -3431,6 +3482,7 @@
         editingModem = new ModemConfiguration
         {
             Id = modem.Id,
+            Provider = string.IsNullOrWhiteSpace(modem.Provider) ? "qmicli" : modem.Provider,
             Name = modem.Name,
             Host = modem.Host,
             Port = modem.Port,
@@ -3443,6 +3495,7 @@
             PollingIntervalSeconds = modem.PollingIntervalSeconds
         };
         modemMessage = "";
+        probeResult = "";
         modemFormExpanded = true;  // Expand the form when editing
         StateHasChanged();
     }
@@ -3451,6 +3504,7 @@
     {
         editingModem = new ModemConfiguration
         {
+            Provider = "qmicli",
             Port = 22,
             Username = "root",
             QmiDevice = "",
@@ -3459,15 +3513,50 @@
         };
         modemFormExpanded = false;  // Collapse the form when canceling
         modemMessage = "";
+        probeResult = "";
         StateHasChanged();
+    }
+
+    private async Task ProbeModem()
+    {
+        if (string.IsNullOrWhiteSpace(editingModem.Host))
+        {
+            probeResult = "Host / IP is required to probe";
+            probeResultClass = "danger";
+            return;
+        }
+
+        probingModem = true;
+        probeResult = "";
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await ModemService.ProbeModemAsync(editingModem);
+            probeResult = message;
+            probeResultClass = success ? "success" : "danger";
+        }
+        catch (Exception ex)
+        {
+            probeResult = $"Probe error: {ex.Message}";
+            probeResultClass = "danger";
+        }
+        finally
+        {
+            probingModem = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SaveModem()
     {
-        // Check if SSH credentials are configured (for new modems)
-        if (editingModem.Id == 0 && sshSettings?.HasCredentials != true)
+        // SSH credentials requirement only applies to qmicli (SSH) providers.
+        var isSshProvider = string.IsNullOrWhiteSpace(editingModem.Provider) ||
+                            editingModem.Provider == "qmicli";
+
+        if (editingModem.Id == 0 && isSshProvider && sshSettings?.HasCredentials != true)
         {
-            modemMessage = "SSH credentials must be configured before adding modems. Please configure them in the Device SSH section above.";
+            modemMessage = "SSH credentials must be configured before adding qmicli modems. Please configure them in the Device SSH section above.";
             modemMessageClass = "warning";
             return;
         }
@@ -3479,11 +3568,28 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(editingModem.QmiDevice))
+        if (isSshProvider && string.IsNullOrWhiteSpace(editingModem.QmiDevice))
         {
-            modemMessage = "QMI Device Path is required";
+            modemMessage = "QMI Device Path is required for the qmicli provider";
             modemMessageClass = "danger";
             return;
+        }
+
+        // Non-qmicli providers (e.g. HTTP-based Netgear) don't use the SSH/QMI fields.
+        // Override the qmicli-era defaults so rows aren't littered with irrelevant
+        // values and ModemType reflects the actual hardware. Password is preserved -
+        // for Netgear it's the admin password used by the optional authenticated mode.
+        if (!isSshProvider)
+        {
+            editingModem.Port = 80;
+            editingModem.Username = "";
+            editingModem.PrivateKeyPath = "";
+            editingModem.QmiDevice = "";
+            if (string.IsNullOrEmpty(editingModem.ModemType) ||
+                editingModem.ModemType == "U5G-Max")
+            {
+                editingModem.ModemType = "Netgear Nighthawk Hotspot";
+            }
         }
 
         savingModem = true;
