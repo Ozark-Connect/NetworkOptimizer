@@ -46,7 +46,7 @@ const G = {
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
-    clientCellH: 50,
+    clientCellH: 55,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
@@ -1208,7 +1208,7 @@ class LanFlowMap2D {
                 // drops further before branching horizontally
                 const nCl=sibEdges.filter(e=>e._isCl).length;
                 if(nCl>G.clientCols){
-                    for(const e of sibEdges)if(e._isCl)e._midYOff+=15;
+                    for(const e of sibEdges)if(e._isCl)e._midYOff+=8;
                 }
             }
         };
@@ -1668,6 +1668,10 @@ class LanFlowMap2D {
                     ctx.font=`${G.rateFont}px ${FONT}`;
                     ctx.textBaseline='top';
                     const dTxt='↓'+formatBps(downBps), uTxt='↑'+formatBps(upBps);
+                    const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
+                    ctx.fillStyle=C.labelBg;
+                    this._roundRect(ctx,n.x-tw/2,n._rateY-2,tw,G.rateFont+6,4);
+                    ctx.fill();
                     ctx.textAlign='right'; ctx.fillStyle=C.downstream;
                     ctx.fillText(dTxt,n.x-4,n._rateY);
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
