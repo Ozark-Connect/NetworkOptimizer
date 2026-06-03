@@ -42,10 +42,11 @@ const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackha
 // ---- Layout geometry ----
 const G = {
     tierGap:     170,
+    clientTierGap:165,
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
-    clientCellH: 50,
+    clientCellH: 55,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
@@ -298,6 +299,7 @@ class LanFlowMap2D {
                         }else{
                             // Client churn or same topology: update data in place
                             this._updateSnapshotData(s);
+                            this._snapshot=s;
                             this._needsStaticRedraw=true;
                         }
                     }
@@ -389,7 +391,7 @@ class LanFlowMap2D {
         if(isMobile)filterTitle.addEventListener('click',()=>{filterBody.hidden=!filterBody.hidden;});
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
-            this._needsStaticRedraw=true;
+            this._relayout();
             if(this._isFitted)this._fitAll();
         });
         const bandChips=[...filterBody.querySelectorAll('.lan-flow-map-chip')];
@@ -401,7 +403,7 @@ class LanFlowMap2D {
                 else{const onlyThis=this._filter.bands[b]&&bandChips.every(c=>c.dataset.band===b||!this._filter.bands[c.dataset.band]);
                     if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
                     else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
-                this._needsStaticRedraw=true;
+                this._relayout();
                 if(this._isFitted)this._fitAll();
             });
         });
@@ -428,7 +430,7 @@ class LanFlowMap2D {
                 this._overlays[key]=!this._overlays[key];
                 row.classList.toggle('is-on',this._overlays[key]);
                 try{localStorage.setItem(this._storageKey,JSON.stringify(this._overlays));}catch{}
-                this._needsStaticRedraw=true;
+                this._relayout();
                 if(this._isFitted)this._fitAll();
             });
             ctrlBody.appendChild(row);
@@ -873,6 +875,7 @@ class LanFlowMap2D {
     // siblings apart until no depth overlaps. Guarantees zero cross-tree overlap.
 
     _buildLayout(snap){
+        this._snapshot=snap;
         const byId=new Map();
         for(const n of snap.nodes)byId.set(n.id,new TN(n));
         this._treeMap=byId;
@@ -913,6 +916,7 @@ class LanFlowMap2D {
         for(const lk of snap.links)this._edges.push({lk,fn:byId.get(lk.fromNodeId),tn:byId.get(lk.toNodeId)});
 
         if(!root)return;
+        this._spreadFactor=this._getSpreadFactor();
         this._contourLayout(root);
         this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
@@ -923,11 +927,35 @@ class LanFlowMap2D {
         this._updateStreamRates();
     }
 
+    _getSpreadFactor(){
+        const wOn=this._overlays.wifiClients;
+        const wdOn=this._overlays.wiredClients;
+        if(wOn&&wdOn)return 1;
+        if(wOn||wdOn)return 1.15;
+        return 1.3;
+    }
+
+    _relayout(){
+        if(!this._root)return;
+        this._spreadFactor=this._getSpreadFactor();
+        this._contourLayout(this._root);
+        this._assignAbsoluteXY(this._root,0,0);
+        this._placeClouds();
+        this._matchEdges();
+        this._initStreams();
+        this._calcBounds();
+        this._updateStreamRates();
+        this._needsStaticRedraw=true;
+    }
+
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
         const selfW=isClient(n.d.kind)?G.clientCellW:G.boxW+40;
-        const nc=Math.min(n.clients.length,G.maxClients);
+        n._isGrid=false;
+        const visCl=n.clients.filter(c=>this._isNodeVisible(c));
+        const nc=Math.min(visCl.length,G.maxClients);
+        n._visClients=visCl.slice(0,G.maxClients);
 
         // VirtualHub: treat as a leaf (children won't be rendered)
         if(n.d.kind===NK.VirtualHub){
@@ -956,8 +984,18 @@ class LanFlowMap2D {
             return;
         }
 
-        // Infra children (+ any direct clients merged in)
-        const kids=n.infra.length>0?[...n.infra,...n.clients.slice(0,nc)]:[];
+        // Infra children; clients always use a grid (placeholder in the kids array)
+        const kids=[...n.infra];
+        if(nc>0){
+            const cols=Math.min(nc,G.clientCols);
+            const rows=Math.ceil(nc/cols);
+            const gridW=cols*G.clientCellW;
+            const staggerExtra=rows>1?G.clientCellW/2:0;
+            n._isGrid=true;
+            n._gridCols=cols;
+            const gp={_isGridPlaceholder:true,_contour:[{l:-gridW/2,r:gridW/2+staggerExtra}]};
+            kids.push(gp);
+        }
 
         if(kids.length===0){
             n._contour=[{l:-selfW/2,r:selfW/2}];
@@ -966,7 +1004,7 @@ class LanFlowMap2D {
             return;
         }
 
-        for(const k of kids)this._contourLayout(k);
+        for(const k of kids)if(!k._isGridPlaceholder)this._contourLayout(k);
 
         const GAP=20;
         const offsets=[];
@@ -1024,28 +1062,46 @@ class LanFlowMap2D {
         n.x=absX;
         n.y=yOff+depth*G.tierGap;
 
-        // Client grid: compact rows with honeycomb stagger so vertical links
-        // from the parent fan out to different x positions per row.
-        if(n._isGrid){
-            const nc=Math.min(n.clients.length,G.maxClients);
+        // Client grid: compact rows with honeycomb stagger
+        if(n._isGrid&&(!n._kids||n._kids.length===0)){
+            const vc=n._visClients||[];
+            const nc=vc.length;
             const cols=n._gridCols;
             const gridW=cols*G.clientCellW;
             const gridLeft=absX-gridW/2;
-            const clientY=yOff+(depth+1)*G.tierGap;
+            const clientY=n.y+G.clientTierGap;
             const stagger=G.clientCellW/2;
             for(let i=0;i<nc;i++){
                 const col=i%cols,row=Math.floor(i/cols);
                 const rowOff=(row%2)*stagger;
-                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
-                n.clients[i].y=clientY+row*G.clientCellH;
+                vc[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
+                vc[i].y=clientY+row*G.clientCellH;
             }
             return;
         }
 
         const kids=n._kids||[];
         const offsets=n._kidOffsets||[];
+        const sf=this._spreadFactor||1;
         for(let i=0;i<kids.length;i++){
-            this._assignAbsoluteXY(kids[i],absX+offsets[i],depth+1);
+            if(kids[i]._isGridPlaceholder){
+                const vc=n._visClients||[];
+                const nc=vc.length;
+                const cols=n._gridCols;
+                const gridW=cols*G.clientCellW;
+                const px=absX+offsets[i]*sf;
+                const gridLeft=px-gridW/2;
+                const clientY=n.y+G.clientTierGap;
+                const stagger=G.clientCellW/2;
+                for(let j=0;j<nc;j++){
+                    const col=j%cols,row=Math.floor(j/cols);
+                    const rowOff=(row%2)*stagger;
+                    vc[j].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
+                    vc[j].y=clientY+row*G.clientCellH;
+                }
+            }else{
+                this._assignAbsoluteXY(kids[i],absX+offsets[i]*sf,depth+1);
+            }
         }
     }
 
@@ -1148,6 +1204,12 @@ class LanFlowMap2D {
             if(sibEdges.length>1){
                 const mid=(sibEdges.length-1)/2;
                 for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
+                // Multi-row grids: push client offshoots down so the trunk
+                // drops further before branching horizontally
+                const nCl=sibEdges.filter(e=>e._isCl).length;
+                if(nCl>G.clientCols){
+                    for(const e of sibEdges)if(e._isCl)e._midYOff+=12;
+                }
             }
         };
         matchTree(gw);
@@ -1532,14 +1594,19 @@ class LanFlowMap2D {
         const name=demoMask(n.d.name||n.d.model||'');
         if(name){
             const dn=name.length>24?name.slice(0,23)+'…':name;
-            ctx.fillStyle=C.text;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(dn,x,y+hh+5);
+            const tw=ctx.measureText(dn).width+12;
+            const ly=y+hh+5+G.nameFont/2;
+            ctx.fillStyle=C.labelBg;
+            this._roundRect(ctx,x-tw/2,ly-8,tw,16,4);
+            ctx.fill();
+            ctx.fillStyle=C.text;
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(dn,x,ly);
         }
 
         // Rate labels (stored for dynamic update)
-        n._rateY=y+hh+19;
+        n._rateY=y+hh+28;
     }
 
     _drawClientNode(ctx,n){
@@ -1599,8 +1666,12 @@ class LanFlowMap2D {
 
                 if(any&&(downBps>100000||upBps>100000)){
                     ctx.font=`${G.rateFont}px ${FONT}`;
-                    ctx.textBaseline='top';
                     const dTxt='↓'+formatBps(downBps), uTxt='↑'+formatBps(upBps);
+                    const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
+                    ctx.fillStyle=C.labelBg;
+                    this._roundRect(ctx,n.x-tw/2,n._rateY-8,tw,16,4);
+                    ctx.fill();
+                    ctx.textBaseline='middle';
                     ctx.textAlign='right'; ctx.fillStyle=C.downstream;
                     ctx.fillText(dTxt,n.x-4,n._rateY);
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
