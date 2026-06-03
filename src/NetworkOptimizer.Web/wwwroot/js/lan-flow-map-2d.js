@@ -42,6 +42,7 @@ const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackha
 // ---- Layout geometry ----
 const G = {
     tierGap:     170,
+    clientTierGap:120,
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
@@ -1068,7 +1069,7 @@ class LanFlowMap2D {
             const cols=n._gridCols;
             const gridW=cols*G.clientCellW;
             const gridLeft=absX-gridW/2;
-            const clientY=yOff+(depth+1)*G.tierGap;
+            const clientY=n.y+G.clientTierGap;
             const stagger=G.clientCellW/2;
             for(let i=0;i<nc;i++){
                 const col=i%cols,row=Math.floor(i/cols);
@@ -1090,7 +1091,7 @@ class LanFlowMap2D {
                 const gridW=cols*G.clientCellW;
                 const px=absX+offsets[i]*sf;
                 const gridLeft=px-gridW/2;
-                const clientY=yOff+(depth+1)*G.tierGap;
+                const clientY=n.y+G.clientTierGap;
                 const stagger=G.clientCellW/2;
                 for(let j=0;j<nc;j++){
                     const col=j%cols,row=Math.floor(j/cols);
