@@ -148,7 +148,7 @@ function updateChart() {
         { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
         { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
         { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
-    ], false);
+    ], true);
 }
 
 async function loadHistory() {
