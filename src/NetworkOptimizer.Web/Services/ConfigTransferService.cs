@@ -331,9 +331,24 @@ public class ConfigTransferService
                 _logger.LogDebug("DB after history preservation: {Size} bytes (was {OriginalSize})", afterHistorySize, importedDbSize);
             }
 
-            // Replace files
+            // Replace files - must delete WAL/SHM BEFORE replacing the DB file.
+            // SQLite WAL contains page-level operations from the old database; if
+            // present when the new DB is opened, SQLite replays them against wrong
+            // pages and corrupts the schema.
             var targetDbPath = Path.Combine(_dataDirectory, "network_optimizer.db");
             _logger.LogDebug("Replacing DB: {Target}", targetDbPath);
+            var walPath = targetDbPath + "-wal";
+            var shmPath = targetDbPath + "-shm";
+            if (File.Exists(walPath))
+            {
+                File.Delete(walPath);
+                _logger.LogDebug("Deleted stale WAL file");
+            }
+            if (File.Exists(shmPath))
+            {
+                File.Delete(shmPath);
+                _logger.LogDebug("Deleted stale SHM file");
+            }
             File.Copy(importedDbPath, targetDbPath, overwrite: true);
             _logger.LogDebug("DB replaced successfully");
 
