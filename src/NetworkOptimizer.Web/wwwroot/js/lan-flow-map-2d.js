@@ -1606,7 +1606,7 @@ class LanFlowMap2D {
         }
 
         // Rate labels (stored for dynamic update)
-        n._rateY=y+hh+19;
+        n._rateY=y+hh+28;
     }
 
     _drawClientNode(ctx,n){
