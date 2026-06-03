@@ -45,8 +45,7 @@ const G = {
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
-    clientCellH: 50,
-    clientCellH2:62,
+    clientCellH: 62,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
@@ -775,7 +774,7 @@ class LanFlowMap2D {
             if(Math.abs(w.x-n.x)<G.boxW/2&&Math.abs(w.y-n.y)<G.boxH/2)hit=n;
             for(const c of n.infra)checkNode(c);
             for(const c of n.clients.slice(0,G.maxClients)){
-                if(this._isNodeVisible(c)&&Math.abs(w.x-c.x)<G.clientCellW/2&&Math.abs(w.y-c.y)<G.clientCellH2/2)hit=c;
+                if(this._isNodeVisible(c)&&Math.abs(w.x-c.x)<G.clientCellW/2&&Math.abs(w.y-c.y)<G.clientCellH/2)hit=c;
             }
         };
         if(this._root)checkNode(this._root);
@@ -1075,7 +1074,7 @@ class LanFlowMap2D {
                 const col=i%cols,row=Math.floor(i/cols);
                 const rowOff=(row%2)*stagger;
                 vc[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
-                vc[i].y=clientY+(row>0?G.clientCellH+(row-1)*G.clientCellH2:0);
+                vc[i].y=clientY+row*G.clientCellH;
             }
             return;
         }
@@ -1097,7 +1096,7 @@ class LanFlowMap2D {
                     const col=j%cols,row=Math.floor(j/cols);
                     const rowOff=(row%2)*stagger;
                     vc[j].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
-                    vc[j].y=clientY+(row>0?G.clientCellH+(row-1)*G.clientCellH2:0);
+                    vc[j].y=clientY+row*G.clientCellH;
                 }
             }else{
                 this._assignAbsoluteXY(kids[i],absX+offsets[i]*sf,depth+1);
@@ -1203,7 +1202,9 @@ class LanFlowMap2D {
             // Stagger horizontal segments of siblings that share the same parent
             if(sibEdges.length>1){
                 const mid=(sibEdges.length-1)/2;
-                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
+                const nCl=sibEdges.filter(e=>e._isCl).length;
+                const bias=nCl>3?20:0;
+                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER+bias;
             }
         };
         matchTree(gw);
