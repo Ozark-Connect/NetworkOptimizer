@@ -1119,6 +1119,10 @@ else
         if (_influxError.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)) return "Auth error";
         if (_influxError.Contains("refused", StringComparison.OrdinalIgnoreCase)) return "Connection refused";
         if (_influxError.Contains("timeout", StringComparison.OrdinalIgnoreCase)) return "Timeout";
+        if (_influxError.Contains("bucket", StringComparison.OrdinalIgnoreCase)
+            && _influxError.Contains("not found", StringComparison.OrdinalIgnoreCase)) return "Bucket not found";
+        if (_influxError.Contains("organization", StringComparison.OrdinalIgnoreCase)
+            && _influxError.Contains("not found", StringComparison.OrdinalIgnoreCase)) return "Org not found";
         return "Unreachable";
     }
 
