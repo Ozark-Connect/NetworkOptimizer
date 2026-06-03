@@ -42,7 +42,7 @@ const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackha
 // ---- Layout geometry ----
 const G = {
     tierGap:     170,
-    clientTierGap:175,
+    clientTierGap:165,
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
@@ -1204,6 +1204,12 @@ class LanFlowMap2D {
             if(sibEdges.length>1){
                 const mid=(sibEdges.length-1)/2;
                 for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
+                // Multi-row grids: push client offshoots down so the trunk
+                // drops further before branching horizontally
+                const nCl=sibEdges.filter(e=>e._isCl).length;
+                if(nCl>G.clientCols){
+                    for(const e of sibEdges)if(e._isCl)e._midYOff+=15;
+                }
             }
         };
         matchTree(gw);
