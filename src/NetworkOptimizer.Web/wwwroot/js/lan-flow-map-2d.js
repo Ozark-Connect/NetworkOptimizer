@@ -1205,14 +1205,6 @@ class LanFlowMap2D {
                 const mid=(sibEdges.length-1)/2;
                 for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
             }
-            // Multi-row client grids: route each client's horizontal near its own row
-            // so connectors for deeper rows don't cut through shallower row labels
-            const nCl=sibEdges.filter(e=>e._isCl).length;
-            if(nCl>G.clientCols){
-                for(const e of sibEdges){
-                    if(e._isCl)e._midYOff=(e._y2-e._y1)/2-18;
-                }
-            }
         };
         matchTree(gw);
     }
