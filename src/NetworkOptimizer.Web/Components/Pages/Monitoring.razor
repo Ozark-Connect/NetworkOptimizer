@@ -483,6 +483,14 @@ else
                 }
             </div>
         }
+        else if (_influxReachable != true)
+        {
+            <div class="loading-container" style="padding: 3rem;">
+                <div class="spinner"></div>
+            </div>
+        }
+        @if (_influxReachable == true)
+        {
         <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Cellular Signal History</h2>
@@ -539,6 +547,7 @@ else
                 </div>
             </div>
         </div>
+        }
     }
 
     @* ──────────────── Tab: Setup ──────────────── *@
@@ -2038,8 +2047,8 @@ else
             await ScrollToSfpChartsAsync();
         }
 
-        // Cellular charts - Cellular tab only
-        if (_activeTab == "cellular" && _monitoringReady && !_cellularChartsMounted)
+        // Cellular charts - Cellular tab only (wait for InfluxDB like SFP waits for module data)
+        if (_activeTab == "cellular" && _monitoringReady && _influxReachable == true && !_cellularChartsMounted)
         {
             _cellularChartsMounted = true;
             try
@@ -2054,7 +2063,7 @@ else
             }
             catch { _cellularChartsMounted = false; }
         }
-        else if (_activeTab != "cellular" && _cellularChartsMounted)
+        else if ((_activeTab != "cellular" || _influxReachable != true) && _cellularChartsMounted)
         {
             _cellularChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__cellularCharts?.unmount();"); }
