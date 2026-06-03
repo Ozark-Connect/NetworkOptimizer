@@ -1208,7 +1208,7 @@ class LanFlowMap2D {
                 // drops further before branching horizontally
                 const nCl=sibEdges.filter(e=>e._isCl).length;
                 if(nCl>G.clientCols){
-                    for(const e of sibEdges)if(e._isCl)e._midYOff+=13;
+                    for(const e of sibEdges)if(e._isCl)e._midYOff+=12.5;
                 }
             }
         };
