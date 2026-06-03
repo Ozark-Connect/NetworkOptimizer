@@ -1006,7 +1006,7 @@ class LanFlowMap2D {
 
         for(const k of kids)if(!k._isGridPlaceholder)this._contourLayout(k);
 
-        const GAP=12;
+        const GAP=20;
         const offsets=[];
         let groupRight=[];
 
