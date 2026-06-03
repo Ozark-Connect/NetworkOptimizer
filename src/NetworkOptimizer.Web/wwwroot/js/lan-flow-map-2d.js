@@ -45,7 +45,7 @@ const G = {
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
-    clientCellH: 53,
+    clientCellH: 60,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
