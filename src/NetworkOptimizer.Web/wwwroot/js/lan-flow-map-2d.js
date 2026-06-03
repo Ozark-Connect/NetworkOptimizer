@@ -1203,9 +1203,7 @@ class LanFlowMap2D {
             // Stagger horizontal segments of siblings that share the same parent
             if(sibEdges.length>1){
                 const mid=(sibEdges.length-1)/2;
-                const nCl=sibEdges.filter(e=>e._isCl).length;
-                const bias=nCl>3?20:0;
-                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER+bias;
+                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
             }
         };
         matchTree(gw);
