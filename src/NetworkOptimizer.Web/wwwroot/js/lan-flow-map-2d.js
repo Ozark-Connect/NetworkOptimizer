@@ -46,7 +46,7 @@ const G = {
     cloudGap:    220,
     infraGap:    90,
     clientCellW: 145,
-    clientCellH: 58,
+    clientCellH: 55,
     clientR:     7,
     clientCols:  6,
     maxClients:  80,
@@ -1594,10 +1594,15 @@ class LanFlowMap2D {
         const name=demoMask(n.d.name||n.d.model||'');
         if(name){
             const dn=name.length>24?name.slice(0,23)+'…':name;
-            ctx.fillStyle=C.text;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
-            ctx.fillText(dn,x,y+hh+5);
+            const tw=ctx.measureText(dn).width+10;
+            const ly=y+hh+5;
+            ctx.fillStyle=C.labelBg;
+            this._roundRect(ctx,x-tw/2,ly-2,tw,G.nameFont+6,4);
+            ctx.fill();
+            ctx.fillStyle=C.text;
+            ctx.fillText(dn,x,ly);
         }
 
         // Rate labels (stored for dynamic update)
