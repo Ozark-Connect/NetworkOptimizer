@@ -971,13 +971,13 @@ class LanFlowMap2D {
             const cols=Math.min(nc,G.clientCols);
             const rows=Math.ceil(nc/cols);
             const gridW=cols*G.clientCellW;
-            const staggerExtra=rows>1?G.clientCellW/2:0;
+            const staggerW=rows>1?G.clientCellW/2:0;
+            const halfGrid=(gridW+staggerW)/2;
             n._isGrid=true;
             n._gridCols=cols;
-            // Contour: node at depth 0, grid rectangle at depth 1 (widened for stagger)
             n._contour=[
                 {l:-selfW/2,r:selfW/2},
-                {l:-gridW/2,r:gridW/2+staggerExtra},
+                {l:-halfGrid,r:halfGrid},
             ];
             n._kidOffsets=[];
             n._kids=[];
@@ -990,10 +990,11 @@ class LanFlowMap2D {
             const cols=Math.min(nc,G.clientCols);
             const rows=Math.ceil(nc/cols);
             const gridW=cols*G.clientCellW;
-            const staggerExtra=rows>1?G.clientCellW/2:0;
+            const staggerW=rows>1?G.clientCellW/2:0;
+            const halfGrid=(gridW+staggerW)/2;
             n._isGrid=true;
             n._gridCols=cols;
-            const gp={_isGridPlaceholder:true,_contour:[{l:-gridW/2,r:gridW/2+staggerExtra}]};
+            const gp={_isGridPlaceholder:true,_contour:[{l:-halfGrid,r:halfGrid}]};
             kids.push(gp);
         }
 
@@ -1006,7 +1007,7 @@ class LanFlowMap2D {
 
         for(const k of kids)if(!k._isGridPlaceholder)this._contourLayout(k);
 
-        const GAP=12;
+        const GAP=20;
         const offsets=[];
         let groupRight=[];
 
@@ -1068,9 +1069,9 @@ class LanFlowMap2D {
             const nc=vc.length;
             const cols=n._gridCols;
             const gridW=cols*G.clientCellW;
-            const gridLeft=absX-gridW/2;
-            const clientY=n.y+G.clientTierGap;
             const stagger=G.clientCellW/2;
+            const gridLeft=absX-(gridW+stagger)/2;
+            const clientY=n.y+G.clientTierGap;
             for(let i=0;i<nc;i++){
                 const col=i%cols,row=Math.floor(i/cols);
                 const rowOff=(row%2)*stagger;
@@ -1089,10 +1090,10 @@ class LanFlowMap2D {
                 const nc=vc.length;
                 const cols=n._gridCols;
                 const gridW=cols*G.clientCellW;
-                const px=absX+offsets[i]*sf;
-                const gridLeft=px-gridW/2;
-                const clientY=n.y+G.clientTierGap;
                 const stagger=G.clientCellW/2;
+                const px=absX+offsets[i]*sf;
+                const gridLeft=px-(gridW+stagger)/2;
+                const clientY=n.y+G.clientTierGap;
                 for(let j=0;j<nc;j++){
                     const col=j%cols,row=Math.floor(j/cols);
                     const rowOff=(row%2)*stagger;
