@@ -5,7 +5,8 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
 const HISTORY_MINUTES = 5;
-const POLL_MS = 3000;
+const POLL_MS = 5000;
+const SCROLL_MS = 500;
 const COLOR_DL   = '#3b82f6';
 const COLOR_UL   = '#10b981';
 const COLOR_LOSS = '#ef4444';
@@ -13,6 +14,7 @@ const COLOR_RTT  = '#d946ef';
 
 let chart = null;
 let pollTimer = null;
+let scrollTimer = null;
 let buffer = [];
 let elId = null;
 let mountGen = 0;
@@ -136,19 +138,30 @@ function rttYMax() {
     return Math.ceil((p95 * 1.5) / 10) * 10;
 }
 
+function buildSeriesData() {
+    const now = Date.now();
+    const last = buffer[buffer.length - 1];
+    const pts = [...buffer];
+    if (last && now - last.time > 1000) {
+        pts.push({ time: now, download: last.download, upload: last.upload, loss: last.loss, rtt: last.rtt });
+    }
+    return pts;
+}
+
 function updateChart() {
     if (!chart || buffer.length === 0) return;
     const now = Date.now();
+    const pts = buildSeriesData();
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
         yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
     }, false, false, false);
     chart.updateSeries([
-        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
-        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
-        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
-        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
-    ], true);
+        { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   data: pts.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     data: pts.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      data: pts.map(p => ({ x: p.time, y: p.rtt })) },
+    ], false);
 }
 
 async function loadHistory() {
@@ -190,6 +203,7 @@ async function pollLive() {
 
 export async function mount(containerId, opts) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
     const gen = ++mountGen;
@@ -209,15 +223,18 @@ export async function mount(containerId, opts) {
     const interval = opts?.pollMs || POLL_MS;
 
     pollTimer = setInterval(pollLive, interval);
+    scrollTimer = setInterval(updateChart, SCROLL_MS);
 }
 
 export function pause() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
 }
 
 export function resume() {
     if (!chart || pollTimer) return;
     pollTimer = setInterval(pollLive, POLL_MS);
+    scrollTimer = setInterval(updateChart, SCROLL_MS);
 }
 
 export async function seekTime(isoTimestamp) {
@@ -230,10 +247,12 @@ export async function seekTime(isoTimestamp) {
         await loadHistory();
         updateChart();
         pollTimer = setInterval(pollLive, POLL_MS);
+        scrollTimer = setInterval(updateChart, SCROLL_MS);
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     const at = new Date(isoTimestamp).getTime();
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     const from = new Date(at - halfWindow);
@@ -285,6 +304,7 @@ export async function seekTime(isoTimestamp) {
 export function unmount() {
     mountGen++;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
     elId = null;
