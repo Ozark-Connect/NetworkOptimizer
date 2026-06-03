@@ -915,6 +915,7 @@ class LanFlowMap2D {
         for(const lk of snap.links)this._edges.push({lk,fn:byId.get(lk.fromNodeId),tn:byId.get(lk.toNodeId)});
 
         if(!root)return;
+        this._spreadFactor=this._getSpreadFactor();
         this._contourLayout(root);
         this._assignAbsoluteXY(root,0,0);
         this._placeClouds();
@@ -925,8 +926,17 @@ class LanFlowMap2D {
         this._updateStreamRates();
     }
 
+    _getSpreadFactor(){
+        const wOn=this._overlays.wifiClients;
+        const wdOn=this._overlays.wiredClients;
+        if(wOn&&wdOn)return 1;
+        if(wOn||wdOn)return 1.15;
+        return 1.3;
+    }
+
     _relayout(){
         if(!this._root)return;
+        this._spreadFactor=this._getSpreadFactor();
         this._contourLayout(this._root);
         this._assignAbsoluteXY(this._root,0,0);
         this._placeClouds();
@@ -1062,8 +1072,9 @@ class LanFlowMap2D {
 
         const kids=n._kids||[];
         const offsets=n._kidOffsets||[];
+        const sf=this._spreadFactor||1;
         for(let i=0;i<kids.length;i++){
-            this._assignAbsoluteXY(kids[i],absX+offsets[i],depth+1);
+            this._assignAbsoluteXY(kids[i],absX+offsets[i]*sf,depth+1);
         }
     }
 
