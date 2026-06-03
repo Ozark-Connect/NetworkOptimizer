@@ -1200,10 +1200,13 @@ class LanFlowMap2D {
                 if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=true;edge._band=edge.lk.band;sibEdges.push(edge);}
             }
 
-            // Stagger horizontal segments of siblings that share the same parent
+            // Stagger horizontal segments of siblings that share the same parent.
+            // Scale stagger down for many-client APs so the fan-out fits in the
+            // vertical space between AP and first client row.
             if(sibEdges.length>1){
                 const mid=(sibEdges.length-1)/2;
-                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*STAGGER;
+                const stg=Math.min(STAGGER,70/Math.max(sibEdges.length-1,1));
+                for(let i=0;i<sibEdges.length;i++)sibEdges[i]._midYOff=(i-mid)*stg;
             }
         };
         matchTree(gw);
