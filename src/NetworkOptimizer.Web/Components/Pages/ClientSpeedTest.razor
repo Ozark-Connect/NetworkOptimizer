@@ -845,8 +845,10 @@
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
 
-        // Build health check URL - use 127.0.0.1 explicitly (localhost can resolve to IPv6 on Windows)
-        openSpeedTestHealthCheckUrl = $"http://127.0.0.1:{openSpeedTestPort}";
+        // Build health check URL - use HOST_IP when set (handles bridge networking where port is bound
+        // to a specific IP), fall back to 127.0.0.1 (not "localhost" which can resolve to IPv6 on Windows)
+        var healthCheckHost = !string.IsNullOrEmpty(hostIp) ? hostIp : "127.0.0.1";
+        openSpeedTestHealthCheckUrl = $"http://{healthCheckHost}:{openSpeedTestPort}";
 
         // Set serverHost for iperf3 instructions (main app host, not speedtest UI host)
         // Priority: HOST_NAME > HOST_IP > auto-detected IP from network interface
