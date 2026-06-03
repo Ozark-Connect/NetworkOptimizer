@@ -2080,7 +2080,7 @@
                                     <span class="text-muted">Export type:</span>
                                     <span>@(importPreview.ExportType == "Full" ? "Full backup" : "Settings only")</span>
                                     <span class="text-muted">Export date:</span>
-                                    <span>@importPreview.ExportDate.ToString("MMM d, yyyy h:mm tt") UTC</span>
+                                    <span>@importPreview.ExportDate.ToLocalTime().ToString("MMM d, yyyy h:mm tt")</span>
                                     <span class="text-muted">App version:</span>
                                     <span>@importPreview.AppVersion</span>
                                     @if (importPreview.TableCounts.Count > 0)
