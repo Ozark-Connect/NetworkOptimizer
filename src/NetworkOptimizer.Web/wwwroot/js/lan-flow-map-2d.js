@@ -1208,7 +1208,7 @@ class LanFlowMap2D {
                 // drops further before branching horizontally
                 const nCl=sibEdges.filter(e=>e._isCl).length;
                 if(nCl>G.clientCols){
-                    for(const e of sibEdges)if(e._isCl)e._midYOff+=8;
+                    for(const e of sibEdges)if(e._isCl)e._midYOff+=13;
                 }
             }
         };
@@ -1595,13 +1595,13 @@ class LanFlowMap2D {
         if(name){
             const dn=name.length>24?name.slice(0,23)+'…':name;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
-            ctx.textAlign='center'; ctx.textBaseline='top';
-            const tw=ctx.measureText(dn).width+10;
-            const ly=y+hh+5;
+            const tw=ctx.measureText(dn).width+12;
+            const ly=y+hh+5+G.nameFont/2;
             ctx.fillStyle=C.labelBg;
-            this._roundRect(ctx,x-tw/2,ly-2,tw,G.nameFont+6,4);
+            this._roundRect(ctx,x-tw/2,ly-8,tw,16,4);
             ctx.fill();
             ctx.fillStyle=C.text;
+            ctx.textAlign='center'; ctx.textBaseline='middle';
             ctx.fillText(dn,x,ly);
         }
 
@@ -1666,12 +1666,12 @@ class LanFlowMap2D {
 
                 if(any&&(downBps>100000||upBps>100000)){
                     ctx.font=`${G.rateFont}px ${FONT}`;
-                    ctx.textBaseline='top';
                     const dTxt='↓'+formatBps(downBps), uTxt='↑'+formatBps(upBps);
                     const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
                     ctx.fillStyle=C.labelBg;
-                    this._roundRect(ctx,n.x-tw/2,n._rateY-2,tw,G.rateFont+6,4);
+                    this._roundRect(ctx,n.x-tw/2,n._rateY-8,tw,16,4);
                     ctx.fill();
+                    ctx.textBaseline='middle';
                     ctx.textAlign='right'; ctx.fillStyle=C.downstream;
                     ctx.fillText(dTxt,n.x-4,n._rateY);
                     ctx.textAlign='left'; ctx.fillStyle=C.upstream;
