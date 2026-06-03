@@ -983,8 +983,18 @@ class LanFlowMap2D {
             return;
         }
 
-        // Infra children (+ any direct clients merged in)
-        const kids=n.infra.length>0?[...n.infra,...visCl.slice(0,nc)]:[];
+        // Infra children; clients always use a grid (placeholder in the kids array)
+        const kids=[...n.infra];
+        if(nc>0){
+            const cols=Math.min(nc,G.clientCols);
+            const rows=Math.ceil(nc/cols);
+            const gridW=cols*G.clientCellW;
+            const staggerExtra=rows>1?G.clientCellW/2:0;
+            n._isGrid=true;
+            n._gridCols=cols;
+            const gp={_isGridPlaceholder:true,_contour:[{l:-gridW/2,r:gridW/2+staggerExtra}]};
+            kids.push(gp);
+        }
 
         if(kids.length===0){
             n._contour=[{l:-selfW/2,r:selfW/2}];
@@ -993,7 +1003,7 @@ class LanFlowMap2D {
             return;
         }
 
-        for(const k of kids)this._contourLayout(k);
+        for(const k of kids)if(!k._isGridPlaceholder)this._contourLayout(k);
 
         const GAP=20;
         const offsets=[];
@@ -1051,9 +1061,8 @@ class LanFlowMap2D {
         n.x=absX;
         n.y=yOff+depth*G.tierGap;
 
-        // Client grid: compact rows with honeycomb stagger so vertical links
-        // from the parent fan out to different x positions per row.
-        if(n._isGrid){
+        // Client grid: compact rows with honeycomb stagger
+        if(n._isGrid&&(!n._kids||n._kids.length===0)){
             const vc=n._visClients||[];
             const nc=vc.length;
             const cols=n._gridCols;
@@ -1074,7 +1083,24 @@ class LanFlowMap2D {
         const offsets=n._kidOffsets||[];
         const sf=this._spreadFactor||1;
         for(let i=0;i<kids.length;i++){
-            this._assignAbsoluteXY(kids[i],absX+offsets[i]*sf,depth+1);
+            if(kids[i]._isGridPlaceholder){
+                const vc=n._visClients||[];
+                const nc=vc.length;
+                const cols=n._gridCols;
+                const gridW=cols*G.clientCellW;
+                const px=absX+offsets[i]*sf;
+                const gridLeft=px-gridW/2;
+                const clientY=yOff+(depth+1)*G.tierGap;
+                const stagger=G.clientCellW/2;
+                for(let j=0;j<nc;j++){
+                    const col=j%cols,row=Math.floor(j/cols);
+                    const rowOff=(row%2)*stagger;
+                    vc[j].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
+                    vc[j].y=clientY+row*G.clientCellH;
+                }
+            }else{
+                this._assignAbsoluteXY(kids[i],absX+offsets[i]*sf,depth+1);
+            }
         }
     }
 
