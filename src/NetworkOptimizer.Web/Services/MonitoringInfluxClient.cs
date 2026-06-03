@@ -193,11 +193,19 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 return new InfluxHealthResult(false, "InfluxDB ping returned false");
             }
 
-            var flux = $@"from(bucket: ""{_bucket}"") |> range(start: -1m) |> limit(n: 1)";
             var queryApi = _client.GetQueryApi();
-            // QueryAsync throws on auth or missing-bucket errors. We don't care about the
-            // result, only that the call succeeds.
+
+            // Probe the primary bucket
+            var flux = $@"from(bucket: ""{_bucket}"") |> range(start: -1m) |> limit(n: 1)";
             await queryApi.QueryAsync(flux, _org, ct);
+
+            // Probe the longterm bucket too - SFP/modem charts query it and users
+            // get confused by 500s when only this one is missing.
+            if (!string.IsNullOrEmpty(_longtermBucket) && _longtermBucket != _bucket)
+            {
+                var ltFlux = $@"from(bucket: ""{_longtermBucket}"") |> range(start: -1m) |> limit(n: 1)";
+                await queryApi.QueryAsync(ltFlux, _org, ct);
+            }
 
             await PersistHealthAsync(true, null, ct);
             return new InfluxHealthResult(true, null);
@@ -1189,9 +1197,23 @@ from(bucket: ""{_longtermBucket}"")
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         if (_client == null || string.IsNullOrEmpty(_org)) yield break;
-        var queryApi = _client.GetQueryApi();
-        // Use the streaming overload so large windows don't materialize entirely in memory.
-        var tables = await queryApi.QueryAsync(flux, _org, ct);
+
+        List<InfluxDB.Client.Core.Flux.Domain.FluxTable> tables;
+        try
+        {
+            var queryApi = _client.GetQueryApi();
+            tables = await queryApi.QueryAsync(flux, _org, ct);
+        }
+        catch (Exception ex) when (
+            ex is InfluxDB.Client.Core.Exceptions.NotFoundException
+            or InfluxDB.Client.Core.Exceptions.BadRequestException
+            or InfluxDB.Client.Core.Exceptions.UnauthorizedException)
+        {
+            _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
+            _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
+            yield break;
+        }
+
         foreach (var table in tables)
             foreach (var record in table.Records)
                 yield return record;

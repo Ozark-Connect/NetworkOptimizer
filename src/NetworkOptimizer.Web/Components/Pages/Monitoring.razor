@@ -386,6 +386,16 @@ else
     @* ──────────────── Tab: SFP Stats ──────────────── *@
     @if (_activeTab == "sfp" && _monitoringReady)
     {
+        @if (_influxReachable == false)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> — SFP chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
+                @if (!string.IsNullOrEmpty(_influxError))
+                {
+                    <div style="margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.8;">@_influxError</div>
+                }
+            </div>
+        }
         <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged" />
 
         @if (_monitoredSfps.Count > 0)
@@ -463,6 +473,16 @@ else
     @* ──────────────── Tab: Cellular Stats ──────────────── *@
     @if (_activeTab == "cellular" && _monitoringReady)
     {
+        @if (_influxReachable == false)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> — Cellular chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
+                @if (!string.IsNullOrEmpty(_influxError))
+                {
+                    <div style="margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.8;">@_influxError</div>
+                }
+            </div>
+        }
         <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Cellular Signal History</h2>
@@ -1119,6 +1139,10 @@ else
         if (_influxError.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)) return "Auth error";
         if (_influxError.Contains("refused", StringComparison.OrdinalIgnoreCase)) return "Connection refused";
         if (_influxError.Contains("timeout", StringComparison.OrdinalIgnoreCase)) return "Timeout";
+        if (_influxError.Contains("bucket", StringComparison.OrdinalIgnoreCase)
+            && _influxError.Contains("not found", StringComparison.OrdinalIgnoreCase)) return "Bucket not found";
+        if (_influxError.Contains("organization", StringComparison.OrdinalIgnoreCase)
+            && _influxError.Contains("not found", StringComparison.OrdinalIgnoreCase)) return "Org not found";
         return "Unreachable";
     }
 
