@@ -298,6 +298,7 @@ class LanFlowMap2D {
                         }else{
                             // Client churn or same topology: update data in place
                             this._updateSnapshotData(s);
+                            this._snapshot=s;
                             this._needsStaticRedraw=true;
                         }
                     }
@@ -389,7 +390,7 @@ class LanFlowMap2D {
         if(isMobile)filterTitle.addEventListener('click',()=>{filterBody.hidden=!filterBody.hidden;});
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
-            this._needsStaticRedraw=true;
+            this._relayout();
             if(this._isFitted)this._fitAll();
         });
         const bandChips=[...filterBody.querySelectorAll('.lan-flow-map-chip')];
@@ -401,7 +402,7 @@ class LanFlowMap2D {
                 else{const onlyThis=this._filter.bands[b]&&bandChips.every(c=>c.dataset.band===b||!this._filter.bands[c.dataset.band]);
                     if(onlyThis){for(const c of bandChips){this._filter.bands[c.dataset.band]=true;c.classList.add('is-on');}}
                     else{this._filter.bands[b]=!this._filter.bands[b];chip.classList.toggle('is-on',this._filter.bands[b]);}}
-                this._needsStaticRedraw=true;
+                this._relayout();
                 if(this._isFitted)this._fitAll();
             });
         });
@@ -428,7 +429,7 @@ class LanFlowMap2D {
                 this._overlays[key]=!this._overlays[key];
                 row.classList.toggle('is-on',this._overlays[key]);
                 try{localStorage.setItem(this._storageKey,JSON.stringify(this._overlays));}catch{}
-                this._needsStaticRedraw=true;
+                this._relayout();
                 if(this._isFitted)this._fitAll();
             });
             ctrlBody.appendChild(row);
@@ -873,6 +874,7 @@ class LanFlowMap2D {
     // siblings apart until no depth overlaps. Guarantees zero cross-tree overlap.
 
     _buildLayout(snap){
+        this._snapshot=snap;
         const byId=new Map();
         for(const n of snap.nodes)byId.set(n.id,new TN(n));
         this._treeMap=byId;
@@ -923,11 +925,26 @@ class LanFlowMap2D {
         this._updateStreamRates();
     }
 
+    _relayout(){
+        if(!this._root)return;
+        this._contourLayout(this._root);
+        this._assignAbsoluteXY(this._root,0,0);
+        this._placeClouds();
+        this._matchEdges();
+        this._initStreams();
+        this._calcBounds();
+        this._updateStreamRates();
+        this._needsStaticRedraw=true;
+    }
+
     // Compute contour (left/right extent at each depth relative to node x=0)
     // and store relative child offsets on the node.
     _contourLayout(n){
         const selfW=isClient(n.d.kind)?G.clientCellW:G.boxW+40;
-        const nc=Math.min(n.clients.length,G.maxClients);
+        n._isGrid=false;
+        const visCl=n.clients.filter(c=>this._isNodeVisible(c));
+        const nc=Math.min(visCl.length,G.maxClients);
+        n._visClients=visCl.slice(0,G.maxClients);
 
         // VirtualHub: treat as a leaf (children won't be rendered)
         if(n.d.kind===NK.VirtualHub){
@@ -957,7 +974,7 @@ class LanFlowMap2D {
         }
 
         // Infra children (+ any direct clients merged in)
-        const kids=n.infra.length>0?[...n.infra,...n.clients.slice(0,nc)]:[];
+        const kids=n.infra.length>0?[...n.infra,...visCl.slice(0,nc)]:[];
 
         if(kids.length===0){
             n._contour=[{l:-selfW/2,r:selfW/2}];
@@ -1027,7 +1044,8 @@ class LanFlowMap2D {
         // Client grid: compact rows with honeycomb stagger so vertical links
         // from the parent fan out to different x positions per row.
         if(n._isGrid){
-            const nc=Math.min(n.clients.length,G.maxClients);
+            const vc=n._visClients||[];
+            const nc=vc.length;
             const cols=n._gridCols;
             const gridW=cols*G.clientCellW;
             const gridLeft=absX-gridW/2;
@@ -1036,8 +1054,8 @@ class LanFlowMap2D {
             for(let i=0;i<nc;i++){
                 const col=i%cols,row=Math.floor(i/cols);
                 const rowOff=(row%2)*stagger;
-                n.clients[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
-                n.clients[i].y=clientY+row*G.clientCellH;
+                vc[i].x=gridLeft+col*G.clientCellW+G.clientCellW/2+rowOff;
+                vc[i].y=clientY+row*G.clientCellH;
             }
             return;
         }
