@@ -103,6 +103,7 @@ function buildOpts() {
                     style: { colors: '#9ca3af', fontSize: '10px' },
                     formatter: v => v != null ? v.toFixed(0) : '',
                     maxWidth: 30,
+                    offsetX: 5,
                 },
                 title: { text: 'ms', style: { color: '#64748b', fontSize: '9px' }, offsetX: -4 },
                 axisBorder: { show: false },
