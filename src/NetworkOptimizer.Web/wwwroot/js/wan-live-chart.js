@@ -37,6 +37,10 @@ function buildOpts() {
             toolbar: { show: false },
             zoom: { enabled: false },
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
+            events: {
+                mouseMove: (e, ctx, cfg) => { if (cfg.dataPointIndex >= 0) isHovering = true; },
+                mouseLeave: () => { isHovering = false; updateChart(); },
+            },
         },
         series: [
             { name: 'Download', type: 'area', data: [] },
@@ -224,9 +228,6 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
-
-    el.addEventListener('mouseenter', () => { isHovering = true; });
-    el.addEventListener('mouseleave', () => { isHovering = false; updateChart(); });
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
