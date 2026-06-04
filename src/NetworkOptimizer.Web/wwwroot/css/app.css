@@ -13765,6 +13765,14 @@ a.affected-client:hover {
     }
 }
 
+@@media (max-width: 1024px) {
+    .wan-live-chart-card {
+        margin-left: -1rem;
+        margin-right: -1rem;
+        border-radius: 0;
+    }
+}
+
 /* Loaded Latency Legend */
 .loaded-latency-chart-wrapper {
     position: relative;
