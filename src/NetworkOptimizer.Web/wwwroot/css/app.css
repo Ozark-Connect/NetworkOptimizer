@@ -544,6 +544,10 @@ a:hover {
     .audit-container > .card {
         margin-bottom: 1rem;
     }
+
+    .dashboard-grid .lv-panel > .wan-live-chart-card {
+        padding: 0;
+    }
 }
 
 /* Clickable card */
