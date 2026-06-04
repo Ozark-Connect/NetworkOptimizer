@@ -548,6 +548,10 @@ a:hover {
     .dashboard-grid .lv-panel > .wan-live-chart-card {
         padding: 0;
     }
+
+    .wan-live-chart-card > .card-body {
+        margin-right: 0;
+    }
 }
 
 /* Clickable card */
