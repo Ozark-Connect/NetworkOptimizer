@@ -17,6 +17,7 @@ let pollTimer = null;
 let scrollTimer = null;
 let buffer = [];
 let elId = null;
+let isHovering = false;
 let mountGen = 0;
 
 function formatBps(v) {
@@ -162,7 +163,7 @@ function buildSeriesData() {
 }
 
 function updateChart() {
-    if (!chart || buffer.length === 0) return;
+    if (!chart || buffer.length === 0 || isHovering) return;
     const now = Date.now();
     const pts = buildSeriesData();
     chart.updateOptions({
@@ -223,6 +224,9 @@ export async function mount(containerId, opts) {
     elId = containerId;
     const el = document.getElementById(containerId);
     if (!el) return;
+
+    el.addEventListener('mouseenter', () => { isHovering = true; });
+    el.addEventListener('mouseleave', () => { isHovering = false; updateChart(); });
 
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
