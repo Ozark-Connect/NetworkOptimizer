@@ -17,7 +17,6 @@ let pollTimer = null;
 let scrollTimer = null;
 let buffer = [];
 let elId = null;
-let isHovering = false;
 let mountGen = 0;
 
 function formatBps(v) {
@@ -37,10 +36,6 @@ function buildOpts() {
             toolbar: { show: false },
             zoom: { enabled: false },
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
-            events: {
-                mouseMove: (e, ctx, cfg) => { if (cfg.dataPointIndex >= 0) isHovering = true; },
-                mouseLeave: () => { isHovering = false; updateChart(); },
-            },
         },
         series: [
             { name: 'Download', type: 'area', data: [] },
@@ -167,7 +162,9 @@ function buildSeriesData() {
 }
 
 function updateChart() {
-    if (!chart || buffer.length === 0 || isHovering) return;
+    if (!chart || buffer.length === 0) return;
+    const el = document.getElementById(elId);
+    if (el?.querySelector('.apexcharts-tooltip-active')) return;
     const now = Date.now();
     const pts = buildSeriesData();
     chart.updateOptions({
