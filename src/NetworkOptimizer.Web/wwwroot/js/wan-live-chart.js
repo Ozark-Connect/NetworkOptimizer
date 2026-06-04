@@ -115,6 +115,18 @@ function buildOpts() {
             padding: { left: 3, right: 0, top: -8, bottom: 0 },
             xaxis: { lines: { show: false } },
         },
+        responsive: [{
+            breakpoint: 1024,
+            options: {
+                yaxis: [
+                    { seriesName: 'Download', show: false, min: 0 },
+                    { seriesName: 'Download', show: false, min: 0 },
+                    { seriesName: 'Loss', opposite: true, show: false, min: 0 },
+                    { seriesName: 'RTT', opposite: true, show: false, min: 0 },
+                ],
+                grid: { padding: { left: -5, right: -5, top: -8, bottom: 0 } },
+            },
+        }],
         legend: { show: false },
         tooltip: {
             theme: 'dark',
