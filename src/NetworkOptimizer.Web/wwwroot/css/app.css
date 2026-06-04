@@ -384,8 +384,7 @@ a:hover {
     min-height: 0;
 }
 .dashboard-grid .lv-panel > .wan-live-chart-card {
-    margin-top: -0.5rem;
-    margin-bottom: -0.5rem;
+    margin: -0.5rem;
 }
 
 .card-header {
@@ -543,6 +542,16 @@ a:hover {
     .settings-container > .card,
     .audit-container > .card {
         margin-bottom: 1rem;
+    }
+
+    .dashboard-grid .lv-panel > .wan-live-chart-card {
+        padding: 0;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .wan-live-chart-card > .card-body {
+        margin-right: 0;
     }
 }
 
@@ -13764,6 +13773,7 @@ a.affected-client:hover {
         font-size: 0.8rem;
     }
 }
+
 
 /* Loaded Latency Legend */
 .loaded-latency-chart-wrapper {
