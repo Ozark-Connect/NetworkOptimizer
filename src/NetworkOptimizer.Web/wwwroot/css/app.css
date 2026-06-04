@@ -387,14 +387,6 @@ a:hover {
     margin-top: -0.5rem;
     margin-bottom: -0.5rem;
 }
-@@media (max-width: 1024px) {
-    .wan-live-chart-card > .card-body {
-        margin-right: 0;
-    }
-    .dashboard-grid .lv-panel > .wan-live-chart-card {
-        padding: 0;
-    }
-}
 
 .card-header {
     padding: 12px 16px;
