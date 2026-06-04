@@ -17,6 +17,7 @@ let pollTimer = null;
 let scrollTimer = null;
 let buffer = [];
 let elId = null;
+let visHandler = null;
 let mountGen = 0;
 
 function formatBps(v) {
@@ -239,6 +240,15 @@ export async function mount(containerId, opts) {
 
     pollTimer = setInterval(pollLive, interval);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
+
+    if (visHandler) document.removeEventListener('visibilitychange', visHandler);
+    visHandler = async () => {
+        if (!document.hidden && chart && pollTimer) {
+            await loadHistory();
+            await pollLive();
+        }
+    };
+    document.addEventListener('visibilitychange', visHandler);
 }
 
 export function pause() {
@@ -320,6 +330,7 @@ export function unmount() {
     mountGen++;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+    if (visHandler) { document.removeEventListener('visibilitychange', visHandler); visHandler = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
     elId = null;
