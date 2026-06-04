@@ -391,9 +391,8 @@ a:hover {
     .wan-live-chart-card > .card-body {
         margin-right: 0;
     }
-    #live-view > .card-body > .wan-live-chart-card {
-        margin-left: -16px;
-        margin-right: -16px;
+    .dashboard-grid .lv-panel > .wan-live-chart-card {
+        padding: 0;
     }
 }
 
