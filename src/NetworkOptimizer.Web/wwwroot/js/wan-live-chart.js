@@ -191,7 +191,7 @@ async function loadHistory() {
             download: p.downloadBps,
             upload: p.uploadBps,
             rtt: p.rttMs,
-            loss: p.lossPercent,
+            loss: p.lossPercent ?? 0,
         }));
     } catch { }
 }
@@ -206,7 +206,7 @@ async function pollLive() {
             time: Date.now(),
             download: d.downloadBps,
             upload: d.uploadBps,
-            loss: d.lossPercent,
+            loss: d.lossPercent ?? 0,
             rtt: d.rttMs,
         });
         buffer = buffer.filter(p => p.time >= cutoff);
