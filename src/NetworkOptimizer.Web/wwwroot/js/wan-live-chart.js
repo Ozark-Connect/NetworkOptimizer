@@ -164,7 +164,7 @@ function buildSeriesData() {
 function updateChart() {
     if (!chart || buffer.length === 0) return;
     const el = document.getElementById(elId);
-    if (el?.querySelector('.apexcharts-canvas.apexcharts-tooltip-active')) return;
+    if (el?.classList.contains('apexcharts-tooltip-active')) return;
     const now = Date.now();
     const pts = buildSeriesData();
     chart.updateOptions({
