@@ -13766,10 +13766,8 @@ a.affected-client:hover {
 }
 
 @@media (max-width: 1024px) {
-    .wan-live-chart-card {
-        margin-left: -2rem;
-        margin-right: -2rem;
-        border-radius: 0;
+    .wan-live-chart-card > .card-body {
+        margin-left: -0.75rem;
     }
 }
 
