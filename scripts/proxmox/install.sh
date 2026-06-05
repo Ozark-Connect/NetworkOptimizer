@@ -613,11 +613,17 @@ create_container() {
     # Fix Docker-in-LXC compatibility: runc's CVE-2025-52881 security patch uses
     # detached procfs mounts that AppArmor blocks (even in privileged containers).
     # Disabling AppArmor confinement and ensuring writable proc/sys fixes this.
+    # Only applied when AppArmor is enabled. ARM hosts (Raspberry Pi) typically
+    # lack AppArmor, and forcing the profile breaks container startup.
+    # Detection method matches what LXC uses internally (apparmor.c).
     # See: https://forum.proxmox.com/threads/175437/
-    {
-        echo "lxc.apparmor.profile: unconfined"
-        echo "lxc.mount.auto: proc:rw sys:rw"
-    } >> "/etc/pve/lxc/${CT_ID}.conf"
+    if [[ -f /sys/module/apparmor/parameters/enabled ]] && \
+       [[ "$(cat /sys/module/apparmor/parameters/enabled)" == "Y" ]]; then
+        {
+            echo "lxc.apparmor.profile: unconfined"
+            echo "lxc.mount.auto: proc:rw sys:rw"
+        } >> "/etc/pve/lxc/${CT_ID}.conf"
+    fi
 
     msg_ok "Container created"
 }
