@@ -171,27 +171,27 @@ async function loadAndUpdate() {
         const pts = d.data || [];
         dsPowerSeries.push({
             name: d.label,
-            color: PALETTE[(i * 4) % PALETTE.length],
+            color: PALETTE[0],
             data: pts.filter(p => p.dsPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsPower })),
         });
         dsSnrSeries.push({
             name: d.label,
-            color: PALETTE[(i * 4 + 1) % PALETTE.length],
+            color: PALETTE[0],
             data: pts.filter(p => p.dsSnr != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsSnr })),
         });
         usPowerSeries.push({
             name: d.label,
-            color: PALETTE[(i * 4 + 2) % PALETTE.length],
+            color: PALETTE[4],
             data: pts.filter(p => p.usPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.usPower })),
         });
         errorsSeries.push({
             name: d.label + ' Uncorrectable',
-            color: PALETTE[(i * 4 + 3) % PALETTE.length],
+            color: PALETTE[2],
             data: pts.filter(p => p.uncorrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.uncorrDelta })),
         });
         errorsSeries.push({
             name: d.label + ' Correctable',
-            color: PALETTE[(i * 4 + 3) % PALETTE.length],
+            color: PALETTE[1],
             data: pts.filter(p => p.corrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.corrDelta })),
         });
     });
