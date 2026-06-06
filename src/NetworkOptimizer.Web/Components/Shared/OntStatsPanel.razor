@@ -1,10 +1,12 @@
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Monitoring.Models
 @using NetworkOptimizer.Web.Services
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 @inject UniFiConnectionService ConnectionService
+@inject OntMonitorService ExternalOntService
 
 @if (_isLoading)
 {
@@ -13,20 +15,129 @@
         <span>Loading fiber stats...</span>
     </div>
 }
-else if (_monitoredOnts.Count == 0)
+else if (IsShowingExternal && _externalOntStats != null)
+{
+    <div class="sqm-header">
+        <div class="sqm-status">
+            <span class="status-indicator status-@(_externalOntStats.LinkState?.Contains("Up", StringComparison.OrdinalIgnoreCase) == true ? "active" : "warning")"></span>
+            <span class="status-label">@_externalOntStats.DeviceName</span>
+        </div>
+        @if (_externalOntStats.Timestamp.Year > 1)
+        {
+            <div class="tc-timestamp">
+                <small>Updated: @_externalOntStats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+            </div>
+        }
+    </div>
+
+    <div class="signal-quality-section">
+        <div class="ont-rx-gauge">
+            <span class="rx-power-value @ExternalRxClass()">
+                @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
+            </span>
+            <span class="rx-power-label">RX optical power</span>
+        </div>
+        <div class="modem-nav">
+            @if (TotalCount > 1)
+            {
+                <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
+                <span class="modem-counter">@(_currentIndex + 1)/@TotalCount</span>
+                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">&#x203A;</button>
+            }
+        </div>
+    </div>
+
+    <div class="cellular-metrics" style="margin-top: 0.75rem;">
+        <div class="metric-box">
+            <div class="metric-header">Optical</div>
+            <div class="metric-content">
+                <div class="metric-row">
+                    <span class="metric-label">RX:</span>
+                    <span class="metric-value @ExternalRxClass()">@(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">TX:</span>
+                    <span class="metric-value">@(_externalOntStats.TxPowerDbm.HasValue ? $"{_externalOntStats.TxPowerDbm.Value:0.0#} dBm" : "-")</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Temp:</span>
+                    <span class="metric-value">@(_externalOntStats.TemperatureC.HasValue ? $"{_externalOntStats.TemperatureC.Value:0.0#} °C" : "-")</span>
+                </div>
+            </div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-header">Module</div>
+            <div class="metric-content">
+                @{ var extModel = SfpModelLabel(_externalOntStats.VendorName, _externalOntStats.VendorPn); }
+                @if (!string.IsNullOrEmpty(extModel))
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Model:</span>
+                        <span class="metric-value ont-model-value">@extModel</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(_externalOntStats.WaveLength))
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Wavelength:</span>
+                        <span class="metric-value">@_externalOntStats.WaveLength</span>
+                    </div>
+                }
+                <div class="metric-row">
+                    <span class="metric-label">Voltage:</span>
+                    <span class="metric-value">@(_externalOntStats.VoltageV.HasValue ? $"{_externalOntStats.VoltageV.Value:0.0#} V" : "-")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sqm-actions">
+        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
+        <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+    </div>
+}
+else if (IsShowingExternal)
+{
+    var extIdx = _currentIndex - _monitoredOnts.Count;
+    var extName = extIdx < _externalOnts.Count ? _externalOnts[extIdx].Name : "External ONT";
+    <div class="sqm-unavailable">
+        <div class="sqm-status">
+            <span class="status-indicator status-disconnected"></span>
+            <span class="status-label">@extName</span>
+        </div>
+        @if (TotalCount > 1)
+        {
+            <div class="modem-nav" style="margin-bottom: 0.75rem;">
+                <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
+                <span class="modem-counter">@(_currentIndex + 1)/@TotalCount</span>
+                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">&#x203A;</button>
+            </div>
+        }
+        <p class="status-message">ONT configured but no data yet. Click refresh to poll.</p>
+        <div class="sqm-actions">
+            <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
+            <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+        </div>
+    </div>
+}
+else if (TotalCount == 0)
 {
     <div class="sqm-unavailable">
         <div class="sqm-status">
             <span class="status-indicator status-disconnected"></span>
-            <span class="status-label">No fiber modules configured</span>
+            <span class="status-label">No ONT monitoring configured</span>
         </div>
         <p class="status-message">
-            Network Optimizer auto-detects PON SFP modules (GPON / XGS-PON) on switch
-            and gateway ports. Active Ethernet (P2P) modules can be promoted manually.
-            Mark a module as monitored to see live optical levels here.
+            <b>SFP ONT in your gateway?</b> Network Optimizer auto-detects PON modules on
+            switch and gateway ports. Open Monitoring to find and enable yours.
+        </p>
+        <p class="status-message">
+            <b>Standalone ONT?</b> Configure external polling for AT&amp;T gateways, Realtek
+            ONT sticks, and other devices in Settings.
         </p>
         <div class="sqm-actions">
-            <a href="/monitoring" class="btn btn-primary" @onclick:stopPropagation>Open Monitoring</a>
+            <a href="/monitoring?tab=sfp" class="btn btn-secondary" @onclick:stopPropagation>SFP Monitoring</a>
+            <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a>
         </div>
     </div>
 }
@@ -55,12 +166,12 @@ else
     <div class="signal-quality-section">
         <div class="ont-rx-gauge">
             <span class="rx-power-value @rxClass">
-                @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.##} dBm" : "-")
+                @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
             </span>
             <span class="rx-power-label">RX optical power</span>
         </div>
         <div class="modem-nav">
-            @if (_monitoredOnts.Count > 1)
+            @if (TotalCount > 1)
             {
                 <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">‹</button>
                 <span class="modem-counter">@(_currentIndex + 1)/@_monitoredOnts.Count</span>
@@ -80,13 +191,13 @@ else
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
                     <span class="metric-value @rxClass">
-                        @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.##} dBm" : "-")
+                        @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
                     </span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">TX:</span>
                     <span class="metric-value">
-                        @(stats?.TxPowerDbm.HasValue == true ? $"{stats.TxPowerDbm.Value:0.##} dBm" : "-")
+                        @(stats?.TxPowerDbm.HasValue == true ? $"{stats.TxPowerDbm.Value:0.0#} dBm" : "-")
                     </span>
                 </div>
                 <div class="metric-row">
@@ -129,17 +240,21 @@ else
                 <div class="metric-row">
                     <span class="metric-label">Temp:</span>
                     <span class="metric-value">
-                        @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.#} °C" : "-")
+                        @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">Voltage:</span>
                     <span class="metric-value">
-                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.##} V" : "-")
+                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
                     </span>
                 </div>
             </div>
         </div>
+    </div>
+
+    <div class="sqm-actions">
+        <a href="/monitoring?tab=sfp" class="btn btn-primary" @onclick:stopPropagation>SFP Monitoring</a>
     </div>
 }
 
@@ -165,6 +280,43 @@ else
     .metric-value.ont-ae-value {
         font-size: 1.1rem;
     }
+    .cellular-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+    .metric-box {
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+        padding: 0.75rem;
+    }
+    .metric-header {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--accent-color, #3b82f6);
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        padding: 2px 0;
+        gap: 0.5rem;
+        max-width: 250px;
+        margin: 0 auto;
+    }
+    .metric-label {
+        color: var(--text-muted, #888);
+        flex-shrink: 0;
+    }
+    .metric-value {
+        font-family: monospace;
+        color: var(--text-primary);
+        text-align: right;
+    }
 </style>
 
 @code {
@@ -173,11 +325,20 @@ else
 
     private bool _isLoading = true;
     private List<MonitoredSfp> _monitoredOnts = new();
+    private List<OntConfiguration> _externalOnts = new();
     private List<MonitoringTarget> _fabricTargets = new();
     private int _currentIndex = 0;
     private System.Threading.Timer? _refreshTimer;
+    private OntStats? _externalOntStats;
+
+    private int TotalCount => _monitoredOnts.Count + _externalOnts.Count;
+    private bool IsShowingExternal => _currentIndex >= _monitoredOnts.Count;
 
     public bool HasAnyAe => _monitoredOnts.Any(s => s.IsActiveEthernet);
+
+    /// <summary>Whether the current item is an external ONT (for navigation routing)</summary>
+    public bool IsCurrentExternal => IsShowingExternal;
+
 
     protected override async Task OnInitializedAsync()
     {
@@ -185,7 +346,14 @@ else
         await OnDataLoaded.InvokeAsync();
         _refreshTimer = new System.Threading.Timer(_ =>
         {
-            try { _ = InvokeAsync(StateHasChanged); }
+            try
+            {
+                _ = InvokeAsync(() =>
+                {
+                    RefreshExternalStats();
+                    StateHasChanged();
+                });
+            }
             catch { }
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
@@ -203,7 +371,9 @@ else
             _fabricTargets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric)
                 .ToListAsync();
-            if (_currentIndex >= _monitoredOnts.Count) _currentIndex = 0;
+            _externalOnts = await ExternalOntService.GetConfigsAsync();
+            if (_currentIndex >= TotalCount) _currentIndex = 0;
+            RefreshExternalStats();
 
             try
             {
@@ -231,14 +401,46 @@ else
 
     private void Previous()
     {
-        if (_currentIndex > 0) _currentIndex--;
+        if (_currentIndex > 0) { _currentIndex--; RefreshExternalStats(); }
         StateHasChanged();
     }
 
     private void Next()
     {
-        if (_currentIndex < _monitoredOnts.Count - 1) _currentIndex++;
+        if (_currentIndex < TotalCount - 1) { _currentIndex++; RefreshExternalStats(); }
         StateHasChanged();
+    }
+
+    private void RefreshExternalStats()
+    {
+        if (IsShowingExternal)
+        {
+            var extIdx = _currentIndex - _monitoredOnts.Count;
+            if (extIdx >= 0 && extIdx < _externalOnts.Count)
+                _externalOntStats = ExternalOntService.GetCachedStats(_externalOnts[extIdx].Id);
+            else
+                _externalOntStats = null;
+        }
+    }
+
+    private async Task RefreshExternal()
+    {
+        var extIdx = _currentIndex - _monitoredOnts.Count;
+        if (extIdx < 0 || extIdx >= _externalOnts.Count) return;
+        await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
+        RefreshExternalStats();
+        StateHasChanged();
+    }
+
+    private string ExternalRxClass()
+    {
+        if (_externalOntStats?.RxPowerDbm == null) return "";
+        var v = _externalOntStats.RxPowerDbm.Value;
+        if (v >= -22.5 && v <= -8) return "signal-excellent";
+        if (v >= -25 && v <= -6) return "signal-good";
+        if (v >= -27 && v <= -4) return "signal-fair";
+        if (v >= -28.5) return "signal-weak";
+        return "signal-poor";
     }
 
     private static string LinkTypeLabel(MonitoredSfp sfp) => sfp.Category switch
@@ -285,9 +487,15 @@ else
         ? $"{mbps / 1000.0:0.##} Gbps"
         : $"{mbps} Mbps";
 
-    public string? CurrentModuleKey => _monitoredOnts.Count > 0
-        ? $"{_monitoredOnts[_currentIndex].DeviceMac.Replace("-", ":").ToLowerInvariant()}:{_monitoredOnts[_currentIndex].PortName}"
-        : null;
+    public string? CurrentModuleKey
+    {
+        get
+        {
+            if (IsShowingExternal) return null;
+            if (_monitoredOnts.Count == 0) return null;
+            return $"{_monitoredOnts[_currentIndex].DeviceMac.Replace("-", ":").ToLowerInvariant()}:{_monitoredOnts[_currentIndex].PortName}";
+        }
+    }
 
     public void Dispose() => _refreshTimer?.Dispose();
 }

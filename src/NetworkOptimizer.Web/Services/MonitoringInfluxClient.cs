@@ -496,6 +496,80 @@ public class MonitoringInfluxClient : IAsyncDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Write cable modem aggregate metrics for time-series charting.
+    /// Per-channel detail is NOT written; only averages and error deltas.
+    /// </summary>
+    public Task WriteCableModemAsync(
+        string cmId,
+        string cmName,
+        double? dsPowerAvgDbmv,
+        double? dsSnrAvgDb,
+        double? usPowerAvgDbmv,
+        int lockedDsChannels,
+        int lockedUsChannels,
+        long correctablesDelta,
+        long uncorrectablesDelta,
+        long correctablesTotal,
+        long uncorrectablesTotal,
+        int channelsWithUncorrectables,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("cable_modem")
+            .Tag("cm_id", cmId)
+            .Tag("cm_name", cmName)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (dsPowerAvgDbmv.HasValue) point = point.Field("ds_power_avg_dbmv", dsPowerAvgDbmv.Value);
+        if (dsSnrAvgDb.HasValue) point = point.Field("ds_snr_avg_db", dsSnrAvgDb.Value);
+        if (usPowerAvgDbmv.HasValue) point = point.Field("us_power_avg_dbmv", usPowerAvgDbmv.Value);
+        point = point.Field("locked_ds_channels", lockedDsChannels);
+        point = point.Field("locked_us_channels", lockedUsChannels);
+        point = point.Field("correctables_delta", correctablesDelta);
+        point = point.Field("uncorrectables_delta", uncorrectablesDelta);
+        point = point.Field("correctables_total", correctablesTotal);
+        point = point.Field("uncorrectables_total", uncorrectablesTotal);
+        point = point.Field("channels_with_uncorrectables", channelsWithUncorrectables);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Write external ONT DDM metrics for time-series charting.
+    /// Same physical measurements as SFP DDM but sourced from the ISP's device.
+    /// </summary>
+    public Task WriteOntAsync(
+        string ontId,
+        string ontName,
+        double? rxPowerDbm,
+        double? txPowerDbm,
+        double? temperatureC,
+        double? voltageV,
+        double? biasMa,
+        long? fecErrors,
+        long? bipErrors,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("ont")
+            .Tag("ont_id", ontId)
+            .Tag("ont_name", ontName)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (rxPowerDbm.HasValue) point = point.Field("rx_power_dbm", rxPowerDbm.Value);
+        if (txPowerDbm.HasValue) point = point.Field("tx_power_dbm", txPowerDbm.Value);
+        if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
+        if (voltageV.HasValue) point = point.Field("voltage_v", voltageV.Value);
+        if (biasMa.HasValue) point = point.Field("bias_ma", biasMa.Value);
+        if (fecErrors.HasValue) point = point.Field("fec_errors", fecErrors.Value);
+        if (bipErrors.HasValue) point = point.Field("bip_errors", bipErrors.Value);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
     public Task WriteEventAsync(
         string deviceMac,
         string eventType,
@@ -1074,6 +1148,108 @@ from(bucket: ""{_longtermBucket}"")
     }
 
     /// <summary>
+    /// Query cable modem aggregate metrics over a time range.
+    /// Returns dict keyed by cm_id.
+    /// </summary>
+    public async Task<Dictionary<string, List<CmPoint>>> QueryCableModemAsync(
+        DateTime from,
+        DateTime to,
+        string? cmId = null,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<CmPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+
+        var cmFilter = !string.IsNullOrEmpty(cmId)
+            ? $@"|> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")"
+            : "";
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""cable_modem"")
+  {cmFilter}
+  |> filter(fn: (r) => r._field == ""ds_power_avg_dbmv"" or r._field == ""ds_snr_avg_db"" or r._field == ""us_power_avg_dbmv"" or r._field == ""correctables_delta"" or r._field == ""uncorrectables_delta"" or r._field == ""locked_ds_channels"" or r._field == ""locked_us_channels"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<CmPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var key = record.GetValueByKey("cm_id") as string ?? "unknown";
+            if (!results.TryGetValue(key, out var list))
+            {
+                list = new List<CmPoint>();
+                results[key] = list;
+            }
+            list.Add(new CmPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                DsPowerAvgDbmv = AsDoubleOrNull(record.GetValueByKey("ds_power_avg_dbmv")),
+                DsSnrAvgDb = AsDoubleOrNull(record.GetValueByKey("ds_snr_avg_db")),
+                UsPowerAvgDbmv = AsDoubleOrNull(record.GetValueByKey("us_power_avg_dbmv")),
+                LockedDsChannels = AsIntOrNull(record.GetValueByKey("locked_ds_channels")),
+                LockedUsChannels = AsIntOrNull(record.GetValueByKey("locked_us_channels")),
+                CorrDelta = AsLongOrNull(record.GetValueByKey("correctables_delta")),
+                UncorrDelta = AsLongOrNull(record.GetValueByKey("uncorrectables_delta")),
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Query external ONT metrics over a time range.
+    /// Returns dict keyed by ont_id.
+    /// </summary>
+    public async Task<Dictionary<string, List<OntPoint>>> QueryOntAsync(
+        DateTime from,
+        DateTime to,
+        string? ontId = null,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<OntPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+
+        var ontFilter = !string.IsNullOrEmpty(ontId)
+            ? $@"|> filter(fn: (r) => r.ont_id == ""{SanitizeFluxString(ontId)}"")"
+            : "";
+
+        var flux = $@"
+from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""ont"")
+  {ontFilter}
+  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<OntPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var key = record.GetValueByKey("ont_id") as string ?? "unknown";
+            if (!results.TryGetValue(key, out var list))
+            {
+                list = new List<OntPoint>();
+                results[key] = list;
+            }
+            list.Add(new OntPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RxPowerDbm = AsDoubleOrNull(record.GetValueByKey("rx_power_dbm")),
+                TxPowerDbm = AsDoubleOrNull(record.GetValueByKey("tx_power_dbm")),
+                TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
+                VoltageV = AsDoubleOrNull(record.GetValueByKey("voltage_v")),
+                BiasMa = AsDoubleOrNull(record.GetValueByKey("bias_ma")),
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
     /// Historical WiFi client snapshots for timeline mode on the 3D map. Filter by
     /// AP MAC (tag), optionally by band (tag) and by client MAC (field). Returns
     /// rows ordered by time.
@@ -1267,6 +1443,15 @@ from(bucket: ""{_longtermBucket}"")
         _ => int.TryParse(v.ToString(), out var parsed) ? parsed : null
     };
 
+    private static long? AsLongOrNull(object? v) => v switch
+    {
+        null => null,
+        long l => l,
+        int i => i,
+        double d => (long)d,
+        _ => long.TryParse(v.ToString(), out var parsed) ? parsed : null
+    };
+
     /// <summary>
     /// Find the most recent packet loss event across ISP, Transit, and Internet targets
     /// (checked in that priority order). Returns the timestamp and target type of the
@@ -1420,6 +1605,28 @@ from(bucket: ""{_longtermBucket}"")
         public string? NetworkMode { get; init; }
         public string? Band { get; init; }
         public string? Carrier { get; init; }
+    }
+
+    public record CmPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? DsPowerAvgDbmv { get; init; }
+        public double? DsSnrAvgDb { get; init; }
+        public double? UsPowerAvgDbmv { get; init; }
+        public int? LockedDsChannels { get; init; }
+        public int? LockedUsChannels { get; init; }
+        public long? CorrDelta { get; init; }
+        public long? UncorrDelta { get; init; }
+    }
+
+    public record OntPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? RxPowerDbm { get; init; }
+        public double? TxPowerDbm { get; init; }
+        public double? TemperatureC { get; init; }
+        public double? VoltageV { get; init; }
+        public double? BiasMa { get; init; }
     }
 
     /// <summary>

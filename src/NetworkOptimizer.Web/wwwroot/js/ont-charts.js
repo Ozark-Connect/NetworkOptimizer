@@ -1,9 +1,9 @@
-// SFP DDM time-series charts: RX/TX power, temperature, voltage.
-// Same control pattern as latency-charts.js and device-health-charts.js.
+// External ONT signal time-series charts: RX/TX Power, Temperature, OLT RX Power.
+// Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
+const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
@@ -19,7 +19,7 @@ let customFrom = null;
 let customTo = null;
 let containerId = null;
 let fetchController = null;
-let moduleMeta = [];
+let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
@@ -87,7 +87,7 @@ async function fetchData() {
     if (fetchController) fetchController.abort();
     fetchController = new AbortController();
     try {
-        const resp = await fetch(`/api/monitoring/sfp-chart?${buildQueryParams()}`,
+        const resp = await fetch(`/api/monitoring/ont-chart?${buildQueryParams()}`,
             { signal: fetchController.signal });
         if (!resp.ok) return null;
         return await resp.json();
@@ -98,12 +98,12 @@ async function fetchData() {
 }
 
 function renderBadges(container) {
-    const el = container.querySelector('.sfp-filter-badges');
+    const el = container.querySelector('.ont-filter-badges');
     if (!el) return;
-    if (moduleMeta.length <= 1) { el.innerHTML = ''; return; }
-    el.innerHTML = moduleMeta.map(m => {
+    if (deviceMeta.length <= 1) { el.innerHTML = ''; return; }
+    el.innerHTML = deviceMeta.map(m => {
         const vis = visibility[m.id] !== false;
-        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-sfp="${m.id}">
+        return `<button class="wan-filter-badge ${vis ? 'active' : 'inactive'}" data-device="${m.id}">
             <span class="wan-badge-dot" style="background-color: ${m.color}"></span>
             <span>${escapeHtml(m.label)}</span>
         </button>`;
@@ -111,18 +111,17 @@ function renderBadges(container) {
     if (!el._delegated) {
         el._delegated = true;
         el.addEventListener('click', (e) => {
-            const btn = e.target.closest('button[data-sfp]');
+            const btn = e.target.closest('button[data-device]');
             if (!btn) return;
-            const id = btn.dataset.sfp;
-
+            const id = btn.dataset.device;
             if (e.ctrlKey || e.metaKey) {
                 visibility[id] = visibility[id] === false ? undefined : false;
             } else {
-                const allVis = moduleMeta.every(m => visibility[m.id] !== false);
+                const allVis = deviceMeta.every(m => visibility[m.id] !== false);
                 const onlyThis = visibility[id] !== false
-                    && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
+                    && deviceMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
                 if (onlyThis) { visibility = {}; }
-                else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
+                else if (allVis) { deviceMeta.forEach(m => visibility[m.id] = m.id === id); }
                 else { visibility[id] = visibility[id] === false; }
             }
             updateVisibility();
@@ -132,55 +131,58 @@ function renderBadges(container) {
 }
 
 function updateVisibility() {
-    moduleMeta.forEach(m => {
+    if (deviceMeta.length <= 1) return;
+    deviceMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
-        if (powerChart) {
-            if (vis) { powerChart.showSeries(`${m.label} RX`); powerChart.showSeries(`${m.label} TX`); }
-            else { powerChart.hideSeries(`${m.label} RX`); powerChart.hideSeries(`${m.label} TX`); }
-        }
-        if (tempChart) {
-            if (vis) tempChart.showSeries(m.label);
-            else tempChart.hideSeries(m.label);
-        }
+        try {
+            if (powerChart) {
+                if (vis) { powerChart.showSeries(m.label + ' RX'); powerChart.showSeries(m.label + ' TX'); }
+                else { powerChart.hideSeries(m.label + ' RX'); powerChart.hideSeries(m.label + ' TX'); }
+            }
+            if (tempChart) {
+                if (vis) tempChart.showSeries(m.label);
+                else tempChart.hideSeries(m.label);
+            }
+        } catch (_) {}
     });
 }
 
 async function loadAndUpdate() {
     const data = await fetchData();
-    if (!data?.modules) return;
-    moduleMeta = data.modules.map((m, i) => ({
-        id: m.id, label: m.label, color: PALETTE[i % PALETTE.length],
+    if (!data?.devices) return;
+    deviceMeta = data.devices.map((d, i) => ({
+        id: d.id, label: d.label, color: PALETTE[i % PALETTE.length],
     }));
 
     const powerSeries = [];
-    const tSeries = [];
-    data.modules.forEach((m, i) => {
+    const tempSeries = [];
+    data.devices.forEach((d, i) => {
         const color = PALETTE[i % PALETTE.length];
-        const pts = m.data || [];
+        const pts = d.data || [];
         powerSeries.push({
-            name: `${m.label} RX`,
-            color: color,
+            name: d.label + ' RX',
+            color,
             data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
         });
         powerSeries.push({
-            name: `${m.label} TX`,
-            color: color,
+            name: d.label + ' TX',
+            color,
             data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
         });
-        tSeries.push({
-            name: m.label,
-            color: color,
+        tempSeries.push({
+            name: d.label,
+            color,
             data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
         });
     });
 
     const powerDash = [];
-    data.modules.forEach(() => { powerDash.push(0); powerDash.push(5); });
+    data.devices.forEach(() => { powerDash.push(0); powerDash.push(5); });
     if (powerChart) {
         powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
         powerChart.updateSeries(powerSeries, false);
     }
-    if (tempChart) tempChart.updateSeries(tSeries, false);
+    if (tempChart) tempChart.updateSeries(tempSeries, false);
 
     updateVisibility();
     const container = document.getElementById(containerId);
@@ -291,24 +293,33 @@ function shiftWindow(container, direction) {
 }
 
 export async function mount(elId) {
+    // Reset all state in case unmount didn't complete (Blazor Dispose race)
+    stopPoll();
+    currentRangeHours = 24;
+    windowOffset = 0;
+    isCustomRange = false;
+    customFrom = null;
+    customTo = null;
+    deviceMeta = [];
+    visibility = {};
     containerId = elId;
     const container = document.getElementById(elId);
     if (!container) return;
 
-    const powerEl = container.querySelector('.sfp-power-chart');
-    const tempEl = container.querySelector('.sfp-temp-chart');
+    const powerEl = container.querySelector('.ont-power-chart');
+    const tempEl = container.querySelector('.ont-temp-chart');
     if (!powerEl || !tempEl) return;
 
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
-        ...baseOpts(200, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
+        ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
             yaxis: { min: v => Math.floor(v - 2), max: v => Math.ceil(v + 2) } }),
         series: [], colors: PALETTE,
     });
     tempChart = new ApexCharts(tempEl, {
-        ...baseOpts(160, '°C', v => v != null ? v.toFixed(0) + ' °C' : ''),
+        ...baseOpts(160, '°C', v => v != null ? v.toFixed(1) + ' °C' : ''),
         series: [], colors: PALETTE,
     });
 
@@ -373,29 +384,9 @@ export async function mount(elId) {
     startPoll();
 }
 
-export function navigateToTime(isoTimestamp) {
-    const ts = new Date(isoTimestamp).getTime();
-    const windowMs = 10 * 60000; // 10 min window centered on event
-    customFrom = new Date(ts - windowMs);
-    customTo = new Date(ts + windowMs);
-    isCustomRange = true;
-    windowOffset = 0;
-
-    const container = document.getElementById(containerId);
-    if (container) {
-        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
-        container.querySelector('.custom-range-btn')?.classList.add('active');
-        updateCustomLabel(container);
-    }
-    loadAndUpdate();
-    startPoll();
-}
-
-export function soloModule(id) {
-    if (!moduleMeta.length) return;
-    const match = moduleMeta.find(m => m.id === id);
-    if (!match) return;
-    moduleMeta.forEach(m => { visibility[m.id] = m.id === id; });
+export function soloDevice(deviceId) {
+    if (!deviceMeta.length) return;
+    deviceMeta.forEach(m => { visibility[m.id] = m.id === deviceId; });
     updateVisibility();
     const container = document.getElementById(containerId);
     if (container) renderBadges(container);
@@ -408,7 +399,7 @@ export function unmount() {
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     containerId = null;
-    moduleMeta = [];
+    deviceMeta = [];
     visibility = {};
     currentRangeHours = 24;
     windowOffset = 0;

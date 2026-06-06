@@ -228,6 +228,7 @@
         DashboardCards.SqmStatus => RenderSqmStatus,
         DashboardCards.ThreatTrends => RenderThreatTrends,
         DashboardCards.CellularStats => RenderCellularStats,
+        DashboardCards.CmStats => RenderCmStats,
         DashboardCards.OntStats => RenderOntStats,
         DashboardCards.SpeedTests => RenderSpeedTests,
         DashboardCards.WiFiOptimizer => RenderWiFiOptimizer,
@@ -536,6 +537,18 @@
             </div>
             <div class="card-body">
                 <OntStatsPanel @ref="_ontPanel" OnDataLoaded="StateHasChanged" />
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderCmStats => __builder =>
+    {
+        <div class="card clickable-card" @onclick="NavigateToCmChart">
+            <div class="card-header">
+                <h2 class="card-title">Cable Modem Stats (DOCSIS)</h2>
+            </div>
+            <div class="card-body">
+                <CmStatsPanel />
             </div>
         </div>
     };
@@ -1127,6 +1140,11 @@
 
     private void NavigateToOntChart()
     {
+        if (_ontPanel?.IsCurrentExternal == true)
+        {
+            NavigationManager.NavigateTo("/monitoring?tab=ont");
+            return;
+        }
         var key = _ontPanel?.CurrentModuleKey;
         var url = key != null
             ? $"/monitoring?tab=sfp&sfp={Uri.EscapeDataString(key)}"
@@ -1142,4 +1160,10 @@
             : "/monitoring?tab=cellular";
         NavigationManager.NavigateTo(url);
     }
+
+    private void NavigateToCmChart()
+    {
+        NavigationManager.NavigateTo("/monitoring?tab=cm");
+    }
+
 }

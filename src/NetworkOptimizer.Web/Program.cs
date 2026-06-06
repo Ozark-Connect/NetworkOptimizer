@@ -15,6 +15,8 @@ using NetworkOptimizer.Web.Endpoints;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.CellularModemProviders;
+using NetworkOptimizer.Web.Services.CableModemProviders;
+using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.WiFi.Models;
 using Serilog;
@@ -163,6 +165,8 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISettingsRepository, NetworkOptimizer.Storage.Repositories.SettingsRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IUniFiRepository, NetworkOptimizer.Storage.Repositories.UniFiRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository, NetworkOptimizer.Storage.Repositories.ModemRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, NetworkOptimizer.Storage.Repositories.CmRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
@@ -185,6 +189,17 @@ builder.Services.AddSingleton<ICellularModemProvider, QuectelAtModemProvider>();
 
 // Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
 builder.Services.AddSingleton<CellularModemService>();
+
+// Register Cable Modem providers and service
+builder.Services.AddSingleton<ICableModemProvider, NetgearCmProvider>();
+builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardProvider>();
+builder.Services.AddSingleton<CableModemMonitorService>();
+
+// Register External ONT providers and service
+builder.Services.AddSingleton<IOntProvider, AttGatewayOntProvider>();
+builder.Services.AddSingleton<IOntProvider, RealtekOntProvider>();
+builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
+builder.Services.AddSingleton<OntMonitorService>();
 
 // Register iperf3 Speed Test service (singleton - tracks running tests, uses UniFiSshService)
 builder.Services.AddSingleton<Iperf3SpeedTestService>();
@@ -1584,6 +1599,8 @@ MonitoringInvestigateEndpoints.Map(app);
 DeviceHealthChartEndpoints.Map(app);
 SfpChartEndpoints.Map(app);
 CellularChartEndpoints.Map(app);
+CmChartEndpoints.Map(app);
+OntChartEndpoints.Map(app);
 
 app.Run();
 

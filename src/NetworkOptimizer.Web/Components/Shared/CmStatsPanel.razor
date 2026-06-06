@@ -1,0 +1,232 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Monitoring.Models
+@inject CableModemMonitorService CmService
+@implements IDisposable
+
+<div class="cellular-stats-panel">
+    @if (_isLoading)
+    {
+        <div class="loading-state">
+            <span class="spinner"></span>
+            <span>Loading cable modem stats...</span>
+        </div>
+    }
+    else if (_stats == null)
+    {
+        <div class="sqm-unavailable">
+            <div class="sqm-status">
+                <span class="status-indicator status-disconnected"></span>
+                <span class="status-label">@(_configs.Count > 0 ? _configs[_currentIndex].Name : "No Data")</span>
+            </div>
+            @if (_configs.Count > 1)
+            {
+                <div class="modem-nav" style="margin-bottom: 0.75rem;">
+                    <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
+                    <span class="modem-counter">@(_currentIndex + 1)/@_configs.Count</span>
+                    <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _configs.Count - 1)">&#x203A;</button>
+                </div>
+            }
+            <p class="status-message">
+                @if (_configs.Count > 0)
+                {
+                    <span>Cable modem configured but no data available. Click refresh to poll.</span>
+                }
+                else
+                {
+                    <span>Monitor your cable modem's downstream power, SNR, upstream power, and FEC error rates. Supports Netgear and ARRIS Surfboard modems.</span>
+                }
+            </p>
+            <div class="sqm-actions">
+                @if (_configs.Count > 0)
+                {
+                    <button class="btn btn-secondary" @onclick="Refresh" @onclick:stopPropagation disabled="@_isRefreshing">
+                        @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+                    </button>
+                }
+                <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>@(_configs.Count > 0 ? "CM Settings" : "Configure CM")</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="sqm-header">
+            <div class="sqm-status">
+                <span class="status-indicator status-active"></span>
+                <span class="status-label">@_stats.DeviceName</span>
+            </div>
+            <div class="tc-timestamp">
+                <small>Updated: @_stats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+            </div>
+        </div>
+
+        <div class="signal-quality-section">
+            <div class="ont-rx-gauge">
+                <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
+                    @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
+                </span>
+                <span class="rx-power-label">Downstream SNR avg</span>
+            </div>
+            <div class="modem-nav">
+                @if (_configs.Count > 1)
+                {
+                    <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
+                    <span class="modem-counter">@(_currentIndex + 1)/@_configs.Count</span>
+                    <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _configs.Count - 1)">&#x203A;</button>
+                }
+            </div>
+        </div>
+
+        <div class="cellular-metrics" style="margin-top: 0.75rem;">
+            <div class="metric-box">
+                <div class="metric-header">Downstream</div>
+                <div class="metric-content">
+                    <div class="metric-row">
+                        <span class="metric-label">Power:</span>
+                        <span class="metric-value">@(_stats.DownstreamPowerAvgDbmv.HasValue ? $"{_stats.DownstreamPowerAvgDbmv.Value:F1} dBmV" : "-")</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">SNR:</span>
+                        <span class="metric-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">@(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Channels:</span>
+                        <span class="metric-value">@_stats.LockedDsChannels locked</span>
+                    </div>
+                </div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-header">Upstream</div>
+                <div class="metric-content">
+                    <div class="metric-row">
+                        <span class="metric-label">Power:</span>
+                        <span class="metric-value">@(_stats.UpstreamPowerAvgDbmv.HasValue ? $"{_stats.UpstreamPowerAvgDbmv.Value:F1} dBmV" : "-")</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Channels:</span>
+                        <span class="metric-value">@_stats.LockedUsChannels locked</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Uncorr:</span>
+                        <span class="metric-value @(_stats.TotalUncorrectables > 0 ? "signal-poor" : "")">@_stats.TotalUncorrectables</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sqm-actions">
+            <button class="btn btn-secondary" @onclick="Refresh" @onclick:stopPropagation disabled="@_isRefreshing">
+                @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+            </button>
+            <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>CM Settings</a>
+        </div>
+    }
+</div>
+
+<style>
+    .cellular-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+    .metric-box {
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+        padding: 0.75rem;
+    }
+    .metric-header {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--accent-color, #3b82f6);
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        padding: 2px 0;
+        gap: 0.5rem;
+        max-width: 250px;
+        margin: 0 auto;
+    }
+    .metric-label {
+        color: var(--text-muted, #888);
+        flex-shrink: 0;
+    }
+    .metric-value {
+        font-family: monospace;
+        color: var(--text-primary);
+        text-align: right;
+    }
+</style>
+
+@code {
+    private List<NetworkOptimizer.Storage.Models.CmConfiguration> _configs = new();
+    private CableModemStats? _stats;
+    private int _currentIndex;
+    private bool _isLoading = true;
+    private bool _isRefreshing;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _isLoading = false;
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            try { await InvokeAsync(async () => { await LoadStatsAsync(); StateHasChanged(); }); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task LoadAsync()
+    {
+        _configs = await CmService.GetConfigsAsync();
+        if (_currentIndex >= _configs.Count) _currentIndex = 0;
+        await LoadStatsAsync();
+    }
+
+    private Task LoadStatsAsync()
+    {
+        if (_configs.Count == 0) { _stats = null; return Task.CompletedTask; }
+        _stats = CmService.GetCachedStats(_configs[_currentIndex].Id);
+        return Task.CompletedTask;
+    }
+
+    private async Task Refresh()
+    {
+        if (_configs.Count == 0) return;
+        _isRefreshing = true;
+        StateHasChanged();
+        await CmService.PollCmAsync(_configs[_currentIndex].Id);
+        await LoadStatsAsync();
+        _isRefreshing = false;
+        StateHasChanged();
+    }
+
+    private async Task Previous()
+    {
+        if (_currentIndex > 0) { _currentIndex--; await LoadStatsAsync(); }
+    }
+
+    private async Task Next()
+    {
+        if (_currentIndex < _configs.Count - 1) { _currentIndex++; await LoadStatsAsync(); }
+    }
+
+    private string GetSnrClass(double? snr)
+    {
+        if (!snr.HasValue) return "";
+        if (snr >= 36) return "signal-excellent";
+        if (snr >= 33) return "signal-good";
+        if (snr >= 30) return "signal-fair";
+        return "signal-poor";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

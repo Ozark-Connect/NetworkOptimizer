@@ -56,6 +56,8 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<UpstreamDiscovery> UpstreamDiscoveries { get; set; }
     public DbSet<MonitoredSfp> MonitoredSfps { get; set; }
     public DbSet<OuiVendor> OuiVendors { get; set; }
+    public DbSet<CmConfiguration> CmConfigurations { get; set; }
+    public DbSet<OntConfiguration> OntConfigurations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -101,6 +103,22 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<ModemConfiguration>(entity =>
         {
             entity.ToTable("ModemConfigurations");
+            entity.HasIndex(e => e.Host);
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // CmConfiguration configuration
+        modelBuilder.Entity<CmConfiguration>(entity =>
+        {
+            entity.ToTable("CmConfigurations");
+            entity.HasIndex(e => e.Host);
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // OntConfiguration configuration
+        modelBuilder.Entity<OntConfiguration>(entity =>
+        {
+            entity.ToTable("OntConfigurations");
             entity.HasIndex(e => e.Host);
             entity.HasIndex(e => e.Enabled);
         });

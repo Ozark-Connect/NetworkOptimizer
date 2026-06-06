@@ -31,6 +31,8 @@
 @inject NavigationManager NavigationManager
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
+@inject CableModemMonitorService CmMonitorService
+@inject OntMonitorService OntMonitorService
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
@@ -911,6 +913,324 @@
             {
                 <div class="alert alert-@modemMessageClass" style="margin-top: 1rem;">
                     @modemMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Cable Modem Monitoring -->
+    <div class="card" id="cable-modem">
+        <div class="card-header">
+            <h2 class="card-title">Cable Modem Monitoring</h2>
+            <span class="status-badge status-@_cmStatus.ToLower()">@_cmStatus</span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Monitor external cable modems (DOCSIS) for signal quality, SNR, and error rates.
+            </p>
+
+            @if (_cmConfigs.Count > 0)
+            {
+                <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Host</th>
+                            <th>Provider</th>
+                            <th>Enabled</th>
+                            <th>Last Polled</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cm in _cmConfigs)
+                        {
+                            <tr>
+                                <td>@cm.Name</td>
+                                <td><code>@cm.Host</code></td>
+                                <td>@GetCmProviderDisplayName(cm.Provider)</td>
+                                <td>
+                                    @if (cm.Enabled)
+                                    {
+                                        <span class="status-badge status-connected">Enabled</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected">Disabled</span>
+                                    }
+                                </td>
+                                <td>@(cm.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>
+                                    <div class="btn-group-wrap">
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditCm(cm)">Edit</button>
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => TestCm(cm)" disabled="@(_cmTestingId == cm.Id)">
+                                            @if (_cmTestingId == cm.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>Test</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteCm(cm.Id)">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+            else
+            {
+                <p class="empty-state">No cable modems configured. Add one below to start monitoring DOCSIS signal levels.</p>
+            }
+
+            <details style="margin-top: 1.5rem;" open="@_cmFormVisible">
+                <summary style="cursor: pointer; font-weight: 500;" @onclick="() => _cmFormVisible = !_cmFormVisible">@(_editingCm.Id > 0 ? "Edit Cable Modem" : "Add Cable Modem")</summary>
+                <div style="padding-top: 0.5rem;">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_editingCm.Name" placeholder="CM1000 Primary" required />
+                        </div>
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Provider</label>
+                            <select class="form-control" @bind="_editingCm.Provider">
+                                <option value="netgear">Netgear CM (HTTP)</option>
+                                <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Host / IP</label>
+                            <input type="text" class="form-control" @bind="_editingCm.Host" placeholder="192.168.100.1" required />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" @bind="_editingCm.Port" min="1" max="65535" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" @bind="_editingCm.Username" placeholder="admin" />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" @bind="_editingCm.Password"
+                                   placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Status Page Path (optional)</label>
+                            <input type="text" class="form-control" @bind="_editingCm.StatusPagePath"
+                                   placeholder="@(_editingCm.Provider == "arris-surfboard" ? "/cgi-bin/status" : "/DocsisStatus.htm")" />
+                            <small class="form-help">Leave empty to use the provider default.</small>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Polling Interval (sec)</label>
+                            <input type="number" class="form-control" @bind="_editingCm.PollingIntervalSeconds" min="60" max="3600" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_editingCm.Enabled" />
+                            <span>Enable polling</span>
+                        </label>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveCm" disabled="@_savingCm">
+                            @if (_savingCm)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>@(_editingCm.Id > 0 ? "Update Cable Modem" : "Add Cable Modem")</span>
+                            }
+                        </button>
+                        @if (_editingCm.Id > 0)
+                        {
+                            <button class="btn btn-secondary" @onclick="CancelEditCm">Cancel</button>
+                        }
+                    </div>
+                </div>
+            </details>
+
+            @if (!string.IsNullOrEmpty(_cmTestResult))
+            {
+                <div class="alert alert-@_cmTestResultClass" style="margin-top: 1rem;">
+                    @_cmTestResult
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- External ONT Monitoring -->
+    <div class="card" id="external-ont">
+        <div class="card-header">
+            <h2 class="card-title">External ONT Monitoring</h2>
+            <span class="status-badge status-@_ontStatus.ToLower()">@_ontStatus</span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Monitor external ONTs (fiber optic terminals) for DDM optics readings - RX/TX power, temperature, and link state.
+            </p>
+
+            @if (_ontConfigs.Count > 0)
+            {
+                <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Host</th>
+                            <th>Provider</th>
+                            <th>Enabled</th>
+                            <th>Last Polled</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var ont in _ontConfigs)
+                        {
+                            <tr>
+                                <td>@ont.Name</td>
+                                <td><code>@ont.Host</code></td>
+                                <td>@GetOntProviderDisplayName(ont.Provider)</td>
+                                <td>
+                                    @if (ont.Enabled)
+                                    {
+                                        <span class="status-badge status-connected">Enabled</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected">Disabled</span>
+                                    }
+                                </td>
+                                <td>@(ont.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>
+                                    <div class="btn-group-wrap">
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditOnt(ont)">Edit</button>
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => TestOnt(ont)" disabled="@(_ontTestingId == ont.Id)">
+                                            @if (_ontTestingId == ont.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>Test</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteOnt(ont.Id)">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+            else
+            {
+                <p class="empty-state">No ONTs configured. Add one below to start monitoring fiber optics readings.</p>
+            }
+
+            <details style="margin-top: 1.5rem;" open="@_ontFormVisible">
+                <summary style="cursor: pointer; font-weight: 500;" @onclick="() => _ontFormVisible = !_ontFormVisible">@(_editingOnt.Id > 0 ? "Edit ONT" : "Add ONT")</summary>
+                <div style="padding-top: 0.5rem;">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_editingOnt.Name" placeholder="AT&T BGW320" required />
+                        </div>
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Provider</label>
+                            <select class="form-control" @bind="_editingOnt.Provider">
+                                <option value="att-gateway">AT&T Gateway (HTTP)</option>
+                                <option value="realtek-ont">Realtek ONT Stick (HTTP)</option>
+                                <option value="generic-http-ont">Generic HTTP ONT</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Host / IP</label>
+                            <input type="text" class="form-control" @bind="_editingOnt.Host" placeholder="192.168.1.254" required />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" @bind="_editingOnt.Port" min="1" max="65535" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" @bind="_editingOnt.Username" placeholder="admin" />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" @bind="_editingOnt.Password"
+                                   placeholder="@(_editingOnt.Id > 0 && !string.IsNullOrEmpty(_editingOnt.Password) ? "••••••••" : "")" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Private Key Path (optional)</label>
+                            <input type="text" class="form-control" @bind="_editingOnt.PrivateKeyPath" placeholder="/path/to/id_rsa" />
+                            <small class="form-help">For future SSH-based ONT providers. Leave empty for HTTP providers.</small>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Polling Interval (sec)</label>
+                            <input type="number" class="form-control" @bind="_editingOnt.PollingIntervalSeconds" min="60" max="3600" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_editingOnt.Enabled" />
+                            <span>Enable polling</span>
+                        </label>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveOnt" disabled="@_savingOnt">
+                            @if (_savingOnt)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>@(_editingOnt.Id > 0 ? "Update ONT" : "Add ONT")</span>
+                            }
+                        </button>
+                        @if (_editingOnt.Id > 0)
+                        {
+                            <button class="btn btn-secondary" @onclick="CancelEditOnt">Cancel</button>
+                        }
+                    </div>
+                </div>
+            </details>
+
+            @if (!string.IsNullOrEmpty(_ontTestResult))
+            {
+                <div class="alert alert-@_ontTestResultClass" style="margin-top: 1rem;">
+                    @_ontTestResult
                 </div>
             }
         </div>
@@ -2237,6 +2557,26 @@
     private bool loadingDiscoveredModems = false;
     private bool modemFormExpanded = false;
 
+    // Cable Modem Monitoring
+    private List<CmConfiguration> _cmConfigs = new();
+    private CmConfiguration _editingCm = new() { Provider = "netgear", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
+    private bool _cmFormVisible;
+    private bool _savingCm;
+    private string? _cmTestResult;
+    private string _cmTestResultClass = "info";
+    private int? _cmTestingId;
+    private string _cmStatus = "Inactive";
+
+    // External ONT Monitoring
+    private List<OntConfiguration> _ontConfigs = new();
+    private OntConfiguration _editingOnt = new() { Provider = "att-gateway", Port = 80, PollingIntervalSeconds = 300, Enabled = true };
+    private bool _ontFormVisible;
+    private bool _savingOnt;
+    private string? _ontTestResult;
+    private string _ontTestResultClass = "info";
+    private int? _ontTestingId;
+    private string _ontStatus = "Inactive";
+
     // Gateway SSH
     private GatewaySshSettings? gatewaySettings;
     private string gatewayHost = "";
@@ -2429,6 +2769,8 @@
         await LoadGatewaySettings();
         await LoadSshSettings();
         await LoadModemConfigs();
+        await LoadCmSettings();
+        await LoadOntSettings();
         await LoadDiscoveredModems();
         await LoadIperf3Settings();
         await LoadExtServers();
@@ -3700,6 +4042,285 @@
         }
         StateHasChanged();
     }
+
+    // --- Cable Modem Monitoring ---
+
+    private async Task LoadCmSettings()
+    {
+        try
+        {
+            _cmConfigs = await CmMonitorService.GetConfigsAsync();
+            if (_cmConfigs.Any(c => !string.IsNullOrEmpty(c.LastError)))
+                _cmStatus = "Error";
+            else if (_cmConfigs.Any(c => c.Enabled))
+                _cmStatus = "Active";
+            else
+                _cmStatus = "Inactive";
+        }
+        catch (Exception ex)
+        {
+            _cmStatus = "Error";
+            _cmTestResult = $"Error loading cable modem configs: {ex.Message}";
+            _cmTestResultClass = "danger";
+        }
+    }
+
+    private async Task SaveCm()
+    {
+        if (string.IsNullOrWhiteSpace(_editingCm.Name) || string.IsNullOrWhiteSpace(_editingCm.Host))
+        {
+            _cmTestResult = "Name and Host are required.";
+            _cmTestResultClass = "danger";
+            return;
+        }
+
+        _savingCm = true;
+        _cmTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var isNew = _editingCm.Id == 0;
+            _editingCm.UpdatedAt = DateTime.UtcNow;
+            if (isNew)
+                _editingCm.CreatedAt = DateTime.UtcNow;
+
+            await CmMonitorService.SaveCmAsync(_editingCm);
+            _cmTestResult = isNew ? "Cable modem added successfully" : "Cable modem updated successfully";
+            _cmTestResultClass = "success";
+
+            await LoadCmSettings();
+            CancelEditCm();
+        }
+        catch (Exception ex)
+        {
+            _cmTestResult = $"Error saving cable modem: {ex.Message}";
+            _cmTestResultClass = "danger";
+        }
+        finally
+        {
+            _savingCm = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteCm(int id)
+    {
+        try
+        {
+            await CmMonitorService.DeleteCmAsync(id);
+            _cmTestResult = "Cable modem deleted.";
+            _cmTestResultClass = "success";
+            await LoadCmSettings();
+        }
+        catch (Exception ex)
+        {
+            _cmTestResult = $"Error deleting cable modem: {ex.Message}";
+            _cmTestResultClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task TestCm(CmConfiguration config)
+    {
+        _cmTestingId = config.Id;
+        _cmTestResult = $"Testing {config.Name}...";
+        _cmTestResultClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await CmMonitorService.ProbeAsync(config);
+            _cmTestResult = message;
+            _cmTestResultClass = success ? "success" : "danger";
+            if (success)
+                await LoadCmSettings();
+        }
+        catch (Exception ex)
+        {
+            _cmTestResult = $"Error: {ex.Message}";
+            _cmTestResultClass = "danger";
+        }
+        finally
+        {
+            _cmTestingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private void EditCm(CmConfiguration config)
+    {
+        _editingCm = new CmConfiguration
+        {
+            Id = config.Id,
+            Name = config.Name,
+            Provider = config.Provider,
+            Host = config.Host,
+            Port = config.Port,
+            Username = config.Username,
+            Password = config.Password,
+            StatusPagePath = config.StatusPagePath,
+            PollingIntervalSeconds = config.PollingIntervalSeconds,
+            Enabled = config.Enabled,
+            LastPolled = config.LastPolled,
+            LastError = config.LastError,
+            CreatedAt = config.CreatedAt,
+        };
+        _cmFormVisible = true;
+    }
+
+    private void CancelEditCm()
+    {
+        _editingCm = new CmConfiguration { Provider = "netgear", Port = 80, Username = "admin", PollingIntervalSeconds = 300, Enabled = true };
+        _cmFormVisible = false;
+    }
+
+    private static string GetCmProviderDisplayName(string provider) => provider switch
+    {
+        "netgear" => "Netgear CM (HTTP)",
+        "arris-surfboard" => "ARRIS Surfboard (HTTP)",
+        _ => provider,
+    };
+
+    // --- External ONT Monitoring ---
+
+    private async Task LoadOntSettings()
+    {
+        try
+        {
+            _ontConfigs = await OntMonitorService.GetConfigsAsync();
+            if (_ontConfigs.Any(o => !string.IsNullOrEmpty(o.LastError)))
+                _ontStatus = "Error";
+            else if (_ontConfigs.Any(o => o.Enabled))
+                _ontStatus = "Active";
+            else
+                _ontStatus = "Inactive";
+        }
+        catch (Exception ex)
+        {
+            _ontStatus = "Error";
+            _ontTestResult = $"Error loading ONT configs: {ex.Message}";
+            _ontTestResultClass = "danger";
+        }
+    }
+
+    private async Task SaveOnt()
+    {
+        if (string.IsNullOrWhiteSpace(_editingOnt.Name) || string.IsNullOrWhiteSpace(_editingOnt.Host))
+        {
+            _ontTestResult = "Name and Host are required.";
+            _ontTestResultClass = "danger";
+            return;
+        }
+
+        _savingOnt = true;
+        _ontTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var isNew = _editingOnt.Id == 0;
+            _editingOnt.UpdatedAt = DateTime.UtcNow;
+            if (isNew)
+                _editingOnt.CreatedAt = DateTime.UtcNow;
+
+            await OntMonitorService.SaveOntAsync(_editingOnt);
+            _ontTestResult = isNew ? "ONT added successfully" : "ONT updated successfully";
+            _ontTestResultClass = "success";
+
+            await LoadOntSettings();
+            CancelEditOnt();
+        }
+        catch (Exception ex)
+        {
+            _ontTestResult = $"Error saving ONT: {ex.Message}";
+            _ontTestResultClass = "danger";
+        }
+        finally
+        {
+            _savingOnt = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteOnt(int id)
+    {
+        try
+        {
+            await OntMonitorService.DeleteOntAsync(id);
+            _ontTestResult = "ONT deleted.";
+            _ontTestResultClass = "success";
+            await LoadOntSettings();
+        }
+        catch (Exception ex)
+        {
+            _ontTestResult = $"Error deleting ONT: {ex.Message}";
+            _ontTestResultClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task TestOnt(OntConfiguration config)
+    {
+        _ontTestingId = config.Id;
+        _ontTestResult = $"Testing {config.Name}...";
+        _ontTestResultClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await OntMonitorService.ProbeAsync(config);
+            _ontTestResult = message;
+            _ontTestResultClass = success ? "success" : "danger";
+            if (success)
+                await LoadOntSettings();
+        }
+        catch (Exception ex)
+        {
+            _ontTestResult = $"Error: {ex.Message}";
+            _ontTestResultClass = "danger";
+        }
+        finally
+        {
+            _ontTestingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private void EditOnt(OntConfiguration config)
+    {
+        _editingOnt = new OntConfiguration
+        {
+            Id = config.Id,
+            Name = config.Name,
+            Provider = config.Provider,
+            Host = config.Host,
+            Port = config.Port,
+            Username = config.Username,
+            Password = config.Password,
+            PrivateKeyPath = config.PrivateKeyPath,
+            PollingIntervalSeconds = config.PollingIntervalSeconds,
+            Enabled = config.Enabled,
+            LastPolled = config.LastPolled,
+            LastError = config.LastError,
+            CreatedAt = config.CreatedAt,
+        };
+        _ontFormVisible = true;
+    }
+
+    private void CancelEditOnt()
+    {
+        _editingOnt = new OntConfiguration { Provider = "att-gateway", Port = 80, PollingIntervalSeconds = 300, Enabled = true };
+        _ontFormVisible = false;
+    }
+
+    private static string GetOntProviderDisplayName(string provider) => provider switch
+    {
+        "att-gateway" => "AT&T Gateway (HTTP)",
+        "realtek-ont" => "Realtek ONT Stick (HTTP)",
+        "generic-http-ont" => "Generic HTTP ONT",
+        _ => provider,
+    };
 
     private async Task SaveAppSettings()
     {

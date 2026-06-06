@@ -298,6 +298,15 @@ The following were implemented in the WiFi Optimizer feature:
 - Add a build step (terser or esbuild) to produce `.min.js` variants and reference those in production
 - Matches the pattern used for OpenSpeedTest (`app-2.5.4.js` → `app-2.5.4.min.js`)
 
+### Fix Area Chart Gradient Direction for Negative Values
+- ApexCharts gradient fill always renders opaque-to-transparent top-to-bottom
+- For positive values (CM power, temperature), the dense color is at the line fading down toward zero - correct
+- For negative values (ONT/SFP RX power at -19.8 dBm), the dense color is at zero fading down toward the line - visually inverted
+- The opacity gradient should be densest at the line regardless of sign
+- Requires patching the SVG gradient generation in our forked `tvancott42/Blazor-ApexCharts`
+- `fillTo: 'end'` doesn't solve this - it changes the fill region, not the gradient direction
+- Affects: ONT RX power chart, SFP RX power chart, cellular RSRP chart (all negative dBm values)
+
 ### Extract Shared Time-Range Chart Controls
 - `latency-charts.js` and `device-health-charts.js` duplicate the same time-range control logic (presets, shift arrows, custom range popover, filter badges, poll interval scaling)
 - Extract into a shared JS module so all chart sets reuse one implementation

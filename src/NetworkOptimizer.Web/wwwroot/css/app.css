@@ -900,6 +900,15 @@ a.stat-card-link:active {
     grid-column: span 2;
 }
 
+.dashboard-card-wrapper.card-span-2 > .card-stack {
+    flex-direction: row;
+}
+
+.dashboard-card-wrapper.card-span-2 > .card-stack > .card {
+    flex: 1;
+    min-width: 0;
+}
+
 .dashboard-card-hidden {
     opacity: 0.4;
 }
@@ -3098,6 +3107,10 @@ select.form-control {
 
     .card-stack {
         gap: 0.5rem;
+    }
+
+    .dashboard-card-wrapper.card-span-2 > .card-stack {
+        flex-direction: column;
     }
 
     .card-header {
