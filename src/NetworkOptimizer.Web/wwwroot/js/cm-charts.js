@@ -59,6 +59,15 @@ function baseOpts(height, yTitle, yFormatter, extra) {
     };
 }
 
+function padAxis(unit, padding) {
+    return {
+        min: v => Math.floor(v - padding),
+        max: v => Math.ceil(v + padding),
+        title: { text: unit, style: { color: '#9ca3af' } },
+        labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Number(v).toFixed(0) : '' },
+    };
+}
+
 function buildQueryParams() {
     let params = '';
     if (isCustomRange && customFrom && customTo) {
@@ -322,15 +331,18 @@ export async function mount(elId) {
     if (errorsChart) { errorsChart.destroy(); errorsChart = null; }
 
     dsPowerChart = new ApexCharts(dsPowerEl, {
-        ...baseOpts(200, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : ''),
+        ...baseOpts(200, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
+            yaxis: padAxis('dBmV', 2) }),
         series: [], colors: PALETTE,
     });
     dsSnrChart = new ApexCharts(dsSnrEl, {
-        ...baseOpts(160, 'dB', v => v != null ? v.toFixed(1) + ' dB' : ''),
+        ...baseOpts(160, 'dB', v => v != null ? v.toFixed(1) + ' dB' : '', {
+            yaxis: padAxis('dB', 2) }),
         series: [], colors: PALETTE,
     });
     usPowerChart = new ApexCharts(usPowerEl, {
-        ...baseOpts(160, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : ''),
+        ...baseOpts(160, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
+            yaxis: padAxis('dBmV', 2) }),
         series: [], colors: PALETTE,
     });
     errorsChart = new ApexCharts(errorsEl, {
