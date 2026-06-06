@@ -60,6 +60,15 @@ function baseOpts(height, yTitle, yFormatter, extra) {
     };
 }
 
+function padAxis(unit, padding) {
+    return {
+        min: v => Math.floor(v - padding),
+        max: v => Math.ceil(v + padding),
+        title: { text: unit, style: { color: '#9ca3af' } },
+        labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Number(v).toFixed(0) : '' },
+    };
+}
+
 function buildQueryParams() {
     let params = '';
     if (isCustomRange && customFrom && customTo) {
@@ -304,7 +313,8 @@ export async function mount(elId) {
     if (tempChart) { tempChart.destroy(); tempChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
-        ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
+        ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
+            yaxis: padAxis('dBm', 2) }),
         series: [], colors: PALETTE,
     });
     tempChart = new ApexCharts(tempEl, {
