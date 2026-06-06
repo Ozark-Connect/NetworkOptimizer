@@ -41,11 +41,11 @@ public sealed class CableModemMonitorService : IDisposable
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
-        // Fire every 60 seconds, but respects per-CM PollingIntervalSeconds
+        // Prime poll 5 s after startup so dashboard has data; then check every 60 s
         _pollingTimer = new Timer(
             _ => _ = PollAllAsync(),
             null,
-            TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(5),
             TimeSpan.FromSeconds(60));
     }
 
