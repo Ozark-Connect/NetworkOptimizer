@@ -597,7 +597,7 @@ else
         }
         @if (_influxReachable == true)
         {
-        @if (!_ontHasDevices && !_monitoredSfps.Any(s => s.Category == SfpCategory.PON))
+        @if (!_ontHasDevices && !_monitoredSfps.Any(s => s.Category == SfpCategory.Pon))
         {
             <div class="card" style="margin-top: 1.5rem;">
                 <div class="card-body" style="text-align: center; padding: 2rem;">
