@@ -135,16 +135,22 @@ public sealed class CableModemMonitorService : IDisposable
 
     private async Task PollAllAsync()
     {
-        if (_isPolling) return;
+        if (_isPolling)
+        {
+            _logger.LogDebug("CM PollAllAsync skipped - already polling");
+            return;
+        }
 
         try
         {
             _isPolling = true;
             var forceAll = !_hasPrimedOnce;
+            _logger.LogDebug("CM PollAllAsync starting (forceAll={ForceAll})", forceAll);
 
             using var scope = _scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
             var configs = await repo.GetEnabledCmConfigurationsAsync();
+            _logger.LogDebug("CM PollAllAsync found {Count} enabled configs", configs.Count);
 
             foreach (var config in configs)
             {

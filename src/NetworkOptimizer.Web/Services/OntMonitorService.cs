@@ -129,16 +129,22 @@ public class OntMonitorService : IDisposable
 
     private async Task PollAllAsync()
     {
-        if (_isPolling) return;
+        if (_isPolling)
+        {
+            _logger.LogDebug("ONT PollAllAsync skipped - already polling");
+            return;
+        }
 
         try
         {
             _isPolling = true;
             var forceAll = !_hasPrimedOnce;
+            _logger.LogDebug("ONT PollAllAsync starting (forceAll={ForceAll})", forceAll);
 
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
             var configs = await repository.GetEnabledOntConfigurationsAsync();
+            _logger.LogDebug("ONT PollAllAsync found {Count} enabled configs", configs.Count);
 
             foreach (var config in configs)
             {
