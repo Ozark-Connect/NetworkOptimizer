@@ -81,6 +81,16 @@ else
                     disabled="@(!_monitoringReady)">
                 SFP Stats
             </button>
+            <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("cm"))"
+                    disabled="@(!_monitoringReady)">
+                CM Stats
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("ont"))"
+                    disabled="@(!_monitoringReady)">
+                ONT Stats
+            </button>
             <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("cellular"))"
                     disabled="@(!_monitoringReady)">
@@ -468,6 +478,108 @@ else
                 }
             </div>
         </div>
+    }
+
+    @* ──────────────── Tab: CM Stats ──────────────── *@
+    @if (_activeTab == "cm" && _monitoringReady)
+    {
+        @if (_influxReachable == false)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> — Cable modem chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab.
+            </div>
+        }
+        else if (_influxReachable != true)
+        {
+            <div class="loading-container" style="padding: 3rem;">
+                <div class="spinner"></div>
+            </div>
+        }
+        @if (_influxReachable == true)
+        {
+        <div class="card" style="margin-top: 1.5rem;" id="cm-charts-container">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <h2 class="card-title">Cable Modem Signal History</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div class="time-range-selector">
+                        <button class="time-btn" data-hours="0">15m</button>
+                        <button class="time-btn" data-hours="1">1h</button>
+                        <button class="time-btn" data-hours="6">6h</button>
+                        <button class="time-btn active" data-hours="24">24h</button>
+                        <button class="time-btn" data-hours="168">7d</button>
+                        <button class="time-btn" data-hours="720">30d</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-card">
+                    <div class="chart-header"><h3 class="chart-title">Downstream Power (dBmV)</h3></div>
+                    <div id="cm-ds-power-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Downstream SNR (dB)</h3></div>
+                    <div id="cm-ds-snr-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Upstream Power (dBmV)</h3></div>
+                    <div id="cm-us-power-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Uncorrectable Errors</h3></div>
+                    <div id="cm-errors-chart"></div>
+                </div>
+            </div>
+        </div>
+        }
+    }
+
+    @* ──────────────── Tab: ONT Stats ──────────────── *@
+    @if (_activeTab == "ont" && _monitoringReady)
+    {
+        @if (_influxReachable == false)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> — ONT chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab.
+            </div>
+        }
+        else if (_influxReachable != true)
+        {
+            <div class="loading-container" style="padding: 3rem;">
+                <div class="spinner"></div>
+            </div>
+        }
+        @if (_influxReachable == true)
+        {
+        <div class="card" style="margin-top: 1.5rem;" id="ont-charts-container">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <h2 class="card-title">External ONT Signal History</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div class="time-range-selector">
+                        <button class="time-btn" data-hours="0">15m</button>
+                        <button class="time-btn" data-hours="1">1h</button>
+                        <button class="time-btn" data-hours="6">6h</button>
+                        <button class="time-btn active" data-hours="24">24h</button>
+                        <button class="time-btn" data-hours="168">7d</button>
+                        <button class="time-btn" data-hours="720">30d</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-card">
+                    <div class="chart-header"><h3 class="chart-title">RX / TX Power (dBm)</h3></div>
+                    <div id="ont-power-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Temperature (C)</h3></div>
+                    <div id="ont-temp-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">OLT RX Power (dBm)</h3></div>
+                    <div id="ont-olt-rx-chart"></div>
+                </div>
+            </div>
+        </div>
+        }
     }
 
     @* ──────────────── Tab: Cellular Stats ──────────────── *@
@@ -872,6 +984,8 @@ else
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
     private bool _cellularChartsMounted;
+    private bool _cmChartsMounted;
+    private bool _ontChartsMounted;
 
     // Investigation state
     private bool _investigatingLoss;
@@ -2070,6 +2184,44 @@ else
             catch { }
         }
 
+        // CM charts
+        if (_activeTab == "cm" && _monitoringReady && _influxReachable == true && !_cmChartsMounted)
+        {
+            _cmChartsMounted = true;
+            try
+            {
+                var cmUrl = VersionedJs("/js/cm-charts.js");
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const s = document.createElement('script'); s.src = '{cmUrl}'; s.onload = () => window.cmCharts?.init(); document.head.appendChild(s); }})();");
+            }
+            catch { _cmChartsMounted = false; }
+        }
+        else if ((_activeTab != "cm" || _influxReachable != true) && _cmChartsMounted)
+        {
+            _cmChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.cmCharts?.destroy();"); }
+            catch { }
+        }
+
+        // ONT charts
+        if (_activeTab == "ont" && _monitoringReady && _influxReachable == true && !_ontChartsMounted)
+        {
+            _ontChartsMounted = true;
+            try
+            {
+                var ontUrl = VersionedJs("/js/ont-charts.js");
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const s = document.createElement('script'); s.src = '{ontUrl}'; s.onload = () => window.ontCharts?.init(); document.head.appendChild(s); }})();");
+            }
+            catch { _ontChartsMounted = false; }
+        }
+        else if ((_activeTab != "ont" || _influxReachable != true) && _ontChartsMounted)
+        {
+            _ontChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.ontCharts?.destroy();"); }
+            catch { }
+        }
+
     }
 
     public void Dispose()
@@ -2098,6 +2250,16 @@ else
         if (_cellularChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__cellularCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_cmChartsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.cmCharts?.destroy();").AsTask(); }
+            catch { }
+        }
+        if (_ontChartsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.ontCharts?.destroy();").AsTask(); }
             catch { }
         }
         if (_wanLiveChartMounted)
