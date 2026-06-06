@@ -343,9 +343,10 @@ else
     {
         if (_externalOntStats?.RxPowerDbm == null) return "";
         var v = _externalOntStats.RxPowerDbm.Value;
-        if (v >= -22 && v <= -8) return "signal-excellent";
+        if (v >= -22.5 && v <= -8) return "signal-excellent";
         if (v >= -25 && v <= -6) return "signal-good";
-        if (v >= -28 && v <= -4) return "signal-fair";
+        if (v >= -27 && v <= -4) return "signal-fair";
+        if (v >= -28.5) return "signal-weak";
         return "signal-poor";
     }
 
