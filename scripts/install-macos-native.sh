@@ -255,9 +255,6 @@ dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     -c Release \
     -r "$RUNTIME" \
     --self-contained \
-    -p:PublishSingleFile=true \
-    -p:IncludeNativeLibrariesForSelfExtract=true \
-    -p:EnableCompressionInSingleFile=false \
     -p:DebugType=None \
     -o "$INSTALL_DIR"
 
@@ -324,8 +321,9 @@ fi
 
 # Step 4: Sign binary (single-file executable has native libs embedded)
 echo ""
-echo "[4/9] Signing binary..."
+echo "[4/9] Signing binaries..."
 cd "$INSTALL_DIR"
+find . -name '*.dylib' -exec codesign --force --sign - {} \;
 codesign --force --sign - NetworkOptimizer.Web
 echo "Verifying signature..."
 codesign -v NetworkOptimizer.Web
