@@ -34,6 +34,9 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
+        plotOptions: {
+            area: { fillTo: 'end' },
+        },
         fill: {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
@@ -166,7 +169,12 @@ async function loadAndUpdate() {
         });
     });
 
-    if (powerChart) powerChart.updateSeries(powerSeries, false);
+    const powerDash = [];
+    data.devices.forEach(() => { powerDash.push(0); powerDash.push(5); });
+    if (powerChart) {
+        powerChart.updateOptions({ stroke: { curve: 'smooth', width: 2, dashArray: powerDash } }, false, false);
+        powerChart.updateSeries(powerSeries, false);
+    }
     if (tempChart) tempChart.updateSeries(tempSeries, false);
 
     updateVisibility();
