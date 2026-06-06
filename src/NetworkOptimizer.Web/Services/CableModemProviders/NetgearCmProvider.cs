@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
 using HtmlAgilityPack;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 
@@ -183,63 +182,88 @@ public sealed class NetgearCmProvider : ICableModemProvider
             DeviceModel = "Netgear",
         };
 
-        // Parse downstream table
+        // Parse downstream table using header-based column mapping
         var dsTable = doc.DocumentNode.SelectSingleNode("//table[@id='dsTable']");
         if (dsTable != null)
         {
-            var rows = dsTable.SelectNodes(".//tr[position()>1]");
-            if (rows != null)
+            var rows = dsTable.SelectNodes(".//tr");
+            if (rows is { Count: >= 2 })
             {
-                foreach (var row in rows)
+                var headerCells = rows[0].SelectNodes(".//td | .//th");
+                var headers = headerCells?.Select(c => NormalizeHeader(c.InnerText)).ToList() ?? new();
+
+                for (int i = 1; i < rows.Count; i++)
                 {
-                    var cells = row.SelectNodes("td");
-                    if (cells == null || cells.Count < 8) continue;
+                    var cells = rows[i].SelectNodes(".//td");
+                    if (cells == null || cells.Count != headers.Count) continue;
 
-                    var channel = new DsChannel
+                    var channel = new DsChannel();
+                    for (int j = 0; j < headers.Count; j++)
                     {
-                        ChannelId = ParseInt(cells[0].InnerText),
-                        LockStatus = cells[1].InnerText.Trim(),
-                        Modulation = cells[2].InnerText.Trim(),
-                        Frequency = ParseFrequency(cells[3].InnerText),
-                        Power = ParseDouble(cells[4].InnerText),
-                        Snr = ParseDouble(cells[5].InnerText),
-                        Correctables = ParseLong(cells[6].InnerText),
-                        Uncorrectables = ParseLong(cells[7].InnerText),
-                    };
-
+                        var val = cells[j].InnerText.Trim();
+                        switch (headers[j])
+                        {
+                            case "channel": channel.ChannelId = ParseInt(val); break;
+                            case "channelid": channel.ChannelId = ParseInt(val); break;
+                            case "lockstatus": channel.LockStatus = val; break;
+                            case "modulation": channel.Modulation = val; break;
+                            case "frequency": channel.Frequency = ParseFrequency(val); break;
+                            case "power": channel.Power = ParseDouble(val); break;
+                            case "snr": case "snr/mer": channel.Snr = ParseDouble(val); break;
+                            case "correctables": case "corrected": channel.Correctables = ParseLong(val); break;
+                            case "uncorrectables": channel.Uncorrectables = ParseLong(val); break;
+                        }
+                    }
                     stats.DownstreamChannels.Add(channel);
                 }
             }
         }
 
-        // Parse upstream table
+        // Parse upstream table using header-based column mapping
         var usTable = doc.DocumentNode.SelectSingleNode("//table[@id='usTable']");
         if (usTable != null)
         {
-            var rows = usTable.SelectNodes(".//tr[position()>1]");
-            if (rows != null)
+            var rows = usTable.SelectNodes(".//tr");
+            if (rows is { Count: >= 2 })
             {
-                foreach (var row in rows)
+                var headerCells = rows[0].SelectNodes(".//td | .//th");
+                var headers = headerCells?.Select(c => NormalizeHeader(c.InnerText)).ToList() ?? new();
+
+                for (int i = 1; i < rows.Count; i++)
                 {
-                    var cells = row.SelectNodes("td");
-                    if (cells == null || cells.Count < 6) continue;
+                    var cells = rows[i].SelectNodes(".//td");
+                    if (cells == null || cells.Count != headers.Count) continue;
 
-                    var channel = new UsChannel
+                    var channel = new UsChannel();
+                    for (int j = 0; j < headers.Count; j++)
                     {
-                        ChannelId = ParseInt(cells[0].InnerText),
-                        LockStatus = cells[1].InnerText.Trim(),
-                        ChannelType = cells[2].InnerText.Trim(),
-                        Frequency = ParseFrequency(cells[3].InnerText),
-                        Power = ParseDouble(cells[4].InnerText) ?? 0,
-                        SymbolRate = ParseSymbolRate(cells[5].InnerText),
-                    };
-
+                        var val = cells[j].InnerText.Trim();
+                        switch (headers[j])
+                        {
+                            case "channel": channel.ChannelId = ParseInt(val); break;
+                            case "channelid": channel.ChannelId = ParseInt(val); break;
+                            case "lockstatus": channel.LockStatus = val; break;
+                            case "uschanneltype": case "channeltype": channel.ChannelType = val; break;
+                            case "frequency": channel.Frequency = ParseFrequency(val); break;
+                            case "power": channel.Power = ParseDouble(val); break;
+                            case "symbolrate": channel.SymbolRate = ParseSymbolRate(val); break;
+                        }
+                    }
                     stats.UpstreamChannels.Add(channel);
                 }
             }
         }
 
         return stats;
+    }
+
+    /// <summary>
+    /// Normalize header text for matching: lowercase, strip whitespace, slashes, and non-alpha chars.
+    /// E.g. "Lock Status" → "lockstatus", "SNR/MER" → "snr/mer", "Channel ID" → "channelid"
+    /// </summary>
+    private static string NormalizeHeader(string text)
+    {
+        return text.Trim().Replace(" ", "").Replace("\n", "").Replace("\r", "").ToLowerInvariant();
     }
 
     /// <summary>
