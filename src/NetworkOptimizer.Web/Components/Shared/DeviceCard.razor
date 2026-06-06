@@ -93,17 +93,6 @@
                             }
                         </div>
                     }
-                    @if (Device.LiveRateInBps.HasValue || Device.LiveRateOutBps.HasValue)
-                    {
-                        <div class="device-rate">
-                            <span class="rate-down" title="Ingress (bytes received by the device)">
-                                ↓@FormatBps(Device.LiveRateInBps)
-                            </span>
-                            <span class="rate-up" title="Egress (bytes transmitted by the device)">
-                                ↑@FormatBps(Device.LiveRateOutBps)
-                            </span>
-                        </div>
-                    }
                 </div>
             }
         </div>
