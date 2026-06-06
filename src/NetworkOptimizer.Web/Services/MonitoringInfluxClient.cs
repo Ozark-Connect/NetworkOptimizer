@@ -545,7 +545,6 @@ public class MonitoringInfluxClient : IAsyncDisposable
         string ontName,
         double? rxPowerDbm,
         double? txPowerDbm,
-        double? oltRxPowerDbm,
         double? temperatureC,
         double? voltageV,
         double? biasMa,
@@ -561,7 +560,6 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
         if (rxPowerDbm.HasValue) point = point.Field("rx_power_dbm", rxPowerDbm.Value);
         if (txPowerDbm.HasValue) point = point.Field("tx_power_dbm", txPowerDbm.Value);
-        if (oltRxPowerDbm.HasValue) point = point.Field("olt_rx_power_dbm", oltRxPowerDbm.Value);
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
         if (voltageV.HasValue) point = point.Field("voltage_v", voltageV.Value);
         if (biasMa.HasValue) point = point.Field("bias_ma", biasMa.Value);
@@ -1225,7 +1223,7 @@ from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""ont"")
   {ontFilter}
-  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""olt_rx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"")
+  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
@@ -1243,7 +1241,6 @@ from(bucket: ""{_longtermBucket}"")
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
                 RxPowerDbm = AsDoubleOrNull(record.GetValueByKey("rx_power_dbm")),
                 TxPowerDbm = AsDoubleOrNull(record.GetValueByKey("tx_power_dbm")),
-                OltRxPowerDbm = AsDoubleOrNull(record.GetValueByKey("olt_rx_power_dbm")),
                 TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
                 VoltageV = AsDoubleOrNull(record.GetValueByKey("voltage_v")),
                 BiasMa = AsDoubleOrNull(record.GetValueByKey("bias_ma")),
@@ -1627,7 +1624,6 @@ from(bucket: ""{_longtermBucket}"")
         public required DateTime Time { get; init; }
         public double? RxPowerDbm { get; init; }
         public double? TxPowerDbm { get; init; }
-        public double? OltRxPowerDbm { get; init; }
         public double? TemperatureC { get; init; }
         public double? VoltageV { get; init; }
         public double? BiasMa { get; init; }

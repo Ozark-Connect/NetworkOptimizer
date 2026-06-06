@@ -231,7 +231,6 @@ public class OntMonitorService : IDisposable
                 ontName: config.Name,
                 rxPowerDbm: stats.RxPowerDbm,
                 txPowerDbm: stats.TxPowerDbm,
-                oltRxPowerDbm: stats.OltRxPowerDbm,
                 temperatureC: stats.TemperatureC,
                 voltageV: stats.VoltageV,
                 biasMa: stats.BiasMa,

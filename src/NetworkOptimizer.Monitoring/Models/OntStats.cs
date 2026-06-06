@@ -19,9 +19,6 @@ public class OntStats
     /// <summary>Transmit optical power in dBm</summary>
     public double? TxPowerDbm { get; set; }
 
-    /// <summary>OLT-side receive power in dBm (if reported by device)</summary>
-    public double? OltRxPowerDbm { get; set; }
-
     /// <summary>Transceiver temperature in degrees Celsius</summary>
     public double? TemperatureC { get; set; }
 

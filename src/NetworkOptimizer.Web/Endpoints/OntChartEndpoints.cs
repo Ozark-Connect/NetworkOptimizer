@@ -51,7 +51,6 @@ public static class OntChartEndpoints
                         time = p.Time.ToString("o"),
                         rx = p.RxPowerDbm,
                         tx = p.TxPowerDbm,
-                        oltRx = p.OltRxPowerDbm,
                         temp = p.TemperatureC,
                         voltage = p.VoltageV,
                         bias = p.BiasMa,

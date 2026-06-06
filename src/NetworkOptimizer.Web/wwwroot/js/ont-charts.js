@@ -11,7 +11,6 @@ const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*8
 
 let powerChart = null;
 let tempChart = null;
-let oltRxChart = null;
 let pollTimer = null;
 let currentRangeHours = 24;
 let windowOffset = 0;
@@ -123,7 +122,7 @@ function renderBadges(container) {
 function updateVisibility() {
     deviceMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
-        [powerChart, tempChart, oltRxChart].forEach(chart => {
+        [powerChart, tempChart].forEach(chart => {
             if (!chart) return;
             if (vis) {
                 chart.showSeries(m.label + ' RX');
@@ -147,11 +146,9 @@ async function loadAndUpdate() {
 
     const powerSeries = [];
     const tempSeries = [];
-    const oltRxSeries = [];
     data.devices.forEach((d, i) => {
         const color = PALETTE[i % PALETTE.length];
         const pts = d.data || [];
-        // Power chart: two series per device (RX and TX)
         powerSeries.push({
             name: d.label + ' RX',
             color,
@@ -167,16 +164,10 @@ async function loadAndUpdate() {
             color,
             data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
         });
-        oltRxSeries.push({
-            name: d.label,
-            color,
-            data: pts.filter(p => p.oltRx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.oltRx })),
-        });
     });
 
     if (powerChart) powerChart.updateSeries(powerSeries, false);
     if (tempChart) tempChart.updateSeries(tempSeries, false);
-    if (oltRxChart) oltRxChart.updateSeries(oltRxSeries, false);
 
     updateVisibility();
     const container = document.getElementById(containerId);
@@ -302,12 +293,10 @@ export async function mount(elId) {
 
     const powerEl = container.querySelector('.ont-power-chart');
     const tempEl = container.querySelector('.ont-temp-chart');
-    const oltRxEl = container.querySelector('.ont-olt-rx-chart');
-    if (!powerEl || !tempEl || !oltRxEl) return;
+    if (!powerEl || !tempEl) return;
 
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
-    if (oltRxChart) { oltRxChart.destroy(); oltRxChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
@@ -317,14 +306,9 @@ export async function mount(elId) {
         ...baseOpts(160, '°C', v => v != null ? v.toFixed(1) + ' °C' : ''),
         series: [], colors: PALETTE,
     });
-    oltRxChart = new ApexCharts(oltRxEl, {
-        ...baseOpts(160, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
-        series: [], colors: PALETTE,
-    });
 
     await powerChart.render();
     await tempChart.render();
-    await oltRxChart.render();
 
     container.querySelectorAll('[data-range]').forEach(btn => {
         btn.addEventListener('click', () => selectPresetRange(container, parseInt(btn.dataset.range)));
@@ -398,7 +382,6 @@ export function unmount() {
     if (fetchController) { fetchController.abort(); fetchController = null; }
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     if (tempChart) { tempChart.destroy(); tempChart = null; }
-    if (oltRxChart) { oltRxChart.destroy(); oltRxChart = null; }
     containerId = null;
     deviceMeta = [];
     visibility = {};
