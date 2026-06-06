@@ -97,6 +97,11 @@ a:visited {
     color: inherit;
 }
 
+.page-description a,
+.page-description a:visited {
+    color: var(--primary-color);
+}
+
 a:hover {
     color: var(--primary-hover);
 }
