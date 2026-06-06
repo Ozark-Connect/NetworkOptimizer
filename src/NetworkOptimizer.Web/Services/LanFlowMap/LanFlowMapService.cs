@@ -1475,14 +1475,20 @@ public class LanFlowMapService
         {
             try
             {
-                var pts = await _influx.QueryInterfaceRatesAsync(grp.Key, from, until, null, ct);
-                // Take the latest reading per ifName.
+                using var queryCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                queryCts.CancelAfter(TimeSpan.FromSeconds(5));
+                var pts = await _influx.QueryInterfaceRatesAsync(grp.Key, from, until, null, queryCts.Token);
                 foreach (var per in pts.GroupBy(p => p.IfName, StringComparer.OrdinalIgnoreCase))
                 {
                     var latest = per.OrderByDescending(p => p.Time).First();
                     var key = PortKey(grp.Key, per.Key);
                     result[key] = (latest.RateInBps ?? 0, latest.RateOutBps ?? 0, latest.Time);
                 }
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogDebug("Per-port rate seed timed out for {Device}, skipping remaining", grp.Key);
+                break;
             }
             catch (Exception ex)
             {
