@@ -33,7 +33,7 @@ else if (IsShowingExternal && _externalOntStats != null)
     <div class="signal-quality-section">
         <div class="ont-rx-gauge">
             <span class="rx-power-value @ExternalRxClass()">
-                @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.#} dBm" : "-")
+                @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
             </span>
             <span class="rx-power-label">RX optical power</span>
         </div>
@@ -53,15 +53,15 @@ else if (IsShowingExternal && _externalOntStats != null)
             <div class="metric-content">
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
-                    <span class="metric-value @ExternalRxClass()">@(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.#} dBm" : "-")</span>
+                    <span class="metric-value @ExternalRxClass()">@(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")</span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">TX:</span>
-                    <span class="metric-value">@(_externalOntStats.TxPowerDbm.HasValue ? $"{_externalOntStats.TxPowerDbm.Value:0.#} dBm" : "-")</span>
+                    <span class="metric-value">@(_externalOntStats.TxPowerDbm.HasValue ? $"{_externalOntStats.TxPowerDbm.Value:0.0#} dBm" : "-")</span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">Temp:</span>
-                    <span class="metric-value">@(_externalOntStats.TemperatureC.HasValue ? $"{_externalOntStats.TemperatureC.Value:0.#} °C" : "-")</span>
+                    <span class="metric-value">@(_externalOntStats.TemperatureC.HasValue ? $"{_externalOntStats.TemperatureC.Value:0.0#} °C" : "-")</span>
                 </div>
             </div>
         </div>
@@ -85,7 +85,7 @@ else if (IsShowingExternal && _externalOntStats != null)
                 }
                 <div class="metric-row">
                     <span class="metric-label">Voltage:</span>
-                    <span class="metric-value">@(_externalOntStats.VoltageV.HasValue ? $"{_externalOntStats.VoltageV.Value:0.#} V" : "-")</span>
+                    <span class="metric-value">@(_externalOntStats.VoltageV.HasValue ? $"{_externalOntStats.VoltageV.Value:0.0#} V" : "-")</span>
                 </div>
             </div>
         </div>
@@ -166,7 +166,7 @@ else
     <div class="signal-quality-section">
         <div class="ont-rx-gauge">
             <span class="rx-power-value @rxClass">
-                @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.##} dBm" : "-")
+                @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
             </span>
             <span class="rx-power-label">RX optical power</span>
         </div>
@@ -191,13 +191,13 @@ else
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
                     <span class="metric-value @rxClass">
-                        @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.##} dBm" : "-")
+                        @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
                     </span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">TX:</span>
                     <span class="metric-value">
-                        @(stats?.TxPowerDbm.HasValue == true ? $"{stats.TxPowerDbm.Value:0.##} dBm" : "-")
+                        @(stats?.TxPowerDbm.HasValue == true ? $"{stats.TxPowerDbm.Value:0.0#} dBm" : "-")
                     </span>
                 </div>
                 <div class="metric-row">
@@ -240,13 +240,13 @@ else
                 <div class="metric-row">
                     <span class="metric-label">Temp:</span>
                     <span class="metric-value">
-                        @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.#} °C" : "-")
+                        @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
                     </span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">Voltage:</span>
                     <span class="metric-value">
-                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.##} V" : "-")
+                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
                     </span>
                 </div>
             </div>
