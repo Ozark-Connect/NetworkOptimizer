@@ -657,7 +657,7 @@
 
             <!-- Discovered Modems from UniFi Console -->
             <h4>Auto-Discovered Modems</h4>
-            <div class="action-buttons" style="margin-bottom: 1rem;">
+            <div class="action-buttons" style="margin-top: 0.5rem; margin-bottom: 1rem;">
                 <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
                     @if (loadingDiscoveredModems)
                     {
@@ -730,7 +730,7 @@
             }
             else if (ConnectionService.IsConnected && !loadingDiscoveredModems)
             {
-                <p class="form-help">No cellular modems (U5G-Max, U5G Backup, U-LTE) found. Click "Scan for Modems" to search.</p>
+                <p class="form-help">No cellular modems (UniFi 5G Max, 5G Backup, LTE Backup Pro) found. Click "Scan for Modems" to search.</p>
             }
 
             <!-- Configured Modems -->
