@@ -22,6 +22,7 @@ public class OntMonitorService : IDisposable
     private readonly ILogger<OntMonitorService> _logger;
     private readonly Dictionary<string, IOntProvider> _providers;
     private readonly ConcurrentDictionary<int, OntStats> _statsCache = new();
+    private volatile bool _hasPrimedOnce;
     private readonly Timer _pollTimer;
     private bool _isPolling;
 
@@ -133,6 +134,8 @@ public class OntMonitorService : IDisposable
         try
         {
             _isPolling = true;
+            var forceAll = !_hasPrimedOnce;
+            _hasPrimedOnce = true;
 
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
@@ -140,8 +143,7 @@ public class OntMonitorService : IDisposable
 
             foreach (var config in configs)
             {
-                // Respect per-ONT polling interval
-                if (config.LastPolled.HasValue)
+                if (!forceAll && config.LastPolled.HasValue)
                 {
                     var elapsed = DateTime.UtcNow - config.LastPolled.Value;
                     if (elapsed.TotalSeconds < config.PollingIntervalSeconds)

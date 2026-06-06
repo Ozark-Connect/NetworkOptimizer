@@ -23,6 +23,7 @@ public sealed class CableModemMonitorService : IDisposable
     private readonly Timer _pollingTimer;
 
     private readonly ConcurrentDictionary<int, CableModemStats> _statsCache = new();
+    private volatile bool _hasPrimedOnce;
     private readonly ConcurrentDictionary<int, long> _previousTotalCorrectables = new();
     private readonly ConcurrentDictionary<int, long> _previousTotalUncorrectables = new();
 
@@ -139,6 +140,8 @@ public sealed class CableModemMonitorService : IDisposable
         try
         {
             _isPolling = true;
+            var forceAll = !_hasPrimedOnce;
+            _hasPrimedOnce = true;
 
             using var scope = _scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
@@ -146,8 +149,7 @@ public sealed class CableModemMonitorService : IDisposable
 
             foreach (var config in configs)
             {
-                // Check if it's time to poll
-                if (config.LastPolled.HasValue)
+                if (!forceAll && config.LastPolled.HasValue)
                 {
                     var elapsed = DateTime.UtcNow - config.LastPolled.Value;
                     if (elapsed.TotalSeconds < config.PollingIntervalSeconds)
