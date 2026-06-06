@@ -23,6 +23,8 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
+@inject CableModemMonitorService CmMonitorService
+@inject OntMonitorService OntMonitorService
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -502,6 +504,14 @@ else
         }
         @if (_influxReachable == true)
         {
+        @if (!_cmHasDevices)
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No cable modems configured. Add one in <a href="/settings#cable-modem">Settings</a> to start monitoring.</p>
+                </div>
+            </div>
+        }
         <div class="card" style="margin-top: 1.5rem;" id="cm-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Cable Modem Signal History</h2>
@@ -587,6 +597,14 @@ else
         }
         @if (_influxReachable == true)
         {
+        @if (!_ontHasDevices && !_monitoredSfps.Any(s => s.Category == SfpCategory.PON))
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No ONT monitoring configured. <a href="/settings#ont-monitoring">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway.</p>
+                </div>
+            </div>
+        }
         <div class="card" style="margin-top: 1.5rem;" id="ont-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">ONT Signal History</h2>
@@ -1042,6 +1060,8 @@ else
     private string _activeTab = "setup";
 
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
+    private bool _cmHasDevices;
+    private bool _ontHasDevices;
     private bool _forceExpandUpstream;
 
 
@@ -1162,6 +1182,11 @@ else
         _snmpState = settings.SnmpDetectionState;
         LoadInfluxStateFromSettings(settings);
         await LoadTargetsAsync();
+
+        var cmConfigs = await CmMonitorService.GetConfigsAsync();
+        _cmHasDevices = cmConfigs.Count > 0;
+        var ontConfigs = await OntMonitorService.GetConfigsAsync();
+        _ontHasDevices = ontConfigs.Count > 0;
 
         _mapOrder2dFirst = await SystemSettings.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
         var dashLayout = await DashboardLayout.GetLayoutAsync();

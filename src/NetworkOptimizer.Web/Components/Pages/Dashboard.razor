@@ -186,6 +186,7 @@
     private bool _editMode;
     private OntStatsPanel? _ontPanel;
     private CellularStatsPanel? _cellularPanel;
+    private CmStatsPanel? _cmPanel;
     private DashboardLayout? _layout;
     private int deviceCount = 0;
     private int securityScore = 0;
@@ -548,7 +549,7 @@
                 <h2 class="card-title">Cable Modem Stats (DOCSIS)</h2>
             </div>
             <div class="card-body">
-                <CmStatsPanel />
+                <CmStatsPanel @ref="_cmPanel" />
             </div>
         </div>
     };
@@ -1142,14 +1143,18 @@
     {
         if (_ontPanel?.IsCurrentExternal == true)
         {
-            NavigationManager.NavigateTo("/monitoring?tab=ont");
+            var ontId = _ontPanel.CurrentExternalOntId;
+            var url = ontId != null
+                ? $"/monitoring?tab=ont&ont={Uri.EscapeDataString(ontId)}"
+                : "/monitoring?tab=ont";
+            NavigationManager.NavigateTo(url);
             return;
         }
         var key = _ontPanel?.CurrentModuleKey;
-        var url = key != null
+        var url2 = key != null
             ? $"/monitoring?tab=sfp&sfp={Uri.EscapeDataString(key)}"
             : "/monitoring?tab=sfp";
-        NavigationManager.NavigateTo(url);
+        NavigationManager.NavigateTo(url2);
     }
 
     private void NavigateToCellularChart()
@@ -1163,7 +1168,11 @@
 
     private void NavigateToCmChart()
     {
-        NavigationManager.NavigateTo("/monitoring?tab=cm");
+        var cmId = _cmPanel?.CurrentCmId;
+        var url = cmId != null
+            ? $"/monitoring?tab=cm&cm={Uri.EscapeDataString(cmId)}"
+            : "/monitoring?tab=cm";
+        NavigationManager.NavigateTo(url);
     }
 
 }

@@ -497,5 +497,17 @@ else
         }
     }
 
+    public string? CurrentExternalOntId
+    {
+        get
+        {
+            if (!IsShowingExternal) return null;
+            var extIdx = _currentIndex - _monitoredOnts.Count;
+            if (extIdx >= 0 && extIdx < _externalOnts.Count)
+                return _externalOnts[extIdx].Id.ToString();
+            return null;
+        }
+    }
+
     public void Dispose() => _refreshTimer?.Dispose();
 }
