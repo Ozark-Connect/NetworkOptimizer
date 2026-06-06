@@ -6,7 +6,7 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
 /// <summary>
-/// Scrapes AT&amp;T residential gateways (BWG320, BGW210, BGW320-500) that expose
+/// Scrapes AT&amp;T residential gateways (BGW210, BGW320-500/505) that expose
 /// fiber stats via unauthenticated HTTP pages. No login required.
 /// </summary>
 public class AttGatewayOntProvider : IOntProvider

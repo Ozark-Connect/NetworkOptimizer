@@ -487,7 +487,7 @@ else
         @if (_influxReachable == false)
         {
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                <strong>InfluxDB: @ShortInfluxStatus()</strong> — Cable modem chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> - Cable modem chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
                 @if (!string.IsNullOrEmpty(_influxError))
                 {
                     <div style="margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.8;">@_influxError</div>
@@ -572,7 +572,7 @@ else
         @if (_influxReachable == false)
         {
             <div class="alert alert-warning" style="margin-bottom: 1rem;">
-                <strong>InfluxDB: @ShortInfluxStatus()</strong> — ONT chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> - ONT chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
                 @if (!string.IsNullOrEmpty(_influxError))
                 {
                     <div style="margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.8;">@_influxError</div>

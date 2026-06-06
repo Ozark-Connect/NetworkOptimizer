@@ -11,7 +11,7 @@ public class OntConfiguration
     [Key]
     public int Id { get; set; }
 
-    /// <summary>Friendly name for this ONT (e.g., "AT&T BWG320")</summary>
+    /// <summary>Friendly name for this ONT (e.g., "AT&T BGW320")</summary>
     [Required]
     [MaxLength(100)]
     public string Name { get; set; } = "";

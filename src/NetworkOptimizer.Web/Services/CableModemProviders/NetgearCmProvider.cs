@@ -290,7 +290,8 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private static double? ParseDouble(string text)
     {
         var cleaned = StripUnits(text);
-        return double.TryParse(cleaned, out var val) ? val : null;
+        return double.TryParse(cleaned, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var val) ? val : null;
     }
 
     /// <summary>

@@ -477,7 +477,8 @@ public sealed class ArrisSurfboardProvider : ICableModemProvider, IDisposable
     private static double? ParseDouble(string text)
     {
         var cleaned = StripUnits(text);
-        return double.TryParse(cleaned, out var val) ? val : null;
+        return double.TryParse(cleaned, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var val) ? val : null;
     }
 
     private static long ParseFrequency(string text)

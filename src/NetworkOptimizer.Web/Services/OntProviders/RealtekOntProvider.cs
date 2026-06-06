@@ -112,8 +112,7 @@ public sealed class RealtekOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Form-based login: POST to /boaform/admin/formLogin with MD5-hashed password.
-    /// The DFP-34X uses client-side MD5 hashing before submitting.
+    /// Form-based login: POST username and plain-text password to /boaform/admin/formLogin.
     /// </summary>
     private async Task<bool> LoginAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
@@ -204,7 +203,9 @@ public sealed class RealtekOntProvider : IOntProvider
     private static double? ParseDouble(string text)
     {
         var match = Regex.Match(text, @"(-?[\d.]+)");
-        if (match.Success && double.TryParse(match.Groups[1].Value, out var val))
+        if (match.Success && double.TryParse(match.Groups[1].Value,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var val))
             return val;
         return null;
     }
