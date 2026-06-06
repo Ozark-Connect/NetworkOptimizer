@@ -23,6 +23,7 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
+@inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
                 ConfirmExternalNavigation="_upstreamDiscoveryPendingSave" />
@@ -2098,7 +2099,7 @@ else
                     "}");
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
             }
-            catch { _mapMounted = false; }
+            catch (Exception ex) { _mapMounted = false; Logger.LogDebug(ex, "3D map mount failed; will retry on next render"); }
         }
         else if (_activeTab != "live" && _mapMounted)
         {
@@ -2118,7 +2119,7 @@ else
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage'); }})();");
             }
-            catch { _map2dMounted = false; }
+            catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
         }
         else if (_activeTab != "live" && _map2dMounted)
         {
@@ -2141,7 +2142,7 @@ else
                     "}");
                 _ = JS.InvokeVoidAsync("__mountWanLiveChart", "monitoring-wan-live-chart");
             }
-            catch { _wanLiveChartMounted = false; }
+            catch (Exception ex) { _wanLiveChartMounted = false; Logger.LogDebug(ex, "WAN live chart mount failed; will retry on next render"); }
         }
         else if (_activeTab != "live" && _wanLiveChartMounted)
         {
@@ -2169,7 +2170,7 @@ else
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{chartsUrl}'); window.__latencyCharts = m; await m.mount('latency-charts-container'); {postMount} }})();");
             }
-            catch { _latencyChartsMounted = false; }
+            catch (Exception ex) { _latencyChartsMounted = false; Logger.LogDebug(ex, "Latency charts mount failed; will retry on next render"); }
         }
         else if (_activeTab != "performance" && _latencyChartsMounted)
         {
@@ -2201,7 +2202,7 @@ else
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{healthUrl}'); window.__healthCharts = m; await m.mount('device-health-charts-container'); {postMount} }})();");
             }
-            catch { _healthChartsMounted = false; }
+            catch (Exception ex) { _healthChartsMounted = false; Logger.LogDebug(ex, "Device health charts mount failed; will retry on next render"); }
         }
         else if (_activeTab != "devices" && _healthChartsMounted)
         {
@@ -2223,7 +2224,7 @@ else
                 await JS.InvokeVoidAsync("eval",
                     $"(async () => {{ const m = await import('{sfpUrl}'); window.__sfpCharts = m; await m.mount('sfp-charts-container'); {soloJs} }})();");
             }
-            catch { _sfpChartsMounted = false; }
+            catch (Exception ex) { _sfpChartsMounted = false; Logger.LogDebug(ex, "SFP charts mount failed; will retry on next render"); }
         }
         else if ((_activeTab != "sfp" || _monitoredSfps.Count == 0) && _sfpChartsMounted)
         {
@@ -2253,7 +2254,7 @@ else
                     $"(async () => {{ const m = await import('{cellularUrl}'); window.__cellularCharts = m; await m.mount('cellular-charts-container'); {soloJs} }})();");
                 _soloCellularModemId = null;
             }
-            catch { _cellularChartsMounted = false; }
+            catch (Exception ex) { _cellularChartsMounted = false; Logger.LogDebug(ex, "Cellular charts mount failed; will retry on next render"); }
         }
         else if ((_activeTab != "cellular" || _influxReachable != true) && _cellularChartsMounted)
         {
@@ -2276,7 +2277,7 @@ else
                     $"(async () => {{ const m = await import('{cmUrl}'); window.__cmCharts = m; await m.mount('cm-charts-container'); {soloJs} }})();");
                 _soloCmId = null;
             }
-            catch { _cmChartsMounted = false; }
+            catch (Exception ex) { _cmChartsMounted = false; Logger.LogDebug(ex, "CM charts mount failed; will retry on next render"); }
         }
         else if ((_activeTab != "cm" || _influxReachable != true) && _cmChartsMounted)
         {
@@ -2299,7 +2300,7 @@ else
                     $"(async () => {{ const m = await import('{ontUrl}'); window.__ontCharts = m; await m.mount('ont-charts-container'); {soloJs} }})();");
                 _soloOntId = null;
             }
-            catch { _ontChartsMounted = false; }
+            catch (Exception ex) { _ontChartsMounted = false; Logger.LogDebug(ex, "ONT charts mount failed; will retry on next render"); }
         }
         else if ((_activeTab != "ont" || _influxReachable != true) && _ontChartsMounted)
         {
