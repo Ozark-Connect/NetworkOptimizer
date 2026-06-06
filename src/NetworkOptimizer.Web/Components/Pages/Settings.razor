@@ -4080,12 +4080,13 @@
 
         try
         {
+            var isNew = _editingCm.Id == 0;
             _editingCm.UpdatedAt = DateTime.UtcNow;
-            if (_editingCm.Id == 0)
+            if (isNew)
                 _editingCm.CreatedAt = DateTime.UtcNow;
 
             await CmMonitorService.SaveCmAsync(_editingCm);
-            _cmTestResult = _editingCm.Id > 0 ? "Cable modem updated successfully" : "Cable modem added successfully";
+            _cmTestResult = isNew ? "Cable modem added successfully" : "Cable modem updated successfully";
             _cmTestResultClass = "success";
 
             await LoadCmSettings();
@@ -4161,6 +4162,8 @@
             StatusPagePath = config.StatusPagePath,
             PollingIntervalSeconds = config.PollingIntervalSeconds,
             Enabled = config.Enabled,
+            LastPolled = config.LastPolled,
+            LastError = config.LastError,
             CreatedAt = config.CreatedAt,
         };
         _cmFormVisible = true;
@@ -4216,12 +4219,13 @@
 
         try
         {
+            var isNew = _editingOnt.Id == 0;
             _editingOnt.UpdatedAt = DateTime.UtcNow;
-            if (_editingOnt.Id == 0)
+            if (isNew)
                 _editingOnt.CreatedAt = DateTime.UtcNow;
 
             await OntMonitorService.SaveOntAsync(_editingOnt);
-            _ontTestResult = _editingOnt.Id > 0 ? "ONT updated successfully" : "ONT added successfully";
+            _ontTestResult = isNew ? "ONT added successfully" : "ONT updated successfully";
             _ontTestResultClass = "success";
 
             await LoadOntSettings();
@@ -4297,6 +4301,8 @@
             PrivateKeyPath = config.PrivateKeyPath,
             PollingIntervalSeconds = config.PollingIntervalSeconds,
             Enabled = config.Enabled,
+            LastPolled = config.LastPolled,
+            LastError = config.LastError,
             CreatedAt = config.CreatedAt,
         };
         _ontFormVisible = true;
