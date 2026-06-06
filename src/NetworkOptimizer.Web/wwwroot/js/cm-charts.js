@@ -322,25 +322,25 @@ export async function mount(elId) {
 
     dsPowerChart = new ApexCharts(dsPowerEl, {
         ...baseOpts(200, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
-            yaxis: { min: -15, max: 15, tickAmount: 6,
+            yaxis: { forceNiceScale: true, decimalsInFloat: 1, tickAmount: 5,
                 title: { text: 'dBmV', style: { color: '#9ca3af' } },
-                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Math.round(v).toString() : '' } },
+                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(1) : '' } },
         }),
         series: [], colors: PALETTE,
     });
     dsSnrChart = new ApexCharts(dsSnrEl, {
         ...baseOpts(160, 'dB', v => v != null ? v.toFixed(1) + ' dB' : '', {
-            yaxis: { min: 30, max: 45, tickAmount: 5,
+            yaxis: { forceNiceScale: true, decimalsInFloat: 1, tickAmount: 5,
                 title: { text: 'dB', style: { color: '#9ca3af' } },
-                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Math.round(v).toString() : '' } },
+                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(1) : '' } },
         }),
         series: [], colors: PALETTE,
     });
     usPowerChart = new ApexCharts(usPowerEl, {
         ...baseOpts(160, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
-            yaxis: { min: 35, max: 55, tickAmount: 4,
+            yaxis: { forceNiceScale: true, decimalsInFloat: 1, tickAmount: 5,
                 title: { text: 'dBmV', style: { color: '#9ca3af' } },
-                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Math.round(v).toString() : '' } },
+                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(1) : '' } },
         }),
         series: [], colors: PALETTE,
     });
