@@ -303,7 +303,8 @@ export async function mount(elId) {
     if (tempChart) { tempChart.destroy(); tempChart = null; }
 
     powerChart = new ApexCharts(powerEl, {
-        ...baseOpts(200, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : ''),
+        ...baseOpts(200, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
+            yaxis: { min: v => Math.floor(v - 2), max: v => Math.ceil(v + 2) } }),
         series: [], colors: PALETTE,
     });
     tempChart = new ApexCharts(tempEl, {
