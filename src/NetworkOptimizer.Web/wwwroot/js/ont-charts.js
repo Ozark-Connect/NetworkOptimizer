@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
@@ -160,17 +160,17 @@ async function loadAndUpdate() {
         const pts = d.data || [];
         powerSeries.push({
             name: d.label + ' RX',
-            color: PALETTE[(i * 3) % PALETTE.length],
+            color: PALETTE[0],
             data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
         });
         powerSeries.push({
             name: d.label + ' TX',
-            color: PALETTE[(i * 3 + 1) % PALETTE.length],
+            color: PALETTE[4],
             data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
         });
         tempSeries.push({
             name: d.label,
-            color: PALETTE[(i * 3 + 2) % PALETTE.length],
+            color: PALETTE[1],
             data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
         });
     });

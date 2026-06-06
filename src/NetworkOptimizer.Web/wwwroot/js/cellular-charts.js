@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
