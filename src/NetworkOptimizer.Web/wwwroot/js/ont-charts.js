@@ -34,9 +34,6 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
-        plotOptions: {
-            area: { fillTo: 'end' },
-        },
         fill: {
             type: 'gradient',
             gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
