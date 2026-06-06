@@ -25,7 +25,7 @@ let visibilityObserver = null;
 let isInViewport = true;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
-    return {
+    const base = {
         chart: {
             type: 'area', height,
             background: 'transparent',
