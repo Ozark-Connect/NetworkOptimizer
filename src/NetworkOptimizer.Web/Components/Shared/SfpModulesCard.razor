@@ -2,18 +2,19 @@
 @using Microsoft.EntityFrameworkCore
 @inject MonitoringLiveStats LiveStats
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 @if (AllSfps.Count > 0)
 {
 <div class="card">
-    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+    <div class="card-header card-header-collapsible monitoring-chart-header" @onclick="ToggleCollapse">
         <h2 class="card-title">Optical (SFP / ONT)</h2>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@AllSfps.Count(s => s.IsMonitoredOnt) monitored</span>
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
     </div>
-    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+    <div class="expand-wrapper @(!_collapsed && _stateLoaded ? "expanded" : "")" style="@(!_stateLoaded ? "display:none" : "")">
         <div class="expand-content">
     <div class="card-body">
         <p class="section-description">
@@ -168,10 +169,32 @@ else
     public EventCallback OnSfpChanged { get; set; }
 
     private bool _collapsed = false;
+    private bool _stateLoaded = false;
     private int _page = 0;
     private const int PageSize = 10;
+    private const string CollapseKey = "sfp-modules-collapsed";
 
-    private void ToggleCollapse() => _collapsed = !_collapsed;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey);
+                if (val == "true") _collapsed = true;
+            }
+            catch { }
+            _stateLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleCollapse()
+    {
+        _collapsed = !_collapsed;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", CollapseKey, _collapsed ? "true" : "false"); }
+        catch { }
+    }
 
     private IEnumerable<MonitoredSfp> CurrentPage() =>
         SortedSfps().Skip(_page * PageSize).Take(PageSize);

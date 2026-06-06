@@ -93,13 +93,13 @@ else if (IsShowingExternal && _externalOntStats != null)
 
     <div class="sqm-actions">
         <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
-        <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+        <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
     </div>
 }
 else if (IsShowingExternal)
 {
     var extIdx = _currentIndex - _monitoredOnts.Count;
-    var extName = extIdx < _externalOnts.Count ? _externalOnts[extIdx].Name : "External ONT";
+    var extName = extIdx < _externalOnts.Count ? _externalOnts[extIdx].Name : "ONT";
     <div class="sqm-unavailable">
         <div class="sqm-status">
             <span class="status-indicator status-disconnected"></span>
@@ -116,7 +116,7 @@ else if (IsShowingExternal)
         <p class="status-message">ONT configured but no data yet. Click refresh to poll.</p>
         <div class="sqm-actions">
             <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
-            <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+            <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
         </div>
     </div>
 }
@@ -137,7 +137,7 @@ else if (TotalCount == 0)
         </p>
         <div class="sqm-actions">
             <a href="/monitoring?tab=sfp" class="btn btn-secondary" @onclick:stopPropagation>SFP Monitoring</a>
-            <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a>
+            <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a>
         </div>
     </div>
 }
@@ -494,6 +494,18 @@ else
             if (IsShowingExternal) return null;
             if (_monitoredOnts.Count == 0) return null;
             return $"{_monitoredOnts[_currentIndex].DeviceMac.Replace("-", ":").ToLowerInvariant()}:{_monitoredOnts[_currentIndex].PortName}";
+        }
+    }
+
+    public string? CurrentExternalOntId
+    {
+        get
+        {
+            if (!IsShowingExternal) return null;
+            var extIdx = _currentIndex - _monitoredOnts.Count;
+            if (extIdx >= 0 && extIdx < _externalOnts.Count)
+                return _externalOnts[extIdx].Id.ToString();
+            return null;
         }
     }
 

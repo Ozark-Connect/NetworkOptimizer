@@ -3,7 +3,7 @@
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
-const PALETTE = ['#2ba89a', '#3b82f6', '#a78bfa', '#ef5858', '#f59e0b', '#10b981'];
+const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
@@ -167,32 +167,37 @@ async function loadAndUpdate() {
     const dsSnrSeries = [];
     const usPowerSeries = [];
     const errorsSeries = [];
+    const COLOR_SETS = [
+        { ds: PALETTE[0], us: PALETTE[4], uncorr: PALETTE[2], corr: PALETTE[1] },
+        { ds: PALETTE[6], us: PALETTE[3], uncorr: PALETTE[12], corr: PALETTE[11] },
+        { ds: PALETTE[10], us: PALETTE[18], uncorr: PALETTE[19], corr: PALETTE[13] },
+    ];
     data.devices.forEach((d, i) => {
-        const color = PALETTE[i % PALETTE.length];
+        const c = COLOR_SETS[i % COLOR_SETS.length];
         const pts = d.data || [];
         dsPowerSeries.push({
             name: d.label,
-            color,
+            color: c.ds,
             data: pts.filter(p => p.dsPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsPower })),
         });
         dsSnrSeries.push({
             name: d.label,
-            color,
+            color: c.ds,
             data: pts.filter(p => p.dsSnr != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsSnr })),
         });
         usPowerSeries.push({
             name: d.label,
-            color,
+            color: c.us,
             data: pts.filter(p => p.usPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.usPower })),
         });
         errorsSeries.push({
             name: d.label + ' Uncorrectable',
-            color,
+            color: c.uncorr,
             data: pts.filter(p => p.uncorrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.uncorrDelta })),
         });
         errorsSeries.push({
             name: d.label + ' Correctable',
-            color: color,
+            color: c.corr,
             data: pts.filter(p => p.corrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.corrDelta })),
         });
     });

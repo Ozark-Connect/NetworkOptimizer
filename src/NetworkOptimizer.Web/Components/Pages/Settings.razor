@@ -657,7 +657,7 @@
 
             <!-- Discovered Modems from UniFi Console -->
             <h4>Auto-Discovered Modems</h4>
-            <div class="action-buttons" style="margin-bottom: 1rem;">
+            <div class="action-buttons" style="margin-top: 0.5rem; margin-bottom: 1rem;">
                 <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
                     @if (loadingDiscoveredModems)
                     {
@@ -730,7 +730,7 @@
             }
             else if (ConnectionService.IsConnected && !loadingDiscoveredModems)
             {
-                <p class="form-help">No cellular modems (U5G-Max, U5G Backup, U-LTE) found. Click "Scan for Modems" to search.</p>
+                <p class="form-help">No cellular modems (UniFi 5G Max, 5G Backup, LTE Backup Pro) found. Click "Scan for Modems" to search.</p>
             }
 
             <!-- Configured Modems -->
@@ -1077,15 +1077,15 @@
         </div>
     </div>
 
-    <!-- External ONT Monitoring -->
-    <div class="card" id="external-ont">
+    <!-- ONT Device Monitoring -->
+    <div class="card" id="ont-monitoring">
         <div class="card-header">
-            <h2 class="card-title">External ONT Monitoring</h2>
+            <h2 class="card-title">ONT Device Monitoring</h2>
             <span class="status-badge status-@_ontStatus.ToLower()">@_ontStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                Monitor external ONTs (fiber optic terminals) for DDM optics readings - RX/TX power, temperature, and link state.
+                Monitor ONT devices (fiber optic terminals) for signal levels, temperature, and link state.
             </p>
 
             @if (_ontConfigs.Count > 0)

@@ -1,8 +1,6 @@
 @if (Device != null)
 {
-    // TODO: Implement per-device detail pages (MonitoringDevice.razor) with
-    // individual health/latency/throughput charts, then link here by MAC.
-    var deviceHref = "/monitoring#device-health-charts-container";
+    var deviceHref = $"/monitoring?tab=devices&device={Uri.EscapeDataString(Device.Mac ?? "")}";
     <a href="@deviceHref" class="device-card device-card-link device-@Device.Status.ToLower()">
         <div class="device-header">
             <div class="device-icon">
@@ -91,17 +89,6 @@
                             {
                                 <span class="latency-loss">@($"{Device.LiveLossPercent:0.#}% loss")</span>
                             }
-                        </div>
-                    }
-                    @if (Device.LiveRateInBps.HasValue || Device.LiveRateOutBps.HasValue)
-                    {
-                        <div class="device-rate">
-                            <span class="rate-down" title="Ingress (bytes received by the device)">
-                                In @FormatBps(Device.LiveRateInBps)
-                            </span>
-                            <span class="rate-up" title="Egress (bytes transmitted by the device)">
-                                Out @FormatBps(Device.LiveRateOutBps)
-                            </span>
                         </div>
                     }
                 </div>

@@ -23,6 +23,9 @@
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
+@inject CableModemMonitorService CmMonitorService
+@inject OntMonitorService OntMonitorService
+@inject CellularModemService CellularModemService
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -234,7 +237,7 @@ else
     {
         <!-- Latency time-series charts -->
         <div class="card" id="latency-charts-container">
-            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+            <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <div class="time-range-selector">
@@ -341,7 +344,7 @@ else
     @if (_activeTab == "devices" && _monitoringReady)
     {
         <div class="card" id="device-health-charts-container">
-            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+            <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Device Health</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
@@ -413,7 +416,7 @@ else
         {
         <!-- SFP DDM time-series: RX/TX power + temperature -->
         <div class="card" style="margin-top: 1.5rem;" id="sfp-charts-container">
-            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+            <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">SFP Diagnostics</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
@@ -502,8 +505,24 @@ else
         }
         @if (_influxReachable == true)
         {
+        @if (!_cmHasDevices)
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header monitoring-chart-header">
+                    <h2 class="card-title">Cable Modem Signal History</h2>
+                    <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
+                </div>
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No cable modems configured. Add one in <a href="/settings#cable-modem">Settings</a> to start monitoring.</p>
+                </div>
+            </div>
+        }
+        else
+        {
         <div class="card" style="margin-top: 1.5rem;" id="cm-charts-container">
-            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+            <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
@@ -537,9 +556,7 @@ else
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
                     <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px;">
-                            <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-                        </svg>
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
                 </div>
             </div>
@@ -564,6 +581,7 @@ else
             </div>
         </div>
         }
+        }
     }
 
     @* ──────────────── Tab: ONT Stats ──────────────── *@
@@ -587,9 +605,39 @@ else
         }
         @if (_influxReachable == true)
         {
+        @if (!_ontHasDevices && _monitoredSfps.Any(s => s.Category == SfpCategory.Pon))
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header monitoring-chart-header">
+                    <h2 class="card-title">ONT Signal History</h2>
+                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
+                </div>
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab. To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</p>
+                </div>
+            </div>
+        }
+        else if (!_ontHasDevices)
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header monitoring-chart-header">
+                    <h2 class="card-title">ONT Signal History</h2>
+                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
+                </div>
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No ONT monitoring configured. <a href="/settings#ont-monitoring">Configure direct device polling</a> for standalone ONTs or SFP modules that don't expose DDM to the gateway.</p>
+                </div>
+            </div>
+        }
+        else
+        {
         <div class="card" style="margin-top: 1.5rem;" id="ont-charts-container">
-            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
-                <h2 class="card-title">External ONT Signal History</h2>
+            <div class="card-header monitoring-chart-header">
+                <h2 class="card-title">ONT Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
                     <div class="time-range-selector" style="position: relative;">
@@ -621,10 +669,8 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
-                    <a href="/settings#external-ont" class="tooltip-icon settings-link" data-tooltip="External ONT settings">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px;">
-                            <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-                        </svg>
+                    <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                     </a>
                 </div>
             </div>
@@ -640,6 +686,7 @@ else
                 </div>
             </div>
         </div>
+        }
         }
     }
 
@@ -664,8 +711,24 @@ else
         }
         @if (_influxReachable == true)
         {
+        @if (!_cellularHasDevices)
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header monitoring-chart-header">
+                    <h2 class="card-title">Cellular Signal History</h2>
+                    <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
+                </div>
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No cellular modems configured. Add one in <a href="/settings#cellular-modem">Settings</a> to start monitoring.</p>
+                </div>
+            </div>
+        }
+        else
+        {
         <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
-            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+            <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cellular Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
@@ -698,6 +761,9 @@ else
                         </div>
                     </div>
                     <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
+                    <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
                 </div>
             </div>
             <div class="card-body">
@@ -721,6 +787,7 @@ else
             </div>
         </div>
         }
+        }
     }
 
     @* ──────────────── Tab: Setup ──────────────── *@
@@ -729,7 +796,7 @@ else
         @if (_snmpState == SnmpDetectionState.NotChecked)
         {
             <div class="card">
-                <div class="card-header">
+                <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">SNMP Configuration</h2>
                 </div>
                 <div class="card-body">
@@ -743,7 +810,7 @@ else
         else if (_snmpState == SnmpDetectionState.Disabled)
         {
             <div class="card">
-                <div class="card-header">
+                <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">SNMP Setup Required</h2>
                     <span class="status-badge status-disconnected">Disabled</span>
                 </div>
@@ -790,7 +857,7 @@ else
         else if (_snmpState == SnmpDetectionState.PollFailing)
         {
             <div class="card">
-                <div class="card-header">
+                <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Monitoring Status</h2>
                     <span class="status-badge status-error">SNMP Error</span>
                 </div>
@@ -825,14 +892,12 @@ else
             }
 
             <div class="card" style="@(!_influxConfigured ? "margin-top: 1.5rem;" : "")">
-                <div class="card-header">
+                <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Monitoring Status</h2>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <span class="status-badge status-connected">@OverallStateBadge()</span>
                         <a href="/settings#monitoring" class="tooltip-icon settings-link" data-tooltip="Monitoring settings">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-                            </svg>
+                            <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
                         </a>
                     </div>
                 </div>
@@ -1042,6 +1107,9 @@ else
     private string _activeTab = "setup";
 
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
+    private bool _cmHasDevices;
+    private bool _ontHasDevices;
+    private bool _cellularHasDevices;
     private bool _forceExpandUpstream;
 
 
@@ -1162,6 +1230,13 @@ else
         _snmpState = settings.SnmpDetectionState;
         LoadInfluxStateFromSettings(settings);
         await LoadTargetsAsync();
+
+        var cmConfigs = await CmMonitorService.GetConfigsAsync();
+        _cmHasDevices = cmConfigs.Count > 0;
+        var ontConfigs = await OntMonitorService.GetConfigsAsync();
+        _ontHasDevices = ontConfigs.Count > 0;
+        var cellConfigs = await CellularModemService.GetModemsAsync();
+        _cellularHasDevices = cellConfigs.Count > 0;
 
         _mapOrder2dFirst = await SystemSettings.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
         var dashLayout = await DashboardLayout.GetLayoutAsync();

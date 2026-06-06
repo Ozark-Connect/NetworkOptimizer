@@ -225,6 +225,10 @@
         return "signal-poor";
     }
 
+    public string? CurrentCmId => _configs.Count > 0 && _currentIndex < _configs.Count
+        ? _configs[_currentIndex].Id.ToString()
+        : null;
+
     public void Dispose()
     {
         _refreshTimer?.Dispose();

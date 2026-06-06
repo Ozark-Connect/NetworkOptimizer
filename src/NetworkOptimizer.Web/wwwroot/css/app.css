@@ -97,6 +97,15 @@ a:visited {
     color: inherit;
 }
 
+.page-description a,
+.page-description a:visited {
+    color: var(--primary-color);
+}
+
+.page-description a:hover {
+    color: var(--primary-hover);
+}
+
 a:hover {
     color: var(--primary-hover);
 }
@@ -405,6 +414,12 @@ a:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+.monitoring-chart-header {
+    min-height: 59px;
+    flex-wrap: wrap;
+    gap: 0.75rem;
 }
 
 .card-header-collapsible {
