@@ -120,15 +120,19 @@ else if (TotalCount == 0)
     <div class="sqm-unavailable">
         <div class="sqm-status">
             <span class="status-indicator status-disconnected"></span>
-            <span class="status-label">No fiber modules configured</span>
+            <span class="status-label">No ONT monitoring configured</span>
         </div>
         <p class="status-message">
-            Network Optimizer auto-detects PON SFP modules (GPON / XGS-PON) on switch
-            and gateway ports. Active Ethernet (P2P) modules can be promoted manually.
-            Mark a module as monitored to see live optical levels here.
+            <b>SFP ONT in your gateway?</b> Network Optimizer auto-detects PON modules on
+            switch and gateway ports. Open Monitoring to find and enable yours.
+        </p>
+        <p class="status-message">
+            <b>Standalone ONT?</b> Configure external polling for AT&amp;T gateways, Realtek
+            ONT sticks, and other devices in Settings.
         </p>
         <div class="sqm-actions">
-            <a href="/monitoring" class="btn btn-primary" @onclick:stopPropagation>Open Monitoring</a>
+            <a href="/monitoring?tab=sfp" class="btn btn-secondary" @onclick:stopPropagation>SFP Monitoring</a>
+            <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>Configure ONT</a>
         </div>
     </div>
 }
