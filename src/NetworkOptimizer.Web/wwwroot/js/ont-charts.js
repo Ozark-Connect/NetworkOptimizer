@@ -156,21 +156,27 @@ async function loadAndUpdate() {
 
     const powerSeries = [];
     const tempSeries = [];
+    const COLOR_SETS = [
+        { rx: PALETTE[0], tx: PALETTE[4], temp: PALETTE[1] },
+        { rx: PALETTE[6], tx: PALETTE[3], temp: PALETTE[11] },
+        { rx: PALETTE[10], tx: PALETTE[18], temp: PALETTE[13] },
+    ];
     data.devices.forEach((d, i) => {
+        const c = COLOR_SETS[i % COLOR_SETS.length];
         const pts = d.data || [];
         powerSeries.push({
             name: d.label + ' RX',
-            color: PALETTE[0],
+            color: c.rx,
             data: pts.filter(p => p.rx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.rx })),
         });
         powerSeries.push({
             name: d.label + ' TX',
-            color: PALETTE[4],
+            color: c.tx,
             data: pts.filter(p => p.tx != null).map(p => ({ x: new Date(p.time).getTime(), y: p.tx })),
         });
         tempSeries.push({
             name: d.label,
-            color: PALETTE[1],
+            color: c.temp,
             data: pts.filter(p => p.temp != null).map(p => ({ x: new Date(p.time).getTime(), y: p.temp })),
         });
     });
