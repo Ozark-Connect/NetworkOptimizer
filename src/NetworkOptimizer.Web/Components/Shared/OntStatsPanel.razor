@@ -416,7 +416,7 @@ else
         if (IsShowingExternal)
         {
             var extIdx = _currentIndex - _monitoredOnts.Count;
-            if (extIdx < _externalOnts.Count)
+            if (extIdx >= 0 && extIdx < _externalOnts.Count)
                 _externalOntStats = ExternalOntService.GetCachedStats(_externalOnts[extIdx].Id);
             else
                 _externalOntStats = null;
