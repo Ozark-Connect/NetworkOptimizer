@@ -135,7 +135,6 @@ public class OntMonitorService : IDisposable
         {
             _isPolling = true;
             var forceAll = !_hasPrimedOnce;
-            _hasPrimedOnce = true;
 
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
@@ -152,6 +151,8 @@ public class OntMonitorService : IDisposable
 
                 await PollSingleAsync(config, repository);
             }
+
+            _hasPrimedOnce = true;
         }
         catch (Exception ex)
         {

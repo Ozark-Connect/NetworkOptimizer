@@ -141,7 +141,6 @@ public sealed class CableModemMonitorService : IDisposable
         {
             _isPolling = true;
             var forceAll = !_hasPrimedOnce;
-            _hasPrimedOnce = true;
 
             using var scope = _scopeFactory.CreateScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
@@ -158,6 +157,8 @@ public sealed class CableModemMonitorService : IDisposable
 
                 await PollSingleAsync(config);
             }
+
+            _hasPrimedOnce = true;
         }
         catch (Exception ex)
         {
