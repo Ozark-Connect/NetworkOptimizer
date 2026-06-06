@@ -29,13 +29,17 @@ let isInViewport = true;
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
         chart: {
-            type: 'line', height,
+            type: 'area', height,
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: false },
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
+        fill: {
+            type: 'gradient',
+            gradient: { shadeIntensity: 0.3, opacityFrom: 0.4, opacityTo: 0.05 },
+        },
         markers: { size: 0 },
         dataLabels: { enabled: false },
         xaxis: {
