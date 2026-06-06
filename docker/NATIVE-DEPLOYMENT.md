@@ -221,6 +221,9 @@ launchctl unload ~/Library/LaunchAgents/com.networkoptimizer.app.plist
 # Backup database (optional)
 cp ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.backup
 
+# Update .NET SDK (picks up runtime stability and security fixes)
+brew upgrade dotnet
+
 # Pull latest from main and rebuild
 cd ~/NetworkOptimizer
 git fetch origin && git checkout main && git pull

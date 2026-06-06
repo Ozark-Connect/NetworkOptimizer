@@ -80,6 +80,16 @@ git pull
 
 The install script preserves your database, encryption keys, and `start.sh` configuration by backing them up before reinstalling.
 
+### Keeping .NET Updated
+
+The macOS native build uses a self-contained .NET runtime bundled with the app. The version you get depends on the .NET SDK installed via Homebrew at build time. Periodically update your SDK to pick up runtime stability and security fixes:
+
+```bash
+brew upgrade dotnet
+```
+
+Then re-run the install script to rebuild with the updated runtime.
+
 ## Logs and Debugging
 
 Application logs are in `~/network-optimizer/logs/`:

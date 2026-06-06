@@ -208,6 +208,12 @@ brew install sshpass iperf3 nginx go 2>/dev/null || true
 if ! command -v dotnet &> /dev/null; then
     echo "Installing .NET SDK..."
     brew install dotnet
+else
+    # Always upgrade to latest - the self-contained build bundles the runtime,
+    # so the SDK version at build time determines which runtime ships with the app.
+    # Newer patches include stability and security fixes for macOS ARM64.
+    echo "Updating .NET SDK to latest..."
+    brew upgrade dotnet 2>/dev/null || true
 fi
 
 # Verify .NET version
