@@ -122,18 +122,14 @@ function renderBadges(container) {
 function updateVisibility() {
     deviceMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
-        [powerChart, tempChart].forEach(chart => {
-            if (!chart) return;
-            if (vis) {
-                chart.showSeries(m.label + ' RX');
-                chart.showSeries(m.label + ' TX');
-                chart.showSeries(m.label);
-            } else {
-                chart.hideSeries(m.label + ' RX');
-                chart.hideSeries(m.label + ' TX');
-                chart.hideSeries(m.label);
-            }
-        });
+        if (powerChart) {
+            if (vis) { powerChart.showSeries(m.label + ' RX'); powerChart.showSeries(m.label + ' TX'); }
+            else { powerChart.hideSeries(m.label + ' RX'); powerChart.hideSeries(m.label + ' TX'); }
+        }
+        if (tempChart) {
+            if (vis) tempChart.showSeries(m.label);
+            else tempChart.hideSeries(m.label);
+        }
     });
 }
 
