@@ -168,31 +168,30 @@ async function loadAndUpdate() {
     const usPowerSeries = [];
     const errorsSeries = [];
     data.devices.forEach((d, i) => {
-        const color = PALETTE[i % PALETTE.length];
         const pts = d.data || [];
         dsPowerSeries.push({
             name: d.label,
-            color,
+            color: PALETTE[(i * 4) % PALETTE.length],
             data: pts.filter(p => p.dsPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsPower })),
         });
         dsSnrSeries.push({
             name: d.label,
-            color,
+            color: PALETTE[(i * 4 + 1) % PALETTE.length],
             data: pts.filter(p => p.dsSnr != null).map(p => ({ x: new Date(p.time).getTime(), y: p.dsSnr })),
         });
         usPowerSeries.push({
             name: d.label,
-            color,
+            color: PALETTE[(i * 4 + 2) % PALETTE.length],
             data: pts.filter(p => p.usPower != null).map(p => ({ x: new Date(p.time).getTime(), y: p.usPower })),
         });
         errorsSeries.push({
             name: d.label + ' Uncorrectable',
-            color,
+            color: PALETTE[(i * 4 + 3) % PALETTE.length],
             data: pts.filter(p => p.uncorrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.uncorrDelta })),
         });
         errorsSeries.push({
             name: d.label + ' Correctable',
-            color: color,
+            color: PALETTE[(i * 4 + 3) % PALETTE.length],
             data: pts.filter(p => p.corrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.corrDelta })),
         });
     });
