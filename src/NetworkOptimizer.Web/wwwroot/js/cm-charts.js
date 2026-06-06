@@ -192,7 +192,7 @@ async function loadAndUpdate() {
         });
         errorsSeries.push({
             name: d.label + ' Correctable',
-            color: color + '80',
+            color: color,
             data: pts.filter(p => p.corrDelta != null).map(p => ({ x: new Date(p.time).getTime(), y: p.corrDelta })),
         });
     });
