@@ -337,7 +337,14 @@ else
         await OnDataLoaded.InvokeAsync();
         _refreshTimer = new System.Threading.Timer(_ =>
         {
-            try { _ = InvokeAsync(StateHasChanged); }
+            try
+            {
+                _ = InvokeAsync(() =>
+                {
+                    RefreshExternalStats();
+                    StateHasChanged();
+                });
+            }
             catch { }
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
