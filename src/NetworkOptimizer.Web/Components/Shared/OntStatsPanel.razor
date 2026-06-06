@@ -75,10 +75,17 @@ else if (IsShowingExternal && _externalOntStats != null)
                         <span class="metric-value ont-model-value">@_externalOntStats.VendorName</span>
                     </div>
                 }
+                @if (!string.IsNullOrEmpty(_externalOntStats.VendorPn))
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Model:</span>
+                        <span class="metric-value ont-model-value">@_externalOntStats.VendorPn</span>
+                    </div>
+                }
                 @if (!string.IsNullOrEmpty(_externalOntStats.WaveLength))
                 {
                     <div class="metric-row">
-                        <span class="metric-label">Wave:</span>
+                        <span class="metric-label">Wavelength:</span>
                         <span class="metric-value">@_externalOntStats.WaveLength</span>
                     </div>
                 }
@@ -87,6 +94,30 @@ else if (IsShowingExternal && _externalOntStats != null)
                     <span class="metric-value">@(_externalOntStats.VoltageV.HasValue ? $"{_externalOntStats.VoltageV.Value:0.#} V" : "-")</span>
                 </div>
             </div>
+        </div>
+    </div>
+}
+else if (IsShowingExternal)
+{
+    var extIdx = _currentIndex - _monitoredOnts.Count;
+    var extName = extIdx < _externalOnts.Count ? _externalOnts[extIdx].Name : "External ONT";
+    <div class="sqm-unavailable">
+        <div class="sqm-status">
+            <span class="status-indicator status-disconnected"></span>
+            <span class="status-label">@extName</span>
+        </div>
+        @if (TotalCount > 1)
+        {
+            <div class="modem-nav" style="margin-bottom: 0.75rem;">
+                <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
+                <span class="modem-counter">@(_currentIndex + 1)/@TotalCount</span>
+                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">&#x203A;</button>
+            </div>
+        }
+        <p class="status-message">ONT configured but no data yet. Click refresh to poll.</p>
+        <div class="sqm-actions">
+            <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
+            <a href="/settings#external-ont" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
         </div>
     </div>
 }
@@ -373,7 +404,18 @@ else
             var extIdx = _currentIndex - _monitoredOnts.Count;
             if (extIdx < _externalOnts.Count)
                 _externalOntStats = ExternalOntService.GetCachedStats(_externalOnts[extIdx].Id);
+            else
+                _externalOntStats = null;
         }
+    }
+
+    private async Task RefreshExternal()
+    {
+        var extIdx = _currentIndex - _monitoredOnts.Count;
+        if (extIdx < 0 || extIdx >= _externalOnts.Count) return;
+        await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
+        RefreshExternalStats();
+        StateHasChanged();
     }
 
     private string ExternalRxClass()
