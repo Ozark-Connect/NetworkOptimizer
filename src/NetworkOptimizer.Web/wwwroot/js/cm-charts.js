@@ -52,7 +52,8 @@ function baseOpts(height, yTitle, yFormatter, extra) {
         },
         grid: { borderColor: '#374151', strokeDashArray: 3 },
         legend: { show: false },
-        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' } },
+        tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' },
+            y: { formatter: yFormatter } },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
         ...extra,
     };
@@ -324,7 +325,7 @@ export async function mount(elId) {
         ...baseOpts(200, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
             yaxis: { forceNiceScale: true, decimalsInFloat: 1, tickAmount: 5,
                 title: { text: 'dBmV', style: { color: '#9ca3af' } },
-                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(1) : '' } },
+                labels: { style: { colors: '#9ca3af' } } },
         }),
         series: [], colors: PALETTE,
     });
@@ -332,7 +333,7 @@ export async function mount(elId) {
         ...baseOpts(160, 'dB', v => v != null ? v.toFixed(1) + ' dB' : '', {
             yaxis: { forceNiceScale: true, decimalsInFloat: 1, tickAmount: 5,
                 title: { text: 'dB', style: { color: '#9ca3af' } },
-                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(1) : '' } },
+                labels: { style: { colors: '#9ca3af' } } },
         }),
         series: [], colors: PALETTE,
     });
@@ -340,7 +341,7 @@ export async function mount(elId) {
         ...baseOpts(160, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
             yaxis: { forceNiceScale: true, decimalsInFloat: 1, tickAmount: 5,
                 title: { text: 'dBmV', style: { color: '#9ca3af' } },
-                labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? v.toFixed(1) : '' } },
+                labels: { style: { colors: '#9ca3af' } } },
         }),
         series: [], colors: PALETTE,
     });
