@@ -25,6 +25,7 @@
 @inject DashboardLayoutService DashboardLayout
 @inject CableModemMonitorService CmMonitorService
 @inject OntMonitorService OntMonitorService
+@inject CellularModemService CellularModemService
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -512,6 +513,8 @@ else
                 </div>
             </div>
         }
+        else
+        {
         <div class="card" style="margin-top: 1.5rem;" id="cm-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">Cable Modem Signal History</h2>
@@ -574,6 +577,7 @@ else
             </div>
         </div>
         }
+        }
     }
 
     @* ──────────────── Tab: ONT Stats ──────────────── *@
@@ -597,7 +601,15 @@ else
         }
         @if (_influxReachable == true)
         {
-        @if (!_ontHasDevices && !_monitoredSfps.Any(s => s.Category == SfpCategory.Pon))
+        @if (!_ontHasDevices && _monitoredSfps.Any(s => s.Category == SfpCategory.Pon))
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">Your ONT is monitored via SFP on the <a href="javascript:void(0)" @onclick='() => SetActiveTab("sfp")' @onclick:preventDefault>SFP Stats</a> tab. To poll a standalone ONT device directly, <a href="/settings#ont-monitoring">configure one in Settings</a>.</p>
+                </div>
+            </div>
+        }
+        else if (!_ontHasDevices)
         {
             <div class="card" style="margin-top: 1.5rem;">
                 <div class="card-body" style="text-align: center; padding: 2rem;">
@@ -605,6 +617,8 @@ else
                 </div>
             </div>
         }
+        else
+        {
         <div class="card" style="margin-top: 1.5rem;" id="ont-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <h2 class="card-title">ONT Signal History</h2>
@@ -659,6 +673,7 @@ else
             </div>
         </div>
         }
+        }
     }
 
     @* ──────────────── Tab: Cellular Stats ──────────────── *@
@@ -681,6 +696,16 @@ else
             </div>
         }
         @if (_influxReachable == true)
+        {
+        @if (!_cellularHasDevices)
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No cellular modems configured. Add one in <a href="/settings#cellular-modem">Settings</a> to start monitoring.</p>
+                </div>
+            </div>
+        }
+        else
         {
         <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
@@ -738,6 +763,7 @@ else
                 </div>
             </div>
         </div>
+        }
         }
     }
 
@@ -1062,6 +1088,7 @@ else
     private bool _monitoringReady => _monitoringEnabled && _influxConfigured;
     private bool _cmHasDevices;
     private bool _ontHasDevices;
+    private bool _cellularHasDevices;
     private bool _forceExpandUpstream;
 
 
@@ -1187,6 +1214,8 @@ else
         _cmHasDevices = cmConfigs.Count > 0;
         var ontConfigs = await OntMonitorService.GetConfigsAsync();
         _ontHasDevices = ontConfigs.Count > 0;
+        var cellConfigs = await CellularModemService.GetModemsAsync();
+        _cellularHasDevices = cellConfigs.Count > 0;
 
         _mapOrder2dFirst = await SystemSettings.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
         var dashLayout = await DashboardLayout.GetLayoutAsync();
