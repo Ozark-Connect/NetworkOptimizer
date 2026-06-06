@@ -1159,6 +1159,7 @@
                             <label class="form-label">Provider</label>
                             <select class="form-control" @bind="_editingOnt.Provider">
                                 <option value="att-gateway">AT&T Gateway (HTTP)</option>
+                                <option value="realtek-ont">Realtek ONT Stick (HTTP)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
                         </div>
@@ -4310,6 +4311,7 @@
     private static string GetOntProviderDisplayName(string provider) => provider switch
     {
         "att-gateway" => "AT&T Gateway (HTTP)",
+        "realtek-ont" => "Realtek ONT Stick (HTTP)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
     };

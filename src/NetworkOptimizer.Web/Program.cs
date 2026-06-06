@@ -197,6 +197,7 @@ builder.Services.AddSingleton<CableModemMonitorService>();
 
 // Register External ONT providers and service
 builder.Services.AddSingleton<IOntProvider, AttGatewayOntProvider>();
+builder.Services.AddSingleton<IOntProvider, RealtekOntProvider>();
 builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
 builder.Services.AddSingleton<OntMonitorService>();
 

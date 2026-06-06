@@ -64,7 +64,7 @@
                 <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
                     @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
                 </span>
-                <span class="rx-power-label">DS SNR avg</span>
+                <span class="rx-power-label">Downstream SNR avg</span>
             </div>
             <div class="modem-nav">
                 @if (_configs.Count > 1)
