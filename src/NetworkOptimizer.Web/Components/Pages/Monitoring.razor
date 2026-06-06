@@ -2255,7 +2255,7 @@ else
             }
             catch { _cellularChartsMounted = false; }
         }
-        else if ((_activeTab != "cellular" || _influxReachable == false) && _cellularChartsMounted)
+        else if ((_activeTab != "cellular" || _influxReachable != true) && _cellularChartsMounted)
         {
             _cellularChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__cellularCharts?.unmount();"); }
@@ -2278,7 +2278,7 @@ else
             }
             catch { _cmChartsMounted = false; }
         }
-        else if ((_activeTab != "cm" || _influxReachable == false) && _cmChartsMounted)
+        else if ((_activeTab != "cm" || _influxReachable != true) && _cmChartsMounted)
         {
             _cmChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__cmCharts?.unmount();"); }
@@ -2301,7 +2301,7 @@ else
             }
             catch { _ontChartsMounted = false; }
         }
-        else if ((_activeTab != "ont" || _influxReachable == false) && _ontChartsMounted)
+        else if ((_activeTab != "ont" || _influxReachable != true) && _ontChartsMounted)
         {
             _ontChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__ontCharts?.unmount();"); }
