@@ -251,7 +251,7 @@ dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     --self-contained \
     -p:PublishSingleFile=true \
     -p:IncludeNativeLibrariesForSelfExtract=true \
-    -p:EnableCompressionInSingleFile=true \
+    -p:EnableCompressionInSingleFile=false \
     -p:DebugType=None \
     -o "$INSTALL_DIR"
 
