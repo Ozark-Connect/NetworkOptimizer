@@ -102,6 +102,10 @@ a:visited {
     color: var(--primary-color);
 }
 
+.page-description a:hover {
+    color: var(--primary-hover);
+}
+
 a:hover {
     color: var(--primary-hover);
 }
