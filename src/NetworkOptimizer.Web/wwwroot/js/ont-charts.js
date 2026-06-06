@@ -56,17 +56,15 @@ function baseOpts(height, yTitle, yFormatter, extra) {
         legend: { show: false },
         tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' } },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
-        ...extra,
     };
-}
-
-function padAxis(unit, padding) {
-    return {
-        min: v => Math.floor(v - padding),
-        max: v => Math.ceil(v + padding),
-        title: { text: unit, style: { color: '#9ca3af' } },
-        labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Number(v).toFixed(0) : '' },
-    };
+    if (extra?.yaxis) {
+        base.yaxis = { ...base.yaxis, ...extra.yaxis };
+        const { yaxis, ...rest } = extra;
+        Object.assign(base, rest);
+    } else if (extra) {
+        Object.assign(base, extra);
+    }
+    return base;
 }
 
 function buildQueryParams() {
@@ -133,16 +131,19 @@ function renderBadges(container) {
 }
 
 function updateVisibility() {
+    if (deviceMeta.length <= 1) return;
     deviceMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
-        if (powerChart) {
-            if (vis) { powerChart.showSeries(m.label + ' RX'); powerChart.showSeries(m.label + ' TX'); }
-            else { powerChart.hideSeries(m.label + ' RX'); powerChart.hideSeries(m.label + ' TX'); }
-        }
-        if (tempChart) {
-            if (vis) tempChart.showSeries(m.label);
-            else tempChart.hideSeries(m.label);
-        }
+        try {
+            if (powerChart) {
+                if (vis) { powerChart.showSeries(m.label + ' RX'); powerChart.showSeries(m.label + ' TX'); }
+                else { powerChart.hideSeries(m.label + ' RX'); powerChart.hideSeries(m.label + ' TX'); }
+            }
+            if (tempChart) {
+                if (vis) tempChart.showSeries(m.label);
+                else tempChart.hideSeries(m.label);
+            }
+        } catch (_) {}
     });
 }
 
@@ -314,7 +315,7 @@ export async function mount(elId) {
 
     powerChart = new ApexCharts(powerEl, {
         ...baseOpts(220, 'dBm', v => v != null ? v.toFixed(1) + ' dBm' : '', {
-            yaxis: padAxis('dBm', 2) }),
+            yaxis: { min: v => Math.floor(v - 2), max: v => Math.ceil(v + 2) } }),
         series: [], colors: PALETTE,
     });
     tempChart = new ApexCharts(tempEl, {

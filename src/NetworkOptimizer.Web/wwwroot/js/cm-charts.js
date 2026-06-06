@@ -27,7 +27,7 @@ let visibilityObserver = null;
 let isInViewport = true;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
-    return {
+    const base = {
         chart: {
             type: 'area', height,
             background: 'transparent',
@@ -59,18 +59,17 @@ function baseOpts(height, yTitle, yFormatter, extra) {
         tooltip: { theme: 'dark', shared: true, x: { format: 'MMM dd, HH:mm:ss' },
             y: { formatter: yFormatter } },
         noData: { text: 'No data in this time range', style: { color: '#64748b' } },
-        ...extra,
     };
+    if (extra?.yaxis) {
+        base.yaxis = { ...base.yaxis, ...extra.yaxis };
+        const { yaxis, ...rest } = extra;
+        Object.assign(base, rest);
+    } else if (extra) {
+        Object.assign(base, extra);
+    }
+    return base;
 }
 
-function padAxis(unit, padding) {
-    return {
-        min: v => Math.floor(v - padding),
-        max: v => Math.ceil(v + padding),
-        title: { text: unit, style: { color: '#9ca3af' } },
-        labels: { style: { colors: '#9ca3af' }, formatter: v => v != null ? Number(v).toFixed(0) : '' },
-    };
-}
 
 function buildQueryParams() {
     let params = '';
@@ -136,21 +135,23 @@ function renderBadges(container) {
 }
 
 function updateVisibility() {
+    if (deviceMeta.length <= 1) return;
     deviceMeta.forEach(m => {
         const vis = visibility[m.id] !== false;
         [dsPowerChart, dsSnrChart, usPowerChart].forEach(chart => {
             if (!chart) return;
-            if (vis) chart.showSeries(m.label);
-            else chart.hideSeries(m.label);
+            try { if (vis) chart.showSeries(m.label); else chart.hideSeries(m.label); } catch (_) {}
         });
         if (errorsChart) {
-            if (vis) {
-                errorsChart.showSeries(m.label + ' Uncorrectable');
-                errorsChart.showSeries(m.label + ' Correctable');
-            } else {
-                errorsChart.hideSeries(m.label + ' Uncorrectable');
-                errorsChart.hideSeries(m.label + ' Correctable');
-            }
+            try {
+                if (vis) {
+                    errorsChart.showSeries(m.label + ' Uncorrectable');
+                    errorsChart.showSeries(m.label + ' Correctable');
+                } else {
+                    errorsChart.hideSeries(m.label + ' Uncorrectable');
+                    errorsChart.hideSeries(m.label + ' Correctable');
+                }
+            } catch (_) {}
         }
     });
 }
@@ -336,17 +337,17 @@ export async function mount(elId) {
 
     dsPowerChart = new ApexCharts(dsPowerEl, {
         ...baseOpts(200, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
-            yaxis: padAxis('dBmV', 2) }),
+            yaxis: { min: v => Math.floor(v - 2), max: v => Math.ceil(v + 2) } }),
         series: [], colors: PALETTE,
     });
     dsSnrChart = new ApexCharts(dsSnrEl, {
         ...baseOpts(160, 'dB', v => v != null ? v.toFixed(1) + ' dB' : '', {
-            yaxis: padAxis('dB', 2) }),
+            yaxis: { min: v => Math.floor(v - 2), max: v => Math.ceil(v + 2) } }),
         series: [], colors: PALETTE,
     });
     usPowerChart = new ApexCharts(usPowerEl, {
         ...baseOpts(160, 'dBmV', v => v != null ? v.toFixed(1) + ' dBmV' : '', {
-            yaxis: padAxis('dBmV', 2) }),
+            yaxis: { min: v => Math.floor(v - 2), max: v => Math.ceil(v + 2) } }),
         series: [], colors: PALETTE,
     });
     errorsChart = new ApexCharts(errorsEl, {
