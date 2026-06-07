@@ -1157,9 +1157,10 @@
                         </div>
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
-                            <select class="form-control" @bind="_editingOnt.Provider">
+                            <select class="form-control" value="@_editingOnt.Provider" @onchange="OnOntProviderChanged">
                                 <option value="att-gateway">AT&T Gateway (HTTP)</option>
                                 <option value="realtek-ont">Realtek ONT Stick (HTTP)</option>
+                                <option value="8311">8311 Community Firmware (HTTP)</option>
                                 <option value="generic-http-ont">Generic HTTP ONT</option>
                             </select>
                         </div>
@@ -4314,10 +4315,24 @@
         _ontFormVisible = false;
     }
 
+    private void OnOntProviderChanged(ChangeEventArgs e)
+    {
+        var provider = e.Value?.ToString() ?? "att-gateway";
+        _editingOnt.Provider = provider;
+        _editingOnt.Port = GetOntProviderDefaultPort(provider);
+    }
+
+    private static int GetOntProviderDefaultPort(string provider) => provider switch
+    {
+        "8311" => 443,
+        _ => 80,
+    };
+
     private static string GetOntProviderDisplayName(string provider) => provider switch
     {
         "att-gateway" => "AT&T Gateway (HTTP)",
         "realtek-ont" => "Realtek ONT Stick (HTTP)",
+        "8311" => "8311 Community Firmware (HTTP)",
         "generic-http-ont" => "Generic HTTP ONT",
         _ => provider,
     };

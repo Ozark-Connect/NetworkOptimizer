@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using NetworkOptimizer.Monitoring.Models;
@@ -8,8 +7,9 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
 /// <summary>
-/// ONT provider for Realtek-based GPON stick modules (DFP-34X-2C2, etc.)
-/// that expose a web UI with form-based login and status_pon.asp for DDM data.
+/// ONT provider for Realtek RTL960x GPON stick modules (ODI DFP-34X-2C2, V-SOL V2801F,
+/// T&amp;W TWCGPON657, etc.) that expose a web UI with form-based login and status_pon.asp
+/// for DDM data. Tries HTTP first, falls back to HTTPS with self-signed cert bypass.
 /// </summary>
 public sealed class RealtekOntProvider : IOntProvider
 {
@@ -35,13 +35,9 @@ public sealed class RealtekOntProvider : IOntProvider
 
         try
         {
-            var baseUrl = BuildBaseUrl(context);
-            using var handler = new HttpClientHandler
-            {
-                CookieContainer = new CookieContainer(),
-                UseCookies = true,
-            };
-            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+            var (baseUrl, client, handler) = await ResolveBaseUrlAsync(context, cancellationToken);
+            using var _ = handler;
+            using var __ = client;
 
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
             {
@@ -78,13 +74,9 @@ public sealed class RealtekOntProvider : IOntProvider
 
         try
         {
-            var baseUrl = BuildBaseUrl(context);
-            using var handler = new HttpClientHandler
-            {
-                CookieContainer = new CookieContainer(),
-                UseCookies = true,
-            };
-            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+            var (baseUrl, client, handler) = await ResolveBaseUrlAsync(context, cancellationToken);
+            using var _ = handler;
+            using var __ = client;
 
             if (!await LoginAsync(client, baseUrl, context, cancellationToken))
                 return (false, "Login failed - check username/password");
@@ -96,7 +88,7 @@ public sealed class RealtekOntProvider : IOntProvider
             try { await client.GetAsync($"{baseUrl}/admin/logout.asp", cancellationToken); }
             catch { }
 
-            return (true, "Connected - PON Status page accessible");
+            return (true, $"Connected ({(baseUrl.StartsWith("https") ? "HTTPS" : "HTTP")}) - PON Status page accessible");
         }
         catch (Exception ex)
         {
@@ -104,11 +96,76 @@ public sealed class RealtekOntProvider : IOntProvider
         }
     }
 
-    private static string BuildBaseUrl(OntPollContext context)
+    /// <summary>
+    /// Tries the port-based scheme first (HTTP for 80, HTTPS for 443), then falls back
+    /// to the opposite scheme. All HTTPS uses self-signed cert bypass since these are
+    /// local network devices.
+    /// </summary>
+    private async Task<(string BaseUrl, HttpClient Client, HttpClientHandler Handler)> ResolveBaseUrlAsync(
+        OntPollContext context, CancellationToken ct)
     {
         var port = context.Port > 0 ? context.Port : 80;
-        var portSuffix = port == 80 ? "" : $":{port}";
-        return $"http://{context.Host}{portSuffix}";
+        var primaryScheme = port == 443 ? "https" : "http";
+        var fallbackScheme = primaryScheme == "https" ? "http" : "https";
+
+        var primaryUrl = BuildBaseUrl(context.Host, port, primaryScheme);
+        var (handler, client) = CreateHttpClient();
+
+        try
+        {
+            using var response = await client.GetAsync(primaryUrl, ct);
+            return (primaryUrl, client, handler);
+        }
+        catch (HttpRequestException ex) when (
+            ex.InnerException is System.Security.Authentication.AuthenticationException
+            || ex.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("{Scheme} failed with SSL error for {Host}, trying {Fallback}",
+                primaryScheme.ToUpperInvariant(), context.Host, fallbackScheme.ToUpperInvariant());
+        }
+        catch (HttpRequestException)
+        {
+            _logger.LogDebug("{Scheme} connection failed for {Host}, trying {Fallback}",
+                primaryScheme.ToUpperInvariant(), context.Host, fallbackScheme.ToUpperInvariant());
+        }
+
+        client.Dispose();
+        handler.Dispose();
+
+        var fallbackUrl = BuildBaseUrl(context.Host, port, fallbackScheme);
+        var (handler2, client2) = CreateHttpClient();
+
+        try
+        {
+            using var probe = await client2.GetAsync(fallbackUrl, ct);
+            _logger.LogInformation("Realtek ONT {Host} reachable via {Scheme}", context.Host, fallbackScheme.ToUpperInvariant());
+            return (fallbackUrl, client2, handler2);
+        }
+        catch
+        {
+            client2.Dispose();
+            handler2.Dispose();
+            throw;
+        }
+    }
+
+    private static (HttpClientHandler Handler, HttpClient Client) CreateHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            CookieContainer = new CookieContainer(),
+            UseCookies = true,
+            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+        };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
+        return (handler, client);
+    }
+
+    private static string BuildBaseUrl(string host, int port, string scheme)
+    {
+        var portSuffix = (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
+            ? "" : $":{port}";
+        return $"{scheme}://{host}{portSuffix}";
     }
 
     /// <summary>

@@ -8,10 +8,10 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// <summary>
 /// Scrapes AT&amp;T residential gateways (BGW210, BGW320-500/505) that expose
 /// fiber stats via unauthenticated HTTP pages. No login required.
+/// Tries port-based scheme first, falls back to the opposite with self-signed cert bypass.
 /// </summary>
 public class AttGatewayOntProvider : IOntProvider
 {
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AttGatewayOntProvider> _logger;
 
     private static readonly Regex DdmRegex = new(
@@ -22,11 +22,8 @@ public class AttGatewayOntProvider : IOntProvider
         @"<th\s+scope=""row""[^>]*>([^<]+)</th>\s*<td\s+class=""col2""[^>]*>([^<]*)</td>",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public AttGatewayOntProvider(
-        IHttpClientFactory httpClientFactory,
-        ILogger<AttGatewayOntProvider> logger)
+    public AttGatewayOntProvider(ILogger<AttGatewayOntProvider> logger)
     {
-        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -37,7 +34,14 @@ public class AttGatewayOntProvider : IOntProvider
     {
         try
         {
-            var client = CreateHttpClient(context);
+            using var client = CreateHttpClient();
+            var baseUrl = await ResolveBaseUrlAsync(client, context, cancellationToken);
+            if (baseUrl == null)
+            {
+                _logger.LogWarning("Failed to reach AT&T gateway at {Host} via HTTP or HTTPS", context.Host);
+                return null;
+            }
+
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
@@ -46,9 +50,7 @@ public class AttGatewayOntProvider : IOntProvider
                 DeviceModel = "AT&T Gateway"
             };
 
-            // Primary endpoint: DDM optics data
-            var fiberStatUrl = BuildUrl(context, "/cgi-bin/fiberstat.ha");
-            var fiberHtml = await FetchPageAsync(client, fiberStatUrl, cancellationToken);
+            var fiberHtml = await FetchPageAsync(client, $"{baseUrl}/cgi-bin/fiberstat.ha", cancellationToken);
             if (fiberHtml == null)
             {
                 _logger.LogWarning("Failed to fetch fiberstat.ha from {Host}", context.Host);
@@ -57,9 +59,7 @@ public class AttGatewayOntProvider : IOntProvider
 
             ParseFiberStat(fiberHtml, stats);
 
-            // Secondary endpoint: broadband link status (optional)
-            var broadbandUrl = BuildUrl(context, "/cgi-bin/broadbandstatistics.ha");
-            var broadbandHtml = await FetchPageAsync(client, broadbandUrl, cancellationToken);
+            var broadbandHtml = await FetchPageAsync(client, $"{baseUrl}/cgi-bin/broadbandstatistics.ha", cancellationToken);
             if (broadbandHtml != null)
             {
                 ParseBroadbandStatistics(broadbandHtml, stats);
@@ -83,20 +83,20 @@ public class AttGatewayOntProvider : IOntProvider
     {
         try
         {
-            var client = CreateHttpClient(context);
-            var url = BuildUrl(context, "/cgi-bin/fiberstat.ha");
+            using var client = CreateHttpClient();
+            var baseUrl = await ResolveBaseUrlAsync(client, context, cancellationToken);
+            if (baseUrl == null)
+                return (false, $"Could not reach {context.Host} via HTTP or HTTPS");
 
+            var url = $"{baseUrl}/cgi-bin/fiberstat.ha";
             using var response = await client.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
-            {
                 return (false, $"HTTP {(int)response.StatusCode} from {context.Host}");
-            }
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
+            var scheme = baseUrl.StartsWith("https") ? "HTTPS" : "HTTP";
             if (html.Contains("Fiber Status", StringComparison.OrdinalIgnoreCase))
-            {
-                return (true, "Connected to AT&T gateway fiber stats page");
-            }
+                return (true, $"Connected ({scheme}) to AT&T gateway fiber stats page");
 
             return (false, "Page returned but does not appear to be the AT&T fiber stats page");
         }
@@ -196,20 +196,63 @@ public class AttGatewayOntProvider : IOntProvider
         }
     }
 
-    private HttpClient CreateHttpClient(OntPollContext context)
-    {
-        var client = _httpClientFactory.CreateClient("OntProvider");
-        client.Timeout = TimeSpan.FromSeconds(15);
-        return client;
-    }
-
-    private static string BuildUrl(OntPollContext context, string path)
+    /// <summary>
+    /// Tries port-based scheme first, falls back to opposite on connection/SSL failure.
+    /// </summary>
+    private async Task<string?> ResolveBaseUrlAsync(
+        HttpClient client, OntPollContext context, CancellationToken ct)
     {
         var port = context.Port > 0 ? context.Port : 80;
-        var scheme = port == 443 ? "https" : "http";
-        return port == 80 || port == 443
-            ? $"{scheme}://{context.Host}{path}"
-            : $"{scheme}://{context.Host}:{port}{path}";
+        var primaryScheme = port == 443 ? "https" : "http";
+        var fallbackScheme = primaryScheme == "https" ? "http" : "https";
+
+        var primaryUrl = BuildBaseUrl(context.Host, port, primaryScheme);
+        try
+        {
+            using var response = await client.GetAsync($"{primaryUrl}/", ct);
+            return primaryUrl;
+        }
+        catch (HttpRequestException ex) when (
+            ex.InnerException is System.Security.Authentication.AuthenticationException
+            || ex.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("{Scheme} failed with SSL error for {Host}, trying {Fallback}",
+                primaryScheme.ToUpperInvariant(), context.Host, fallbackScheme.ToUpperInvariant());
+        }
+        catch (HttpRequestException)
+        {
+            _logger.LogDebug("{Scheme} connection failed for {Host}, trying {Fallback}",
+                primaryScheme.ToUpperInvariant(), context.Host, fallbackScheme.ToUpperInvariant());
+        }
+
+        var fallbackUrl = BuildBaseUrl(context.Host, port, fallbackScheme);
+        try
+        {
+            using var response = await client.GetAsync($"{fallbackUrl}/", ct);
+            _logger.LogInformation("AT&T gateway {Host} reachable via {Scheme}",
+                context.Host, fallbackScheme.ToUpperInvariant());
+            return fallbackUrl;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static HttpClient CreateHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+        };
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+    }
+
+    private static string BuildBaseUrl(string host, int port, string scheme)
+    {
+        var portSuffix = (scheme == "http" && port == 80) || (scheme == "https" && port == 443)
+            ? "" : $":{port}";
+        return $"{scheme}://{host}{portSuffix}";
     }
 
     private async Task<string?> FetchPageAsync(
