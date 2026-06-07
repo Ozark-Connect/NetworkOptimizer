@@ -8,14 +8,14 @@ using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Endpoints;
-using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.CellularModemProviders;
 using NetworkOptimizer.Web.Services.CableModemProviders;
+using NetworkOptimizer.Web.Services.CellularModemProviders;
 using NetworkOptimizer.Web.Services.OntProviders;
 using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.WiFi.Models;
@@ -661,6 +661,13 @@ app.RegisterScheduleExecutors();
 
 // Clean up any leftover config transfer temp files from previous sessions
 app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
+
+// Eagerly resolve device monitor services so their poll timers start at app launch,
+// not on first page load. Without this, polling doesn't begin until a user visits
+// a page that injects the service.
+app.Services.GetRequiredService<CellularModemService>();
+app.Services.GetRequiredService<CableModemMonitorService>();
+app.Services.GetRequiredService<OntMonitorService>();
 
 // Configure the HTTP request pipeline
 if (!app.Environment.IsDevelopment())
