@@ -394,6 +394,8 @@ public class CellularModemService : ICellularModemService
         // Write LTE signal (always present in LTE-only and NSA modes)
         if (stats.Lte?.Rsrp.HasValue == true)
         {
+            // In NSA mode, signal quality is on the NR5G point; in LTE-only, attach it here
+            var lteSignalQuality = stats.Nr5g?.Rsrp.HasValue == true ? (int?)null : stats.SignalQuality;
             // Offset by 1 tick so InfluxDB doesn't overwrite the NR5G point
             _ = _influx.WriteCellularAsync(
                 modemId: modemId,
@@ -408,7 +410,7 @@ public class CellularModemService : ICellularModemService
                 rsrq: stats.Lte.Rsrq,
                 snr: stats.Lte.Snr,
                 rssi: stats.Lte.Rssi,
-                signalQuality: null,
+                signalQuality: lteSignalQuality,
                 signalBars: stats.Lte.Bars,
                 isRoaming: stats.IsRoaming,
                 timestamp: stats.Timestamp.AddTicks(1));
