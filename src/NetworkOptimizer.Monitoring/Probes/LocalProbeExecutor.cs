@@ -116,13 +116,13 @@ public class LocalProbeExecutor : IProbeExecutor
             return await TcpPingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
         }
 
-        // On Linux and macOS, shell out to the native `ping` binary - same approach STM
-        // takes. Kernel-timestamped RTTs are sub-ms accurate; userspace overhead from
-        // .NET's Ping class adds 1-2 ms which makes LAN measurements visibly wrong
-        // ("ping" says 0.2 ms, dashboard says 1.5 ms). Windows ping has different output
-        // and gives less useful data, so the managed Ping + Stopwatch path is the
-        // Windows MSI fallback.
-        if (!OperatingSystem.IsWindows())
+        // On Linux, shell out to the native `ping` binary - kernel-timestamped RTTs
+        // are sub-ms accurate; .NET's managed Ping adds ~0.2-0.3 ms of userspace
+        // overhead which inflates LAN measurements noticeably (20-30% on sub-1 ms
+        // hops). macOS uses managed Ping to avoid .NET 10 ARM64 Process.Start
+        // memory corruption (dotnet/runtime#123324). Windows uses managed Ping
+        // because its ping output format differs.
+        if (OperatingSystem.IsLinux())
         {
             return await NativePingAsync(target, count, perPingTimeout ?? TimeSpan.FromSeconds(2), ct);
         }
