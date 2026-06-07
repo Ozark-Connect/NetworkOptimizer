@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using NetworkOptimizer.Monitoring.Models;
@@ -8,9 +7,9 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.OntProviders;
 
 /// <summary>
-/// ONT provider for Realtek-based GPON stick modules (DFP-34X-2C2, etc.)
-/// that expose a web UI with form-based login and status_pon.asp for DDM data.
-/// Tries HTTP first, falls back to HTTPS with self-signed cert bypass.
+/// ONT provider for Realtek RTL960x GPON stick modules (ODI DFP-34X-2C2, V-SOL V2801F,
+/// T&amp;W TWCGPON657, etc.) that expose a web UI with form-based login and status_pon.asp
+/// for DDM data. Tries HTTP first, falls back to HTTPS with self-signed cert bypass.
 /// </summary>
 public sealed class RealtekOntProvider : IOntProvider
 {
