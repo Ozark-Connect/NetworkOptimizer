@@ -425,11 +425,7 @@ a:hover {
 .card-header-collapsible {
     cursor: pointer;
     user-select: none;
-    transition: background 0.15s ease, border-bottom 0.2s ease;
-}
-
-.card-header-collapsible:has(+ .expand-wrapper:not(.expanded)) {
-    border-bottom-color: transparent;
+    transition: background 0.15s ease;
 }
 
 .card-header-collapsible:hover {
@@ -849,9 +845,6 @@ a.stat-card-link:active {
     }
     .monitoring-stat-card .stat-value {
         font-size: 1rem;
-    }
-    .monitoring-stat-card .stat-label {
-        white-space: nowrap;
     }
     .monitoring-stat-pair {
         gap: 0.5rem;
@@ -14807,6 +14800,9 @@ a.affected-client:hover {
 .lan-flow-map-panel-title-toggle {
     cursor: pointer;
     user-select: none;
+}
+.lan-flow-map-panel-title-toggle:not(.is-expanded) {
+    margin-bottom: 0;
 }
 .lan-flow-map-panel-title-toggle::after {
     content: "▼";
