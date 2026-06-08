@@ -386,9 +386,9 @@ class LanFlowMap2D {
                     <span class="lan-flow-map-chip is-on" data-band="5">5 GHz</span>
                     <span class="lan-flow-map-chip is-on" data-band="6">6 GHz</span>
                 </div>`;
-        if(isMobile)filterBody.hidden=true;
+        if(isMobile)filterBody.classList.add('is-collapsed');
         filter.appendChild(filterBody);
-        if(isMobile)filterTitle.addEventListener('click',()=>{filterBody.hidden=!filterBody.hidden;});
+        if(isMobile)filterTitle.addEventListener('click',()=>{filterBody.classList.toggle('is-collapsed');});
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
             this._relayout();
@@ -419,9 +419,9 @@ class LanFlowMap2D {
         controls.appendChild(ctrlTitle);
         const ctrlBody=document.createElement('div');
         ctrlBody.className='lan-flow-map-panel-body';
-        if(isMobile)ctrlBody.hidden=true;
+        if(isMobile)ctrlBody.classList.add('is-collapsed');
         controls.appendChild(ctrlBody);
-        if(isMobile)ctrlTitle.addEventListener('click',()=>{ctrlBody.hidden=!ctrlBody.hidden;});
+        if(isMobile)ctrlTitle.addEventListener('click',()=>{ctrlBody.classList.toggle('is-collapsed');});
         for(const[key,label]of[['wifiClients','Wi-Fi clients'],['wiredClients','Wired clients'],['clouds','WAN globes']]){
             const row=document.createElement('div');
             row.className=`lan-flow-map-toggle ${this._overlays[key]?'is-on':''}`;

@@ -14650,6 +14650,32 @@ a.affected-client:hover {
     color: var(--text-primary);
     background: rgba(16, 24, 32, 0.92);
 }
+.lan-flow-map-fit-btn {
+    position: absolute;
+    z-index: 6;
+    top: 0.75rem;
+    right: 3rem;
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    padding: 5px 7px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    pointer-events: auto;
+}
+.lan-flow-map-fit-btn:hover {
+    color: var(--text-primary);
+    background: rgba(16, 24, 32, 0.92);
+}
+@media (max-width: 768px) {
+    .lan-flow-map-fit-btn {
+        right: 0.75rem;
+        top: 2.75rem;
+    }
+}
 
 .lan-flow-map-fullscreen {
     position: fixed;
@@ -14794,14 +14820,22 @@ a.affected-client:hover {
 .lan-flow-map-tooltip-row .v {
     color: var(--text-primary);
 }
-.lan-flow-map-panel-body[hidden] {
-    display: none;
+.lan-flow-map-panel-body {
+    overflow: hidden;
+    max-height: 500px;
+    opacity: 1;
+    transition: max-height 0.25s ease-out, opacity 0.2s ease;
+}
+.lan-flow-map-panel-body.is-collapsed {
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.2s ease-in, opacity 0.15s ease;
 }
 .lan-flow-map-panel-title-toggle {
     cursor: pointer;
     user-select: none;
 }
-.lan-flow-map-panel-title-toggle:not(.is-expanded) {
+.lan-flow-map-panel-title-toggle:has(+ .is-collapsed) {
     margin-bottom: 0;
 }
 .lan-flow-map-panel-title-toggle::after {
@@ -14809,9 +14843,10 @@ a.affected-client:hover {
     float: right;
     font-size: 0.65rem;
     opacity: 0.6;
+    transition: transform 0.2s ease;
 }
-.lan-flow-map-panel-title-toggle.is-expanded::after {
-    content: "▲";
+.lan-flow-map-panel-title-toggle:not(:has(+ .is-collapsed))::after {
+    transform: rotate(180deg);
 }
 @media (max-width: 768px) {
     .lan-flow-map-stage {
