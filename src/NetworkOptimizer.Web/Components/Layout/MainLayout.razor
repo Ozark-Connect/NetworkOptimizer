@@ -138,8 +138,7 @@
                 var topBar = document.querySelector('.top-bar');
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
-                if (st <= 0) {
-                    // Always show nav bar at top of page
+                if (st <= 0 && !topBar.classList.contains('top-bar-collapsed')) {
                     topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
                     currentEl.style.scrollPaddingTop = '70px';
                     startAutoHideTimer(topBar);
