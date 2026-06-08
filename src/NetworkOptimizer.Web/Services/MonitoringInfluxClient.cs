@@ -819,6 +819,7 @@ from(bucket: ""{_bucket}"")
                 UptimeSeconds = (long?)AsDoubleOrNull(record.GetValueByKey("uptime_seconds"))
             });
         }
+        results.Sort((a, b) => a.Time.CompareTo(b.Time));
         return results;
     }
 
@@ -862,7 +863,7 @@ from(bucket: ""{_bucket}"")
             MemoryUsedPercent = mem.TryGetValue(kv.Key, out var m) ? m : null,
             TemperatureC = temp.TryGetValue(kv.Key, out var t) ? t : null,
             UptimeSeconds = uptime.TryGetValue(kv.Key, out var u) ? (long?)u : null,
-        }).ToList();
+        }).OrderBy(p => p.Time).ToList();
     }
 
     /// <summary>Raw latency query by target type - no aggregation, pairs fields in C#.</summary>
