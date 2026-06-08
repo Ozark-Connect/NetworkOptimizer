@@ -26,6 +26,12 @@
     {
         var newPath = GetPath(e.Location);
 
+        if (newPath == _previousPath)
+        {
+            // Query-only change (e.g. tab switch) - preserve scroll and nav state
+            return;
+        }
+
         // Small delay to ensure DOM is ready after Blazor renders
         await Task.Delay(50);
 
