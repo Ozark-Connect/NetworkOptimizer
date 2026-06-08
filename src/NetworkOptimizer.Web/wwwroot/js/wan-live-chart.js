@@ -121,8 +121,8 @@ function buildOpts() {
             breakpoint: 1024,
             options: {
                 yaxis: [
-                    { seriesName: 'Download', show: false, min: 0 },
-                    { seriesName: 'Download', show: false, min: 0 },
+                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
                     { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
                     { seriesName: 'RTT', opposite: true, show: false, min: 0 },
                 ],
