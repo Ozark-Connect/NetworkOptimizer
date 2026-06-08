@@ -140,12 +140,15 @@
                 var topBar = document.querySelector('.top-bar');
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
-                if (st <= 0 && !(topBar.classList.contains('top-bar-hidden') && lastScrollTop > 60)) {
+                if (st <= 0 && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
                     currentEl.style.scrollPaddingTop = '70px';
                     startAutoHideTimer(topBar);
                     scrollUpAccum = 0;
                     lastScrollTop = st;
+                } else if (st <= 0) {
+                    lastScrollTop = st;
+                    scrollUpAccum = 0;
                 } else if (topBar) {
                     var delta = lastScrollTop - st; // positive = scrolling up
                     if (delta > 0) {
