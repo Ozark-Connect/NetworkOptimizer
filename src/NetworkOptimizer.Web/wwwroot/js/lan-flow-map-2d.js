@@ -442,7 +442,7 @@ class LanFlowMap2D {
         tb.className='lfm2d-toolbar';
         tb.innerHTML=`<button class="lfm2d-btn" data-action="zin" title="Zoom in">+</button>`
             +`<button class="lfm2d-btn" data-action="zout" title="Zoom out">&minus;</button>`
-            +`<button class="lfm2d-btn" data-action="fit" title="Fit all">&#x2922;</button>`;
+            +`<button class="lfm2d-btn" data-action="fit" title="Fit all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 4 20 10 20"></polyline><polyline points="20 10 20 4 14 4"></polyline><line x1="14" y1="10" x2="20" y2="4"></line><line x1="4" y1="20" x2="10" y2="14"></line></svg></button>`;
         tb.addEventListener('click',(e)=>{
             const a=e.target.closest('[data-action]')?.dataset.action;
             if(a==='zin')this._zoomBy(1.3);

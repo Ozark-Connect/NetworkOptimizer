@@ -14668,8 +14668,6 @@ a.affected-client:hover {
     border-radius: 6px;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 24px;
-    padding-bottom: 4px;
     pointer-events: auto;
 }
 .lan-flow-map-fit-btn:hover {
@@ -14960,10 +14958,6 @@ a.affected-client:hover {
     align-items: center;
     justify-content: center;
     line-height: 1;
-}
-.lfm2d-btn[data-action="fit"] {
-    font-size: 24px;
-    padding-bottom: 4px;
 }
 .lfm2d-btn:hover {
     background: rgba(51,56,68,0.9);
