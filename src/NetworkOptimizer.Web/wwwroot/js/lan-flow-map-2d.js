@@ -1719,7 +1719,7 @@ class LanFlowMap2D {
             const dn=r.downstreamBps??0,up=r.upstreamBps??0;
             if(dn>THRESH||up>THRESH){
                 const cx=child.x;
-                const cy=child.y+G.clientR+15;
+                const cy=child.y+G.clientR+24;
                 const dTxt='↓'+formatBps(dn), uTxt='↑'+formatBps(up);
                 const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
                 ctx.fillStyle=C.labelBg;
