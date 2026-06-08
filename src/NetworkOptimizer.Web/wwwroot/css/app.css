@@ -14640,15 +14640,22 @@ a.affected-client:hover {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 6px;
     color: var(--text-secondary);
-    padding: 5px 7px;
     cursor: pointer;
-    line-height: 0;
     pointer-events: auto;
 }
 
 .lan-flow-map-fullscreen-btn:hover {
     color: var(--text-primary);
     background: rgba(16, 24, 32, 0.92);
+}
+.lan-flow-map-fullscreen-btn,
+.lan-flow-map-fit-btn {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
 }
 .lan-flow-map-fit-btn {
     position: absolute;
@@ -14660,10 +14667,8 @@ a.affected-client:hover {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 6px;
     color: var(--text-secondary);
-    padding: 5px 7px;
     cursor: pointer;
     font-size: 16px;
-    line-height: 0;
     pointer-events: auto;
 }
 .lan-flow-map-fit-btn:hover {
