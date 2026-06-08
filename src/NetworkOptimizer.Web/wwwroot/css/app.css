@@ -14668,7 +14668,8 @@ a.affected-client:hover {
     border-radius: 6px;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 16px;
+    font-size: 24px;
+    padding-bottom: 4px;
     pointer-events: auto;
 }
 .lan-flow-map-fit-btn:hover {
@@ -14678,7 +14679,7 @@ a.affected-client:hover {
 @media (max-width: 768px) {
     .lan-flow-map-fit-btn {
         right: 0.75rem;
-        top: 2.75rem;
+        top: 3rem;
     }
 }
 
@@ -14827,22 +14828,22 @@ a.affected-client:hover {
 }
 .lan-flow-map-panel-body {
     overflow: hidden;
-    max-height: 500px;
+    max-height: 150px;
     opacity: 1;
-    transition: max-height 0.25s ease-out, opacity 0.2s ease, width 0.2s ease;
+    transition: max-height 0.2s ease-out, opacity 0.2s ease, width 0.2s ease;
 }
 .lan-flow-map-panel-body.is-collapsed {
     max-height: 0;
     width: 0;
     opacity: 0;
-    transition: max-height 0.2s ease-in, opacity 0.15s ease, width 0.2s ease;
+    transition: max-height 0.15s ease-in, opacity 0.15s ease, width 0.15s ease;
 }
 .lan-flow-map-panel-title-toggle {
     cursor: pointer;
     user-select: none;
 }
-.lan-flow-map-panel-title-toggle:has(+ .is-collapsed) {
-    margin-bottom: 0;
+.lan-flow-map-panel:has(.is-collapsed) {
+    gap: 0;
 }
 .lan-flow-map-panel-title-toggle::after {
     content: "▼";
@@ -14956,6 +14957,10 @@ a.affected-client:hover {
     align-items: center;
     justify-content: center;
     line-height: 1;
+}
+.lfm2d-btn[data-action="fit"] {
+    font-size: 24px;
+    padding-bottom: 4px;
 }
 .lfm2d-btn:hover {
     background: rgba(51,56,68,0.9);
