@@ -905,7 +905,7 @@ from(bucket: ""{_bucket}"")
             Time = kv.Value,
             RttAvgMs = rtt.TryGetValue(kv.Key, out var r) ? r : null,
             LossPercent = loss.TryGetValue(kv.Key, out var l) ? l : null,
-        }).ToList();
+        }).OrderBy(p => p.Time).ToList();
     }
 
     /// <summary>Time-series of RTT and loss for multiple monitoring targets, keyed by target_id.</summary>
@@ -951,6 +951,10 @@ from(bucket: ""{_bucket}"")
                 LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
             });
         }
+        // InternetService queries include legacy target_type=wan data; InfluxDB returns
+        // each tag series separately so merged lists may not be in chronological order.
+        foreach (var list in results.Values)
+            list.Sort((a, b) => a.Time.CompareTo(b.Time));
         return results;
     }
 
