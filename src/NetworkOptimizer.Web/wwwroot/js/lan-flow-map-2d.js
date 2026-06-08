@@ -1707,6 +1707,31 @@ class LanFlowMap2D {
                 ctx.fillText(uTxt,mx+4,my);
             }
         }
+
+        // Client rate labels (same style as node/link labels)
+        ctx.font=`${G.rateFont}px ${FONT}`;
+        for(const e of this._edges){
+            if(e._x1==null||!e._isCl)continue;
+            const child=e.tn||e.fn;
+            if(!child||!this._isNodeVisible(child))continue;
+            const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+            if(!r)continue;
+            const dn=r.downstreamBps??0,up=r.upstreamBps??0;
+            if(dn>THRESH||up>THRESH){
+                const cx=child.x;
+                const cy=child.y+G.clientR+15;
+                const dTxt='↓'+formatBps(dn), uTxt='↑'+formatBps(up);
+                const tw=ctx.measureText(dTxt+'  '+uTxt).width+12;
+                ctx.fillStyle=C.labelBg;
+                this._roundRect(ctx,cx-tw/2,cy-8,tw,16,4);
+                ctx.fill();
+                ctx.textBaseline='middle';
+                ctx.textAlign='right'; ctx.fillStyle=C.downstream;
+                ctx.fillText(dTxt,cx-4,cy);
+                ctx.textAlign='left'; ctx.fillStyle=C.upstream;
+                ctx.fillText(uTxt,cx+4,cy);
+            }
+        }
     }
 
     // ---- Utility ----
