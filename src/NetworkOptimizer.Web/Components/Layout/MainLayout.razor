@@ -126,8 +126,6 @@
 
         function onScroll() {
             var st = currentEl.scrollTop;
-            var topBarDbg = document.querySelector('.top-bar');
-            console.log('[scroll] st=' + st + ' lastST=' + lastScrollTop + ' hidden=' + (topBarDbg ? topBarDbg.classList.contains('top-bar-hidden') : '?') + ' collapsed=' + (topBarDbg ? topBarDbg.classList.contains('top-bar-collapsed') : '?') + ' sH=' + currentEl.scrollHeight + ' cH=' + currentEl.clientHeight);
 
             // Identity bar collapse (all screen sizes)
             var identityBar = document.querySelector('.identity-bar');
@@ -185,7 +183,6 @@
         // hidden=true: fragment nav (hide bar, no padding)
         // hidden=false: page nav (show bar, add padding)
         window.__setScrollState = function(hidden) {
-            console.log('[setScrollState] hidden=' + hidden + ' caller=' + new Error().stack.split('\n')[2].trim());
             lastScrollTop = 0;
             scrollUpAccum = 0;
             if (window.innerWidth <= 1024) {
