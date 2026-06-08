@@ -3085,15 +3085,19 @@ select.form-control {
         height: auto;
         padding: 0.75rem 1rem;
         gap: 0.5rem;
-        transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-                    margin-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .top-bar.top-bar-hidden {
         position: sticky;
         transform: translateY(-100%);
-        margin-bottom: -56px;
         pointer-events: none;
+    }
+
+    .top-bar.top-bar-hidden.top-bar-collapsed {
+        position: absolute;
+        left: 0;
+        right: 0;
     }
 
     .app-footer {
