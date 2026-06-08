@@ -93,7 +93,7 @@ function buildOpts() {
                 opposite: true,
                 show: false,
                 min: 0,
-                max: v => Math.max(v * 1.2, 5),
+                max: v => Math.max(v * 1.2, 10),
             },
             {
                 seriesName: 'RTT',
@@ -114,19 +114,19 @@ function buildOpts() {
         grid: {
             borderColor: '#374151',
             strokeDashArray: 3,
-            padding: { left: 3, right: 0, top: -8, bottom: 0 },
+            padding: { left: 3, right: 0, top: -8, bottom: -3 },
             xaxis: { lines: { show: false } },
         },
         responsive: [{
             breakpoint: 1024,
             options: {
                 yaxis: [
-                    { seriesName: 'Download', show: false, min: 0 },
-                    { seriesName: 'Download', show: false, min: 0 },
-                    { seriesName: 'Loss', opposite: true, show: false, min: 0 },
+                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                    { seriesName: 'Download', show: false, min: 0, max: v => v * 1.1 },
+                    { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
                     { seriesName: 'RTT', opposite: true, show: false, min: 0 },
                 ],
-                grid: { padding: { left: -5, right: -5, top: -8, bottom: 0 } },
+                grid: { padding: { left: -5, right: -5, top: -8, bottom: -3 } },
             },
         }],
         legend: { show: false },

@@ -568,6 +568,11 @@ a:hover {
     .wan-live-chart-card > .card-body {
         margin-right: 0;
     }
+
+    .card.wan-live-chart-card {
+        padding-top: 0;
+        padding-bottom: 0;
+    }
 }
 
 /* Clickable card */
