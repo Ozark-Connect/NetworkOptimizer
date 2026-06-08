@@ -107,7 +107,7 @@ else
             </div>
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.MemoryUsedPercent)</div>
-                <div class="stat-label">Gateway Memory</div>
+                <div class="stat-label">Gateway Mem</div>
             </div>
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatTemp(gwStats?.TemperatureC)</div>

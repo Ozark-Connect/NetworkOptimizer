@@ -104,16 +104,15 @@
 
         function startAutoHideTimer(topBar) {
             clearAutoHideTimer();
-            if (!isContentScrollable()) return;
             var page = document.querySelector('[data-autohide-nav]');
             if (!page) return;
             var delay = parseInt(page.getAttribute('data-autohide-nav')) || 3000;
             autoHideTimer = setTimeout(function() {
                 var sidebarOpen = document.querySelector('.sidebar.open');
                 if (sidebarOpen) return;
-                if (!isContentScrollable()) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
+                    setTimeout(function() { topBar.classList.add('top-bar-collapsed'); }, 350);
                     if (currentEl) currentEl.style.scrollPaddingTop = '0px';
                     var identityBar = document.querySelector('.identity-bar');
                     if (identityBar) identityBar.classList.remove('below-topbar');
@@ -139,9 +138,8 @@
                 var topBar = document.querySelector('.top-bar');
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
-                if (st <= 0) {
-                    // Always show nav bar at top of page
-                    topBar.classList.remove('top-bar-hidden');
+                if (st <= 0 && !(topBar.classList.contains('top-bar-hidden') && lastScrollTop > 60)) {
+                    topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
                     currentEl.style.scrollPaddingTop = '70px';
                     startAutoHideTimer(topBar);
                     scrollUpAccum = 0;
@@ -160,7 +158,7 @@
                         clearAutoHideTimer();
                     } else if (!nearBottom && scrollUpAccum > 60) {
                         // Require 60px cumulative upward scroll, not near bottom
-                        topBar.classList.remove('top-bar-hidden');
+                        topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
                         currentEl.style.scrollPaddingTop = '70px';
                         startAutoHideTimer(topBar);
                         scrollUpAccum = 0;
@@ -186,13 +184,16 @@
         // hidden=false: page nav (show bar, add padding)
         window.__setScrollState = function(hidden) {
             lastScrollTop = 0;
+            scrollUpAccum = 0;
             if (window.innerWidth <= 1024) {
                 var topBar = document.querySelector('.top-bar');
                 if (topBar) {
                     if (hidden) {
                         topBar.classList.add('top-bar-hidden');
+                        clearAutoHideTimer();
                     } else {
-                        topBar.classList.remove('top-bar-hidden');
+                        topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
+                        startAutoHideTimer(topBar);
                     }
                 }
                 if (currentEl) {

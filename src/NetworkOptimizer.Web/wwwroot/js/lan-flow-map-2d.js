@@ -386,9 +386,9 @@ class LanFlowMap2D {
                     <span class="lan-flow-map-chip is-on" data-band="5">5 GHz</span>
                     <span class="lan-flow-map-chip is-on" data-band="6">6 GHz</span>
                 </div>`;
-        if(isMobile)filterBody.hidden=true;
+        if(isMobile)filterBody.classList.add('is-collapsed');
         filter.appendChild(filterBody);
-        if(isMobile)filterTitle.addEventListener('click',()=>{filterBody.hidden=!filterBody.hidden;});
+        if(isMobile)filterTitle.addEventListener('click',()=>{filterBody.classList.toggle('is-collapsed');});
         filterBody.querySelector('.lan-flow-map-search').addEventListener('input',(e)=>{
             this._filter.text=(e.target.value||'').toLowerCase().trim();
             this._relayout();
@@ -419,9 +419,9 @@ class LanFlowMap2D {
         controls.appendChild(ctrlTitle);
         const ctrlBody=document.createElement('div');
         ctrlBody.className='lan-flow-map-panel-body';
-        if(isMobile)ctrlBody.hidden=true;
+        if(isMobile)ctrlBody.classList.add('is-collapsed');
         controls.appendChild(ctrlBody);
-        if(isMobile)ctrlTitle.addEventListener('click',()=>{ctrlBody.hidden=!ctrlBody.hidden;});
+        if(isMobile)ctrlTitle.addEventListener('click',()=>{ctrlBody.classList.toggle('is-collapsed');});
         for(const[key,label]of[['wifiClients','Wi-Fi clients'],['wiredClients','Wired clients'],['clouds','WAN globes']]){
             const row=document.createElement('div');
             row.className=`lan-flow-map-toggle ${this._overlays[key]?'is-on':''}`;
@@ -442,7 +442,7 @@ class LanFlowMap2D {
         tb.className='lfm2d-toolbar';
         tb.innerHTML=`<button class="lfm2d-btn" data-action="zin" title="Zoom in">+</button>`
             +`<button class="lfm2d-btn" data-action="zout" title="Zoom out">&minus;</button>`
-            +`<button class="lfm2d-btn" data-action="fit" title="Fit all">&#x2922;</button>`;
+            +`<button class="lfm2d-btn" data-action="fit" title="Fit all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 4 20 10 20"></polyline><polyline points="20 10 20 4 14 4"></polyline><line x1="14" y1="10" x2="20" y2="4"></line><line x1="4" y1="20" x2="10" y2="14"></line></svg></button>`;
         tb.addEventListener('click',(e)=>{
             const a=e.target.closest('[data-action]')?.dataset.action;
             if(a==='zin')this._zoomBy(1.3);

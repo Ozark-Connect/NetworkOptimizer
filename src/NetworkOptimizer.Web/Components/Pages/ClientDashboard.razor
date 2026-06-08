@@ -1561,6 +1561,10 @@
 
         _ = InvokeAsync(async () =>
         {
+            // Save scroll position before content changes
+            var savedScroll = await JS.InvokeAsync<double>("eval",
+                "(function(){ var el = document.querySelector('.main-content') || document.querySelector('.page-content'); return el ? el.scrollTop : 0; })()");
+
             _tabLoading = true;
             StateHasChanged();
             try
@@ -1573,6 +1577,10 @@
                 // No _pendingChartUpdate here - Blazor's render creates the chart with data+annotations.
                 // RenderAsync on a newly created chart destroys and recreates it, causing a delay.
                 StateHasChanged();
+
+                // Restore scroll position after new tab renders
+                await JS.InvokeVoidAsync("eval",
+                    $"requestAnimationFrame(function(){{ var el = document.querySelector('.main-content') || document.querySelector('.page-content'); if(el) el.scrollTop = Math.min({savedScroll}, el.scrollHeight - el.clientHeight); }})");
             }
         });
     }

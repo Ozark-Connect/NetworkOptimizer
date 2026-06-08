@@ -340,6 +340,20 @@ export class LanFlowMap {
         return rect.bottom > 0 && rect.top < window.innerHeight;
     }
 
+    _fitCamera() {
+        let cx = 0, cy = 0, cz = 0, n = 0;
+        for (const pos of this._positions.values()) {
+            cx += pos.x; cy += pos.y; cz += pos.z; n++;
+        }
+        if (n > 0) { cx /= n; cy /= n; cz /= n; }
+        const target = new THREE.Vector3(cx, cy, cz);
+        const cam = new THREE.Vector3(cx + 60, cy + 40, cz + 60);
+        this._flyInStartCam = this.camera.position.clone();
+        this._flyInTargetCam = cam;
+        this._flyInTargetLookAt = target;
+        this._flyInUntil = performance.now() + 1300;
+    }
+
     _toggleFullscreen() {
         const el = this.stage;
         const isFs = el.classList.contains('lan-flow-map-fullscreen');
@@ -1633,7 +1647,7 @@ export class LanFlowMap {
                 <span class="lan-flow-map-chip is-on" data-band="6">6 GHz</span>
             </div>
         `;
-        if (isMobile) filterBody.hidden = true;
+        if (isMobile) filterBody.classList.add('is-collapsed');
         filter.appendChild(filterBody);
         if (isMobile) {
             filterTitle.addEventListener('click', () => this._toggleMobilePanel('filter'));
@@ -1682,7 +1696,7 @@ export class LanFlowMap {
         controls.appendChild(controlsTitle);
         const controlsBody = document.createElement('div');
         controlsBody.className = 'lan-flow-map-panel-body';
-        if (isMobile) controlsBody.hidden = true;
+        if (isMobile) controlsBody.classList.add('is-collapsed');
         controls.appendChild(controlsBody);
         if (isMobile) {
             controlsTitle.addEventListener('click', () => this._toggleMobilePanel('controls'));
@@ -1724,6 +1738,17 @@ export class LanFlowMap {
         fsBtn.addEventListener('click', () => this._toggleFullscreen());
         this.stage.appendChild(fsBtn);
         this._panels.fullscreenBtn = fsBtn;
+
+        // Fit / reset camera button
+        const fitBtn = document.createElement('button');
+        fitBtn.className = 'lan-flow-map-fit-btn';
+        fitBtn.setAttribute('data-tooltip', 'Fit all');
+        fitBtn.setAttribute('data-tooltip-hover-only', '');
+        fitBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 14 4 20 10 20"></polyline><polyline points="20 10 20 4 14 4"></polyline>
+            <line x1="14" y1="10" x2="20" y2="4"></line><line x1="4" y1="20" x2="10" y2="14"></line></svg>`;
+        fitBtn.addEventListener('click', () => this._fitCamera());
+        this.stage.appendChild(fitBtn);
 
         // Legend (bottom-right)
         const legend = this._makePanel('lan-flow-map-legend');
@@ -1912,15 +1937,13 @@ export class LanFlowMap {
         const panels = { filter: this._panels.filterBody, controls: this._panels.controlsBody };
         const target = panels[panelKey];
         if (!target) return;
-        const wasHidden = target.hidden;
+        const wasCollapsed = target.classList.contains('is-collapsed');
         for (const [key, body] of Object.entries(panels)) {
             if (!body) continue;
-            body.hidden = true;
-            this._panels[key]?.querySelector('.lan-flow-map-panel-title-toggle')?.classList.remove('is-expanded');
+            body.classList.add('is-collapsed');
         }
-        if (wasHidden) {
-            target.hidden = false;
-            this._panels[panelKey]?.querySelector('.lan-flow-map-panel-title-toggle')?.classList.add('is-expanded');
+        if (wasCollapsed) {
+            target.classList.remove('is-collapsed');
         }
     }
 

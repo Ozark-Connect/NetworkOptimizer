@@ -3085,14 +3085,19 @@ select.form-control {
         height: auto;
         padding: 0.75rem 1rem;
         gap: 0.5rem;
-        transition: transform 0.2s ease;
+        transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .top-bar.top-bar-hidden {
+        position: sticky;
+        transform: translateY(-100%);
+        pointer-events: none;
+    }
+
+    .top-bar.top-bar-hidden.top-bar-collapsed {
         position: absolute;
         left: 0;
         right: 0;
-        transform: translateY(-100%);
     }
 
     .app-footer {
@@ -14635,15 +14640,45 @@ a.affected-client:hover {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 6px;
     color: var(--text-secondary);
-    padding: 5px 7px;
     cursor: pointer;
-    line-height: 0;
     pointer-events: auto;
 }
 
 .lan-flow-map-fullscreen-btn:hover {
     color: var(--text-primary);
     background: rgba(16, 24, 32, 0.92);
+}
+.lan-flow-map-fullscreen-btn,
+.lan-flow-map-fit-btn {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.lan-flow-map-fit-btn {
+    position: absolute;
+    z-index: 6;
+    top: 0.75rem;
+    right: 3rem;
+    background: rgba(16, 24, 32, 0.78);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    pointer-events: auto;
+}
+.lan-flow-map-fit-btn:hover {
+    color: var(--text-primary);
+    background: rgba(16, 24, 32, 0.92);
+}
+@media (max-width: 768px) {
+    .lan-flow-map-fit-btn {
+        right: 0.75rem;
+        top: 3rem;
+    }
 }
 
 .lan-flow-map-fullscreen {
@@ -14789,21 +14824,37 @@ a.affected-client:hover {
 .lan-flow-map-tooltip-row .v {
     color: var(--text-primary);
 }
-.lan-flow-map-panel-body[hidden] {
-    display: none;
+.lan-flow-map-panel-body {
+    overflow: hidden;
+    max-height: 150px;
+    opacity: 1;
+    transition: max-height 0.2s ease-out, opacity 0.2s ease, width 0.2s ease;
+}
+.lan-flow-map-panel-body.is-collapsed {
+    max-height: 0;
+    width: 0;
+    opacity: 0;
+    transition: max-height 0.15s ease-in, opacity 0.15s ease, width 0.15s ease;
 }
 .lan-flow-map-panel-title-toggle {
     cursor: pointer;
     user-select: none;
+}
+.lan-flow-map-panel:has(.is-collapsed) {
+    gap: 0;
+}
+.lan-flow-map-panel-title-toggle:has(+ .is-collapsed) {
+    margin-bottom: 0;
 }
 .lan-flow-map-panel-title-toggle::after {
     content: "▼";
     float: right;
     font-size: 0.65rem;
     opacity: 0.6;
+    transition: transform 0.2s ease;
 }
-.lan-flow-map-panel-title-toggle.is-expanded::after {
-    content: "▲";
+.lan-flow-map-panel-title-toggle:not(:has(+ .is-collapsed))::after {
+    transform: rotate(180deg);
 }
 @media (max-width: 768px) {
     .lan-flow-map-stage {
@@ -14917,7 +14968,7 @@ a.affected-client:hover {
         height: auto;
     }
     .lan-flow-map-2d-stage .lfm2d-canvas {
-        height: clamp(520px, 70vh, 820px);
+        height: clamp(400px, 50vh, 600px);
     }
     .lan-flow-map-2d-stage.lan-flow-map-fullscreen .lfm2d-canvas {
         height: 100%;
