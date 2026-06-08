@@ -14922,7 +14922,7 @@ a.affected-client:hover {
         height: auto;
     }
     .lan-flow-map-2d-stage .lfm2d-canvas {
-        height: clamp(520px, 70vh, 820px);
+        height: clamp(400px, 50vh, 600px);
     }
     .lan-flow-map-2d-stage.lan-flow-map-fullscreen .lfm2d-canvas {
         height: 100%;
