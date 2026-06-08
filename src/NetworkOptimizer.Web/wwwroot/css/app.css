@@ -425,7 +425,11 @@ a:hover {
 .card-header-collapsible {
     cursor: pointer;
     user-select: none;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, border-bottom 0.2s ease;
+}
+
+.card-header-collapsible:has(+ .expand-wrapper:not(.expanded)) {
+    border-bottom-color: transparent;
 }
 
 .card-header-collapsible:hover {
