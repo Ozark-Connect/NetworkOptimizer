@@ -14845,6 +14845,9 @@ a.affected-client:hover {
 .lan-flow-map-panel:has(.is-collapsed) {
     gap: 0;
 }
+.lan-flow-map-panel-title-toggle:has(+ .is-collapsed) {
+    margin-bottom: 0;
+}
 .lan-flow-map-panel-title-toggle::after {
     content: "▼";
     float: right;
