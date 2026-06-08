@@ -186,13 +186,16 @@
         // hidden=false: page nav (show bar, add padding)
         window.__setScrollState = function(hidden) {
             lastScrollTop = 0;
+            scrollUpAccum = 0;
             if (window.innerWidth <= 1024) {
                 var topBar = document.querySelector('.top-bar');
                 if (topBar) {
                     if (hidden) {
                         topBar.classList.add('top-bar-hidden');
+                        clearAutoHideTimer();
                     } else {
                         topBar.classList.remove('top-bar-hidden');
+                        startAutoHideTimer(topBar);
                     }
                 }
                 if (currentEl) {
