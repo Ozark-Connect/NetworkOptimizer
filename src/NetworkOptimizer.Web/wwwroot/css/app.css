@@ -14663,7 +14663,7 @@ a.affected-client:hover {
     padding: 5px 7px;
     cursor: pointer;
     font-size: 16px;
-    line-height: 1;
+    line-height: 0;
     pointer-events: auto;
 }
 .lan-flow-map-fit-btn:hover {
@@ -14824,12 +14824,13 @@ a.affected-client:hover {
     overflow: hidden;
     max-height: 500px;
     opacity: 1;
-    transition: max-height 0.25s ease-out, opacity 0.2s ease;
+    transition: max-height 0.25s ease-out, opacity 0.2s ease, width 0.2s ease;
 }
 .lan-flow-map-panel-body.is-collapsed {
     max-height: 0;
+    width: 0;
     opacity: 0;
-    transition: max-height 0.2s ease-in, opacity 0.15s ease;
+    transition: max-height 0.2s ease-in, opacity 0.15s ease, width 0.2s ease;
 }
 .lan-flow-map-panel-title-toggle {
     cursor: pointer;
