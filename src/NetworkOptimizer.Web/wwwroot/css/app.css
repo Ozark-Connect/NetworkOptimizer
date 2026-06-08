@@ -846,6 +846,9 @@ a.stat-card-link:active {
     .monitoring-stat-card .stat-value {
         font-size: 1rem;
     }
+    .monitoring-stat-card .stat-label {
+        white-space: nowrap;
+    }
     .monitoring-stat-pair {
         gap: 0.5rem;
         flex-basis: 170px;
