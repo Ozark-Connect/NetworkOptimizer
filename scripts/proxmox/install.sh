@@ -187,12 +187,31 @@ find_debian_template() {
         aarch64) host_arch="arm64" ;;
     esac
 
-    # Find the latest debian template for the selected version and architecture
+    local available
+    available=$(pveam available -section system 2>/dev/null | awk '{print $2}')
+
+    # Find the latest debian template for the selected version and architecture.
+    # Standard PVE naming: debian-13-standard_13.1-2_amd64.tar.zst
     local template
-    template=$(pveam available -section system 2>/dev/null | awk '{print $2}' | grep "debian-${version}-standard" | grep "_${host_arch}\.tar" | tail -1 || true)
+    template=$(echo "$available" | grep "debian-${version}-standard" | grep "_${host_arch}\.tar" | tail -1 || true)
+
+    # ARM ports of Proxmox (PXVIRT) publish their own templates named by
+    # codename and build date instead: debian-trixie-20260328_arm64.tar.xz
+    if [[ -z "$template" ]]; then
+        local codename=""
+        case "$version" in
+            11) codename="bullseye" ;;
+            12) codename="bookworm" ;;
+            13) codename="trixie" ;;
+            14) codename="forky" ;;
+        esac
+        if [[ -n "$codename" ]]; then
+            template=$(echo "$available" | grep "^debian-${codename}-" | grep "_${host_arch}\.tar" | tail -1 || true)
+        fi
+    fi
 
     if [[ -z "$template" ]]; then
-        msg_error "Could not find Debian ${version} template for ${host_arch} in repository."
+        msg_error "Could not find a Debian ${version} template for ${host_arch} in the repository."
         msg_info "Available templates:"
         pveam available -section system 2>/dev/null | grep -i debian | head -5
         exit 1
