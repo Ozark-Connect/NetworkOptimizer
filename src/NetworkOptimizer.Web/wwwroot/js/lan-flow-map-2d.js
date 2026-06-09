@@ -544,6 +544,7 @@ class LanFlowMap2D {
         canvas.addEventListener('pointerdown',(e)=>this._onDown(e));
         canvas.addEventListener('pointermove',(e)=>this._onMove(e));
         canvas.addEventListener('pointerup',(e)=>this._onUp(e));
+        canvas.addEventListener('dblclick',(e)=>this._onDoubleClick(e));
         canvas.addEventListener('pointerleave',(e)=>{this._onUp(e);if(this._pointers.size===0&&e.pointerType==='mouse')this._hideTooltip();});
 
         // Resize
@@ -763,7 +764,7 @@ class LanFlowMap2D {
 
     // ---- Tooltip hit-test ----
 
-    _hitTest(sx,sy){
+    _nodeAt(sx,sy){
         const w=this._screenToWorld(sx,sy);
         let hit=null;
 
@@ -779,6 +780,22 @@ class LanFlowMap2D {
             }
         };
         if(this._root)checkNode(this._root);
+        return hit;
+    }
+
+    // Double-click a client to open its performance dashboard (matches the 3D map).
+    _onDoubleClick(e){
+        const rect=this._canvas.getBoundingClientRect();
+        const hit=this._nodeAt(e.clientX-rect.left,e.clientY-rect.top);
+        if(!hit)return;
+        const d=hit.d;
+        if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient)return;
+        if(!d.ip)return;
+        window.location.href=`/client-dashboard?ip=${encodeURIComponent(d.ip)}`;
+    }
+
+    _hitTest(sx,sy){
+        const hit=this._nodeAt(sx,sy);
 
         if(hit&&hit!==this._hoverNode){
             this._hoverNode=hit;
@@ -844,9 +861,11 @@ class LanFlowMap2D {
         }
         // Negotiated link speed (wired port or wireless PHY), directly above throughput.
         if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
-        else if(d.phyRxKbps||d.phyTxKbps){
-            const dl=d.phyRxKbps?`↓${formatSpeed(Math.round(d.phyRxKbps/1000))}`:'';
-            const ul=d.phyTxKbps?`↑${formatSpeed(Math.round(d.phyTxKbps/1000))}`:'';
+        else if(d.phyTxKbps||d.phyRxKbps){
+            // Device perspective: download (↓) is the AP's TX rate to the device,
+            // upload (↑) is its own TX = the AP's RX rate.
+            const dl=d.phyTxKbps?`↓${formatSpeed(Math.round(d.phyTxKbps/1000))}`:'';
+            const ul=d.phyRxKbps?`↑${formatSpeed(Math.round(d.phyRxKbps/1000))}`:'';
             rows.push(['Link speed',`${dl}${dl&&ul?'  ':''}${ul}`]);
         }
         if(any){

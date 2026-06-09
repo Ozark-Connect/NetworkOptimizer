@@ -218,11 +218,11 @@
                     </span>
                     @if (_client.RxRateKbps.HasValue)
                     {
-                        <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
+                        <span class="identity-detail identity-rx" data-tooltip="AP receive rate (from device)">AP RX @RenderRate(_client.RxRateKbps, "wifi-speed-rx")</span>
                     }
                     @if (_client.TxRateKbps.HasValue)
                     {
-                        <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
+                        <span class="identity-detail identity-tx" data-tooltip="AP transmit rate (to device)">AP TX @RenderRate(_client.TxRateKbps, "wifi-speed-tx")</span>
                     }
                     @if (_client.IsMlo)
                     {

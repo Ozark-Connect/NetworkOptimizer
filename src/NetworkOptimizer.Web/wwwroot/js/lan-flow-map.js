@@ -2666,9 +2666,11 @@ export class LanFlowMap {
         // above the live throughput so the capable rate sits over the actual rate.
         if (node.wiredLinkSpeedMbps) {
             rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
-        } else if (node.phyRxKbps || node.phyTxKbps) {
-            const dl = node.phyRxKbps ? `↓${formatLinkSpeed(Math.round(node.phyRxKbps / 1000))}` : '';
-            const ul = node.phyTxKbps ? `↑${formatLinkSpeed(Math.round(node.phyTxKbps / 1000))}` : '';
+        } else if (node.phyTxKbps || node.phyRxKbps) {
+            // Device perspective: download (↓ to the device) is the AP's TX rate to it,
+            // upload (↑ from the device) is its own TX = the AP's RX rate.
+            const dl = node.phyTxKbps ? `↓${formatLinkSpeed(Math.round(node.phyTxKbps / 1000))}` : '';
+            const ul = node.phyRxKbps ? `↑${formatLinkSpeed(Math.round(node.phyRxKbps / 1000))}` : '';
             rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
         }
         if (anyData) {
