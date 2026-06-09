@@ -5,7 +5,9 @@
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 
 const HISTORY_MINUTES = 5;
-const POLL_MS = 5000;
+// Poll faster than the 5s SNMP fast tier so no sample is missed when the two
+// clocks drift out of phase; pollLive dedupes repeat reads via sampleTime.
+const POLL_MS = 2500;
 const SCROLL_MS = 500;
 const COLOR_DL   = '#3b82f6';
 const COLOR_UL   = '#10b981';
@@ -19,6 +21,7 @@ let buffer = [];
 let elId = null;
 let visHandler = null;
 let mountGen = 0;
+let lastSampleTime = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -196,6 +199,14 @@ async function loadHistory() {
             rtt: p.rttMs,
             loss: p.lossPercent ?? 0,
         }));
+        // Advance the live-sample watermark past the reloaded history so the
+        // next pollLive can't append a sample older than the last history
+        // point (its response may predate the newest cycle history includes -
+        // on mount lastSampleTime is 0, and after a background-tab refocus
+        // it can be minutes stale).
+        for (const p of buffer) {
+            if (p.time > lastSampleTime) lastSampleTime = p.time;
+        }
     } catch { }
 }
 
@@ -204,9 +215,20 @@ async function pollLive() {
         const resp = await fetch('/api/monitoring/live-stats', { credentials: 'same-origin' });
         if (!resp.ok) return;
         const d = await resp.json();
+        // Stamp the point with the server-side SNMP sample time and skip polls
+        // that return the sample we already plotted. Without this, two
+        // unsynchronized ~5s clocks (SNMP tier vs setInterval) alias: some
+        // samples get plotted twice and others never appear. Falls back to
+        // client time when no SNMP rate data exists (rtt-only sites).
+        // Strictly newer, not just different: overlapping fetches can resolve
+        // out of order, and pushing an older sample after a newer one makes
+        // the line double back on itself.
+        const sampleTime = d.sampleTime ? new Date(d.sampleTime).getTime() : Date.now();
+        if (sampleTime <= lastSampleTime) return;
+        lastSampleTime = sampleTime;
         const cutoff = Date.now() - HISTORY_MINUTES * 60000;
         buffer.push({
-            time: Date.now(),
+            time: sampleTime,
             download: d.downloadBps,
             upload: d.uploadBps,
             loss: d.lossPercent ?? 0,
@@ -222,6 +244,7 @@ export async function mount(containerId, opts) {
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
+    lastSampleTime = 0;
     const gen = ++mountGen;
     elId = containerId;
     const el = document.getElementById(containerId);
