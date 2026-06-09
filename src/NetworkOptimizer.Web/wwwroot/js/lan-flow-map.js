@@ -2584,7 +2584,7 @@ export class LanFlowMap {
         if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient) return;
         const ip = node.ip;
         if (!ip) return;
-        window.location.href = `/client-dashboard?ip=${encodeURIComponent(ip)}`;
+        window.location.href = `/client-dashboard?ip=${encodeURIComponent(ip)}&tab=signal`;
     }
 
     _showHover(node) {

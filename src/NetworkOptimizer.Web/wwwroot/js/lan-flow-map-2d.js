@@ -791,7 +791,7 @@ class LanFlowMap2D {
         const d=hit.d;
         if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient)return;
         if(!d.ip)return;
-        window.location.href=`/client-dashboard?ip=${encodeURIComponent(d.ip)}`;
+        window.location.href=`/client-dashboard?ip=${encodeURIComponent(d.ip)}&tab=signal`;
     }
 
     _hitTest(sx,sy){
