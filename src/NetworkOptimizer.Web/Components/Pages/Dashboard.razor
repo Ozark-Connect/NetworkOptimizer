@@ -700,7 +700,7 @@
     {
         <div class="card" id="live-view">
             <div class="card-header">
-                <h2 class="card-title">Live View</h2>
+                <a href="/monitoring?tab=live" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Live View</h2></a>
             </div>
             <div class="card-body">
                 <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
