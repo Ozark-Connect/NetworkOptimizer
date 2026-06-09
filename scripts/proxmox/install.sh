@@ -177,12 +177,22 @@ find_debian_template() {
     # Update template list
     pveam update &>/dev/null || true
 
-    # Find the latest debian template for the selected version
+    # Match the host architecture. ARM ports of Proxmox (e.g. PXVIRT on a
+    # Raspberry Pi) can list templates for multiple architectures, and an
+    # amd64 rootfs fails to start on an arm64 host.
+    local host_arch
+    host_arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+    case "$host_arch" in
+        x86_64) host_arch="amd64" ;;
+        aarch64) host_arch="arm64" ;;
+    esac
+
+    # Find the latest debian template for the selected version and architecture
     local template
-    template=$(pveam available -section system 2>/dev/null | grep "debian-${version}-standard" | tail -1 | awk '{print $2}')
+    template=$(pveam available -section system 2>/dev/null | awk '{print $2}' | grep "debian-${version}-standard" | grep "_${host_arch}\.tar" | tail -1 || true)
 
     if [[ -z "$template" ]]; then
-        msg_error "Could not find Debian ${version} template in repository."
+        msg_error "Could not find Debian ${version} template for ${host_arch} in repository."
         msg_info "Available templates:"
         pveam available -section system 2>/dev/null | grep -i debian | head -5
         exit 1
