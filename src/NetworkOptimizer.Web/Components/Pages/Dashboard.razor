@@ -699,9 +699,9 @@
     private RenderFragment RenderLiveView => __builder =>
     {
         <div class="card" id="live-view">
-            <div class="card-header">
-                <a href="/monitoring?tab=live" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Live View</h2></a>
-            </div>
+            <a href="/monitoring?tab=live" class="card-header card-title-link" @onclick:stopPropagation>
+                <h2 class="card-title">Live View</h2>
+            </a>
             <div class="card-body">
                 <LiveViewPanel MapMode="@GetLiveViewMapMode()" />
             </div>

@@ -2665,11 +2665,17 @@ export class LanFlowMap {
         }
         if (anyData) {
             if (node.kind === NODE_KIND.AccessPoint) {
-                // AP boundary throughput is its wired backhaul port, reported here
-                // with the opposite polarity to switches/gateways. Flip so the
-                // values read correctly, and qualify the labels as the wired uplink.
-                rows.push(['Wired ingress', formatBps(egressBps)]);
-                rows.push(['Wired egress', formatBps(ingressBps)]);
+                // AP boundary throughput is its uplink, reported here with the
+                // opposite polarity to switches/gateways. Flip so it reads as the
+                // to-gateway (fabric) direction. A wired-backhaul AP gets the 'Wired'
+                // qualifier; a mesh-uplink AP doesn't (its uplink is wireless).
+                let isMeshAp = false;
+                for (const [, lm] of this._linkMeshes) {
+                    const lk = lm.link;
+                    if ((lk.fromNodeId === node.id || lk.toNodeId === node.id) && lk.kind === LINK_KIND.MeshBackhaul) { isMeshAp = true; break; }
+                }
+                rows.push([isMeshAp ? 'Ingress' : 'Wired ingress', formatBps(egressBps)]);
+                rows.push([isMeshAp ? 'Egress' : 'Wired egress', formatBps(ingressBps)]);
             } else if (isFabric) {
                 rows.push(['Ingress', formatBps(ingressBps)]);
                 rows.push(['Egress', formatBps(egressBps)]);

@@ -844,9 +844,14 @@ class LanFlowMap2D {
             }
         }
         if(any){
-            // APs: boundary throughput is the wired backhaul port, reported with the
-            // opposite polarity to switches/gateways - flip and label as wired uplink.
-            if(d.kind===NK.AP){rows.push(['Wired ingress',formatBps(outBps)]);rows.push(['Wired egress',formatBps(inBps)]);}
+            // APs: uplink throughput flipped to the to-gateway (fabric) direction.
+            // Wired-backhaul APs get the 'Wired' qualifier; mesh-uplink APs don't.
+            if(d.kind===NK.AP){
+                let isMeshAp=false;
+                for(const e of this._edges){if((e.lk.fromNodeId===d.id||e.lk.toNodeId===d.id)&&e.lk.kind===LK.MeshBackhaul){isMeshAp=true;break;}}
+                rows.push([isMeshAp?'Ingress':'Wired ingress',formatBps(outBps)]);
+                rows.push([isMeshAp?'Egress':'Wired egress',formatBps(inBps)]);
+            }
             else if(isFab){rows.push(['Ingress',formatBps(inBps)]);rows.push(['Egress',formatBps(outBps)]);}
             else{rows.push(['Download',formatBps(inBps)]);rows.push(['Upload',formatBps(outBps)]);}
         }
