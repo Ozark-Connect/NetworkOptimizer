@@ -3631,6 +3631,15 @@ select.form-control {
     height: 24px;
 }
 
+.banner-icon-warning {
+    background: var(--warning-color);
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    width: 24px;
+    height: 24px;
+}
+
 .banner-text {
     flex: 1;
     display: flex;

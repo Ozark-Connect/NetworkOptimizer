@@ -52,6 +52,9 @@ public class MonitoringCollectionAgent : BackgroundService
     // devices while covering a typical ~3 min firmware upgrade cycle.
     private readonly ConcurrentDictionary<string, int> _snmpFailures = new();
     private readonly ConcurrentDictionary<string, DateTime> _snmpExcluded = new();
+    // Last successful SNMP poll per device (normalized MAC -> UTC). Drives the
+    // "last polled" column and "not yet polled" state on the Setup dashboard.
+    private readonly ConcurrentDictionary<string, DateTime> _snmpLastPolled = new();
     private const int SnmpFailureThreshold = 5;
     private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromMinutes(5);
     private readonly SemaphoreSlim _snmpGate = new(8);
@@ -288,6 +291,7 @@ public class MonitoringCollectionAgent : BackgroundService
                         // tunnels and bridges, so the surviving interfaces are
                         // physical ports.
                         _snmpFailures.TryRemove(mac, out _);
+                        _snmpLastPolled[mac] = now;
                         if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
                             || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
                             || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.CellularModem)
@@ -678,6 +682,8 @@ public class MonitoringCollectionAgent : BackgroundService
                     NoteSnmpFailure(NormalizeMac(device.Mac));
                     return;
                 }
+
+                _snmpLastPolled[NormalizeMac(device.Mac)] = DateTime.UtcNow;
 
                 var cpu = metrics.CpuUsage > 0 ? metrics.CpuUsage : (double?)null;
                 var memPct = metrics.MemoryUsage > 0 ? metrics.MemoryUsage : (double?)null;
@@ -1974,6 +1980,56 @@ public class MonitoringCollectionAgent : BackgroundService
 
     /// <summary>Tells the dashboard which devices were dropped from SNMP polling.</summary>
     public IReadOnlyCollection<string> GetSnmpExcludedDevices() => _snmpExcluded.Keys.ToList();
+
+    /// <summary>
+    /// Read-only check of whether a device is currently excluded, without the
+    /// expiry side effect <see cref="IsSnmpExcluded"/> performs. Safe to call from
+    /// the UI thread when assembling the Setup dashboard.
+    /// </summary>
+    private bool PeekSnmpExcluded(string normalizedMac, out DateTime excludedAt)
+    {
+        if (_snmpExcluded.TryGetValue(normalizedMac, out excludedAt))
+            return DateTime.UtcNow - excludedAt < SnmpExclusionDuration;
+        excludedAt = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Per-device SNMP polling status for the Monitoring → Setup dashboard. Uses the
+    /// agent's cached UniFi device list (refreshed every cycle) cross-referenced with
+    /// the live failure / exclusion / last-polled state. Returns an empty list when
+    /// UniFi isn't connected.
+    /// </summary>
+    public async Task<IReadOnlyList<SnmpDeviceStatus>> GetSnmpDeviceStatusesAsync(CancellationToken ct = default)
+    {
+        var devices = await GetMonitorableDevicesAsync(ct);
+        var result = new List<SnmpDeviceStatus>(devices.Count);
+        foreach (var device in devices)
+        {
+            var mac = NormalizeMac(device.Mac);
+            var snmpEnabled = !string.IsNullOrEmpty(device.SnmpLocation) || !string.IsNullOrEmpty(device.SnmpContact);
+            var excluded = PeekSnmpExcluded(mac, out var excludedAt);
+            var hasLastPolled = _snmpLastPolled.TryGetValue(mac, out var lastPolled);
+            _snmpFailures.TryGetValue(mac, out var failures);
+
+            SnmpPollState state;
+            if (!snmpEnabled) state = SnmpPollState.SnmpDisabled;
+            else if (excluded) state = SnmpPollState.Excluded;
+            else if (hasLastPolled) state = SnmpPollState.Polling;
+            else state = SnmpPollState.NotYetPolled;
+
+            result.Add(new SnmpDeviceStatus(
+                Mac: mac,
+                Name: string.IsNullOrEmpty(device.Name) ? mac : device.Name,
+                DeviceType: device.DeviceType,
+                SnmpEnabled: snmpEnabled,
+                PollState: state,
+                LastPolledUtc: hasLastPolled ? lastPolled : null,
+                FailureCount: failures,
+                ExcludedAtUtc: excluded ? excludedAt : null));
+        }
+        return result;
+    }
 
     private static string NormalizeMac(string mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');

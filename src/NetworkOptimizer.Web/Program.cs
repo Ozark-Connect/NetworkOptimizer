@@ -374,8 +374,10 @@ builder.Services.AddSingleton<NetworkOptimizer.Monitoring.Probes.IProbeExecutor>
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory>();
 // Collection agent — drives SNMP polling on the three-tier cadence, writes to InfluxDB.
 // Idle while monitoring is disabled or unconfigured; activates once both SNMP detection
-// succeeds and InfluxDB is reachable.
-builder.Services.AddHostedService<MonitoringCollectionAgent>();
+// succeeds and InfluxDB is reachable. Registered as a singleton (not just a hosted
+// service) so the Setup dashboard can read per-device SNMP status off the same instance.
+builder.Services.AddSingleton<MonitoringCollectionAgent>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MonitoringCollectionAgent>());
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
