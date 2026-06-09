@@ -2662,30 +2662,36 @@ export class LanFlowMap {
                 }
             }
         }
+        // A mesh-uplink AP's PHY rate and boundary throughput come from the wireless
+        // backhaul, whose Tx/Rx polarity is the reverse of a Wi-Fi client's. Detect it
+        // via the AP's OWN uplink (it's the child end = toNodeId), not a downlink to a
+        // child mesh AP where this AP is the parent.
+        let isMeshAp = false;
+        if (node.kind === NODE_KIND.AccessPoint) {
+            for (const [, lm] of this._linkMeshes) {
+                const lk = lm.link;
+                if (lk.toNodeId === node.id && lk.kind === LINK_KIND.MeshBackhaul) { isMeshAp = true; break; }
+            }
+        }
+
         // Negotiated link speed (wired port or wireless PHY rate), shown directly
         // above the live throughput so the capable rate sits over the actual rate.
         if (node.wiredLinkSpeedMbps) {
             rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
         } else if (node.phyTxKbps || node.phyRxKbps) {
-            // Device perspective: download (↓ to the device) is the AP's TX rate to it,
-            // upload (↑ from the device) is its own TX = the AP's RX rate.
-            const dl = node.phyTxKbps ? `↓${formatLinkSpeed(Math.round(node.phyTxKbps / 1000))}` : '';
-            const ul = node.phyRxKbps ? `↑${formatLinkSpeed(Math.round(node.phyRxKbps / 1000))}` : '';
+            // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
+            // (↑) is the AP's RX. A mesh AP's uplink Tx/Rx is the reverse, so swap.
+            const downKbps = isMeshAp ? node.phyRxKbps : node.phyTxKbps;
+            const upKbps = isMeshAp ? node.phyTxKbps : node.phyRxKbps;
+            const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
+            const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
             rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
         }
         if (anyData) {
             if (node.kind === NODE_KIND.AccessPoint) {
-                // AP boundary throughput is its uplink, reported here with the
-                // opposite polarity to switches/gateways. Flip so it reads as the
-                // to-gateway (fabric) direction. A wired-backhaul AP gets the 'Wired'
-                // qualifier; a mesh-uplink AP doesn't (its uplink is wireless).
-                let isMeshAp = false;
-                for (const [, lm] of this._linkMeshes) {
-                    const lk = lm.link;
-                    // Only the AP's OWN uplink (it's the child end = toNodeId), not a
-                    // downlink to a child mesh AP where this AP is the parent.
-                    if (lk.toNodeId === node.id && lk.kind === LINK_KIND.MeshBackhaul) { isMeshAp = true; break; }
-                }
+                // AP boundary throughput is its uplink, flipped to read as the
+                // to-gateway (fabric) direction. Wired-backhaul APs get the 'Wired'
+                // qualifier; mesh-uplink APs don't (their uplink is wireless).
                 rows.push([isMeshAp ? 'Ingress' : 'Wired ingress', formatBps(egressBps)]);
                 rows.push([isMeshAp ? 'Egress' : 'Wired egress', formatBps(ingressBps)]);
             } else if (isFabric) {
