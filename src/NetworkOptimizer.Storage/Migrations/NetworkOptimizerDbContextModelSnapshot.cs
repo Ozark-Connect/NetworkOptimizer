@@ -2528,6 +2528,45 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("WanDataUsageSnapshots", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanDataUsageHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WanKey")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CycleStart")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CycleEnd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("UsedGb")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("CapGb")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("RecordedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WanKey", "CycleStart")
+                        .IsUnique();
+
+                    b.ToTable("WanDataUsageHistory", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.WanSteerTrafficClass", b =>
                 {
                     b.Property<int>("Id")

@@ -10,8 +10,9 @@ namespace NetworkOptimizer.Web.Services;
 public enum SnmpPollState
 {
     /// <summary>
-    /// We don't believe SNMP is enabled on the device (no snmp_location or
-    /// snmp_contact reported by UniFi), so the agent never polls it.
+    /// We can't confirm SNMP is enabled on the device: UniFi reports no
+    /// snmp_location or snmp_contact, which is the only signal we have, so the
+    /// agent doesn't poll it. SNMP may still be on - we just can't tell.
     /// </summary>
     SnmpDisabled,
 

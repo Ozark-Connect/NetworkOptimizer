@@ -1503,7 +1503,7 @@ else
             .ToList();
 
     private static string KeyDeviceReason(SnmpDeviceStatus d) => d.PollState == SnmpPollState.SnmpDisabled
-        ? "isn't being polled - SNMP isn't enabled. Set a Location or Contact on the device in UniFi to collect its traffic and health metrics."
+        ? "isn't being polled. With no SNMP Location or Contact set in UniFi, we can't confirm SNMP is enabled. On the device in UniFi, enable SNMP and set a Location or Contact to collect its traffic and health metrics."
         : $"stopped responding to SNMP and was dropped from polling after {d.FailureCount} consecutive failures. It will be retried automatically.";
 
     private void GoToSnmpDevices()

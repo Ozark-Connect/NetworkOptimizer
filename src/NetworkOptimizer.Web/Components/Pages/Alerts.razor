@@ -568,6 +568,34 @@
                                             <a href="/alerts?tab=rules" style="color: var(--primary-color);">View in Rules</a>
                                         </p>
                                     }
+
+                                    @* Per-cycle history - kept indefinitely, survives snapshot pruning *@
+                                    {
+                                        var history = _wanUsageHistory.GetValueOrDefault(wanGroup);
+                                        if (history != null && history.Count > 0)
+                                        {
+                                            <details class="usage-history">
+                                                <summary>Usage history (@history.Count past @(history.Count == 1 ? "cycle" : "cycles"))</summary>
+                                                <div class="table-responsive" style="margin-top: 0.5rem;">
+                                                    <table class="data-table">
+                                                        <thead>
+                                                            <tr><th>Billing cycle</th><th>Used</th><th>Cap</th></tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var h in history)
+                                                            {
+                                                                <tr>
+                                                                    <td>@h.CycleStart.ToLocalTime().ToString("MMM d, yyyy") - @h.CycleEnd.ToLocalTime().ToString("MMM d, yyyy")</td>
+                                                                    <td>@($"{h.UsedGb:F1}") GB</td>
+                                                                    <td>@(h.CapGb > 0 ? $"{h.CapGb:F0} GB" : "-")</td>
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </details>
+                                        }
+                                    }
                                 }
                             </div>
                         </div>
@@ -1368,6 +1396,19 @@
             justify-content: flex-end;
         }
     }
+    /* Per-cycle usage history */
+    .usage-history {
+        margin-top: 0.75rem;
+    }
+    .usage-history > summary {
+        cursor: pointer;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        user-select: none;
+    }
+    .usage-history > summary:hover {
+        color: var(--text-primary);
+    }
     /* Data Usage bar */
     .data-usage-bar {
         height: 24px;
@@ -1699,6 +1740,7 @@
 
     // Data Usage
     private List<WanUsageSummary> _wanUsageSummaries = [];
+    private Dictionary<string, List<WanDataUsageHistory>> _wanUsageHistory = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, WanDataUsageConfig> _dataUsageConfigs = new();
     private List<NetworkOptimizer.UniFi.NetworkInfo> _dataUsageWanNetworks = [];
     private bool _wanNetworksFetched;
@@ -2905,6 +2947,11 @@
                 var configs = await DataUsageService.GetAllConfigsAsync();
                 _dataUsageConfigs = configs.ToDictionary(c => c.WanKey);
                 _wanUsageSummaries = await DataUsageService.GetCurrentUsageAsync();
+
+                var history = await DataUsageService.GetUsageHistoryAsync();
+                _wanUsageHistory = history
+                    .GroupBy(h => h.WanKey, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
 
                 // Sync stored WAN names with live names from UniFi console
                 foreach (var wan in _dataUsageWanNetworks)

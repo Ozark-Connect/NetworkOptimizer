@@ -96,6 +96,23 @@ public class WanDataUsageService : BackgroundService
     }
 
     /// <summary>
+    /// Returns durable per-billing-cycle usage history, newest cycle first. Optionally
+    /// filtered to a single WAN. These rows survive snapshot pruning and persist
+    /// indefinitely, unlike the raw snapshots <see cref="GetCurrentUsageAsync"/> computes from.
+    /// </summary>
+    public async Task<List<WanDataUsageHistory>> GetUsageHistoryAsync(string? wanKey = null, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var query = db.WanDataUsageHistory.AsNoTracking();
+        if (!string.IsNullOrEmpty(wanKey))
+            query = query.Where(h => h.WanKey == wanKey);
+        return await query
+            .OrderByDescending(h => h.CycleStart)
+            .ThenBy(h => h.WanKey)
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
     /// Gets all WAN data usage configurations.
     /// </summary>
     public async Task<List<WanDataUsageConfig>> GetAllConfigsAsync()
@@ -352,6 +369,10 @@ public class WanDataUsageService : BackgroundService
 
         _currentUsage = summaries;
 
+        // Roll completed billing cycles into durable history. Runs before pruning so the
+        // snapshots a cycle was computed from are still present when we capture it.
+        await ReconcileHistoryAsync(db, configs, now, ct);
+
         // Periodic pruning
         if (now - _lastPruneTime > PruneInterval)
         {
@@ -602,6 +623,94 @@ public class WanDataUsageService : BackgroundService
             _logger.LogInformation("WAN data usage warning for {WanName}: {UsedGb:F1} GB / {CapGb:F0} GB ({Percent:F0}%)",
                 config.Name, summary.UsedGb, config.DataCapGb, summary.UsagePercent);
         }
+    }
+
+    /// <summary>
+    /// Writes a durable <see cref="WanDataUsageHistory"/> row for every completed billing
+    /// cycle that has full snapshot coverage and isn't already recorded. Idempotent and
+    /// retroactive: on first run it backfills past cycles still represented in the snapshot
+    /// table; thereafter it captures each cycle shortly after it closes, before pruning can
+    /// remove the underlying snapshots. Cycles tracked only partially (tracking began
+    /// mid-cycle with no gateway-boot baseline) are skipped to avoid storing undercounted totals.
+    /// </summary>
+    private async Task ReconcileHistoryAsync(NetworkOptimizerDbContext db,
+        List<WanDataUsageConfig> configs, DateTime now, CancellationToken ct)
+    {
+        var added = 0;
+
+        foreach (var config in configs)
+        {
+            var minTsRaw = await db.WanDataUsageSnapshots
+                .Where(s => s.WanKey == config.WanKey)
+                .MinAsync(s => (DateTime?)s.Timestamp, ct);
+            if (minTsRaw == null)
+                continue;
+
+            // Snapshot timestamps are UTC; treat them as such so billing-cycle math matches
+            // the live path (which passes DateTime.UtcNow).
+            var minTs = DateTime.SpecifyKind(minTsRaw.Value, DateTimeKind.Utc);
+            var (currentCycleStart, _) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+
+            var recorded = await db.WanDataUsageHistory
+                .Where(h => h.WanKey == config.WanKey)
+                .Select(h => h.CycleStart)
+                .ToListAsync(ct);
+            var recordedSet = new HashSet<DateTime>(recorded);
+
+            // Walk completed cycles from the one containing the earliest snapshot up to (but
+            // not including) the current, still-open cycle.
+            var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, minTs);
+            var guard = 0;
+            while (cycleStart < currentCycleStart && guard++ < 120)
+            {
+                var nextCycleStart = GetBillingCycleDates(config.BillingCycleDayOfMonth, cycleEnd.AddDays(1)).CycleStart;
+
+                if (!recordedSet.Contains(cycleStart))
+                {
+                    var snapshots = await db.WanDataUsageSnapshots
+                        .Where(s => s.WanKey == config.WanKey && s.Timestamp >= cycleStart && s.Timestamp < nextCycleStart)
+                        .OrderBy(s => s.Timestamp)
+                        .ToListAsync(ct);
+
+                    if (snapshots.Count >= 2)
+                    {
+                        // Trust the cycle only if we covered it from the start: either a
+                        // snapshot exists at/before the cycle start, or the first in-cycle
+                        // snapshot is a gateway-boot baseline (raw counters = full-cycle usage).
+                        var first = snapshots[0];
+                        var hasBaseline = first.GatewayBootTime.HasValue
+                            ? first.GatewayBootTime.Value >= cycleStart
+                            : first.IsBaseline;
+
+                        if (minTs <= cycleStart || hasBaseline)
+                        {
+                            var bytes = CalculateUsageFromSnapshots(snapshots, cycleStart);
+                            var usedGb = bytes / (1024.0 * 1024.0 * 1024.0);
+                            db.WanDataUsageHistory.Add(new WanDataUsageHistory
+                            {
+                                WanKey = config.WanKey,
+                                Name = config.Name,
+                                CycleStart = cycleStart,
+                                CycleEnd = cycleEnd,
+                                UsedGb = usedGb,
+                                CapGb = config.DataCapGb,
+                                RecordedAt = now
+                            });
+                            added++;
+                            _logger.LogInformation(
+                                "Recorded WAN usage history for {WanName} cycle {CycleStart:yyyy-MM-dd}..{CycleEnd:yyyy-MM-dd}: {UsedGb:F2} GB",
+                                config.Name, cycleStart, cycleEnd, usedGb);
+                        }
+                    }
+                }
+
+                cycleStart = nextCycleStart;
+                cycleEnd = GetBillingCycleDates(config.BillingCycleDayOfMonth, nextCycleStart).CycleEnd;
+            }
+        }
+
+        if (added > 0)
+            await db.SaveChangesAsync(ct);
     }
 
     private async Task PruneOldSnapshotsAsync(NetworkOptimizerDbContext db,

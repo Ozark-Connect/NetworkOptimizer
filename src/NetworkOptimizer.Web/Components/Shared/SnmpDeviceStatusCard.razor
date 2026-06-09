@@ -50,12 +50,12 @@
                                             @if (d.SnmpEnabled)
                                             {
                                                 <span class="status-indicator status-active"></span>
-                                                <span>On</span>
+                                                <span data-tooltip="An SNMP Location or Contact is set in UniFi, so SNMP is enabled on this device.">On</span>
                                             }
                                             else
                                             {
                                                 <span class="status-indicator status-inactive"></span>
-                                                <span class="text-muted" data-tooltip="No SNMP Location or Contact set in UniFi, so SNMP is off for this device.">Off</span>
+                                                <span class="text-muted" data-tooltip="Can't tell. UniFi only exposes SNMP status indirectly: with no Location or Contact set, we can't confirm whether SNMP is on or off. See &quot;Not seeing data for some devices?&quot; below for guidance.">Unknown</span>
                                             }
                                         </td>
                                         <td>
@@ -129,7 +129,7 @@
         SnmpPollState.Polling => "SNMP is responding; this device is feeding monitoring data.",
         SnmpPollState.NotYetPolled => "SNMP is enabled but the agent hasn't recorded a successful poll yet this session.",
         SnmpPollState.Excluded => $"Dropped from polling after {d.FailureCount} consecutive SNMP failures. Retried automatically.",
-        SnmpPollState.SnmpDisabled => "SNMP isn't enabled on this device, so it isn't polled.",
+        SnmpPollState.SnmpDisabled => "Not polled. With no SNMP Location or Contact set in UniFi, we can't confirm SNMP is enabled. See \"Not seeing data for some devices?\" below for guidance.",
         _ => ""
     };
 
