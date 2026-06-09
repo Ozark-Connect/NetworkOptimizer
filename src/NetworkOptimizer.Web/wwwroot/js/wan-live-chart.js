@@ -199,6 +199,14 @@ async function loadHistory() {
             rtt: p.rttMs,
             loss: p.lossPercent ?? 0,
         }));
+        // Advance the live-sample watermark past the reloaded history so the
+        // next pollLive can't append a sample older than the last history
+        // point (its response may predate the newest cycle history includes -
+        // on mount lastSampleTime is 0, and after a background-tab refocus
+        // it can be minutes stale).
+        for (const p of buffer) {
+            if (p.time > lastSampleTime) lastSampleTime = p.time;
+        }
     } catch { }
 }
 
