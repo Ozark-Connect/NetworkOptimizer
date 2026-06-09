@@ -46,6 +46,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ScheduledTask> ScheduledTasks { get; set; }
     public DbSet<WanDataUsageConfig> WanDataUsageConfigs { get; set; }
     public DbSet<WanDataUsageSnapshot> WanDataUsageSnapshots { get; set; }
+    public DbSet<WanDataUsageHistory> WanDataUsageHistory { get; set; }
     public DbSet<WanSteerTrafficClass> WanSteerTrafficClasses { get; set; }
     public DbSet<ExternalSpeedTestServer> ExternalSpeedTestServers { get; set; }
     public DbSet<PerfTweakSetting> PerfTweakSettings { get; set; }
@@ -430,6 +431,13 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("WanDataUsageSnapshots");
             entity.HasIndex(e => new { e.WanKey, e.Timestamp });
+        });
+
+        // WanDataUsageHistory configuration (one row per completed billing cycle, kept indefinitely)
+        modelBuilder.Entity<WanDataUsageHistory>(entity =>
+        {
+            entity.ToTable("WanDataUsageHistory");
+            entity.HasIndex(e => new { e.WanKey, e.CycleStart }).IsUnique();
         });
 
         // WanSteerTrafficClass configuration

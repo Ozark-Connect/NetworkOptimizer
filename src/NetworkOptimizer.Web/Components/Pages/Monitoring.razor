@@ -11,6 +11,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Core.Enums
 @using Microsoft.EntityFrameworkCore
 @inject SnmpDetectionService SnmpDetection
 @inject UniFiConnectionService ConnectionService
@@ -26,6 +27,7 @@
 @inject CableModemMonitorService CmMonitorService
 @inject OntMonitorService OntMonitorService
 @inject CellularModemService CellularModemService
+@inject MonitoringCollectionAgent CollectionAgent
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -100,6 +102,9 @@ else
                     disabled="@(!_monitoringReady)">
                 Cellular Stats
             </button>
+            <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
+                Data Usage
+            </button>
             <button class="wifi-view-tab @(_activeTab == "setup" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("setup"))">
                 Setup
@@ -111,6 +116,30 @@ else
     @* ──────────────── Tab: Live View ──────────────── *@
     @if (_activeTab == "live" && _monitoringReady)
     {
+        var unpolledKeyDevices = GetUnpolledKeyDevices();
+        if (unpolledKeyDevices.Count > 0)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <div class="banner-content">
+                    <span class="banner-icon banner-icon-warning">!</span>
+                    <div class="banner-text" style="flex: 1;">
+                        @if (unpolledKeyDevices.Count == 1)
+                        {
+                            var d = unpolledKeyDevices[0];
+                            @($"{d.Name} {KeyDeviceReason(d)}")
+                        }
+                        else
+                        {
+                            @($"{unpolledKeyDevices.Count} key devices aren't being polled via SNMP.")
+                        }
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                    </div>
+                </div>
+            </div>
+        }
+
         if (!_liveViewOnDashboard)
         {
             <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
@@ -1014,6 +1043,10 @@ else
                         }
                     </div>
 
+                    <div id="snmp-devices" style="margin-top: 1.25rem;">
+                        <SnmpDeviceStatusCard @ref="_snmpDeviceCard" Devices="_snmpDeviceStatuses" />
+                    </div>
+
                     <details class="setup-guide" style="margin-top: 1.25rem;">
                         <summary>Not seeing data for some devices?</summary>
                         <div class="setup-guide-content">
@@ -1111,6 +1144,11 @@ else
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
     private bool _forceExpandUpstream;
+
+    // SNMP device polling status (Setup dashboard + Live-tab key-device banner).
+    private IReadOnlyList<SnmpDeviceStatus> _snmpDeviceStatuses = Array.Empty<SnmpDeviceStatus>();
+    private SnmpDeviceStatusCard? _snmpDeviceCard;
+    private bool _pendingExpandSnmpCard;
 
 
     // Chart mount tracking
@@ -1258,6 +1296,7 @@ else
                 await InvokeAsync(async () =>
                 {
                     await LoadTargetsAsync();
+                    await LoadSnmpDeviceStatusesAsync();
                     StateHasChanged();
                 });
             }
@@ -1269,7 +1308,14 @@ else
             if (!ConnectionService.IsConnected)
                 await ConnectionService.WaitForConnectionAsync();
             if (ConnectionService.IsConnected)
+            {
                 await InvokeAsync(RunDetection);
+                await InvokeAsync(async () =>
+                {
+                    await LoadSnmpDeviceStatusesAsync();
+                    StateHasChanged();
+                });
+            }
         });
     }
 
@@ -1437,6 +1483,38 @@ else
         return "Monitoring active";
     }
 
+    private async Task LoadSnmpDeviceStatusesAsync()
+    {
+        if (!ConnectionService.IsConnected) return;
+        try
+        {
+            _snmpDeviceStatuses = await CollectionAgent.GetSnmpDeviceStatusesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to load SNMP device statuses");
+        }
+    }
+
+    // A "key device" is one whose loss of monitoring data is most impactful. For now
+    // that's the gateway. "Not being polled" means SNMP is off on the device, or it
+    // was dropped from polling after repeated failures.
+    private List<SnmpDeviceStatus> GetUnpolledKeyDevices() =>
+        _snmpDeviceStatuses
+            .Where(d => d.DeviceType == DeviceType.Gateway
+                && (d.PollState == SnmpPollState.SnmpDisabled || d.PollState == SnmpPollState.Excluded))
+            .ToList();
+
+    private static string KeyDeviceReason(SnmpDeviceStatus d) => d.PollState == SnmpPollState.SnmpDisabled
+        ? "isn't being polled. Enable SNMP and set a Location or Contact on it in UniFi to collect its metrics."
+        : $"stopped responding to SNMP and was dropped after {d.FailureCount} failures. Retrying automatically.";
+
+    private void GoToSnmpDevices()
+    {
+        _pendingExpandSnmpCard = true;
+        SetActiveTab("setup");
+    }
+
     private async Task LoadTargetsAsync()
     {
         try
@@ -1525,6 +1603,26 @@ else
         await JS.InvokeVoidAsync("eval", @"
             (function() {
                 var el = document.getElementById('upstream-discovery');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
+    private async Task ScrollToSnmpDevicesAsync()
+    {
+        // Let the expand animation start before scrolling so the table is in its
+        // final position. Mirrors ScrollToUpstreamDiscoveryAsync, including the
+        // brief highlight outline.
+        await Task.Delay(400);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('snmp-devices');
                 if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     el.style.transition = 'outline-color 0.3s';
@@ -2155,6 +2253,14 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Auto-expand the SNMP Devices table after the Live-tab banner jumps here.
+        if (_pendingExpandSnmpCard && _activeTab == "setup" && _snmpDeviceCard != null)
+        {
+            _pendingExpandSnmpCard = false;
+            _snmpDeviceCard.Expand();
+            await ScrollToSnmpDevicesAsync();
+        }
+
         // Mount/unmount charts based on active tab. Only mount when the container
         // div exists in the DOM (i.e., the tab is active). Unmount when switching away.
 

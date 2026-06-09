@@ -3631,6 +3631,30 @@ select.form-control {
     height: 24px;
 }
 
+.banner-icon-warning {
+    background: var(--warning-color);
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    width: 24px;
+    height: 24px;
+}
+
+/* SNMP Devices table: device name + type badge */
+.snmp-device-type {
+    margin-left: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .snmp-device-name {
+        display: block;
+    }
+    .snmp-device-type {
+        margin-left: 0;
+        margin-top: 0.25rem;
+    }
+}
+
 .banner-text {
     flex: 1;
     display: flex;

@@ -1,0 +1,145 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Core.Enums
+
+<div class="card">
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+        <div class="card-title-group">
+            <h2 class="card-title">SNMP Devices</h2>
+        </div>
+        <div class="card-header-right">
+            <span class="status-badge status-active" @onclick:stopPropagation="true">@SummaryLabel()</span>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
+    </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+            <div class="card-body">
+                <p class="section-description">
+                    Every adopted device and where it sits in the SNMP polling lifecycle. A device is
+                    only polled when SNMP is enabled on it (a <strong>Location</strong> or
+                    <strong>Contact</strong> is set in UniFi) and it keeps answering.
+                </p>
+
+                @if (Devices.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No devices discovered yet. They'll appear once UniFi reports adopted devices.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th>SNMP</th>
+                                    <th>Polling status</th>
+                                    <th>Last polled</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var d in Devices.OrderBy(d => d.DeviceType).ThenBy(d => d.Name))
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="snmp-device-name">@d.Name</span>
+                                            <span class="status-badge status-neutral snmp-device-type">@d.DeviceType.ToDisplayName()</span>
+                                        </td>
+                                        <td>
+                                            @if (d.SnmpEnabled)
+                                            {
+                                                <span class="status-indicator status-active"></span>
+                                                <span data-tooltip="An SNMP Location or Contact is set in UniFi, so SNMP is enabled on this device.">On</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="status-indicator status-inactive"></span>
+                                                <span class="text-muted" data-tooltip-wrap data-tooltip="This device either doesn't support SNMP, or it does but just needs a Location or Contact set in UniFi. See the help below.">Check / Unsupported</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="status-badge @StatusBadgeClass(d.PollState)" data-tooltip-wrap data-tooltip="@StatusTooltip(d)">
+                                                @StatusLabel(d.PollState)
+                                            </span>
+                                        </td>
+                                        <td>
+                                            @if (d.LastPolledUtc.HasValue)
+                                            {
+                                                <span>@RelativeTime(d.LastPolledUtc.Value)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">never</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Per-device SNMP polling status, supplied by the parent page.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<SnmpDeviceStatus> Devices { get; set; } = Array.Empty<SnmpDeviceStatus>();
+
+    private bool _collapsed = true;
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    /// <summary>Expand the table from outside (e.g. when a banner links here).</summary>
+    public void Expand()
+    {
+        _collapsed = false;
+        StateHasChanged();
+    }
+
+    private string SummaryLabel()
+    {
+        var polling = Devices.Count(d => d.PollState == SnmpPollState.Polling);
+        return $"{polling}/{Devices.Count} polling";
+    }
+
+    private static string StatusBadgeClass(SnmpPollState state) => state switch
+    {
+        SnmpPollState.Polling => "status-active",
+        SnmpPollState.NotYetPolled => "status-inactive",
+        SnmpPollState.Excluded => "status-disconnected",
+        SnmpPollState.SnmpDisabled => "status-neutral",
+        _ => "status-inactive"
+    };
+
+    private static string StatusLabel(SnmpPollState state) => state switch
+    {
+        SnmpPollState.Polling => "Polling",
+        SnmpPollState.NotYetPolled => "Not yet polled",
+        SnmpPollState.Excluded => "Excluded",
+        SnmpPollState.SnmpDisabled => "Not polled",
+        _ => "Unknown"
+    };
+
+    private static string StatusTooltip(SnmpDeviceStatus d) => d.PollState switch
+    {
+        SnmpPollState.Polling => "SNMP is responding; this device is feeding monitoring data.",
+        SnmpPollState.NotYetPolled => "SNMP is enabled but the agent hasn't recorded a successful poll yet this session.",
+        SnmpPollState.Excluded => $"Dropped from polling after {d.FailureCount} consecutive SNMP failures. Retried automatically.",
+        SnmpPollState.SnmpDisabled => "Not polled because SNMP isn't confirmed for this device.",
+        _ => ""
+    };
+
+    private static string RelativeTime(DateTime when)
+    {
+        var delta = DateTime.UtcNow - DateTime.SpecifyKind(when, DateTimeKind.Utc);
+        if (delta < TimeSpan.FromSeconds(15)) return "just now";
+        if (delta < TimeSpan.FromMinutes(1)) return $"{(int)delta.TotalSeconds}s ago";
+        if (delta < TimeSpan.FromHours(1)) return $"{(int)delta.TotalMinutes}m ago";
+        if (delta < TimeSpan.FromDays(1)) return $"{(int)delta.TotalHours}h ago";
+        return $"{(int)delta.TotalDays}d ago";
+    }
+}
