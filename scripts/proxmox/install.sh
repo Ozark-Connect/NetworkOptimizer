@@ -211,9 +211,13 @@ find_debian_template() {
     fi
 
     if [[ -z "$template" ]]; then
-        msg_error "Could not find a Debian ${version} template for ${host_arch} in the repository."
-        msg_info "Available templates:"
-        pveam available -section system 2>/dev/null | grep -i debian | head -5
+        # stdout is captured by the caller's command substitution, so the
+        # error must go to stderr to be visible
+        {
+            msg_error "Could not find a Debian ${version} template for ${host_arch} in the repository."
+            msg_info "Available templates:"
+            pveam available -section system 2>/dev/null | grep -i debian | head -5
+        } >&2
         exit 1
     fi
 
