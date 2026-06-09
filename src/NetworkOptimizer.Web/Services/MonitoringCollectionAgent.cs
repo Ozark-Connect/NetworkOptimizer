@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
@@ -51,7 +52,7 @@ public class MonitoringCollectionAgent : BackgroundService
     // devices while covering a typical ~3 min firmware upgrade cycle.
     private readonly ConcurrentDictionary<string, int> _snmpFailures = new();
     private readonly ConcurrentDictionary<string, DateTime> _snmpExcluded = new();
-    private const int SnmpFailureThreshold = 10;
+    private const int SnmpFailureThreshold = 5;
     private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromMinutes(5);
     private readonly SemaphoreSlim _snmpGate = new(8);
 
