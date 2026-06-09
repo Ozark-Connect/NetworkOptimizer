@@ -27,6 +27,7 @@ public static class MonitoringChartEndpoints
             catch { }
 
             double wanDown = 0, wanUp = 0;
+            DateTime? sampleTime = null;
             if (gatewayMac != null && wanIfNames != null)
             {
                 foreach (var ifName in wanIfNames)
@@ -35,6 +36,8 @@ public static class MonitoringChartEndpoints
                     if (rate == null) continue;
                     wanDown += rate.UpBps;
                     wanUp += rate.DownBps;
+                    if (sampleTime == null || rate.LastUpdate > sampleTime)
+                        sampleTime = rate.LastUpdate;
                 }
             }
 
@@ -84,6 +87,9 @@ public static class MonitoringChartEndpoints
                 uploadBps = wanUp,
                 rttMs = meanRtt,
                 lossPercent = meanLoss,
+                // SNMP sample timestamp (max LastUpdate across WAN ports) so the
+                // live chart can dedupe polls that land on the same sample.
+                sampleTime = sampleTime?.ToString("o"),
             });
         });
 
