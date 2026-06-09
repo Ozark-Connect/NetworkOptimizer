@@ -43,8 +43,8 @@
                                 {
                                     <tr>
                                         <td>
-                                            <span>@d.Name</span>
-                                            <span class="status-badge status-neutral" style="margin-left: 0.5rem;">@d.DeviceType.ToDisplayName()</span>
+                                            <span class="snmp-device-name">@d.Name</span>
+                                            <span class="status-badge status-neutral snmp-device-type">@d.DeviceType.ToDisplayName()</span>
                                         </td>
                                         <td>
                                             @if (d.SnmpEnabled)
