@@ -46,14 +46,14 @@ public class MonitoringCollectionAgent : BackgroundService
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
 
-    // SNMP gating. If a device fails SNMP repeatedly while being reachable on ICMP
-    // (so we know it's online), assume it doesn't speak SNMP and stop polling it for
-    // the lifetime of this app. Cheap, bounded, and avoids constantly hammering a
-    // device that's just not going to answer (USW-Flex-Mini, for example).
+    // SNMP gating. We only poll devices UniFi reports as SNMP-enabled, so repeated
+    // failures likely mean a transient outage (firmware upgrade, reboot) rather than
+    // "device doesn't speak SNMP". Short exclusion avoids hammering unresponsive
+    // devices while covering a typical ~3 min firmware upgrade cycle.
     private readonly ConcurrentDictionary<string, int> _snmpFailures = new();
     private readonly ConcurrentDictionary<string, DateTime> _snmpExcluded = new();
-    private const int SnmpFailureThreshold = 10;
-    private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromHours(1);
+    private const int SnmpFailureThreshold = 5;
+    private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromMinutes(5);
     private readonly SemaphoreSlim _snmpGate = new(8);
 
     public MonitoringCollectionAgent(
@@ -1954,15 +1954,11 @@ public class MonitoringCollectionAgent : BackgroundService
         var count = _snmpFailures.AddOrUpdate(normalizedMac, 1, (_, prev) => prev + 1);
         if (count < SnmpFailureThreshold) return;
 
-        // Exclude after threshold regardless of ping reachability. The 1-hour TTL
-        // handles retry when the device comes back or gets SNMP enabled. Not all
-        // devices are ping targets, so requiring ICMP would leave many non-SNMP
-        // devices burning the timeout forever.
         if (_snmpExcluded.TryAdd(normalizedMac, DateTime.UtcNow))
         {
-            _logger.LogInformation(
-                "Excluding {Mac} from SNMP polling for this app lifecycle - {Count} consecutive failures despite being reachable on ICMP. Device likely doesn't support SNMP.",
-                normalizedMac, count);
+            _logger.LogWarning(
+                "Excluding {Mac} from SNMP polling for {Duration} - {Count} consecutive failures. Will retry automatically.",
+                normalizedMac, SnmpExclusionDuration, count);
         }
     }
 
@@ -1972,6 +1968,7 @@ public class MonitoringCollectionAgent : BackgroundService
         if (DateTime.UtcNow - excludedAt < SnmpExclusionDuration) return true;
         _snmpExcluded.TryRemove(normalizedMac, out _);
         _snmpFailures.TryRemove(normalizedMac, out _);
+        _logger.LogInformation("SNMP exclusion expired for {Mac}, resuming polling", normalizedMac);
         return false;
     }
 
