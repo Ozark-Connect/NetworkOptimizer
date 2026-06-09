@@ -28,6 +28,10 @@
                 {
                     <a href="/settings" class="btn btn-primary">Configure Gateway</a>
                 }
+                else if (isAwaitingStatus)
+                {
+                    <a href="/sqm" class="btn btn-primary">Manage SQM</a>
+                }
                 else
                 {
                     <a href="/sqm" class="btn btn-primary">Configure Adaptive SQM</a>
@@ -100,6 +104,7 @@
     private string statusClass = "";
     private string? errorMessage;
     private bool needsGatewayConfig = false;
+    private bool isAwaitingStatus = false;
     private DateTime? lastUpdate;
 
     // Track if we've ever seen active status (don't flip to "Not Deployed" on transient failures)
@@ -112,6 +117,8 @@
     private const string NotDeployedLabel = "Not Deployed";
     private const string NotDeployedClass = "offline";
     private const string NotDeployedMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+    private const string AwaitingStatusLabel = "Awaiting Status";
+    private const string AwaitingStatusMessage = "Adaptive SQM is configured. Waiting for the gateway to report status. If this persists, check the deployment on the SQM page.";
 
     // Auto-refresh timer (60 seconds)
     private System.Threading.Timer? _refreshTimer;
@@ -139,6 +146,7 @@
     {
         errorMessage = null;
         needsGatewayConfig = false;
+        isAwaitingStatus = false;
         var hasSavedEnabledConfig = false;
 
         try
@@ -192,10 +200,11 @@
                 }
                 else
                 {
-                    // TC Monitor responded but no interfaces configured
-                    SetNotDeployedStatus();
-                    // Only poll if we have saved enabled configs (user is setting up)
-                    _shouldPoll = hasSavedEnabledConfig;
+                    // TC Monitor responded but no interfaces yet. An enabled
+                    // config exists (we returned early above otherwise), so this
+                    // is the post-deploy or cold-start window, not "not deployed".
+                    SetAwaitingStatus();
+                    _shouldPoll = true;
                 }
             }
             else
@@ -210,10 +219,10 @@
                 }
                 else
                 {
-                    // Never seen active, show as not deployed
-                    SetNotDeployedStatus();
-                    // Only poll if we have saved enabled configs (user is setting up)
-                    _shouldPoll = hasSavedEnabledConfig;
+                    // Never seen active, but an enabled config exists - the
+                    // monitor just hasn't answered yet (e.g. app cold start).
+                    SetAwaitingStatus();
+                    _shouldPoll = true;
                 }
             }
         }
@@ -245,6 +254,14 @@
         statusLabel = NotDeployedLabel;
         statusClass = NotDeployedClass;
         errorMessage = NotDeployedMessage;
+    }
+
+    private void SetAwaitingStatus()
+    {
+        statusLabel = AwaitingStatusLabel;
+        statusClass = "warning";
+        errorMessage = AwaitingStatusMessage;
+        isAwaitingStatus = true;
     }
 
     private async Task RefreshStats()
