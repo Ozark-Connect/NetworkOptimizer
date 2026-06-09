@@ -414,8 +414,13 @@ public class ClientDashboardService
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
 
+        // Include every LAN test direction for this device: server-initiated
+        // (we SSH to the device and run iperf3), client-initiated, and browser-based.
+        // WAN directions (Cloudflare / UWN / OpenSpeedTest WAN) are excluded - this is
+        // the client's LAN throughput history, not its internet speed.
         return await db.Iperf3Results
-            .Where(r => (r.Direction == SpeedTestDirection.ClientToServer
+            .Where(r => (r.Direction == SpeedTestDirection.ServerToDevice
+                       || r.Direction == SpeedTestDirection.ClientToServer
                        || r.Direction == SpeedTestDirection.BrowserToServer)
                       && r.ClientMac == mac
                       && r.TestTime >= from
