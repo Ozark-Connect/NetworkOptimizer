@@ -212,8 +212,11 @@ async function pollLive() {
         // unsynchronized ~5s clocks (SNMP tier vs setInterval) alias: some
         // samples get plotted twice and others never appear. Falls back to
         // client time when no SNMP rate data exists (rtt-only sites).
+        // Strictly newer, not just different: overlapping fetches can resolve
+        // out of order, and pushing an older sample after a newer one makes
+        // the line double back on itself.
         const sampleTime = d.sampleTime ? new Date(d.sampleTime).getTime() : Date.now();
-        if (sampleTime === lastSampleTime) return;
+        if (sampleTime <= lastSampleTime) return;
         lastSampleTime = sampleTime;
         const cutoff = Date.now() - HISTORY_MINUTES * 60000;
         buffer.push({
