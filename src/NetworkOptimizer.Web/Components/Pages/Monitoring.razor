@@ -102,6 +102,9 @@ else
                     disabled="@(!_monitoringReady)">
                 Cellular Stats
             </button>
+            <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
+                Data Usage
+            </button>
             <button class="wifi-view-tab @(_activeTab == "setup" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("setup"))">
                 Setup

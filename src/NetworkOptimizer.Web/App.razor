@@ -212,7 +212,7 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: 'none',
+                    maxWidth: el.hasAttribute('data-tooltip-wrap') ? 320 : 'none',
                     onShow: function(instance) {
                         // Suppress if an adjacent sibling already shows the same tooltip
                         var ref = instance.reference;
@@ -266,7 +266,7 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: 'none',
+                    maxWidth: el.hasAttribute('data-tooltip-wrap') ? 320 : 'none',
                     onShow: function(instance) {
                         var ref = instance.reference;
                         var siblings = [ref.previousElementSibling, ref.nextElementSibling];

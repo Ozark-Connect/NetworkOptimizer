@@ -55,11 +55,11 @@
                                             else
                                             {
                                                 <span class="status-indicator status-inactive"></span>
-                                                <span class="text-muted" data-tooltip="Can't tell. UniFi only exposes SNMP status indirectly: with no Location or Contact set, we can't confirm whether SNMP is on, off, or unsupported by this device. See &quot;Not seeing data for some devices?&quot; below for guidance.">Check / Unsupported</span>
+                                                <span class="text-muted" data-tooltip-wrap data-tooltip="Can't tell. UniFi only exposes SNMP status indirectly: with no Location or Contact set, we can't confirm whether SNMP is on, off, or unsupported by this device. See &quot;Not seeing data for some devices?&quot; below for guidance.">Check / Unsupported</span>
                                             }
                                         </td>
                                         <td>
-                                            <span class="status-badge @StatusBadgeClass(d.PollState)" data-tooltip="@StatusTooltip(d)">
+                                            <span class="status-badge @StatusBadgeClass(d.PollState)" data-tooltip-wrap data-tooltip="@StatusTooltip(d)">
                                                 @StatusLabel(d.PollState)
                                             </span>
                                         </td>
