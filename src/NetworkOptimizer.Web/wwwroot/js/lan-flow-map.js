@@ -2665,16 +2665,15 @@ export class LanFlowMap {
                 }
             }
         }
-        // A mesh-uplink AP's PHY rate and boundary throughput come from the wireless
-        // backhaul, whose Tx/Rx polarity is the reverse of a Wi-Fi client's. Detect it
-        // via the AP's OWN uplink (it's the child end = toNodeId), not a downlink to a
-        // child mesh AP where this AP is the parent.
-        let isMeshAp = false;
-        if (node.kind === NODE_KIND.AccessPoint) {
-            for (const [, lm] of this._linkMeshes) {
-                const lk = lm.link;
-                if (lk.toNodeId === node.id && lk.kind === LINK_KIND.MeshBackhaul) { isMeshAp = true; break; }
-            }
+        // A device on a wireless mesh uplink (a mesh AP, or a UDB - UniFi Device Bridge -
+        // which classifies as a Switch) reports its PHY rate and boundary throughput from that
+        // backhaul, whose Tx/Rx polarity is the reverse of a Wi-Fi client's. Detect it by
+        // the device's OWN uplink link being a MeshBackhaul (toNodeId === node.id) - this
+        // is device-kind agnostic and ignores downlinks to child mesh devices.
+        let isMeshUplink = false;
+        for (const [, lm] of this._linkMeshes) {
+            const lk = lm.link;
+            if (lk.toNodeId === node.id && lk.kind === LINK_KIND.MeshBackhaul) { isMeshUplink = true; break; }
         }
 
         // Negotiated link speed (wired port or wireless PHY rate), shown directly
@@ -2683,9 +2682,9 @@ export class LanFlowMap {
             rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
         } else if (node.phyTxKbps || node.phyRxKbps) {
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
-            // (↑) is the AP's RX. A mesh AP's uplink Tx/Rx is the reverse, so swap.
-            const downKbps = isMeshAp ? node.phyRxKbps : node.phyTxKbps;
-            const upKbps = isMeshAp ? node.phyTxKbps : node.phyRxKbps;
+            // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
+            const downKbps = isMeshUplink ? node.phyRxKbps : node.phyTxKbps;
+            const upKbps = isMeshUplink ? node.phyTxKbps : node.phyRxKbps;
             const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
             const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
             rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
@@ -2695,8 +2694,8 @@ export class LanFlowMap {
                 // AP boundary throughput is its uplink, flipped to read as the
                 // to-gateway (fabric) direction. Wired-backhaul APs get the 'Wired'
                 // qualifier; mesh-uplink APs don't (their uplink is wireless).
-                rows.push([isMeshAp ? 'Ingress' : 'Wired ingress', formatBps(egressBps)]);
-                rows.push([isMeshAp ? 'Egress' : 'Wired egress', formatBps(ingressBps)]);
+                rows.push([isMeshUplink ? 'Ingress' : 'Wired ingress', formatBps(egressBps)]);
+                rows.push([isMeshUplink ? 'Egress' : 'Wired egress', formatBps(ingressBps)]);
             } else if (isFabric) {
                 rows.push(['Ingress', formatBps(ingressBps)]);
                 rows.push(['Egress', formatBps(egressBps)]);

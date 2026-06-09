@@ -861,19 +861,19 @@ class LanFlowMap2D {
                 else{inBps+=ul;outBps+=dl;}
             }
         }
-        // A mesh-uplink AP's PHY rate and throughput come from the wireless backhaul,
-        // whose Tx/Rx polarity is the reverse of a Wi-Fi client's. Detect via the AP's
-        // OWN uplink (toNodeId), not a downlink to a child mesh AP.
-        let isMeshAp=false;
-        if(d.kind===NK.AP){for(const e of this._edges){if(e.lk.toNodeId===d.id&&e.lk.kind===LK.MeshBackhaul){isMeshAp=true;break;}}}
+        // A device on a wireless mesh uplink (mesh AP, or a UDB - UniFi Device Bridge -
+        // which classifies as a Switch) has PHY/throughput polarity reverse of a Wi-Fi
+        // client's. Detect via the device's OWN MeshBackhaul uplink (toNodeId), kind agnostic.
+        let isMeshUplink=false;
+        for(const e of this._edges){if(e.lk.toNodeId===d.id&&e.lk.kind===LK.MeshBackhaul){isMeshUplink=true;break;}}
 
         // Negotiated link speed (wired port or wireless PHY), directly above throughput.
         if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
         else if(d.phyTxKbps||d.phyRxKbps){
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
-            // (↑) is the AP's RX. A mesh AP's uplink Tx/Rx is the reverse, so swap.
-            const downKbps=isMeshAp?d.phyRxKbps:d.phyTxKbps;
-            const upKbps=isMeshAp?d.phyTxKbps:d.phyRxKbps;
+            // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
+            const downKbps=isMeshUplink?d.phyRxKbps:d.phyTxKbps;
+            const upKbps=isMeshUplink?d.phyTxKbps:d.phyRxKbps;
             const dl=downKbps?`↓${formatSpeed(Math.round(downKbps/1000))}`:'';
             const ul=upKbps?`↑${formatSpeed(Math.round(upKbps/1000))}`:'';
             rows.push(['Link speed',`${dl}${dl&&ul?'  ':''}${ul}`]);
@@ -882,8 +882,8 @@ class LanFlowMap2D {
             // APs: uplink throughput flipped to the to-gateway (fabric) direction.
             // Wired-backhaul APs get the 'Wired' qualifier; mesh-uplink APs don't.
             if(d.kind===NK.AP){
-                rows.push([isMeshAp?'Ingress':'Wired ingress',formatBps(outBps)]);
-                rows.push([isMeshAp?'Egress':'Wired egress',formatBps(inBps)]);
+                rows.push([isMeshUplink?'Ingress':'Wired ingress',formatBps(outBps)]);
+                rows.push([isMeshUplink?'Egress':'Wired egress',formatBps(inBps)]);
             }
             else if(isFab){rows.push(['Ingress',formatBps(inBps)]);rows.push(['Egress',formatBps(outBps)]);}
             else{rows.push(['Download',formatBps(inBps)]);rows.push(['Upload',formatBps(outBps)]);}
