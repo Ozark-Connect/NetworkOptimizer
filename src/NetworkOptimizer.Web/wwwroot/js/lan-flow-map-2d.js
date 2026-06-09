@@ -807,10 +807,9 @@ class LanFlowMap2D {
         if(d.model)rows.push(['Model',d.model]);
         if(d.band)rows.push(['Band',`${d.band} GHz`]);
         if(d.ssid)rows.push(['SSID',m(d.ssid)]);
+        if(d.network)rows.push(['Network',m(d.network)]);
         if(d.signalDbm)rows.push(['Signal',`${d.signalDbm} dBm`]);
         if(d.switchPortName)rows.push(['Switch port',m(d.switchPortName)]);
-        if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
-        if(d.network)rows.push(['Network',m(d.network)]);
 
         const badges=flowData.getNodeBadges();
         const b=badges?.[d.id];
@@ -843,12 +842,19 @@ class LanFlowMap2D {
                 else{inBps+=ul;outBps+=dl;}
             }
         }
+        // Negotiated link speed (wired port or wireless PHY), directly above throughput.
+        if(d.wiredLinkSpeedMbps)rows.push(['Link speed',formatSpeed(d.wiredLinkSpeedMbps)]);
+        else if(d.phyRxKbps||d.phyTxKbps){
+            const dl=d.phyRxKbps?`↓${formatSpeed(Math.round(d.phyRxKbps/1000))}`:'';
+            const ul=d.phyTxKbps?`↑${formatSpeed(Math.round(d.phyTxKbps/1000))}`:'';
+            rows.push(['Link speed',`${dl}${dl&&ul?'  ':''}${ul}`]);
+        }
         if(any){
             // APs: uplink throughput flipped to the to-gateway (fabric) direction.
             // Wired-backhaul APs get the 'Wired' qualifier; mesh-uplink APs don't.
             if(d.kind===NK.AP){
                 let isMeshAp=false;
-                for(const e of this._edges){if((e.lk.fromNodeId===d.id||e.lk.toNodeId===d.id)&&e.lk.kind===LK.MeshBackhaul){isMeshAp=true;break;}}
+                for(const e of this._edges){if(e.lk.toNodeId===d.id&&e.lk.kind===LK.MeshBackhaul){isMeshAp=true;break;}}
                 rows.push([isMeshAp?'Ingress':'Wired ingress',formatBps(outBps)]);
                 rows.push([isMeshAp?'Egress':'Wired egress',formatBps(inBps)]);
             }

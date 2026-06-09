@@ -1005,6 +1005,7 @@ public class LanFlowMapService
                 Id = "dev-" + mac,
                 Kind = kind,
                 Mac = mac,
+                Ip = string.IsNullOrEmpty(d.DisplayIpAddress) ? null : d.DisplayIpAddress,
                 Name = string.IsNullOrEmpty(d.Name) ? d.FriendlyModelName : d.Name,
                 Model = d.FriendlyModelName,
                 Placement = anchor,

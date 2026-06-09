@@ -2595,10 +2595,9 @@ export class LanFlowMap {
         if (node.model) rows.push(['Model', node.model]);
         if (node.band) rows.push(['Band', `${node.band} GHz`]);
         if (node.ssid) rows.push(['SSID', node.ssid]);
+        if (node.network) rows.push(['Network', node.network]);
         if (node.signalDbm) rows.push(['Signal', `${node.signalDbm} dBm`]);
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
-        if (node.wiredLinkSpeedMbps) rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
-        if (node.network) rows.push(['Network', node.network]);
         // Device health from NodeLiveBadge (infrastructure nodes only)
         const badge = this._currentBadges?.[node.id];
         if (badge?.cpuPercent != null) rows.push(['CPU', `${badge.cpuPercent.toFixed(0)}%`]);
@@ -2663,6 +2662,15 @@ export class LanFlowMap {
                 }
             }
         }
+        // Negotiated link speed (wired port or wireless PHY rate), shown directly
+        // above the live throughput so the capable rate sits over the actual rate.
+        if (node.wiredLinkSpeedMbps) {
+            rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
+        } else if (node.phyRxKbps || node.phyTxKbps) {
+            const dl = node.phyRxKbps ? `↓${formatLinkSpeed(Math.round(node.phyRxKbps / 1000))}` : '';
+            const ul = node.phyTxKbps ? `↑${formatLinkSpeed(Math.round(node.phyTxKbps / 1000))}` : '';
+            rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
+        }
         if (anyData) {
             if (node.kind === NODE_KIND.AccessPoint) {
                 // AP boundary throughput is its uplink, reported here with the
@@ -2672,7 +2680,9 @@ export class LanFlowMap {
                 let isMeshAp = false;
                 for (const [, lm] of this._linkMeshes) {
                     const lk = lm.link;
-                    if ((lk.fromNodeId === node.id || lk.toNodeId === node.id) && lk.kind === LINK_KIND.MeshBackhaul) { isMeshAp = true; break; }
+                    // Only the AP's OWN uplink (it's the child end = toNodeId), not a
+                    // downlink to a child mesh AP where this AP is the parent.
+                    if (lk.toNodeId === node.id && lk.kind === LINK_KIND.MeshBackhaul) { isMeshAp = true; break; }
                 }
                 rows.push([isMeshAp ? 'Ingress' : 'Wired ingress', formatBps(egressBps)]);
                 rows.push([isMeshAp ? 'Egress' : 'Wired egress', formatBps(ingressBps)]);
