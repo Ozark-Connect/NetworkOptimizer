@@ -791,7 +791,9 @@ class LanFlowMap2D {
         const d=hit.d;
         if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient)return;
         if(!d.ip)return;
-        window.location.href=`/client-dashboard?ip=${encodeURIComponent(d.ip)}&tab=signal`;
+        // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.
+        const tab=d.kind===NK.WifiClient?'&tab=signal':'';
+        window.location.href=`/client-dashboard?ip=${encodeURIComponent(d.ip)}${tab}`;
     }
 
     _hitTest(sx,sy){
