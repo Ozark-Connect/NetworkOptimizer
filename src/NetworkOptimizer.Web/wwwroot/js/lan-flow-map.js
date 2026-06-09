@@ -2664,7 +2664,13 @@ export class LanFlowMap {
             }
         }
         if (anyData) {
-            if (isFabric) {
+            if (node.kind === NODE_KIND.AccessPoint) {
+                // AP boundary throughput is its wired backhaul port, reported here
+                // with the opposite polarity to switches/gateways. Flip so the
+                // values read correctly, and qualify the labels as the wired uplink.
+                rows.push(['Wired ingress', formatBps(egressBps)]);
+                rows.push(['Wired egress', formatBps(ingressBps)]);
+            } else if (isFabric) {
                 rows.push(['Ingress', formatBps(ingressBps)]);
                 rows.push(['Egress', formatBps(egressBps)]);
             } else {
