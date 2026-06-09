@@ -55,7 +55,7 @@
                                             else
                                             {
                                                 <span class="status-indicator status-inactive"></span>
-                                                <span class="text-muted" data-tooltip-wrap data-tooltip="Can't tell. UniFi only exposes SNMP status indirectly: with no Location or Contact set, we can't confirm whether SNMP is on, off, or unsupported by this device. See &quot;Not seeing data for some devices?&quot; below for guidance.">Check / Unsupported</span>
+                                                <span class="text-muted" data-tooltip-wrap data-tooltip="No Location or Contact set in UniFi, so we can't tell if SNMP is on, off, or unsupported. See the help below.">Check / Unsupported</span>
                                             }
                                         </td>
                                         <td>
@@ -129,7 +129,7 @@
         SnmpPollState.Polling => "SNMP is responding; this device is feeding monitoring data.",
         SnmpPollState.NotYetPolled => "SNMP is enabled but the agent hasn't recorded a successful poll yet this session.",
         SnmpPollState.Excluded => $"Dropped from polling after {d.FailureCount} consecutive SNMP failures. Retried automatically.",
-        SnmpPollState.SnmpDisabled => "Not polled. With no SNMP Location or Contact set in UniFi, we can't confirm SNMP is enabled. See \"Not seeing data for some devices?\" below for guidance.",
+        SnmpPollState.SnmpDisabled => "Either this device doesn't support SNMP, or it does but has no Location or Contact set in UniFi.",
         _ => ""
     };
 

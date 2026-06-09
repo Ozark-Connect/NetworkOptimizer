@@ -126,11 +126,11 @@ else
                         @if (unpolledKeyDevices.Count == 1)
                         {
                             var d = unpolledKeyDevices[0];
-                            @($"{d.Name} ({d.DeviceType.ToDisplayName()}) {KeyDeviceReason(d)}")
+                            @($"{d.Name} {KeyDeviceReason(d)}")
                         }
                         else
                         {
-                            @($"{unpolledKeyDevices.Count} key devices aren't being polled via SNMP, so their traffic and health metrics are missing.")
+                            @($"{unpolledKeyDevices.Count} key devices aren't being polled via SNMP.")
                         }
                     </div>
                     <div class="banner-actions">
@@ -1506,8 +1506,8 @@ else
             .ToList();
 
     private static string KeyDeviceReason(SnmpDeviceStatus d) => d.PollState == SnmpPollState.SnmpDisabled
-        ? "isn't being polled. With no SNMP Location or Contact set in UniFi, we can't confirm SNMP is enabled. On the device in UniFi, enable SNMP and set a Location or Contact to collect its traffic and health metrics."
-        : $"stopped responding to SNMP and was dropped from polling after {d.FailureCount} consecutive failures. It will be retried automatically.";
+        ? "isn't being polled. Enable SNMP and set a Location or Contact on it in UniFi to collect its metrics."
+        : $"stopped responding to SNMP and was dropped after {d.FailureCount} failures. Retrying automatically.";
 
     private void GoToSnmpDevices()
     {
