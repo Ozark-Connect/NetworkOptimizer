@@ -31,9 +31,17 @@ Full time-series network monitoring that runs entirely on your hardware. SNMP po
 
 The Live View gives you two real-time topology maps. The 3D map is a Three.js visualization with bi-directional particle-flow traffic for all LAN traffic (not just WAN-bound traffic like in UniFi Network), WASD camera navigation, and double-click on any client to jump to their performance dashboard. The 2D map is a hierarchical flow diagram that's easier to read at a glance, showing the same live throughput rates, device health badges, and client connections on a canvas you can pan and zoom. Both support historic playback: scrub backward through your monitoring data to see what your network looked like at any point, with full playback controls and adjustable speed.
 
-Latency and packet loss charting covers four target categories (LAN fabric, ISP access, transit, and internet services) with per-target filter badges, time range presets from 15 minutes to 30 days, and sub-15ms query performance. Device health charts track temperature, CPU, and memory per device over time. SFP/ONT optical monitoring shows live RX/TX power, temperature, voltage, and bias current for PON modules, with automatic GPON vs XGS-PON detection.
+Latency and packet loss charting covers four target categories (LAN fabric, ISP access, transit, and internet services) with per-target filter badges, time range presets from 15 minutes to 30 days, and sub-15ms query performance. Device health charts track temperature, CPU, and memory for all your devices on one screen; in UniFi Network those stats only exist in each device's individual Insights view, with no single pane of glass for hardware health. SFP/ONT optical monitoring shows live RX/TX power, temperature, voltage, and bias current for PON modules, with automatic GPON vs XGS-PON detection.
 
 Upstream Path Discovery uses automated traceroute (ICMP and UDP probes) to map your ISP's access infrastructure, transit networks, and internet service endpoints. It identifies your OLT/CMTS, ISP edge routers, and transit ASNs with full latency and loss charting per hop category. Both maps include a WAN node for each internet connection showing live RTT, current throughput, latest speed test results, and ISP expected speeds.
+
+### How readings are measured
+
+Where Network Optimizer and UniFi Network show different numbers, it's because we read the raw sensors and count the standard way:
+
+- **CPU temperature** is the SoC die sensor read directly over SNMP (LM-SENSORS `temp-cpu`). It responds within seconds to load. UniFi Network appears to report a damped board probe used for fan control, which reads several degrees lower and lags behind load changes.
+- **Memory** is real used memory excluding Linux page cache, the same number `htop` shows. Linux deliberately fills idle RAM with cache, so counting cache as "used" (as UniFi Network does on some models) makes a healthy gateway look like it's leaking memory.
+- **Switch temperatures** fall back to the UniFi API where the SNMP tree exposes no thermal data.
 
 For the full changelog, see the [v1.17.0 release notes](https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v1.17.0) and subsequent patch releases.
 
