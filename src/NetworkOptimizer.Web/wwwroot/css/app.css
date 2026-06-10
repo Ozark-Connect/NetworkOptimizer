@@ -9015,6 +9015,15 @@ a.path-hop.hop-clickable:hover {
 }
 
 @media (max-width: 768px) {
+    .client-info-main {
+        flex-wrap: wrap;
+        row-gap: 0.25rem;
+    }
+
+    .client-info-main .client-name {
+        flex-basis: 100%;
+    }
+
     .client-info-main .client-perf-link {
         display: none;
     }
@@ -9030,7 +9039,8 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
-.client-mac {
+.client-mac,
+.client-ip {
     font-size: 0.875rem;
     color: var(--text-muted);
     font-family: monospace;
