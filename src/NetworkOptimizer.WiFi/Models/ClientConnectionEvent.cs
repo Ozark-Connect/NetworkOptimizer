@@ -77,10 +77,10 @@ public class ClientConnectionEvent
     /// <summary>Time connected (for disconnect events)</summary>
     public string? Duration { get; set; }
 
-    /// <summary>Data uploaded (for disconnect events)</summary>
+    /// <summary>Data sent by the AP to the client (UniFi event DATA_UP; for disconnect events)</summary>
     public string? DataUp { get; set; }
 
-    /// <summary>Data downloaded (for disconnect events)</summary>
+    /// <summary>Data received by the AP from the client (UniFi event DATA_DOWN; for disconnect events)</summary>
     public string? DataDown { get; set; }
 
     /// <summary>

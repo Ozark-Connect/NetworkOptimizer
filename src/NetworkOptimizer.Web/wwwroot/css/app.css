@@ -9030,7 +9030,8 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-primary);
 }
 
-.client-mac {
+.client-mac,
+.client-ip {
     font-size: 0.875rem;
     color: var(--text-muted);
     font-family: monospace;

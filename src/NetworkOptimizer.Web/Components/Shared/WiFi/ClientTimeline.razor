@@ -228,6 +228,10 @@
                     <span class="client-mac">@_selectedClient.Mac</span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
+                        <span class="client-ip">@_selectedClient.Ip</span>
+                    }
+                    @if (!string.IsNullOrEmpty(_selectedClient.Ip))
+                    {
                         <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-perf-link"
                            data-tooltip="View full speed and signal history">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
@@ -261,7 +265,7 @@
                         </span>
                     </div>
                     <div class="info-item">
-                        <span class="info-label">TX/RX Rate:</span>
+                        <span class="info-label">AP TX/RX Rate:</span>
                         <span class="info-value" data-tooltip="TX = AP transmits to client (download), RX = AP receives from client (upload)">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
                     </div>
                     @if (_selectedClient.FixedApEnabled)
@@ -685,7 +689,7 @@
         ClientConnectionEventType.Disconnected =>
             (!string.IsNullOrEmpty(evt.Duration) ? $"Duration: {evt.Duration}" : "") +
             (!string.IsNullOrEmpty(evt.DataUp) && !string.IsNullOrEmpty(evt.DataDown)
-                ? $" · {evt.DataUp} up / {evt.DataDown} down"
+                ? $" · AP sent {evt.DataUp} / received {evt.DataDown}"
                 : "") +
             (evt.Signal.HasValue ? $" · Last signal: {evt.Signal} dBm" : ""),
 
