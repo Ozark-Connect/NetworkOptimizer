@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.LanFlowMap;
 
@@ -10,24 +11,45 @@ public static class LanFlowMapEndpoints
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/monitoring/lan-flow-map/snapshot",
-            async (LanFlowMapService svc, CancellationToken ct) =>
+            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
-                var snap = await svc.BuildSnapshotAsync(ct);
-                return Results.Ok(snap);
+                try
+                {
+                    var snap = await svc.BuildSnapshotAsync(ct);
+                    return Results.Ok(snap);
+                }
+                catch (Exception ex) when (IsConsoleUnavailable(ex))
+                {
+                    return ConsoleUnavailable(logger, "snapshot", ex);
+                }
             });
 
         app.MapGet("/api/monitoring/lan-flow-map/live",
-            async (LanFlowMapService svc, CancellationToken ct) =>
+            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, CancellationToken ct) =>
             {
-                var update = await svc.GetLiveUpdateAsync(ct);
-                return Results.Ok(update);
+                try
+                {
+                    var update = await svc.GetLiveUpdateAsync(ct);
+                    return Results.Ok(update);
+                }
+                catch (Exception ex) when (IsConsoleUnavailable(ex))
+                {
+                    return ConsoleUnavailable(logger, "live", ex);
+                }
             });
 
         app.MapGet("/api/monitoring/lan-flow-map/history",
-            async (LanFlowMapService svc, DateTime at, CancellationToken ct) =>
+            async (LanFlowMapService svc, ILogger<LanFlowMapService> logger, DateTime at, CancellationToken ct) =>
             {
-                var update = await svc.GetHistoricUpdateAsync(at, ct);
-                return Results.Ok(update);
+                try
+                {
+                    var update = await svc.GetHistoricUpdateAsync(at, ct);
+                    return Results.Ok(update);
+                }
+                catch (Exception ex) when (IsConsoleUnavailable(ex))
+                {
+                    return ConsoleUnavailable(logger, "history", ex);
+                }
             });
 
         app.MapGet("/api/monitoring/lan-flow-map/speed-tests",
@@ -48,5 +70,20 @@ public static class LanFlowMapEndpoints
                 svc.InvalidateCache();
                 return Results.Ok();
             });
+    }
+
+    /// <summary>
+    /// True for failures that mean the UniFi Console couldn't serve the request right now:
+    /// non-JSON bodies (login/error page during reboot or firmware upgrade) or transport
+    /// errors. These are transient, so the map endpoints answer 503 and the JS poller
+    /// quietly retries on its next tick instead of surfacing an unhandled 500.
+    /// </summary>
+    private static bool IsConsoleUnavailable(Exception ex) =>
+        ex is JsonException or HttpRequestException;
+
+    private static IResult ConsoleUnavailable(ILogger logger, string endpoint, Exception ex)
+    {
+        logger.LogDebug(ex, "LAN flow map {Endpoint} unavailable - UniFi Console not serving data", endpoint);
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
 }
