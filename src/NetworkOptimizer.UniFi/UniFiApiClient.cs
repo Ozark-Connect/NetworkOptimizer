@@ -613,8 +613,26 @@ public class UniFiApiClient : IDisposable
                 return null;
             }
 
-            var result = await response.Content.ReadFromJsonAsync<T>(cancellationToken: cancellationToken);
-            return result;
+            try
+            {
+                var result = await response.Content.ReadFromJsonAsync<T>(cancellationToken: cancellationToken);
+                return result;
+            }
+            catch (System.Text.Json.JsonException ex) when (ex is not UniFiNonJsonResponseException)
+            {
+                // The console serves HTML (login/error page) instead of JSON while it's
+                // rebooting or mid-firmware-upgrade. Re-throw with a one-line diagnosis
+                // instead of the raw parser error. The content is buffered, so it can be
+                // re-read here after the failed deserialization.
+                string? body = null;
+                try { body = await response.Content.ReadAsStringAsync(cancellationToken); }
+                catch { /* keep the original parse error context if the body is unreadable */ }
+                throw UniFiNonJsonResponseException.Create(
+                    (int)response.StatusCode,
+                    response.Content.Headers.ContentType?.MediaType,
+                    body,
+                    ex);
+            }
         });
     }
 
