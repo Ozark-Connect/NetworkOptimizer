@@ -422,6 +422,18 @@ else
                     <div class="chart-header"><h3 class="chart-title">Memory</h3></div>
                     <div class="health-mem-chart"></div>
                 </div>
+
+                <details class="setup-guide" style="margin-top: 1.25rem;">
+                    <summary>Why do these readings differ from UniFi Network?</summary>
+                    <div class="setup-guide-content">
+                        <p>Network Optimizer reads raw sensors over SNMP and counts the standard way, so some values won't match what UniFi Network shows:</p>
+                        <ul>
+                            <li><strong>CPU temperature</strong> is the SoC die sensor, which responds within seconds to load. UniFi Network appears to report a damped board probe used for fan control, which reads several degrees lower and lags behind load changes.</li>
+                            <li><strong>Memory</strong> is real used memory excluding Linux page cache, the same number <code>htop</code> shows. Linux deliberately fills idle RAM with cache, so counting cache as used makes a healthy gateway look like it's leaking memory.</li>
+                            <li><strong>Switch temperatures</strong> come from the UniFi API, since switch SNMP trees expose no thermal data.</li>
+                        </ul>
+                    </div>
+                </details>
             </div>
         </div>
     }
