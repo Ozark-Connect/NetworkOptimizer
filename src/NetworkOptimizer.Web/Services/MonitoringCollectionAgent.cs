@@ -1494,6 +1494,17 @@ public class MonitoringCollectionAgent : BackgroundService
                         _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
                     }
                 }
+                else
+                {
+                    // Counter reset (device rebooted, e.g. for a firmware upgrade): the
+                    // cached snapshot predates the reset, so the delta goes negative and
+                    // no rate can ever be computed against it. Reseed with the current
+                    // sample so the next poll computes a valid rate. Without this the
+                    // stale snapshot pins every delta negative, every poll counts as an
+                    // SNMP failure, and the device flaps in and out of SNMP exclusion
+                    // until the app restarts.
+                    _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
+                }
             }
         }
         if (!_counterCache.ContainsKey(key))
