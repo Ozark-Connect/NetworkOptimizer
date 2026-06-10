@@ -53,7 +53,8 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             height: type === 'area' ? 200 : 260,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: false },
+            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
         stroke: { curve: 'smooth', width: 2 },
@@ -462,6 +463,25 @@ function updateCustomLabel(container) {
         btn.setAttribute('data-tooltip', 'Custom date range');
         if (clearBtn) clearBtn.remove();
     }
+}
+
+// Grafana-style drag-select on a chart becomes a custom time window,
+// synced to the range selector (custom-range button + popover inputs).
+function applyDragZoom(xaxis) {
+    const container = document.getElementById(containerId);
+    if (container && xaxis && Number.isFinite(xaxis.min) && Number.isFinite(xaxis.max) && xaxis.min < xaxis.max) {
+        customFrom = new Date(xaxis.min);
+        customTo = new Date(xaxis.max);
+        isCustomRange = true;
+        windowOffset = 0;
+        container.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        syncPopoverInputs(container);
+        updateCustomLabel(container);
+        loadAndUpdate();
+        startPoll();
+    }
+    // Cancel ApexCharts' client-side zoom; the refetch repaints the selected window
+    return { xaxis: { min: undefined, max: undefined } };
 }
 
 function getEffectiveFrom() {
