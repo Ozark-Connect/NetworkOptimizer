@@ -225,11 +225,11 @@
                     {
                         <span class="client-name">@_selectedClient.Name</span>
                     }
-                    <span class="client-mac">@_selectedClient.Mac</span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
                         <span class="client-ip">@_selectedClient.Ip</span>
                     }
+                    <span class="client-mac">@_selectedClient.Mac</span>
                     @if (!string.IsNullOrEmpty(_selectedClient.Ip))
                     {
                         <a href="/client-dashboard?ip=@_selectedClient.Ip&range=30d&tab=signal" class="client-perf-link"
