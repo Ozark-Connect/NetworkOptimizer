@@ -99,10 +99,7 @@ public class UniFiDiscovery
                 TxBytes = d.Stats?.TxBytes ?? 0,
                 RxBytes = d.Stats?.RxBytes ?? 0,
                 PortCount = d.PortTable?.Count ?? 0,
-                WanInterfaceNames = d.PortTable?
-                    .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName))
-                    .Select(p => p.IfName!)
-                    .ToList() ?? new(),
+                WanInterfaceNames = GetWanInterfaceNames(d),
                 // Wi-Fi specific (APs only)
                 RadioTable = d.RadioTable,
                 RadioTableStats = d.RadioTableStats,
@@ -124,6 +121,36 @@ public class UniFiDiscovery
         }
 
         return discoveredDevices;
+    }
+
+    /// <summary>
+    /// Resolves the interface names whose SNMP counters carry WAN traffic, one per WAN.
+    /// Prefers the gateway's wan1..wan6 objects: the physical port (ifname) normally
+    /// holds the counters, but PPPoE moves the traffic to the ppp* tunnel
+    /// (uplink_ifname) and leaves the physical port without usable stats, so ppp* wins
+    /// there. VLAN sub-interfaces (eth4.100) double-count on some kernels, so for
+    /// non-PPPoE connections the physical port wins. Falls back to port_table
+    /// is_uplink entries for devices without wan objects (switches, APs) or gateways
+    /// where the wan objects are missing.
+    /// </summary>
+    internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
+    {
+        var names = new List<string>();
+        foreach (var wan in d.GetWanInterfaces())
+        {
+            var name = wan.UplinkIfName?.StartsWith("ppp", StringComparison.OrdinalIgnoreCase) == true
+                ? wan.UplinkIfName
+                : wan.IfName ?? wan.UplinkIfName;
+            if (!string.IsNullOrEmpty(name) && !names.Contains(name))
+                names.Add(name);
+        }
+        if (names.Count > 0)
+            return names;
+
+        return d.PortTable?
+            .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName))
+            .Select(p => p.IfName!)
+            .ToList() ?? new();
     }
 
     /// <summary>

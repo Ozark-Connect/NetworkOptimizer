@@ -344,6 +344,20 @@ public class GatewayWanInterface
     public int? Availability { get; set; }
 
     /// <summary>
+    /// Physical port backing this WAN (e.g., "eth4"). For VLAN-tagged or PPPoE
+    /// connections this is the parent port, not the interface carrying the traffic.
+    /// </summary>
+    [JsonPropertyName("ifname")]
+    public string? IfName { get; set; }
+
+    /// <summary>
+    /// Logical uplink interface carrying the WAN traffic (e.g., "eth4" for plain
+    /// connections, "eth4.100" for VLAN-tagged, "ppp0" for PPPoE).
+    /// </summary>
+    [JsonPropertyName("uplink_ifname")]
+    public string? UplinkIfName { get; set; }
+
+    /// <summary>
     /// Cumulative bytes received on this WAN interface since device boot.
     /// </summary>
     [JsonPropertyName("rx_bytes")]
