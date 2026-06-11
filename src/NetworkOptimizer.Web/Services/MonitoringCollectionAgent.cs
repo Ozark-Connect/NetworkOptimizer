@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Probes;
@@ -475,15 +476,18 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             var gwMac = NormalizeMac(gw.Mac);
 
-            // SNMP rate on the WAN interface. Try physical port first (eth6),
-            // then the logical uplink (ppp2 for PPPoE, eth6.100 for VLAN-tagged).
-            // VLAN sub-interfaces double-count on some kernels so physical wins,
-            // but PPPoE makes the physical port inactive so ppp* carries the data.
+            // SNMP rate on the WAN interface: ppp* tunnel for PPPoE, physical
+            // port otherwise (issue #669). The physical port stays active under
+            // PPPoE and over-counts (overhead + sibling VLANs), while VLAN
+            // sub-interfaces double-count on some kernels. The other name remains
+            // a fallback in case the preferred interface has no SNMP rate yet.
             var physIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
             var uplinkIfName = _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
-            var portRate = physIfName != null ? _liveStats.GetPortRate(gwMac, physIfName) : null;
-            if (portRate == null && uplinkIfName != null && uplinkIfName != physIfName)
-                portRate = _liveStats.GetPortRate(gwMac, uplinkIfName);
+            var preferred = NetworkUtilities.PreferredWanCounterInterface(physIfName, uplinkIfName);
+            var fallback = preferred == physIfName ? uplinkIfName : physIfName;
+            var portRate = preferred != null ? _liveStats.GetPortRate(gwMac, preferred) : null;
+            if (portRate == null && fallback != null && fallback != preferred)
+                portRate = _liveStats.GetPortRate(gwMac, fallback);
             if (portRate != null)
             {
                 // Gateway WAN perspective: port TX (DownBps) = data toward

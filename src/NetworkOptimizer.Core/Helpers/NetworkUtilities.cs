@@ -689,4 +689,29 @@ public static class NetworkUtilities
         // Fallback: just trim trailing slashes
         return url.TrimEnd('/');
     }
+
+    /// <summary>
+    /// Picks the interface whose traffic counters best represent a WAN connection,
+    /// given the physical port (e.g. "eth4") and the logical uplink (e.g. "eth4" for
+    /// plain connections, "eth4.100" for VLAN-tagged, "ppp0" for PPPoE, "gre1" for
+    /// LAN-tunneled cellular WANs).
+    /// VLAN sub-interfaces double-count on some kernels, so when the uplink is a
+    /// sub-interface of the physical port, the physical port wins. Any other logical
+    /// uplink (ppp*, gre*, ...) wins: it carries exactly the WAN payload, while the
+    /// physical port keeps counting too and over-counts (confirmed on a UCG-Fiber
+    /// PPPoE WAN, where the physical port ran ~40% above ppp0 due to tunnel overhead
+    /// and sibling VLANs on the same port).
+    /// </summary>
+    /// <param name="physicalIfName">Physical port interface name, if known</param>
+    /// <param name="uplinkIfName">Logical uplink interface name, if known</param>
+    /// <returns>The preferred interface name, or null when both inputs are null</returns>
+    public static string? PreferredWanCounterInterface(string? physicalIfName, string? uplinkIfName)
+    {
+        if (string.IsNullOrEmpty(uplinkIfName)) return physicalIfName;
+        if (string.IsNullOrEmpty(physicalIfName)) return uplinkIfName;
+        if (uplinkIfName.Equals(physicalIfName, StringComparison.OrdinalIgnoreCase) ||
+            uplinkIfName.StartsWith(physicalIfName + ".", StringComparison.OrdinalIgnoreCase))
+            return physicalIfName;
+        return uplinkIfName;
+    }
 }

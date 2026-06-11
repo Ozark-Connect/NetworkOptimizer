@@ -54,16 +54,31 @@ public class WanInterfaceNameTests
     }
 
     [Fact]
+    public void CellularGreWan_UsesGreTunnel()
+    {
+        // UniFi 5G Max reaches the gateway over a LAN GRE tunnel; UniFi reports
+        // the tunnel as both ifname and uplink_ifname.
+        var device = Parse("""
+            { "type": "ucg", "wan1": { "type": "wireless_5g", "ifname": "gre1", "uplink_ifname": "gre1" } }
+            """);
+        UniFiDiscovery.GetWanInterfaceNames(device).Should().Equal("gre1");
+    }
+
+    [Fact]
     public void MultiWan_ResolvesEachWanIndependently()
     {
+        // One of each connection type: PPPoE primary, VLAN-tagged, plain
+        // ethernet failover, and a cellular WAN via GRE.
         var device = Parse("""
             {
               "type": "ucg",
               "wan1": { "ifname": "eth4", "uplink_ifname": "ppp0" },
-              "wan2": { "ifname": "eth5", "uplink_ifname": "eth5" }
+              "wan2": { "ifname": "eth6", "uplink_ifname": "eth6.100" },
+              "wan3": { "ifname": "eth0", "uplink_ifname": "eth0" },
+              "wan4": { "type": "wireless_5g", "ifname": "gre1", "uplink_ifname": "gre1" }
             }
             """);
-        UniFiDiscovery.GetWanInterfaceNames(device).Should().Equal("ppp0", "eth5");
+        UniFiDiscovery.GetWanInterfaceNames(device).Should().Equal("ppp0", "eth6", "eth0", "gre1");
     }
 
     [Fact]

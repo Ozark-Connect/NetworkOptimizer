@@ -309,14 +309,18 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
-            // Try physical port first (eth6), then logical uplink (ppp2 / eth6.100).
-            // VLAN sub-interfaces double-count on some kernels so physical wins,
-            // but PPPoE makes the physical port inactive so ppp* carries the data.
+            // ppp* tunnel for PPPoE, physical port otherwise (issue #669): the
+            // physical port stays active under PPPoE and over-counts (overhead +
+            // sibling VLANs), while VLAN sub-interfaces double-count on some
+            // kernels. The other name remains a fallback in case the preferred
+            // interface has no SNMP rate yet.
+            var preferred = NetworkUtilities.PreferredWanCounterInterface(wan.PhysicalIfName, wan.UplinkIfName);
+            var fallback = preferred == wan.PhysicalIfName ? wan.UplinkIfName : wan.PhysicalIfName;
             PortLiveRate? portRate = null;
-            if (!string.IsNullOrEmpty(wan.PhysicalIfName))
-                portRate = _liveStats.GetPortRate(gwMac, wan.PhysicalIfName);
-            if (portRate == null && !string.IsNullOrEmpty(wan.UplinkIfName) && wan.UplinkIfName != wan.PhysicalIfName)
-                portRate = _liveStats.GetPortRate(gwMac, wan.UplinkIfName);
+            if (!string.IsNullOrEmpty(preferred))
+                portRate = _liveStats.GetPortRate(gwMac, preferred);
+            if (portRate == null && !string.IsNullOrEmpty(fallback) && fallback != preferred)
+                portRate = _liveStats.GetPortRate(gwMac, fallback);
             if (portRate != null)
             {
                 // GetPortRate convention: DownBps = port TX, UpBps = port RX.

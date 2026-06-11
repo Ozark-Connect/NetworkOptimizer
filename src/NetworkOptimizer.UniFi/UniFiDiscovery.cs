@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi;
@@ -125,22 +126,18 @@ public class UniFiDiscovery
 
     /// <summary>
     /// Resolves the interface names whose SNMP counters carry WAN traffic, one per WAN.
-    /// Prefers the gateway's wan1..wan6 objects: the physical port (ifname) normally
-    /// holds the counters, but PPPoE moves the traffic to the ppp* tunnel
-    /// (uplink_ifname) and leaves the physical port without usable stats, so ppp* wins
-    /// there. VLAN sub-interfaces (eth4.100) double-count on some kernels, so for
-    /// non-PPPoE connections the physical port wins. Falls back to port_table
-    /// is_uplink entries for devices without wan objects (switches, APs) or gateways
-    /// where the wan objects are missing.
+    /// Prefers the gateway's wan1..wan6 objects, picking per WAN via
+    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp* tunnel for
+    /// PPPoE, physical port otherwise). Falls back to port_table is_uplink entries
+    /// for devices without wan objects (switches, APs) or gateways where the wan
+    /// objects are missing.
     /// </summary>
     internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
     {
         var names = new List<string>();
         foreach (var wan in d.GetWanInterfaces())
         {
-            var name = wan.UplinkIfName?.StartsWith("ppp", StringComparison.OrdinalIgnoreCase) == true
-                ? wan.UplinkIfName
-                : wan.IfName ?? wan.UplinkIfName;
+            var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
             if (!string.IsNullOrEmpty(name) && !names.Contains(name))
                 names.Add(name);
         }
