@@ -237,6 +237,14 @@ The following were implemented in the WiFi Optimizer feature:
 - These create GRE tunnels that should be treated as valid WAN interfaces for SQM
 - ✅ ~~PPPoE support~~ (done - uses physical interface for lookup, tunnel interface for SQM)
 
+## Monitoring
+
+### Gap-Gated SNMP Counter Reset Detection
+- `InterfaceRateCalculator` currently distinguishes a genuine counter reset (device reboot) from a single corrupt SNMP read by requiring two consecutive below-baseline reads before reseeding the baseline (`ResetPending` → `ResetConfirmed`). A discarded over-ceiling rate then advances the baseline so nothing can wedge an interface.
+- Cleaner discriminator: the **elapsed gap**. A real reset only follows a reboot, which trips ~5 consecutive SNMP failures (~25 s) and a 5-minute exclusion, so the first sample back has a large elapsed gap (~5 min). A corrupt-read glitch arrives at the normal ~5 s cadence with a tiny gap. So: backwards counter with a large gap (e.g. ≥ 60 s, above poll jitter and below the exclusion window) → reset, reseed immediately; backwards counter at normal cadence → glitch, hold the baseline and suppress. This reseeds genuine resets in one poll instead of two and makes the rare two-fast-corrupt-reads false-confirm impossible by construction.
+- **Not required** - the confirmed-by-repeat version is correct and the worst edge (double glitch) self-heals in ~10-15 s with no spike written. Revisit only if logs show clusters of "Discarding implausible SNMP rate" WARNs that aren't explained by a single bad read. Keep a fallback for the (unrealistic) small-gap reset so nothing can wedge.
+- **Relevant code:** `InterfaceRateCalculator.Compute` (reset/candidate branch), `MonitoringCollectionAgent.WriteInterfaceCounters`.
+
 ## Multi-Tenant / Multi-Site Support
 
 ### Multi-Tenant Architecture
