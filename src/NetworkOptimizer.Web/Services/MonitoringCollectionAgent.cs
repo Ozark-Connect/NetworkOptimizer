@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Probes;
@@ -42,7 +43,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly ILogger<MonitoringCollectionAgent> _logger;
 
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
-    private readonly ConcurrentDictionary<string, CounterSnapshot> _counterCache = new();
+    private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
 
@@ -475,15 +476,18 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             var gwMac = NormalizeMac(gw.Mac);
 
-            // SNMP rate on the WAN interface. Try physical port first (eth6),
-            // then the logical uplink (ppp2 for PPPoE, eth6.100 for VLAN-tagged).
-            // VLAN sub-interfaces double-count on some kernels so physical wins,
-            // but PPPoE makes the physical port inactive so ppp* carries the data.
+            // SNMP rate on the WAN interface: ppp* tunnel for PPPoE, physical
+            // port otherwise (issue #669). The physical port stays active under
+            // PPPoE and over-counts (overhead + sibling VLANs), while VLAN
+            // sub-interfaces double-count on some kernels. The other name remains
+            // a fallback in case the preferred interface has no SNMP rate yet.
             var physIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
             var uplinkIfName = _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
-            var portRate = physIfName != null ? _liveStats.GetPortRate(gwMac, physIfName) : null;
-            if (portRate == null && uplinkIfName != null && uplinkIfName != physIfName)
-                portRate = _liveStats.GetPortRate(gwMac, uplinkIfName);
+            var preferred = NetworkUtilities.PreferredWanCounterInterface(physIfName, uplinkIfName);
+            var fallback = preferred == physIfName ? uplinkIfName : physIfName;
+            var portRate = preferred != null ? _liveStats.GetPortRate(gwMac, preferred) : null;
+            if (portRate == null && fallback != null && fallback != preferred)
+                portRate = _liveStats.GetPortRate(gwMac, fallback);
             if (portRate != null)
             {
                 // Gateway WAN perspective: port TX (DownBps) = data toward
@@ -1455,63 +1459,47 @@ public class MonitoringCollectionAgent : BackgroundService
         if (string.IsNullOrEmpty(ifName)) return (null, null);
         var mac = NormalizeMac(device.Mac);
 
-        // Compute rate from previous snapshot
+        // Compute rate from previous snapshot. The calculator handles 32-bit wrap,
+        // unchanged-counter holds, genuine resets, and single-sample SNMP glitches
+        // (which would otherwise inject impossible terabit/sec spikes or poison the
+        // baseline - see InterfaceRateCalculator).
         var key = $"{mac}/{ifName}";
-        double? rateInBps = null;
-        double? rateOutBps = null;
-        if (_counterCache.TryGetValue(key, out var prev))
-        {
-            var elapsed = (now - prev.Timestamp).TotalSeconds;
-            if (elapsed > 0.5)
-            {
-                // 32-bit wrap detection: if delta is negative and we know counter is 32-bit
-                long deltaIn = iface.InOctets - prev.InOctets;
-                long deltaOut = iface.OutOctets - prev.OutOctets;
-                bool useHc = iface.HighSpeed >= 1000 || iface.Speed >= 1_000_000_000;
-                if (deltaIn < 0 && !useHc) deltaIn += (long)uint.MaxValue + 1;
-                if (deltaOut < 0 && !useHc) deltaOut += (long)uint.MaxValue + 1;
-                if (deltaIn >= 0 && deltaOut >= 0)
-                {
-                    if (deltaIn == 0 && deltaOut == 0)
-                    {
-                        // Counters unchanged - device hasn't refreshed them yet.
-                        // Keep the previous cache entry so the next poll that sees
-                        // a real change computes delta/elapsed over the true window.
-                        // Prevents alternating 0 / 2x sawtooth in both the live
-                        // cache and InfluxDB.
-                    }
-                    else
-                    {
-                        rateInBps = deltaIn * 8.0 / elapsed;
-                        rateOutBps = deltaOut * 8.0 / elapsed;
-                        // Mirror into the read-side per-port cache so the 3D map's
-                        // live tick refreshes wired client leaf rates on the clean
-                        // 5s SNMP cadence (UniFi PortTable lags ~30s).
-                        // Direction: rateOutBps = port TX = data toward the leaf
-                        // (DownBps in cache convention); rateInBps = port RX = data
-                        // from the leaf (UpBps).
-                        _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
-                        _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
-                    }
-                }
-                else
-                {
-                    // Counter reset (device rebooted, e.g. for a firmware upgrade): the
-                    // cached snapshot predates the reset, so the delta goes negative and
-                    // no rate can ever be computed against it. Reseed with the current
-                    // sample so the next poll computes a valid rate. Without this the
-                    // stale snapshot pins every delta negative, every poll counts as an
-                    // SNMP failure, and the device flaps in and out of SNMP exclusion
-                    // until the app restarts.
-                    _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
-                }
-            }
-        }
-        if (!_counterCache.ContainsKey(key))
-            _counterCache[key] = new CounterSnapshot(now, iface.InOctets, iface.OutOctets);
-
         bool hcCounters = iface.HighSpeed >= 1000 || iface.Speed >= 1_000_000_000;
         long speedBps = iface.HighSpeed > 0 ? iface.HighSpeed * 1_000_000L : iface.Speed;
+
+        InterfaceRateCalculator.State? prevState =
+            _counterCache.TryGetValue(key, out var cached) ? cached : null;
+        var calc = InterfaceRateCalculator.Compute(
+            prevState, iface.InOctets, iface.OutOctets, now, hcCounters, speedBps);
+        _counterCache[key] = calc.NewState;
+
+        double? rateInBps = calc.RateInBps;
+        double? rateOutBps = calc.RateOutBps;
+
+        switch (calc.Outcome)
+        {
+            case InterfaceRateCalculator.Outcome.ResetConfirmed:
+                _logger.LogInformation(
+                    "SNMP counter reset confirmed for {Mac}/{IfName}; reseeding baseline.",
+                    mac, ifName);
+                break;
+            case InterfaceRateCalculator.Outcome.ImplausibleRate:
+                _logger.LogWarning(
+                    "Discarding implausible SNMP rate for {Mac}/{IfName}: in={RateIn:F0} out={RateOut:F0} bps exceed link speed {LinkBps} bps (x{Margin}). Likely a corrupt counter read.",
+                    mac, ifName, calc.RejectedRateInBps ?? 0, calc.RejectedRateOutBps ?? 0, speedBps,
+                    InterfaceRateCalculator.LinkSpeedToleranceFactor);
+                break;
+        }
+
+        if (rateInBps.HasValue && rateOutBps.HasValue)
+        {
+            // Mirror into the read-side per-port cache so the 3D map's live tick
+            // refreshes wired client leaf rates on the clean 5s SNMP cadence
+            // (UniFi PortTable lags ~30s).
+            // Direction: rateOutBps = port TX = data toward the leaf (DownBps in
+            // cache convention); rateInBps = port RX = data from the leaf (UpBps).
+            _liveStats.RecordPortRate(mac, ifName, rateOutBps.Value, rateInBps.Value, now);
+        }
 
         _ = _influx.WriteInterfaceCountersAsync(
             deviceMac: mac,
@@ -2045,6 +2033,5 @@ public class MonitoringCollectionAgent : BackgroundService
     private static string NormalizeMac(string mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
 
-    private readonly record struct CounterSnapshot(DateTime Timestamp, long InOctets, long OutOctets);
     private readonly record struct PortByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
 }

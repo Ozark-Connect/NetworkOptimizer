@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
@@ -135,12 +136,12 @@ public class LanFlowMapService
         GroupMultiClientPorts(snapshot);
         await BuildWanAndClouds(topology, snapshot, ct);
 
-        // WAN interface names for InfluxDB rate queries. Include both physical
-        // and uplink names so PPPoE (ppp*) is covered when the physical port
-        // has no active counters.
+        // WAN interface names for InfluxDB rate queries, one per WAN (ppp* tunnel
+        // for PPPoE, physical port otherwise). Including both names would
+        // double-count, since the physical port keeps counting under PPPoE.
         var wans = await _pathView.GetWansAsync(ct);
         snapshot.WanIfNames = wans
-            .SelectMany(w => new[] { w.PhysicalIfName, w.UplinkIfName })
+            .Select(w => NetworkUtilities.PreferredWanCounterInterface(w.PhysicalIfName, w.UplinkIfName))
             .Where(n => !string.IsNullOrEmpty(n))
             .Select(n => n!)
             .Distinct()

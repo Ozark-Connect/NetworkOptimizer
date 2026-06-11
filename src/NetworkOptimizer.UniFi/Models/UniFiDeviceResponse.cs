@@ -344,6 +344,28 @@ public class GatewayWanInterface
     public int? Availability { get; set; }
 
     /// <summary>
+    /// Physical port backing this WAN (e.g., "eth4"). For VLAN-tagged or PPPoE
+    /// connections this is the parent port, not the interface carrying the traffic.
+    /// </summary>
+    [JsonPropertyName("ifname")]
+    public string? IfName { get; set; }
+
+    /// <summary>
+    /// Logical uplink interface carrying the WAN traffic (e.g., "eth4" for plain
+    /// connections, "eth4.100" for VLAN-tagged, "ppp0" for PPPoE).
+    /// </summary>
+    [JsonPropertyName("uplink_ifname")]
+    public string? UplinkIfName { get; set; }
+
+    /// <summary>
+    /// port_table index of the physical port backing this WAN. Absent for
+    /// virtual WANs (GRE-tunneled cellular).
+    /// </summary>
+    [JsonPropertyName("port_idx")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? PortIdx { get; set; }
+
+    /// <summary>
     /// Cumulative bytes received on this WAN interface since device boot.
     /// </summary>
     [JsonPropertyName("rx_bytes")]
@@ -583,6 +605,25 @@ public class SwitchPort
 
 public class UplinkInfo
 {
+    /// <summary>
+    /// Interface name of the active uplink. On gateways some firmwares put the
+    /// active WAN's logical interface here (e.g. "eth6.100"); others put a
+    /// bridge here and the WAN interface in uplink_ifname instead.
+    /// </summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>OS-level interface name of the active uplink, when reported.</summary>
+    [JsonPropertyName("ifname")]
+    public string? IfName { get; set; }
+
+    /// <summary>
+    /// Logical uplink interface of the active WAN on gateways (e.g. "ppp0" for
+    /// PPPoE). Firmware-dependent; may be absent when name carries it.
+    /// </summary>
+    [JsonPropertyName("uplink_ifname")]
+    public string? UplinkIfName { get; set; }
+
     [JsonPropertyName("uplink_mac")]
     public string UplinkMac { get; set; } = string.Empty;
 

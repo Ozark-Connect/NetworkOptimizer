@@ -527,4 +527,30 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region PreferredWanCounterInterface Tests
+
+    [Theory]
+    // Plain ethernet: physical and uplink are the same port
+    [InlineData("eth4", "eth4", "eth4")]
+    // VLAN-tagged: sub-interface double-counts (verified ~2x on a UCG-Fiber), physical wins
+    [InlineData("eth6", "eth6.100", "eth6")]
+    // PPPoE: tunnel carries the payload, physical over-counts (overhead + sibling VLANs)
+    [InlineData("eth4", "ppp0", "ppp0")]
+    // Cellular WAN via LAN GRE tunnel (UniFi 5G Max): both fields report the tunnel
+    [InlineData("gre1", "gre1", "gre1")]
+    // Hypothetical GRE uplink with a physical LAN port reported: tunnel wins
+    [InlineData("eth3", "gre1", "gre1")]
+    // Missing one side: use whichever is known
+    [InlineData(null, "ppp0", "ppp0")]
+    [InlineData("eth4", null, "eth4")]
+    [InlineData("eth4", "", "eth4")]
+    [InlineData(null, null, null)]
+    public void PreferredWanCounterInterface_PicksCounterBearingInterface(
+        string? physical, string? uplink, string? expected)
+    {
+        NetworkUtilities.PreferredWanCounterInterface(physical, uplink).Should().Be(expected);
+    }
+
+    #endregion
 }
