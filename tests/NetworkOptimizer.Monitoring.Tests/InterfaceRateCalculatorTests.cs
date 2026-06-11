@@ -7,8 +7,8 @@ namespace NetworkOptimizer.Monitoring.Tests;
 /// <summary>
 /// Tests for SNMP counter-to-rate computation: normal deltas, 32-bit wrap,
 /// unchanged-counter holds, genuine resets, and single-sample read glitches.
-/// The glitch cases reproduce the NAS eth6 incident where a corrupt counter read
-/// produced a 10 Tbps spike on a 2.5G port.
+/// The glitch cases reproduce a corrupt counter read that, untreated, snaps back
+/// to a terabit/sec rate on a 2.5G port.
 /// </summary>
 public class InterfaceRateCalculatorTests
 {
@@ -126,12 +126,12 @@ public class InterfaceRateCalculatorTests
         r.NewState.CandidateInOctets.Should().BeNull();
     }
 
-    // ─── Single-sample glitch (the NAS eth6 incident) ───
+    // ─── Single-sample glitch (corrupt read, then snap-back) ───
 
     [Fact]
     public void GlitchLowThenRecover_AbsorbedWithNoSpike_BaselineNeverPoisoned()
     {
-        // Reproduces eth6 @ 04:43: a corrupt low read between two true ~6.55 TB reads.
+        // A corrupt low read between two true ~6.55 TB reads.
         var baseline = Seed(6_554_744_931_434, 0, T0.AddSeconds(12));
 
         // Glitch read: counter momentarily reports 0.63 GB.
@@ -156,7 +156,7 @@ public class InterfaceRateCalculatorTests
     }
 
     [Fact]
-    public void GlitchHigh_ExceedsLinkSpeed_Discarded_BaselineHeld()
+    public void GlitchHigh_ExceedsLinkSpeed_Discarded_BaselineAdvances()
     {
         var prev = Seed(6_554_744_931_434, 0, T0);
         // Corrupt high read: +6.55 TB in 5s would be ~10 Tbps on a 2.5G port.
@@ -167,7 +167,33 @@ public class InterfaceRateCalculatorTests
         r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
         r.RateInBps.Should().BeNull("the bogus rate must not be emitted");
         r.RejectedRateInBps.Should().BeGreaterThan(TwoPointFiveGbps * InterfaceRateCalculator.LinkSpeedToleranceFactor);
-        r.NewState.InOctets.Should().Be(6_554_744_931_434, "baseline held, not advanced to the corrupt value");
+        // Baseline advances to the rejected sample so a poisoned baseline can never
+        // wedge the interface; the discarded rate is never emitted regardless.
+        r.NewState.InOctets.Should().Be(16_554_747_046_283);
+    }
+
+    [Fact]
+    public void ImplausibleRate_AdvancesBaseline_SoNextSampleRecovers_NeverStuck()
+    {
+        // A poisoned-low baseline (e.g. from two earlier corrupt low reads that
+        // falsely confirmed a reset) makes the next real read look impossible.
+        // The interface must recover, not suppress forever.
+        var poisoned = Seed(630_000_000, 0, T0);
+
+        var rejected = InterfaceRateCalculator.Compute(
+            poisoned, inOctets: 6_554_747_046_283, outOctets: 0, now: T0.AddSeconds(5),
+            useHcCounters: true, linkSpeedBps: TwoPointFiveGbps);
+        rejected.Outcome.Should().Be(InterfaceRateCalculator.Outcome.ImplausibleRate);
+        rejected.RateInBps.Should().BeNull();
+        rejected.NewState.InOctets.Should().Be(6_554_747_046_283, "baseline advanced past the poison");
+
+        // Next clean read computes a normal delta from the corrected baseline.
+        var recovered = InterfaceRateCalculator.Compute(
+            rejected.NewState, inOctets: 6_554_748_840_227, outOctets: 0, now: T0.AddSeconds(10),
+            useHcCounters: true, linkSpeedBps: TwoPointFiveGbps);
+        recovered.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        recovered.RateInBps.Should().BeGreaterThan(0);
+        recovered.RateInBps.Should().BeLessThan(TwoPointFiveGbps);
     }
 
     [Fact]

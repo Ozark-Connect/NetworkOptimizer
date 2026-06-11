@@ -53,7 +53,8 @@ public static class InterfaceRateCalculator
 
         /// <summary>
         /// Computed rate exceeded the link-speed ceiling - a corrupt read or a
-        /// snap-back. Rate discarded, baseline held. Worth a WARN log.
+        /// snap-back. Rate discarded; baseline advances to this sample so a bad
+        /// baseline can't wedge the interface. Worth a WARN log.
         /// </summary>
         ImplausibleRate,
     }
@@ -166,14 +167,17 @@ public static class InterfaceRateCalculator
         if (rateInBps > ceiling || rateOutBps > ceiling)
         {
             // Physically impossible for this link - a corrupt high read or a
-            // snap-back from a momentarily-low counter. The rejected rate is
-            // surfaced on RejectedRateInBps/OutBps for logging only; callers must
-            // not emit it. Keep the last good baseline so the next clean sample
-            // recovers.
+            // snap-back from a momentarily-low counter. The rate is discarded
+            // (surfaced on RejectedRate*Bps for logging only; callers must not
+            // emit it). Advance the baseline to this sample anyway: holding the
+            // old baseline would wedge the interface forever if that baseline is
+            // itself bad (a never-recovering "every read looks impossible" loop).
+            // Advancing means the next clean sample computes a normal delta, and
+            // no rate is ever emitted from a discarded sample regardless.
             return new Result(
                 null,
                 null,
-                prev with { CandidateInOctets = null, CandidateOutOctets = null, CandidateTimestamp = null },
+                fresh,
                 Outcome.ImplausibleRate,
                 rateInBps,
                 rateOutBps);
