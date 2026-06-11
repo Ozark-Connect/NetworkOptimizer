@@ -1381,6 +1381,12 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
+        // Gateways need the LAN-side address here for the same reason SNMP does:
+        // UniFi's "ip" field is the WAN public IP, which often doesn't answer ping
+        // from inside the LAN (PPPoE, CGNAT, upstream-assigned). The Address refresh
+        // below also migrates existing targets seeded with the WAN IP.
+        var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var existingByTargetId = await db.MonitoringTargets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric)
@@ -1417,13 +1423,14 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var d in devices)
         {
             if (string.IsNullOrEmpty(d.Ip) || string.IsNullOrEmpty(d.Mac)) continue;
+            var address = ResolveSnmpAddress(d, gatewayLanIp);
             var targetId = $"fabric-{NormalizeMac(d.Mac)}";
             if (existingByTargetId.TryGetValue(targetId, out var existing))
             {
                 // Refresh address in case the device's management IP changed.
-                if (existing.Address != d.Ip)
+                if (existing.Address != address)
                 {
-                    existing.Address = d.Ip;
+                    existing.Address = address;
                     changed = true;
                 }
                 continue;
@@ -1434,7 +1441,7 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 TargetId = targetId,
                 Name = string.IsNullOrEmpty(d.Name) ? d.Mac : d.Name,
-                Address = d.Ip,
+                Address = address,
                 ProbeMode = ProbeMode.Icmp,
                 TargetType = MonitoringTargetType.Fabric,
                 DeviceMac = NormalizeMac(d.Mac),
@@ -1698,9 +1705,9 @@ public class MonitoringCollectionAgent : BackgroundService
     }
 
     /// <summary>
-    /// SNMP poll address for a device. For gateways, swap UniFi's WAN public IP for
-    /// the LAN-side gateway IP so the poll actually reaches the device. All other
-    /// device types use their raw IP from UniFi.
+    /// Poll address for a device (SNMP and fabric latency targets). For gateways,
+    /// swap UniFi's WAN public IP for the LAN-side gateway IP so the poll actually
+    /// reaches the device. All other device types use their raw IP from UniFi.
     /// </summary>
     private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp)
     {
