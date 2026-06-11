@@ -125,29 +125,62 @@ public class UniFiDiscovery
     }
 
     /// <summary>
-    /// Resolves the interface names whose SNMP counters carry WAN traffic, one per WAN.
-    /// Prefers the gateway's wan1..wan6 objects, picking per WAN via
-    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp* tunnel for
-    /// PPPoE, physical port otherwise). Falls back to port_table is_uplink entries
-    /// for devices without wan objects (switches, APs) or gateways where the wan
-    /// objects are missing.
+    /// Resolves the interface name whose SNMP counters feed the WAN Live View and
+    /// Monitoring overview stats. For now this is the PRIMARY WAN interface only,
+    /// by design: the ISP / transit latency and loss cards shown alongside WAN
+    /// throughput are measured for a single WAN connection, so mixing failover or
+    /// cellular WAN traffic into the throughput numbers would disagree with them.
+    /// The primary WAN can be any connection type, including a GRE-tunneled
+    /// cellular WAN with no physical port.
+    /// Selection order, each translated to the counter-bearing interface via
+    /// <see cref="NetworkUtilities.PreferredWanCounterInterface"/> (ppp*/gre*
+    /// tunnel when the uplink is one, physical port otherwise):
+    /// 1. The gateway's uplink object, which names the active WAN's logical
+    ///    interface (field varies by firmware: uplink_ifname, ifname, or name),
+    ///    matched to its wan1..wan6 object. Tracks failover and covers virtual
+    ///    WANs that have no port_table entry.
+    /// 2. The port_table entry flagged is_uplink (the pre-#669 selector),
+    ///    matched to its wan object. Also covers non-gateway devices.
+    /// 3. The first wan object, preferring ones reported up (seen on PPPoE
+    ///    gateways where neither of the above is populated).
     /// </summary>
     internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
     {
-        var names = new List<string>();
-        foreach (var wan in d.GetWanInterfaces())
+        var wans = d.GetWanInterfaces();
+
+        var activeUplink = !string.IsNullOrEmpty(d.Uplink?.UplinkIfName) ? d.Uplink.UplinkIfName
+            : !string.IsNullOrEmpty(d.Uplink?.IfName) ? d.Uplink.IfName
+            : d.Uplink?.Name;
+        if (!string.IsNullOrEmpty(activeUplink))
+        {
+            var wan = wans.FirstOrDefault(w => w.UplinkIfName == activeUplink || w.IfName == activeUplink);
+            if (wan != null)
+            {
+                var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
+                if (!string.IsNullOrEmpty(name))
+                    return new List<string> { name };
+            }
+        }
+
+        var uplinkPort = d.PortTable?.FirstOrDefault(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName));
+        if (uplinkPort != null)
+        {
+            var wan = wans.FirstOrDefault(w =>
+                (!string.IsNullOrEmpty(w.IfName) && w.IfName == uplinkPort.IfName) ||
+                (w.PortIdx.HasValue && w.PortIdx == uplinkPort.PortIdx));
+            var name = wan != null
+                ? NetworkUtilities.PreferredWanCounterInterface(wan.IfName ?? uplinkPort.IfName, wan.UplinkIfName)
+                : uplinkPort.IfName;
+            return string.IsNullOrEmpty(name) ? new() : new List<string> { name };
+        }
+
+        foreach (var wan in wans.OrderBy(w => w.Up ? 0 : 1).ThenBy(w => w.Key, StringComparer.Ordinal))
         {
             var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-            if (!string.IsNullOrEmpty(name) && !names.Contains(name))
-                names.Add(name);
+            if (!string.IsNullOrEmpty(name))
+                return new List<string> { name };
         }
-        if (names.Count > 0)
-            return names;
-
-        return d.PortTable?
-            .Where(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName))
-            .Select(p => p.IfName!)
-            .ToList() ?? new();
+        return new();
     }
 
     /// <summary>
@@ -692,6 +725,14 @@ public class DiscoveredDevice
     public long RxBytes { get; set; }
     public int PortCount { get; set; }
 
+    /// <summary>
+    /// Counter-bearing interface of the PRIMARY WAN only (single entry, by
+    /// design - do not add secondary/cellular WANs). Feeds the WAN Live View
+    /// and Monitoring overview throughput, which sit alongside ISP / transit
+    /// latency cards measured for that one connection; mixing other WANs into
+    /// the throughput would disagree with them. See
+    /// UniFiDiscovery.GetWanInterfaceNames for the selection rules.
+    /// </summary>
     public List<string> WanInterfaceNames { get; set; } = new();
 
     // Wi-Fi specific (APs only)

@@ -1895,6 +1895,9 @@ else
             return (_historicSnapshot.WanDownloadBps, _historicSnapshot.WanUploadBps);
         if (_gatewayMac == null || _gatewayWanIfNames.Count == 0) return (0, 0);
         double totalDown = 0, totalUp = 0;
+        // _gatewayWanIfNames holds the PRIMARY WAN only, by design - these stats
+        // sit beside ISP/transit latency measured for that one connection. Do not
+        // widen it to other WANs (see DiscoveredDevice.WanInterfaceNames).
         foreach (var ifName in _gatewayWanIfNames)
         {
             var rate = LiveStats.GetPortRate(_gatewayMac, ifName);
