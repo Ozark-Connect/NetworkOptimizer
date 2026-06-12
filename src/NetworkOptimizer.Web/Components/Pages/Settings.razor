@@ -990,7 +990,7 @@
 
             <details class="add-form" open="@_cmFormVisible">
                 <summary @onclick="() => _cmFormVisible = !_cmFormVisible">@(_editingCm.Id > 0 ? "Edit Cable Modem" : "Add Cable Modem")</summary>
-                <div class="add-form-content">
+                <div class="add-form-content add-form-content-spaced">
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>
@@ -1150,7 +1150,7 @@
 
             <details class="add-form" open="@_ontFormVisible">
                 <summary @onclick="() => _ontFormVisible = !_ontFormVisible">@(_editingOnt.Id > 0 ? "Edit ONT" : "Add ONT")</summary>
-                <div class="add-form-content">
+                <div class="add-form-content add-form-content-spaced">
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>

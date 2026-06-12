@@ -6734,6 +6734,10 @@ a.path-hop.hop-clickable:hover {
     padding: 0.25rem 0 0.5rem;
 }
 
+.add-form-content-spaced {
+    padding-top: 0.75rem;
+}
+
 .setup-guide-content ol,
 .setup-guide-content ul {
     margin: 0.5rem 0;
