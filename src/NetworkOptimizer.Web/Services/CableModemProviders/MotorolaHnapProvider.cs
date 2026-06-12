@@ -114,7 +114,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
             return stats;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
