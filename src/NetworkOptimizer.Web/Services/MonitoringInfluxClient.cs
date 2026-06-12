@@ -430,6 +430,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? txBiasMa,
         double? temperatureC,
         double? voltageV,
+        int? sfpLinkSpeedMbps,
         DateTime timestamp)
     {
         if (!IsConfigured) return Task.CompletedTask;
@@ -443,6 +444,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (txBiasMa.HasValue) point = point.Field("tx_bias_ma", txBiasMa.Value);
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
         if (voltageV.HasValue) point = point.Field("voltage_v", voltageV.Value);
+        if (sfpLinkSpeedMbps.HasValue) point = point.Field("sfp_link_speed_mbps", sfpLinkSpeedMbps.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;
@@ -550,6 +552,11 @@ public class MonitoringInfluxClient : IAsyncDisposable
         double? biasMa,
         long? fecErrors,
         long? bipErrors,
+        string? ponType,
+        string? wavelength,
+        string? ponLinkStatus,
+        int? bwpSpeedMbps,
+        int? sfpLinkSpeedMbps,
         DateTime timestamp)
     {
         if (!IsConfigured) return Task.CompletedTask;
@@ -558,6 +565,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
             .Tag("ont_name", ontName)
             .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
 
+        if (!string.IsNullOrEmpty(ponType)) point = point.Tag("pon_type", ponType);
+        if (!string.IsNullOrEmpty(wavelength)) point = point.Tag("wavelength", wavelength);
+
         if (rxPowerDbm.HasValue) point = point.Field("rx_power_dbm", rxPowerDbm.Value);
         if (txPowerDbm.HasValue) point = point.Field("tx_power_dbm", txPowerDbm.Value);
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
@@ -565,6 +575,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (biasMa.HasValue) point = point.Field("bias_ma", biasMa.Value);
         if (fecErrors.HasValue) point = point.Field("fec_errors", fecErrors.Value);
         if (bipErrors.HasValue) point = point.Field("bip_errors", bipErrors.Value);
+        if (!string.IsNullOrEmpty(ponLinkStatus)) point = point.Field("pon_link_status", ponLinkStatus);
+        if (bwpSpeedMbps.HasValue) point = point.Field("bwp_speed_mbps", bwpSpeedMbps.Value);
+        if (sfpLinkSpeedMbps.HasValue) point = point.Field("sfp_link_speed_mbps", sfpLinkSpeedMbps.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;

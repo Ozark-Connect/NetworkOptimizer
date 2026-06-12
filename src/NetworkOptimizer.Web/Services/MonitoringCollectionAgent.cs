@@ -1866,6 +1866,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 txBiasMa: port.SfpCurrent,
                 temperatureC: port.SfpTemperature,
                 voltageV: port.SfpVoltage,
+                sfpLinkSpeedMbps: port.Speed > 0 ? port.Speed : null,
                 timestamp: timestamp);
 
             // Mirror the values into the live-stats cache so the dashboard SFP card can

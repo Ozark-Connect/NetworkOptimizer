@@ -50,6 +50,15 @@ public class OntStats
     /// <summary>Laser wavelength in nm</summary>
     public string? WaveLength { get; set; }
 
+    /// <summary>PON ONU activation state (ITU-T G.984.3 / G.9807.1)</summary>
+    public PonLinkState PonLinkStatus { get; set; }
+
+    /// <summary>Broadband provisioned speed in Mbps (BWP, not SFP link rate)</summary>
+    public int? BwpSpeedMbps { get; set; }
+
+    /// <summary>SFP physical link speed in Mbps (only populated when reported by the device)</summary>
+    public int? SfpLinkSpeedMbps { get; set; }
+
     // Error counters
     /// <summary>FEC corrected error count</summary>
     public long? FecErrors { get; set; }

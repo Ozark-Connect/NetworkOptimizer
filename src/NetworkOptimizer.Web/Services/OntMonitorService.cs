@@ -243,6 +243,11 @@ public class OntMonitorService : IDisposable
                 biasMa: stats.BiasMa,
                 fecErrors: stats.FecErrors,
                 bipErrors: stats.BipErrors,
+                ponType: stats.PonType,
+                wavelength: stats.WaveLength,
+                ponLinkStatus: stats.PonLinkStatus != PonLinkState.Unknown ? stats.PonLinkStatus.ToInfluxValue() : null,
+                bwpSpeedMbps: stats.BwpSpeedMbps,
+                sfpLinkSpeedMbps: stats.SfpLinkSpeedMbps,
                 timestamp: stats.Timestamp);
         }
         catch (Exception ex)

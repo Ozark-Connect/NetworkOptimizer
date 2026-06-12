@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 
@@ -20,6 +19,10 @@ public class AttGatewayOntProvider : IOntProvider
 
     private static readonly Regex KeyValueRegex = new(
         @"<th\s+scope=""row""[^>]*>([^<]+)</th>\s*<td\s+class=""col2""[^>]*>([^<]*)</td>",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex KeyValueLooseRegex = new(
+        @"<th\s+scope=""row""[^>]*>([^<]+)</th>\s*\n?\s*<td[^>]*>([^<]*)</td>",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public AttGatewayOntProvider(ILogger<AttGatewayOntProvider> logger)
@@ -65,9 +68,11 @@ public class AttGatewayOntProvider : IOntProvider
                 ParseBroadbandStatistics(broadbandHtml, stats);
             }
 
+            DerivePonTypeFromWavelength(stats);
+
             _logger.LogDebug(
-                "AT&T gateway {Host} polled: Rx={RxPower} dBm, Tx={TxPower} dBm, Temp={Temp} C",
-                context.Host, stats.RxPowerDbm, stats.TxPowerDbm, stats.TemperatureC);
+                "AT&T gateway {Host} polled: Rx={RxPower} dBm, Tx={TxPower} dBm, {PonType}, BWP={Bwp} Mbps",
+                context.Host, stats.RxPowerDbm, stats.TxPowerDbm, stats.PonType, stats.BwpSpeedMbps);
 
             return stats;
         }
@@ -173,7 +178,7 @@ public class AttGatewayOntProvider : IOntProvider
 
     private void ParseBroadbandStatistics(string html, OntStats stats)
     {
-        var kvMatches = KeyValueRegex.Matches(html);
+        var kvMatches = KeyValueLooseRegex.Matches(html);
         foreach (Match match in kvMatches)
         {
             var key = match.Groups[1].Value.Trim();
@@ -182,18 +187,39 @@ public class AttGatewayOntProvider : IOntProvider
             if (string.IsNullOrEmpty(value))
                 continue;
 
-            if (key.Contains("Broadband Connection Source", StringComparison.OrdinalIgnoreCase))
+            if (key.Equals("Broadband Connection", StringComparison.OrdinalIgnoreCase))
             {
-                // If fiber, set PonType generically (page doesn't distinguish GPON vs XGS-PON)
-                if (value.Contains("FIBER", StringComparison.OrdinalIgnoreCase))
-                    stats.PonType ??= "GPON";
-            }
-            else if (key.Equals("Broadband Connection", StringComparison.OrdinalIgnoreCase))
-            {
-                // Fallback operational status from broadband page
                 stats.OperationalStatus ??= value;
             }
+            else if (key.Contains("PON Link Status", StringComparison.OrdinalIgnoreCase))
+            {
+                stats.PonLinkStatus = PonLinkStateExtensions.ParsePonLinkState(value);
+            }
+            else if (key.Contains("Current Speed", StringComparison.OrdinalIgnoreCase)
+                     && int.TryParse(value, out var speed))
+            {
+                stats.BwpSpeedMbps = speed;
+            }
         }
+    }
+
+    /// <summary>
+    /// Derive PON type from the SFP wavelength.
+    /// Called after both pages are parsed so wavelength is available.
+    /// </summary>
+    private static void DerivePonTypeFromWavelength(OntStats stats)
+    {
+        if (string.IsNullOrWhiteSpace(stats.WaveLength))
+            return;
+
+        var cleaned = stats.WaveLength.Replace("nm", "", StringComparison.OrdinalIgnoreCase).Trim();
+        if (!int.TryParse(cleaned, out var nm))
+            return;
+
+        if (nm is 1490 or 1550)
+            stats.PonType = "GPON";
+        else if (nm == 1577)
+            stats.PonType = "XGS-PON";
     }
 
     /// <summary>
