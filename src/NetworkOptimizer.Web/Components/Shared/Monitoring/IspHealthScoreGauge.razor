@@ -2,18 +2,24 @@
 
 <div class="isp-gauge @(Small ? "isp-gauge-small" : "")">
     <svg viewBox="0 0 200 120" class="gauge-svg">
+        @* Flat origin, rounded leading end: butt caps with a cap dot at each arc's tip *@
         <path d="M 20 100 A 80 80 0 0 1 180 100"
               fill="none"
               stroke="#232326"
               stroke-width="@StrokeWidth"
-              stroke-linecap="round"/>
+              stroke-linecap="butt"/>
+        <circle cx="180" cy="100" r="@CapRadius" fill="#232326"/>
         <path d="M 20 100 A 80 80 0 0 1 180 100"
               fill="none"
               stroke="@ScoreColor()"
               stroke-width="@StrokeWidth"
-              stroke-linecap="round"
+              stroke-linecap="butt"
               stroke-dasharray="@DashArray()"
               stroke-dashoffset="0"/>
+        @if (Score is > 0)
+        {
+            <circle cx="@TipX" cy="@TipY" r="@CapRadius" fill="@ScoreColor()"/>
+        }
         <text x="100" y="86" text-anchor="middle" class="isp-gauge-score" fill="@ScoreColor()">@(Score?.ToString() ?? "--")</text>
         <text x="100" y="112" text-anchor="middle" class="isp-gauge-label">@Label</text>
     </svg>
@@ -29,6 +35,14 @@
     [Parameter] public bool Small { get; set; }
 
     private int StrokeWidth => Small ? 14 : 20;
+
+    private string CapRadius => (StrokeWidth / 2.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+    private string TipX => (100 - 80 * Math.Cos((Score ?? 0) / 100.0 * Math.PI))
+        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private string TipY => (100 - 80 * Math.Sin((Score ?? 0) / 100.0 * Math.PI))
+        .ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     private string ScoreColor() => Score switch
     {
