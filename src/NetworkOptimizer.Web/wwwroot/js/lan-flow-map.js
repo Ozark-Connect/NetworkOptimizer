@@ -311,7 +311,7 @@ export class LanFlowMap {
                 }
             }
             const scrubberFocused = document.activeElement === this._panels?.scrubberRange;
-            if (!scrubberFocused && !this._shouldAcceptKeys()) return;
+            if (!scrubberFocused && !this._shouldAcceptKeys(e)) return;
             if (e.key === ' ') {
                 e.preventDefault();
                 this._togglePlayPause();
@@ -332,12 +332,23 @@ export class LanFlowMap {
         document.addEventListener('keyup', this._onKeyUp);
     }
 
-    _shouldAcceptKeys() {
+    _shouldAcceptKeys(e) {
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
         if (document.activeElement?.isContentEditable) return false;
-        const rect = this.canvas.getBoundingClientRect();
-        return rect.bottom > 0 && rect.top < window.innerHeight;
+        const onScreen = (el) => {
+            if (!el) return false;
+            const rect = el.getBoundingClientRect();
+            return rect.bottom > 0 && rect.top < window.innerHeight;
+        };
+        if (onScreen(this.canvas)) return true;
+        // Scrub/pause keys also work while the companion 2D map is on screen -
+        // it mirrors this map's scrubber, and without this the keyboard goes
+        // dead the moment the 3D canvas scrolls out of view. Camera keys
+        // (WASD/QE) stay 3D-only so the camera can't be flown around unseen.
+        const isScrubKey = e && (e.key === ' ' || e.key === 'Shift'
+            || e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+        return isScrubKey && onScreen(document.querySelector('.lan-flow-map-2d-stage'));
     }
 
     _fitCamera() {
