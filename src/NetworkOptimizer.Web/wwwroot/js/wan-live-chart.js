@@ -8,7 +8,9 @@ const HISTORY_MINUTES = 5;
 // Poll faster than the 5s SNMP fast tier so no sample is missed when the two
 // clocks drift out of phase; pollLive dedupes repeat reads via sampleTime.
 const POLL_MS = 2500;
-const SCROLL_MS = 500;
+// Window-scroll redraw cadence. At 250ms each step moves well under a pixel
+// on typical widths, so the chart slides instead of visibly ticking.
+const SCROLL_MS = 250;
 const COLOR_DL   = '#3b82f6';
 const COLOR_UL   = '#10b981';
 const COLOR_LOSS = '#ef4444';
@@ -69,12 +71,12 @@ function buildOpts() {
             type: 'datetime',
             min: Date.now() - HISTORY_MINUTES * 60000,
             max: Date.now(),
-            labels: {
-                show: true,
-                style: { colors: '#64748b', fontSize: '10px' },
-                datetimeUTC: false,
-                datetimeFormatter: { hour: 'HH:mm', minute: 'HH:mm:ss' },
-            },
+            // Built-in labels are hidden: ApexCharts re-picks "nice" ticks as
+            // the window slides, so the labels kept swapping between
+            // :00 | :20 | :40 and :10 | :30 | :50 alignments. Time labels are
+            // drawn as annotations pinned to a fixed 20s grid instead (see
+            // buildTimeTicks).
+            labels: { show: false },
             axisBorder: { show: false },
             axisTicks: { show: false },
         },
@@ -148,6 +150,34 @@ function buildOpts() {
     };
 }
 
+// Time labels pinned to a fixed 20s grid, rendered as x-axis annotations so
+// they scroll with the data. Minute boundaries show the full time; the :20
+// and :40 ticks show just the seconds.
+function buildTimeTicks(minMs, maxMs) {
+    const GRID_MS = 20000;
+    const ticks = [];
+    for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
+        const d = new Date(t);
+        const ss = d.getSeconds();
+        const text = ss === 0
+            ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : ':' + String(ss).padStart(2, '0');
+        ticks.push({
+            x: t,
+            borderColor: 'transparent',
+            label: {
+                text,
+                position: 'bottom',
+                orientation: 'horizontal',
+                offsetY: -4,
+                borderColor: 'transparent',
+                style: { background: 'transparent', color: '#64748b', fontSize: '10px' },
+            },
+        });
+    }
+    return ticks;
+}
+
 function rttYMax() {
     const rtts = buffer.map(p => p.rtt).filter(v => v != null && v > 0).sort((a, b) => a - b);
     if (rtts.length === 0) return 10;
@@ -174,6 +204,7 @@ function updateChart() {
     chart.updateOptions({
         xaxis: { min: now - HISTORY_MINUTES * 60000, max: now },
         yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+        annotations: { xaxis: buildTimeTicks(now - HISTORY_MINUTES * 60000, now) },
     }, false, false, false);
     chart.updateSeries([
         { name: 'Download', data: pts.map(p => ({ x: p.time, y: p.download })) },
@@ -288,8 +319,8 @@ export function resume() {
 export async function seekTime(isoTimestamp) {
     if (!chart) return;
     if (!isoTimestamp) {
-        // Return to live mode - clear playhead annotation
-        chart.clearAnnotations();
+        // Return to live mode - updateChart replaces the annotations with the
+        // plain time grid, dropping the playhead.
         if (pollTimer) return; // already live
         buffer = [];
         await loadHistory();
@@ -321,19 +352,7 @@ export async function seekTime(isoTimestamp) {
     } catch { return; }
     if (buffer.length === 0) return;
     const maxTime = Math.min(at + halfWindow, Date.now());
-    chart.updateOptions({
-        xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
-        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
-    }, false, false, false);
-    chart.updateSeries([
-        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
-        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
-        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
-        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
-    ], false);
-
-    chart.clearAnnotations();
-    chart.addXaxisAnnotation({
+    const playhead = {
         x: at,
         borderColor: '#f1f5f9',
         strokeDashArray: 3,
@@ -346,7 +365,18 @@ export async function seekTime(isoTimestamp) {
             orientation: 'horizontal',
             offsetY: -5,
         }
-    });
+    };
+    chart.updateOptions({
+        xaxis: { min: maxTime - HISTORY_MINUTES * 60000, max: maxTime },
+        yaxis: [chart.opts.yaxis[0], chart.opts.yaxis[1], chart.opts.yaxis[2], { ...chart.opts.yaxis[3], max: rttYMax() }],
+        annotations: { xaxis: [...buildTimeTicks(maxTime - HISTORY_MINUTES * 60000, maxTime), playhead] },
+    }, false, false, false);
+    chart.updateSeries([
+        { name: 'Download', data: buffer.map(p => ({ x: p.time, y: p.download })) },
+        { name: 'Upload',   data: buffer.map(p => ({ x: p.time, y: p.upload })) },
+        { name: 'Loss',     data: buffer.map(p => ({ x: p.time, y: p.loss })) },
+        { name: 'RTT',      data: buffer.map(p => ({ x: p.time, y: p.rtt })) },
+    ], false);
 }
 
 export function unmount() {
