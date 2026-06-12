@@ -14886,7 +14886,7 @@ a.affected-client:hover {
     opacity: 0.6;
     transition: transform 0.2s ease;
     margin-left: 0.5rem;
-    margin-right: -0.35rem;
+    margin-right: -0.25rem;
 }
 .lan-flow-map-panel-title-toggle:not(:has(+ .is-collapsed))::after {
     transform: rotate(180deg);
