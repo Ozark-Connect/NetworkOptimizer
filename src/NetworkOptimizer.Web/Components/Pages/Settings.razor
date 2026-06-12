@@ -786,7 +786,7 @@
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
             <details class="add-form" open="@modemFormExpanded">
                 <summary @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
-                <div>
+                <div class="add-form-content">
                     <p class="form-help" style="margin-bottom: 1rem;">
                         Only use manual entry if auto-discovery doesn't find your modem.
                     </p>
@@ -990,7 +990,7 @@
 
             <details class="add-form" open="@_cmFormVisible">
                 <summary @onclick="() => _cmFormVisible = !_cmFormVisible">@(_editingCm.Id > 0 ? "Edit Cable Modem" : "Add Cable Modem")</summary>
-                <div style="padding-top: 0.5rem;">
+                <div class="add-form-content">
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>
@@ -1150,7 +1150,7 @@
 
             <details class="add-form" open="@_ontFormVisible">
                 <summary @onclick="() => _ontFormVisible = !_ontFormVisible">@(_editingOnt.Id > 0 ? "Edit ONT" : "Add ONT")</summary>
-                <div style="padding-top: 0.5rem;">
+                <div class="add-form-content">
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>

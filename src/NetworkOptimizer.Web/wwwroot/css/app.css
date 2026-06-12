@@ -6727,7 +6727,11 @@ a.path-hop.hop-clickable:hover {
     cursor: pointer;
     font-weight: 500;
     font-size: 0.875rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.add-form-content {
+    padding: 0.25rem 0 0.5rem;
 }
 
 .setup-guide-content ol,
