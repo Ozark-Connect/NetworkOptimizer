@@ -65,7 +65,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
                 return null;
             }
 
-            var response = await CallMultipleHnapsAsync(
+            using var response = await CallMultipleHnapsAsync(
                 client, baseUrl, session,
                 ["GetMotoStatusDownstreamChannelInfo",
                  "GetMotoStatusUpstreamChannelInfo",
@@ -119,7 +119,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
             _sessions[context.Id] = session;
 
-            var response = await CallMultipleHnapsAsync(
+            using var response = await CallMultipleHnapsAsync(
                 client, baseUrl, session,
                 ["GetMotoStatusDownstreamChannelInfo",
                  "GetMotoStatusUpstreamChannelInfo"],
@@ -146,7 +146,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     {
         if (_sessions.TryGetValue(context.Id, out var cached))
         {
-            var testResponse = await CallMultipleHnapsAsync(
+            using var testResponse = await CallMultipleHnapsAsync(
                 client, baseUrl, cached,
                 ["GetMotoStatusConnectionInfo"],
                 cancellationToken);
@@ -188,7 +188,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             }
         };
 
-        var phase1Response = await PostHnapAsync(
+        using var phase1Response = await PostHnapAsync(
             client, endpoint, "Login", "withoutloginkey", requestPayload, cancellationToken);
 
         if (phase1Response == null)
@@ -238,7 +238,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var session = new HnapSession(privateKey, uid);
         ApplySessionCookies(client, context.Host, session);
 
-        var phase2Response = await PostHnapAsync(
+        using var phase2Response = await PostHnapAsync(
             client, endpoint, "Login", privateKey, authPayload, cancellationToken);
 
         if (phase2Response == null)
