@@ -347,7 +347,7 @@ public class IspHealthScorerTests
 
         var graded = report.TransitAsns.Single();
         graded.ReachDeltaMs.Should().BeApproximately(6, 0.5);
-        graded.ReachLatencyScore.Should().BeInRange(90, 95);
+        graded.ReachLatencyScore.Should().BeInRange(93, 96);
     }
 
     [Fact]
@@ -360,13 +360,13 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Acceptable_transit_reach_scores_seventy_five()
+    public void Acceptable_transit_reach_scores_good()
     {
-        // 12 ms absolute on a 2 ms access hop: delta 10 ms, the acceptable ceiling
+        // 12 ms absolute on a 2 ms access hop: delta 10 ms, still good but not excellent
         var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 12, 0.5)) };
         var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
 
-        report.TransitAsns.Single().ReachLatencyScore.Should().BeInRange(73, 77);
+        report.TransitAsns.Single().ReachLatencyScore.Should().BeInRange(85, 89);
     }
 
     [Fact]

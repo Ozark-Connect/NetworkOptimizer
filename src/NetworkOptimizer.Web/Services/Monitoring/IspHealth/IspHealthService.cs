@@ -403,10 +403,12 @@ public class IspHealthService
         Dictionary<string, List<LatencySample>> transitSeries)
     {
         var ispOverrides = BuildIspAsnOverrides(ispTargets);
-        var (ispGrading, ispClusters) = GroupAndCluster(ispTargets, ispSeries, ispOverrides);
+        // The ISP grade follows the live ISP RTT card: the single lowest-RTT target
+        // is the first clean hop and represents the ISP network
+        var (ispGrading, ispClusters) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
 
         var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
-        var (transitGrading, transitClusters) = GroupAndCluster(attributedTransit, transitSeries, null);
+        var (transitGrading, transitClusters) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
 
         return (ispGrading, transitGrading, ispClusters.Concat(transitClusters).ToList());
     }
@@ -434,7 +436,8 @@ public class IspHealthService
     private (List<AsnSeries> Grading, List<AsnSeries> AllClusters) GroupAndCluster(
         List<MonitoringTarget> targets,
         Dictionary<string, List<LatencySample>> seriesByTarget,
-        Dictionary<string, (int Asn, string? Name)>? asnOverrides)
+        Dictionary<string, (int Asn, string? Name)>? asnOverrides,
+        bool gradeLowestTargetOnly)
     {
         var grading = new List<AsnSeries>();
         var allClusters = new List<AsnSeries>();
@@ -474,7 +477,9 @@ public class IspHealthService
             var firstMin = clusters[0][0].Median!.Value;
             for (var i = 0; i < clusters.Count; i++)
             {
-                var clusterTargets = clusters[i].Select(c => c.Target).ToList();
+                var clusterTargets = gradeLowestTargetOnly && i == 0
+                    ? new List<MonitoringTarget> { clusters[i][0].Target }
+                    : clusters[i].Select(c => c.Target).ToList();
                 var series = new AsnSeries
                 {
                     AsnNumber = group.Key,
@@ -484,6 +489,19 @@ public class IspHealthService
                 };
                 allClusters.Add(series);
                 if (i == 0) grading.Add(series);
+
+                // Hops displaced from the graded series stay visible to the chart and detectors
+                if (gradeLowestTargetOnly && i == 0 && clusters[i].Count > 1)
+                {
+                    var others = clusters[i].Skip(1).Select(c => c.Target).ToList();
+                    allClusters.Add(new AsnSeries
+                    {
+                        AsnNumber = group.Key,
+                        AsnName = $"{asnName} (other hops)",
+                        TargetIds = others.Select(t => t.TargetId).ToList(),
+                        Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                    });
+                }
             }
         }
         return (grading, allClusters);

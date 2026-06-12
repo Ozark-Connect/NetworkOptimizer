@@ -456,7 +456,7 @@ public class IspHealthScorer
         {
             reachDelta = Math.Max(0, medianRtt.Value - accessBaselineRtt.Value);
             reachScore = (int)Math.Round(ScoreCurve.Interpolate(reachDelta.Value,
-                (1, 100), (7, 90), (10, 75), (15, 55), (25, 30), (40, 0)));
+                (1, 100), (8, 93), (12, 80), (15, 68), (25, 38), (40, 0)));
         }
 
         var asnEvents = congestionEvents.Where(e => e.AsnNumbers.Contains(series.AsnNumber)).ToList();
