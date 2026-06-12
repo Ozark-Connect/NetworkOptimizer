@@ -11,46 +11,72 @@
             <span>Loading cellular stats...</span>
         </div>
     }
+    else if (modemStats == null && hasConfiguredModems)
+    {
+        <div class="sqm-header">
+            <div class="sqm-status">
+                <span class="status-indicator status-disconnected"></span>
+                <span class="status-label">@configuredModems[currentModemIndex].Name</span>
+            </div>
+        </div>
+
+        <div class="signal-quality-section">
+            <div class="signal-bars">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    <div class="signal-bar"></div>
+                }
+            </div>
+            <div class="signal-quality-text">
+                <span class="quality-value">-</span>
+                <span class="quality-label">Signal Quality</span>
+            </div>
+            <div class="modem-nav">
+                @if (configuredModems.Count > 1)
+                {
+                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)">&#x2039;</button>
+                    <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
+                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">&#x203A;</button>
+                }
+            </div>
+        </div>
+
+        <div class="cellular-metrics">
+            <div class="metric-box metric-5g">
+                <div class="metric-header">5G NR</div>
+                <div class="metric-content">
+                    <div class="metric-row"><span class="metric-label">RSRP:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">RSRQ:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">SNR:</span><span class="metric-value">-</span></div>
+                </div>
+            </div>
+            <div class="metric-box metric-lte">
+                <div class="metric-header">LTE</div>
+                <div class="metric-content">
+                    <div class="metric-row"><span class="metric-label">RSRP:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">RSRQ:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">SNR:</span><span class="metric-value">-</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sqm-actions">
+            <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
+                @if (isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+            </button>
+            <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Modem Settings</a>
+        </div>
+    }
     else if (modemStats == null)
     {
         <div class="sqm-unavailable">
             <div class="sqm-status">
                 <span class="status-indicator status-disconnected"></span>
-                <span class="status-label">@(hasConfiguredModems && configuredModems.Count > 0 ? configuredModems[currentModemIndex].Name : "No Data")</span>
+                <span class="status-label">No Data</span>
             </div>
-            @if (configuredModems.Count > 1)
-            {
-                <div class="modem-nav" style="margin-bottom: 0.75rem;">
-                    <button class="nav-btn" @onclick="PreviousModem" @onclick:stopPropagation disabled="@(currentModemIndex == 0)">‹</button>
-                    <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
-                    <button class="nav-btn" @onclick="NextModem" @onclick:stopPropagation disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
-                </div>
-            }
-            <p class="status-message">
-                @if (hasConfiguredModems)
-                {
-                    <span>Modem configured but no data available. Click refresh to poll.</span>
-                }
-                else
-                {
-                    <span>No cellular modem configured.</span>
-                }
-            </p>
+            <p class="status-message">No cellular modem configured.</p>
             <div class="sqm-actions">
-                @if (hasConfiguredModems)
-                {
-                    <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
-                        @if (isRefreshing)
-                        {
-                            <span class="spinner-sm"></span>
-                        }
-                        else
-                        {
-                            <span>Refresh</span>
-                        }
-                    </button>
-                }
-                <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
+                <a href="/settings#cellular-modem" class="btn btn-primary" @onclick:stopPropagation>Configure Modem</a>
             </div>
         </div>
     }

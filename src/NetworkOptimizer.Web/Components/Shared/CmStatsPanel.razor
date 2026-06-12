@@ -11,39 +11,68 @@
             <span>Loading cable modem stats...</span>
         </div>
     }
+    else if (_stats == null && _configs.Count > 0)
+    {
+        <div class="sqm-header">
+            <div class="sqm-status">
+                <span class="status-indicator status-disconnected"></span>
+                <span class="status-label">@_configs[_currentIndex].Name</span>
+            </div>
+        </div>
+
+        <div class="signal-quality-section signal-centered">
+            <div class="ont-rx-gauge">
+                <span class="rx-power-value">-</span>
+                <span class="rx-power-label">Downstream SNR avg</span>
+            </div>
+            <div class="modem-nav">
+                @if (_configs.Count > 1)
+                {
+                    <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
+                    <span class="modem-counter">@(_currentIndex + 1)/@_configs.Count</span>
+                    <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _configs.Count - 1)">&#x203A;</button>
+                }
+            </div>
+        </div>
+
+        <div class="cellular-metrics" style="margin-top: 0.75rem;">
+            <div class="metric-box">
+                <div class="metric-header">Connection</div>
+                <div class="metric-content">
+                    <div class="metric-row"><span class="metric-label">Channels:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">DS Power:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">US Power:</span><span class="metric-value">-</span></div>
+                </div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-header">Stats</div>
+                <div class="metric-content">
+                    <div class="metric-row"><span class="metric-label">DS SNR:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">Correctables:</span><span class="metric-value">-</span></div>
+                    <div class="metric-row"><span class="metric-label">Uncorrectables:</span><span class="metric-value">-</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sqm-actions">
+            <button class="btn btn-secondary" @onclick="Refresh" @onclick:stopPropagation disabled="@_isRefreshing">
+                @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+            </button>
+            <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>CM Settings</a>
+        </div>
+    }
     else if (_stats == null)
     {
         <div class="sqm-unavailable">
             <div class="sqm-status">
                 <span class="status-indicator status-disconnected"></span>
-                <span class="status-label">@(_configs.Count > 0 ? _configs[_currentIndex].Name : "No Data")</span>
+                <span class="status-label">No Data</span>
             </div>
-            @if (_configs.Count > 1)
-            {
-                <div class="modem-nav" style="margin-bottom: 0.75rem;">
-                    <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
-                    <span class="modem-counter">@(_currentIndex + 1)/@_configs.Count</span>
-                    <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _configs.Count - 1)">&#x203A;</button>
-                </div>
-            }
             <p class="status-message">
-                @if (_configs.Count > 0)
-                {
-                    <span>Cable modem configured but no data available. Click refresh to poll.</span>
-                }
-                else
-                {
-                    <span>Monitor your cable modem's downstream power, SNR, upstream power, and FEC error rates. Supports Netgear and ARRIS Surfboard modems.</span>
-                }
+                Monitor your cable modem's downstream power, SNR, upstream power, and FEC error rates. Supports Netgear, ARRIS Surfboard, and Motorola modems.
             </p>
             <div class="sqm-actions">
-                @if (_configs.Count > 0)
-                {
-                    <button class="btn btn-secondary" @onclick="Refresh" @onclick:stopPropagation disabled="@_isRefreshing">
-                        @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
-                    </button>
-                }
-                <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>@(_configs.Count > 0 ? "CM Settings" : "Configure CM")</a>
+                <a href="/settings#cable-modem" class="btn btn-primary" @onclick:stopPropagation>Configure CM</a>
             </div>
         </div>
     }
@@ -59,7 +88,7 @@
             </div>
         </div>
 
-        <div class="signal-quality-section">
+        <div class="signal-quality-section signal-centered">
             <div class="ont-rx-gauge">
                 <span class="rx-power-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">
                     @(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")
@@ -78,35 +107,35 @@
 
         <div class="cellular-metrics" style="margin-top: 0.75rem;">
             <div class="metric-box">
-                <div class="metric-header">Downstream</div>
+                <div class="metric-header">Connection</div>
                 <div class="metric-content">
                     <div class="metric-row">
-                        <span class="metric-label">Power:</span>
+                        <span class="metric-label">Channels:</span>
+                        <span class="metric-value">@_stats.LockedDsChannels DS / @_stats.LockedUsChannels US</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">DS Power:</span>
                         <span class="metric-value">@(_stats.DownstreamPowerAvgDbmv.HasValue ? $"{_stats.DownstreamPowerAvgDbmv.Value:F1} dBmV" : "-")</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-label">SNR:</span>
-                        <span class="metric-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">@(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Channels:</span>
-                        <span class="metric-value">@_stats.LockedDsChannels locked</span>
+                        <span class="metric-label">US Power:</span>
+                        <span class="metric-value">@(_stats.UpstreamPowerAvgDbmv.HasValue ? $"{_stats.UpstreamPowerAvgDbmv.Value:F1} dBmV" : "-")</span>
                     </div>
                 </div>
             </div>
             <div class="metric-box">
-                <div class="metric-header">Upstream</div>
+                <div class="metric-header">Stats</div>
                 <div class="metric-content">
                     <div class="metric-row">
-                        <span class="metric-label">Power:</span>
-                        <span class="metric-value">@(_stats.UpstreamPowerAvgDbmv.HasValue ? $"{_stats.UpstreamPowerAvgDbmv.Value:F1} dBmV" : "-")</span>
+                        <span class="metric-label">DS SNR:</span>
+                        <span class="metric-value @GetSnrClass(_stats.DownstreamSnrAvgDb)">@(_stats.DownstreamSnrAvgDb.HasValue ? $"{_stats.DownstreamSnrAvgDb.Value:F1} dB" : "-")</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-label">Channels:</span>
-                        <span class="metric-value">@_stats.LockedUsChannels locked</span>
+                        <span class="metric-label">Correctables:</span>
+                        <span class="metric-value">@_stats.TotalCorrectables</span>
                     </div>
                     <div class="metric-row">
-                        <span class="metric-label">Uncorr:</span>
+                        <span class="metric-label">Uncorrectables:</span>
                         <span class="metric-value @(_stats.TotalUncorrectables > 0 ? "signal-poor" : "")">@_stats.TotalUncorrectables</span>
                     </div>
                 </div>

@@ -1681,6 +1681,28 @@ a.stat-card-link:active {
     margin-left: auto;
 }
 
+.signal-centered {
+    position: relative;
+    justify-content: center;
+}
+.signal-centered .ont-rx-gauge {
+    flex: initial;
+}
+.signal-centered .modem-nav {
+    position: absolute;
+    right: 0.75rem;
+    margin-left: 0;
+}
+@media (max-width: 768px) {
+    .signal-centered {
+        flex-wrap: wrap;
+    }
+    .signal-centered .modem-nav {
+        position: static;
+        margin-left: 0;
+    }
+}
+
 .nav-btn {
     background: var(--bg-card);
     border: 1px solid var(--border-color);

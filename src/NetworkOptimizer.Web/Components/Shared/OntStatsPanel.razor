@@ -30,7 +30,7 @@ else if (IsShowingExternal && _externalOntStats != null)
         }
     </div>
 
-    <div class="signal-quality-section">
+    <div class="signal-quality-section signal-centered">
         <div class="ont-rx-gauge">
             <span class="rx-power-value @ExternalRxClass()">
                 @(_externalOntStats.RxPowerDbm.HasValue ? $"{_externalOntStats.RxPowerDbm.Value:0.0#} dBm" : "-")
@@ -49,7 +49,41 @@ else if (IsShowingExternal && _externalOntStats != null)
 
     <div class="cellular-metrics" style="margin-top: 0.75rem;">
         <div class="metric-box">
-            <div class="metric-header">Optical</div>
+            <div class="metric-header">Connection</div>
+            <div class="metric-content">
+                @{ var extModel = SfpModelLabel(_externalOntStats.VendorName, _externalOntStats.VendorPn); }
+                @if (!string.IsNullOrEmpty(extModel))
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Model:</span>
+                        <span class="metric-value ont-model-value">@extModel</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(_externalOntStats.PonType))
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Link Type:</span>
+                        <span class="metric-value">@ExternalLinkTypeLabel()</span>
+                    </div>
+                }
+                @if (_externalOntStats.PonLinkStatus != PonLinkState.Unknown)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">PON Status:</span>
+                        <span class="metric-value">@_externalOntStats.PonLinkStatus.ToDisplayString()</span>
+                    </div>
+                }
+                @if (_externalOntStats.BwpSpeedMbps.HasValue)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">BWP:</span>
+                        <span class="metric-value">@(_externalOntStats.BwpSpeedMbps >= 1000 ? $"{_externalOntStats.BwpSpeedMbps / 1000.0:0.##} Gbps" : $"{_externalOntStats.BwpSpeedMbps} Mbps")</span>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-header">Stats</div>
             <div class="metric-content">
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
@@ -60,31 +94,11 @@ else if (IsShowingExternal && _externalOntStats != null)
                     <span class="metric-value">@(_externalOntStats.TxPowerDbm.HasValue ? $"{_externalOntStats.TxPowerDbm.Value:0.0#} dBm" : "-")</span>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">Temp:</span>
+                    <span class="metric-label">SFP Temp:</span>
                     <span class="metric-value">@(_externalOntStats.TemperatureC.HasValue ? $"{_externalOntStats.TemperatureC.Value:0.0#} °C" : "-")</span>
                 </div>
-            </div>
-        </div>
-        <div class="metric-box">
-            <div class="metric-header">Module</div>
-            <div class="metric-content">
-                @{ var extModel = SfpModelLabel(_externalOntStats.VendorName, _externalOntStats.VendorPn); }
-                @if (!string.IsNullOrEmpty(extModel))
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Model:</span>
-                        <span class="metric-value ont-model-value">@extModel</span>
-                    </div>
-                }
-                @if (!string.IsNullOrEmpty(_externalOntStats.WaveLength))
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Wavelength:</span>
-                        <span class="metric-value">@_externalOntStats.WaveLength</span>
-                    </div>
-                }
                 <div class="metric-row">
-                    <span class="metric-label">Voltage:</span>
+                    <span class="metric-label">SFP Voltage:</span>
                     <span class="metric-value">@(_externalOntStats.VoltageV.HasValue ? $"{_externalOntStats.VoltageV.Value:0.0#} V" : "-")</span>
                 </div>
             </div>
@@ -100,24 +114,49 @@ else if (IsShowingExternal)
 {
     var extIdx = _currentIndex - _monitoredOnts.Count;
     var extName = extIdx < _externalOnts.Count ? _externalOnts[extIdx].Name : "ONT";
-    <div class="sqm-unavailable">
+    <div class="sqm-header">
         <div class="sqm-status">
             <span class="status-indicator status-disconnected"></span>
             <span class="status-label">@extName</span>
         </div>
-        @if (TotalCount > 1)
-        {
-            <div class="modem-nav" style="margin-bottom: 0.75rem;">
+    </div>
+
+    <div class="signal-quality-section signal-centered">
+        <div class="ont-rx-gauge">
+            <span class="rx-power-value">-</span>
+            <span class="rx-power-label">RX optical power</span>
+        </div>
+        <div class="modem-nav">
+            @if (TotalCount > 1)
+            {
                 <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">&#x2039;</button>
                 <span class="modem-counter">@(_currentIndex + 1)/@TotalCount</span>
                 <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">&#x203A;</button>
-            </div>
-        }
-        <p class="status-message">ONT configured but no data yet. Click refresh to poll.</p>
-        <div class="sqm-actions">
-            <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
-            <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
+            }
         </div>
+    </div>
+
+    <div class="cellular-metrics" style="margin-top: 0.75rem;">
+        <div class="metric-box">
+            <div class="metric-header">Optical</div>
+            <div class="metric-content">
+                <div class="metric-row"><span class="metric-label">RX:</span><span class="metric-value">-</span></div>
+                <div class="metric-row"><span class="metric-label">TX:</span><span class="metric-value">-</span></div>
+                <div class="metric-row"><span class="metric-label">Temp:</span><span class="metric-value">-</span></div>
+            </div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-header">Module</div>
+            <div class="metric-content">
+                <div class="metric-row"><span class="metric-label">Wavelength:</span><span class="metric-value">-</span></div>
+                <div class="metric-row"><span class="metric-label">Voltage:</span><span class="metric-value">-</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="sqm-actions">
+        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
+        <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
     </div>
 }
 else if (TotalCount == 0)
@@ -163,7 +202,7 @@ else
         }
     </div>
 
-    <div class="signal-quality-section">
+    <div class="signal-quality-section signal-centered">
         <div class="ont-rx-gauge">
             <span class="rx-power-value @rxClass">
                 @(stats?.RxPowerDbm.HasValue == true ? $"{stats.RxPowerDbm.Value:0.0#} dBm" : "-")
@@ -174,20 +213,57 @@ else
             @if (TotalCount > 1)
             {
                 <button class="nav-btn" @onclick="Previous" @onclick:stopPropagation disabled="@(_currentIndex == 0)">‹</button>
-                <span class="modem-counter">@(_currentIndex + 1)/@_monitoredOnts.Count</span>
-                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= _monitoredOnts.Count - 1)">›</button>
+                <span class="modem-counter">@(_currentIndex + 1)/@TotalCount</span>
+                <button class="nav-btn" @onclick="Next" @onclick:stopPropagation disabled="@(_currentIndex >= TotalCount - 1)">›</button>
             }
         </div>
     </div>
 
     <div class="cellular-metrics" style="margin-top: 0.75rem;">
         <div class="metric-box">
-            <div class="metric-header">Optical</div>
+            <div class="metric-header">Connection</div>
             <div class="metric-content">
+                @{ var model = SfpModelLabel(current.SfpVendor, current.SfpPart); }
+                @if (!string.IsNullOrEmpty(model))
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">Model:</span>
+                        <span class="metric-value ont-model-value">@model</span>
+                    </div>
+                }
                 <div class="metric-row">
                     <span class="metric-label">Link Type:</span>
                     <span class="metric-value @(current.IsActiveEthernet ? "ont-ae-value" : "")">@LinkTypeLabel(current)</span>
                 </div>
+                @if (current.LinkSpeedMbps.HasValue)
+                {
+                    <div class="metric-row">
+                        <span class="metric-label">SFP Link:</span>
+                        <span class="metric-value">
+                            @FormatLinkSpeed(current.LinkSpeedMbps.Value)
+                            @if (current.IsPon
+                                && current.LinkSpeedMbps <= 1000
+                                && PonVariantLabel(current.SfpPart, current.SfpVendor) == "GPON"
+                                && IsUpgradableGateway())
+                            {
+                                <a href="/perf-tweaks" class="tooltip-icon tooltip-icon-sm"
+                                   data-tooltip="Most GPON SFP ONTs support 2.5 Gbps on this gateway. Check Performance Tweaks."
+                                   style="margin-left: 0.35rem;">?</a>
+                            }
+                        </span>
+                    </div>
+                }
+                <div class="metric-row">
+                    <span class="metric-label">SFP Voltage:</span>
+                    <span class="metric-value">
+                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
+                    </span>
+                </div>
+            </div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-header">Stats</div>
+            <div class="metric-content">
                 <div class="metric-row">
                     <span class="metric-label">RX:</span>
                     <span class="metric-value @rxClass">
@@ -206,47 +282,10 @@ else
                         @(stats?.BiasMa.HasValue == true ? $"{stats.BiasMa.Value:0.##} mA" : "-")
                     </span>
                 </div>
-            </div>
-        </div>
-        <div class="metric-box">
-            <div class="metric-header">Module</div>
-            <div class="metric-content">
-                @{ var model = SfpModelLabel(current.SfpVendor, current.SfpPart); }
-                @if (!string.IsNullOrEmpty(model))
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Model:</span>
-                        <span class="metric-value ont-model-value">@model</span>
-                    </div>
-                }
-                @if (current.LinkSpeedMbps.HasValue)
-                {
-                    <div class="metric-row">
-                        <span class="metric-label">Link:</span>
-                        <span class="metric-value">
-                            @FormatLinkSpeed(current.LinkSpeedMbps.Value)
-                            @if (current.IsPon
-                                && current.LinkSpeedMbps <= 1000
-                                && PonVariantLabel(current.SfpPart, current.SfpVendor) == "GPON"
-                                && IsUpgradableGateway())
-                            {
-                                <a href="/perf-tweaks" class="tooltip-icon tooltip-icon-sm"
-                                   data-tooltip="Most GPON SFP ONTs support 2.5 Gbps on this gateway. Check Performance Tweaks."
-                                   style="margin-left: 0.35rem;">?</a>
-                            }
-                        </span>
-                    </div>
-                }
                 <div class="metric-row">
-                    <span class="metric-label">Temp:</span>
+                    <span class="metric-label">SFP Temp:</span>
                     <span class="metric-value">
                         @(stats?.TemperatureC.HasValue == true ? $"{stats.TemperatureC.Value:0.0#} °C" : "-")
-                    </span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Voltage:</span>
-                    <span class="metric-value">
-                        @(stats?.VoltageV.HasValue == true ? $"{stats.VoltageV.Value:0.0#} V" : "-")
                     </span>
                 </div>
             </div>
@@ -405,6 +444,15 @@ else
         SfpCategory.ActiveEthernet => "Active Ethernet",
         _ => NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.PonVariantLabel(sfp.SfpPart, sfp.SfpVendor)
     };
+
+    private string ExternalLinkTypeLabel()
+    {
+        var ponType = _externalOntStats?.PonType;
+        var wl = _externalOntStats?.WaveLength;
+        if (string.IsNullOrEmpty(ponType)) return "Unknown";
+        if (!string.IsNullOrEmpty(wl)) return $"{ponType} ({wl})";
+        return ponType;
+    }
 
     private static string OpticalHealthClass(double? rxDbm, SfpCategory category)
     {
