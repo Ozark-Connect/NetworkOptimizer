@@ -27,4 +27,10 @@
     <ProjectReference Include="..\..\src\NetworkOptimizer.Web\NetworkOptimizer.Web.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="IspHealth\Fixtures\*.csv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

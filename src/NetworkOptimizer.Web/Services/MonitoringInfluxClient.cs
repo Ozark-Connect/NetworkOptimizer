@@ -972,6 +972,68 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Like QueryLatencyByTargetTypeAsync but also pivots max RTT and jitter, which the
+    /// ISP Health scorer and congestion/step detectors need. Kept separate so existing
+    /// chart callers keep the leaner LatencyPoint shape.
+    /// </summary>
+    public async Task<Dictionary<string, List<LatencySeriesPoint>>> QueryLatencyDetailByTargetTypeAsync(
+        MonitoringTargetType targetType,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<LatencySeriesPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var typeTag = targetType.ToString().ToLowerInvariant();
+        var typeFilter = targetType == MonitoringTargetType.InternetService
+            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+            : $@"r.target_type == ""{typeTag}""";
+
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<LatencySeriesPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var targetId = record.GetValueByKey("target_id") as string;
+            if (string.IsNullOrEmpty(targetId)) continue;
+            if (!results.TryGetValue(targetId, out var list))
+            {
+                list = new List<LatencySeriesPoint>();
+                results[targetId] = list;
+            }
+            list.Add(new LatencySeriesPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
+                RttMaxMs = AsDoubleOrNull(record.GetValueByKey("rtt_max_ms")),
+                JitterMs = AsDoubleOrNull(record.GetValueByKey("jitter_ms")),
+                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
+            });
+        }
+        foreach (var list in results.Values)
+            list.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return results;
+    }
+
+    public record LatencySeriesPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? RttAvgMs { get; init; }
+        public double? RttMaxMs { get; init; }
+        public double? JitterMs { get; init; }
+        public double? LossPercent { get; init; }
+    }
+
     /// <summary>Mean RTT and loss across all ISP+Transit targets, aggregated per time window.
     /// Averages each target into a per-window mean first (normalizing uneven probe
     /// intervals), then averages within each target_type, then averages the two category

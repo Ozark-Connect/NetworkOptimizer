@@ -1,0 +1,393 @@
+using FluentAssertions;
+using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.Monitoring.IspHealth;
+using Xunit;
+
+namespace NetworkOptimizer.Web.Tests.IspHealth;
+
+public class IspHealthScorerTests
+{
+    private static readonly IspHealthOptions Options = new();
+    private static readonly TimeSpan Day = TimeSpan.FromHours(24);
+    private static readonly AccessProfile Gpon = IspHealthProfiles.GetProfile(AccessTechnology.Gpon)!;
+
+    private static readonly DateTime LoadedDownStart = TestSeries.Start.AddHours(12);
+    private static readonly DateTime LoadedDownEnd = TestSeries.Start.AddHours(18);
+    private static readonly DateTime LoadedUpStart = TestSeries.Start.AddHours(18);
+    private static readonly DateTime LoadedUpEnd = TestSeries.Start.AddHours(21);
+
+    /// <summary>
+    /// 24h GPON scenario on a 1000/500 Mbps plan: idle except a 6 h download-loaded
+    /// stretch and a 3 h upload-loaded stretch. First hop sits at idleRtt when idle
+    /// and rises by the given deltas under load.
+    /// </summary>
+    private static IspHealthInputs BuildInputs(
+        double idleRtt = 2.0,
+        double loadedDownDelta = 1.0,
+        double loadedUpDelta = 1.0,
+        double lossPct = 0,
+        bool withExpectedSpeeds = true,
+        List<AsnSeries>? transit = null,
+        List<AsnSeries>? ispAsn = null,
+        List<CongestionEvent>? congestion = null,
+        List<SpeedTestSample>? speedTests = null,
+        bool smartQueuesEnabled = false)
+    {
+        var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
+            .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
+                ? r with { DownloadBps = 800_000_000 }
+                : r.Time >= LoadedUpStart && r.Time < LoadedUpEnd
+                    ? r with { UploadBps = 400_000_000 }
+                    : r)
+            .ToList();
+
+        var firstHop = TestSeries.Flat(TestSeries.Start, Day, idleRtt, 0.3, lossPct)
+            .WithSegment(LoadedDownStart, LoadedDownEnd, idleRtt + loadedDownDelta, 0.3)
+            .WithSegment(LoadedUpStart, LoadedUpEnd, idleRtt + loadedUpDelta, 0.3);
+
+        return new IspHealthInputs
+        {
+            WindowStart = TestSeries.Start,
+            WindowEnd = TestSeries.Start + Day,
+            FirstHopSeries = firstHop,
+            LossPoolSeries = new List<List<LatencySample>> { firstHop },
+            TransitAsnSeries = transit ?? new List<AsnSeries>(),
+            IspAsnSeries = ispAsn ?? new List<AsnSeries>(),
+            WanRates = rates,
+            ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
+            ExpectedUploadMbps = withExpectedSpeeds ? 500 : null,
+            ExpectedSpeedSource = withExpectedSpeeds ? "UniFi Network" : null,
+            WanSpeedTests = speedTests ?? new List<SpeedTestSample>
+            {
+                new(TestSeries.Start.AddHours(6), 980, 490)
+            },
+            CongestionEvents = congestion ?? new List<CongestionEvent>(),
+            SmartQueuesEnabled = smartQueuesEnabled
+        };
+    }
+
+    [Fact]
+    public void Ideal_gpon_inputs_score_excellent()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(), Gpon);
+
+        report.AccessDimension.Score.Should().Be(100);
+        report.OverallScore.Should().Be(100);
+        report.HasExpectedSpeeds.Should().BeTrue();
+        report.HasLoadedSamples.Should().BeTrue();
+        report.Issues.Should().NotContain(i => i.Title.Contains("Bufferbloat"));
+    }
+
+    [Fact]
+    public void Midband_idle_latency_scores_average()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.5), Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Idle Latency");
+        factor.Score.Should().Be(75);
+    }
+
+    [Fact]
+    public void Below_band_idle_latency_scores_higher_than_above_band()
+    {
+        var scorer = new IspHealthScorer(Options);
+        var low = scorer.Score(BuildInputs(idleRtt: 1.5), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Idle Latency").Score;
+        var high = scorer.Score(BuildInputs(idleRtt: 4.0), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Idle Latency").Score;
+
+        low.Should().Be(100);
+        high.Should().BeLessThan(62);
+    }
+
+    [Fact]
+    public void Loss_past_acceptable_drops_drastically()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.075), Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Packet Loss");
+        factor.Score.Should().BeLessThan(30);
+    }
+
+    [Fact]
+    public void Loss_at_ideal_scores_near_perfect()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.02), Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Packet Loss");
+        factor.Score.Should().Be(95);
+    }
+
+    [Fact]
+    public void Loaded_delta_at_acceptable_scores_seventy()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(loadedDownDelta: 10, loadedUpDelta: 10), Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
+        factor.Score.Should().Be(70);
+    }
+
+    [Fact]
+    public void Renormalizes_when_expected_speeds_missing()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(withExpectedSpeeds: false), Gpon);
+
+        report.HasExpectedSpeeds.Should().BeFalse();
+        report.HasLoadedSamples.Should().BeFalse();
+        report.AccessDimension.Factors.Single(f => f.Name == "Loaded Latency").Score.Should().BeNull();
+        report.AccessDimension.Factors.Single(f => f.Name == "Loaded Loss").Score.Should().BeNull();
+        report.AccessDimension.Score.Should().Be(100);
+        report.Issues.Should().Contain(i => i.Title == "Expected ISP speeds not set");
+    }
+
+    [Fact]
+    public void Sqm_recommendation_triggers_one_band_width_past_excellent()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(loadedDownDelta: 11), Gpon);
+
+        var issue = report.Issues.Single(i => i.Title == "Bufferbloat under load");
+        issue.Severity.Should().Be(IspIssueSeverity.Warning);
+        issue.Recommendation.Should().Contain("Smart Queues");
+        issue.Recommendation.Should().NotContain("Adaptive SQM");
+    }
+
+    [Fact]
+    public void Sqm_recommendation_mentions_adaptive_sqm_for_recurring_congestion()
+    {
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(19), End = TestSeries.Start.AddHours(21), AsnNumbers = { 64500 } },
+            new() { Start = TestSeries.Start.AddHours(21), End = TestSeries.Start.AddHours(22), AsnNumbers = { 64500 } }
+        };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(loadedDownDelta: 11, congestion: congestion), Gpon);
+
+        var issue = report.Issues.Single(i => i.Title == "Bufferbloat under load");
+        issue.Recommendation.Should().Contain("Adaptive SQM");
+    }
+
+    [Fact]
+    public void No_sqm_recommendation_when_loaded_behavior_is_excellent()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(loadedDownDelta: 1, loadedUpDelta: 1), Gpon);
+
+        report.Issues.Should().NotContain(i => i.Title == "Bufferbloat under load");
+    }
+
+    [Fact]
+    public void Overall_is_equal_thirds_of_dimensions()
+    {
+        var noisy = new List<LatencySample>();
+        for (var t = TestSeries.Start; t < TestSeries.Start + Day; t = t.AddMinutes(1))
+        {
+            var rtt = t.Minute % 2 == 0 ? 10.0 : 30.0;
+            noisy.Add(new LatencySample(t, rtt, rtt + 8, 8, 0));
+        }
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", noisy) };
+        var ispAsn = new List<AsnSeries> { TestSeries.Asn(64496, "AccessOne", TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)) };
+
+        var report = new IspHealthScorer(Options).Score(BuildInputs(transit: transit, ispAsn: ispAsn), Gpon);
+
+        var expected = (int)Math.Round(
+            (report.AccessDimension.Score!.Value
+             + report.TransitDimension.Score!.Value
+             + report.IspAsnDimension.Score!.Value) / 3.0);
+        report.OverallScore.Should().Be(expected);
+        report.TransitDimension.Score.Should().BeLessThan(report.IspAsnDimension.Score!.Value);
+    }
+
+    [Fact]
+    public void Speed_at_plan_scores_perfect()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 960, 485) }), Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+        factor.Score.Should().Be(100);
+        report.MeasuredDownloadMbps.Should().Be(960);
+        report.ExpectedDownloadMbps.Should().Be(1000);
+        report.ExpectedSpeedSource.Should().Be("UniFi Network");
+    }
+
+    [Fact]
+    public void Speed_uses_best_test_in_window()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(
+            speedTests: new List<SpeedTestSample>
+            {
+                new(TestSeries.Start.AddHours(19), 600, 300),
+                new(TestSeries.Start.AddHours(6), 970, 480)
+            }), Gpon);
+
+        report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan").Score.Should().Be(100);
+    }
+
+    [Fact]
+    public void Underdelivered_speed_scores_low_and_raises_issue()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 600, 300) }), Gpon);
+
+        report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan").Score.Should().Be(40);
+        report.Issues.Should().Contain(i => i.Title == "Throughput below plan");
+    }
+
+    [Fact]
+    public void Missing_speed_tests_exclude_factor_and_renormalize()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(
+            speedTests: new List<SpeedTestSample>()), Gpon);
+
+        report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan").Score.Should().BeNull();
+        report.AccessDimension.Score.Should().Be(100);
+    }
+
+    [Fact]
+    public void Stale_speed_test_within_fallback_still_scores()
+    {
+        var report = new IspHealthScorer(Options).Score(BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddDays(-3), 980, 490) }), Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
+        factor.Score.Should().Be(100);
+        factor.Description.Should().Contain("older than");
+    }
+
+    [Fact]
+    public void Sqm_recommendation_adapts_when_smart_queues_already_enabled()
+    {
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(loadedDownDelta: 11, smartQueuesEnabled: true), Gpon);
+
+        var issue = report.Issues.Single(i => i.Title == "Bufferbloat under load");
+        issue.Recommendation.Should().NotContain("Enable Smart Queues");
+        issue.Recommendation.Should().Contain("configured rates");
+    }
+
+    [Fact]
+    public void Rural_transit_reach_scores_excellent()
+    {
+        // First hop at 2 ms (GPON), first transit hops at 8 ms absolute: reach delta 6 ms
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 8, 0.5)) };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
+
+        var graded = report.TransitAsns.Single();
+        graded.ReachDeltaMs.Should().BeApproximately(6, 0.5);
+        graded.ReachLatencyScore.Should().BeInRange(90, 95);
+    }
+
+    [Fact]
+    public void Metro_subms_transit_reach_scores_perfect()
+    {
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 2.5, 0.3)) };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
+
+        report.TransitAsns.Single().ReachLatencyScore.Should().Be(100);
+    }
+
+    [Fact]
+    public void Acceptable_transit_reach_scores_seventy_five()
+    {
+        // 12 ms absolute on a 2 ms access hop: delta 10 ms, the acceptable ceiling
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 12, 0.5)) };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
+
+        report.TransitAsns.Single().ReachLatencyScore.Should().BeInRange(73, 77);
+    }
+
+    [Fact]
+    public void Isp_asns_are_not_graded_on_reach()
+    {
+        var ispAsn = new List<AsnSeries> { TestSeries.Asn(64496, "AccessOne", TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)) };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(ispAsn: ispAsn), Gpon);
+
+        var graded = report.IspAsns.Single();
+        graded.ReachLatencyScore.Should().BeNull();
+        graded.ReachDeltaMs.Should().BeNull();
+        graded.OverallScore.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Congestion_events_lower_the_asn_grade()
+    {
+        var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(18), End = TestSeries.Start.AddHours(22), AsnNumbers = { 64500 } }
+        };
+
+        var withEvents = new IspHealthScorer(Options).Score(BuildInputs(transit: series, congestion: congestion), Gpon);
+        var withoutEvents = new IspHealthScorer(Options).Score(BuildInputs(transit: series), Gpon);
+
+        var graded = withEvents.TransitAsns.Single();
+        graded.CongestionEventCount.Should().Be(1);
+        graded.CongestionScore.Should().Be(68);
+        graded.OverallScore.Should().BeLessThan(withoutEvents.TransitAsns.Single().OverallScore!.Value);
+    }
+
+    [Fact]
+    public void Shared_congestion_event_produces_info_issue()
+    {
+        var congestion = new List<CongestionEvent>
+        {
+            new() { Start = TestSeries.Start.AddHours(19), End = TestSeries.Start.AddHours(21), AsnNumbers = { 64500, 64501 } }
+        };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(congestion: congestion), Gpon);
+
+        report.Issues.Should().Contain(i => i.Title == "Shared upstream congestion");
+    }
+
+    [Fact]
+    public void Path_shifts_never_affect_the_score()
+    {
+        var baseline = new IspHealthScorer(Options).Score(BuildInputs(), Gpon);
+        var inputs = BuildInputs();
+        inputs.PathShifts.Add(new PathShiftEvent { Time = TestSeries.Start.AddHours(6), BeforeMedianMs = 10, AfterMedianMs = 20 });
+        var withShifts = new IspHealthScorer(Options).Score(inputs, Gpon);
+
+        withShifts.OverallScore.Should().Be(baseline.OverallScore);
+        withShifts.PathShifts.Should().HaveCount(1);
+    }
+}
+
+public class IspHealthProfilesTests
+{
+    [Theory]
+    [InlineData(AccessTechnology.Gpon)]
+    [InlineData(AccessTechnology.XgsPon)]
+    [InlineData(AccessTechnology.Docsis)]
+    [InlineData(AccessTechnology.Satellite)]
+    [InlineData(AccessTechnology.DirectEthernet)]
+    [InlineData(AccessTechnology.FixedWireless)]
+    [InlineData(AccessTechnology.Cellular)]
+    [InlineData(AccessTechnology.Dsl)]
+    [InlineData(AccessTechnology.PppoE)]
+    [InlineData(AccessTechnology.Other)]
+    public void Every_selectable_technology_has_a_profile(AccessTechnology tech)
+    {
+        IspHealthProfiles.GetProfile(tech).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Unknown_has_no_profile()
+    {
+        IspHealthProfiles.GetProfile(AccessTechnology.Unknown).Should().BeNull();
+    }
+
+    [Fact]
+    public void Neutral_profiles_are_flagged()
+    {
+        IspHealthProfiles.GetProfile(AccessTechnology.PppoE)!.IsNeutral.Should().BeTrue();
+        IspHealthProfiles.GetProfile(AccessTechnology.Other)!.IsNeutral.Should().BeTrue();
+        IspHealthProfiles.GetProfile(AccessTechnology.Gpon)!.IsNeutral.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Upstream_loaded_loss_bands_are_at_most_downstream()
+    {
+        foreach (var tech in Enum.GetValues<AccessTechnology>().Where(t => t != AccessTechnology.Unknown))
+        {
+            var p = IspHealthProfiles.GetProfile(tech)!;
+            p.LoadedLossUpHighPct.Should().BeLessThanOrEqualTo(p.LoadedLossDownHighPct, $"{tech} upstream band should not exceed downstream");
+        }
+    }
+}

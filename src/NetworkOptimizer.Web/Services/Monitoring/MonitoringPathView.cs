@@ -353,6 +353,7 @@ public class MonitoringPathView
         AccessTechnology.Satellite => "Satellite",
         AccessTechnology.Cellular => "Cellular",
         AccessTechnology.Other => "Other",
+        AccessTechnology.Dsl => "DSL",
         _ => tech.ToString()
     };
 

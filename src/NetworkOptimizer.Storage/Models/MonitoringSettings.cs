@@ -29,7 +29,8 @@ public enum AccessTechnology
     FixedWireless = 6,
     Satellite = 7,
     Cellular = 8,
-    Other = 9
+    Other = 9,
+    Dsl = 10
 }
 
 public class MonitoringSettings

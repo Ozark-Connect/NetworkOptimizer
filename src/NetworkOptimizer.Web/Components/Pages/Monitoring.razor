@@ -10,6 +10,8 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Components.Shared.Monitoring
+@using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
 @using Microsoft.EntityFrameworkCore
@@ -28,6 +30,7 @@
 @inject OntMonitorService OntMonitorService
 @inject CellularModemService CellularModemService
 @inject MonitoringCollectionAgent CollectionAgent
+@inject IspHealthService IspHealthService
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -71,6 +74,11 @@ else
                     @onclick="@(() => SetActiveTab("live"))"
                     disabled="@(!_monitoringReady)">
                 Live View
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "isp-health" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("isp-health"))"
+                    disabled="@(!_monitoringReady)">
+                ISP Health
             </button>
             <button class="wifi-view-tab @(_activeTab == "performance" ? "active" : "")"
                     @onclick="@(() => SetActiveTab("performance"))"
@@ -168,11 +176,7 @@ else
             </div>
         }
 
-        <!-- Top stat cards: WAN rates, gateway RTT/loss, ISP/Transit mean RTT/loss -->
-        var gwFabricTargetId = GetGatewayFabricTargetId();
-        var gwFabricUrl = gwFabricTargetId != null
-            ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
-            : "/monitoring?tab=performance&category=Fabric";
+        <!-- Top stat cards: WAN rates, ISP Health score, ISP/Transit mean RTT/loss -->
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             <div class="monitoring-stat-card monitoring-stat-rate">
@@ -183,14 +187,10 @@ else
                 <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
-            @{ var gwLatency = GetGatewayLatency(); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
-                <div class="stat-label">Gateway RTT</div>
-            </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
-                <div class="stat-label">Gateway Loss</div>
+            @{ var ispHealth = IspHealthService.GetCachedScore(); }
+            <div class="monitoring-stat-card clickable-stat-card" data-tooltip="@ispHealth.TileTooltip" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+                <div class="stat-value @ispHealth.TileCssClass">@ispHealth.TileText</div>
+                <div class="stat-label">ISP Health</div>
             </div>
             @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
@@ -259,6 +259,12 @@ else
             @GatewayStatCards
             <div style="margin-top: 1rem;">@Map2dCard</div>
         }
+    }
+
+    @* ──────────────── Tab: ISP Health ──────────────── *@
+    @if (_activeTab == "isp-health" && _monitoringReady)
+    {
+        <IspHealthPanel />
     }
 
     @* ──────────────── Tab: Network Performance ──────────────── *@
@@ -1184,7 +1190,7 @@ else
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "live", "performance", "devices", "sfp", "cm", "ont", "cellular", "setup"
+        "live", "isp-health", "performance", "devices", "sfp", "cm", "ont", "cellular", "setup"
     };
 
     private string ResolveDefaultTab()
@@ -1977,7 +1983,20 @@ else
         var gwDeviceUrl = _gatewayMac != null
             ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
             : "/monitoring?tab=devices";
+        var gwFabricTargetId = GetGatewayFabricTargetId();
+        var gwFabricUrl = gwFabricTargetId != null
+            ? $"/monitoring?tab=performance&category=Fabric&target={Uri.EscapeDataString(gwFabricTargetId)}"
+            : "/monitoring?tab=performance&category=Fabric";
+        var gwLatency = GetGatewayLatency();
         <div class="monitoring-stat-cards" style="margin-top: 0.5rem;">
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
+                <div class="stat-label">Gateway RTT</div>
+            </div>
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
+                <div class="stat-label">Gateway Loss</div>
+            </div>
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>

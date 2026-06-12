@@ -39,6 +39,7 @@ public static class MonitoringEnumDisplay
         AccessTechnology.Satellite => "Satellite",
         AccessTechnology.Cellular => "Cellular",
         AccessTechnology.Other => "Other",
+        AccessTechnology.Dsl => "DSL",
         _ => a.ToString()
     };
 
