@@ -386,7 +386,7 @@ a:hover {
     margin-bottom: 0;
 }
 .wan-live-chart-card > .card-body {
-    padding: 0;
+    padding: 0 0 0.3rem;
     margin-right: -0.75rem;
 }
 .wan-live-chart-card .apexcharts-canvas {
@@ -567,6 +567,7 @@ a:hover {
 
     .wan-live-chart-card > .card-body {
         margin-right: 0;
+        padding-bottom: 0.2rem;
     }
 
     .card.wan-live-chart-card {
