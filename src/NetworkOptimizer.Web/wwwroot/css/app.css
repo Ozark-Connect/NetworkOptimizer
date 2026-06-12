@@ -15002,6 +15002,9 @@ a.affected-client:hover {
     .lan-flow-map-2d-stage {
         height: auto;
     }
+    .lan-flow-map-2d-stage .lan-flow-map-controls {
+        top: 0.5rem;
+    }
     .lan-flow-map-2d-stage .lfm2d-canvas {
         height: clamp(400px, 50vh, 600px);
     }
