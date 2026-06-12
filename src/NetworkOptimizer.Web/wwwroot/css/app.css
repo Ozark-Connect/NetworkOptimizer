@@ -8579,7 +8579,7 @@ a.path-hop.hop-clickable:hover {
 
 /* ApexCharts dark theme overrides annotation label fill - needs double class
    specificity to beat .apexcharts-text rule below */
-.apexcharts-text.apexcharts-xaxis-annotation-label {
+.apexcharts-text.apexcharts-xaxis-annotation-label:not(.wan-chart-tick-label) {
     fill: var(--text-primary) !important;
 }
 

@@ -176,8 +176,10 @@ function buildTimeTicks(minMs, maxMs) {
                 orientation: 'horizontal',
                 offsetY: 19,
                 borderColor: 'transparent',
-                // --text-muted; CSS vars don't resolve inside the chart config
-                style: { background: 'transparent', color: '#5c5c66', fontSize: '10px' },
+                // The wan-chart-tick-label class opts these out of the
+                // app.css rule that forces annotation labels to text-primary,
+                // so they fall through to the muted .apexcharts-text fill.
+                style: { background: 'transparent', fontSize: '10px', cssClass: 'wan-chart-tick-label' },
             },
         });
     }
