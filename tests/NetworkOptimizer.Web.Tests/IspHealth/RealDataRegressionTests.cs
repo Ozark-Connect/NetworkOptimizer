@@ -77,6 +77,25 @@ public class RealDataRegressionTests
     }
 
     [Fact]
+    public void Detects_real_evening_incident_as_two_shared_flapping_episodes()
+    {
+        // Anonymized capture of a documented transit congestion incident: a congested
+        // transit plus targets whose return paths crossed it flapped in two episodes,
+        // while two other transit providers stayed clean throughout
+        var events = CongestionDetector.Detect(Load("real-incident-evening-congestion.csv"), new IspHealthOptions());
+
+        events.Should().HaveCount(2);
+        events.Should().OnlyContain(e => e.IsShared);
+        events.Should().OnlyContain(e => e.AsnNames.Contains("transit-lumen-far"));
+        events.Should().OnlyContain(e => e.AsnNames.Contains("wan-google-dns"));
+        events.SelectMany(e => e.AsnNames).Should().NotContain(new[] { "transit-cox-a", "transit-cox-b", "transit-ws-a", "transit-ws-b" });
+
+        events[0].Start.Should().BeCloseTo(new DateTime(2026, 5, 20, 0, 30, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
+        events[1].Start.Should().BeCloseTo(new DateTime(2026, 5, 20, 1, 45, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
+        events[1].End.Should().BeCloseTo(new DateTime(2026, 5, 20, 2, 45, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
+    }
+
+    [Fact]
     public void Shared_congestion_does_not_produce_step_events()
     {
         var events = StepChangeDetector.Detect(Load("real-shared-congestion.csv"), new IspHealthOptions());
