@@ -157,11 +157,14 @@ function buildOpts() {
     };
 }
 
-// Time labels pinned to a fixed 20s grid, rendered as x-axis annotations so
+// Time labels pinned to a fixed grid, rendered as x-axis annotations so
 // they scroll with the data. Full 24-hour time on every tick, placed below
-// the axis in the space freed by the hidden built-in labels.
+// the axis in the space freed by the hidden built-in labels. The 20s grid
+// fits ~15 HH:mm:ss labels on desktop widths; narrow (mobile) charts drop
+// to a 60s grid so the labels don't collide.
 function buildTimeTicks(minMs, maxMs) {
-    const GRID_MS = 20000;
+    const width = document.getElementById(elId)?.clientWidth || 800;
+    const GRID_MS = width < 640 ? 60000 : 20000;
     const ticks = [];
     for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
         const d = new Date(t);
