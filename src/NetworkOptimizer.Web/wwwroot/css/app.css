@@ -14387,42 +14387,16 @@ a.affected-client:hover {
     top: 0.75rem;
     left: 50%;
     transform: translateX(-50%);
-    padding: 0;
     font-size: 0.78rem;
 }
-.lan-flow-map-help-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.7rem;
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font: inherit;
-}
-.lan-flow-map-help-toggle:hover { color: var(--text-primary); }
-.lan-flow-map-help-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.1rem;
-    height: 1.1rem;
-    border-radius: 50%;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 600;
-    font-size: 0.72rem;
-}
-.lan-flow-map-help-body {
-    padding: 0.55rem 0.75rem;
-    border-top: 1px solid var(--bg-tertiary);
-    display: grid;
-    gap: 0.3rem;
+/* The base panel-body max-height (150px) is sized for the Filter/Overlays
+   panels; the Controls legend has up to 10 rows and needs more room. */
+.lan-flow-map-help .lan-flow-map-panel-body:not(.is-collapsed) {
+    max-height: 320px;
     min-width: 180px;
 }
-.lan-flow-map-help-body[hidden] {
-    display: none;
+.lan-flow-map-help .lan-flow-map-panel-body {
+    gap: 0.3rem;
 }
 .lan-flow-map-help-row {
     display: flex;

@@ -1778,35 +1778,31 @@ export class LanFlowMap {
         `;
         this._panels.legend = legend;
 
-        // Controls help (collapsed pill, expands on click). OrbitControls handles
-        // the actual input bindings; this just documents them so users can find
+        // Controls help (starts collapsed, title click toggles - same pattern
+        // as the Filter/Overlays panels on mobile). OrbitControls handles the
+        // actual input bindings; this just documents them so users can find
         // their way around without trial and error.
         const help = this._makePanel('lan-flow-map-help');
-        help.innerHTML = `
-            <button class="lan-flow-map-help-toggle" type="button" aria-expanded="false">
-                <span class="lan-flow-map-help-icon">?</span>
-                <span class="lan-flow-map-help-label">Controls</span>
-            </button>
-            <div class="lan-flow-map-help-body" hidden>
-                <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
-                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
-                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
-                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
-                <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
-                <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
-                <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
-                <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>
-                <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
-            </div>
+        const helpTitle = document.createElement('div');
+        helpTitle.className = 'lan-flow-map-panel-title lan-flow-map-panel-title-toggle';
+        helpTitle.textContent = 'Controls';
+        help.appendChild(helpTitle);
+        const helpBody = document.createElement('div');
+        helpBody.className = 'lan-flow-map-panel-body is-collapsed';
+        helpBody.innerHTML = `
+            <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
+            <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
+            <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
+            <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
+            <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
+            <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
+            <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>
+            <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
         `;
-        const helpToggle = help.querySelector('.lan-flow-map-help-toggle');
-        const helpBody = help.querySelector('.lan-flow-map-help-body');
-        helpToggle.addEventListener('click', () => {
-            const isOpen = helpBody.hasAttribute('hidden') === false;
-            if (isOpen) { helpBody.setAttribute('hidden', ''); helpToggle.setAttribute('aria-expanded', 'false'); }
-            else { helpBody.removeAttribute('hidden'); helpToggle.setAttribute('aria-expanded', 'true'); }
-        });
+        help.appendChild(helpBody);
+        helpTitle.addEventListener('click', () => helpBody.classList.toggle('is-collapsed'));
         this._panels.help = help;
 
         // Status / mode indicator (bottom-left)
