@@ -386,7 +386,7 @@ a:hover {
     margin-bottom: 0;
 }
 .wan-live-chart-card > .card-body {
-    padding: 0;
+    padding: 0 0 0.3rem;
     margin-right: -0.75rem;
 }
 .wan-live-chart-card .apexcharts-canvas {
@@ -567,6 +567,7 @@ a:hover {
 
     .wan-live-chart-card > .card-body {
         margin-right: 0;
+        padding-bottom: 0.2rem;
     }
 
     .card.wan-live-chart-card {
@@ -8579,7 +8580,7 @@ a.path-hop.hop-clickable:hover {
 
 /* ApexCharts dark theme overrides annotation label fill - needs double class
    specificity to beat .apexcharts-text rule below */
-.apexcharts-text.apexcharts-xaxis-annotation-label {
+.apexcharts-text.apexcharts-xaxis-annotation-label:not(.wan-chart-tick-label) {
     fill: var(--text-primary) !important;
 }
 
@@ -14387,47 +14388,23 @@ a.affected-client:hover {
     top: 0.75rem;
     left: 50%;
     transform: translateX(-50%);
-    padding: 0;
     font-size: 0.78rem;
-}
-.lan-flow-map-help-toggle {
     display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.7rem;
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font: inherit;
+    flex-direction: column;
+    gap: 0.35rem;
 }
-.lan-flow-map-help-toggle:hover { color: var(--text-primary); }
-.lan-flow-map-help-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.1rem;
-    height: 1.1rem;
-    border-radius: 50%;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    font-weight: 600;
-    font-size: 0.72rem;
-}
-.lan-flow-map-help-body {
-    padding: 0.55rem 0.75rem;
-    border-top: 1px solid var(--bg-tertiary);
-    display: grid;
-    gap: 0.3rem;
+.lan-flow-map-help .lan-flow-map-panel-body:not(.is-collapsed) {
+    max-height: 320px;
     min-width: 180px;
 }
-.lan-flow-map-help-body[hidden] {
-    display: none;
+.lan-flow-map-help .lan-flow-map-panel-body {
+    gap: 0.3rem;
 }
 .lan-flow-map-help-row {
     display: flex;
     justify-content: space-between;
     gap: 0.6rem;
+    white-space: nowrap;
 }
 .lan-flow-map-help-row .kbd {
     background: var(--bg-tertiary);
@@ -14908,6 +14885,8 @@ a.affected-client:hover {
     font-size: 0.65rem;
     opacity: 0.6;
     transition: transform 0.2s ease;
+    margin-left: 0.5rem;
+    margin-right: -0.3rem;
 }
 .lan-flow-map-panel-title-toggle:not(:has(+ .is-collapsed))::after {
     transform: rotate(180deg);
@@ -15022,6 +15001,9 @@ a.affected-client:hover {
 @media (max-width: 768px) {
     .lan-flow-map-2d-stage {
         height: auto;
+    }
+    .lan-flow-map-2d-stage .lan-flow-map-controls {
+        top: 0.5rem;
     }
     .lan-flow-map-2d-stage .lfm2d-canvas {
         height: clamp(400px, 50vh, 600px);

@@ -973,8 +973,10 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>Mean RTT and loss across all ISP+Transit targets, aggregated per time window.
-    /// Averages per target_type first (so ISP and Transit contribute equally), then
-    /// averages the two category means to avoid sawtooth from uneven probe timing.</summary>
+    /// Averages each target into a per-window mean first (normalizing uneven probe
+    /// intervals), then averages within each target_type, then averages the two category
+    /// means - the same weighting as /api/monitoring/live-stats, so the WAN live chart
+    /// doesn't jump when its buffer swaps between history and live samples.</summary>
     public async Task<IReadOnlyList<LatencyPoint>> QueryMeanIspTransitLatencyAsync(
         DateTime from,
         DateTime to,
@@ -986,7 +988,13 @@ from(bucket: ""{_bucket}"")
         if (!IsConfigured) return Array.Empty<LatencyPoint>();
         var window = aggregateWindow ?? TimeSpan.FromSeconds(
             Math.Max(10, (int)((to - from).TotalSeconds / 150)));
-        var smoothWindow = TimeSpan.FromSeconds(Math.Max(60, window.TotalSeconds * 3));
+        // Query extra lead-in so every target has probed at least once before the first
+        // visible point, priming fill(usePrevious). Without it, the oldest windows
+        // average a partial subset of targets and the left edge of the chart skews high
+        // or low depending on which targets happen to be missing. Warmup rows are
+        // dropped from the results below.
+        var warmup = TimeSpan.FromSeconds(60) + window;
+        var queryFrom = from - warmup;
         var targetFilter = "";
         if (enabledTargetIds is { Count: > 0 })
         {
@@ -996,21 +1004,35 @@ from(bucket: ""{_bucket}"")
         }
         var flux = $@"
 base = from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> range(start: {ToFluxInstant(queryFrom)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
   |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit""){targetFilter}
 
 rtt = base
   |> filter(fn: (r) => r._field == ""rtt_avg_ms"")
-  |> group(columns: [""_field""])
+  |> group(columns: [""target_id"", ""target_type""])
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: true)
   |> fill(usePrevious: true)
-  |> timedMovingAverage(every: {ToFluxDuration(window)}, period: {ToFluxDuration(smoothWindow)})
+  |> filter(fn: (r) => exists r._value)
+  |> group(columns: [""target_type"", ""_time""])
+  |> mean()
+  |> group(columns: [""_time""])
+  |> mean()
+  |> group()
+  |> sort(columns: [""_time""])
+  |> map(fn: (r) => ({{_time: r._time, _value: r._value, _field: ""rtt_avg_ms""}}))
 
 loss = base
   |> filter(fn: (r) => r._field == ""loss_percent"")
-  |> group(columns: [""_field""])
+  |> group(columns: [""target_id"", ""target_type""])
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> group(columns: [""target_type"", ""_time""])
+  |> mean()
+  |> group(columns: [""_time""])
+  |> mean()
+  |> group()
+  |> sort(columns: [""_time""])
+  |> map(fn: (r) => ({{_time: r._time, _value: r._value, _field: ""loss_percent""}}))
 
 union(tables: [rtt, loss])
   |> group()
@@ -1019,9 +1041,11 @@ union(tables: [rtt, loss])
         var results = new List<LatencyPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            if (time < from) continue;
             results.Add(new LatencyPoint
             {
-                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                Time = time,
                 RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
                 LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
             });

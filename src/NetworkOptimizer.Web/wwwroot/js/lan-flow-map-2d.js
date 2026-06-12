@@ -451,6 +451,33 @@ class LanFlowMap2D {
         });
         this._el.appendChild(tb);
 
+        // Controls help (starts collapsed, title click toggles - same pattern
+        // as the Filter/Overlays panels on mobile, matching 3D style).
+        // 2D subset of the 3D map's legend: no rotate, WASD, or move-device here.
+        // Scrub/pause rows are omitted in liveOnly mounts (dashboard mini-map)
+        // where the scrubber is hidden.
+        const help=document.createElement('div');
+        help.className='lan-flow-map-panel lan-flow-map-help';
+        const helpTitle=document.createElement('div');
+        helpTitle.className='lan-flow-map-panel-title lan-flow-map-panel-title-toggle';
+        helpTitle.textContent='Controls';
+        help.appendChild(helpTitle);
+        const scrubRows=this._liveOnly?'':`
+                <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
+                <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
+                <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>`;
+        const helpBody=document.createElement('div');
+        helpBody.className='lan-flow-map-panel-body is-collapsed';
+        helpBody.innerHTML=`
+                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Left-drag</span></div>
+                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
+                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
+                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>${scrubRows}
+                <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>`;
+        help.appendChild(helpBody);
+        helpTitle.addEventListener('click',()=>helpBody.classList.toggle('is-collapsed'));
+        this._el.appendChild(help);
+
         // Mode badge (bottom-left, matching 3D style)
         const status=document.createElement('div');
         status.className='lan-flow-map-panel lan-flow-map-status';
@@ -699,13 +726,16 @@ class LanFlowMap2D {
     _syncScrubber(){
         if(!this._scrubberEls)return;
         const s=flowData.getScrubber();
+        const mode=flowData.getMode();
+        const paused=flowData.isPaused();
         this._scrubberEls.range.value=s.value;
-        this._scrubberEls.right.textContent=s.right;
+        // Live-but-paused shows Live (Paused) on the time label so frozen
+        // rates aren't mistaken for live data. Historic keeps its timestamp.
+        this._scrubberEls.right.textContent=(mode!=='historic'&&paused)?'Live (Paused)':s.right;
         this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
-        this._scrubberEls.playPause.textContent=flowData.isPaused()?'▶':'⏸';
+        this._scrubberEls.playPause.textContent=paused?'▶':'⏸';
         // Mode badge
         if(this._modeBadge){
-            const mode=flowData.getMode();
             this._modeBadge.textContent=mode==='historic'?'Historic':'Live';
             this._modeBadge.classList.toggle('is-historic',mode==='historic');
             this._modeBadge.style.cursor=mode==='historic'?'pointer':'';

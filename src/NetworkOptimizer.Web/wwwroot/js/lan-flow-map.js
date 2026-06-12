@@ -311,7 +311,7 @@ export class LanFlowMap {
                 }
             }
             const scrubberFocused = document.activeElement === this._panels?.scrubberRange;
-            if (!scrubberFocused && !this._shouldAcceptKeys()) return;
+            if (!scrubberFocused && !this._shouldAcceptKeys(e)) return;
             if (e.key === ' ') {
                 e.preventDefault();
                 this._togglePlayPause();
@@ -332,12 +332,23 @@ export class LanFlowMap {
         document.addEventListener('keyup', this._onKeyUp);
     }
 
-    _shouldAcceptKeys() {
+    _shouldAcceptKeys(e) {
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
         if (document.activeElement?.isContentEditable) return false;
-        const rect = this.canvas.getBoundingClientRect();
-        return rect.bottom > 0 && rect.top < window.innerHeight;
+        const onScreen = (el) => {
+            if (!el) return false;
+            const rect = el.getBoundingClientRect();
+            return rect.bottom > 0 && rect.top < window.innerHeight;
+        };
+        if (onScreen(this.canvas)) return true;
+        // Scrub/pause keys also work while the companion 2D map is on screen -
+        // it mirrors this map's scrubber, and without this the keyboard goes
+        // dead the moment the 3D canvas scrolls out of view. Camera keys
+        // (WASD/QE) stay 3D-only so the camera can't be flown around unseen.
+        const isScrubKey = e && (e.key === ' ' || e.key === 'Shift'
+            || e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+        return isScrubKey && onScreen(document.querySelector('.lan-flow-map-2d-stage'));
     }
 
     _fitCamera() {
@@ -1558,6 +1569,15 @@ export class LanFlowMap {
         this._syncPlayPauseIcon();
         flowData.publishPlayState(this._paused, this._mode);
         this._notifyPlayState();
+        // In live mode flip the time label between Live and Live (Paused)
+        // so frozen rates aren't mistaken for live data. Historic mode keeps
+        // its timestamp; the mode badge stays Live/Historic either way.
+        if (this._mode === 'live') {
+            const label = this._paused ? 'Live (Paused)' : 'Live';
+            if (this._panels.scrubberRight) this._panels.scrubberRight.textContent = label;
+            flowData.publishScrubber(
+                Number(this._panels.scrubberRange?.value ?? 10000), label, this._playbackSpeed);
+        }
         if (this._paused) {
             this._stopHistoricPlayback();
             return;
@@ -1758,35 +1778,31 @@ export class LanFlowMap {
         `;
         this._panels.legend = legend;
 
-        // Controls help (collapsed pill, expands on click). OrbitControls handles
-        // the actual input bindings; this just documents them so users can find
+        // Controls help (starts collapsed, title click toggles - same pattern
+        // as the Filter/Overlays panels on mobile). OrbitControls handles the
+        // actual input bindings; this just documents them so users can find
         // their way around without trial and error.
         const help = this._makePanel('lan-flow-map-help');
-        help.innerHTML = `
-            <button class="lan-flow-map-help-toggle" type="button" aria-expanded="false">
-                <span class="lan-flow-map-help-icon">?</span>
-                <span class="lan-flow-map-help-label">Controls</span>
-            </button>
-            <div class="lan-flow-map-help-body" hidden>
-                <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
-                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
-                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
-                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
-                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
-                <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
-                <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
-                <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
-                <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>
-                <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
-            </div>
+        const helpTitle = document.createElement('div');
+        helpTitle.className = 'lan-flow-map-panel-title lan-flow-map-panel-title-toggle';
+        helpTitle.textContent = 'Controls';
+        help.appendChild(helpTitle);
+        const helpBody = document.createElement('div');
+        helpBody.className = 'lan-flow-map-panel-body is-collapsed';
+        helpBody.innerHTML = `
+            <div class="lan-flow-map-help-row"><span>Rotate</span><span class="kbd">Left-drag</span></div>
+            <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Right-drag</span> or <span class="kbd">A</span> <span class="kbd">D</span></div>
+            <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span> or <span class="kbd">W</span> <span class="kbd">S</span></div>
+            <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
+            <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Move device</span><span class="kbd">Right-click</span></div>
+            <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
+            <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
+            <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>
+            <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
         `;
-        const helpToggle = help.querySelector('.lan-flow-map-help-toggle');
-        const helpBody = help.querySelector('.lan-flow-map-help-body');
-        helpToggle.addEventListener('click', () => {
-            const isOpen = helpBody.hasAttribute('hidden') === false;
-            if (isOpen) { helpBody.setAttribute('hidden', ''); helpToggle.setAttribute('aria-expanded', 'false'); }
-            else { helpBody.removeAttribute('hidden'); helpToggle.setAttribute('aria-expanded', 'true'); }
-        });
+        help.appendChild(helpBody);
+        helpTitle.addEventListener('click', () => helpBody.classList.toggle('is-collapsed'));
         this._panels.help = help;
 
         // Status / mode indicator (bottom-left)
@@ -1894,6 +1910,13 @@ export class LanFlowMap {
                 this._speedIndex = newIdx;
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
+                // Publish right away so the 2D mirror's speed label updates
+                // immediately - otherwise it waits for the next playback tick
+                // (1s), or indefinitely while paused.
+                flowData.publishScrubber(
+                    Number(this._panels.scrubberRange?.value ?? 10000),
+                    this._panels.scrubberRight?.textContent ?? 'Live',
+                    this._playbackSpeed);
                 if (this._mode === 'live' && this._playbackSpeed < 1) {
                     const now = Date.now();
                     const span = now - this._scrubberOrigin;
