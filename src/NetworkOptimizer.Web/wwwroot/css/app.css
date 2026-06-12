@@ -6663,6 +6663,7 @@ a.path-hop.hop-clickable:hover {
     padding: 0.75rem 1rem;
     cursor: pointer;
     font-weight: 500;
+    font-size: 0.9rem;
     color: var(--text-secondary);
     user-select: none;
     list-style: none;
@@ -6715,6 +6716,16 @@ a.path-hop.hop-clickable:hover {
 
 .setup-guide-content p {
     margin: 0.5rem 0;
+}
+
+.add-form {
+    margin-top: 1.5rem;
+}
+
+.add-form summary {
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.85rem;
 }
 
 .setup-guide-content ol,
