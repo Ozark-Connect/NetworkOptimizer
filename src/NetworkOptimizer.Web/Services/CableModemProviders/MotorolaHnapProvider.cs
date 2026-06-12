@@ -4,7 +4,6 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Providers;
 
@@ -29,6 +28,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     private const char ColumnDelimiter = '^';
     private const int TimeoutSeconds = 15;
 
+    /// <summary>
+    /// How long to suspend automatic login retries after a failed login. Newer Motorola
+    /// firmware (e.g. 8611-19.2.x, 8600-19.3.x) bans the client after 3 failed attempts
+    /// by silently dropping packets for 5 minutes, so retrying on every poll would keep
+    /// the lockout tripped forever and every request would surface as a timeout.
+    /// </summary>
+    private static readonly TimeSpan LoginFailureBackoff = TimeSpan.FromMinutes(5);
+
     private readonly ILogger<MotorolaHnapProvider> _logger;
 
     /// <summary>
@@ -36,6 +43,12 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     /// Each session holds the derived private key and cookies for reuse across polls.
     /// </summary>
     private readonly ConcurrentDictionary<int, HnapSession> _sessions = new();
+
+    /// <summary>
+    /// Per-config timestamps until which automatic login attempts are suspended
+    /// after a login failure, to avoid tripping the modem's 3-strike lockout.
+    /// </summary>
+    private readonly ConcurrentDictionary<int, DateTime> _loginBackoffUntil = new();
 
     public MotorolaHnapProvider(ILogger<MotorolaHnapProvider> logger)
     {
@@ -51,6 +64,19 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         {
             _logger.LogWarning("Motorola HNAP poll requested but Host is empty (config {Id})", context.Id);
             return null;
+        }
+
+        if (_loginBackoffUntil.TryGetValue(context.Id, out var backoffUntil))
+        {
+            if (DateTime.UtcNow < backoffUntil)
+            {
+                _logger.LogDebug(
+                    "Motorola HNAP {Name}: skipping poll until {Until:HH:mm:ss} UTC after login failure",
+                    context.Name, backoffUntil);
+                return null;
+            }
+
+            _loginBackoffUntil.TryRemove(context.Id, out _);
         }
 
         try
@@ -88,7 +114,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
             return stats;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -134,6 +160,11 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             await LogoutAsync(client, baseUrl, cancellationToken);
 
             return (true, $"Connected via HNAP - {dsCount} downstream, {usCount} upstream channels detected");
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return (false, "Connection timed out. The modem may be in its 5-minute lockout after " +
+                "failed login attempts (it drops packets while locked out). Wait 5 minutes and try again.");
         }
         catch (Exception ex)
         {
@@ -200,6 +231,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var result = loginResp.GetProperty("LoginResult").GetString();
         if (result == "FAILED")
         {
+            _loginBackoffUntil[context.Id] = DateTime.UtcNow + LoginFailureBackoff;
             _logger.LogWarning(
                 "Motorola HNAP {Name}: login locked out. Wait 5 minutes before retrying", context.Name);
             return null;
@@ -227,7 +259,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         {
             Login = new
             {
-                Action = "request",
+                Action = "login",
                 Username = username,
                 LoginPassword = loginPassword,
                 Captcha = "",
@@ -236,7 +268,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         };
 
         var session = new HnapSession(privateKey, uid);
-        ApplySessionCookies(client, context.Host, session);
+        ApplySessionCookies(client, session);
 
         using var phase2Response = await PostHnapAsync(
             client, endpoint, "Login", privateKey, authPayload, cancellationToken);
@@ -247,14 +279,21 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         if (!phase2Response.RootElement.TryGetProperty("LoginResponse", out var authResp))
             return null;
 
+        // Firmware returns OK on success or OK_CHANGED when a password change is being
+        // forced; both grant a valid session. FAILED/AUTH_FAIL count toward the modem's
+        // 3-strike lockout, so back off before retrying.
         var authResult = authResp.GetProperty("LoginResult").GetString();
-        if (authResult != "OK")
+        if (authResult != "OK" && authResult != "OK_CHANGED")
         {
-            _logger.LogWarning("Motorola HNAP {Name}: login authentication failed (result: {Result})",
-                context.Name, authResult);
+            _loginBackoffUntil[context.Id] = DateTime.UtcNow + LoginFailureBackoff;
+            _logger.LogWarning(
+                "Motorola HNAP {Name}: login authentication failed (result: {Result}). " +
+                "Suspending retries for {Minutes} minutes to avoid the modem's failed-login lockout",
+                context.Name, authResult, LoginFailureBackoff.TotalMinutes);
             return null;
         }
 
+        _loginBackoffUntil.TryRemove(context.Id, out _);
         _logger.LogDebug("Motorola HNAP {Name}: logged in successfully", context.Name);
         return session;
     }
@@ -268,6 +307,10 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         string[] actions, CancellationToken cancellationToken)
     {
         var endpoint = baseUrl + HnapPath;
+
+        // Each poll uses a fresh HttpClient, so re-apply the session cookies here
+        // rather than relying on the client that performed the login.
+        ApplySessionCookies(client, session);
 
         var innerDict = new Dictionary<string, string>();
         foreach (var action in actions)
@@ -307,7 +350,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Content = content;
         request.Headers.TryAddWithoutValidation("HNAP_AUTH", hnapAuth);
-        request.Headers.TryAddWithoutValidation("SOAPACTION", soapAction);
+        request.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
         request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
 
         try
@@ -491,7 +534,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         return Convert.ToHexString(hash);
     }
 
-    private static void ApplySessionCookies(HttpClient client, string host, HnapSession session)
+    private static void ApplySessionCookies(HttpClient client, HnapSession session)
     {
         // The modem expects PrivateKey and uid cookies
         var cookieValues = new List<string>();
@@ -542,10 +585,18 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         return double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) ? val : null;
     }
 
+    /// <summary>
+    /// Parse a channel table frequency into Hz. Motorola tables report frequency in MHz
+    /// with a decimal point (e.g. "711.0"); some firmware reports raw Hz (e.g. "711000000").
+    /// Values below 100,000 are treated as MHz.
+    /// </summary>
     private static long ParseFrequency(string text)
     {
         var cleaned = StripUnits(text);
-        return long.TryParse(cleaned, out var val) ? val : 0;
+        if (!double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var val))
+            return 0;
+
+        return val < 100_000 ? (long)(val * 1_000_000) : (long)val;
     }
 
     private static string StripUnits(string text)
@@ -571,6 +622,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     public void Dispose()
     {
         _sessions.Clear();
+        _loginBackoffUntil.Clear();
     }
 
     private sealed record HnapSession(string PrivateKey, string? Uid);

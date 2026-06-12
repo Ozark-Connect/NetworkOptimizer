@@ -784,9 +784,9 @@
             }
 
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
-            <details style="margin-top: 1.5rem;" open="@modemFormExpanded">
-                <summary style="cursor: pointer; font-weight: 500;" @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
-                <div style="padding-top: 0.5rem;">
+            <details class="add-form" open="@modemFormExpanded">
+                <summary @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
+                <div class="add-form-content">
                     <p class="form-help" style="margin-bottom: 1rem;">
                         Only use manual entry if auto-discovery doesn't find your modem.
                     </p>
@@ -988,9 +988,9 @@
                 <p class="empty-state">No cable modems configured. Add one below to start monitoring DOCSIS signal levels.</p>
             }
 
-            <details style="margin-top: 1.5rem;" open="@_cmFormVisible">
-                <summary style="cursor: pointer; font-weight: 500;" @onclick="() => _cmFormVisible = !_cmFormVisible">@(_editingCm.Id > 0 ? "Edit Cable Modem" : "Add Cable Modem")</summary>
-                <div style="padding-top: 0.5rem;">
+            <details class="add-form" open="@_cmFormVisible">
+                <summary @onclick="() => _cmFormVisible = !_cmFormVisible">@(_editingCm.Id > 0 ? "Edit Cable Modem" : "Add Cable Modem")</summary>
+                <div class="add-form-content add-form-content-spaced">
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>
@@ -1148,9 +1148,9 @@
                 <p class="empty-state">No ONTs configured. Add one below to start monitoring fiber optics readings.</p>
             }
 
-            <details style="margin-top: 1.5rem;" open="@_ontFormVisible">
-                <summary style="cursor: pointer; font-weight: 500;" @onclick="() => _ontFormVisible = !_ontFormVisible">@(_editingOnt.Id > 0 ? "Edit ONT" : "Add ONT")</summary>
-                <div style="padding-top: 0.5rem;">
+            <details class="add-form" open="@_ontFormVisible">
+                <summary @onclick="() => _ontFormVisible = !_ontFormVisible">@(_editingOnt.Id > 0 ? "Edit ONT" : "Add ONT")</summary>
+                <div class="add-form-content add-form-content-spaced">
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Name</label>

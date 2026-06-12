@@ -4111,6 +4111,7 @@ select.form-control {
     text-align: center;
     padding: 3rem 2rem;
     color: var(--text-secondary);
+    font-size: 0.92rem;
 }
 
 .empty-state .empty-icon {
@@ -6663,6 +6664,7 @@ a.path-hop.hop-clickable:hover {
     padding: 0.75rem 1rem;
     cursor: pointer;
     font-weight: 500;
+    font-size: 0.9rem;
     color: var(--text-secondary);
     user-select: none;
     list-style: none;
@@ -6715,6 +6717,25 @@ a.path-hop.hop-clickable:hover {
 
 .setup-guide-content p {
     margin: 0.5rem 0;
+}
+
+.add-form {
+    margin-top: 1.25rem;
+}
+
+.add-form summary {
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+}
+
+.add-form-content {
+    padding-top: 0.25rem;
+}
+
+.add-form-content-spaced {
+    padding-top: 0.75rem;
 }
 
 .setup-guide-content ol,
