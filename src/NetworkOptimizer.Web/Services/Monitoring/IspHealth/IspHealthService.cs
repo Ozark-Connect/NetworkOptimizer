@@ -144,7 +144,9 @@ public class IspHealthService
 
         var windowEnd = DateTime.UtcNow;
         var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
-        var aggregate = TimeSpan.FromMinutes(_options.AggregateWindowMinutes);
+        // Fine-grained join window so short load bursts (speed tests, downloads)
+        // classify as loaded instead of diluting into minute-level means
+        var aggregate = TimeSpan.FromSeconds(_options.LoadWindowSeconds);
 
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
@@ -161,6 +163,18 @@ public class IspHealthService
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
 
+        // New installs: grade once a few hours of latency data exist, not before
+        var earliestSample = ispSeries.Values.Concat(transitSeries.Values)
+            .Where(s => s.Count > 0)
+            .Select(s => s[0].Time)
+            .DefaultIfEmpty(windowEnd)
+            .Min();
+        if ((windowEnd - earliestSample).TotalHours < _options.MinDataHours)
+        {
+            _status = IspHealthStatus.InsufficientData;
+            return null;
+        }
+
         var firstHop = PickFirstCleanHop(ispTargets, ispSeries);
 
         var lossPool = new List<List<LatencySample>>();
@@ -172,8 +186,7 @@ public class IspHealthService
                 && internetSeries.ContainsKey(t.TargetId))
             .Select(t => internetSeries[t.TargetId]));
 
-        var transitAsnSeries = GroupByAsn(transitTargets, transitSeries);
-        var ispAsnSeries = GroupByAsn(ispTargets, ispSeries);
+        var (ispGrading, transitGrading, allClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
@@ -185,12 +198,11 @@ public class IspHealthService
             })
             .ToList();
 
-        var congestionInput = transitAsnSeries.Concat(ispAsnSeries).ToList();
-        var congestionEvents = CongestionDetector.Detect(congestionInput, _options);
+        var congestionEvents = CongestionDetector.Detect(allClusters, _options);
 
         // Internet/CDN targets join step detection because routing shifts in a transit
         // network show up on every path that crosses it (per the real shift examples)
-        var stepInput = congestionInput.Concat(internetTargetSeries).ToList();
+        var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
         var inputs = new IspHealthInputs
@@ -199,8 +211,8 @@ public class IspHealthService
             WindowEnd = windowEnd,
             FirstHopSeries = firstHop,
             LossPoolSeries = lossPool,
-            TransitAsnSeries = transitAsnSeries,
-            IspAsnSeries = ispAsnSeries,
+            TransitAsnSeries = transitGrading,
+            IspAsnSeries = ispGrading,
             WanRates = wanRates,
             ExpectedDownloadMbps = expectedDown,
             ExpectedUploadMbps = expectedUp,
@@ -242,9 +254,10 @@ public class IspHealthService
         var ispSeries = ToSamples(await _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct));
         var transitSeries = ToSamples(await _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct));
 
-        var merged = new Dictionary<string, List<LatencySample>>(ispSeries);
-        foreach (var kv in transitSeries) merged[kv.Key] = kv.Value;
-        return (GroupByAsn(targets, merged), report);
+        var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
+        var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit).ToList();
+        var (_, _, allClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
+        return (allClusters, report);
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)
@@ -333,10 +346,11 @@ public class IspHealthService
                         || r.Direction == SpeedTestDirection.UwnWanGateway)
                     && (r.WanNetworkGroup == null || r.WanNetworkGroup.ToLower() == "wan"))
                 .OrderByDescending(r => r.TestTime)
-                .Select(r => new { r.TestTime, r.DownloadBitsPerSecond, r.UploadBitsPerSecond })
+                .Select(r => new { r.TestTime, r.DownloadBitsPerSecond, r.UploadBitsPerSecond, r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs })
                 .ToListAsync(ct);
             return results
-                .Select(r => new SpeedTestSample(r.TestTime, r.DownloadBitsPerSecond / 1_000_000.0, r.UploadBitsPerSecond / 1_000_000.0))
+                .Select(r => new SpeedTestSample(r.TestTime, r.DownloadBitsPerSecond / 1_000_000.0, r.UploadBitsPerSecond / 1_000_000.0,
+                    r.PingMs, r.DownloadLatencyMs, r.UploadLatencyMs))
                 .ToList();
         }
         catch (Exception ex)
@@ -371,26 +385,108 @@ public class IspHealthService
         return best ?? new List<LatencySample>();
     }
 
-    private static List<AsnSeries> GroupByAsn(
-        List<MonitoringTarget> targets,
-        Dictionary<string, List<LatencySample>> seriesByTarget)
+    /// <summary>
+    /// Builds the per-ASN series used for grading and detection:
+    /// - user-added ISP endpoints (e.g. the ISP's own speedtest server) measure the
+    ///   access ISP regardless of what ASN their address resolves to, so they fold
+    ///   into the canonical ISP ASN discovered from the auto-discovered hops;
+    /// - transit targets without a resolved ASN cannot be attributed and are skipped;
+    /// - within each ASN, targets cluster by median RTT. Only the nearest cluster
+    ///   (the first POP/handoff, within AsnHopClusterToleranceMs) is graded; farther
+    ///   clusters still feed the detectors and chart as separately named series so
+    ///   monitoring deep hops never inflates the ASN's grade.
+    /// </summary>
+    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> AllClusters) BuildAsnSeriesSets(
+        List<MonitoringTarget> ispTargets,
+        List<MonitoringTarget> transitTargets,
+        Dictionary<string, List<LatencySample>> ispSeries,
+        Dictionary<string, List<LatencySample>> transitSeries)
     {
-        return targets
+        var ispOverrides = BuildIspAsnOverrides(ispTargets);
+        var (ispGrading, ispClusters) = GroupAndCluster(ispTargets, ispSeries, ispOverrides);
+
+        var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
+        var (transitGrading, transitClusters) = GroupAndCluster(attributedTransit, transitSeries, null);
+
+        return (ispGrading, transitGrading, ispClusters.Concat(transitClusters).ToList());
+    }
+
+    /// <summary>
+    /// Maps user-added AccessIsp targets onto the canonical ISP ASN (the most common
+    /// ASN among auto-discovered access hops). Their own address may resolve to a
+    /// different or missing ASN, but they still measure the access ISP's network.
+    /// </summary>
+    private static Dictionary<string, (int Asn, string? Name)>? BuildIspAsnOverrides(List<MonitoringTarget> ispTargets)
+    {
+        var canonical = ispTargets
+            .Where(t => t.AutoDiscovered && t.AsnNumber is > 0)
+            .GroupBy(t => t.AsnNumber!.Value)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+        if (canonical == null) return null;
+
+        var name = canonical.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n));
+        return ispTargets
+            .Where(t => !t.AutoDiscovered)
+            .ToDictionary(t => t.TargetId, _ => (canonical.Key, name));
+    }
+
+    private (List<AsnSeries> Grading, List<AsnSeries> AllClusters) GroupAndCluster(
+        List<MonitoringTarget> targets,
+        Dictionary<string, List<LatencySample>> seriesByTarget,
+        Dictionary<string, (int Asn, string? Name)>? asnOverrides)
+    {
+        var grading = new List<AsnSeries>();
+        var allClusters = new List<AsnSeries>();
+
+        var groups = targets
             .Where(t => seriesByTarget.ContainsKey(t.TargetId))
-            .GroupBy(t => t.AsnNumber ?? 0)
-            .Select(g =>
+            .GroupBy(t => asnOverrides != null && asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Asn : t.AsnNumber ?? 0);
+
+        foreach (var group in groups)
+        {
+            var asnName = group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
+                ?? (asnOverrides != null
+                    ? group.Select(t => asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Name : null).FirstOrDefault(n => !string.IsNullOrEmpty(n))
+                    : null)
+                ?? group.Select(t => t.Name).FirstOrDefault();
+
+            var byMedian = group
+                .Select(t => (Target: t, Median: SeriesStats.Median(
+                    seriesByTarget[t.TargetId].Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList())))
+                .Where(x => x.Median.HasValue)
+                .OrderBy(x => x.Median!.Value)
+                .ToList();
+            if (byMedian.Count == 0) continue;
+
+            var clusters = new List<List<(MonitoringTarget Target, double? Median)>>();
+            foreach (var entry in byMedian)
             {
-                var samples = g.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList();
-                return new AsnSeries
+                var current = clusters.LastOrDefault();
+                if (current == null || entry.Median!.Value - current[0].Median!.Value > _options.AsnHopClusterToleranceMs)
                 {
-                    AsnNumber = g.Key,
-                    AsnName = g.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
-                        ?? g.Select(t => t.Name).FirstOrDefault(),
-                    TargetIds = g.Select(t => t.TargetId).ToList(),
-                    Samples = samples
+                    current = new List<(MonitoringTarget, double?)>();
+                    clusters.Add(current);
+                }
+                current.Add(entry);
+            }
+
+            var firstMin = clusters[0][0].Median!.Value;
+            for (var i = 0; i < clusters.Count; i++)
+            {
+                var clusterTargets = clusters[i].Select(c => c.Target).ToList();
+                var series = new AsnSeries
+                {
+                    AsnNumber = group.Key,
+                    AsnName = i == 0 ? asnName : $"{asnName} (+{clusters[i][0].Median!.Value - firstMin:0} ms hop)",
+                    TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
+                    Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
                 };
-            })
-            .ToList();
+                allClusters.Add(series);
+                if (i == 0) grading.Add(series);
+            }
+        }
+        return (grading, allClusters);
     }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(

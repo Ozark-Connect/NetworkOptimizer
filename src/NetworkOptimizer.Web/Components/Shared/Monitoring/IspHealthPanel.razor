@@ -9,7 +9,7 @@
 {
     <div class="loading-container">
         <div class="spinner"></div>
-        <p>Analyzing the last 24 hours of ISP data...</p>
+        <p>Analyzing recent ISP data...</p>
     </div>
 }
 else if (_report == null)
@@ -42,6 +42,17 @@ else if (_report == null)
             </div>
         </div>
     }
+    else if (IspHealth.Status == IspHealthStatus.InsufficientData)
+    {
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    Collecting monitoring data. ISP Health needs a few hours of latency history before it can grade your connection; check back soon.
+                </div>
+            </div>
+        </div>
+    }
     else
     {
         <div class="alert alert-warning" style="margin-bottom: 1rem;">
@@ -65,7 +76,7 @@ else
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip" data-tooltip="Thresholds are tuned to the access technology selected in Upstream Discovery">
-                    Scored as @r.Profile.DisplayName &middot; last 24 h
+                    Scored as @r.Profile.DisplayName &middot; last @WindowLabel(r)
                 </div>
             </div>
             <div class="isp-health-hero-speed">
@@ -208,7 +219,7 @@ else
     }
 
     <div class="card isp-health-card">
-        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (24 h)</h2></div>
+        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@WindowLabel(r))</h2></div>
         <div class="card-body">
             @if (r.CongestionEvents.Count == 0 && r.PathShifts.Count == 0)
             {
@@ -231,7 +242,7 @@ else
     </div>
 
     <div class="card isp-health-card">
-        <div class="card-header"><h2 class="card-title">Per-Network RTT (24 h)</h2></div>
+        <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
         <div class="card-body">
             <div id="isp-health-asn-chart"></div>
         </div>
@@ -294,6 +305,9 @@ else
 
     private static string FormatDuration(TimeSpan d) =>
         d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h" : $"{d.TotalMinutes:0} min";
+
+    private static string WindowLabel(IspHealthReport r) =>
+        $"{(r.WindowEnd - r.WindowStart).TotalHours:0} h";
 
     private static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
 

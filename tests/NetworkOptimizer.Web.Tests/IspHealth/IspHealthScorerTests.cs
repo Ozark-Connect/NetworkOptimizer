@@ -209,14 +209,31 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Speed_uses_best_test_in_window()
+    public void Speed_blends_capacity_with_typical_delivery()
     {
+        // Capacity (best) hits plan but the typical (median) result is low, so low
+        // tests count: down 0.6 x 100 + 0.4 x 67.75, up 0.6 x 100 + 0.4 x 67 -> 87
         var report = new IspHealthScorer(Options).Score(BuildInputs(
             speedTests: new List<SpeedTestSample>
             {
                 new(TestSeries.Start.AddHours(19), 600, 300),
                 new(TestSeries.Start.AddHours(6), 970, 480)
             }), Gpon);
+
+        report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan").Score.Should().Be(87);
+    }
+
+    [Fact]
+    public void Speed_trims_outlier_tests_before_grading()
+    {
+        // One broken-server result among ten; the 15% trim drops it so the factor
+        // reflects the healthy tests
+        var tests = Enumerable.Range(0, 9)
+            .Select(i => new SpeedTestSample(TestSeries.Start.AddHours(i + 2), 960, 480))
+            .ToList();
+        tests.Add(new SpeedTestSample(TestSeries.Start.AddHours(12), 40, 480));
+
+        var report = new IspHealthScorer(Options).Score(BuildInputs(speedTests: tests), Gpon);
 
         report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan").Score.Should().Be(100);
     }
@@ -250,6 +267,64 @@ public class IspHealthScorerTests
         var factor = report.AccessDimension.Factors.Single(f => f.Name == "Speed vs Plan");
         factor.Score.Should().Be(100);
         factor.Description.Should().Contain("older than");
+    }
+
+    [Fact]
+    public void Loaded_latency_falls_back_to_speed_test_measurements()
+    {
+        // No passive load (line idle all day), but a WAN speed test measured its own
+        // loaded latency: +1.5 ms over its unloaded ping -> excellent for GPON
+        var inputs = BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 980, 490, PingMs: 12, DownloadLatencyMs: 13.5, UploadLatencyMs: 13.0) });
+        var idleRates = TestSeries.Throughput(TestSeries.Start, TimeSpan.FromHours(24), 50, 5);
+        inputs = new IspHealthInputs
+        {
+            WindowStart = inputs.WindowStart,
+            WindowEnd = inputs.WindowEnd,
+            FirstHopSeries = inputs.FirstHopSeries,
+            LossPoolSeries = inputs.LossPoolSeries,
+            TransitAsnSeries = inputs.TransitAsnSeries,
+            IspAsnSeries = inputs.IspAsnSeries,
+            WanRates = idleRates,
+            ExpectedDownloadMbps = inputs.ExpectedDownloadMbps,
+            ExpectedUploadMbps = inputs.ExpectedUploadMbps,
+            ExpectedSpeedSource = inputs.ExpectedSpeedSource,
+            WanSpeedTests = inputs.WanSpeedTests,
+            CongestionEvents = inputs.CongestionEvents
+        };
+
+        var report = new IspHealthScorer(Options).Score(inputs, Gpon);
+
+        var factor = report.AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
+        factor.Score.Should().Be(100);
+        factor.Description.Should().Contain("WAN speed tests");
+        report.HasLoadedSamples.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Sqm_recommendation_triggers_from_speed_test_loaded_latency()
+    {
+        // Speed test shows +60 ms bufferbloat with no passive load windows
+        var inputs = BuildInputs(
+            speedTests: new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 980, 490, PingMs: 12, DownloadLatencyMs: 72, UploadLatencyMs: 14) });
+        var report = new IspHealthScorer(Options).Score(inputs, Gpon);
+
+        // Passive loaded windows exist in BuildInputs and are excellent; the passive
+        // delta wins for the factor, so force the fallback by clearing load
+        var idleInputs = new IspHealthInputs
+        {
+            WindowStart = inputs.WindowStart,
+            WindowEnd = inputs.WindowEnd,
+            FirstHopSeries = inputs.FirstHopSeries,
+            LossPoolSeries = inputs.LossPoolSeries,
+            WanRates = TestSeries.Throughput(TestSeries.Start, TimeSpan.FromHours(24), 50, 5),
+            ExpectedDownloadMbps = inputs.ExpectedDownloadMbps,
+            ExpectedUploadMbps = inputs.ExpectedUploadMbps,
+            WanSpeedTests = inputs.WanSpeedTests
+        };
+        var idleReport = new IspHealthScorer(Options).Score(idleInputs, Gpon);
+
+        idleReport.Issues.Should().Contain(i => i.Title == "Bufferbloat under load");
     }
 
     [Fact]

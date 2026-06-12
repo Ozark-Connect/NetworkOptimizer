@@ -11,7 +11,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 public class IspHealthOptions
 {
     /// <summary>Trailing analysis window in hours.</summary>
-    public int ScoreWindowHours { get; set; } = 24;
+    public int ScoreWindowHours { get; set; } = 48;
+
+    /// <summary>Minimum hours of latency data required before a score is shown (new installs).</summary>
+    public int MinDataHours { get; set; } = 4;
 
     /// <summary>Weight of the access-layer dimension in the overall score.</summary>
     public double AccessWeight { get; set; } = 1.0 / 3.0;
@@ -40,6 +43,22 @@ public class IspHealthOptions
     /// <summary>How far back to fall when no WAN speed test ran inside the score window.</summary>
     public int SpeedTestFallbackDays { get; set; } = 7;
 
+    /// <summary>Fraction of the lowest WAN speed test results discarded as outliers (broken servers, flukes).</summary>
+    public double SpeedTestOutlierTrimFraction { get; set; } = 0.15;
+
+    /// <summary>Weight of the best post-trim result (demonstrated capacity) in the speed factor.</summary>
+    public double SpeedCapacityWeight { get; set; } = 0.6;
+
+    /// <summary>Weight of the median post-trim result (typical delivery) in the speed factor.</summary>
+    public double SpeedTypicalWeight { get; set; } = 0.4;
+
+    /// <summary>
+    /// Targets within this many ms of an ASN's nearest hop form its first POP/handoff
+    /// cluster; only that cluster is graded, so monitoring far hops (e.g. a distant IX)
+    /// does not inflate the ASN's latency, jitter, or reach scores.
+    /// </summary>
+    public double AsnHopClusterToleranceMs { get; set; } = 2.0;
+
     /// <summary>Fraction of expected speed at or above which a sample counts as loaded.</summary>
     public double LoadedThresholdFraction { get; set; } = 0.70;
 
@@ -47,10 +66,18 @@ public class IspHealthOptions
     public double IdleThresholdFraction { get; set; } = 0.30;
 
     /// <summary>Minimum loaded samples per direction for the loaded factors to score that direction.</summary>
-    public int MinLoadedSamples { get; set; } = 10;
+    public int MinLoadedSamples { get; set; } = 5;
 
-    /// <summary>Aggregate window in minutes used to join latency and throughput series.</summary>
+    /// <summary>Aggregate window in minutes for chart series.</summary>
     public int AggregateWindowMinutes { get; set; } = 1;
+
+    /// <summary>
+    /// Window in seconds for load classification and the latency/throughput join.
+    /// Solid traffic across one such window counts as loaded evidence, so short
+    /// bursts (speed tests, large downloads) register instead of diluting into
+    /// minute-level means.
+    /// </summary>
+    public int LoadWindowSeconds { get; set; } = 15;
 
     /// <summary>How long a computed report stays fresh before recompute.</summary>
     public TimeSpan CacheTtl { get; set; } = TimeSpan.FromMinutes(5);

@@ -15126,6 +15126,10 @@ a.affected-client:hover {
 }
 
 .isp-gauge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
     width: 190px;
     filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.35));
 }
@@ -15269,14 +15273,14 @@ a.affected-client:hover {
 
 .isp-factor-bar-track {
     height: 7px;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     background: var(--bg-tertiary);
     overflow: hidden;
 }
 
 .isp-factor-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -15367,7 +15371,7 @@ a.affected-client:hover {
 
 .isp-asn-score-track {
     height: 5px;
-    border-radius: 3px;
+    border-radius: 0 3px 3px 0;
     background: var(--bg-primary);
     overflow: hidden;
 }

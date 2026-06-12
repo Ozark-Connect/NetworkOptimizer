@@ -21,7 +21,7 @@ public static class LoadClassifier
         var expectedUpBps = expectedUploadMbps * 1_000_000;
         if (expectedDownBps is null && expectedUpBps is null) return result;
 
-        var windowSize = TimeSpan.FromMinutes(options.AggregateWindowMinutes);
+        var windowSize = TimeSpan.FromSeconds(options.LoadWindowSeconds);
         foreach (var group in rates.GroupBy(r => CongestionDetector.FloorTime(r.Time, windowSize)))
         {
             var down = group.Max(r => r.DownloadBps ?? 0);

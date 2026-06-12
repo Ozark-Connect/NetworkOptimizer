@@ -26,7 +26,8 @@ public class IspHealthScorer
         var (speedVsPlan, bestSpeedTest) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
         var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile);
-        var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(inputs.FirstHopSeries, loadWindows, idleBaseline, profile);
+        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows, idleBaseline);
+        var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
 
         var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, idleLoss, loadedLatency, loadedLoss };
@@ -64,8 +65,56 @@ public class IspHealthScorer
             MeasuredUploadMbps = bestSpeedTest?.UploadMbps,
             SpeedTestTime = bestSpeedTest?.Time
         };
-        report.Issues.AddRange(CollectIssues(inputs, profile, report, loadWindows, idleBaseline));
+        report.Issues.AddRange(CollectIssues(inputs, profile, report, loadWindows, loadedDeltas));
         return report;
+    }
+
+    /// <summary>Where the loaded latency evidence came from.</summary>
+    internal record LoadedDeltas(double? DownMs, double? UpMs, bool FromSpeedTests);
+
+    /// <summary>
+    /// Loaded latency deltas per direction. Passive evidence first: latency samples
+    /// inside windows where WAN throughput was solid for LoadWindowSeconds. When a
+    /// direction lacks enough passive samples, falls back to the WAN speed tests'
+    /// own measurements: loaded latency during the saturating test minus the test's
+    /// unloaded ping on the same path.
+    /// </summary>
+    internal LoadedDeltas ResolveLoadedDeltas(
+        IspHealthInputs inputs,
+        Dictionary<DateTime, LoadWindow> loadWindows,
+        double? idleBaseline)
+    {
+        double? down = null, up = null;
+        if (idleBaseline != null && loadWindows.Count > 0)
+        {
+            down = LoadedMedianDelta(inputs.FirstHopSeries, loadWindows, idleBaseline.Value, w => w.IsLoadedDown);
+            up = LoadedMedianDelta(inputs.FirstHopSeries, loadWindows, idleBaseline.Value, w => w.IsLoadedUp);
+        }
+
+        var fromSpeedTests = false;
+        if (down == null || up == null)
+        {
+            var (tests, _) = SelectSpeedTests(inputs);
+            var downDeltas = tests
+                .Where(t => t.DownloadLatencyMs.HasValue && t.PingMs.HasValue)
+                .Select(t => Math.Max(0, t.DownloadLatencyMs!.Value - t.PingMs!.Value))
+                .ToList();
+            var upDeltas = tests
+                .Where(t => t.UploadLatencyMs.HasValue && t.PingMs.HasValue)
+                .Select(t => Math.Max(0, t.UploadLatencyMs!.Value - t.PingMs!.Value))
+                .ToList();
+            if (down == null && downDeltas.Count > 0)
+            {
+                down = SeriesStats.Median(downDeltas);
+                fromSpeedTests = true;
+            }
+            if (up == null && upDeltas.Count > 0)
+            {
+                up = SeriesStats.Median(upDeltas);
+                fromSpeedTests = true;
+            }
+        }
+        return new LoadedDeltas(down, up, fromSpeedTests);
     }
 
     /// <summary>
@@ -88,11 +137,25 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// Grades demonstrated WAN throughput against the configured plan speeds. Uses
-    /// the best test in the window (per-direction max) so a congested test slot does
-    /// not double-penalize what the loaded factors already measure; chronic
-    /// underdelivery still shows because no test reaches the plan. Falls back to the
-    /// most recent test within SpeedTestFallbackDays when none ran inside the window.
+    /// Picks the WAN speed tests to grade: those inside the score window, else the
+    /// most recent within SpeedTestFallbackDays (marked stale).
+    /// </summary>
+    private (List<SpeedTestSample> Tests, bool Stale) SelectSpeedTests(IspHealthInputs inputs)
+    {
+        var inWindow = inputs.WanSpeedTests.Where(t => t.Time >= inputs.WindowStart && t.Time <= inputs.WindowEnd).ToList();
+        if (inWindow.Count > 0) return (inWindow, false);
+
+        var fallbackStart = inputs.WindowEnd.AddDays(-_options.SpeedTestFallbackDays);
+        var latest = inputs.WanSpeedTests.Where(t => t.Time >= fallbackStart).OrderByDescending(t => t.Time).FirstOrDefault();
+        return latest == null ? (new List<SpeedTestSample>(), false) : (new List<SpeedTestSample> { latest }, true);
+    }
+
+    /// <summary>
+    /// Grades demonstrated WAN throughput against the configured plan speeds. Per
+    /// direction, the lowest SpeedTestOutlierTrimFraction of results is discarded
+    /// (broken test servers, flukes), then the score blends the best remaining result
+    /// (demonstrated capacity) with the median (typical delivery) so chronically low
+    /// tests count without a single bad test tanking the factor.
     /// </summary>
     private (IspScoreFactor Factor, SpeedTestSample? Best) ScoreSpeedVsPlan(IspHealthInputs inputs)
     {
@@ -106,32 +169,20 @@ public class IspHealthScorer
             }, null);
         }
 
-        var inWindow = inputs.WanSpeedTests.Where(t => t.Time >= inputs.WindowStart && t.Time <= inputs.WindowEnd).ToList();
-        var stale = false;
-        if (inWindow.Count == 0)
+        var (tests, stale) = SelectSpeedTests(inputs);
+        if (tests.Count == 0)
         {
-            var fallbackStart = inputs.WindowEnd.AddDays(-_options.SpeedTestFallbackDays);
-            var latest = inputs.WanSpeedTests.Where(t => t.Time >= fallbackStart).OrderByDescending(t => t.Time).FirstOrDefault();
-            if (latest == null)
+            return (new IspScoreFactor
             {
-                return (new IspScoreFactor
-                {
-                    Name = "Speed vs Plan",
-                    Weight = _options.SpeedVsPlanWeight,
-                    Description = "No recent WAN speed test. Run one (or enable scheduled WAN tests) to grade throughput against your plan."
-                }, null);
-            }
-            inWindow.Add(latest);
-            stale = true;
+                Name = "Speed vs Plan",
+                Weight = _options.SpeedVsPlanWeight,
+                Description = "No recent WAN speed test. Run one (or enable scheduled WAN tests) to grade throughput against your plan."
+            }, null);
         }
 
-        var bestDown = inWindow.Max(t => t.DownloadMbps);
-        var bestUp = inWindow.Max(t => t.UploadMbps);
-        var bestTest = inWindow.OrderByDescending(t => t.DownloadMbps + t.UploadMbps).First();
-
-        var scores = new List<double>();
-        if (inputs.ExpectedDownloadMbps is > 0) scores.Add(ScoreSpeedRatio(bestDown / inputs.ExpectedDownloadMbps.Value));
-        if (inputs.ExpectedUploadMbps is > 0) scores.Add(ScoreSpeedRatio(bestUp / inputs.ExpectedUploadMbps.Value));
+        var down = ScoreDirection(tests.Select(t => t.DownloadMbps), inputs.ExpectedDownloadMbps);
+        var up = ScoreDirection(tests.Select(t => t.UploadMbps), inputs.ExpectedUploadMbps);
+        var scores = new[] { down?.Score, up?.Score }.Where(s => s.HasValue).Select(s => s!.Value).ToList();
         if (scores.Count == 0)
         {
             return (new IspScoreFactor
@@ -142,15 +193,39 @@ public class IspHealthScorer
             }, null);
         }
 
+        var bestDown = down?.BestMbps ?? tests.Max(t => t.DownloadMbps);
+        var bestUp = up?.BestMbps ?? tests.Max(t => t.UploadMbps);
+        var bestTest = tests.OrderByDescending(t => t.DownloadMbps + t.UploadMbps).First();
+
         var staleNote = stale ? $" Latest test is older than the {_options.ScoreWindowHours} h window." : "";
+        var typicalNote = tests.Count > 1
+            ? $" Best and typical of {tests.Count} tests vs"
+            : " Best WAN speed test vs";
         return (new IspScoreFactor
         {
             Name = "Speed vs Plan",
             Score = (int)Math.Round(scores.Average()),
             Weight = _options.SpeedVsPlanWeight,
             ValueText = $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
-            Description = $"Best WAN speed test vs the {FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan configured in UniFi Network.{staleNote}"
+            Description = $"{typicalNote.TrimStart()} the {FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan configured in UniFi Network.{staleNote}"
         }, new SpeedTestSample(bestTest.Time, bestDown, bestUp));
+    }
+
+    /// <summary>Outlier-trims one direction's results and blends capacity with typical delivery.</summary>
+    private (double Score, double BestMbps)? ScoreDirection(IEnumerable<double> resultsMbps, double? expectedMbps)
+    {
+        if (expectedMbps is not > 0) return null;
+        var sorted = resultsMbps.OrderBy(v => v).ToList();
+        if (sorted.Count == 0) return null;
+        var trim = (int)Math.Floor(sorted.Count * _options.SpeedTestOutlierTrimFraction);
+        var kept = sorted.Skip(Math.Min(trim, sorted.Count - 1)).ToList();
+
+        var best = kept[^1];
+        var typical = SeriesStats.Median(kept)!.Value;
+        var totalWeight = _options.SpeedCapacityWeight + _options.SpeedTypicalWeight;
+        var score = (ScoreSpeedRatio(best / expectedMbps.Value) * _options.SpeedCapacityWeight
+                     + ScoreSpeedRatio(typical / expectedMbps.Value) * _options.SpeedTypicalWeight) / totalWeight;
+        return (score, best);
     }
 
     private static double ScoreSpeedRatio(double ratio) => ScoreCurve.Interpolate(ratio,
@@ -218,41 +293,25 @@ public class IspHealthScorer
         };
     }
 
-    private (IspScoreFactor Factor, bool HasData) ScoreLoadedLatency(
-        IReadOnlyList<LatencySample> firstHop,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        double? idleBaseline,
-        AccessProfile profile)
+    private (IspScoreFactor Factor, bool HasData) ScoreLoadedLatency(LoadedDeltas deltas, AccessProfile profile)
     {
-        if (idleBaseline == null || loadWindows.Count == 0)
-        {
-            return (new IspScoreFactor
-            {
-                Name = "Loaded Latency",
-                Weight = _options.LoadedLatencyWeight,
-                Description = "Loaded latency needs expected ISP speeds and load on the line."
-            }, false);
-        }
-
-        var downDelta = LoadedMedianDelta(firstHop, loadWindows, idleBaseline.Value, w => w.IsLoadedDown);
-        var upDelta = LoadedMedianDelta(firstHop, loadWindows, idleBaseline.Value, w => w.IsLoadedUp);
-
         var scores = new List<double>();
-        if (downDelta.HasValue) scores.Add(ScoreLoadedDelta(downDelta.Value, profile));
-        if (upDelta.HasValue) scores.Add(ScoreLoadedDelta(upDelta.Value, profile));
+        if (deltas.DownMs.HasValue) scores.Add(ScoreLoadedDelta(deltas.DownMs.Value, profile));
+        if (deltas.UpMs.HasValue) scores.Add(ScoreLoadedDelta(deltas.UpMs.Value, profile));
         if (scores.Count == 0)
         {
             return (new IspScoreFactor
             {
                 Name = "Loaded Latency",
                 Weight = _options.LoadedLatencyWeight,
-                Description = "The line was never under sustained load during the window."
+                Description = "No load on the line and no recent WAN speed test with loaded latency measurements."
             }, false);
         }
 
         var parts = new List<string>();
-        if (downDelta.HasValue) parts.Add($"+{FormatMs(downDelta.Value)} down");
-        if (upDelta.HasValue) parts.Add($"+{FormatMs(upDelta.Value)} up");
+        if (deltas.DownMs.HasValue) parts.Add($"+{FormatMs(deltas.DownMs.Value)} down");
+        if (deltas.UpMs.HasValue) parts.Add($"+{FormatMs(deltas.UpMs.Value)} up");
+        var source = deltas.FromSpeedTests ? " Measured by WAN speed tests." : "";
 
         return (new IspScoreFactor
         {
@@ -260,7 +319,7 @@ public class IspHealthScorer
             Score = (int)Math.Round(scores.Average()),
             Weight = _options.LoadedLatencyWeight,
             ValueText = string.Join(", ", parts),
-            Description = $"Latency increase under load vs +{FormatMs(profile.LoadedDeltaExcellentMs)} excellent and +{FormatMs(profile.LoadedDeltaAcceptableMs)} acceptable for {profile.DisplayName}."
+            Description = $"Latency increase under load vs +{FormatMs(profile.LoadedDeltaExcellentMs)} excellent and +{FormatMs(profile.LoadedDeltaAcceptableMs)} acceptable for {profile.DisplayName}.{source}"
         }, true);
     }
 
@@ -480,7 +539,7 @@ public class IspHealthScorer
         AccessProfile profile,
         IspHealthReport report,
         Dictionary<DateTime, LoadWindow> loadWindows,
-        double? idleBaseline)
+        LoadedDeltas loadedDeltas)
     {
         var issues = new List<IspHealthIssue>();
 
@@ -495,7 +554,7 @@ public class IspHealthScorer
             });
         }
 
-        var sqmTriggered = SqmRecommendationTriggered(inputs, profile, loadWindows, idleBaseline);
+        var sqmTriggered = SqmRecommendationTriggered(inputs, profile, loadWindows, loadedDeltas);
         if (sqmTriggered)
         {
             var recommendation = inputs.SmartQueuesEnabled
@@ -558,24 +617,20 @@ public class IspHealthScorer
         IspHealthInputs inputs,
         AccessProfile profile,
         Dictionary<DateTime, LoadWindow> loadWindows,
-        double? idleBaseline)
+        LoadedDeltas loadedDeltas)
     {
-        if (idleBaseline == null || loadWindows.Count == 0) return false;
-
         var bandWidth = profile.LoadedDeltaAcceptableMs - profile.LoadedDeltaExcellentMs;
         var deltaThreshold = profile.LoadedDeltaExcellentMs + _options.SqmDeviationFactor * bandWidth;
+        if (loadedDeltas.DownMs > deltaThreshold || loadedDeltas.UpMs > deltaThreshold) return true;
 
-        var downDelta = LoadedMedianDelta(inputs.FirstHopSeries, loadWindows, idleBaseline.Value, w => w.IsLoadedDown);
-        var upDelta = LoadedMedianDelta(inputs.FirstHopSeries, loadWindows, idleBaseline.Value, w => w.IsLoadedUp);
-        if (downDelta > deltaThreshold || upDelta > deltaThreshold) return true;
-
+        if (loadWindows.Count == 0) return false;
         var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown);
         var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp);
         return downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
     }
 
     private DateTime FloorToWindow(DateTime time) =>
-        CongestionDetector.FloorTime(time, TimeSpan.FromMinutes(_options.AggregateWindowMinutes));
+        CongestionDetector.FloorTime(time, TimeSpan.FromSeconds(_options.LoadWindowSeconds));
 
     private static string FormatMs(double ms) =>
         ms >= 10 ? $"{ms.ToString("0", CultureInfo.InvariantCulture)} ms" : $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";

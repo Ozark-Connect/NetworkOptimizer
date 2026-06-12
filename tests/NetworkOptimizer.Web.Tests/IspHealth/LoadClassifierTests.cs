@@ -78,17 +78,37 @@ public class LoadClassifierTests
     }
 
     [Fact]
-    public void Uses_peak_rate_within_aggregate_window()
+    public void Uses_peak_rate_within_load_window()
     {
         var rates = new List<ThroughputSample>
         {
             new(TestSeries.Start, 100_000_000, 1_000_000),
-            new(TestSeries.Start.AddSeconds(30), 750_000_000, 1_000_000)
+            new(TestSeries.Start.AddSeconds(10), 750_000_000, 1_000_000)
         };
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
         windows.Should().HaveCount(1);
         windows[TestSeries.Start].IsLoadedDown.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Fifteen_second_burst_registers_as_loaded()
+    {
+        // A short speed-test burst lands in its own 15 s window instead of diluting
+        // into a minute-level mean
+        var rates = new List<ThroughputSample>
+        {
+            new(TestSeries.Start, 10_000_000, 1_000_000),
+            new(TestSeries.Start.AddSeconds(15), 900_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(30), 10_000_000, 1_000_000)
+        };
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
+
+        windows.Should().HaveCount(3);
+        windows[TestSeries.Start.AddSeconds(15)].IsLoadedDown.Should().BeTrue();
+        windows[TestSeries.Start].IsIdle.Should().BeTrue();
+        windows[TestSeries.Start.AddSeconds(30)].IsIdle.Should().BeTrue();
     }
 }

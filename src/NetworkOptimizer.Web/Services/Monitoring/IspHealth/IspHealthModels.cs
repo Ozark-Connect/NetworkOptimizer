@@ -9,6 +9,8 @@ public enum IspHealthStatus
     NeedsDiscovery,
     /// <summary>Targets exist but no access technology has been selected.</summary>
     NeedsTechnology,
+    /// <summary>Monitoring is set up but has not collected enough hours of data yet.</summary>
+    InsufficientData,
     /// <summary>Prerequisites met; first computation has not finished yet.</summary>
     Computing,
     /// <summary>A report is available.</summary>
@@ -243,8 +245,18 @@ public class IspHealthInputs
     public List<PathShiftEvent> PathShifts { get; init; } = new();
 }
 
-/// <summary>One WAN speed test result.</summary>
-public record SpeedTestSample(DateTime Time, double DownloadMbps, double UploadMbps);
+/// <summary>
+/// One WAN speed test result. The latency fields are the test's own unloaded ping
+/// and the loaded latency measured while each direction saturated, which serve as
+/// the loaded-latency evidence when passive load windows are too sparse.
+/// </summary>
+public record SpeedTestSample(
+    DateTime Time,
+    double DownloadMbps,
+    double UploadMbps,
+    double? PingMs = null,
+    double? DownloadLatencyMs = null,
+    double? UploadLatencyMs = null);
 
 /// <summary>Cheap snapshot for the live view tiles.</summary>
 public record IspHealthSnapshot(IspHealthStatus Status, int? Score, DateTime? ComputedAt)
@@ -253,15 +265,16 @@ public record IspHealthSnapshot(IspHealthStatus Status, int? Score, DateTime? Co
     public string TileText => Status switch
     {
         IspHealthStatus.Ready when Score.HasValue => Score.Value.ToString(),
-        IspHealthStatus.Computing => "...",
+        IspHealthStatus.Computing or IspHealthStatus.InsufficientData => "...",
         _ => "Set up"
     };
 
     /// <summary>Tile tooltip explaining the state; the tile always links to the tab.</summary>
     public string TileTooltip => Status switch
     {
-        IspHealthStatus.Ready when Score.HasValue => $"ISP Health {IspHealthReport.GradeLabel(Score.Value)} - last 24 hours",
-        IspHealthStatus.Computing => "Analyzing the last 24 hours of ISP data",
+        IspHealthStatus.Ready when Score.HasValue => $"ISP Health {IspHealthReport.GradeLabel(Score.Value)}",
+        IspHealthStatus.Computing => "Analyzing recent ISP data",
+        IspHealthStatus.InsufficientData => "Collecting data - ISP Health needs a few hours of monitoring",
         IspHealthStatus.NeedsDiscovery => "Run Upstream Discovery to enable ISP Health",
         IspHealthStatus.NeedsTechnology => "Select your access technology to enable ISP Health",
         _ => "Set up monitoring to enable ISP Health"
