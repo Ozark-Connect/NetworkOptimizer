@@ -451,6 +451,37 @@ class LanFlowMap2D {
         });
         this._el.appendChild(tb);
 
+        // Controls help (collapsed pill, expands on click, matching 3D style).
+        // 2D subset of the 3D map's legend: no rotate, WASD, or move-device here.
+        // Scrub/pause rows are omitted in liveOnly mounts (dashboard mini-map)
+        // where the scrubber is hidden.
+        const help=document.createElement('div');
+        help.className='lan-flow-map-panel lan-flow-map-help';
+        const scrubRows=this._liveOnly?'':`
+                <div class="lan-flow-map-help-row"><span>Pause / Play</span><span class="kbd">Space</span></div>
+                <div class="lan-flow-map-help-row"><span>Scrub timeline</span><span class="kbd">←</span> <span class="kbd">→</span></div>
+                <div class="lan-flow-map-help-row"><span>Fast scrub</span><span class="kbd">Shift</span> + <span class="kbd">←</span> <span class="kbd">→</span></div>`;
+        help.innerHTML=`
+            <button class="lan-flow-map-help-toggle" type="button" aria-expanded="false">
+                <span class="lan-flow-map-help-icon">?</span>
+                <span class="lan-flow-map-help-label">Controls</span>
+            </button>
+            <div class="lan-flow-map-help-body" hidden>
+                <div class="lan-flow-map-help-row"><span>Pan</span><span class="kbd">Left-drag</span></div>
+                <div class="lan-flow-map-help-row"><span>Zoom</span><span class="kbd">Scroll</span></div>
+                <div class="lan-flow-map-help-row"><span>Hover detail</span><span class="kbd">Mouse over</span></div>
+                <div class="lan-flow-map-help-row"><span>Open client</span><span class="kbd">Double-click</span></div>${scrubRows}
+                <div class="lan-flow-map-help-row"><span>Fullscreen</span><span class="kbd">Esc</span> to exit</div>
+            </div>`;
+        const helpToggle=help.querySelector('.lan-flow-map-help-toggle');
+        const helpBody=help.querySelector('.lan-flow-map-help-body');
+        helpToggle.addEventListener('click',()=>{
+            const isOpen=helpBody.hasAttribute('hidden')===false;
+            if(isOpen){helpBody.setAttribute('hidden','');helpToggle.setAttribute('aria-expanded','false');}
+            else{helpBody.removeAttribute('hidden');helpToggle.setAttribute('aria-expanded','true');}
+        });
+        this._el.appendChild(help);
+
         // Mode badge (bottom-left, matching 3D style)
         const status=document.createElement('div');
         status.className='lan-flow-map-panel lan-flow-map-status';
