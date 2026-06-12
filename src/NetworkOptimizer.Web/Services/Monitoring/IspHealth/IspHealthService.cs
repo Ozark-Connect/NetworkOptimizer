@@ -110,7 +110,16 @@ public class IspHealthService
                 _status = IspHealthStatus.NotConfigured;
                 return null;
             }
-            technology = settings.AccessTechnology;
+
+            // Access technology lives per-WAN in WanDiscoveryContexts (the wizard's
+            // store, which replaced the global MonitoringSettings column); prefer the
+            // primary WAN's context and fall back to the legacy global value.
+            var wanContexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+            var primaryContext = wanContexts
+                .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .FirstOrDefault(c => c.AccessTechnology != AccessTechnology.Unknown);
+            technology = primaryContext?.AccessTechnology ?? settings.AccessTechnology;
+
             targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit
