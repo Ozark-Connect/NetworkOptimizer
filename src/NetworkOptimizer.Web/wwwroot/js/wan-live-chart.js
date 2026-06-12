@@ -29,7 +29,6 @@ let histTimer = null;
 let histAt = 0;
 let histWall = 0;
 let histRate = 0;
-let histPrevRate = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -369,12 +368,20 @@ function renderHistoric(at) {
 
 // Historic playback only seeks once per second (the map's playback tick), so
 // the chart would step instead of slide. Between real seeks, interpolate the
-// playhead at the inferred playback rate and redraw from the existing buffer
-// at the live-mode cadence. Draw-only: no extra fetches or polling.
+// playhead and redraw from the existing buffer at the live-mode cadence.
+// Draw-only: no extra fetches or polling. The rate comes from the map
+// instance's actual playback state - inferring it from seek timing also
+// matched mouse drags and keyboard scrubbing (steady ~200ms steps), which
+// sent the chart flying after the scrub ended.
+function mapPlaybackRate() {
+    const inst = window.__lanFlowMap?.getInstance?.();
+    if (!inst || inst._paused || inst._mode !== 'historic' || !inst._historicPlaybackTimer) return 0;
+    return inst._playbackSpeed > 0 ? inst._playbackSpeed : 0;
+}
+
 function stopHistInterpolation() {
     if (histTimer) { clearInterval(histTimer); histTimer = null; }
     histRate = 0;
-    histPrevRate = 0;
     histWall = 0;
 }
 
@@ -396,21 +403,8 @@ export async function seekTime(isoTimestamp) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     const at = new Date(isoTimestamp).getTime();
-    // Infer the playback rate from consecutive forward seeks. Playback ticks
-    // arrive at a steady ~1s cadence with a constant rate; manual scrubs are
-    // irregular and can imply huge rates (a minute dragged in 200ms), which
-    // would keep extrapolating after the drag stops. Only interpolate after
-    // two consecutive seeks at playback-like spacing with matching rates.
-    const wall = Date.now();
-    const gap = wall - histWall;
-    const rate = (histWall && at > histAt && gap >= 700 && gap <= 2500)
-        ? (at - histAt) / gap
-        : 0;
-    histRate = (rate > 0 && histPrevRate > 0
-        && Math.abs(rate - histPrevRate) <= histPrevRate * 0.3) ? rate : 0;
-    histPrevRate = rate;
     histAt = at;
-    histWall = wall;
+    histWall = Date.now();
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
     // Fetch the window the axis will actually show. The axis is a trailing
     // 5min window ending at min(at + half, now), so a fetch centered on the
@@ -437,17 +431,17 @@ export async function seekTime(isoTimestamp) {
     renderHistoric(at);
     if (!histTimer) {
         histTimer = setInterval(() => {
-            if (histRate <= 0) return;
-            const elapsed = Date.now() - histWall;
-            if (elapsed > 2500) {
-                // Playback stalled or paused: stop extrapolating and settle
-                // back on the last confirmed seek position.
-                histRate = 0;
-                histPrevRate = 0;
-                renderHistoric(histAt);
+            const rate = mapPlaybackRate();
+            if (rate <= 0) {
+                // Not playing (paused, scrubbing, or no map): settle back on
+                // the last confirmed seek position if we were extrapolating.
+                if (histRate > 0) { histRate = 0; renderHistoric(histAt); }
                 return;
             }
-            renderHistoric(histAt + elapsed * histRate);
+            histRate = rate;
+            const elapsed = Date.now() - histWall;
+            if (elapsed > 2500) return; // seeks stalled (hidden tab etc) - hold
+            renderHistoric(histAt + elapsed * rate);
         }, SCROLL_MS);
     }
 }
