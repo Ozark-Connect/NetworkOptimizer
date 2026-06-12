@@ -31,7 +31,8 @@ public class IspHealthScorerTests
         List<AsnSeries>? ispAsn = null,
         List<CongestionEvent>? congestion = null,
         List<SpeedTestSample>? speedTests = null,
-        bool smartQueuesEnabled = false)
+        bool smartQueuesEnabled = false,
+        double? internetDeltaMs = null)
     {
         var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
             .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
@@ -54,6 +55,7 @@ public class IspHealthScorerTests
             TransitAsnSeries = transit ?? new List<AsnSeries>(),
             IspAsnSeries = ispAsn ?? new List<AsnSeries>(),
             WanRates = rates,
+            InternetMedianDeltaMs = internetDeltaMs,
             ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
             ExpectedUploadMbps = withExpectedSpeeds ? 500 : null,
             ExpectedSpeedSource = withExpectedSpeeds ? "UniFi Network" : null,
@@ -370,21 +372,36 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Far_pop_is_judged_on_excess_over_the_users_best_pop()
+    public void Rural_far_pop_stays_solid_in_rural_internet_context()
     {
-        // Best POP at +6 sets the local geography; a second POP at +13 has +7 excess
-        // and is judged harshly even though +13 absolute is only mid-range
-        var transit = new List<AsnSeries>
-        {
-            TestSeries.Asn(64500, "NearTransit", TestSeries.Flat(TestSeries.Start, Day, 8, 0.5)),
-            TestSeries.Asn(64501, "FarTransit", TestSeries.Flat(TestSeries.Start, Day, 15, 0.5))
-        };
+        // Internet sits +13.5 ms beyond access here (rural); a clean POP at 24 ms
+        // (1.6x internet distance) is solid geography, not a bad transit
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "FarRegionalTransit", TestSeries.Flat(TestSeries.Start, Day, 24, 0.5)) };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit, internetDeltaMs: 13.5), Gpon);
+
+        report.TransitAsns.Single().OverallScore.Should().BeGreaterThanOrEqualTo(85);
+    }
+
+    [Fact]
+    public void Metro_pop_is_judged_against_metro_internet_context()
+    {
+        // Internet sits +2 ms beyond access (metro); a POP at +5 ms is 2.5x internet
+        // distance and grades poorly even though +5 absolute would look fine
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "MetroTransit", TestSeries.Flat(TestSeries.Start, Day, 7, 0.5)) };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit, internetDeltaMs: 2.0), Gpon);
+
+        report.TransitAsns.Single().ReachLatencyScore.Should().BeLessThanOrEqualTo(78);
+    }
+
+    [Fact]
+    public void Without_internet_context_far_pops_keep_high_floor()
+    {
+        // No internet targets: only top-end gravity applies, so distance alone
+        // cannot drag a clean rural POP below the high 80s
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "FarTransit", TestSeries.Flat(TestSeries.Start, Day, 24, 0.5)) };
         var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
 
-        var near = report.TransitAsns.Single(a => a.AsnNumber == 64500);
-        var far = report.TransitAsns.Single(a => a.AsnNumber == 64501);
-        near.ReachLatencyScore.Should().BeInRange(93, 96);
-        far.ReachLatencyScore.Should().BeLessThan(70, "its excess over the user's own best POP dominates");
+        report.TransitAsns.Single().OverallScore.Should().BeGreaterThanOrEqualTo(85);
     }
 
     [Fact]

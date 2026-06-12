@@ -177,6 +177,20 @@ public class IspHealthService
 
         var firstHop = PickFirstCleanHop(ispTargets, ispSeries);
 
+        // How far the internet sits beyond the access hop here: the rural/metro
+        // context the transit reach ceiling normalizes against
+        double? internetMedianDelta = null;
+        var accessMedian = SeriesStats.Median(firstHop.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
+        if (accessMedian.HasValue)
+        {
+            var internetDeltas = internetSeries.Values
+                .Select(samples => SeriesStats.Median(samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()))
+                .Where(m => m.HasValue)
+                .Select(m => Math.Max(0, m!.Value - accessMedian.Value))
+                .ToList();
+            if (internetDeltas.Count > 0) internetMedianDelta = SeriesStats.Median(internetDeltas);
+        }
+
         var lossPool = new List<List<LatencySample>>();
         lossPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => ispSeries[t.TargetId]));
         lossPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t => transitSeries[t.TargetId]));
@@ -214,6 +228,7 @@ public class IspHealthService
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
             WanRates = wanRates,
+            InternetMedianDeltaMs = internetMedianDelta,
             ExpectedDownloadMbps = expectedDown,
             ExpectedUploadMbps = expectedUp,
             ExpectedSpeedSource = expectedSource,

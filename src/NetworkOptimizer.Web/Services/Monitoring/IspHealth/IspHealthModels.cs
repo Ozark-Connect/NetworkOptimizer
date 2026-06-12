@@ -230,6 +230,13 @@ public class IspHealthInputs
     /// <summary>WAN throughput over the window (primary WAN).</summary>
     public List<ThroughputSample> WanRates { get; init; } = new();
 
+    /// <summary>
+    /// Median RTT delta of the internet/CDN targets beyond the first clean ISP hop.
+    /// Measures how far the internet is from this location, the rural/metro context
+    /// the transit reach ceiling normalizes against.
+    /// </summary>
+    public double? InternetMedianDeltaMs { get; init; }
+
     public double? ExpectedDownloadMbps { get; init; }
     public double? ExpectedUploadMbps { get; init; }
 
