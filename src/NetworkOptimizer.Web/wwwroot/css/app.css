@@ -14388,6 +14388,11 @@ a.affected-client:hover {
     left: 50%;
     transform: translateX(-50%);
     font-size: 0.78rem;
+    /* Same title/body spacing paradigm as the Overlays panel, including the
+       gap collapse via .lan-flow-map-panel:has(.is-collapsed). */
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
 }
 /* The base panel-body max-height (150px) is sized for the Filter/Overlays
    panels; the Controls legend has up to 10 rows and needs more room. */
@@ -14402,6 +14407,9 @@ a.affected-client:hover {
     display: flex;
     justify-content: space-between;
     gap: 0.6rem;
+    /* Keep rows single-line while the collapse animation shrinks the body
+       width, otherwise wrapping makes the panel grow taller mid-collapse. */
+    white-space: nowrap;
 }
 .lan-flow-map-help-row .kbd {
     background: var(--bg-tertiary);
@@ -14882,6 +14890,9 @@ a.affected-client:hover {
     font-size: 0.65rem;
     opacity: 0.6;
     transition: transform 0.2s ease;
+    /* Pull the chevron toward the pill edge, into the panel padding. */
+    margin-left: 0.5rem;
+    margin-right: -0.35rem;
 }
 .lan-flow-map-panel-title-toggle:not(:has(+ .is-collapsed))::after {
     transform: rotate(180deg);
