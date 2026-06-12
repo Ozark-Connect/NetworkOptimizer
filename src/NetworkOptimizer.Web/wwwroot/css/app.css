@@ -6726,7 +6726,7 @@ a.path-hop.hop-clickable:hover {
 .add-form summary {
     cursor: pointer;
     font-weight: 500;
-    font-size: 0.85rem;
+    font-size: 0.875rem;
 }
 
 .setup-guide-content ol,
