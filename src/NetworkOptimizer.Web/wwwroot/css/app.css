@@ -15396,7 +15396,7 @@ a.affected-client:hover {
 .isp-event-item::before {
     content: "";
     position: absolute;
-    left: -1.33rem;
+    left: calc(-1rem - 7.5px);
     top: 0.25rem;
     width: 9px;
     height: 9px;
@@ -15463,5 +15463,8 @@ a.affected-client:hover {
     }
     .isp-event-timeline {
         padding-left: 0.75rem;
+    }
+    .isp-event-item::before {
+        left: calc(-0.75rem - 7.5px);
     }
 }
