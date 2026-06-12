@@ -142,16 +142,16 @@ public class IspHealthOptions
     /// <summary>Congestion events in the window at or above which Adaptive SQM is suggested.</summary>
     public int SqmRecurringCongestionEvents { get; set; } = 2;
 
-    /// <summary>Weight of latency stability (MAD/median) in the per-ASN grade.</summary>
+    /// <summary>Weight of latency stability (MAD/median) in the per-ASN quality blend.</summary>
     public double AsnLatencyStabilityWeight { get; set; } = 0.35;
 
-    /// <summary>Weight of jitter in the per-ASN grade.</summary>
+    /// <summary>Weight of jitter in the per-ASN quality blend.</summary>
     public double AsnJitterWeight { get; set; } = 0.25;
 
-    /// <summary>Weight of reach latency (RTT beyond the access layer) in the per-ASN grade. Transit ASNs only.</summary>
-    public double AsnReachWeight { get; set; } = 0.2;
+    /// <summary>Weight of packet loss in the per-ASN quality blend.</summary>
+    public double AsnLossWeight { get; set; } = 0.2;
 
-    /// <summary>Weight of congestion in the per-ASN grade.</summary>
+    /// <summary>Weight of congestion in the per-ASN quality blend.</summary>
     public double AsnCongestionWeight { get; set; } = 0.2;
 }
 

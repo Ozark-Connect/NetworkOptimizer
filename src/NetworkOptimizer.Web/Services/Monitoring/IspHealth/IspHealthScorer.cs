@@ -35,8 +35,20 @@ public class IspHealthScorer
 
         var accessMedianRtt = SeriesStats.Median(
             inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
-        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt)).ToList();
-        var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null)).ToList();
+        // The user's nearest transit POP defines what geography allows at their
+        // location; other POPs are also judged on their excess over it
+        double? bestTransitDelta = null;
+        if (accessMedianRtt.HasValue)
+        {
+            var deltas = inputs.TransitAsnSeries
+                .Select(s => SeriesStats.Median(s.Samples.Where(p => p.RttAvgMs.HasValue).Select(p => p.RttAvgMs!.Value).ToList()))
+                .Where(m => m.HasValue)
+                .Select(m => Math.Max(0, m!.Value - accessMedianRtt.Value))
+                .ToList();
+            if (deltas.Count > 0) bestTransitDelta = deltas.Min();
+        }
+        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt, bestTransitDelta)).ToList();
+        var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null, bestTransitDelta: null)).ToList();
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
         var ispAsnDimension = BuildAsnDimension("ISP Network", _options.IspAsnWeight, ispAsns);
 
@@ -417,12 +429,14 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// Grades one ASN. <paramref name="accessBaselineRtt"/> is the median RTT of the
-    /// first clean ISP hop; when provided (transit ASNs), the grade includes reach
-    /// latency, the access-normalized distance to that network. ISP ASNs pass null
-    /// since their delta over the access layer is near zero by definition.
+    /// Grades one ASN: a quality blend (stability, jitter, loss, congestion) capped
+    /// by a reach ceiling for transit ASNs. The ceiling is the harsher of an absolute
+    /// curve (geography-blind) and an excess-over-best-POP curve (geography-fair:
+    /// rural +7 ms is fine when it IS the nearest on-ramp; metro +5 ms over a sub-ms
+    /// best POP is not). Quality deficits subtract below the ceiling, so congestion
+    /// always counts. ISP ASNs pass null baselines: no ceiling, quality only.
     /// </summary>
-    private IspAsnHealth GradeAsn(AsnSeries series, List<CongestionEvent> congestionEvents, double? accessBaselineRtt)
+    private IspAsnHealth GradeAsn(AsnSeries series, List<CongestionEvent> congestionEvents, double? accessBaselineRtt, double? bestTransitDelta)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -450,13 +464,34 @@ public class IspHealthScorer
             jitterScore = (int)Math.Round(Math.Max(relative, absolute));
         }
 
+        // Reach ceiling: the best grade this ASN's distance allows. Absolute curve
+        // (sub +1 ms can reach 100; +7-9 ms tops out ~93) combined with the excess
+        // over the user's nearest transit POP, taking the harsher of the two.
         double? reachDelta = null;
-        int? reachScore = null;
+        int? reachCeiling = null;
         if (accessBaselineRtt.HasValue && medianRtt.HasValue)
         {
             reachDelta = Math.Max(0, medianRtt.Value - accessBaselineRtt.Value);
-            reachScore = (int)Math.Round(ScoreCurve.Interpolate(reachDelta.Value,
-                (1, 100), (8, 93), (12, 80), (15, 68), (25, 38), (40, 0)));
+            var absolute = ScoreCurve.Interpolate(reachDelta.Value,
+                (1, 100), (8, 93), (12, 88), (15, 82), (25, 68), (40, 50));
+            var ceiling = absolute;
+            if (bestTransitDelta.HasValue)
+            {
+                var excess = Math.Max(0, reachDelta.Value - bestTransitDelta.Value);
+                var relative = ScoreCurve.Interpolate(excess,
+                    (1, 100), (3, 90), (5, 73), (8, 55), (15, 35));
+                ceiling = Math.Min(absolute, relative);
+            }
+            reachCeiling = (int)Math.Round(ceiling);
+        }
+
+        int? lossScore = null;
+        if (losses.Count > 0)
+        {
+            // Forgiving anchors: transit routers often deprioritize ICMP under
+            // control-plane policing, so hop loss overstates real forwarding loss
+            lossScore = (int)Math.Round(ScoreCurve.Interpolate(losses.Average(),
+                (0, 100), (0.1, 95), (0.5, 80), (1, 65), (2, 45), (5, 20), (10, 0)));
         }
 
         var asnEvents = congestionEvents.Where(e => e.AsnNumbers.Contains(series.AsnNumber)).ToList();
@@ -467,12 +502,15 @@ public class IspHealthScorer
         var weighted = new List<(double Score, double Weight)>();
         if (stabilityScore.HasValue) weighted.Add((stabilityScore.Value, _options.AsnLatencyStabilityWeight));
         if (jitterScore.HasValue) weighted.Add((jitterScore.Value, _options.AsnJitterWeight));
-        if (reachScore.HasValue) weighted.Add((reachScore.Value, _options.AsnReachWeight));
+        if (lossScore.HasValue) weighted.Add((lossScore.Value, _options.AsnLossWeight));
         weighted.Add((congestionScore, _options.AsnCongestionWeight));
         if (stabilityScore.HasValue || jitterScore.HasValue)
         {
             var totalWeight = weighted.Sum(w => w.Weight);
-            overall = (int)Math.Round(weighted.Sum(w => w.Score * w.Weight) / totalWeight);
+            var quality = weighted.Sum(w => w.Score * w.Weight) / totalWeight;
+            // Quality deficits subtract below the ceiling so congestion, loss, and
+            // jitter always move the grade even on distant POPs
+            overall = (int)Math.Round(Math.Max(0, (reachCeiling ?? 100) - (100 - quality)));
         }
 
         return new IspAsnHealth
@@ -489,7 +527,8 @@ public class IspHealthScorer
             ReachDeltaMs = reachDelta,
             LatencyStabilityScore = stabilityScore,
             JitterScore = jitterScore,
-            ReachLatencyScore = reachScore,
+            LossScore = lossScore,
+            ReachLatencyScore = reachCeiling,
             CongestionScore = congestionScore,
             OverallScore = overall,
             CongestionEventCount = asnEvents.Count

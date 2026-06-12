@@ -366,7 +366,40 @@ public class IspHealthScorerTests
         var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 12, 0.5)) };
         var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
 
-        report.TransitAsns.Single().ReachLatencyScore.Should().BeInRange(85, 89);
+        report.TransitAsns.Single().ReachLatencyScore.Should().BeInRange(89, 92);
+    }
+
+    [Fact]
+    public void Far_pop_is_judged_on_excess_over_the_users_best_pop()
+    {
+        // Best POP at +6 sets the local geography; a second POP at +13 has +7 excess
+        // and is judged harshly even though +13 absolute is only mid-range
+        var transit = new List<AsnSeries>
+        {
+            TestSeries.Asn(64500, "NearTransit", TestSeries.Flat(TestSeries.Start, Day, 8, 0.5)),
+            TestSeries.Asn(64501, "FarTransit", TestSeries.Flat(TestSeries.Start, Day, 15, 0.5))
+        };
+        var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.0, transit: transit), Gpon);
+
+        var near = report.TransitAsns.Single(a => a.AsnNumber == 64500);
+        var far = report.TransitAsns.Single(a => a.AsnNumber == 64501);
+        near.ReachLatencyScore.Should().BeInRange(93, 96);
+        far.ReachLatencyScore.Should().BeLessThan(70, "its excess over the user's own best POP dominates");
+    }
+
+    [Fact]
+    public void Asn_loss_lowers_the_grade()
+    {
+        var lossy = TestSeries.Flat(TestSeries.Start, Day, 8, 0.5, lossPct: 1.5);
+        var clean = TestSeries.Flat(TestSeries.Start, Day, 8, 0.5);
+
+        var withLoss = new IspHealthScorer(Options).Score(BuildInputs(
+            transit: new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", lossy) }), Gpon);
+        var withoutLoss = new IspHealthScorer(Options).Score(BuildInputs(
+            transit: new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", clean) }), Gpon);
+
+        withLoss.TransitAsns.Single().LossScore.Should().BeLessThan(60);
+        withLoss.TransitAsns.Single().OverallScore.Should().BeLessThan(withoutLoss.TransitAsns.Single().OverallScore!.Value);
     }
 
     [Fact]

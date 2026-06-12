@@ -82,7 +82,11 @@ public class IspAsnHealth
 
     public int? LatencyStabilityScore { get; init; }
     public int? JitterScore { get; init; }
+    public int? LossScore { get; init; }
+
+    /// <summary>The reach ceiling: best grade this ASN's distance allows. Null for ISP ASNs.</summary>
     public int? ReachLatencyScore { get; init; }
+
     public int? CongestionScore { get; init; }
     public int? OverallScore { get; init; }
     public int CongestionEventCount { get; init; }

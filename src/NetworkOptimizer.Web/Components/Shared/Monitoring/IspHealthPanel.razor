@@ -196,7 +196,7 @@ else
                                 <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
                             </div>
                             <div class="isp-asn-stats">
-                                <div class="isp-asn-stat"><span class="detail-label">Median RTT</span><span class="detail-value">@FormatMs(asn.MedianRttMs)</span></div>
+                                <div class="isp-asn-stat"><span class="detail-label">RTT</span><span class="detail-value">@FormatMs(asn.MedianRttMs)</span></div>
                                 <div class="isp-asn-stat"><span class="detail-label">p95 Jitter</span><span class="detail-value">@FormatMs(asn.P95JitterMs)</span></div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @if (asn.ReachDeltaMs.HasValue)
