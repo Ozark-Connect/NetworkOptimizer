@@ -46,6 +46,9 @@ function buildOpts() {
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: false },
+            // Drop the default 15px dead strip below the svg so the time
+            // labels sit close to the card bottom.
+            parentHeightOffset: 0,
             animations: { enabled: true, easing: 'smooth', dynamicAnimation: { speed: 800 } },
         },
         series: [
