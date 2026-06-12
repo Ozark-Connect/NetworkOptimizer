@@ -404,8 +404,13 @@ export async function seekTime(isoTimestamp) {
     histAt = at;
     histWall = wall;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
-    const from = new Date(at - halfWindow);
-    const to = new Date(at + halfWindow);
+    // Fetch the window the axis will actually show. The axis is a trailing
+    // 5min window ending at min(at + half, now), so a fetch centered on the
+    // seek time would leave the left of the chart empty when seeking close
+    // to live.
+    const maxTime = Math.min(at + halfWindow, Date.now());
+    const from = new Date(maxTime - HISTORY_MINUTES * 60000);
+    const to = new Date(maxTime);
     try {
         const resp = await fetch(
             `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
