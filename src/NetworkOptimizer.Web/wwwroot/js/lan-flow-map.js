@@ -1569,12 +1569,11 @@ export class LanFlowMap {
         this._syncPlayPauseIcon();
         flowData.publishPlayState(this._paused, this._mode);
         this._notifyPlayState();
-        // In live mode flip the badge and time label between Live and Paused
+        // In live mode flip the time label between Live and Live (Paused)
         // so frozen rates aren't mistaken for live data. Historic mode keeps
-        // its badge and timestamp.
+        // its timestamp; the mode badge stays Live/Historic either way.
         if (this._mode === 'live') {
             const label = this._paused ? 'Live (Paused)' : 'Live';
-            if (this._panels.modeBadge) this._panels.modeBadge.textContent = label;
             if (this._panels.scrubberRight) this._panels.scrubberRight.textContent = label;
             flowData.publishScrubber(
                 Number(this._panels.scrubberRange?.value ?? 10000), label, this._playbackSpeed);
