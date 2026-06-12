@@ -29,6 +29,7 @@ let histTimer = null;
 let histAt = 0;
 let histWall = 0;
 let histRate = 0;
+let histPrevRate = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -373,6 +374,7 @@ function renderHistoric(at) {
 function stopHistInterpolation() {
     if (histTimer) { clearInterval(histTimer); histTimer = null; }
     histRate = 0;
+    histPrevRate = 0;
     histWall = 0;
 }
 
@@ -394,13 +396,19 @@ export async function seekTime(isoTimestamp) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     const at = new Date(isoTimestamp).getTime();
-    // Infer the playback rate from consecutive forward seeks. Backward jumps,
-    // the first seek, and gaps over 2.5s (paused playback ticks every 1s)
-    // disable interpolation until the rate is re-established.
+    // Infer the playback rate from consecutive forward seeks. Playback ticks
+    // arrive at a steady ~1s cadence with a constant rate; manual scrubs are
+    // irregular and can imply huge rates (a minute dragged in 200ms), which
+    // would keep extrapolating after the drag stops. Only interpolate after
+    // two consecutive seeks at playback-like spacing with matching rates.
     const wall = Date.now();
-    histRate = (histWall && at > histAt && wall - histWall < 2500)
-        ? (at - histAt) / (wall - histWall)
+    const gap = wall - histWall;
+    const rate = (histWall && at > histAt && gap >= 700 && gap <= 2500)
+        ? (at - histAt) / gap
         : 0;
+    histRate = (rate > 0 && histPrevRate > 0
+        && Math.abs(rate - histPrevRate) <= histPrevRate * 0.3) ? rate : 0;
+    histPrevRate = rate;
     histAt = at;
     histWall = wall;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
@@ -431,7 +439,14 @@ export async function seekTime(isoTimestamp) {
         histTimer = setInterval(() => {
             if (histRate <= 0) return;
             const elapsed = Date.now() - histWall;
-            if (elapsed > 2500) return; // playback stalled or paused
+            if (elapsed > 2500) {
+                // Playback stalled or paused: stop extrapolating and settle
+                // back on the last confirmed seek position.
+                histRate = 0;
+                histPrevRate = 0;
+                renderHistoric(histAt);
+                return;
+            }
             renderHistoric(histAt + elapsed * histRate);
         }, SCROLL_MS);
     }
