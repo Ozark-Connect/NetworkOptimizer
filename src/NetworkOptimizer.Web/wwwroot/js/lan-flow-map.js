@@ -1573,7 +1573,7 @@ export class LanFlowMap {
         // so frozen rates aren't mistaken for live data. Historic mode keeps
         // its badge and timestamp.
         if (this._mode === 'live') {
-            const label = this._paused ? 'Paused' : 'Live';
+            const label = this._paused ? 'Live (Paused)' : 'Live';
             if (this._panels.modeBadge) this._panels.modeBadge.textContent = label;
             if (this._panels.scrubberRight) this._panels.scrubberRight.textContent = label;
             flowData.publishScrubber(

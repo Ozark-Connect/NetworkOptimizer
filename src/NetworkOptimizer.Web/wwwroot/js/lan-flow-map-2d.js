@@ -735,12 +735,12 @@ class LanFlowMap2D {
         this._scrubberEls.range.value=s.value;
         // Live-but-paused shows Paused on the time label and badge so frozen
         // rates aren't mistaken for live data. Historic keeps its timestamp.
-        this._scrubberEls.right.textContent=(mode!=='historic'&&paused)?'Paused':s.right;
+        this._scrubberEls.right.textContent=(mode!=='historic'&&paused)?'Live (Paused)':s.right;
         this._scrubberEls.speedLabel.textContent=`${s.speed}x`;
         this._scrubberEls.playPause.textContent=paused?'▶':'⏸';
         // Mode badge
         if(this._modeBadge){
-            this._modeBadge.textContent=mode==='historic'?'Historic':(paused?'Paused':'Live');
+            this._modeBadge.textContent=mode==='historic'?'Historic':(paused?'Live (Paused)':'Live');
             this._modeBadge.classList.toggle('is-historic',mode==='historic');
             this._modeBadge.style.cursor=mode==='historic'?'pointer':'';
             if(mode==='historic'){
