@@ -119,7 +119,9 @@ function buildOpts() {
         grid: {
             borderColor: '#374151',
             strokeDashArray: 3,
-            padding: { left: 3, right: 0, top: -8, bottom: -3 },
+            // Bottom padding holds the strip below the axis where the
+            // annotation time labels render.
+            padding: { left: 3, right: 0, top: -8, bottom: 12 },
             xaxis: { lines: { show: false } },
         },
         responsive: [{
@@ -131,7 +133,7 @@ function buildOpts() {
                     { seriesName: 'Loss', opposite: true, show: false, min: 0, max: v => Math.max(v * 1.2, 10) },
                     { seriesName: 'RTT', opposite: true, show: false, min: 0 },
                 ],
-                grid: { padding: { left: -5, right: -5, top: -8, bottom: -3 } },
+                grid: { padding: { left: -5, right: -5, top: -8, bottom: 12 } },
             },
         }],
         legend: { show: false },
@@ -151,17 +153,15 @@ function buildOpts() {
 }
 
 // Time labels pinned to a fixed 20s grid, rendered as x-axis annotations so
-// they scroll with the data. Minute boundaries show the full time; the :20
-// and :40 ticks show just the seconds.
+// they scroll with the data. Full 24-hour time on every tick, placed below
+// the axis in the space freed by the hidden built-in labels.
 function buildTimeTicks(minMs, maxMs) {
     const GRID_MS = 20000;
     const ticks = [];
     for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
         const d = new Date(t);
-        const ss = d.getSeconds();
-        const text = ss === 0
-            ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : ':' + String(ss).padStart(2, '0');
+        const text = [d.getHours(), d.getMinutes(), d.getSeconds()]
+            .map(v => String(v).padStart(2, '0')).join(':');
         ticks.push({
             x: t,
             borderColor: 'transparent',
@@ -169,7 +169,7 @@ function buildTimeTicks(minMs, maxMs) {
                 text,
                 position: 'bottom',
                 orientation: 'horizontal',
-                offsetY: -4,
+                offsetY: 14,
                 borderColor: 'transparent',
                 style: { background: 'transparent', color: '#64748b', fontSize: '10px' },
             },
