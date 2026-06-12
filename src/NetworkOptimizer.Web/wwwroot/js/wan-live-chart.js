@@ -24,6 +24,11 @@ let elId = null;
 let visHandler = null;
 let mountGen = 0;
 let lastSampleTime = 0;
+// Historic playback interpolation state (see seekTime).
+let histTimer = null;
+let histAt = 0;
+let histWall = 0;
+let histRate = 0;
 
 function formatBps(v) {
     if (v == null || v < 1) return '0';
@@ -169,9 +174,10 @@ function buildTimeTicks(minMs, maxMs) {
                 text,
                 position: 'bottom',
                 orientation: 'horizontal',
-                offsetY: 14,
+                offsetY: 19,
                 borderColor: 'transparent',
-                style: { background: 'transparent', color: '#64748b', fontSize: '10px' },
+                // --text-muted; CSS vars don't resolve inside the chart config
+                style: { background: 'transparent', color: '#5c5c66', fontSize: '10px' },
             },
         });
     }
@@ -306,6 +312,7 @@ export async function mount(containerId, opts) {
 }
 
 export function pause() {
+    stopHistInterpolation();
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
 }
@@ -316,41 +323,13 @@ export function resume() {
     scrollTimer = setInterval(updateChart, SCROLL_MS);
 }
 
-export async function seekTime(isoTimestamp) {
-    if (!chart) return;
-    if (!isoTimestamp) {
-        // Return to live mode - updateChart replaces the annotations with the
-        // plain time grid, dropping the playhead.
-        if (pollTimer) return; // already live
-        buffer = [];
-        await loadHistory();
-        updateChart();
-        pollTimer = setInterval(pollLive, POLL_MS);
-        scrollTimer = setInterval(updateChart, SCROLL_MS);
-        return;
-    }
-    // Historic mode: stop polling, fetch window centered on timestamp
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
-    const at = new Date(isoTimestamp).getTime();
+// Render the historic view at a given playhead time from the current buffer.
+// No fetching - callers load data; the interpolation timer reuses it.
+function renderHistoric(at) {
+    if (!chart || buffer.length === 0) return;
+    const el = document.getElementById(elId);
+    if (el?.classList.contains('apexcharts-tooltip-active')) return;
     const halfWindow = HISTORY_MINUTES * 60000 / 2;
-    const from = new Date(at - halfWindow);
-    const to = new Date(at + halfWindow);
-    try {
-        const resp = await fetch(
-            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
-            { credentials: 'same-origin' });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        buffer = (data.points || []).map(p => ({
-            time: new Date(p.time).getTime(),
-            download: p.downloadBps,
-            upload: p.uploadBps,
-            rtt: p.rttMs,
-            loss: p.lossPercent,
-        }));
-    } catch { return; }
-    if (buffer.length === 0) return;
     const maxTime = Math.min(at + halfWindow, Date.now());
     const playhead = {
         x: at,
@@ -379,8 +358,75 @@ export async function seekTime(isoTimestamp) {
     ], false);
 }
 
+// Historic playback only seeks once per second (the map's playback tick), so
+// the chart would step instead of slide. Between real seeks, interpolate the
+// playhead at the inferred playback rate and redraw from the existing buffer
+// at the live-mode cadence. Draw-only: no extra fetches or polling.
+function stopHistInterpolation() {
+    if (histTimer) { clearInterval(histTimer); histTimer = null; }
+    histRate = 0;
+    histWall = 0;
+}
+
+export async function seekTime(isoTimestamp) {
+    if (!chart) return;
+    if (!isoTimestamp) {
+        // Return to live mode - updateChart replaces the annotations with the
+        // plain time grid, dropping the playhead.
+        stopHistInterpolation();
+        if (pollTimer) return; // already live
+        buffer = [];
+        await loadHistory();
+        updateChart();
+        pollTimer = setInterval(pollLive, POLL_MS);
+        scrollTimer = setInterval(updateChart, SCROLL_MS);
+        return;
+    }
+    // Historic mode: stop polling, fetch window centered on timestamp
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+    const at = new Date(isoTimestamp).getTime();
+    // Infer the playback rate from consecutive forward seeks. Backward jumps,
+    // the first seek, and gaps over 2.5s (paused playback ticks every 1s)
+    // disable interpolation until the rate is re-established.
+    const wall = Date.now();
+    histRate = (histWall && at > histAt && wall - histWall < 2500)
+        ? (at - histAt) / (wall - histWall)
+        : 0;
+    histAt = at;
+    histWall = wall;
+    const halfWindow = HISTORY_MINUTES * 60000 / 2;
+    const from = new Date(at - halfWindow);
+    const to = new Date(at + halfWindow);
+    try {
+        const resp = await fetch(
+            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
+            { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        buffer = (data.points || []).map(p => ({
+            time: new Date(p.time).getTime(),
+            download: p.downloadBps,
+            upload: p.uploadBps,
+            rtt: p.rttMs,
+            loss: p.lossPercent,
+        }));
+    } catch { return; }
+    if (buffer.length === 0) return;
+    renderHistoric(at);
+    if (!histTimer) {
+        histTimer = setInterval(() => {
+            if (histRate <= 0) return;
+            const elapsed = Date.now() - histWall;
+            if (elapsed > 2500) return; // playback stalled or paused
+            renderHistoric(histAt + elapsed * histRate);
+        }, SCROLL_MS);
+    }
+}
+
 export function unmount() {
     mountGen++;
+    stopHistInterpolation();
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
     if (visHandler) { document.removeEventListener('visibilitychange', visHandler); visHandler = null; }
