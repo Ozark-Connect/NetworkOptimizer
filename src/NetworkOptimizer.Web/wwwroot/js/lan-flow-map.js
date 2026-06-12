@@ -1910,6 +1910,13 @@ export class LanFlowMap {
                 this._speedIndex = newIdx;
                 this._playbackSpeed = SPEED_STEPS[newIdx];
                 this._syncSpeedLabel();
+                // Publish right away so the 2D mirror's speed label updates
+                // immediately - otherwise it waits for the next playback tick
+                // (1s), or indefinitely while paused.
+                flowData.publishScrubber(
+                    Number(this._panels.scrubberRange?.value ?? 10000),
+                    this._panels.scrubberRight?.textContent ?? 'Live',
+                    this._playbackSpeed);
                 if (this._mode === 'live' && this._playbackSpeed < 1) {
                     const now = Date.now();
                     const span = now - this._scrubberOrigin;
