@@ -41,11 +41,10 @@ function buildOpts() {
         },
         yaxis: {
             min: 0,
-            title: { text: 'ms', style: { color: '#9ca3af', fontSize: '9px' }, offsetX: -4 },
+            title: { text: 'ms', style: { color: '#9ca3af', fontSize: '9px' } },
             labels: {
                 style: { colors: '#9ca3af', fontSize: '10px' },
                 formatter: v => v != null ? v.toFixed(1) : '',
-                offsetX: -8,
             },
             axisBorder: { show: false },
             axisTicks: { show: false },
