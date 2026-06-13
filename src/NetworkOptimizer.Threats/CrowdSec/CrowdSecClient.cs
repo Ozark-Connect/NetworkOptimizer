@@ -13,6 +13,8 @@ public enum CrowdSecLookupOutcome
     QuotaExhausted,
     /// <summary>Burst throttle ("Too Many Requests"). Transient - caller should retry later.</summary>
     BurstThrottled,
+    /// <summary>IP is RFC1918/loopback/link-local - reputation lookup not applicable.</summary>
+    NotApplicable,
     Error
 }
 

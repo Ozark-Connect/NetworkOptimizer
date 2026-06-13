@@ -699,11 +699,40 @@ public class AuditService
         {
             var thirtyDaysAgo = DateTime.UtcNow.AddDays(-30);
             var now = DateTime.UtcNow;
+
+            // Display limits are configurable via system settings. Defaults preserve
+            // historical behavior: 5 rows in the main Top Threat Sources table, 10 rows
+            // in each categorized sub-table, and 20 candidate sources fetched from the
+            // category query before trimming to the sub-table display cap.
+            var topSourcesLimit = await GetIntSettingAsync("threats.top_sources_main_limit", 5);
+            var categorySubTableLimit = await GetIntSettingAsync("threats.top_sources_category_limit", 10);
+            var categoryQueryLimit = await GetIntSettingAsync("threats.sources_by_category_query_limit", 20);
+
+            // Apply enabled noise filters so the audit report matches what the user
+            // sees on the threat dashboard. Without this, the audit always sees raw
+            // events including infrastructure self-scans and trusted-user noise.
+            var allFilters = await _threatRepository.GetNoiseFiltersAsync();
+            var enabledFilters = allFilters.Where(f => f.Enabled).ToList();
+            _threatRepository.SetNoiseFilters(enabledFilters);
+
             var summary = await _threatRepository.GetThreatSummaryAsync(thirtyDaysAgo, now);
             if (summary.TotalEvents == 0) return null;
 
-            var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, now, 5);
+            var topSources = await _threatRepository.GetTopSourcesAsync(thirtyDaysAgo, now, topSourcesLimit);
             var killChain = await _threatRepository.GetKillChainDistributionAsync(thirtyDaysAgo, now);
+
+            // Categorized sub-tables: events matching Infrastructure / TrustedUser
+            // filters are excluded from TopSources above but surfaced here so the
+            // user can see what was suppressed and why.
+            var infraSources = enabledFilters.Any(f => f.Category == ThreatFilterCategory.Infrastructure && f.SourceIp != null)
+                ? await _threatRepository.GetSourcesByCategoryAsync(thirtyDaysAgo, now, ThreatFilterCategory.Infrastructure, categoryQueryLimit)
+                : new List<NetworkOptimizer.Threats.Interfaces.SourceIpSummary>();
+
+            var trustedSources = enabledFilters.Any(f => f.Category == ThreatFilterCategory.TrustedUser && f.SourceIp != null)
+                ? await _threatRepository.GetSourcesByCategoryAsync(thirtyDaysAgo, now, ThreatFilterCategory.TrustedUser, categoryQueryLimit)
+                : new List<NetworkOptimizer.Threats.Interfaces.SourceIpSummary>();
+
+            var suppressedEventCount = infraSources.Sum(s => s.EventCount) + trustedSources.Sum(s => s.EventCount);
 
             return new Reports.ThreatSummaryData
             {
@@ -719,7 +748,24 @@ public class AuditService
                     CountryCode = s.CountryCode,
                     AsnOrg = s.AsnOrg,
                     EventCount = s.EventCount
-                }).ToList()
+                }).ToList(),
+                InfrastructureSources = infraSources.Take(categorySubTableLimit).Select(s => new Reports.ThreatSourceEntry
+                {
+                    Ip = s.SourceIp,
+                    CountryCode = s.CountryCode,
+                    AsnOrg = s.AsnOrg,
+                    EventCount = s.EventCount,
+                    Label = s.Label
+                }).ToList(),
+                TrustedUserSources = trustedSources.Take(categorySubTableLimit).Select(s => new Reports.ThreatSourceEntry
+                {
+                    Ip = s.SourceIp,
+                    CountryCode = s.CountryCode,
+                    AsnOrg = s.AsnOrg,
+                    EventCount = s.EventCount,
+                    Label = s.Label
+                }).ToList(),
+                SuppressedEventCount = suppressedEventCount
             };
         }
         catch (Exception ex)
@@ -727,6 +773,15 @@ public class AuditService
             _logger.LogDebug(ex, "Failed to build threat summary for report");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Read an integer setting with a default if missing or unparseable.
+    /// </summary>
+    private async Task<int> GetIntSettingAsync(string key, int defaultValue)
+    {
+        var raw = await _settingsService.GetAsync(key);
+        return int.TryParse(raw, out var v) && v > 0 ? v : defaultValue;
     }
 
     public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null, Reports.ThreatSummaryData? threatSummary = null)

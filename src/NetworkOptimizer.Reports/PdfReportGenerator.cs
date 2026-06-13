@@ -1205,7 +1205,7 @@ public class PdfReportGenerator
                             .Text("Events").Bold().FontSize(8);
                     });
 
-                    foreach (var source in threat.TopSources.Take(5))
+                    foreach (var source in threat.TopSources)
                     {
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
                             .Text(source.Ip).FontSize(8);
@@ -1217,6 +1217,48 @@ public class PdfReportGenerator
                             .Text(source.EventCount.ToString("N0")).FontSize(8);
                     }
                 });
+
+                // Suppressed-count footnote: tells the reader the table above excludes
+                // events from internal infrastructure and trusted user devices, with
+                // the actual numbers shown in the sub-tables that follow.
+                if (threat.SuppressedEventCount > 0)
+                {
+                    var infraCount = threat.InfrastructureSources.Sum(s => s.EventCount);
+                    var trustedCount = threat.TrustedUserSources.Sum(s => s.EventCount);
+                    var parts = new List<string>();
+                    if (infraCount > 0) parts.Add($"{infraCount:N0} from known infrastructure");
+                    if (trustedCount > 0) parts.Add($"{trustedCount:N0} from trusted user devices");
+                    var footnote = $"Excludes {string.Join(" and ", parts)} (see categorized tables below).";
+
+                    column.Item()
+                        .PaddingTop(4)
+                        .Text(footnote)
+                        .FontSize(8)
+                        .Italic()
+                        .FontColor(Colors.Grey.Medium);
+                }
+            }
+
+            // Known Infrastructure Activity
+            if (threat.InfrastructureSources.Any())
+            {
+                ComposeCategorizedSourceTable(
+                    column,
+                    "Known Infrastructure Activity",
+                    threat.InfrastructureSources,
+                    primaryColor,
+                    lightGray);
+            }
+
+            // Trusted User Activity
+            if (threat.TrustedUserSources.Any())
+            {
+                ComposeCategorizedSourceTable(
+                    column,
+                    "Trusted User Activity",
+                    threat.TrustedUserSources,
+                    primaryColor,
+                    lightGray);
             }
 
             // Exposed services
@@ -1269,6 +1311,62 @@ public class PdfReportGenerator
                             .Text(svc.UniqueSourceIps.ToString("N0")).FontSize(8);
                     }
                 });
+            }
+        });
+    }
+
+    /// <summary>
+    /// Renders a small sub-table beneath the main "Top Threat Sources" table for
+    /// a categorized group (Known Infrastructure Activity or Trusted User Activity).
+    /// Adds a Label column so the reader can see what each source actually is.
+    /// </summary>
+    private void ComposeCategorizedSourceTable(
+        ColumnDescriptor column,
+        string title,
+        List<ThreatSourceEntry> sources,
+        string primaryColor,
+        string lightGray)
+    {
+        column.Item()
+            .PaddingTop(10)
+            .PaddingBottom(4)
+            .Text(title)
+            .FontSize(10)
+            .Bold()
+            .FontColor(primaryColor);
+
+        column.Item().Table(table =>
+        {
+            table.ColumnsDefinition(columns =>
+            {
+                columns.RelativeColumn(2f);     // IP
+                columns.RelativeColumn(2.5f);   // Label
+                columns.RelativeColumn(1f);     // Country
+                columns.RelativeColumn(1f);     // Events
+            });
+
+            table.Header(header =>
+            {
+                header.Cell().Background(lightGray).Padding(4)
+                    .Text("IP Address").Bold().FontSize(8);
+                header.Cell().Background(lightGray).Padding(4)
+                    .Text("Label").Bold().FontSize(8);
+                header.Cell().Background(lightGray).Padding(4)
+                    .Text("Country").Bold().FontSize(8);
+                header.Cell().Background(lightGray).Padding(4)
+                    .Text("Events").Bold().FontSize(8);
+            });
+
+            foreach (var source in sources)
+            {
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                    .Text(source.Ip).FontSize(8);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                    .Text(source.Label ?? "-").FontSize(8);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                    .Text(source.CountryCode ?? "-").FontSize(8);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                    .Text(source.EventCount.ToString("N0")).FontSize(8);
             }
         });
     }

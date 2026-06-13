@@ -408,6 +408,9 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<ThreatNoiseFilter>(entity =>
         {
             entity.ToTable("ThreatNoiseFilters");
+            entity.Property(e => e.Category).HasConversion<int>();
+            entity.HasIndex(e => new { e.Category, e.Enabled });
+            entity.HasIndex(e => new { e.Category, e.SourceIp });
         });
 
         // ScheduledTask configuration

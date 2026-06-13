@@ -310,6 +310,111 @@ public class ThreatRepository : IThreatRepository
         }
     }
 
+    public async Task<List<SourceIpSummary>> GetSourcesByCategoryAsync(DateTime from, DateTime to,
+        ThreatFilterCategory category, int count = 20, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Load enabled filters of this category (bypasses _noiseFilters which would
+            // exclude them - we want to surface exactly these source IPs).
+            var filters = await _context.ThreatNoiseFilters
+                .AsNoTracking()
+                .Where(f => f.Enabled && f.Category == category && f.SourceIp != null)
+                .ToListAsync(cancellationToken);
+
+            if (filters.Count == 0)
+                return new List<SourceIpSummary>();
+
+            // Partition filter source IPs into exact matches and CIDR prefixes so the
+            // query can OR them in a single Where clause (translates to a small set
+            // of OR conditions on real providers and works on the in-memory provider).
+            var exactIps = filters
+                .Where(f => f.SourceIp != null && !f.SourceIp.Contains('/'))
+                .Select(f => f.SourceIp!)
+                .Distinct()
+                .ToList();
+
+            var cidrPrefixes = filters
+                .Select(f => ToCidrPrefix(f.SourceIp))
+                .Where(p => p != null)
+                .Select(p => p!)
+                .Distinct()
+                .ToList();
+
+            if (exactIps.Count == 0 && cidrPrefixes.Count == 0)
+                return new List<SourceIpSummary>();
+
+            // Build a base query that does NOT apply noise filtering (the whole point
+            // is to surface what was suppressed). Severity filter still applies if set.
+            var baseQ = _context.ThreatEvents
+                .AsNoTracking()
+                .Where(e => e.Timestamp >= from && e.Timestamp <= to);
+
+            if (_severityFilter is { Length: > 0 })
+                baseQ = baseQ.Where(e => _severityFilter.Contains(e.Severity));
+
+            // Build one sub-query per match shape (exact IPs in one Contains, then one
+            // Where per CIDR prefix) and Union them. cidrPrefixes.Any(p => e.SourceIp.StartsWith(p))
+            // would be more concise but the EF Core InMemory provider used by tests cannot
+            // translate that lambda pattern; per-prefix Union works on both InMemory and SQL.
+            var queries = new List<IQueryable<ThreatEvent>>();
+            if (exactIps.Count > 0)
+                queries.Add(baseQ.Where(e => exactIps.Contains(e.SourceIp)));
+            foreach (var prefix in cidrPrefixes)
+            {
+                var p = prefix; // capture per loop iteration
+                queries.Add(baseQ.Where(e => e.SourceIp.StartsWith(p)));
+            }
+
+            var matched = queries.Aggregate((a, b) => a.Union(b));
+
+            var rows = await matched
+                .GroupBy(e => e.SourceIp)
+                .Select(g => new
+                {
+                    SourceIp = g.Key,
+                    EventCount = g.Count(),
+                    CountryCode = g.First().CountryCode,
+                    City = g.First().City,
+                    Asn = g.First().Asn,
+                    AsnOrg = g.First().AsnOrg,
+                    MaxSeverity = g.Max(e => e.Severity)
+                })
+                .OrderByDescending(s => s.EventCount)
+                .Take(count)
+                .ToListAsync(cancellationToken);
+
+            // Attach the filter's label to each source by re-matching the IP locally.
+            // Exact-match filters take precedence over CIDR matches when both apply.
+            return rows.Select(r =>
+            {
+                var label = filters
+                    .Where(f => f.Matches(r.SourceIp, null, null))
+                    .OrderBy(f => f.SourceIp != null && f.SourceIp.Contains('/') ? 1 : 0)
+                    .Select(f => f.Label)
+                    .FirstOrDefault(l => !string.IsNullOrEmpty(l));
+
+                return new SourceIpSummary
+                {
+                    SourceIp = r.SourceIp,
+                    EventCount = r.EventCount,
+                    CountryCode = r.CountryCode,
+                    City = r.City,
+                    Asn = r.Asn,
+                    AsnOrg = r.AsnOrg,
+                    MaxSeverity = r.MaxSeverity,
+                    Label = label,
+                    MatchedFilterCategory = category
+                };
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get sources by category {Category}", category);
+            throw;
+        }
+    }
+
     public async Task<List<TargetPortSummary>> GetTopTargetedPortsAsync(DateTime from, DateTime to,
         int count = 10, CancellationToken cancellationToken = default)
     {
@@ -698,9 +803,11 @@ public class ThreatRepository : IThreatRepository
     {
         try
         {
-            // Get events with null geo data (tracked so changes are saved)
+            // Pick events that have not yet been processed by the enrichment service.
+            // Pre-fix events (where GeoEnriched defaults to false) get a one-time pass;
+            // RFC1918 sources will end up with null source geo, which is correct.
             var events = await _context.ThreatEvents
-                .Where(e => e.CountryCode == null)
+                .Where(e => !e.GeoEnriched)
                 .OrderByDescending(e => e.Timestamp)
                 .Take(batchSize)
                 .ToListAsync(cancellationToken);
@@ -974,6 +1081,30 @@ public class ThreatRepository : IThreatRepository
         await _context.ThreatNoiseFilters
             .Where(f => f.Id == filterId)
             .ExecuteUpdateAsync(s => s.SetProperty(f => f.Enabled, enabled), cancellationToken);
+    }
+
+    public async Task DemoteAndDisableSystemFilterAsync(int filterId, CancellationToken cancellationToken = default)
+    {
+        // Load-modify-save instead of ExecuteUpdateAsync: ExecuteUpdate is not
+        // supported by the EF Core InMemory provider used by the test suite.
+        // SQLite supports it in production but cross-provider compatibility wins
+        // here over the marginal efficiency of a single statement.
+        var filter = await _context.ThreatNoiseFilters
+            .FirstOrDefaultAsync(f => f.Id == filterId, cancellationToken);
+        if (filter == null) return;
+        filter.IsSystem = false;
+        filter.Enabled = false;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task PromoteToSystemFilterAsync(int filterId, CancellationToken cancellationToken = default)
+    {
+        var filter = await _context.ThreatNoiseFilters
+            .FirstOrDefaultAsync(f => f.Id == filterId, cancellationToken);
+        if (filter == null) return;
+        filter.IsSystem = true;
+        filter.Enabled = true;
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     #endregion
