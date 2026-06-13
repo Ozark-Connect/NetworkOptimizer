@@ -458,16 +458,15 @@ public class UpstreamTracerService
         foreach (var ifaceCandidate in candidates)
         {
             if (ct.IsCancellationRequested) break;
-            var cmd = $"ip neigh show dev {ifaceCandidate} 2>/dev/null | head -5";
+            var cmd = $"ip neigh show dev {ifaceCandidate} 2>/dev/null | head -10";
             var (ok, output) = await _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(5), ct);
             if (!ok || string.IsNullOrWhiteSpace(output)) continue;
 
-            // Line shape: "x.x.x.x lladdr aa:bb:cc:dd:ee:ff REACHABLE"
-            var match = Regex.Match(output, @"^(\S+)\s+.*lladdr\s+([0-9a-f:]{17})", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-            if (match.Success)
+            var selected = SelectWanNeighbor(output);
+            if (selected != null)
             {
-                neighborIp = match.Groups[1].Value;
-                neighborMac = match.Groups[2].Value.ToLowerInvariant();
+                neighborIp = selected.Value.Ip;
+                neighborMac = selected.Value.Mac;
                 wanDevice = ifaceCandidate;
                 break;
             }
@@ -522,6 +521,55 @@ public class UpstreamTracerService
 
         return true;
     }
+
+    /// <summary>
+    /// Picks the WAN-side L2 neighbor from `ip neigh show dev &lt;wan&gt;` output. A CPE
+    /// bridged in front of the gateway (an ISP modem/router in passthrough) lists both
+    /// its LAN-side RFC1918 address and the carrier-side address under the same MAC;
+    /// the LAN-side entry often sorts first, and taking the first lladdr line mislabeled
+    /// a private CPE IP as an ISP hop. Preference order: address class
+    /// (public &gt; CGNAT &gt; private) then freshness (REACHABLE/DELAY/PROBE over STALE).
+    /// FAILED and INCOMPLETE entries carry no lladdr and never match. IPv6 link-local
+    /// entries are skipped.
+    /// </summary>
+    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput)
+    {
+        if (string.IsNullOrWhiteSpace(ipNeighOutput)) return null;
+
+        (string Ip, string Mac)? best = null;
+        var bestScore = -1;
+        foreach (Match m in Regex.Matches(ipNeighOutput,
+            @"^(\S+)\s+.*lladdr\s+([0-9a-fA-F:]{17})(.*)$", RegexOptions.Multiline))
+        {
+            var ipText = m.Groups[1].Value;
+            if (!System.Net.IPAddress.TryParse(ipText, out var ip)) continue;
+            if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+
+            var classScore = NetworkUtilities.ClassifyPublicAddress(ip) switch
+            {
+                PublicAddressClass.PublicIPv4 => 3,
+                PublicAddressClass.Cgnat => 2,
+                PublicAddressClass.DoubleNat => 1,
+                _ => 0
+            };
+            var freshScore = m.Groups[3].Value.Contains("STALE", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
+            var score = classScore * 10 + freshScore;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = (ipText, m.Groups[2].Value.ToLowerInvariant());
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Whether an L2 neighbor address may be proposed as a monitored access hop.
+    /// Carrier-side addresses (public or CGNAT) qualify; RFC1918 addresses are the
+    /// CPE's LAN side and must never be suggested as ISP infrastructure.
+    /// </summary>
+    public static bool IsInjectableAccessHopAddress(string? ip) =>
+        NetworkUtilities.ClassifyPublicAddress(ip) is PublicAddressClass.PublicIPv4 or PublicAddressClass.Cgnat;
 
     // ---- Step 3: Trace the access ISP + Step 4 transit ASNs ----
     //
@@ -687,8 +735,10 @@ public class UpstreamTracerService
         // wasn't already found by traceroute. On GPON the OLT is typically
         // L2-transparent and doesn't appear as a traceroute hop, but it may
         // still respond to ICMP. The reachability check (step 5) will disable
-        // it if it doesn't respond.
+        // it if it doesn't respond. Private LAN-side CPE addresses never qualify:
+        // a bridged ISP modem's RFC1918 IP is not ISP infrastructure.
         if (!string.IsNullOrEmpty(State.WanNeighborIp)
+            && IsInjectableAccessHopAddress(State.WanNeighborIp)
             && !State.AccessHops.Any(h => h.Address == State.WanNeighborIp))
         {
             var l2Asn = await _asnResolution.ResolveAsync(State.WanNeighborIp, ct);

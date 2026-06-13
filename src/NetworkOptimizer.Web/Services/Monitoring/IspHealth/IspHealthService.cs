@@ -175,7 +175,17 @@ public class IspHealthService
             return null;
         }
 
-        var firstHop = PickFirstCleanHop(ispTargets, ispSeries);
+        var (firstHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
+        var ispTargetSeries = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t => new AsnSeries
+            {
+                AsnNumber = t.AsnNumber ?? 0,
+                AsnName = t.Name,
+                TargetIds = { t.TargetId },
+                Samples = ispSeries[t.TargetId]
+            })
+            .ToList();
 
         // How far the internet sits beyond the access hop here: the rural/metro
         // context the transit reach ceiling normalizes against
@@ -224,6 +234,8 @@ public class IspHealthService
             WindowStart = windowStart,
             WindowEnd = windowEnd,
             FirstHopSeries = firstHop,
+            FirstHopTargetId = firstHopTargetId,
+            IspTargetSeries = ispTargetSeries,
             LossPoolSeries = lossPool,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
@@ -379,11 +391,12 @@ public class IspHealthService
     /// The first clean ISP hop: the enabled AccessIsp target with the lowest median
     /// RTT over the window, matching the live ISP RTT card's nearest-hop semantics.
     /// </summary>
-    private static List<LatencySample> PickFirstCleanHop(
+    private static (List<LatencySample> Samples, string? TargetId) PickFirstCleanHop(
         List<MonitoringTarget> ispTargets,
         Dictionary<string, List<LatencySample>> ispSeries)
     {
         List<LatencySample>? best = null;
+        string? bestId = null;
         double? bestMedian = null;
         foreach (var target in ispTargets)
         {
@@ -395,9 +408,10 @@ public class IspHealthService
             {
                 bestMedian = median;
                 best = samples;
+                bestId = target.TargetId;
             }
         }
-        return best ?? new List<LatencySample>();
+        return (best ?? new List<LatencySample>(), bestId);
     }
 
     /// <summary>

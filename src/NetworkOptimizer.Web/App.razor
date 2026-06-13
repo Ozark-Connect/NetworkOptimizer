@@ -206,7 +206,7 @@
                 var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
-                    trigger: 'mouseenter click',
+                    trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
@@ -260,7 +260,7 @@
                 var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
-                    trigger: 'mouseenter click',
+                    trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',

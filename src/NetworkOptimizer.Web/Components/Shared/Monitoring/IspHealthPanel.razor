@@ -211,6 +211,24 @@ else
                             {
                                 <span class="isp-event-badge isp-event-badge-warning">@asn.CongestionEventCount congestion event@(asn.CongestionEventCount == 1 ? "" : "s")</span>
                             }
+                            @if (r.IspAsns.Contains(asn) && r.IspTargets.Count > 1)
+                            {
+                                <div class="isp-target-list">
+                                    @foreach (var target in r.IspTargets)
+                                    {
+                                        <div class="isp-target-row">
+                                            <span class="isp-target-name">
+                                                @target.Name
+                                                @if (target.IsGradedHop)
+                                                {
+                                                    <span class="isp-target-graded" data-tooltip="The first clean hop; latency factors and the ISP grade come from this target">graded</span>
+                                                }
+                                            </span>
+                                            <span class="isp-target-stats">@FormatMs(target.MedianRttMs) &middot; @FormatMs(target.P95JitterMs) jitter &middot; @FormatLossPct(target.LossPct) loss</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </div>
                     }
                 </div>

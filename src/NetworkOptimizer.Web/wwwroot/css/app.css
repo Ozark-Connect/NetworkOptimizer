@@ -15095,6 +15095,12 @@ a.affected-client:hover {
 .isp-score-poor { color: #ef4444; }
 .isp-score-none { color: var(--text-muted); }
 
+.monitoring-stat-card .stat-value.isp-score-excellent { color: #24bc70; }
+.monitoring-stat-card .stat-value.isp-score-good { color: #3b82f6; }
+.monitoring-stat-card .stat-value.isp-score-fair { color: #f59e0b; }
+.monitoring-stat-card .stat-value.isp-score-poor { color: #ef4444; }
+.monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
+
 .isp-health-card {
     margin-bottom: 1rem;
 }
@@ -15135,18 +15141,22 @@ a.affected-client:hover {
 }
 
 .isp-gauge-small {
-    width: 110px;
+    width: 150px;
     filter: none;
+}
+
+.isp-gauge-small .isp-gauge-score {
+    font-size: 30px;
+}
+
+.isp-gauge-small .isp-gauge-label {
+    font-size: 17px;
 }
 
 .isp-gauge-score {
     font-size: 40px;
     font-weight: 700;
     letter-spacing: -1px;
-}
-
-.isp-gauge-small .isp-gauge-score {
-    font-size: 34px;
 }
 
 .isp-gauge-label {
@@ -15459,7 +15469,7 @@ a.affected-client:hover {
         gap: 0.4rem;
     }
     .isp-gauge-small {
-        width: 92px;
+        width: 104px;
     }
     .isp-event-timeline {
         padding-left: 0.75rem;
@@ -15467,4 +15477,56 @@ a.affected-client:hover {
     .isp-event-item::before {
         left: calc(-0.75rem - 7.5px);
     }
+}
+
+.isp-chart-wrap {
+    position: relative;
+}
+
+.isp-chart-reset-btn {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.5rem;
+    z-index: 5;
+}
+
+.isp-target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.25rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.isp-target-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.isp-target-name {
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.isp-target-graded {
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(5, 80, 181, 0.25);
+    color: var(--primary-hover);
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.isp-target-stats {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
 }

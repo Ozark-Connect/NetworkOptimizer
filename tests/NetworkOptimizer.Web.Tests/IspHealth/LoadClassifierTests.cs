@@ -43,7 +43,7 @@ public class LoadClassifierTests
     {
         var rates = new List<ThroughputSample>
         {
-            new(TestSeries.Start, 500_000_000, 20_000_000)
+            new(TestSeries.Start, 400_000_000, 20_000_000)
         };
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);

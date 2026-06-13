@@ -50,9 +50,13 @@ public static class StepChangeDetector
             if (detected == null) continue;
             var (afterIdx, before, after) = detected.Value;
 
+            var crossing = FindCrossingTime(samples, before, after,
+                searchStart: windows[i + 1].Start,
+                searchEnd: windows[afterIdx].Start + windowSize);
+
             events.Add(new PathShiftEvent
             {
-                Time = windows[i + 1].Start,
+                Time = RoundToQuarterHour(crossing ?? windows[i + 1].Start),
                 AsnNumber = series.AsnNumber,
                 AsnName = series.AsnName,
                 TargetId = series.TargetIds.Count == 1 ? series.TargetIds[0] : null,
@@ -88,6 +92,38 @@ public static class StepChangeDetector
         if (!EstablishedAtOldLevel(windows, beforeIndex, delta, options)) return null;
         if (!PersistsAtNewLevel(windows, before.MedianMs, delta, afterIndex, options)) return null;
         return (afterIndex, before, after);
+    }
+
+    /// <summary>
+    /// Pinpoints when the shift actually happened: the first sample inside the
+    /// transition span that lands on the new level's side of the midpoint and is
+    /// followed by samples that stay there. Window starts alone would report a
+    /// shift at 11:27 as 11:00.
+    /// </summary>
+    private static DateTime? FindCrossingTime(
+        List<LatencySample> samples, Window before, Window after, DateTime searchStart, DateTime searchEnd)
+    {
+        var midpoint = (before.MedianMs + after.MedianMs) / 2.0;
+        var movedUp = after.MedianMs > before.MedianMs;
+        var span = samples
+            .Where(s => s.RttAvgMs.HasValue && s.Time >= searchStart && s.Time < searchEnd)
+            .ToList();
+        for (var i = 0; i < span.Count; i++)
+        {
+            var onNewSide = movedUp ? span[i].RttAvgMs! > midpoint : span[i].RttAvgMs! < midpoint;
+            if (!onNewSide) continue;
+            var holds = span.Skip(i + 1).Take(3)
+                .All(s => movedUp ? s.RttAvgMs! > midpoint : s.RttAvgMs! < midpoint);
+            if (holds) return span[i].Time;
+        }
+        return null;
+    }
+
+    private static DateTime RoundToQuarterHour(DateTime time)
+    {
+        var quarter = TimeSpan.FromMinutes(15).Ticks;
+        var rounded = (time.Ticks + quarter / 2) / quarter * quarter;
+        return new DateTime(rounded, time.Kind);
     }
 
     private static bool IqrsOverlap((double Q1, double Q3) a, (double Q1, double Q3) b) =>

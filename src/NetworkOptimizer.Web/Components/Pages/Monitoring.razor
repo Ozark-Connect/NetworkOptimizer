@@ -188,7 +188,7 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var ispHealth = IspHealthService.GetCachedScore(); }
-            <div class="monitoring-stat-card clickable-stat-card" data-tooltip="@ispHealth.TileTooltip" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+            <div class="monitoring-stat-card clickable-stat-card" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
                 <div class="stat-value @ispHealth.TileCssClass">@ispHealth.TileText</div>
                 <div class="stat-label">ISP Health</div>
             </div>

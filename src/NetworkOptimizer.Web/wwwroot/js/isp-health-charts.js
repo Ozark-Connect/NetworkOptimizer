@@ -10,6 +10,8 @@ const POLL_MS = 60000;
 let chart = null;
 let pollTimer = null;
 let fetchController = null;
+let resetBtn = null;
+let isZoomed = false;
 
 function buildOpts() {
     return {
@@ -20,6 +22,9 @@ function buildOpts() {
             toolbar: { show: false },
             zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
             animations: { enabled: false },
+            events: {
+                zoomed: (ctx, opts) => setZoomed(opts?.xaxis?.min != null),
+            },
         },
         series: [],
         stroke: { curve: 'smooth', width: 2 },
@@ -82,6 +87,18 @@ function buildAnnotations(events) {
     return { xaxis };
 }
 
+function setZoomed(zoomed) {
+    isZoomed = zoomed;
+    if (resetBtn) resetBtn.style.display = zoomed ? 'inline-flex' : 'none';
+}
+
+function resetZoom() {
+    if (!chart) return;
+    chart.updateOptions({ xaxis: { min: undefined, max: undefined } }, false, false);
+    setZoomed(false);
+    loadAndUpdate();
+}
+
 async function loadAndUpdate() {
     if (!chart) return;
     fetchController?.abort();
@@ -99,7 +116,8 @@ async function loadAndUpdate() {
         }));
 
         chart.updateOptions({ annotations: buildAnnotations(json.events || []) }, false, false);
-        chart.updateSeries(series, false);
+        // Preserve the user's drag-zoom; a series refresh while zoomed would snap back
+        if (!isZoomed) chart.updateSeries(series, false);
     } catch (e) {
         if (e.name !== 'AbortError') console.warn('isp-health chart load failed', e);
     }
@@ -108,6 +126,16 @@ async function loadAndUpdate() {
 export async function mount(elId) {
     const el = document.getElementById(elId);
     if (!el) return;
+
+    resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'btn btn-sm btn-secondary isp-chart-reset-btn';
+    resetBtn.textContent = 'Reset zoom';
+    resetBtn.style.display = 'none';
+    resetBtn.addEventListener('click', resetZoom);
+    el.parentElement.classList.add('isp-chart-wrap');
+    el.parentElement.appendChild(resetBtn);
+
     chart = new ApexCharts(el, buildOpts());
     await chart.render();
     await loadAndUpdate();
@@ -117,5 +145,7 @@ export async function mount(elId) {
 export function unmount() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     fetchController?.abort();
+    if (resetBtn) { resetBtn.remove(); resetBtn = null; }
+    isZoomed = false;
     if (chart) { chart.destroy(); chart = null; }
 }

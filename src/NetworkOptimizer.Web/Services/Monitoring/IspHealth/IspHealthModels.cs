@@ -92,6 +92,19 @@ public class IspAsnHealth
     public int CongestionEventCount { get; init; }
 }
 
+/// <summary>One monitored ISP-network target, broken out on the ISP Network card.</summary>
+public class IspTargetHealth
+{
+    public required string TargetId { get; init; }
+    public required string Name { get; init; }
+    public double? MedianRttMs { get; init; }
+    public double? P95JitterMs { get; init; }
+    public double? LossPct { get; init; }
+
+    /// <summary>True for the first clean hop, the target the ISP grade is computed from.</summary>
+    public bool IsGradedHop { get; init; }
+}
+
 /// <summary>An actionable finding or recommendation surfaced on the ISP Health tab.</summary>
 public class IspHealthIssue
 {
@@ -158,6 +171,7 @@ public class IspHealthReport
     public required IspScoreDimension IspAsnDimension { get; init; }
     public List<IspAsnHealth> TransitAsns { get; init; } = new();
     public List<IspAsnHealth> IspAsns { get; init; } = new();
+    public List<IspTargetHealth> IspTargets { get; init; } = new();
     public List<IspHealthIssue> Issues { get; init; } = new();
     public List<CongestionEvent> CongestionEvents { get; init; } = new();
     public List<PathShiftEvent> PathShifts { get; init; } = new();
@@ -217,6 +231,12 @@ public class IspHealthInputs
 
     /// <summary>Series of the first clean ISP hop (lowest-median enabled AccessIsp target).</summary>
     public List<LatencySample> FirstHopSeries { get; init; } = new();
+
+    /// <summary>TargetId of the first clean hop, for marking it in the breakout.</summary>
+    public string? FirstHopTargetId { get; init; }
+
+    /// <summary>One series per ISP target (AsnName carries the target name) for the breakout.</summary>
+    public List<AsnSeries> IspTargetSeries { get; init; } = new();
 
     /// <summary>Per-target series pooled for packet loss (ISP + transit + anycast DNS targets).</summary>
     public List<List<LatencySample>> LossPoolSeries { get; init; } = new();

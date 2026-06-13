@@ -54,6 +54,7 @@ public class IspHealthScorer
             IspAsnDimension = ispAsnDimension,
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
+            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             HasExpectedSpeeds = hasExpectedSpeeds,
@@ -394,11 +395,16 @@ public class IspHealthScorer
         }, true);
     }
 
+    /// <summary>
+    /// Loaded loss degrades on a linear tail rather than the idle-loss exponential:
+    /// some loss under full load is expected behavior, so 1.67x the band ceiling
+    /// should read "needs work" (~57), not collapse to single digits.
+    /// </summary>
     private double ScoreLossBand(double loss, double bandLow, double bandHigh)
     {
-        return loss <= bandHigh
-            ? ScoreCurve.Interpolate(loss, (0, 100), (bandLow, 90), (bandHigh, 70))
-            : ScoreCurve.ExponentialFalloff(loss, bandHigh, 70);
+        return ScoreCurve.Interpolate(loss,
+            (0, 100), (bandLow, 90), (bandHigh, 70),
+            (bandHigh * 2, 50), (bandHigh * 3, 32), (bandHigh * 5, 12), (bandHigh * 8, 0));
     }
 
     private double? LoadedMeanLoss(
@@ -526,6 +532,23 @@ public class IspHealthScorer
         };
     }
 
+    private static IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId)
+    {
+        var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
+        var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        var losses = series.Samples.Where(s => s.LossPercent.HasValue).Select(s => s.LossPercent!.Value).ToList();
+        var targetId = series.TargetIds.FirstOrDefault() ?? "";
+        return new IspTargetHealth
+        {
+            TargetId = targetId,
+            Name = series.AsnName ?? targetId,
+            MedianRttMs = SeriesStats.Median(rtts),
+            P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
+            LossPct = losses.Count > 0 ? losses.Average() : null,
+            IsGradedHop = targetId == firstHopTargetId
+        };
+    }
+
     private static IspScoreDimension BuildDimension(string name, double weight, List<IspScoreFactor> factors)
     {
         var scored = factors.Where(f => f.Score.HasValue).ToList();
@@ -584,8 +607,8 @@ public class IspHealthScorer
             });
         }
 
-        var sqmTriggered = SqmRecommendationTriggered(inputs, profile, loadWindows, loadedDeltas);
-        if (sqmTriggered)
+        var (latencyTriggered, lossTriggered) = SqmTriggers(inputs, profile, loadWindows, loadedDeltas);
+        if (latencyTriggered || lossTriggered)
         {
             var recommendation = inputs.SmartQueuesEnabled
                 ? "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers."
@@ -594,15 +617,30 @@ public class IspHealthScorer
             {
                 recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
             }
-            issues.Add(new IspHealthIssue
+            if (latencyTriggered)
             {
-                Severity = IspIssueSeverity.Warning,
-                Title = "Bufferbloat under load",
-                Description = "Latency or packet loss rises well beyond the excellent range for this connection type when the line is loaded.",
-                Recommendation = recommendation,
-                LinkUrl = "/sqm",
-                LinkText = "Adaptive SQM"
-            });
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = IspIssueSeverity.Warning,
+                    Title = "Bufferbloat under load",
+                    Description = "Latency rises well beyond the excellent range for this connection type when the line is loaded.",
+                    Recommendation = recommendation,
+                    LinkUrl = "/sqm",
+                    LinkText = "Adaptive SQM"
+                });
+            }
+            if (lossTriggered)
+            {
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = IspIssueSeverity.Warning,
+                    Title = "Packet loss under load",
+                    Description = "Packet loss exceeds the acceptable band for this connection type when the line is loaded.",
+                    Recommendation = recommendation,
+                    LinkUrl = "/sqm",
+                    LinkText = "Adaptive SQM"
+                });
+            }
         }
 
         var speedFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Speed vs Plan");
@@ -643,7 +681,7 @@ public class IspHealthScorer
         return issues;
     }
 
-    private bool SqmRecommendationTriggered(
+    private (bool Latency, bool Loss) SqmTriggers(
         IspHealthInputs inputs,
         AccessProfile profile,
         Dictionary<DateTime, LoadWindow> loadWindows,
@@ -651,12 +689,16 @@ public class IspHealthScorer
     {
         var bandWidth = profile.LoadedDeltaAcceptableMs - profile.LoadedDeltaExcellentMs;
         var deltaThreshold = profile.LoadedDeltaExcellentMs + _options.SqmDeviationFactor * bandWidth;
-        if (loadedDeltas.DownMs > deltaThreshold || loadedDeltas.UpMs > deltaThreshold) return true;
+        var latency = loadedDeltas.DownMs > deltaThreshold || loadedDeltas.UpMs > deltaThreshold;
 
-        if (loadWindows.Count == 0) return false;
-        var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown);
-        var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp);
-        return downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
+        var loss = false;
+        if (loadWindows.Count > 0)
+        {
+            var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown);
+            var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp);
+            loss = downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
+        }
+        return (latency, loss);
     }
 
     private DateTime FloorToWindow(DateTime time) =>

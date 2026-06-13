@@ -60,7 +60,7 @@ public class IspHealthOptions
     public double AsnHopClusterToleranceMs { get; set; } = 2.0;
 
     /// <summary>Fraction of expected speed at or above which a sample counts as loaded.</summary>
-    public double LoadedThresholdFraction { get; set; } = 0.70;
+    public double LoadedThresholdFraction { get; set; } = 0.50;
 
     /// <summary>Fraction of expected speed below which (both directions) a sample counts as idle.</summary>
     public double IdleThresholdFraction { get; set; } = 0.30;
