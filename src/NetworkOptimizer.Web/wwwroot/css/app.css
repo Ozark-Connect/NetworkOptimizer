@@ -15160,6 +15160,15 @@ a.affected-client:hover {
     margin-bottom: 0.75rem;
 }
 
+.isp-health-updated {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.75rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    z-index: 1;
+}
+
 .isp-health-hero {
     position: relative;
     margin-bottom: 1rem;
@@ -15542,7 +15551,7 @@ a.affected-client:hover {
         gap: 0.4rem;
     }
     .isp-gauge-small {
-        width: 104px;
+        width: 115px;
     }
     .isp-event-timeline {
         padding-left: 0.75rem;
