@@ -15549,11 +15549,11 @@ a.affected-client:hover {
     }
     .isp-health-hero-dimensions {
         gap: 0.4rem;
-        width: 100%;
-        justify-content: space-evenly;
+        flex-wrap: wrap;
+        justify-content: center;
     }
     .isp-gauge-small {
-        width: min(115px, 30vw);
+        width: 115px;
     }
     .isp-gauge-small .isp-gauge-label {
         font-size: 19px;
