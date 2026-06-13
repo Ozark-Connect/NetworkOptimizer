@@ -248,9 +248,6 @@ public class IspHealthInputs
     /// <summary>One series per ISP target (AsnName carries the target name) for the breakout.</summary>
     public List<AsnSeries> IspTargetSeries { get; init; } = new();
 
-    /// <summary>All hop clusters (ISP + transit) for computing each ASN's mean RTT across hops.</summary>
-    public List<AsnSeries> AllClusters { get; init; } = new();
-
     /// <summary>Per-target series pooled for packet loss (ISP + transit + anycast DNS targets).</summary>
     public List<List<LatencySample>> LossPoolSeries { get; init; } = new();
 

@@ -247,7 +247,6 @@ public class IspHealthService
             LossPoolSeries = lossPool,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
-            AllClusters = allClusters,
             WanRates = wanRates,
             InternetMedianDeltaMs = internetMedianDelta,
             ExpectedDownloadMbps = expectedDown,
@@ -414,31 +413,29 @@ public class IspHealthService
     }
 
     /// <summary>
-    /// Builds two views of the monitored networks. Common rules: user-added ISP
-    /// endpoints fold into the canonical ISP ASN; transit targets without a resolved
-    /// ASN are skipped; within each ASN, co-located hops cluster by median RTT within
-    /// AsnHopClusterToleranceMs.
-    /// - GRADING (per ASN): the ISP grade is the single lowest-RTT hop (matching the
-    ///   live ISP RTT card); transit grades the nearest cluster. Deeper clusters never
-    ///   inflate the grade.
-    /// - CHART CLUSTERS (chart + detection): every cluster as one grouped line, named
-    ///   by its representative (nearest, lowest-RTT) target's real DB name - the same
-    ///   labels the Network Performance charts use. A single-target cluster is just
-    ///   that target's name. Detection runs per cluster, not per individual target.
+    /// Builds the per-ASN series used for grading and detection:
+    /// - user-added ISP endpoints (e.g. the ISP's own speedtest server) measure the
+    ///   access ISP regardless of what ASN their address resolves to, so they fold
+    ///   into the canonical ISP ASN discovered from the auto-discovered hops;
+    /// - transit targets without a resolved ASN cannot be attributed and are skipped;
+    /// - within each ASN, targets cluster by median RTT. Only the nearest cluster
+    ///   (the first POP/handoff, within AsnHopClusterToleranceMs) is graded; farther
+    ///   clusters still feed the detectors and chart as separately named series so
+    ///   monitoring deep hops never inflates the ASN's grade.
     /// </summary>
-    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> ChartClusters) BuildAsnSeriesSets(
+    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> AllClusters) BuildAsnSeriesSets(
         List<MonitoringTarget> ispTargets,
         List<MonitoringTarget> transitTargets,
         Dictionary<string, List<LatencySample>> ispSeries,
         Dictionary<string, List<LatencySample>> transitSeries)
     {
         var ispOverrides = BuildIspAsnOverrides(ispTargets);
-        var ispGrading = GroupAndGrade(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
-        var ispClusters = BuildClusters(ispTargets, ispSeries, ispOverrides);
+        // The ISP grade follows the live ISP RTT card: the single lowest-RTT target
+        // is the first clean hop and represents the ISP network
+        var (ispGrading, ispClusters) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
 
         var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
-        var transitGrading = GroupAndGrade(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
-        var transitClusters = BuildClusters(attributedTransit, transitSeries, null);
+        var (transitGrading, transitClusters) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
 
         return (ispGrading, transitGrading, ispClusters.Concat(transitClusters).ToList());
     }
@@ -463,101 +460,97 @@ public class IspHealthService
             .ToDictionary(t => t.TargetId, _ => (canonical.Key, name));
     }
 
-    /// <summary>
-    /// The graded series per ASN: the single lowest-RTT hop (gradeLowestTargetOnly,
-    /// for the ISP, matching the live ISP RTT card) or the nearest cluster of hops
-    /// (transit). Deeper hops are excluded so they never inflate the grade.
-    /// </summary>
-    private List<AsnSeries> GroupAndGrade(
+    private (List<AsnSeries> Grading, List<AsnSeries> AllClusters) GroupAndCluster(
         List<MonitoringTarget> targets,
         Dictionary<string, List<LatencySample>> seriesByTarget,
         Dictionary<string, (int Asn, string? Name)>? asnOverrides,
         bool gradeLowestTargetOnly)
     {
         var grading = new List<AsnSeries>();
-        foreach (var group in GroupByAsn(targets, seriesByTarget, asnOverrides))
-        {
-            var clusters = ClusterByRtt(group, seriesByTarget);
-            if (clusters.Count == 0) continue;
-            var gradedTargets = gradeLowestTargetOnly
-                ? new List<MonitoringTarget> { clusters[0][0] }
-                : clusters[0];
-            grading.Add(MakeSeries(group.Key, AsnDisplayName(group, asnOverrides), gradedTargets, seriesByTarget));
-        }
-        return grading;
-    }
+        var allClusters = new List<AsnSeries>();
 
-    /// <summary>
-    /// One grouped series per cluster for the chart and detectors, labeled with the
-    /// cluster's representative (nearest, lowest-RTT) target's real DB name. Co-located
-    /// hops are grouped into a single line; a single-target cluster is just that name.
-    /// </summary>
-    private List<AsnSeries> BuildClusters(
-        List<MonitoringTarget> targets,
-        Dictionary<string, List<LatencySample>> seriesByTarget,
-        Dictionary<string, (int Asn, string? Name)>? asnOverrides)
-    {
-        var result = new List<AsnSeries>();
-        foreach (var group in GroupByAsn(targets, seriesByTarget, asnOverrides))
-        {
-            foreach (var cluster in ClusterByRtt(group, seriesByTarget))
-            {
-                result.Add(MakeSeries(group.Key, cluster[0].Name, cluster, seriesByTarget));
-            }
-        }
-        return result;
-    }
-
-    private static IEnumerable<IGrouping<int, MonitoringTarget>> GroupByAsn(
-        List<MonitoringTarget> targets,
-        Dictionary<string, List<LatencySample>> seriesByTarget,
-        Dictionary<string, (int Asn, string? Name)>? asnOverrides)
-        => targets
+        var groups = targets
             .Where(t => seriesByTarget.ContainsKey(t.TargetId))
             .GroupBy(t => asnOverrides != null && asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Asn : t.AsnNumber ?? 0);
 
-    private static string? AsnDisplayName(IGrouping<int, MonitoringTarget> group, Dictionary<string, (int Asn, string? Name)>? asnOverrides)
-        => group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
-            ?? (asnOverrides != null
-                ? group.Select(t => asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Name : null).FirstOrDefault(n => !string.IsNullOrEmpty(n))
-                : null)
-            ?? group.Select(t => t.Name).FirstOrDefault();
-
-    /// <summary>Greedy clusters of an ASN's hops, ascending by median RTT, split when a hop exceeds the tolerance from its cluster's nearest member.</summary>
-    private List<List<MonitoringTarget>> ClusterByRtt(
-        IGrouping<int, MonitoringTarget> group,
-        Dictionary<string, List<LatencySample>> seriesByTarget)
-    {
-        var byMedian = group
-            .Select(t => (Target: t, Median: SeriesStats.Median(
-                seriesByTarget[t.TargetId].Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList())))
-            .Where(x => x.Median.HasValue)
-            .OrderBy(x => x.Median!.Value)
-            .ToList();
-
-        var clusters = new List<List<MonitoringTarget>>();
-        var clusterMins = new List<double>();
-        foreach (var entry in byMedian)
+        foreach (var group in groups)
         {
-            if (clusters.Count == 0 || entry.Median!.Value - clusterMins[^1] > _options.AsnHopClusterToleranceMs)
+            var asnName = group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
+                ?? (asnOverrides != null
+                    ? group.Select(t => asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Name : null).FirstOrDefault(n => !string.IsNullOrEmpty(n))
+                    : null)
+                ?? group.Select(t => t.Name).FirstOrDefault();
+
+            var byMedian = group
+                .Select(t => (Target: t, Median: SeriesStats.Median(
+                    seriesByTarget[t.TargetId].Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList())))
+                .Where(x => x.Median.HasValue)
+                .OrderBy(x => x.Median!.Value)
+                .ToList();
+            if (byMedian.Count == 0) continue;
+
+            var clusters = new List<List<(MonitoringTarget Target, double? Median)>>();
+            foreach (var entry in byMedian)
             {
-                clusters.Add(new List<MonitoringTarget>());
-                clusterMins.Add(entry.Median!.Value);
+                var current = clusters.LastOrDefault();
+                if (current == null || entry.Median!.Value - current[0].Median!.Value > _options.AsnHopClusterToleranceMs)
+                {
+                    current = new List<(MonitoringTarget, double?)>();
+                    clusters.Add(current);
+                }
+                current.Add(entry);
             }
-            clusters[^1].Add(entry.Target);
-        }
-        return clusters;
-    }
 
-    private static AsnSeries MakeSeries(int asn, string? name, List<MonitoringTarget> targets,
-        Dictionary<string, List<LatencySample>> seriesByTarget)
-        => new()
-        {
-            AsnNumber = asn,
-            AsnName = name,
-            TargetIds = targets.Select(t => t.TargetId).ToList(),
-            Samples = targets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
-        };
+            var firstMin = clusters[0][0].Median!.Value;
+            for (var i = 0; i < clusters.Count; i++)
+            {
+                var clusterTargets = gradeLowestTargetOnly && i == 0
+                    ? new List<MonitoringTarget> { clusters[i][0].Target }
+                    : clusters[i].Select(c => c.Target).ToList();
+
+                // A cluster with a single member is labeled by that target's real DB
+                // name; multi-member clusters keep the ASN label (nearest) or distance
+                // label (deeper hops).
+                var chartName = clusterTargets.Count == 1
+                    ? clusterTargets[0].Name
+                    : i == 0 ? asnName : $"{asnName} (+{clusters[i][0].Median!.Value - firstMin:0} ms hop)";
+
+                allClusters.Add(new AsnSeries
+                {
+                    AsnNumber = group.Key,
+                    AsnName = chartName,
+                    TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
+                    Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                });
+
+                // The graded series keeps the ASN name for the Networks on Your Path card
+                if (i == 0)
+                {
+                    grading.Add(new AsnSeries
+                    {
+                        AsnNumber = group.Key,
+                        AsnName = asnName,
+                        TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
+                        Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                    });
+                }
+
+                // Hops displaced from the graded series stay visible to the chart and detectors
+                if (gradeLowestTargetOnly && i == 0 && clusters[i].Count > 1)
+                {
+                    var others = clusters[i].Skip(1).Select(c => c.Target).ToList();
+                    allClusters.Add(new AsnSeries
+                    {
+                        AsnNumber = group.Key,
+                        AsnName = others.Count == 1 ? others[0].Name : $"{asnName} (other hops)",
+                        TargetIds = others.Select(t => t.TargetId).ToList(),
+                        Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                    });
+                }
+            }
+        }
+        return (grading, allClusters);
+    }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(
         Dictionary<string, List<MonitoringInfluxClient.LatencySeriesPoint>> raw)

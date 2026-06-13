@@ -35,17 +35,10 @@ public class IspHealthScorer
 
         var accessMedianRtt = SeriesStats.Median(
             inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
-        // Mean RTT across ALL of an ASN's hops, for the Networks on Your Path card
-        // display only; the grade still uses the graded hop/cluster
-        var allHopRttsByAsn = inputs.AllClusters
-            .GroupBy(c => c.AsnNumber)
-            .ToDictionary(
-                g => g.Key,
-                g => g.SelectMany(c => c.Samples).Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
-        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt, inputs.InternetMedianDeltaMs, allHopRttsByAsn.GetValueOrDefault(s.AsnNumber))).ToList();
-        var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null, internetMedianDeltaMs: null, allHopRttsByAsn.GetValueOrDefault(s.AsnNumber))).ToList();
+        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt, inputs.InternetMedianDeltaMs)).ToList();
+        var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null, internetMedianDeltaMs: null)).ToList();
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
-        var ispAsnDimension = BuildAsnDimension("ISP Network", _options.IspAsnWeight, ispAsns);
+        var ispAsnDimension = BuildAsnDimension("ISP Network", _options.IspAsnWeight, ispAsns, gradedOnBestHop: true);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
 
@@ -443,7 +436,7 @@ public class IspHealthScorer
     /// subtract below the ceiling, so congestion always counts. ISP ASNs pass null
     /// baselines: no ceiling, quality only.
     /// </summary>
-    private IspAsnHealth GradeAsn(AsnSeries series, List<CongestionEvent> congestionEvents, double? accessBaselineRtt, double? internetMedianDeltaMs, List<double>? allHopRtts = null)
+    private IspAsnHealth GradeAsn(AsnSeries series, List<CongestionEvent> congestionEvents, double? accessBaselineRtt, double? internetMedianDeltaMs)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -529,7 +522,7 @@ public class IspHealthScorer
             AsnName = series.AsnName,
             TargetIds = series.TargetIds,
             MedianRttMs = medianRtt,
-            MeanRttMs = (allHopRtts ?? rtts) is { Count: > 0 } meanSrc ? meanSrc.Average() : null,
+            MeanRttMs = rtts.Count > 0 ? rtts.Average() : null,
             P95RttMs = SeriesStats.Percentile(rtts, 0.95),
             MedianJitterMs = medianJitter,
             P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
@@ -575,14 +568,17 @@ public class IspHealthScorer
         return new IspScoreDimension { Name = name, Score = score, Weight = weight, Factors = factors };
     }
 
-    private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns)
+    private static IspScoreDimension BuildAsnDimension(string name, double weight, List<IspAsnHealth> asns, bool gradedOnBestHop = false)
     {
+        // The ISP Network grades on the lowest (best) hop, so label its RTT "Best" to
+        // distinguish it from the mean RTT shown on the Networks on Your Path card
+        var rttPrefix = gradedOnBestHop ? "Best " : "";
         var factors = asns.Select(a => new IspScoreFactor
         {
             Name = string.IsNullOrEmpty(a.AsnName) ? $"AS{a.AsnNumber}" : a.AsnName,
             Score = a.OverallScore,
             Weight = 1.0,
-            ValueText = a.MedianRttMs.HasValue ? FormatMs(a.MedianRttMs.Value) : null,
+            ValueText = a.MedianRttMs.HasValue ? $"{rttPrefix}{FormatMs(a.MedianRttMs.Value)}" : null,
             Description = a.CongestionEventCount > 0
                 ? $"{a.CongestionEventCount} congestion event{(a.CongestionEventCount == 1 ? "" : "s")} in the window."
                 : null
