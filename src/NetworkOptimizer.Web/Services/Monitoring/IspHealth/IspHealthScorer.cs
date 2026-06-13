@@ -314,9 +314,11 @@ public class IspHealthScorer
             }, false);
         }
 
+        // A negative delta means latency did not rise under load (noise/faster); show
+        // it as +0 ms rather than a confusing "+-0.1".
         var parts = new List<string>();
-        if (deltas.DownMs.HasValue) parts.Add($"+{FormatMs(deltas.DownMs.Value)} down");
-        if (deltas.UpMs.HasValue) parts.Add($"+{FormatMs(deltas.UpMs.Value)} up");
+        if (deltas.DownMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.DownMs.Value)} down");
+        if (deltas.UpMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.UpMs.Value)} up");
         var source = deltas.FromSpeedTests ? " Measured by WAN speed tests." : "";
 
         return (new IspScoreFactor
@@ -727,6 +729,9 @@ public class IspHealthScorer
 
     private static string FormatMs(double ms) =>
         ms >= 10 ? $"{ms.ToString("0", CultureInfo.InvariantCulture)} ms" : $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";
+
+    /// <summary>Loaded-latency delta for display: a non-positive delta shows as "0 ms".</summary>
+    private static string FormatLoadedDelta(double ms) => ms <= 0 ? "0 ms" : FormatMs(ms);
 
     private static string FormatPct(double pct) =>
         pct == 0 ? "0%" : $"{pct.ToString(pct < 0.1 ? "0.000" : "0.00", CultureInfo.InvariantCulture)}%";

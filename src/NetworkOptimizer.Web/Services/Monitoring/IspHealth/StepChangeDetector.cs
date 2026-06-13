@@ -177,32 +177,42 @@ public static class StepChangeDetector
     }
 
     /// <summary>
-    /// Groups shifts that occur at the same boundary (within one window) across series
-    /// and annotates each with how many targets moved together. Correlated shifts are
-    /// a stronger indication of a routing change than a single-target step.
+    /// Collapses shifts that occur at the same boundary (within one window) and in the
+    /// same direction into a single event, because a routing change usually steps every
+    /// affected path at once. The representative is the nearest hop (lowest before-level)
+    /// so the reported absolute RTTs match the path being graded; the group size is
+    /// carried as the correlated-path count.
     /// </summary>
     public static List<PathShiftEvent> CorrelateAcrossSeries(List<PathShiftEvent> events, IspHealthOptions options)
     {
         if (events.Count <= 1) return events;
         var tolerance = TimeSpan.FromMinutes(options.StepWindowMinutes);
-        return events
-            .Select(evt =>
+
+        var merged = new List<PathShiftEvent>();
+        var groups = new List<List<PathShiftEvent>>();
+        foreach (var evt in events.OrderBy(e => e.Time))
+        {
+            var group = groups.FirstOrDefault(g =>
+                g[0].Direction == evt.Direction && (evt.Time - g[0].Time).Duration() <= tolerance);
+            if (group != null) group.Add(evt);
+            else groups.Add(new List<PathShiftEvent> { evt });
+        }
+
+        foreach (var group in groups)
+        {
+            var representative = group.OrderBy(e => e.BeforeMedianMs).First();
+            merged.Add(new PathShiftEvent
             {
-                var correlated = events.Count(other =>
-                    (other.Time - evt.Time).Duration() <= tolerance && other.Direction == evt.Direction);
-                return new PathShiftEvent
-                {
-                    Time = evt.Time,
-                    AsnNumber = evt.AsnNumber,
-                    AsnName = evt.AsnName,
-                    TargetId = evt.TargetId,
-                    BeforeMedianMs = evt.BeforeMedianMs,
-                    AfterMedianMs = evt.AfterMedianMs,
-                    CorrelatedTargetCount = correlated
-                };
-            })
-            .OrderBy(e => e.Time)
-            .ToList();
+                Time = representative.Time,
+                AsnNumber = representative.AsnNumber,
+                AsnName = representative.AsnName,
+                TargetId = representative.TargetId,
+                BeforeMedianMs = representative.BeforeMedianMs,
+                AfterMedianMs = representative.AfterMedianMs,
+                CorrelatedTargetCount = group.Count
+            });
+        }
+        return merged.OrderBy(e => e.Time).ToList();
     }
 
     private sealed record Window(DateTime Start, double MedianMs, (double Q1, double Q3) Iqr);

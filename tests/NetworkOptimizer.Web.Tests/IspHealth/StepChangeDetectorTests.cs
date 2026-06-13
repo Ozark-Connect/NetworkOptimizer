@@ -110,7 +110,7 @@ public class StepChangeDetectorTests
     }
 
     [Fact]
-    public void Correlated_steps_across_targets_are_counted()
+    public void Correlated_steps_across_targets_merge_into_one_event()
     {
         var stepAt = TestSeries.Start.AddHours(12);
         var seriesA = TestSeries.Flat(TestSeries.Start, Day, rttMs: 10, jitterMs: 0.5)
@@ -124,7 +124,10 @@ public class StepChangeDetectorTests
             TestSeries.Asn(64501, "TransitTwo", seriesB)
         }, Options);
 
-        events.Should().HaveCount(2);
-        events.Should().OnlyContain(e => e.CorrelatedTargetCount == 2);
+        // Both paths step up at the same boundary: one routing event, two paths.
+        events.Should().ContainSingle();
+        events[0].CorrelatedTargetCount.Should().Be(2);
+        // Representative is the nearest hop (lowest before-level).
+        events[0].BeforeMedianMs.Should().BeApproximately(10, 0.5);
     }
 }

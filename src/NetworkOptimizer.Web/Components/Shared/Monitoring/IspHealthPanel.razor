@@ -198,7 +198,7 @@ else
                                         }
                                     </div>
                                     <div class="isp-target-stats">
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatMs(target.MedianRttMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.MedianRttMs)</span>
                                         <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatMs(target.P95JitterMs)</span>
                                         <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
                                     </div>
@@ -330,7 +330,7 @@ else
             var where = string.IsNullOrEmpty(shift.AsnName) ? (shift.TargetId ?? "path") : shift.AsnName;
             var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-info",
-                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change; informational, not scored."));
+                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change."));
         }
         return entries.OrderByDescending(e => e.Time);
     }
@@ -351,6 +351,8 @@ else
     private static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
 
     private static string FormatMs(double? ms) => ms.HasValue ? $"{ms.Value:0.#} ms" : "--";
+
+    private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.0} ms" : "--";
 
     private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
 

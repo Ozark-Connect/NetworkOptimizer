@@ -19,36 +19,44 @@ public class RealDataRegressionTests
         RealDataReplayTests.LoadSeries(Path.Combine(FixtureDir, name));
 
     [Fact]
-    public void Detects_real_downward_transit_shift_on_all_correlated_targets()
+    public void Detects_real_downward_transit_shift_as_one_correlated_event()
     {
         var events = StepChangeDetector.Detect(Load("real-shift-down.csv"), new IspHealthOptions());
 
+        // The four correlated paths step down at the same boundary, so they collapse
+        // to a single event carrying the four-path count.
         var shiftEvents = events.Where(e => ShiftingTargets.Contains(e.AsnName)).ToList();
-        shiftEvents.Should().HaveCount(4);
-        shiftEvents.Should().OnlyContain(e => e.Direction == PathShiftDirection.Down);
-        shiftEvents.Should().OnlyContain(e => e.Time >= new DateTime(2026, 6, 12, 15, 30, 0, DateTimeKind.Utc)
-            && e.Time <= new DateTime(2026, 6, 12, 17, 0, 0, DateTimeKind.Utc));
-        shiftEvents.Should().OnlyContain(e => e.CorrelatedTargetCount == 4);
-        shiftEvents.Should().OnlyContain(e => e.DeltaMs < -2 && e.DeltaMs > -4);
+        shiftEvents.Should().ContainSingle();
+        var shift = shiftEvents[0];
+        shift.Direction.Should().Be(PathShiftDirection.Down);
+        shift.Time.Should().BeOnOrAfter(new DateTime(2026, 6, 12, 15, 30, 0, DateTimeKind.Utc))
+            .And.BeOnOrBefore(new DateTime(2026, 6, 12, 17, 0, 0, DateTimeKind.Utc));
+        shift.CorrelatedTargetCount.Should().Be(4);
+        shift.DeltaMs.Should().BeInRange(-4, -2);
 
         events.Where(e => !ShiftingTargets.Contains(e.AsnName)).Should().BeEmpty("stable transits must not produce shift events");
     }
 
     [Fact]
-    public void Detects_real_dip_and_return_as_two_event_groups()
+    public void Detects_real_dip_and_return_as_two_correlated_events()
     {
         var events = StepChangeDetector.Detect(Load("real-shift-dip-return.csv"), new IspHealthOptions());
 
         var downs = events.Where(e => e.Direction == PathShiftDirection.Down).ToList();
         var ups = events.Where(e => e.Direction == PathShiftDirection.Up).ToList();
 
-        downs.Should().HaveCount(4);
-        downs.Should().OnlyContain(e => ShiftingTargets.Contains(e.AsnName));
-        downs.Should().OnlyContain(e => e.Time.Day == 10 && e.Time.Hour >= 21);
+        // The dip and the return are each one correlated event across the four paths.
+        downs.Should().ContainSingle();
+        downs[0].CorrelatedTargetCount.Should().Be(4);
+        downs[0].AsnName.Should().BeOneOf(ShiftingTargets);
+        downs[0].Time.Day.Should().Be(10);
+        downs[0].Time.Hour.Should().BeGreaterThanOrEqualTo(21);
 
-        ups.Should().HaveCount(4);
-        ups.Should().OnlyContain(e => ShiftingTargets.Contains(e.AsnName));
-        ups.Should().OnlyContain(e => e.Time.Day == 11 && e.Time.Hour >= 6 && e.Time.Hour <= 7);
+        ups.Should().ContainSingle();
+        ups[0].CorrelatedTargetCount.Should().Be(4);
+        ups[0].AsnName.Should().BeOneOf(ShiftingTargets);
+        ups[0].Time.Day.Should().Be(11);
+        ups[0].Time.Hour.Should().BeInRange(6, 7);
     }
 
     [Fact]
