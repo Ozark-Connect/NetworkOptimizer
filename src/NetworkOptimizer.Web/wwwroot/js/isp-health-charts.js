@@ -53,7 +53,7 @@ function buildOpts() {
         grid: {
             borderColor: '#374151',
             strokeDashArray: 3,
-            padding: { left: 10, right: 6, top: -8, bottom: 0 },
+            padding: { right: 6, top: -8, bottom: 0 },
         },
         responsive: [{
             breakpoint: 768,
