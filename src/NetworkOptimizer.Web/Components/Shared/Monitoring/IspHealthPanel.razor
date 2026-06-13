@@ -85,6 +85,7 @@ else
         </button>
     </div>
     <div class="isp-health-hero card">
+        <span class="isp-health-updated">Last updated: @TimeFormatHelper.FormatRelativeTimeShort(r.ComputedAt)</span>
         <div class="card-body isp-health-hero-body">
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
@@ -98,6 +99,14 @@ else
                     <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
                     <span class="isp-speed-unit">Mbps</span>
                 </div>
+                @if (r.SpeedTestTime.HasValue)
+                {
+                    <div class="isp-speed-tested">Best &middot; @TimeFormatHelper.FormatRelativeTimeShort(r.SpeedTestTime.Value)</div>
+                }
+                else
+                {
+                    <div class="isp-speed-tested">No recent WAN speed test</div>
+                }
                 @if (r.TypicalDownloadMbps.HasValue || r.TypicalUploadMbps.HasValue)
                 {
                     <div class="isp-speed-sub">
@@ -105,17 +114,16 @@ else
                         <span>@FormatSpeed(r.TypicalDownloadMbps) / @FormatSpeed(r.TypicalUploadMbps) Mbps</span>
                     </div>
                 }
-                else if (!(r.ExpectedDownloadMbps.HasValue || r.ExpectedUploadMbps.HasValue))
+                @if (r.ExpectedDownloadMbps.HasValue || r.ExpectedUploadMbps.HasValue)
+                {
+                    <div class="isp-speed-sub">
+                        <span class="isp-speed-sub-label">Plan</span>
+                        <span>@FormatSpeed(r.ExpectedDownloadMbps) / @FormatSpeed(r.ExpectedUploadMbps) Mbps</span>
+                    </div>
+                }
+                else if (!(r.TypicalDownloadMbps.HasValue || r.TypicalUploadMbps.HasValue))
                 {
                     <div class="isp-speed-sub">Set your ISP speeds in UniFi Network to grade throughput</div>
-                }
-                @if (r.SpeedTestTime.HasValue)
-                {
-                    <div class="isp-speed-tested" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">Best &middot; @FormatAge(r.SpeedTestTime.Value)</div>
-                }
-                else
-                {
-                    <div class="isp-speed-tested">No recent WAN speed test</div>
                 }
             </div>
             <div class="isp-health-hero-dimensions">
@@ -392,14 +400,6 @@ else
     private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.0} ms" : "--";
 
     private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
-
-    private string FormatAge(DateTime utc)
-    {
-        var age = DateTime.UtcNow - utc;
-        if (age.TotalHours < 1) return $"{Math.Max(1, (int)age.TotalMinutes)} min ago";
-        if (age.TotalDays < 1) return $"{(int)age.TotalHours} h ago";
-        return $"{(int)age.TotalDays} d ago";
-    }
 
     private static string IssueClass(IspIssueSeverity severity) => severity switch
     {

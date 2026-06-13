@@ -86,7 +86,7 @@ public class IspHealthScorerTests
         var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.5), Gpon);
 
         var factor = report.AccessDimension.Factors.Single(f => f.Name == "Idle Latency");
-        factor.Score.Should().Be(75);
+        factor.Score.Should().Be(84);
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public class IspHealthScorerTests
             .AccessDimension.Factors.Single(f => f.Name == "Idle Latency").Score;
 
         low.Should().Be(100);
-        high.Should().BeLessThan(62);
+        high.Should().BeLessThan(75);
     }
 
     [Fact]

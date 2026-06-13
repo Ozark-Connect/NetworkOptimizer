@@ -21,6 +21,7 @@ function buildOpts() {
             background: 'transparent',
             toolbar: { show: false },
             zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            parentHeightOffset: 0,
             animations: { enabled: false },
             events: {
                 zoomed: (ctx, opts) => setZoomed(opts?.xaxis?.min != null),
@@ -40,13 +41,29 @@ function buildOpts() {
         },
         yaxis: {
             min: 0,
-            title: { text: 'ms', style: { color: '#9ca3af' } },
+            title: { text: 'ms', style: { color: '#9ca3af', fontSize: '9px' } },
             labels: {
-                style: { colors: '#9ca3af' },
+                style: { colors: '#9ca3af', fontSize: '10px' },
                 formatter: v => v != null ? v.toFixed(1) : '',
             },
+            axisBorder: { show: false },
+            axisTicks: { show: false },
         },
-        grid: { borderColor: '#374151', strokeDashArray: 3 },
+        grid: {
+            borderColor: '#374151',
+            strokeDashArray: 3,
+            padding: { right: 6, top: -8, bottom: 0 },
+        },
+        responsive: [{
+            breakpoint: 768,
+            options: {
+                yaxis: {
+                    min: 0,
+                    show: false,
+                },
+                grid: { padding: { left: -5, right: -5, top: -8, bottom: 0 } },
+            },
+        }],
         legend: { show: true, labels: { colors: '#9ca3af' } },
         tooltip: {
             theme: 'dark',

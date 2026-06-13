@@ -83,6 +83,9 @@ public class IspHealthService
             if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
                 return cached;
 
+            if (forceRefresh)
+                _connectionService.ClearCaches();
+
             _computing = true;
             var (report, chartClusters) = await ComputeAsync(ct);
             if (report != null) _cached = new Snapshot(report, chartClusters);

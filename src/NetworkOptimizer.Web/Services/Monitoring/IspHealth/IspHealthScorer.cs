@@ -263,9 +263,9 @@ public class IspHealthScorer
         var mid = (profile.IdleRttNormalLowMs + profile.IdleRttNormalHighMs) / 2.0;
         var score = ScoreCurve.Interpolate(idleBaseline.Value,
             (profile.IdleRttIdealMs, 100),
-            (profile.IdleRttNormalLowMs, 88),
-            (mid, 75),
-            (profile.IdleRttNormalHighMs, 62),
+            (profile.IdleRttNormalLowMs, 92),
+            (mid, 84),
+            (profile.IdleRttNormalHighMs, 75),
             (profile.IdleRttPoorMs, 25),
             (profile.IdleRttPoorMs * 2, 0));
 
@@ -712,6 +712,18 @@ public class IspHealthScorer
                 Title = "Throughput below plan",
                 Description = $"The best WAN speed test ({speedFactor.ValueText}) falls well short of the {FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan configured in UniFi Network.",
                 Recommendation = "If the configured plan speeds are right, raise the shortfall with your ISP. If the plan changed, update the ISP speeds in UniFi Network so grading stays accurate."
+            });
+        }
+
+        var idleLatencyFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Idle Latency");
+        if (idleLatencyFactor?.Score is < 75)
+        {
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Info,
+                Title = "Idle latency above normal",
+                Description = $"Baseline first-hop latency of {idleLatencyFactor.ValueText} is above the normal range for {profile.DisplayName}.",
+                Recommendation = "Common causes: access layer congestion or overprovisioning by the ISP, CPE inefficiency (try a reboot or firmware update), or a longer-than-expected physical haul to the first hop."
             });
         }
 

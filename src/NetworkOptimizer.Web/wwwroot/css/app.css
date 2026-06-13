@@ -15160,6 +15160,15 @@ a.affected-client:hover {
     margin-bottom: 0.75rem;
 }
 
+.isp-health-updated {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.75rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    z-index: 1;
+}
+
 .isp-health-hero {
     position: relative;
     margin-bottom: 1rem;
@@ -15528,7 +15537,16 @@ a.affected-client:hover {
     }
 }
 
+#isp-health-asn-chart {
+    margin-left: -7px;
+    margin-right: -2px;
+}
+
 @media (max-width: 768px) {
+    #isp-health-asn-chart {
+        margin-left: 0;
+        margin-right: 0;
+    }
     .isp-health-hero-body {
         grid-template-columns: 1fr;
         gap: 1.25rem;
@@ -15540,15 +15558,28 @@ a.affected-client:hover {
     }
     .isp-health-hero-dimensions {
         gap: 0.4rem;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-left: -1.75rem;
+        margin-right: -1.75rem;
     }
     .isp-gauge-small {
-        width: 104px;
+        width: min(115px, 28vw);
+    }
+    .isp-gauge-small .isp-gauge-label {
+        font-size: 19px;
     }
     .isp-event-timeline {
         padding-left: 0.75rem;
     }
     .isp-event-item::before {
         left: calc(-0.75rem - 7.5px);
+    }
+}
+
+@media (max-width: 338px) {
+    .isp-gauge-small {
+        width: 115px;
     }
 }
 
