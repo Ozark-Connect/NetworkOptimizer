@@ -15537,7 +15537,14 @@ a.affected-client:hover {
     }
 }
 
+#isp-health-asn-chart {
+    margin-left: -5px;
+}
+
 @media (max-width: 768px) {
+    #isp-health-asn-chart {
+        margin-left: 0;
+    }
     .isp-health-hero-body {
         grid-template-columns: 1fr;
         gap: 1.25rem;
