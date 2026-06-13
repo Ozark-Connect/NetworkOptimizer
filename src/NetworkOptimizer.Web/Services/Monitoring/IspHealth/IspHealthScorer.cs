@@ -23,7 +23,7 @@ public class IspHealthScorer
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;
 
         var idleBaseline = ComputeIdleBaseline(inputs.FirstHopSeries, loadWindows);
-        var (speedVsPlan, bestSpeedTest) = ScoreSpeedVsPlan(inputs);
+        var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
         var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile);
         var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows, idleBaseline);
@@ -35,8 +35,15 @@ public class IspHealthScorer
 
         var accessMedianRtt = SeriesStats.Median(
             inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
-        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt, inputs.InternetMedianDeltaMs)).ToList();
-        var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null, internetMedianDeltaMs: null)).ToList();
+        // Mean RTT across ALL of an ASN's hops, for the Networks on Your Path card
+        // display only; the grade still uses the graded hop/cluster
+        var allHopRttsByAsn = inputs.AllClusters
+            .GroupBy(c => c.AsnNumber)
+            .ToDictionary(
+                g => g.Key,
+                g => g.SelectMany(c => c.Samples).Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
+        var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt, inputs.InternetMedianDeltaMs, allHopRttsByAsn.GetValueOrDefault(s.AsnNumber))).ToList();
+        var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null, internetMedianDeltaMs: null, allHopRttsByAsn.GetValueOrDefault(s.AsnNumber))).ToList();
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
         var ispAsnDimension = BuildAsnDimension("ISP Network", _options.IspAsnWeight, ispAsns);
 
@@ -64,6 +71,8 @@ public class IspHealthScorer
             ExpectedSpeedSource = inputs.ExpectedSpeedSource,
             MeasuredDownloadMbps = bestSpeedTest?.DownloadMbps,
             MeasuredUploadMbps = bestSpeedTest?.UploadMbps,
+            TypicalDownloadMbps = typicalDownMbps,
+            TypicalUploadMbps = typicalUpMbps,
             SpeedTestTime = bestSpeedTest?.Time
         };
         report.Issues.AddRange(CollectIssues(inputs, profile, report, loadWindows, loadedDeltas));
@@ -158,7 +167,7 @@ public class IspHealthScorer
     /// (demonstrated capacity) with the median (typical delivery) so chronically low
     /// tests count without a single bad test tanking the factor.
     /// </summary>
-    private (IspScoreFactor Factor, SpeedTestSample? Best) ScoreSpeedVsPlan(IspHealthInputs inputs)
+    private (IspScoreFactor Factor, SpeedTestSample? Best, double? TypicalDown, double? TypicalUp) ScoreSpeedVsPlan(IspHealthInputs inputs)
     {
         if (!inputs.ExpectedDownloadMbps.HasValue && !inputs.ExpectedUploadMbps.HasValue)
         {
@@ -167,7 +176,7 @@ public class IspHealthScorer
                 Name = "Speed vs Plan",
                 Weight = _options.SpeedVsPlanWeight,
                 Description = "Set your ISP speeds in UniFi Network to grade throughput against your plan."
-            }, null);
+            }, null, null, null);
         }
 
         var (tests, stale) = SelectSpeedTests(inputs);
@@ -178,7 +187,7 @@ public class IspHealthScorer
                 Name = "Speed vs Plan",
                 Weight = _options.SpeedVsPlanWeight,
                 Description = "No recent WAN speed test. Run one (or enable scheduled WAN tests) to grade throughput against your plan."
-            }, null);
+            }, null, null, null);
         }
 
         var down = ScoreDirection(tests.Select(t => t.DownloadMbps), inputs.ExpectedDownloadMbps);
@@ -191,7 +200,7 @@ public class IspHealthScorer
                 Name = "Speed vs Plan",
                 Weight = _options.SpeedVsPlanWeight,
                 Description = "Expected ISP speeds are configured as zero; cannot grade throughput."
-            }, null);
+            }, null, null, null);
         }
 
         var bestDown = down?.BestMbps ?? tests.Max(t => t.DownloadMbps);
@@ -199,21 +208,24 @@ public class IspHealthScorer
         var bestTest = tests.OrderByDescending(t => t.DownloadMbps + t.UploadMbps).First();
 
         var staleNote = stale ? $" Latest test is older than the {_options.ScoreWindowHours} h window." : "";
-        var typicalNote = tests.Count > 1
-            ? $" Best and typical of {tests.Count} tests vs"
-            : " Best WAN speed test vs";
+        var blendNote = tests.Count > 1
+            ? $"Best ({_options.SpeedCapacityWeight:P0}) and typical ({_options.SpeedTypicalWeight:P0}) of {tests.Count} tests"
+            : "Best WAN speed test";
         return (new IspScoreFactor
         {
             Name = "Speed vs Plan",
             Score = (int)Math.Round(scores.Average()),
             Weight = _options.SpeedVsPlanWeight,
             ValueText = $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
-            Description = $"{typicalNote.TrimStart()} the {FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan configured in UniFi Network.{staleNote}"
-        }, new SpeedTestSample(bestTest.Time, bestDown, bestUp));
+            Description = $"{blendNote} vs the {FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan configured in UniFi Network.{staleNote}"
+        }, new SpeedTestSample(bestTest.Time, bestDown, bestUp), down?.TypicalMbps, up?.TypicalMbps);
     }
 
-    /// <summary>Outlier-trims one direction's results and blends capacity with typical delivery.</summary>
-    private (double Score, double BestMbps)? ScoreDirection(IEnumerable<double> resultsMbps, double? expectedMbps)
+    /// <summary>
+    /// Outlier-trims one direction's results and blends capacity (best) with typical
+    /// delivery (median of the rest). Returns the score plus the best and typical for display.
+    /// </summary>
+    private (double Score, double BestMbps, double TypicalMbps)? ScoreDirection(IEnumerable<double> resultsMbps, double? expectedMbps)
     {
         if (expectedMbps is not > 0) return null;
         var sorted = resultsMbps.OrderBy(v => v).ToList();
@@ -226,7 +238,7 @@ public class IspHealthScorer
         var totalWeight = _options.SpeedCapacityWeight + _options.SpeedTypicalWeight;
         var score = (ScoreSpeedRatio(best / expectedMbps.Value) * _options.SpeedCapacityWeight
                      + ScoreSpeedRatio(typical / expectedMbps.Value) * _options.SpeedTypicalWeight) / totalWeight;
-        return (score, best);
+        return (score, best, typical);
     }
 
     private static double ScoreSpeedRatio(double ratio) => ScoreCurve.Interpolate(ratio,
@@ -431,7 +443,7 @@ public class IspHealthScorer
     /// subtract below the ceiling, so congestion always counts. ISP ASNs pass null
     /// baselines: no ceiling, quality only.
     /// </summary>
-    private IspAsnHealth GradeAsn(AsnSeries series, List<CongestionEvent> congestionEvents, double? accessBaselineRtt, double? internetMedianDeltaMs)
+    private IspAsnHealth GradeAsn(AsnSeries series, List<CongestionEvent> congestionEvents, double? accessBaselineRtt, double? internetMedianDeltaMs, List<double>? allHopRtts = null)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -517,6 +529,7 @@ public class IspHealthScorer
             AsnName = series.AsnName,
             TargetIds = series.TargetIds,
             MedianRttMs = medianRtt,
+            MeanRttMs = (allHopRtts ?? rtts) is { Count: > 0 } meanSrc ? meanSrc.Average() : null,
             P95RttMs = SeriesStats.Percentile(rtts, 0.95),
             MedianJitterMs = medianJitter,
             P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
@@ -709,7 +722,7 @@ public class IspHealthScorer
         ms >= 10 ? $"{ms.ToString("0", CultureInfo.InvariantCulture)} ms" : $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";
 
     private static string FormatPct(double pct) =>
-        $"{pct.ToString(pct < 0.1 ? "0.000" : "0.00", CultureInfo.InvariantCulture)}%";
+        pct == 0 ? "0%" : $"{pct.ToString(pct < 0.1 ? "0.000" : "0.00", CultureInfo.InvariantCulture)}%";
 
     private static string FormatMbps(double mbps) =>
         mbps.ToString(mbps >= 100 ? "0" : "0.#", CultureInfo.InvariantCulture);

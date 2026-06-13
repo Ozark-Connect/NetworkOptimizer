@@ -15177,9 +15177,17 @@ a.affected-client:hover {
 .isp-health-hero-speed {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.2rem;
     justify-self: center;
     text-align: center;
+}
+
+.isp-speed-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
 }
 
 .isp-speed-headline {
@@ -15210,10 +15218,19 @@ a.affected-client:hover {
 .isp-speed-sub {
     display: flex;
     justify-content: center;
-    gap: 0.6rem;
+    align-items: baseline;
+    gap: 0.45rem;
     flex-wrap: wrap;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     color: var(--text-secondary);
+}
+
+.isp-speed-sub-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
 }
 
 .isp-speed-source {
@@ -15223,6 +15240,7 @@ a.affected-client:hover {
 .isp-speed-tested {
     font-size: 0.78rem;
     color: var(--text-muted);
+    margin-top: 0.1rem;
 }
 
 .isp-health-hero-dimensions {

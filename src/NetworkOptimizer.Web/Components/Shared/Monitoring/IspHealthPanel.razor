@@ -80,26 +80,25 @@ else
                 </div>
             </div>
             <div class="isp-health-hero-speed">
-                <div class="isp-speed-headline">
+                <div class="isp-speed-label">Speed vs Plan</div>
+                <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">
                     <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
                     <span class="isp-speed-unit">Mbps</span>
                 </div>
-                <div class="isp-speed-sub">
-                    @if (r.ExpectedDownloadMbps.HasValue || r.ExpectedUploadMbps.HasValue)
-                    {
-                        <span>Plan: @FormatSpeed(r.ExpectedDownloadMbps) / @FormatSpeed(r.ExpectedUploadMbps) Mbps</span>
-                        <span class="isp-speed-source">via @(r.ExpectedSpeedSource ?? "configuration")</span>
-                    }
-                    else
-                    {
-                        <span>Set your ISP speeds in UniFi Network to grade throughput</span>
-                    }
-                </div>
+                @if (r.TypicalDownloadMbps.HasValue || r.TypicalUploadMbps.HasValue)
+                {
+                    <div class="isp-speed-sub">
+                        <span class="isp-speed-sub-label">Typical</span>
+                        <span>@FormatSpeed(r.TypicalDownloadMbps) / @FormatSpeed(r.TypicalUploadMbps) Mbps</span>
+                    </div>
+                }
+                else if (!(r.ExpectedDownloadMbps.HasValue || r.ExpectedUploadMbps.HasValue))
+                {
+                    <div class="isp-speed-sub">Set your ISP speeds in UniFi Network to grade throughput</div>
+                }
                 @if (r.SpeedTestTime.HasValue)
                 {
-                    <div class="isp-speed-tested" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test. Newest shown.">
-                        Best down / up of recent tests &middot; @FormatAge(r.SpeedTestTime.Value)
-                    </div>
+                    <div class="isp-speed-tested">Best &middot; @FormatAge(r.SpeedTestTime.Value)</div>
                 }
                 else
                 {
@@ -229,7 +228,7 @@ else
                                 <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
                             </div>
                             <div class="isp-asn-stats">
-                                <div class="isp-asn-stat"><span class="detail-label">RTT</span><span class="detail-value">@FormatMs(asn.MedianRttMs)</span></div>
+                                <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatMs(asn.MeanRttMs)</span></div>
                                 <div class="isp-asn-stat"><span class="detail-label">P95 Jitter</span><span class="detail-value">@FormatMs(asn.P95JitterMs)</span></div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @if (asn.ReachDeltaMs.HasValue)
@@ -353,7 +352,7 @@ else
 
     private static string FormatMs(double? ms) => ms.HasValue ? $"{ms.Value:0.#} ms" : "--";
 
-    private static string FormatLossPct(double? pct) => pct.HasValue ? $"{pct.Value:0.##}%" : "--";
+    private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
 
     private string FormatAge(DateTime utc)
     {

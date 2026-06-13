@@ -70,7 +70,13 @@ public class IspAsnHealth
     public int AsnNumber { get; init; }
     public string? AsnName { get; init; }
     public List<string> TargetIds { get; init; } = new();
+
+    /// <summary>Median RTT of the graded hop/cluster (used for the grade and dimension factor).</summary>
     public double? MedianRttMs { get; init; }
+
+    /// <summary>Mean RTT across all of the ASN's monitored hops (shown on the Networks on Your Path card).</summary>
+    public double? MeanRttMs { get; init; }
+
     public double? P95RttMs { get; init; }
     public double? MedianJitterMs { get; init; }
     public double? P95JitterMs { get; init; }
@@ -190,6 +196,10 @@ public class IspHealthReport
     /// <summary>Best WAN speed test result used by the Speed vs Plan factor.</summary>
     public double? MeasuredDownloadMbps { get; init; }
     public double? MeasuredUploadMbps { get; init; }
+
+    /// <summary>Typical (median of trimmed) WAN speed over the window, shown beneath the best.</summary>
+    public double? TypicalDownloadMbps { get; init; }
+    public double? TypicalUploadMbps { get; init; }
     public DateTime? SpeedTestTime { get; init; }
 
     public static string GradeLabel(int score) => score switch
@@ -237,6 +247,9 @@ public class IspHealthInputs
 
     /// <summary>One series per ISP target (AsnName carries the target name) for the breakout.</summary>
     public List<AsnSeries> IspTargetSeries { get; init; } = new();
+
+    /// <summary>All hop clusters (ISP + transit) for computing each ASN's mean RTT across hops.</summary>
+    public List<AsnSeries> AllClusters { get; init; } = new();
 
     /// <summary>Per-target series pooled for packet loss (ISP + transit + anycast DNS targets).</summary>
     public List<List<LatencySample>> LossPoolSeries { get; init; } = new();
