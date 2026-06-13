@@ -15568,6 +15568,12 @@ a.affected-client:hover {
     }
 }
 
+@media (max-width: 338px) {
+    .isp-gauge-small {
+        width: 115px;
+    }
+}
+
 .isp-chart-wrap {
     position: relative;
 }
