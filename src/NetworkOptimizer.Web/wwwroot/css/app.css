@@ -15549,9 +15549,14 @@ a.affected-client:hover {
     }
     .isp-health-hero-dimensions {
         gap: 0.4rem;
+        width: 100%;
+        justify-content: space-evenly;
     }
     .isp-gauge-small {
-        width: 115px;
+        width: min(115px, 30vw);
+    }
+    .isp-gauge-small .isp-gauge-label {
+        font-size: 19px;
     }
     .isp-event-timeline {
         padding-left: 0.75rem;
