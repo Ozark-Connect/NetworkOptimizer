@@ -15551,6 +15551,8 @@ a.affected-client:hover {
         gap: 0.4rem;
         flex-wrap: wrap;
         justify-content: center;
+        margin-left: -1.75rem;
+        margin-right: -1.75rem;
     }
     .isp-gauge-small {
         width: 115px;
