@@ -263,9 +263,9 @@ public class IspHealthScorer
         var mid = (profile.IdleRttNormalLowMs + profile.IdleRttNormalHighMs) / 2.0;
         var score = ScoreCurve.Interpolate(idleBaseline.Value,
             (profile.IdleRttIdealMs, 100),
-            (profile.IdleRttNormalLowMs, 88),
-            (mid, 75),
-            (profile.IdleRttNormalHighMs, 62),
+            (profile.IdleRttNormalLowMs, 92),
+            (mid, 84),
+            (profile.IdleRttNormalHighMs, 75),
             (profile.IdleRttPoorMs, 25),
             (profile.IdleRttPoorMs * 2, 0));
 
