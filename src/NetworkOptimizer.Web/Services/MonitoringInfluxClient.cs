@@ -1610,6 +1610,83 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Like FindRecentLossEventAsync but only loss minutes that coincided with the
+    /// WAN being loaded (either direction at or above its loaded-threshold rate).
+    /// Loss under load is the SQM/bufferbloat signal; idle loss points at the
+    /// physical layer instead.
+    /// </summary>
+    public async Task<RecentLossEvent?> FindRecentLoadedLossEventAsync(
+        string gatewayMac,
+        IReadOnlyList<string> wanIfNames,
+        double loadedDownBpsThreshold,
+        double loadedUpBpsThreshold,
+        DateTime? before = null, DateTime? after = null,
+        IReadOnlyCollection<string>? enabledTargetIds = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || wanIfNames.Count == 0) return null;
+
+        var rangeStart = after ?? DateTime.UtcNow.AddDays(-30);
+        var rangeStop = before ?? DateTime.UtcNow;
+        var sortDesc = !after.HasValue;
+
+        var targetFilter = "";
+        if (enabledTargetIds != null && enabledTargetIds.Count > 0)
+        {
+            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $"r.target_id == \"{id}\""));
+            targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
+        }
+        var mac = NormalizeMac(gatewayMac);
+        var ifFilter = string.Join(" or ", wanIfNames.Select(n => $@"r.if_name == ""{SanitizeFluxString(n)}"""));
+
+        var flux = $@"
+import ""join""
+loss = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r.target_type == ""accessisp"" or r.target_type == ""transit"" or r.target_type == ""internetservice"" or r.target_type == ""wan""){targetFilter}
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
+  |> filter(fn: (r) => r._value > 1.0)
+  |> group()
+  |> keep(columns: [""_time"", ""_value"", ""target_id"", ""target_type""])
+
+load = from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => {ifFilter})
+  |> filter(fn: (r) => r._field == ""rate_in_bps"" or r._field == ""rate_out_bps"")
+  |> aggregateWindow(every: 1m, fn: max, createEmpty: false)
+  |> filter(fn: (r) => (r._field == ""rate_in_bps"" and r._value >= {loadedDownBpsThreshold.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}.0)
+      or (r._field == ""rate_out_bps"" and r._value >= {loadedUpBpsThreshold.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}.0))
+  |> group()
+  |> keep(columns: [""_time""])
+  |> unique(column: ""_time"")
+
+join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r) => l)
+  |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
+  |> limit(n: 1)
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
+            var targetId = record.GetValueByKey("target_id") as string;
+            var targetType = record.GetValueByKey("target_type") as string ?? "internetservice";
+            var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
+            return new RecentLossEvent
+            {
+                Timestamp = time,
+                TargetType = targetType,
+                TargetId = targetId,
+                LossPercent = loss ?? 0
+            };
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Find the most recent SFP anomaly: temperature above PON threshold (75 C) or
     /// RX power below PON threshold (-25 dBm). Scans the last 7 days.
     /// </summary>

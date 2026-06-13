@@ -306,6 +306,13 @@ public class IspHealthService
         }
     }
 
+    /// <summary>Expected plan speeds for callers outside the scoring pipeline (e.g. loaded-loss investigation).</summary>
+    public async Task<(double? DownMbps, double? UpMbps)> GetExpectedWanSpeedsAsync(CancellationToken ct = default)
+    {
+        var (down, up, _, _) = await ResolveExpectedSpeedsAsync(ct);
+        return (down, up);
+    }
+
     /// <summary>
     /// Expected speeds are configured values, never measured: the UniFi WAN provider
     /// capabilities (ISP speeds the user set in UniFi Network) with the Adaptive SQM

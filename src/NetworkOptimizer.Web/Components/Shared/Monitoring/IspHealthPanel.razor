@@ -158,7 +158,16 @@ else
                     {
                         <div class="isp-factor-row">
                             <div class="isp-factor-label">
-                                <span class="isp-factor-name">@factor.Name</span>
+                                @{ var investigateUrl = FactorInvestigateUrl(factor.Name); }
+                                @if (investigateUrl != null)
+                                {
+                                    <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
+                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@factor.Name</a>
+                                }
+                                else
+                                {
+                                    <span class="isp-factor-name">@factor.Name</span>
+                                }
                                 @if (!string.IsNullOrEmpty(factor.ValueText))
                                 {
                                     <span class="isp-factor-value">@factor.ValueText</span>
@@ -326,6 +335,13 @@ else
 
     private static string WindowLabel(IspHealthReport r) =>
         $"{(r.WindowEnd - r.WindowStart).TotalHours:0} h";
+
+    private static string? FactorInvestigateUrl(string factorName) => factorName switch
+    {
+        "Packet Loss" => "/monitoring?tab=performance&investigate=packet-loss",
+        "Loaded Loss" => "/monitoring?tab=performance&investigate=loaded-loss",
+        _ => null
+    };
 
     private static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
 

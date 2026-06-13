@@ -15530,3 +15530,14 @@ a.affected-client:hover {
     color: var(--text-muted);
     white-space: nowrap;
 }
+
+.isp-factor-link {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-decoration-color: var(--text-muted);
+    text-underline-offset: 3px;
+}
+
+.isp-factor-link:hover {
+    color: var(--primary-hover);
+}

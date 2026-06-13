@@ -344,8 +344,8 @@ else
                     <button class="btn btn-sm btn-secondary" @onclick="LossNavBack" disabled="@_investigatingLoss"
                             data-tooltip="Previous loss event">&#x25C0;</button>
                     <button class="btn btn-primary" @onclick="LossNavDeactivate"
-                            data-tooltip="Exit packet loss investigation">
-                        Packet Loss Events
+                            data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
+                        @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
                     </button>
                     <button class="btn btn-sm btn-secondary" @onclick="LossNavForward" disabled="@_investigatingLoss"
                             data-tooltip="Next loss event">&#x25B6;</button>
@@ -356,6 +356,11 @@ else
                             data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
                         @if (_investigatingLoss) { <span class="spinner-sm"></span> }
                         else { <span>Packet Loss Events</span> }
+                    </button>
+                    <button class="btn btn-secondary" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
+                            data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
+                        @if (_investigatingLoss) { <span class="spinner-sm"></span> }
+                        else { <span>Loaded Loss Events</span> }
                     </button>
                 }
                 @if (!string.IsNullOrEmpty(_lossInvestigateResult))
@@ -1100,6 +1105,9 @@ else
     [SupplyParameterFromQuery(Name = "discover")]
     public string? DiscoverParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "investigate")]
+    public string? InvestigateParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "sfp")]
     public string? SfpParam { get; set; }
 
@@ -1185,6 +1193,8 @@ else
     private bool _investigatingSfp;
     private string? _lossInvestigateResult;
     private string? _sfpInvestigateResult;
+    private bool _lossNavLoadedOnly;
+    private string? _pendingInvestigateParam;
     private bool _lossNavActive;
     private DateTime? _lossNavTimestamp;
 
@@ -1245,6 +1255,13 @@ else
         {
             _forceExpandUpstream = true;
             _scrollToDiscoveryPending = true;
+        }
+
+        // Deep link from the ISP Health loss factors straight into investigation
+        if (_activeTab == "performance" && _pendingInvestigateParam == null
+            && (InvestigateParam == "packet-loss" || InvestigateParam == "loaded-loss"))
+        {
+            _pendingInvestigateParam = InvestigateParam;
         }
 
         if (!string.IsNullOrEmpty(SfpParam) && _activeTab == "sfp")
@@ -2187,29 +2204,51 @@ else
 
     // ─── Investigation ───
 
-    private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null);
+    private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null, loadedOnly: false);
+    private Task InvestigateLoadedLoss() => NavigateToLossEvent(null, null, loadedOnly: true);
     private Task LossNavBack() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddMinutes(-1), null) : Task.CompletedTask;
+        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddMinutes(-1), null, _lossNavLoadedOnly) : Task.CompletedTask;
     private Task LossNavForward() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddMinutes(1)) : Task.CompletedTask;
+        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddMinutes(1), _lossNavLoadedOnly) : Task.CompletedTask;
 
     private async Task LossNavDeactivate()
     {
         _lossNavActive = false;
         _lossNavTimestamp = null;
         _lossInvestigateResult = null;
+        _lossNavLoadedOnly = false;
         StateHasChanged();
         await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
 
-    private async Task NavigateToLossEvent(DateTime? before, DateTime? after)
+    private async Task NavigateToLossEvent(DateTime? before, DateTime? after, bool loadedOnly)
     {
         _investigatingLoss = true;
         StateHasChanged();
         try
         {
             var enabledIds = _targets.Where(t => t.Enabled).Select(t => t.TargetId).ToList();
-            var result = await InfluxClient.FindRecentLossEventAsync(before, after, enabledIds);
+            MonitoringInfluxClient.RecentLossEvent? result;
+            if (loadedOnly)
+            {
+                var (downMbps, upMbps) = await IspHealthService.GetExpectedWanSpeedsAsync();
+                if (_gatewayMac == null || _gatewayWanIfNames.Count == 0 || (downMbps is not > 0 && upMbps is not > 0))
+                {
+                    _lossInvestigateResult = "Set your ISP speeds in UniFi Network to find loaded loss events.";
+                    return;
+                }
+                var fraction = IspHealthService.Options.LoadedThresholdFraction;
+                // Direction without a configured speed gets an unreachable threshold
+                var downThreshold = downMbps is > 0 ? downMbps.Value * 1_000_000 * fraction : double.MaxValue;
+                var upThreshold = upMbps is > 0 ? upMbps.Value * 1_000_000 * fraction : double.MaxValue;
+                result = await InfluxClient.FindRecentLoadedLossEventAsync(
+                    _gatewayMac, _gatewayWanIfNames, downThreshold, upThreshold, before, after, enabledIds);
+            }
+            else
+            {
+                result = await InfluxClient.FindRecentLossEventAsync(before, after, enabledIds);
+            }
+            _lossNavLoadedOnly = loadedOnly;
             if (result == null)
             {
                 _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
@@ -2293,6 +2332,14 @@ else
             _pendingExpandSnmpCard = false;
             _snmpDeviceCard.Expand();
             await ScrollToSnmpDevicesAsync();
+        }
+
+        // Deep-linked investigation fires once the performance tab and its chart exist
+        if (_pendingInvestigateParam != null && _activeTab == "performance" && _monitoringReady && !_investigatingLoss)
+        {
+            var kind = _pendingInvestigateParam;
+            _pendingInvestigateParam = null;
+            await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
         }
 
         // Mount/unmount charts based on active tab. Only mount when the container
