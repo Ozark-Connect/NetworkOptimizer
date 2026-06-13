@@ -98,7 +98,7 @@ else
                 @if (r.SpeedTestTime.HasValue)
                 {
                     <div class="isp-speed-tested" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test. Newest shown.">
-                        Best down/up of recent tests &middot; @FormatAge(r.SpeedTestTime.Value)
+                        Best down / up of recent tests &middot; @FormatAge(r.SpeedTestTime.Value)
                     </div>
                 }
                 else
@@ -108,8 +108,8 @@ else
             </div>
             <div class="isp-health-hero-dimensions">
                 <IspHealthScoreGauge Score="r.AccessDimension.Score" Label="Access Layer" Small="true" />
-                <IspHealthScoreGauge Score="r.TransitDimension.Score" Label="Transit" Small="true" />
                 <IspHealthScoreGauge Score="r.IspAsnDimension.Score" Label="ISP Network" Small="true" />
+                <IspHealthScoreGauge Score="r.TransitDimension.Score" Label="Transit" Small="true" />
             </div>
         </div>
     </div>
@@ -144,7 +144,7 @@ else
     }
 
     <div class="isp-health-dimension-grid">
-        @foreach (var dimension in new[] { r.AccessDimension, r.TransitDimension, r.IspAsnDimension })
+        @foreach (var dimension in new[] { r.AccessDimension, r.IspAsnDimension, r.TransitDimension })
         {
             <div class="card isp-health-card">
                 <div class="card-header isp-dimension-header">
@@ -191,14 +191,18 @@ else
                             @foreach (var target in r.IspTargets)
                             {
                                 <div class="isp-target-row">
-                                    <span class="isp-target-name">
+                                    <div class="isp-target-name">
                                         @target.Name
                                         @if (target.IsGradedHop)
                                         {
                                             <span class="isp-target-graded" data-tooltip="The first clean hop; latency factors and the ISP grade come from this target">graded</span>
                                         }
-                                    </span>
-                                    <span class="isp-target-stats">@FormatMs(target.MedianRttMs) &middot; @FormatMs(target.P95JitterMs) jitter &middot; @FormatLossPct(target.LossPct) loss</span>
+                                    </div>
+                                    <div class="isp-target-stats">
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatMs(target.MedianRttMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatMs(target.P95JitterMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -226,11 +230,11 @@ else
                             </div>
                             <div class="isp-asn-stats">
                                 <div class="isp-asn-stat"><span class="detail-label">RTT</span><span class="detail-value">@FormatMs(asn.MedianRttMs)</span></div>
-                                <div class="isp-asn-stat"><span class="detail-label">p95 Jitter</span><span class="detail-value">@FormatMs(asn.P95JitterMs)</span></div>
+                                <div class="isp-asn-stat"><span class="detail-label">P95 Jitter</span><span class="detail-value">@FormatMs(asn.P95JitterMs)</span></div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @if (asn.ReachDeltaMs.HasValue)
                                 {
-                                    <div class="isp-asn-stat"><span class="detail-label">Beyond access</span><span class="detail-value">+@FormatMs(asn.ReachDeltaMs)</span></div>
+                                    <div class="isp-asn-stat"><span class="detail-label">Beyond ISP</span><span class="detail-value">+@FormatMs(asn.ReachDeltaMs)</span></div>
                                 }
                             </div>
                             <div class="isp-asn-score-track">

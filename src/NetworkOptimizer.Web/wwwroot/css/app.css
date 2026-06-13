@@ -15501,14 +15501,18 @@ a.affected-client:hover {
 
 .isp-target-row {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.55rem 0;
+}
+
+.isp-target-row + .isp-target-row {
+    border-top: 1px solid var(--border-color);
 }
 
 .isp-target-name {
-    font-size: 0.78rem;
+    font-size: 0.82rem;
+    font-weight: 500;
     color: var(--text-primary);
     min-width: 0;
 }
@@ -15526,9 +15530,25 @@ a.affected-client:hover {
 }
 
 .isp-target-stats {
-    font-size: 0.72rem;
-    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.isp-target-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
     white-space: nowrap;
+}
+
+.isp-target-stat-label {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
 .isp-factor-link {

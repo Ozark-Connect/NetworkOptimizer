@@ -22,6 +22,11 @@ public class IspHealthService
     private readonly SemaphoreSlim _computeLock = new(1, 1);
 
     private IspHealthReport? _cachedReport;
+    // The exact per-cluster series the cached report's events were detected on, so the
+    // chart renders the same snapshot and its line labels match the event labels (the
+    // "+N ms hop" names are rounded relative to a volatile median and must not be
+    // recomputed independently per query).
+    private List<AsnSeries>? _cachedChartClusters;
     private IspHealthStatus _status = IspHealthStatus.Computing;
     private volatile bool _computing;
 
@@ -229,6 +234,9 @@ public class IspHealthService
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
+        // Cache the exact clusters the events were detected on for the chart
+        _cachedChartClusters = allClusters;
+
         var inputs = new IspHealthInputs
         {
             WindowStart = windowStart,
@@ -263,28 +271,11 @@ public class IspHealthService
     /// </summary>
     public async Task<(List<AsnSeries> Series, IspHealthReport? Report)> GetAsnChartDataAsync(CancellationToken ct = default)
     {
+        // Return the exact clusters the report's events were detected on, so chart
+        // line labels and the event labels are guaranteed to agree (re-clustering
+        // independently would round the "+N ms hop" names differently)
         var report = await GetReportAsync(ct: ct);
-
-        List<MonitoringTarget> targets;
-        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
-        {
-            targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
-                    || t.TargetType == MonitoringTargetType.Transit))
-                .ToListAsync(ct);
-        }
-        if (targets.Count == 0) return (new List<AsnSeries>(), report);
-
-        var windowEnd = DateTime.UtcNow;
-        var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
-        var aggregate = TimeSpan.FromMinutes(_options.AggregateWindowMinutes);
-        var ispSeries = ToSamples(await _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct));
-        var transitSeries = ToSamples(await _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct));
-
-        var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
-        var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit).ToList();
-        var (_, _, allClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
-        return (allClusters, report);
+        return (_cachedChartClusters ?? new List<AsnSeries>(), report);
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)
