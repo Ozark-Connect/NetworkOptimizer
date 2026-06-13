@@ -125,14 +125,11 @@ public class IspHealthOptions
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 
-    /// <summary>
-    /// Absolute floor in ms for a step-change candidate delta. Tuned against real
-    /// transit shifts of ~2.7-3.1 ms on 8-18 ms paths; 3.0 missed them.
-    /// </summary>
-    public double StepMinDeltaMs { get; set; } = 2.0;
+    /// <summary>Absolute floor in ms for a step-change candidate delta.</summary>
+    public double StepMinDeltaMs { get; set; } = 1.5;
 
     /// <summary>Relative floor (fraction of the before-median) for a step-change candidate delta.</summary>
-    public double StepMinRelativeChange { get; set; } = 0.15;
+    public double StepMinRelativeChange { get; set; } = 0.06;
 
     /// <summary>Number of subsequent windows that must hold the new level to confirm a step.</summary>
     public int StepPersistenceWindows { get; set; } = 3;
