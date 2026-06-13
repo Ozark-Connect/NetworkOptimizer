@@ -101,7 +101,7 @@
                     <select class="form-control" style="max-width: 250px;@(_state.AccessTechnology == AccessTechnology.Unknown ? " outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; border-radius: 6px;" : "")"
                             value="@((int)_state.AccessTechnology)"
                             @onchange="OnAccessTechChanged">
-                        @foreach (var tech in Enum.GetValues<AccessTechnology>())
+                        @foreach (var tech in AccessTechDisplayOrder)
                         {
                             <option value="@((int)tech)">@FormatTechName(tech)</option>
                         }
@@ -435,6 +435,25 @@
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
+    /// <summary>
+    /// Dropdown display order. The enum's numeric values are persisted and append-only,
+    /// so new technologies are slotted here instead of renumbering the enum.
+    /// </summary>
+    private static readonly AccessTechnology[] AccessTechDisplayOrder =
+    [
+        AccessTechnology.Unknown,
+        AccessTechnology.Gpon,
+        AccessTechnology.XgsPon,
+        AccessTechnology.Docsis,
+        AccessTechnology.Dsl,
+        AccessTechnology.PppoE,
+        AccessTechnology.DirectEthernet,
+        AccessTechnology.FixedWireless,
+        AccessTechnology.Satellite,
+        AccessTechnology.Cellular,
+        AccessTechnology.Other
+    ];
+
     private static string FormatTechName(AccessTechnology tech) => tech switch
     {
         AccessTechnology.Unknown => "Not detected",
@@ -447,6 +466,7 @@
         AccessTechnology.Satellite => "Satellite",
         AccessTechnology.Cellular => "Cellular",
         AccessTechnology.Other => "Other",
+        AccessTechnology.Dsl => "DSL (ADSL/VDSL)",
         _ => tech.ToString()
     };
 

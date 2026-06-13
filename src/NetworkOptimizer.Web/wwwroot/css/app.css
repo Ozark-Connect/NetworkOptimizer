@@ -15088,3 +15088,549 @@ a.affected-client:hover {
     font-family: inherit;
     line-height: 1.4;
 }
+
+.isp-score-excellent { color: #24bc70; }
+.isp-score-good { color: #3b82f6; }
+.isp-score-fair { color: #f59e0b; }
+.isp-score-poor { color: #ef4444; }
+.isp-score-none { color: var(--text-muted); }
+
+.monitoring-stat-card .stat-value.isp-score-excellent { color: #24bc70; }
+.monitoring-stat-card .stat-value.isp-score-good { color: #3b82f6; }
+.monitoring-stat-card .stat-value.isp-score-fair { color: #f59e0b; }
+.monitoring-stat-card .stat-value.isp-score-poor { color: #ef4444; }
+.monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
+
+.isp-health-tile {
+    position: relative;
+    overflow: hidden;
+    --tile-accent: var(--text-muted);
+    background-image:
+        radial-gradient(ellipse 85% 130% at 50% -20%, rgba(5, 80, 181, 0.18), transparent 70%),
+        linear-gradient(160deg, rgba(43, 168, 154, 0.07), transparent 55%);
+}
+
+.isp-health-tile.isp-score-excellent { --tile-accent: #24bc70; }
+.isp-health-tile.isp-score-good { --tile-accent: #3b82f6; }
+.isp-health-tile.isp-score-fair { --tile-accent: #f59e0b; }
+.isp-health-tile.isp-score-poor { --tile-accent: #ef4444; }
+.isp-health-tile.isp-score-none { --tile-accent: var(--text-muted); }
+
+.isp-health-tile .stat-value.isp-tile-score {
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.isp-health-tile.isp-score-excellent .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #34d399, #24bc70); }
+.isp-health-tile.isp-score-good .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #60a5fa, #3b82f6); }
+.isp-health-tile.isp-score-fair .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #fbbf24, #f59e0b); }
+.isp-health-tile.isp-score-poor .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #f87171, #ef4444); }
+
+.isp-health-tile.isp-score-none .stat-value.isp-tile-score {
+    -webkit-text-fill-color: var(--text-muted);
+    color: var(--text-muted);
+}
+
+.isp-tile-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: var(--bg-tertiary);
+}
+
+.isp-tile-bar-fill {
+    height: 100%;
+    background: var(--tile-accent);
+    transition: width 0.4s ease;
+}
+
+.isp-health-card {
+    margin-bottom: 1rem;
+}
+
+.isp-health-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+}
+
+.isp-health-hero {
+    position: relative;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    background:
+        radial-gradient(ellipse 60% 120% at 18% 0%, rgba(5, 80, 181, 0.12), transparent 60%),
+        radial-gradient(ellipse 50% 100% at 85% 100%, rgba(43, 168, 154, 0.08), transparent 65%),
+        var(--bg-card);
+}
+
+.isp-health-hero-body {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 2rem;
+    padding: 1.5rem 2rem;
+}
+
+.isp-health-hero-gauge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.isp-gauge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    width: 190px;
+    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.35));
+}
+
+.isp-gauge-small {
+    width: 150px;
+    filter: none;
+}
+
+.isp-gauge-small .isp-gauge-score {
+    font-size: 30px;
+}
+
+.isp-gauge-small .isp-gauge-label {
+    font-size: 17px;
+}
+
+.isp-gauge-score {
+    font-size: 40px;
+    font-weight: 700;
+    letter-spacing: -1px;
+}
+
+.isp-gauge-label {
+    font-size: 13px;
+    fill: var(--text-secondary);
+}
+
+.isp-health-profile-chip {
+    padding: 0.3rem 0.9rem;
+    border-radius: 2rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.isp-health-hero-speed {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    justify-self: center;
+    text-align: center;
+}
+
+.isp-speed-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+}
+
+.isp-speed-headline {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.isp-speed-measured {
+    font-size: 2.6rem;
+    font-weight: 700;
+    letter-spacing: -1.5px;
+    line-height: 1;
+    background: linear-gradient(120deg, #3b82f6, #2ba89a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.isp-speed-unit {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.isp-speed-sub {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+}
+
+.isp-speed-sub-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.isp-speed-source {
+    color: var(--text-muted);
+}
+
+.isp-speed-tested {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 0.1rem;
+}
+
+.isp-health-hero-dimensions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.isp-health-dimension-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.isp-health-dimension-grid .isp-health-card {
+    margin-bottom: 0;
+}
+
+.isp-dimension-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.isp-dimension-score {
+    font-size: 1.4rem;
+    font-weight: 700;
+}
+
+.isp-factor-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 1fr) minmax(60px, 130px) 34px;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 0.9rem;
+}
+
+.isp-factor-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.isp-factor-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.isp-factor-value {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.isp-factor-bar-track {
+    height: 7px;
+    border-radius: 0 4px 4px 0;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.isp-factor-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.isp-bar-excellent { background: linear-gradient(90deg, #1a9d5c, #24bc70); }
+.isp-bar-good { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+.isp-bar-fair { background: linear-gradient(90deg, #d97706, #f59e0b); }
+.isp-bar-poor { background: linear-gradient(90deg, #dc2626, #ef4444); }
+.isp-bar-none { background: var(--bg-hover); }
+
+.isp-factor-score {
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-align: right;
+}
+
+.isp-factor-description {
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.isp-asn-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.85rem;
+}
+
+.isp-asn-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
+    transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.isp-asn-card:hover {
+    border-color: var(--primary-hover);
+    transform: translateY(-2px);
+}
+
+.isp-asn-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.isp-asn-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.isp-asn-sub {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.isp-asn-grade {
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.isp-asn-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.4rem 0.75rem;
+}
+
+.isp-asn-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+}
+
+.isp-asn-stat .detail-label {
+    font-size: 0.68rem;
+}
+
+.isp-asn-stat .detail-value {
+    font-size: 0.85rem;
+}
+
+.isp-asn-score-track {
+    height: 5px;
+    border-radius: 0 3px 3px 0;
+    background: var(--bg-primary);
+    overflow: hidden;
+}
+
+.isp-event-timeline {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    padding-left: 1rem;
+    border-left: 2px solid var(--bg-hover);
+}
+
+.isp-event-item {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.isp-event-item::before {
+    content: "";
+    position: absolute;
+    left: calc(-1rem - 7.5px);
+    top: 0.25rem;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    border: 2px solid var(--bg-card);
+}
+
+.isp-event-badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.isp-event-badge-warning {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.isp-event-badge-info {
+    color: var(--info-color);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.isp-event-time {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.isp-event-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    flex: 1 1 240px;
+}
+
+@media (max-width: 1024px) {
+    .isp-health-dimension-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .isp-health-hero-body {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+        padding: 1.25rem 1rem;
+        justify-items: center;
+    }
+    .isp-speed-measured {
+        font-size: 2rem;
+    }
+    .isp-health-hero-dimensions {
+        gap: 0.4rem;
+    }
+    .isp-gauge-small {
+        width: 104px;
+    }
+    .isp-event-timeline {
+        padding-left: 0.75rem;
+    }
+    .isp-event-item::before {
+        left: calc(-0.75rem - 7.5px);
+    }
+}
+
+.isp-chart-wrap {
+    position: relative;
+}
+
+.isp-chart-reset-btn {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.5rem;
+    z-index: 5;
+}
+
+.isp-target-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.25rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.isp-target-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.55rem 0;
+}
+
+.isp-target-row + .isp-target-row {
+    border-top: 1px solid var(--border-color);
+}
+
+.isp-target-name {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.isp-target-graded {
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(5, 80, 181, 0.25);
+    color: var(--primary-hover);
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.isp-target-stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.isp-target-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.isp-target-stat-label {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.isp-factor-link {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-decoration-color: var(--text-muted);
+    text-underline-offset: 3px;
+}
+
+.isp-factor-link:hover {
+    color: var(--primary-hover);
+}

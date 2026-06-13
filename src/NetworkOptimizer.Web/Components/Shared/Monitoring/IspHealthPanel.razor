@@ -1,0 +1,439 @@
+@using NetworkOptimizer.Web.Services.Monitoring.IspHealth
+@implements IDisposable
+@inject IspHealthService IspHealth
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
+
+@if (_loading)
+{
+    <div class="loading-container">
+        <div class="spinner"></div>
+        <p>Analyzing recent ISP data...</p>
+    </div>
+}
+else if (_report == null)
+{
+    @if (IspHealth.Status == IspHealthStatus.NeedsDiscovery)
+    {
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    ISP Health needs your ISP and transit hops. Run Upstream Discovery on the Network Performance tab to identify them.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Run Upstream Discovery</button>
+                </div>
+            </div>
+        </div>
+    }
+    else if (IspHealth.Status == IspHealthStatus.NeedsTechnology)
+    {
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    Select your access network technology (GPON, DOCSIS, Starlink, ...) in Upstream Discovery so ISP Health can grade against the right expectations.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Open Upstream Discovery</button>
+                </div>
+            </div>
+        </div>
+    }
+    else if (IspHealth.Status == IspHealthStatus.InsufficientData)
+    {
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    Collecting monitoring data. ISP Health needs a few hours of latency history before it can grade your connection; check back soon.
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-warning">!</span>
+                <div class="banner-text" style="flex: 1;">
+                    ISP Health could not compute a score. Check that monitoring and InfluxDB are set up and collecting data.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=setup"))">Open Setup</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+else
+{
+    var r = _report;
+    <div class="isp-health-toolbar">
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@_refreshing"
+                data-tooltip="Recompute ISP Health now from the latest monitoring data" data-tooltip-no-touch>
+            @if (_refreshing)
+            {
+                <span class="spinner-sm"></span> <span>Refreshing</span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+    <div class="isp-health-hero card">
+        <div class="card-body isp-health-hero-body">
+            <div class="isp-health-hero-gauge">
+                <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
+                <div class="isp-health-profile-chip" data-tooltip="Thresholds are tuned to the access technology selected in Upstream Discovery">
+                    Scored as @r.Profile.DisplayName &middot; last @WindowLabel(r)
+                </div>
+            </div>
+            <div class="isp-health-hero-speed">
+                <div class="isp-speed-label">Speed vs Plan</div>
+                <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">
+                    <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
+                    <span class="isp-speed-unit">Mbps</span>
+                </div>
+                @if (r.TypicalDownloadMbps.HasValue || r.TypicalUploadMbps.HasValue)
+                {
+                    <div class="isp-speed-sub">
+                        <span class="isp-speed-sub-label">Typical</span>
+                        <span>@FormatSpeed(r.TypicalDownloadMbps) / @FormatSpeed(r.TypicalUploadMbps) Mbps</span>
+                    </div>
+                }
+                else if (!(r.ExpectedDownloadMbps.HasValue || r.ExpectedUploadMbps.HasValue))
+                {
+                    <div class="isp-speed-sub">Set your ISP speeds in UniFi Network to grade throughput</div>
+                }
+                @if (r.SpeedTestTime.HasValue)
+                {
+                    <div class="isp-speed-tested" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">Best &middot; @FormatAge(r.SpeedTestTime.Value)</div>
+                }
+                else
+                {
+                    <div class="isp-speed-tested">No recent WAN speed test</div>
+                }
+            </div>
+            <div class="isp-health-hero-dimensions">
+                <IspHealthScoreGauge Score="r.AccessDimension.Score" Label="Access Layer" Small="true" />
+                <IspHealthScoreGauge Score="r.IspAsnDimension.Score" Label="ISP Network" Small="true" />
+                <IspHealthScoreGauge Score="r.TransitDimension.Score" Label="Transit" Small="true" />
+            </div>
+        </div>
+    </div>
+
+    @if (r.Issues.Count > 0)
+    {
+        <div class="card isp-health-card">
+            <div class="card-header"><h2 class="card-title">Findings</h2></div>
+            <div class="card-body">
+                @foreach (var issue in r.Issues)
+                {
+                    <div class="issue-item @IssueClass(issue.Severity)">
+                        <div class="issue-content">
+                            <span class="issue-severity">@issue.Severity</span>
+                            <div class="issue-title">@issue.Title</div>
+                            <div class="issue-description">@issue.Description</div>
+                            @if (!string.IsNullOrEmpty(issue.Recommendation))
+                            {
+                                <div class="issue-recommendation">
+                                    @issue.Recommendation
+                                    @if (!string.IsNullOrEmpty(issue.LinkUrl))
+                                    {
+                                        <a href="@issue.LinkUrl" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="isp-health-dimension-grid">
+        @foreach (var dimension in new[] { r.AccessDimension, r.IspAsnDimension, r.TransitDimension })
+        {
+            <div class="card isp-health-card">
+                <div class="card-header isp-dimension-header">
+                    <h2 class="card-title">@dimension.Name</h2>
+                    <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
+                </div>
+                <div class="card-body">
+                    @if (dimension.Factors.Count == 0)
+                    {
+                        <p class="page-description">No data for this dimension in the window.</p>
+                    }
+                    @foreach (var factor in dimension.Factors)
+                    {
+                        <div class="isp-factor-row">
+                            <div class="isp-factor-label">
+                                @{ var investigateUrl = FactorInvestigateUrl(factor.Name); }
+                                @if (investigateUrl != null)
+                                {
+                                    <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
+                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@factor.Name</a>
+                                }
+                                else
+                                {
+                                    <span class="isp-factor-name">@factor.Name</span>
+                                }
+                                @if (!string.IsNullOrEmpty(factor.ValueText))
+                                {
+                                    <span class="isp-factor-value">@factor.ValueText</span>
+                                }
+                            </div>
+                            <div class="isp-factor-bar-track">
+                                <div class="isp-factor-bar @BarClass(factor.Score)" style="width: @(factor.Score ?? 0)%"></div>
+                            </div>
+                            <span class="isp-factor-score @ScoreTextClass(factor.Score)">@(factor.Score?.ToString() ?? "--")</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(factor.Description))
+                        {
+                            <div class="isp-factor-description">@factor.Description</div>
+                        }
+                    }
+                    @if (dimension == r.IspAsnDimension && r.IspTargets.Count > 1)
+                    {
+                        <div class="isp-target-list">
+                            @foreach (var target in r.IspTargets)
+                            {
+                                <div class="isp-target-row">
+                                    <div class="isp-target-name">
+                                        @target.Name
+                                        @if (target.IsGradedHop)
+                                        {
+                                            <span class="isp-target-graded" data-tooltip="The first clean hop; latency factors and the ISP grade come from this target">graded</span>
+                                        }
+                                    </div>
+                                    <div class="isp-target-stats">
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.MedianRttMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatMs(target.P95JitterMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (r.TransitAsns.Count > 0 || r.IspAsns.Count > 0)
+    {
+        <div class="card isp-health-card">
+            <div class="card-header"><h2 class="card-title">Networks on Your Path</h2></div>
+            <div class="card-body">
+                <div class="isp-asn-grid">
+                    @foreach (var asn in r.IspAsns.Concat(r.TransitAsns))
+                    {
+                        <div class="isp-asn-card">
+                            <div class="isp-asn-card-header">
+                                <div>
+                                    <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
+                                    <div class="isp-asn-sub">@(r.IspAsns.Contains(asn) ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
+                                </div>
+                                <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
+                            </div>
+                            <div class="isp-asn-stats">
+                                <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatMs(asn.MeanRttMs)</span></div>
+                                <div class="isp-asn-stat"><span class="detail-label">P95 Jitter</span><span class="detail-value">@FormatMs(asn.P95JitterMs)</span></div>
+                                <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
+                                @if (asn.ReachDeltaMs.HasValue)
+                                {
+                                    <div class="isp-asn-stat"><span class="detail-label">Beyond ISP</span><span class="detail-value">+@FormatMs(asn.ReachDeltaMs)</span></div>
+                                }
+                            </div>
+                            <div class="isp-asn-score-track">
+                                <div class="isp-factor-bar @BarClass(asn.OverallScore)" style="width: @(asn.OverallScore ?? 0)%"></div>
+                            </div>
+                            @if (asn.CongestionEventCount > 0)
+                            {
+                                <span class="isp-event-badge isp-event-badge-warning">@asn.CongestionEventCount congestion event@(asn.CongestionEventCount == 1 ? "" : "s")</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="card isp-health-card">
+        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@WindowLabel(r))</h2></div>
+        <div class="card-body">
+            @if (r.CongestionEvents.Count == 0 && r.PathShifts.Count == 0)
+            {
+                <p class="page-description">No congestion events or path shifts detected in the window.</p>
+            }
+            else
+            {
+                <div class="isp-event-timeline">
+                    @foreach (var entry in EventTimeline(r))
+                    {
+                        <div class="isp-event-item">
+                            <span class="isp-event-badge @entry.BadgeClass">@entry.Badge</span>
+                            <span class="isp-event-time">@entry.Time.ToLocalTime().ToString("HH:mm")</span>
+                            <span class="isp-event-text">@entry.Text</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card isp-health-card">
+        <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
+        <div class="card-body">
+            <div id="isp-health-asn-chart"></div>
+        </div>
+    </div>
+}
+
+@code {
+    private IspHealthReport? _report;
+    private bool _loading = true;
+    private bool _chartMounted;
+    private bool _refreshing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _report = await IspHealth.GetReportAsync();
+        }
+        catch
+        {
+            // A transient InfluxDB/query failure must not fault the circuit; leave the
+            // report null and let the status funnels render the fallback message.
+            _report = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_refreshing) return;
+        _refreshing = true;
+        try
+        {
+            _report = await IspHealth.GetReportAsync(forceRefresh: true);
+            // The chart fetches its own series from the freshly cached report.
+            try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+            catch { /* chart not mounted yet */ }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_report == null || _chartMounted) return;
+        _chartMounted = true;
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                $"(async () => {{ const m = await import('{VersionedJs("/js/isp-health-charts.js")}'); " +
+                "window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart'); })();");
+        }
+        catch { _chartMounted = false; }
+    }
+
+    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text);
+
+    private static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
+    {
+        var entries = new List<TimelineEntry>();
+        foreach (var evt in r.CongestionEvents)
+        {
+            var scope = evt.IsShared
+                ? $"shared across {evt.AsnNames.Count} networks (likely a shared upstream or return path)"
+                : string.Join(", ", evt.AsnNames);
+            entries.Add(new TimelineEntry(evt.Start, "Congestion", "isp-event-badge-warning",
+                $"{FormatDuration(evt.Duration)} of elevated latency and jitter on {scope}: {evt.BaselineRttMs:0.#} ms baseline to {evt.PeakRttMs:0.#} ms peak"));
+        }
+        foreach (var shift in r.PathShifts)
+        {
+            var direction = shift.Direction == PathShiftDirection.Up ? "up" : "down";
+            var where = string.IsNullOrEmpty(shift.AsnName) ? (shift.TargetId ?? "path") : shift.AsnName;
+            var correlated = shift.CorrelatedTargetCount > 1 ? $", seen on {shift.CorrelatedTargetCount} paths" : "";
+            entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-info",
+                $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change."));
+        }
+        return entries.OrderByDescending(e => e.Time);
+    }
+
+    private static string FormatDuration(TimeSpan d) =>
+        d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h" : $"{d.TotalMinutes:0} min";
+
+    private static string WindowLabel(IspHealthReport r) =>
+        $"{(r.WindowEnd - r.WindowStart).TotalHours:0} h";
+
+    private static string? FactorInvestigateUrl(string factorName) => factorName switch
+    {
+        "Packet Loss" => "/monitoring?tab=performance&investigate=packet-loss",
+        "Loaded Loss" => "/monitoring?tab=performance&investigate=loaded-loss",
+        _ => null
+    };
+
+    private static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
+
+    private static string FormatMs(double? ms) => ms.HasValue ? $"{ms.Value:0.#} ms" : "--";
+
+    private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.0} ms" : "--";
+
+    private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
+
+    private string FormatAge(DateTime utc)
+    {
+        var age = DateTime.UtcNow - utc;
+        if (age.TotalHours < 1) return $"{Math.Max(1, (int)age.TotalMinutes)} min ago";
+        if (age.TotalDays < 1) return $"{(int)age.TotalHours} h ago";
+        return $"{(int)age.TotalDays} d ago";
+    }
+
+    private static string IssueClass(IspIssueSeverity severity) => severity switch
+    {
+        IspIssueSeverity.Critical => "issue-critical",
+        IspIssueSeverity.Warning => "issue-warning",
+        _ => "issue-info"
+    };
+
+    private static string ScoreTextClass(int? score) => score switch
+    {
+        null => "isp-score-none",
+        >= 90 => "isp-score-excellent",
+        >= 75 => "isp-score-good",
+        >= 60 => "isp-score-fair",
+        _ => "isp-score-poor"
+    };
+
+    private static string BarClass(int? score) => score switch
+    {
+        null => "isp-bar-none",
+        >= 90 => "isp-bar-excellent",
+        >= 75 => "isp-bar-good",
+        >= 60 => "isp-bar-fair",
+        _ => "isp-bar-poor"
+    };
+
+    private string VersionedJs(string path) => FileVersionProvider.AddFileVersionToPath("", path);
+
+    public void Dispose()
+    {
+        if (_chartMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount();"); }
+            catch { }
+        }
+    }
+}

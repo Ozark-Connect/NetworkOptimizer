@@ -1,11 +1,13 @@
 @using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Monitoring.IspHealth
 @using NetworkOptimizer.Core.Enums
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 @inject UniFiConnectionService ConnectionService
+@inject IspHealthService IspHealthService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
@@ -45,14 +47,14 @@ else
                 <div class="stat-value" style="color: #10b981;">@FormatRate(wanRates.upload)</div>
                 <div class="stat-label">WAN Upload</div>
             </div>
-            @{ var gwLatency = GetGatewayLatency(); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
-                <div class="stat-label">Gateway RTT</div>
-            </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
-                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
-                <div class="stat-label">Gateway Loss</div>
+            @{ var ispHealth = IspHealthService.GetCachedScore(); }
+            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-no-touch @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+                <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
+                <div class="stat-label">ISP Health</div>
+                @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
+                {
+                    <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
+                }
             </div>
             @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">
@@ -100,7 +102,18 @@ else
         }
 
         <div class="monitoring-stat-cards">
-            @{ var gwStats = GetGatewayStats(); }
+            @{
+                var gwStats = GetGatewayStats();
+                var gwLatency = GetGatewayLatency();
+            }
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <div class="stat-value">@FormatRtt(gwLatency.rtt)</div>
+                <div class="stat-label">Gateway RTT</div>
+            </div>
+            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwFabricUrl))">
+                <div class="stat-value @(gwLatency.loss > 0 ? "stat-danger" : "")">@FormatLoss(gwLatency.loss)</div>
+                <div class="stat-label">Gateway Loss</div>
+            </div>
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo(gwDeviceUrl))">
                 <div class="stat-value">@FormatPercent(gwStats?.CpuPercent)</div>
                 <div class="stat-label">Gateway CPU</div>
@@ -135,7 +148,7 @@ else
         gap: 0.75rem;
     }
     .lv-panel .monitoring-stat-card {
-        background: var(--bg-tertiary);
+        background-color: var(--bg-tertiary);
     }
     .lv-map-card {
         overflow: hidden;

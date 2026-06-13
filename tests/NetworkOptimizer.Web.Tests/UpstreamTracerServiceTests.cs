@@ -54,8 +54,8 @@ public class CleanAsnNameTests
 public class FormatTransitHopLabelTests
 {
     [Theory]
-    [InlineData("ae6-0.agr01.ltrk01-ar.us.windstream.net", null, "ae6-0.agr01.ltrk01-ar.us")]
-    [InlineData("lag-101.ear1.LittleRock2.Level3.net", null, "lag-101.ear1.LittleRock2")]
+    [InlineData("ae6-0.agr01.pop01-xx.us.windstream.net", null, "ae6-0.agr01.pop01-xx.us")]
+    [InlineData("lag-101.ear1.Metro2.Level3.net", null, "lag-101.ear1.Metro2")]
     [InlineData("mcibbrj01.rd.ks.cox.net", null, "mcibbrj01.rd.ks")]
     [InlineData("ae25.25.ear1.Dallas1.net.lumen.tech", null, "ae25.25.ear1.Dallas1.net")]
     [InlineData("rtr1-handoff.example.net", null, "rtr1-handoff")]
@@ -417,9 +417,9 @@ public class UpstreamCommitTests : IDisposable
     {
         var candidates = new List<TransitAsnCandidate>
         {
-            MakeTransitCandidate("198.51.100.1", "Windstream ae6-0.agr01.ltrk01-ar.us", 7029, DiscoveryMethod.DirectRouter, true)
+            MakeTransitCandidate("198.51.100.1", "Windstream ae6-0.agr01.pop01-xx.us", 7029, DiscoveryMethod.DirectRouter, true)
         };
-        var existing = MakeDbTarget("198.51.100.1", "Windstream ae6-0.agr01.ltrk01-ar.us 1", MonitoringTargetType.Transit, enabled: true);
+        var existing = MakeDbTarget("198.51.100.1", "Windstream ae6-0.agr01.pop01-xx.us 1", MonitoringTargetType.Transit, enabled: true);
         _db.MonitoringTargets.Add(existing);
         _db.SaveChanges();
 
@@ -440,7 +440,7 @@ public class UpstreamCommitTests : IDisposable
             }
         }
 
-        candidates[0].Label.Should().Be("Windstream ae6-0.agr01.ltrk01-ar.us 1");
+        candidates[0].Label.Should().Be("Windstream ae6-0.agr01.pop01-xx.us 1");
         candidates[0].Enabled.Should().BeTrue();
     }
 
@@ -648,7 +648,7 @@ public class UpstreamCommitTests : IDisposable
         TargetId = $"access-{address.Replace('.', '-')}",
         Label = label,
         Address = address,
-        AsnNumber = 18943,
+        AsnNumber = 64500,
         AsnName = "TEST ISP",
         Role = UpstreamRole.Aggregation,
         HopNumber = 2,

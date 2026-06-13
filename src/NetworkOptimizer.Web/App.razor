@@ -206,7 +206,7 @@
                 var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
-                    trigger: 'mouseenter click',
+                    trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
@@ -241,6 +241,12 @@
                 if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                 }
+                // Desktop-hover only: no click trigger and no tap on touch devices,
+                // so the tap just performs the element's action.
+                if (el.hasAttribute('data-tooltip-no-touch')) {
+                    opts.trigger = 'mouseenter';
+                    opts.touch = false;
+                }
                 tippy(el, opts);
             });
         }
@@ -260,7 +266,7 @@
                 var opts = {
                     content: el.dataset.tooltip,
                     allowHTML: true,
-                    trigger: 'mouseenter click',
+                    trigger: el.hasAttribute('data-tooltip-hover') ? 'mouseenter' : 'mouseenter click',
                     hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
@@ -293,6 +299,12 @@
                 }
                 if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
+                }
+                // Desktop-hover only: no click trigger and no tap on touch devices,
+                // so the tap just performs the element's action.
+                if (el.hasAttribute('data-tooltip-no-touch')) {
+                    opts.trigger = 'mouseenter';
+                    opts.touch = false;
                 }
                 if (el._tippy) {
                     // Update existing tooltip if content changed

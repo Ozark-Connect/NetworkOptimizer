@@ -15,6 +15,20 @@
 
 Genuinely, thank you so much to everybody for taking the time to use Network Optimizer and have it find a place on your network(s). It really means a lot to receive all of the bug reports, feature requests, feedback, support, and donations from everybody. Totally a whole new experience from writing code in a dayjob, and it greatly motivates me to keep on going!
 
+## New: ISP Health
+
+All that monitoring data has to add up to something. ISP Health is the part of Monitoring that takes everything Network Optimizer is already collecting - SNMP device health, the latency and packet loss probes, WAN throughput, and the hops your Upstream Path Discovery mapped - and brings it full circle into a single honest score for how well your internet connection is actually performing. No new agents and no extra probes: it's the same data you're already storing, read back over a trailing 48-hour window and graded.
+
+Here's what makes the score mean something: it's technology-aware. A 9 ms idle latency is perfectly healthy on DOCSIS and a red flag on GPON, so ISP Health anchors its thresholds to the access technology you picked during Upstream Discovery (GPON, XGS-PON, DOCSIS, DSL, fixed wireless, cellular, Starlink, and more). The score splits into equal thirds: your Access Layer (idle and loaded latency, packet loss, and demonstrated speed against the plan you've configured in UniFi Network), your ISP's own network, and the Transit networks your traffic crosses to reach the rest of the internet. Every factor shows its own contribution, so a low score tells you exactly where the problem lives instead of just that one exists.
+
+![ISP Health score and per-dimension breakdown](docs/images/isp-health-score.png)
+
+The transit grading is where it gets useful. ISP Health grades each ASN in your path on its own - latency stability, jitter, loss, and congestion - and it watches for two things UniFi will never surface. Congestion events are sustained latency and jitter under load, the classic signature of an oversubscribed link choking up in the evenings. Path shifts are a sustained step in your RTT that means your traffic got rerouted onto different infrastructure; those are flagged as informational, since a BGP change isn't necessarily a problem you need to chase. And when loaded latency (AKA bufferbloat) or packet loss crosses the line for your connection type, it'll point you at Smart Queues, or recommend Adaptive SQM when it spots a recurring time-of-day congestion pattern.
+
+![Networks on your path with congestion events and per-network RTT](docs/images/isp-health-path.png)
+
+Coming Soon: Multi-WAN support for both Monitoring and ISP Health. The per-WAN stats are already being collected - today the scoring and dashboards grade your primary connection, with secondary WANs next on the list.
+
 ## New: Access Network Monitoring
 
 Track signal quality on your cable modem, fiber ONT, and cellular modems over time - the same InfluxDB time-series charting as the rest of your network monitoring data. Instead of logging into each device's admin page to spot-check levels, everything is polled automatically and charted with the same time range controls, filter badges, and dashboard panels as your LAN and WAN metrics.
