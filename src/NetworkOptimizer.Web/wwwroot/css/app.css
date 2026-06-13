@@ -15538,12 +15538,14 @@ a.affected-client:hover {
 }
 
 #isp-health-asn-chart {
-    margin-left: -5px;
+    margin-left: -7px;
+    margin-right: -2px;
 }
 
 @media (max-width: 768px) {
     #isp-health-asn-chart {
         margin-left: 0;
+        margin-right: 0;
     }
     .isp-health-hero-body {
         grid-template-columns: 1fr;
