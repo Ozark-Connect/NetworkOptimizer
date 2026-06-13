@@ -71,6 +71,19 @@ else if (_report == null)
 else
 {
     var r = _report;
+    <div class="isp-health-toolbar">
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@_refreshing"
+                data-tooltip="Recompute ISP Health now from the latest monitoring data">
+            @if (_refreshing)
+            {
+                <span class="spinner-sm"></span> <span>Refreshing</span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
     <div class="isp-health-hero card">
         <div class="card-body isp-health-hero-body">
             <div class="isp-health-hero-gauge">
@@ -285,6 +298,7 @@ else
     private IspHealthReport? _report;
     private bool _loading = true;
     private bool _chartMounted;
+    private bool _refreshing;
 
     protected override async Task OnInitializedAsync()
     {
@@ -295,6 +309,23 @@ else
         finally
         {
             _loading = false;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_refreshing) return;
+        _refreshing = true;
+        try
+        {
+            _report = await IspHealth.GetReportAsync(forceRefresh: true);
+            // The chart fetches its own series from the freshly cached report.
+            try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+            catch { /* chart not mounted yet */ }
+        }
+        finally
+        {
+            _refreshing = false;
         }
     }
 

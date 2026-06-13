@@ -15105,6 +15105,12 @@ a.affected-client:hover {
     margin-bottom: 1rem;
 }
 
+.isp-health-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+}
+
 .isp-health-hero {
     position: relative;
     margin-bottom: 1rem;

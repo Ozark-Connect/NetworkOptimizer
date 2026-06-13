@@ -142,6 +142,10 @@ export async function mount(elId) {
     pollTimer = setInterval(loadAndUpdate, POLL_MS);
 }
 
+export async function reload() {
+    await loadAndUpdate();
+}
+
 export function unmount() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     fetchController?.abort();
