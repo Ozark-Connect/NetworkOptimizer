@@ -298,6 +298,23 @@ else
         <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
         <div class="card-body">
             <div id="isp-health-asn-chart"></div>
+
+            @{ var ispAsn = r.IspAsns.FirstOrDefault(a => a.AsnNumber > 0); }
+            @if (ispAsn != null)
+            {
+                <details class="setup-guide" style="margin-top: 1.25rem;">
+                    <summary>Dig deeper with BGP tools</summary>
+                    <div class="setup-guide-content">
+                        <p>The chart above tracks latency to the networks (autonomous systems) your traffic passes through. Your ISP is <strong>@(string.IsNullOrEmpty(ispAsn.AsnName) ? $"AS{ispAsn.AsnNumber}" : ispAsn.AsnName) (AS@(ispAsn.AsnNumber))</strong>. Transit networks are the backbone providers your ISP peers with to reach the rest of the internet.</p>
+                        <p>BGP (Border Gateway Protocol) is how these networks decide where to send your traffic. A path shift in the chart above means your ISP or a transit provider changed the route. These tools let you explore peering, prefixes, and routing for any AS:</p>
+                        <ul>
+                            <li><a href="https://bgp.he.net/AS@(ispAsn.AsnNumber)" target="_blank" rel="noopener">HE BGP Toolkit</a> - Peering, prefixes, and routing details. The go-to tool for most network engineers.</li>
+                            <li><a href="https://bgp.tools/as/@(ispAsn.AsnNumber)" target="_blank" rel="noopener">bgp.tools</a> - Clean overview of upstreams, downstreams, peers, and historical routing in one page.</li>
+                            <li><a href="https://stat.ripe.net/app/launchpad/AS@(ispAsn.AsnNumber)" target="_blank" rel="noopener">RIPE RIPEstat</a> - Authoritative data from RIPE NCC. Routing status, prefix announcements, and historical BGP data for any ASN worldwide.</li>
+                        </ul>
+                    </div>
+                </details>
+            }
         </div>
     </div>
 }
