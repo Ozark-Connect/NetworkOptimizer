@@ -445,7 +445,7 @@ public class IspHealthScorerTests
 
         var graded = withEvents.TransitAsns.Single();
         graded.CongestionEventCount.Should().Be(1);
-        graded.CongestionScore.Should().Be(68);
+        graded.CongestionScore.Should().Be(20); // 100 - 20/hr x 4 h
         graded.OverallScore.Should().BeLessThan(withoutEvents.TransitAsns.Single().OverallScore!.Value);
     }
 

@@ -452,10 +452,11 @@ public class IspHealthScorer
         int? jitterScore = null;
         if (medianJitter.HasValue && medianRtt is > 0)
         {
+            // Anchors tightened ~20% so meaningful jitter costs a touch more
             var relative = ScoreCurve.Interpolate(medianJitter.Value / medianRtt.Value,
-                (0.05, 100), (0.15, 75), (0.30, 45), (0.60, 0));
+                (0.04, 100), (0.12, 75), (0.25, 45), (0.50, 0));
             var absolute = ScoreCurve.Interpolate(medianJitter.Value,
-                (0.5, 100), (2, 75), (5, 45), (15, 0));
+                (0.4, 100), (1.5, 75), (4, 45), (12, 0));
             jitterScore = (int)Math.Round(Math.Max(relative, absolute));
         }
 

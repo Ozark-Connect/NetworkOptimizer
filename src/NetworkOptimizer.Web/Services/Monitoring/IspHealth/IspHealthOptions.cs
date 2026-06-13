@@ -109,8 +109,12 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionBurstDeltaFactor { get; set; } = 1.5;
 
-    /// <summary>Score points deducted from an ASN's congestion factor per hour of congestion events.</summary>
-    public double CongestionPenaltyPerHour { get; set; } = 8.0;
+    /// <summary>
+    /// Score points deducted from an ASN's congestion factor per hour of congestion
+    /// events. At 20 a 30-min event costs 10, a 1 h event 20, a 2.5 h event zeros the
+    /// factor; combined with the congestion weight this is a real, visible downgrade.
+    /// </summary>
+    public double CongestionPenaltyPerHour { get; set; } = 20.0;
 
     /// <summary>Minimum number of ASNs with overlapping events to merge them into a shared upstream event.</summary>
     public int SharedEventMinAsns { get; set; } = 2;
@@ -151,7 +155,7 @@ public class IspHealthOptions
     public int SqmRecurringCongestionEvents { get; set; } = 2;
 
     /// <summary>Weight of latency stability (MAD/median) in the per-ASN quality blend.</summary>
-    public double AsnLatencyStabilityWeight { get; set; } = 0.35;
+    public double AsnLatencyStabilityWeight { get; set; } = 0.25;
 
     /// <summary>Weight of jitter in the per-ASN quality blend.</summary>
     public double AsnJitterWeight { get; set; } = 0.25;
@@ -160,7 +164,7 @@ public class IspHealthOptions
     public double AsnLossWeight { get; set; } = 0.2;
 
     /// <summary>Weight of congestion in the per-ASN quality blend.</summary>
-    public double AsnCongestionWeight { get; set; } = 0.2;
+    public double AsnCongestionWeight { get; set; } = 0.3;
 }
 
 /// <summary>

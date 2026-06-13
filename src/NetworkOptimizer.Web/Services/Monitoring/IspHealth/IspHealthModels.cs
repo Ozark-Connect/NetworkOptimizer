@@ -303,7 +303,7 @@ public record IspHealthSnapshot(IspHealthStatus Status, int? Score, DateTime? Co
     /// <summary>Tile tooltip explaining the state; the tile always links to the tab.</summary>
     public string TileTooltip => Status switch
     {
-        IspHealthStatus.Ready when Score.HasValue => $"ISP Health {IspHealthReport.GradeLabel(Score.Value)}",
+        IspHealthStatus.Ready when Score.HasValue => $"ISP Health: {IspHealthReport.GradeLabel(Score.Value)}",
         IspHealthStatus.Computing => "Analyzing recent ISP data",
         IspHealthStatus.InsufficientData => "Collecting data - ISP Health needs a few hours of monitoring",
         IspHealthStatus.NeedsDiscovery => "Run Upstream Discovery to enable ISP Health",

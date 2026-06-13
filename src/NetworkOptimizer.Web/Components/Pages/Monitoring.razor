@@ -354,12 +354,12 @@ else
                 {
                     <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
                             data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
-                        @if (_investigatingLoss) { <span class="spinner-sm"></span> }
+                        @if (_investigatingLoss && !_lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Packet Loss Events</span> }
                     </button>
                     <button class="btn btn-secondary" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
                             data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
-                        @if (_investigatingLoss) { <span class="spinner-sm"></span> }
+                        @if (_investigatingLoss && _lossNavLoadedOnly) { <span class="spinner-sm"></span> }
                         else { <span>Loaded Loss Events</span> }
                     </button>
                 }
@@ -2224,6 +2224,8 @@ else
     private async Task NavigateToLossEvent(DateTime? before, DateTime? after, bool loadedOnly)
     {
         _investigatingLoss = true;
+        // Set before the await so only the clicked button shows its spinner
+        _lossNavLoadedOnly = loadedOnly;
         StateHasChanged();
         try
         {
@@ -2248,7 +2250,6 @@ else
             {
                 result = await InfluxClient.FindRecentLossEventAsync(before, after, enabledIds);
             }
-            _lossNavLoadedOnly = loadedOnly;
             if (result == null)
             {
                 _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
