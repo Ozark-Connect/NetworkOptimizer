@@ -73,7 +73,7 @@ else
     var r = _report;
     <div class="isp-health-toolbar">
         <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@_refreshing"
-                data-tooltip="Recompute ISP Health now from the latest monitoring data">
+                data-tooltip="Recompute ISP Health now from the latest monitoring data" data-tooltip-hover-only>
             @if (_refreshing)
             {
                 <span class="spinner-sm"></span> <span>Refreshing</span>
@@ -305,6 +305,12 @@ else
         try
         {
             _report = await IspHealth.GetReportAsync();
+        }
+        catch
+        {
+            // A transient InfluxDB/query failure must not fault the circuit; leave the
+            // report null and let the status funnels render the fallback message.
+            _report = null;
         }
         finally
         {

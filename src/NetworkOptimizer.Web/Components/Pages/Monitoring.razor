@@ -188,9 +188,13 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var ispHealth = IspHealthService.GetCachedScore(); }
-            <div class="monitoring-stat-card clickable-stat-card" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
-                <div class="stat-value @ispHealth.TileCssClass">@ispHealth.TileText</div>
+            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+                <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
                 <div class="stat-label">ISP Health</div>
+                @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
+                {
+                    <div class="isp-tile-bar"><div class="isp-tile-bar-fill" style="width: @(ispHealth.Score)%"></div></div>
+                }
             </div>
             @{ var ispTarget = GetBestTargetStats(MonitoringTargetType.AccessIsp); }
             <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=AccessIsp"))">

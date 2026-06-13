@@ -15101,6 +15101,55 @@ a.affected-client:hover {
 .monitoring-stat-card .stat-value.isp-score-poor { color: #ef4444; }
 .monitoring-stat-card .stat-value.isp-score-none { color: var(--text-muted); }
 
+.isp-health-tile {
+    position: relative;
+    overflow: hidden;
+    --tile-accent: var(--text-muted);
+    background-image:
+        radial-gradient(ellipse 85% 130% at 50% -20%, rgba(5, 80, 181, 0.18), transparent 70%),
+        linear-gradient(160deg, rgba(43, 168, 154, 0.07), transparent 55%);
+}
+
+.isp-health-tile.isp-score-excellent { --tile-accent: #24bc70; }
+.isp-health-tile.isp-score-good { --tile-accent: #3b82f6; }
+.isp-health-tile.isp-score-fair { --tile-accent: #f59e0b; }
+.isp-health-tile.isp-score-poor { --tile-accent: #ef4444; }
+.isp-health-tile.isp-score-none { --tile-accent: var(--text-muted); }
+
+.isp-health-tile .stat-value.isp-tile-score {
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.isp-health-tile.isp-score-excellent .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #34d399, #24bc70); }
+.isp-health-tile.isp-score-good .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #60a5fa, #3b82f6); }
+.isp-health-tile.isp-score-fair .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #fbbf24, #f59e0b); }
+.isp-health-tile.isp-score-poor .stat-value.isp-tile-score { background-image: linear-gradient(120deg, #f87171, #ef4444); }
+
+.isp-health-tile.isp-score-none .stat-value.isp-tile-score {
+    -webkit-text-fill-color: var(--text-muted);
+    color: var(--text-muted);
+}
+
+.isp-tile-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: var(--bg-tertiary);
+}
+
+.isp-tile-bar-fill {
+    height: 100%;
+    background: var(--tile-accent);
+    transition: width 0.4s ease;
+}
+
 .isp-health-card {
     margin-bottom: 1rem;
 }

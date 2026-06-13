@@ -22,12 +22,12 @@ public class IspHealthService
     private readonly IspHealthOptions _options = new();
     private readonly SemaphoreSlim _computeLock = new(1, 1);
 
-    private IspHealthReport? _cachedReport;
-    // The exact per-cluster series the cached report's events were detected on, so the
-    // chart renders the same snapshot and its line labels match the event labels (the
-    // "+N ms hop" names are rounded relative to a volatile median and must not be
-    // recomputed independently per query).
-    private List<AsnSeries>? _cachedChartClusters;
+    // Report and its chart clusters are published together as one immutable snapshot so a
+    // reader can never pair a fresh cluster set with a stale report (the chart's
+    // "+N ms hop" line labels must match the report's event labels). Single-reference
+    // assignment makes the swap atomic; readers take one local copy.
+    private sealed record Snapshot(IspHealthReport Report, List<AsnSeries> ChartClusters);
+    private Snapshot? _cached;
     private IspHealthStatus _status = IspHealthStatus.Computing;
     private volatile bool _computing;
 
@@ -51,7 +51,7 @@ public class IspHealthService
     /// </summary>
     public IspHealthSnapshot GetCachedScore()
     {
-        var report = _cachedReport;
+        var report = _cached?.Report;
         if (report != null && DateTime.UtcNow - report.ComputedAt < _options.CacheTtl)
             return new IspHealthSnapshot(IspHealthStatus.Ready, report.OverallScore, report.ComputedAt);
 
@@ -72,20 +72,20 @@ public class IspHealthService
 
     public async Task<IspHealthReport?> GetReportAsync(bool forceRefresh = false, CancellationToken ct = default)
     {
-        var cached = _cachedReport;
+        var cached = _cached?.Report;
         if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
             return cached;
 
         await _computeLock.WaitAsync(ct);
         try
         {
-            cached = _cachedReport;
+            cached = _cached?.Report;
             if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
                 return cached;
 
             _computing = true;
-            var report = await ComputeAsync(ct);
-            if (report != null) _cachedReport = report;
+            var (report, chartClusters) = await ComputeAsync(ct);
+            if (report != null) _cached = new Snapshot(report, chartClusters);
             return report;
         }
         finally
@@ -96,14 +96,14 @@ public class IspHealthService
     }
 
     /// <summary>Pipeline readiness, for the tab's prerequisite funnels.</summary>
-    public IspHealthStatus Status => _cachedReport != null ? IspHealthStatus.Ready : _status;
+    public IspHealthStatus Status => _cached != null ? IspHealthStatus.Ready : _status;
 
-    private async Task<IspHealthReport?> ComputeAsync(CancellationToken ct)
+    private async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeAsync(CancellationToken ct)
     {
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
         {
             _status = IspHealthStatus.NotConfigured;
-            return null;
+            return (null, new List<AsnSeries>());
         }
 
         AccessTechnology technology;
@@ -114,7 +114,7 @@ public class IspHealthService
             if (settings == null || !settings.Enabled)
             {
                 _status = IspHealthStatus.NotConfigured;
-                return null;
+                return (null, new List<AsnSeries>());
             }
 
             // Access technology lives per-WAN in WanDiscoveryContexts (the wizard's
@@ -138,14 +138,14 @@ public class IspHealthService
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
         {
             _status = IspHealthStatus.NeedsDiscovery;
-            return null;
+            return (null, new List<AsnSeries>());
         }
 
         var profile = IspHealthProfiles.GetProfile(technology);
         if (profile == null)
         {
             _status = IspHealthStatus.NeedsTechnology;
-            return null;
+            return (null, new List<AsnSeries>());
         }
 
         var windowEnd = DateTime.UtcNow;
@@ -181,7 +181,7 @@ public class IspHealthService
         if ((windowEnd - earliestSample).TotalHours < _options.MinDataHours)
         {
             _status = IspHealthStatus.InsufficientData;
-            return null;
+            return (null, new List<AsnSeries>());
         }
 
         var (firstHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
@@ -257,10 +257,9 @@ public class IspHealthService
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
-        // Cache the chart view (one line per cluster) computed from the same snapshot the
-        // detectors ran on, so deeper-cluster "+N ms hop" labels still match event labels.
-        _cachedChartClusters = chartClusters;
-
+        // chartClusters (one line per cluster) is the chart view computed from the same
+        // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
+        // event labels. It is published together with the report (see Snapshot).
         var inputs = new IspHealthInputs
         {
             WindowStart = windowStart,
@@ -287,7 +286,7 @@ public class IspHealthService
         _status = IspHealthStatus.Ready;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
-        return report;
+        return (report, chartClusters);
     }
 
     /// <summary>
@@ -298,9 +297,11 @@ public class IspHealthService
     {
         // Return the exact clusters the report's events were detected on, so chart
         // line labels and the event labels are guaranteed to agree (re-clustering
-        // independently would round the "+N ms hop" names differently)
-        var report = await GetReportAsync(ct: ct);
-        return (_cachedChartClusters ?? new List<AsnSeries>(), report);
+        // independently would round the "+N ms hop" names differently). Read the
+        // snapshot once so the report and its clusters are always the same compute.
+        await GetReportAsync(ct: ct);
+        var snap = _cached;
+        return (snap?.ChartClusters ?? new List<AsnSeries>(), snap?.Report);
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)
