@@ -15555,7 +15555,7 @@ a.affected-client:hover {
         margin-right: -1.75rem;
     }
     .isp-gauge-small {
-        width: 115px;
+        width: min(115px, 28vw);
     }
     .isp-gauge-small .isp-gauge-label {
         font-size: 19px;
