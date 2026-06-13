@@ -201,8 +201,10 @@ public class IspHealthScorer
         var bestTest = tests.OrderByDescending(t => t.DownloadMbps + t.UploadMbps).First();
 
         var staleNote = stale ? $" Latest test is older than the {_options.ScoreWindowHours} h window." : "";
+        var typicalDown = down?.TypicalMbps ?? bestDown;
+        var typicalUp = up?.TypicalMbps ?? bestUp;
         var blendNote = tests.Count > 1
-            ? $"Best ({_options.SpeedCapacityWeight:P0}) and typical ({_options.SpeedTypicalWeight:P0}) of {tests.Count} tests"
+            ? $"Best of {tests.Count} tests; typical {FormatMbps(typicalDown)} / {FormatMbps(typicalUp)} Mbps"
             : "Best WAN speed test";
         return (new IspScoreFactor
         {

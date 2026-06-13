@@ -98,7 +98,7 @@ else
                 }
                 @if (r.SpeedTestTime.HasValue)
                 {
-                    <div class="isp-speed-tested">Best &middot; @FormatAge(r.SpeedTestTime.Value)</div>
+                    <div class="isp-speed-tested" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">Best &middot; @FormatAge(r.SpeedTestTime.Value)</div>
                 }
                 else
                 {

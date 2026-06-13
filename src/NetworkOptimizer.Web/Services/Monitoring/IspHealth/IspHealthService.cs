@@ -206,6 +206,14 @@ public class IspHealthService
             if (internetDeltas.Count > 0) internetMedianDelta = SeriesStats.Median(internetDeltas);
         }
 
+        // Loss pool: ALL enabled AccessIsp + Transit targets plus well-known anycast DNS.
+        // Every probe crosses the access link before reaching its target, so loss on ANY
+        // of these is a signal of access-layer loss - including under load, where the
+        // question is "did the saturated access link drop packets", not "did transit drop
+        // because of my load" (it won't). Pooling many targets gives a denser, more robust
+        // access-loss signal than one sparse hop. (Latency, by contrast, uses only the
+        // nearest hop because far-hop RTT carries transit variance that isn't the access
+        // link's loaded behavior - see PickFirstCleanHop / spec "Measurement sources".)
         var lossPool = new List<List<LatencySample>>();
         lossPool.AddRange(ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => ispSeries[t.TargetId]));
         lossPool.AddRange(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t => transitSeries[t.TargetId]));
@@ -215,7 +223,7 @@ public class IspHealthService
                 && internetSeries.ContainsKey(t.TargetId))
             .Select(t => internetSeries[t.TargetId]));
 
-        var (ispGrading, transitGrading, allClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
+        var (ispGrading, transitGrading, allClusters, chartClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
@@ -234,8 +242,9 @@ public class IspHealthService
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
-        // Cache the exact clusters the events were detected on for the chart
-        _cachedChartClusters = allClusters;
+        // Cache the chart view (one line per cluster) computed from the same snapshot the
+        // detectors ran on, so deeper-cluster "+N ms hop" labels still match event labels.
+        _cachedChartClusters = chartClusters;
 
         var inputs = new IspHealthInputs
         {
@@ -423,7 +432,7 @@ public class IspHealthService
     ///   clusters still feed the detectors and chart as separately named series so
     ///   monitoring deep hops never inflates the ASN's grade.
     /// </summary>
-    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> AllClusters) BuildAsnSeriesSets(
+    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> AllClusters, List<AsnSeries> ChartClusters) BuildAsnSeriesSets(
         List<MonitoringTarget> ispTargets,
         List<MonitoringTarget> transitTargets,
         Dictionary<string, List<LatencySample>> ispSeries,
@@ -432,12 +441,14 @@ public class IspHealthService
         var ispOverrides = BuildIspAsnOverrides(ispTargets);
         // The ISP grade follows the live ISP RTT card: the single lowest-RTT target
         // is the first clean hop and represents the ISP network
-        var (ispGrading, ispClusters) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
+        var (ispGrading, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
 
         var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
-        var (transitGrading, transitClusters) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
+        var (transitGrading, transitClusters, transitChart) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
 
-        return (ispGrading, transitGrading, ispClusters.Concat(transitClusters).ToList());
+        return (ispGrading, transitGrading,
+            ispClusters.Concat(transitClusters).ToList(),
+            ispChart.Concat(transitChart).ToList());
     }
 
     /// <summary>
@@ -460,7 +471,7 @@ public class IspHealthService
             .ToDictionary(t => t.TargetId, _ => (canonical.Key, name));
     }
 
-    private (List<AsnSeries> Grading, List<AsnSeries> AllClusters) GroupAndCluster(
+    private (List<AsnSeries> Grading, List<AsnSeries> AllClusters, List<AsnSeries> ChartClusters) GroupAndCluster(
         List<MonitoringTarget> targets,
         Dictionary<string, List<LatencySample>> seriesByTarget,
         Dictionary<string, (int Asn, string? Name)>? asnOverrides,
@@ -468,6 +479,11 @@ public class IspHealthService
     {
         var grading = new List<AsnSeries>();
         var allClusters = new List<AsnSeries>();
+        // The chart shows one line per cluster: the nearest cluster stays whole even when
+        // only its lowest hop is graded, so a co-located cluster is never split into a
+        // graded hop plus an "(other hops)" twin. Detectors and grading keep their own
+        // lists, so this affects display only.
+        var chartClusters = new List<AsnSeries>();
 
         var groups = targets
             .Where(t => seriesByTarget.ContainsKey(t.TargetId))
@@ -504,6 +520,21 @@ public class IspHealthService
             var firstMin = clusters[0][0].Median!.Value;
             for (var i = 0; i < clusters.Count; i++)
             {
+                // Chart line for this cluster: always the WHOLE cluster, one line each.
+                // Single member -> its DB name; multi-member nearest -> ASN name; deeper
+                // -> distance label. (Unlike the detector list below, the nearest cluster
+                // is never peeled into a graded hop plus an "(other hops)" twin.)
+                var fullTargets = clusters[i].Select(c => c.Target).ToList();
+                chartClusters.Add(new AsnSeries
+                {
+                    AsnNumber = group.Key,
+                    AsnName = fullTargets.Count == 1
+                        ? fullTargets[0].Name
+                        : i == 0 ? asnName : $"{asnName} (+{clusters[i][0].Median!.Value - firstMin:0} ms hop)",
+                    TargetIds = fullTargets.Select(t => t.TargetId).ToList(),
+                    Samples = fullTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                });
+
                 var clusterTargets = gradeLowestTargetOnly && i == 0
                     ? new List<MonitoringTarget> { clusters[i][0].Target }
                     : clusters[i].Select(c => c.Target).ToList();
@@ -547,7 +578,8 @@ public class IspHealthService
                     });
                 }
 
-                // Hops displaced from the graded series stay visible to the chart and detectors
+                // Hops displaced from the graded series stay visible to the detectors
+                // (the chart shows them folded into the whole-cluster line above).
                 if (gradeLowestTargetOnly && i == 0 && clusters[i].Count > 1)
                 {
                     var others = clusters[i].Skip(1).Select(c => c.Target).ToList();
@@ -561,7 +593,7 @@ public class IspHealthService
                 }
             }
         }
-        return (grading, allClusters);
+        return (grading, allClusters, chartClusters);
     }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(
