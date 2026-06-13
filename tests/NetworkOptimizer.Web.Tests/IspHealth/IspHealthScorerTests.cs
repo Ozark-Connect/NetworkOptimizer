@@ -450,6 +450,44 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Same_asn_as_isp_and_transit_attributes_congestion_by_role()
+    {
+        // AT&T is AS7018 for both the access ISP and a transit provider. A congestion
+        // event on the transit hops must credit only the transit card, not the ISP card.
+        var ispSeries = new AsnSeries
+        {
+            AsnNumber = 7018,
+            AsnName = "AT&T",
+            TargetIds = { "att-isp-hop" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            RoleTargetIds = { "att-isp-hop" }
+        };
+        var transitSeries = new AsnSeries
+        {
+            AsnNumber = 7018,
+            AsnName = "AT&T",
+            TargetIds = { "att-transit-hop" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            RoleTargetIds = { "att-transit-hop" }
+        };
+        var congestion = new List<CongestionEvent>
+        {
+            new()
+            {
+                Start = TestSeries.Start.AddHours(19),
+                End = TestSeries.Start.AddHours(21),
+                AsnNumbers = { 7018 },
+                TargetIds = { "att-transit-hop" }
+            }
+        };
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { transitSeries }, ispAsn: new List<AsnSeries> { ispSeries }, congestion: congestion), Gpon);
+
+        report.TransitAsns.Single().CongestionEventCount.Should().Be(1, "the event fired on the transit hop");
+        report.IspAsns.Single().CongestionEventCount.Should().Be(0, "the ISP hop was not congested");
+    }
+
+    [Fact]
     public void Shared_congestion_event_produces_info_issue()
     {
         var congestion = new List<CongestionEvent>

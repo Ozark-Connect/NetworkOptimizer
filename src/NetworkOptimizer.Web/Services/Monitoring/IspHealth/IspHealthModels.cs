@@ -136,6 +136,13 @@ public class CongestionEvent
     public List<int> AsnNumbers { get; init; } = new();
 
     public List<string> AsnNames { get; init; } = new();
+
+    /// <summary>
+    /// The monitored targets this event fired on. Used to attribute the event to the
+    /// right card by role: the same ASN can be both the access ISP and a transit
+    /// provider (e.g. AS7018), and a transit-side event must not credit the ISP card.
+    /// </summary>
+    public List<string> TargetIds { get; init; } = new();
     public double BaselineRttMs { get; init; }
     public double PeakRttMs { get; init; }
     public double BaselineJitterMs { get; init; }
@@ -225,6 +232,20 @@ public class AsnSeries
     public string? AsnName { get; init; }
     public List<string> TargetIds { get; init; } = new();
     public List<LatencySample> Samples { get; init; } = new();
+
+    /// <summary>
+    /// Mean RTT across the ASN's full nearest cluster, for the Networks on Your Path
+    /// card. On the ISP grading series this is wider than Samples (which is the single
+    /// graded hop); on transit it equals the graded cluster. Display only.
+    /// </summary>
+    public double? NearestClusterMeanRttMs { get; init; }
+
+    /// <summary>
+    /// On a grading series, all of this ASN-role's target IDs (every hop, every
+    /// cluster), used to attribute congestion to the correct card when the same ASN
+    /// appears as both the access ISP and transit. Empty on chart-cluster series.
+    /// </summary>
+    public List<string> RoleTargetIds { get; init; } = new();
 }
 
 /// <summary>Load classification of one aggregate window.</summary>

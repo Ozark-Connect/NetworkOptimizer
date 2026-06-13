@@ -523,15 +523,27 @@ public class IspHealthService
                     Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
                 });
 
-                // The graded series keeps the ASN name for the Networks on Your Path card
+                // The graded series keeps the ASN name for the Networks on Your Path card.
+                // The card's Mean RTT is the mean across the FULL nearest cluster (for the
+                // ISP this is wider than the single graded hop), so every card computes it
+                // the same way - the grade still uses Samples (the graded hop/cluster).
                 if (i == 0)
                 {
+                    var nearestRtts = clusters[0]
+                        .SelectMany(c => seriesByTarget[c.Target.TargetId])
+                        .Where(s => s.RttAvgMs.HasValue)
+                        .Select(s => s.RttAvgMs!.Value)
+                        .ToList();
                     grading.Add(new AsnSeries
                     {
                         AsnNumber = group.Key,
                         AsnName = asnName,
                         TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
-                        Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                        Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                        NearestClusterMeanRttMs = nearestRtts.Count > 0 ? nearestRtts.Average() : null,
+                        // All of this ASN-role's hops, so congestion is attributed to the
+                        // right card when the same ASN is both the access ISP and transit
+                        RoleTargetIds = group.Select(t => t.TargetId).ToList()
                     });
                 }
 

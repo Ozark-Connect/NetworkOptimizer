@@ -497,7 +497,16 @@ public class IspHealthScorer
                 (0, 100), (0.1, 95), (0.5, 80), (1, 65), (2, 45), (5, 20), (10, 0)));
         }
 
-        var asnEvents = congestionEvents.Where(e => e.AsnNumbers.Contains(series.AsnNumber)).ToList();
+        // Attribute congestion to this card by role, not bare ASN: the same ASN can be
+        // both the access ISP and a transit provider, so an event is only counted when
+        // it fired on one of this role's targets. Events without target info (e.g. unit
+        // tests) fall back to ASN matching.
+        var roleTargets = series.RoleTargetIds.Count > 0 ? series.RoleTargetIds : series.TargetIds;
+        var roleTargetSet = new HashSet<string>(roleTargets);
+        var asnEvents = congestionEvents
+            .Where(e => e.AsnNumbers.Contains(series.AsnNumber)
+                && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => roleTargetSet.Contains(t))))
+            .ToList();
         var eventHours = asnEvents.Sum(e => e.Duration.TotalHours);
         var congestionScore = (int)Math.Round(Math.Max(0, 100 - _options.CongestionPenaltyPerHour * eventHours));
 
@@ -522,7 +531,9 @@ public class IspHealthScorer
             AsnName = series.AsnName,
             TargetIds = series.TargetIds,
             MedianRttMs = medianRtt,
-            MeanRttMs = rtts.Count > 0 ? rtts.Average() : null,
+            // Display: mean across the full nearest cluster (set on the grading series);
+            // falls back to the graded samples' mean when not provided
+            MeanRttMs = series.NearestClusterMeanRttMs ?? (rtts.Count > 0 ? rtts.Average() : null),
             P95RttMs = SeriesStats.Percentile(rtts, 0.95),
             MedianJitterMs = medianJitter,
             P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
