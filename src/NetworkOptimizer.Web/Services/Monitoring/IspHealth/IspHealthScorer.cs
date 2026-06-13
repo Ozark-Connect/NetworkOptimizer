@@ -715,6 +715,18 @@ public class IspHealthScorer
             });
         }
 
+        var idleLatencyFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Idle Latency");
+        if (idleLatencyFactor?.Score is < 75)
+        {
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Info,
+                Title = "Idle latency above normal",
+                Description = $"Baseline first-hop latency of {idleLatencyFactor.ValueText} is above the normal range for {profile.DisplayName}.",
+                Recommendation = "Common causes: access layer congestion or overprovisioning by the ISP, CPE inefficiency (try a reboot or firmware update), or a longer-than-expected physical haul to the first hop."
+            });
+        }
+
         var idleLossFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Packet Loss");
         if (idleLossFactor?.Score is < 70)
         {
