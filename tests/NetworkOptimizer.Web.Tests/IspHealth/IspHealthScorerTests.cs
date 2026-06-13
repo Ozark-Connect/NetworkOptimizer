@@ -90,6 +90,48 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Loaded_latency_takes_worst_access_hop_so_a_spiky_far_hop_is_not_hidden_by_a_flat_near_hop()
+    {
+        // The near hop stays flat under download load; a second access hop (the OLT)
+        // briefly spikes to 8 ms. p95 worst-hop must surface the spike rather than letting
+        // the flat near hop read +0 ms - the regression that prompted this (real Mac event).
+        var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
+            .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
+                ? r with { DownloadBps = 800_000_000 }
+                : r)
+            .ToList();
+
+        var nearHop = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3);
+        var spikeStart = LoadedDownStart.AddHours(1);
+        var olt = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)
+            .WithSegment(spikeStart, spikeStart.AddMinutes(30), 8.0, 0.3);
+
+        IspHealthInputs Make(List<List<LatencySample>> accessHops) => new()
+        {
+            WindowStart = TestSeries.Start,
+            WindowEnd = TestSeries.Start + Day,
+            FirstHopSeries = nearHop,
+            AccessHopSeries = accessHops,
+            LossPoolSeries = new List<List<LatencySample>> { nearHop },
+            WanRates = rates,
+            ExpectedDownloadMbps = 1000,
+            ExpectedUploadMbps = 500,
+            ExpectedSpeedSource = "UniFi Network",
+            WanSpeedTests = new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 980, 490) }
+        };
+
+        var scorer = new IspHealthScorer(Options);
+        var nearOnly = scorer.Score(Make(new List<List<LatencySample>> { nearHop }), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
+        var withOlt = scorer.Score(Make(new List<List<LatencySample>> { nearHop, olt }), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
+
+        nearOnly.Score.Should().Be(100);
+        withOlt.Score.Should().BeLessThan(100);
+        withOlt.ValueText.Should().Contain("6.0 ms down");
+    }
+
+    [Fact]
     public void Below_band_idle_latency_scores_higher_than_above_band()
     {
         var scorer = new IspHealthScorer(Options);

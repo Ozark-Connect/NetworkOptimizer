@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
@@ -168,8 +169,11 @@ public class IspHealthService
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
 
-        // New installs: grade once a few hours of latency data exist, not before
-        var earliestSample = ispSeries.Values.Concat(transitSeries.Values)
+        // New installs: grade once a few hours of latency data exist, not before.
+        // Enabled targets only - a disabled target's stale history must not satisfy the
+        // gate when no enabled target has enough data yet.
+        var earliestSample = ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => ispSeries[t.TargetId])
+            .Concat(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t => transitSeries[t.TargetId]))
             .Where(s => s.Count > 0)
             .Select(s => s[0].Time)
             .DefaultIfEmpty(windowEnd)
@@ -181,6 +185,13 @@ public class IspHealthService
         }
 
         var (firstHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
+        // Public access hops only - the loaded-latency worst-hop scan must not include a
+        // CPE-LAN-side gateway (RFC1918), which sits before the access bottleneck and
+        // never sees access congestion.
+        var accessHopSeries = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId) && !NetworkUtilities.IsPrivateIpAddress(t.Address))
+            .Select(t => ispSeries[t.TargetId])
+            .ToList();
         var ispTargetSeries = ispTargets
             .Where(t => ispSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
@@ -198,8 +209,12 @@ public class IspHealthService
         var accessMedian = SeriesStats.Median(firstHop.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
         if (accessMedian.HasValue)
         {
-            var internetDeltas = internetSeries.Values
-                .Select(samples => SeriesStats.Median(samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()))
+            // Enabled InternetService targets only - the influx query returns data for
+            // every target ever tagged this type, including disabled ones, so join
+            // through the enabled DB list before measuring the reach context.
+            var internetDeltas = targets
+                .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
+                .Select(t => SeriesStats.Median(internetSeries[t.TargetId].Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()))
                 .Where(m => m.HasValue)
                 .Select(m => Math.Max(0, m!.Value - accessMedian.Value))
                 .ToList();
@@ -251,6 +266,7 @@ public class IspHealthService
             WindowStart = windowStart,
             WindowEnd = windowEnd,
             FirstHopSeries = firstHop,
+            AccessHopSeries = accessHopSeries,
             FirstHopTargetId = firstHopTargetId,
             IspTargetSeries = ispTargetSeries,
             LossPoolSeries = lossPool,

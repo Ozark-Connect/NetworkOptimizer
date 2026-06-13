@@ -26,7 +26,7 @@ public class IspHealthScorer
         var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
         var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile);
-        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows, idleBaseline);
+        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows);
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
 
@@ -84,14 +84,21 @@ public class IspHealthScorer
     /// </summary>
     internal LoadedDeltas ResolveLoadedDeltas(
         IspHealthInputs inputs,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        double? idleBaseline)
+        Dictionary<DateTime, LoadWindow> loadWindows)
     {
         double? down = null, up = null;
-        if (idleBaseline != null && loadWindows.Count > 0)
+        if (loadWindows.Count > 0)
         {
-            down = LoadedMedianDelta(inputs.FirstHopSeries, loadWindows, idleBaseline.Value, w => w.IsLoadedDown);
-            up = LoadedMedianDelta(inputs.FirstHopSeries, loadWindows, idleBaseline.Value, w => w.IsLoadedUp);
+            // Worst loaded delta across the public access hops (each vs its own idle
+            // baseline). Access congestion can land on any access hop, not just the
+            // nearest, and probe timing means a given hop may miss a brief spike - so the
+            // worst hop carries the signal. Falls back to the first hop when no per-hop
+            // set was supplied (e.g. unit tests).
+            var hops = inputs.AccessHopSeries.Count > 0
+                ? inputs.AccessHopSeries
+                : new List<List<LatencySample>> { inputs.FirstHopSeries };
+            down = WorstLoadedDelta(hops, loadWindows, w => w.IsLoadedDown);
+            up = WorstLoadedDelta(hops, loadWindows, w => w.IsLoadedUp);
         }
 
         var fromSpeedTests = false;
@@ -203,16 +210,18 @@ public class IspHealthScorer
         var staleNote = stale ? $" Latest test is older than the {_options.ScoreWindowHours} h window." : "";
         var typicalDown = down?.TypicalMbps ?? bestDown;
         var typicalUp = up?.TypicalMbps ?? bestUp;
-        var blendNote = tests.Count > 1
-            ? $"Best of {tests.Count} tests; typical {FormatMbps(typicalDown)} / {FormatMbps(typicalUp)} Mbps"
-            : "Best WAN speed test";
+        var planText = $"{FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan";
+        var multi = tests.Count > 1;
+        var description = multi
+            ? $"Fastest of {tests.Count} WAN tests vs your {planText}. Typical {FormatMbps(typicalDown)} / {FormatMbps(typicalUp)} Mbps (down / up).{staleNote}"
+            : $"Your latest WAN speed test vs your {planText} (down / up).{staleNote}";
         return (new IspScoreFactor
         {
             Name = "Speed vs Plan",
             Score = (int)Math.Round(scores.Average()),
             Weight = _options.SpeedVsPlanWeight,
-            ValueText = $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
-            Description = $"{blendNote} vs the {FormatMbps(inputs.ExpectedDownloadMbps ?? 0)} / {FormatMbps(inputs.ExpectedUploadMbps ?? 0)} Mbps plan configured in UniFi Network.{staleNote}"
+            ValueText = multi ? $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps best" : $"{FormatMbps(bestDown)} / {FormatMbps(bestUp)} Mbps",
+            Description = description
         }, new SpeedTestSample(bestTest.Time, bestDown, bestUp), down?.TypicalMbps, up?.TypicalMbps);
     }
 
@@ -343,20 +352,46 @@ public class IspHealthScorer
             (acc * 4, 0));
     }
 
-    private double? LoadedMedianDelta(
-        IReadOnlyList<LatencySample> firstHop,
+    /// <summary>
+    /// The worst (largest) loaded delta across the supplied access hops. Each hop is
+    /// measured against its own idle baseline, so a hop with a higher idle RTT is not
+    /// penalised; the maximum is taken because the access link is shared and any hop that
+    /// captured the under-load spike is reporting the real signal.
+    /// </summary>
+    private double? WorstLoadedDelta(
+        IReadOnlyList<IReadOnlyList<LatencySample>> hops,
+        Dictionary<DateTime, LoadWindow> loadWindows,
+        Func<LoadWindow, bool> directionSelector)
+    {
+        double? worst = null;
+        foreach (var hop in hops)
+        {
+            var baseline = ComputeIdleBaseline(hop, loadWindows);
+            if (baseline == null) continue;
+            var delta = LoadedDelta(hop, loadWindows, baseline.Value, directionSelector);
+            if (delta == null) continue;
+            if (worst == null || delta.Value > worst.Value) worst = delta.Value;
+        }
+        return worst;
+    }
+
+    private double? LoadedDelta(
+        IReadOnlyList<LatencySample> hop,
         Dictionary<DateTime, LoadWindow> loadWindows,
         double idleBaseline,
         Func<LoadWindow, bool> directionSelector)
     {
-        var rtts = firstHop
+        var rtts = hop
             .Where(s => s.RttAvgMs.HasValue
                 && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
                 && directionSelector(w))
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
         if (rtts.Count < _options.MinLoadedSamples) return null;
-        return SeriesStats.Median(rtts)!.Value - idleBaseline;
+        // p95 (worst-case under load), not median: brief bufferbloat/congestion spikes are
+        // exactly what loaded latency must catch, and a median over a long loaded period
+        // washes them out.
+        return SeriesStats.Percentile(rtts, 0.95)!.Value - idleBaseline;
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(

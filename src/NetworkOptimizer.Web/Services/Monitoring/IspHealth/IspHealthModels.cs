@@ -266,6 +266,14 @@ public class IspHealthInputs
     /// <summary>TargetId of the first clean hop, for marking it in the breakout.</summary>
     public string? FirstHopTargetId { get; init; }
 
+    /// <summary>
+    /// One series per public AccessIsp hop (RFC1918 / CPE-LAN-side excluded). Loaded
+    /// latency takes the worst loaded delta across these, because access congestion can
+    /// surface on any access hop (e.g. the OLT), not just the nearest one, and a given
+    /// hop may miss a brief spike depending on probe timing.
+    /// </summary>
+    public List<List<LatencySample>> AccessHopSeries { get; init; } = new();
+
     /// <summary>One series per ISP target (AsnName carries the target name) for the breakout.</summary>
     public List<AsnSeries> IspTargetSeries { get; init; } = new();
 
