@@ -6719,6 +6719,11 @@ a.path-hop.hop-clickable:hover {
     margin: 0.5rem 0;
 }
 
+.setup-guide-content a,
+.setup-guide-content a:visited {
+    color: var(--primary-color);
+}
+
 .add-form {
     margin-top: 1.25rem;
 }
