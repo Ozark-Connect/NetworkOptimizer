@@ -31,32 +31,52 @@ public static class CongestionDetector
         var allJitters = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
         var baselineRtt = SeriesStats.Median(allRtts);
         var rttMad = SeriesStats.Mad(allRtts);
+        var baselineP90 = SeriesStats.Percentile(allRtts, 0.90);
         var baselineJitter = allJitters.Count > 0 ? SeriesStats.Median(allJitters) : null;
-        if (baselineRtt == null || rttMad == null) return new List<CongestionEvent>();
+        if (baselineRtt == null || rttMad == null || baselineP90 == null) return new List<CongestionEvent>();
 
         var bucketSize = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
         var buckets = samples
             .GroupBy(s => FloorTime(s.Time, bucketSize))
             .OrderBy(g => g.Key)
-            .Select(g => new Bucket(
-                g.Key,
-                SeriesStats.Median(g.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()),
-                SeriesStats.Median(g.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList())))
+            .Select(g =>
+            {
+                var rtts = g.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
+                return new Bucket(
+                    g.Key,
+                    SeriesStats.Median(rtts),
+                    SeriesStats.Percentile(rtts, 0.90),
+                    SeriesStats.Median(g.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList()));
+            })
             .ToList();
 
         var rttThreshold = baselineRtt.Value + Math.Max(options.CongestionRttMinDeltaMs, options.CongestionRttDeltaFactor * rttMad.Value);
         var jitterThreshold = baselineJitter.HasValue ? options.CongestionJitterFactor * baselineJitter.Value : (double?)null;
+        // Burst threshold: intermittent spikes lift the bucket p90 long before the
+        // median moves; the spikes themselves are the jitter, so no separate jitter
+        // gate applies on this path
+        var burstSpread = Math.Max(baselineP90.Value - baselineRtt.Value, 0.5);
+        var burstThreshold = baselineP90.Value + Math.Max(options.CongestionRttMinDeltaMs, options.CongestionBurstDeltaFactor * burstSpread);
 
         var events = new List<CongestionEvent>();
         var run = new List<Bucket>();
         var gap = 0;
         foreach (var bucket in buckets)
         {
-            var elevated = bucket.RttMs.HasValue
+            var sustainedElevated = bucket.RttMs.HasValue
                 && bucket.RttMs.Value > rttThreshold
                 && jitterThreshold.HasValue
                 && bucket.JitterMs.HasValue
                 && bucket.JitterMs.Value > jitterThreshold.Value;
+            // Burst shape only: p90 elevated while the median stays near baseline.
+            // A flat fully-elevated bucket with no jitter is a route detour, not
+            // congestion; that shape belongs to the step detector
+            var burstElevated = bucket.P90Ms.HasValue
+                && bucket.P90Ms.Value > burstThreshold
+                && bucket.RttMs.HasValue
+                && bucket.RttMs.Value >= baselineRtt.Value
+                && bucket.RttMs.Value <= rttThreshold;
+            var elevated = sustainedElevated || burstElevated;
 
             if (elevated)
             {
@@ -155,5 +175,5 @@ public static class CongestionDetector
     internal static DateTime FloorTime(DateTime time, TimeSpan bucket) =>
         new(time.Ticks - time.Ticks % bucket.Ticks, time.Kind);
 
-    private sealed record Bucket(DateTime Start, double? RttMs, double? JitterMs);
+    private sealed record Bucket(DateTime Start, double? RttMs, double? P90Ms, double? JitterMs);
 }

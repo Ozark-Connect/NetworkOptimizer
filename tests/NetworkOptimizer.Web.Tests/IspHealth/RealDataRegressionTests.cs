@@ -77,22 +77,43 @@ public class RealDataRegressionTests
     }
 
     [Fact]
-    public void Detects_real_evening_incident_as_two_shared_flapping_episodes()
+    public void Detects_real_evening_incident_as_one_shared_flapping_event()
     {
         // Anonymized capture of a documented transit congestion incident: a congested
-        // transit plus targets whose return paths crossed it flapped in two episodes,
-        // while two other transit providers stayed clean throughout
+        // transit plus targets whose return paths crossed it, while two other transit
+        // providers stayed clean throughout. The burst criterion bridges the brief
+        // mid-incident recovery, so the flapping episode reads as one shared event
         var events = CongestionDetector.Detect(Load("real-incident-evening-congestion.csv"), new IspHealthOptions());
 
-        events.Should().HaveCount(2);
-        events.Should().OnlyContain(e => e.IsShared);
-        events.Should().OnlyContain(e => e.AsnNames.Contains("transit-lumen-far"));
-        events.Should().OnlyContain(e => e.AsnNames.Contains("wan-google-dns"));
-        events.SelectMany(e => e.AsnNames).Should().NotContain(new[] { "transit-cox-a", "transit-cox-b", "transit-ws-a", "transit-ws-b" });
+        events.Should().HaveCount(1);
+        var evt = events[0];
+        evt.IsShared.Should().BeTrue();
+        evt.AsnNames.Should().Contain("transit-lumen-far");
+        evt.AsnNames.Should().Contain("wan-google-dns");
+        evt.AsnNames.Should().NotContain(new[] { "transit-cox-a", "transit-cox-b", "transit-ws-a", "transit-ws-b" });
+        evt.Start.Should().BeCloseTo(new DateTime(2026, 5, 20, 0, 30, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
+        evt.End.Should().BeCloseTo(new DateTime(2026, 5, 20, 2, 45, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
+        evt.Duration.TotalMinutes.Should().BeGreaterThanOrEqualTo(105);
+    }
 
-        events[0].Start.Should().BeCloseTo(new DateTime(2026, 5, 20, 0, 30, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
-        events[1].Start.Should().BeCloseTo(new DateTime(2026, 5, 20, 1, 45, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
-        events[1].End.Should().BeCloseTo(new DateTime(2026, 5, 20, 2, 45, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(30));
+    [Fact]
+    public void Detects_real_bursty_congestion_that_medians_smooth_away()
+    {
+        // Anonymized capture of intermittent-spike congestion: bucket p90 RTT ran
+        // 8-15 ms against a ~6 ms baseline for hours while bucket medians barely
+        // moved, so only the burst criterion can see it. An ISP far hop and a CDN
+        // path degraded together; the first-hop and other transits stayed clean
+        var events = CongestionDetector.Detect(Load("real-bursty-congestion.csv"), new IspHealthOptions());
+
+        events.Should().HaveCount(1);
+        var evt = events[0];
+        evt.IsShared.Should().BeTrue();
+        evt.AsnNames.Should().Contain("isp-hop-far");
+        evt.AsnNames.Should().Contain("path-cdn-a");
+        evt.AsnNames.Should().NotContain("transit-x");
+        evt.Duration.TotalMinutes.Should().BeGreaterThanOrEqualTo(120);
+        evt.Start.Should().BeOnOrAfter(new DateTime(2026, 6, 12, 5, 0, 0, DateTimeKind.Utc));
+        evt.End.Should().BeOnOrBefore(new DateTime(2026, 6, 12, 11, 0, 0, DateTimeKind.Utc));
     }
 
     [Fact]

@@ -101,6 +101,14 @@ public class IspHealthOptions
     /// <summary>Bucket jitter must exceed baseline jitter by this factor to be elevated.</summary>
     public double CongestionJitterFactor { get; set; } = 2.0;
 
+    /// <summary>
+    /// Burst criterion: a bucket is also elevated when its p90 RTT exceeds the
+    /// baseline p90 by this factor times the baseline p90-median spread. Catches
+    /// intermittent-spike congestion that leaves bucket medians untouched
+    /// (validated against a real 4 h bursty access-hop event).
+    /// </summary>
+    public double CongestionBurstDeltaFactor { get; set; } = 1.5;
+
     /// <summary>Score points deducted from an ASN's congestion factor per hour of congestion events.</summary>
     public double CongestionPenaltyPerHour { get; set; } = 8.0;
 
