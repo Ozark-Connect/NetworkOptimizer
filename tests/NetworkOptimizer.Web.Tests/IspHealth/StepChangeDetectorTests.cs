@@ -67,6 +67,21 @@ public class StepChangeDetectorTests
     }
 
     [Fact]
+    public void Short_lived_shift_reports_both_up_and_down()
+    {
+        var shiftUp = TestSeries.Start.AddHours(10);
+        var shiftDown = shiftUp.AddMinutes(90);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 24, jitterMs: 0.3)
+            .WithSegment(shiftUp, shiftDown, rttMs: 25.5, jitterMs: 0.3);
+
+        var events = StepChangeDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().HaveCount(2);
+        events[0].Direction.Should().Be(PathShiftDirection.Up);
+        events[1].Direction.Should().Be(PathShiftDirection.Down);
+    }
+
+    [Fact]
     public void Sub_threshold_change_is_ignored()
     {
         var stepAt = TestSeries.Start.AddHours(12);
