@@ -216,7 +216,8 @@
         });
 
         // Show nav bar when content shrinks below scrollable (e.g. tab switch to short content)
-        if (window.innerWidth <= 1024 && currentEl) {
+        var pageContent = document.querySelector('.page-content');
+        if (window.innerWidth <= 1024 && pageContent) {
             new ResizeObserver(function() {
                 var topBar = document.querySelector('.top-bar');
                 if (topBar && topBar.classList.contains('top-bar-hidden') && !isContentScrollable()) {
@@ -224,7 +225,7 @@
                     if (currentEl) currentEl.style.scrollPaddingTop = '70px';
                     startAutoHideTimer(topBar);
                 }
-            }).observe(currentEl);
+            }).observe(pageContent);
         }
 
         // Restart auto-hide timer when sidebar closes
