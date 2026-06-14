@@ -138,7 +138,7 @@
                 var topBar = document.querySelector('.top-bar');
 
                 var nearBottom = currentEl.scrollHeight - st - currentEl.clientHeight < 40;
-                if (st <= 0 && !(topBar.classList.contains('top-bar-hidden') && lastScrollTop > 60)) {
+                if (st <= 0 && !(topBar.classList.contains('top-bar-hidden') && lastScrollTop > 60 && isContentScrollable())) {
                     topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
                     currentEl.style.scrollPaddingTop = '70px';
                     startAutoHideTimer(topBar);
