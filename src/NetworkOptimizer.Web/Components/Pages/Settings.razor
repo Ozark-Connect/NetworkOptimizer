@@ -1003,6 +1003,7 @@
                                 <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
                                 <option value="arris-surfboard-hnap">ARRIS Surfboard S33/S34 (HNAP)</option>
                                 <option value="motorola-hnap">Motorola MB8611, MB8600 (HNAP)</option>
+                                <option value="xfinity-gateway">Xfinity XB8, XB10 (HTTP)</option>
                             </select>
                         </div>
                     </div>
@@ -4184,6 +4185,7 @@
         "arris-surfboard" => "ARRIS Surfboard (HTTP)",
         "arris-surfboard-hnap" => "ARRIS Surfboard S33/S34 (HNAP)",
         "motorola-hnap" => "Motorola (HNAP)",
+        "xfinity-gateway" => "Xfinity Gateway (HTTP)",
         _ => provider,
     };
 
@@ -4192,6 +4194,7 @@
         "arris-surfboard" => "/cgi-bin/status",
         "arris-surfboard-hnap" => "N/A (uses /HNAP1/)",
         "motorola-hnap" => "N/A (uses /HNAP1/)",
+        "xfinity-gateway" => "/network_setup.jst",
         _ => "/DocsisStatus.htm",
     };
 
