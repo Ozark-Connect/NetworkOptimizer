@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
@@ -14,6 +13,8 @@ public class SponsorshipService : ISponsorshipService
     private const string GitHubSponsorUrl = "https://github.com/sponsors/tvancott42";
     private const string KofiUrl = "https://ko-fi.com/tjtuna42";
     private const int SqmEnabledBonus = 3;
+    private const int MonitoringEnabledBonus = 3;
+    private const int MonitoringTargetsDivisor = 5;
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SponsorshipService> _logger;
@@ -177,12 +178,13 @@ public class SponsorshipService : ISponsorshipService
         var sqmWan1Task = speedTestRepository.GetSqmWanConfigAsync(1);
         var sqmWan2Task = speedTestRepository.GetSqmWanConfigAsync(2);
 
-        // Floor plan feature counts and perf tweaks via DbContext
+        // Floor plan feature counts, perf tweaks, and monitoring via DbContext
         Task<int> signalLogCountTask;
         Task<int> placedApCountTask;
         Task<int> plannedApCountTask;
         Task<int> floorCountTask;
         Task<int> perfTweakCountTask;
+        Task<int> monitoringTargetCountTask;
         using (var db = await dbFactory.CreateDbContextAsync())
         {
             signalLogCountTask = db.ClientSignalLogs.CountAsync();
@@ -190,9 +192,11 @@ public class SponsorshipService : ISponsorshipService
             plannedApCountTask = db.PlannedAps.CountAsync();
             floorCountTask = db.FloorPlans.CountAsync();
             perfTweakCountTask = db.PerfTweakSettings.CountAsync();
+            monitoringTargetCountTask = db.MonitoringTargets.Where(t => t.Enabled).CountAsync();
 
             await Task.WhenAll(manualAuditCountTask, scheduledAuditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
-                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask, perfTweakCountTask);
+                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask, perfTweakCountTask,
+                monitoringTargetCountTask);
         }
 
         // Manual audits count as 1, scheduled audits count as 0.2 (~2 per workweek), speed tests count as 0.5
@@ -216,6 +220,14 @@ public class SponsorshipService : ISponsorshipService
 
         // 2 points per deployed performance tweak
         count += perfTweakCountTask.Result * 2;
+
+        // Monitoring: flat bonus if InfluxDB is connected, plus 1 per 5 enabled targets
+        var influxClient = scope.ServiceProvider.GetRequiredService<MonitoringInfluxClient>();
+        if (influxClient.IsConfigured)
+        {
+            count += MonitoringEnabledBonus;
+        }
+        count += monitoringTargetCountTask.Result / MonitoringTargetsDivisor;
 
         return count;
     }
