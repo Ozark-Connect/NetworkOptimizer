@@ -617,24 +617,31 @@ using (var scope = app.Services.CreateScope())
             app.Logger.LogInformation("Seeded {Count} new alert rules", missing.Count);
         }
 
-        // Auto-enable modem/ONT alert rules for users who already have configs.
-        // Rules seed as disabled, but existing users shouldn't have to manually
-        // enable them - they already opted in by configuring the monitoring target.
-        EnableRulesIfConfigsExist(db, "cable_modem", () => db.CmConfigurations.Any());
-        EnableRulesIfConfigsExist(db, "ont", () => db.OntConfigurations.Any());
-        EnableRulesIfConfigsExist(db, "cellular", () => db.ModemConfigurations.Any());
+        // Auto-enable freshly seeded modem/ONT rules for users who already have
+        // configs. Only touches rules we just inserted - never re-enables rules
+        // the user has manually disabled.
+        if (missing.Count > 0)
+        {
+            var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
+            EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
+            EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
+            EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
+        }
 
-        static void EnableRulesIfConfigsExist(
+        static void EnableFreshlySeeded(
             NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext db,
             string source,
+            HashSet<string> seededPatterns,
             Func<bool> hasConfigs)
         {
-            var disabled = db.AlertRules
+            var freshlySeeded = db.AlertRules
                 .Where(r => r.Source == source && !r.IsEnabled)
+                .ToList()
+                .Where(r => seededPatterns.Contains(r.EventTypePattern))
                 .ToList();
-            if (disabled.Count > 0 && hasConfigs())
+            if (freshlySeeded.Count > 0 && hasConfigs())
             {
-                foreach (var rule in disabled) rule.IsEnabled = true;
+                foreach (var rule in freshlySeeded) rule.IsEnabled = true;
                 db.SaveChanges();
             }
         }

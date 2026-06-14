@@ -7,7 +7,8 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Enables disabled alert rules by source when a user configures their first
-/// monitoring target of that type. Called from each modem service's save path.
+/// monitoring target of that type. Skips if the user already has enabled rules
+/// for that source (meaning they've already interacted with them).
 /// </summary>
 public static class AlertRuleAutoEnable
 {
@@ -16,6 +17,11 @@ public static class AlertRuleAutoEnable
         try
         {
             var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var anyEnabled = await db.AlertRules
+                .AnyAsync(r => r.Source == source && r.IsEnabled);
+            if (anyEnabled) return;
+
             var disabled = await db.AlertRules
                 .Where(r => r.Source == source && !r.IsEnabled)
                 .ToListAsync();
