@@ -112,7 +112,7 @@
                 if (sidebarOpen) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
-                    setTimeout(function() { if (topBar.classList.contains('top-bar-hidden')) topBar.classList.add('top-bar-collapsed'); }, 350);
+                    setTimeout(function() { if (topBar.classList.contains('top-bar-hidden') && currentEl && currentEl.scrollHeight - topBar.offsetHeight > currentEl.clientHeight + 10) topBar.classList.add('top-bar-collapsed'); }, 350);
                     if (currentEl) currentEl.style.scrollPaddingTop = '0px';
                     var identityBar = document.querySelector('.identity-bar');
                     if (identityBar) identityBar.classList.remove('below-topbar');
