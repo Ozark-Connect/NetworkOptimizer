@@ -74,7 +74,7 @@ public class StepChangeDetectorTests
         var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 24, jitterMs: 0.3)
             .WithSegment(shiftUp, shiftDown, rttMs: 25.5, jitterMs: 0.3);
 
-        var events = StepChangeDetector.DetectForSeries(TestSeries.Asn(30517, "INDATEL", samples), Options);
+        var events = StepChangeDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
 
         events.Should().HaveCount(2);
         events[0].Direction.Should().Be(PathShiftDirection.Up);
