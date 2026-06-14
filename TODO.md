@@ -295,12 +295,11 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## UI / Tooltips
 
-### Migrate `data-tooltip-hover-only` to `data-tooltip-no-touch` on Clickables
-- `data-tooltip-no-touch` is the correct attribute for clickable elements (buttons, links, tiles) - it sets `touch: false` so tapping on mobile just performs the action without showing a tooltip
-- `data-tooltip-hover-only` only removes the click trigger but still allows touch tooltips to fire, which interferes with the tap action on mobile
-- Buttons (`<button>`) now get `touch: false` automatically via tag detection in App.razor, but non-button clickables (`<a>`, `<div>` with `@onclick`, etc.) still need the explicit attribute
-- Audit all `data-tooltip-hover-only` usages on clickable elements and switch to `data-tooltip-no-touch`
-- Already correct: ISP Health tile (Monitoring.razor, LiveViewPanel.razor), ISP Health refresh button (IspHealthPanel.razor)
+### Audit Clickable Tooltips for `data-tooltip-hover-only`
+- `data-tooltip-hover-only` is the unified attribute for clickable elements - sets `trigger: 'mouseenter'` and `touch: false` so tapping on mobile just performs the action
+- Buttons (`<button>`) get this behavior automatically via tag detection in App.razor
+- Non-button clickables (`<a>`, `<div>` with `@onclick`, etc.) need the explicit `data-tooltip-hover-only` attribute
+- Audit remaining clickable elements across the app and add the attribute where missing
 
 ## General
 
