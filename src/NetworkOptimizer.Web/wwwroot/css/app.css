@@ -2986,6 +2986,16 @@ select.form-control {
     border-top: 1px solid var(--border-color);
 }
 
+.app-footer a {
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.app-footer a:hover {
+    color: var(--text-secondary);
+    text-decoration: underline;
+}
+
 /* Hamburger Menu Button - hidden on desktop */
 .hamburger-btn {
     display: none;

@@ -69,7 +69,17 @@
         </main>
 
         <footer class="app-footer">
-            <p>&copy; 2026 Ozark Connect - Network Optimizer @(Assembly.GetExecutingAssembly().GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion is string v && !v.StartsWith("0.0.0") ? $"v{v}" : "(source build)")</p>
+            @{ var infoVersion = Assembly.GetExecutingAssembly().GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion; }
+            <p>&copy; 2026 Ozark Connect - Network Optimizer
+                @if (infoVersion is { } ver && !ver.StartsWith("0.0.0"))
+                {
+                    <a href="https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v@(ver)" target="_blank" rel="noopener">v@(ver)</a>
+                }
+                else
+                {
+                    <span>(source build)</span>
+                }
+            </p>
         </footer>
     </div>
 </div>
