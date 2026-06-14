@@ -619,7 +619,13 @@
             {
                 @if (_unresolvedAlerts.Any(a => a.Status == AlertStatus.Active))
                 {
-                    <h2 class="alert-group-title">Active</h2>
+                    <div class="alert-group-header">
+                        <h2 class="alert-group-title">Active</h2>
+                        <div class="alert-group-actions">
+                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllActive">Acknowledge All</button>
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllActive">Resolve All</button>
+                        </div>
+                    </div>
                     <div class="alert-list">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active))
                         {
@@ -669,7 +675,12 @@
 
                 @if (_unresolvedAlerts.Any(a => a.Status == AlertStatus.Acknowledged))
                 {
-                    <h2 class="alert-group-title">Acknowledged</h2>
+                    <div class="alert-group-header">
+                        <h2 class="alert-group-title">Acknowledged</h2>
+                        <div class="alert-group-actions">
+                            <button class="btn btn-sm btn-primary" @onclick="ResolveAllAcknowledged">Resolve All</button>
+                        </div>
+                    </div>
                     <div class="alert-list">
                         @foreach (var alert in _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged))
                         {
@@ -1328,12 +1339,23 @@
         gap: 0.75rem;
         padding-bottom: 0.25rem;
     }
+    .alert-group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+        margin-top: 0.5rem;
+    }
+    .alert-group-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
     .alert-group-title {
         font-size: 0.9rem;
         font-weight: 600;
         color: var(--text-secondary);
-        margin-bottom: 0.5rem;
-        margin-top: 0.5rem;
+        margin-bottom: 0;
+        margin-top: 0;
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
@@ -1494,6 +1516,43 @@
                         <div @onclick='() => SelectEventType("monitoring.sfp_tx_power")'><code>monitoring.sfp_tx_power</code> <span>SFP/PON TX power above threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.sfp_temperature")'><code>monitoring.sfp_temperature</code> <span>SFP temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("monitoring.*")'><code>monitoring.*</code> <span>All monitoring events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Gateway Health</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("device.gateway_high_cpu")'><code>device.gateway_high_cpu</code> <span>Gateway CPU sustained above threshold</span></div>
+                        <div @onclick='() => SelectEventType("device.gateway_high_memory")'><code>device.gateway_high_memory</code> <span>Gateway memory above threshold</span></div>
+                        <div @onclick='() => SelectEventType("device.*")'><code>device.*</code> <span>All device events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Cable Modem</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("cable_modem.ds_snr_low")'><code>cable_modem.ds_snr_low</code> <span>Downstream SNR below threshold</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.uncorrectable_errors")'><code>cable_modem.uncorrectable_errors</code> <span>Uncorrectable FEC error spike</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.ds_power_out_of_range")'><code>cable_modem.ds_power_out_of_range</code> <span>DS power outside DOCSIS spec range</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.us_power_high")'><code>cable_modem.us_power_high</code> <span>US transmit power too high</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.channel_loss")'><code>cable_modem.channel_loss</code> <span>Locked channel count dropped</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.*")'><code>cable_modem.*</code> <span>All cable modem events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">External ONT</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("ont.rx_power_low")'><code>ont.rx_power_low</code> <span>Optical RX power below threshold</span></div>
+                        <div @onclick='() => SelectEventType("ont.pon_link_down")'><code>ont.pon_link_down</code> <span>PON link lost</span></div>
+                        <div @onclick='() => SelectEventType("ont.fec_errors")'><code>ont.fec_errors</code> <span>FEC error rate spike</span></div>
+                        <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Cellular Modem</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("cellular.signal_poor")'><code>cellular.signal_poor</code> <span>Signal quality dropped to poor</span></div>
+                        <div @onclick='() => SelectEventType("cellular.network_downgrade")'><code>cellular.network_downgrade</code> <span>Network mode downgraded (5G to LTE)</span></div>
+                        <div @onclick='() => SelectEventType("cellular.roaming")'><code>cellular.roaming</code> <span>Modem entered roaming state</span></div>
+                        <div @onclick='() => SelectEventType("cellular.*")'><code>cellular.*</code> <span>All cellular events</span></div>
                     </div>
                 </div>
                 <div>
@@ -2124,6 +2183,69 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving alert {Id}", alert.Id);
+        }
+    }
+
+    private async Task AcknowledgeAllActive()
+    {
+        try
+        {
+            var active = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active).ToList();
+            var now = DateTime.UtcNow;
+            foreach (var alert in active)
+            {
+                alert.Status = AlertStatus.Acknowledged;
+                alert.AcknowledgedAt = now;
+                await AlertRepository.UpdateAlertAsync(alert);
+                await RecalculateIncidentStatusAsync(alert);
+            }
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error acknowledging all active alerts");
+        }
+    }
+
+    private async Task ResolveAllActive()
+    {
+        try
+        {
+            var active = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Active).ToList();
+            var now = DateTime.UtcNow;
+            foreach (var alert in active)
+            {
+                alert.Status = AlertStatus.Resolved;
+                alert.ResolvedAt = now;
+                await AlertRepository.UpdateAlertAsync(alert);
+                await RecalculateIncidentStatusAsync(alert);
+            }
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resolving all active alerts");
+        }
+    }
+
+    private async Task ResolveAllAcknowledged()
+    {
+        try
+        {
+            var acknowledged = _unresolvedAlerts.Where(a => a.Status == AlertStatus.Acknowledged).ToList();
+            var now = DateTime.UtcNow;
+            foreach (var alert in acknowledged)
+            {
+                alert.Status = AlertStatus.Resolved;
+                alert.ResolvedAt = now;
+                await AlertRepository.UpdateAlertAsync(alert);
+                await RecalculateIncidentStatusAsync(alert);
+            }
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resolving all acknowledged alerts");
         }
     }
 

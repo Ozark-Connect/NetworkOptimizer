@@ -1270,13 +1270,23 @@ from(bucket: ""{_longtermBucket}"")
             ? $@"|> filter(fn: (r) => r.cm_id == ""{SanitizeFluxString(cmId)}"")"
             : "";
 
+        var winDur = ToFluxDuration(window);
         var flux = $@"
-from(bucket: ""{_longtermBucket}"")
+gauges = from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""cable_modem"")
   {cmFilter}
-  |> filter(fn: (r) => r._field == ""ds_power_avg_dbmv"" or r._field == ""ds_snr_avg_db"" or r._field == ""us_power_avg_dbmv"" or r._field == ""correctables_delta"" or r._field == ""uncorrectables_delta"" or r._field == ""locked_ds_channels"" or r._field == ""locked_us_channels"")
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+  |> filter(fn: (r) => r._field == ""ds_power_avg_dbmv"" or r._field == ""ds_snr_avg_db"" or r._field == ""us_power_avg_dbmv"" or r._field == ""locked_ds_channels"" or r._field == ""locked_us_channels"")
+  |> aggregateWindow(every: {winDur}, fn: last, createEmpty: false)
+
+deltas = from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""cable_modem"")
+  {cmFilter}
+  |> filter(fn: (r) => r._field == ""correctables_delta"" or r._field == ""uncorrectables_delta"")
+  |> aggregateWindow(every: {winDur}, fn: sum, createEmpty: false)
+
+union(tables: [gauges, deltas])
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<CmPoint>>();

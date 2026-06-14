@@ -39,6 +39,7 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly LocalProbeExecutor _localProbe;
     private readonly NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator _alertEvaluator;
     private readonly NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator _sfpAlertEvaluator;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator _deviceHealthAlertEvaluator;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
 
@@ -69,6 +70,7 @@ public class MonitoringCollectionAgent : BackgroundService
         LocalProbeExecutor localProbe,
         NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator alertEvaluator,
         NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator sfpAlertEvaluator,
+        NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator deviceHealthAlertEvaluator,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger)
     {
@@ -80,6 +82,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _localProbe = localProbe;
         _alertEvaluator = alertEvaluator;
         _sfpAlertEvaluator = sfpAlertEvaluator;
+        _deviceHealthAlertEvaluator = deviceHealthAlertEvaluator;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -709,6 +712,10 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: DateTime.UtcNow);
 
                 _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
+
+                await _deviceHealthAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
+                    cpu, memPct);
             }
             catch (Exception ex)
             {
@@ -767,6 +774,10 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: now);
 
                 _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
+
+                await _deviceHealthAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
+                    cpu, mem);
             }
             catch (Exception ex)
             {

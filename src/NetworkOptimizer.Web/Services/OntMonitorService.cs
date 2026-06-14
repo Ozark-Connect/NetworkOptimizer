@@ -19,6 +19,7 @@ public class OntMonitorService : IDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly MonitoringInfluxClient _influx;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator _alertEvaluator;
     private readonly ILogger<OntMonitorService> _logger;
     private readonly Dictionary<string, IOntProvider> _providers;
     private readonly ConcurrentDictionary<int, OntStats> _statsCache = new();
@@ -31,11 +32,13 @@ public class OntMonitorService : IDisposable
         IEnumerable<IOntProvider> providers,
         ICredentialProtectionService credentialProtection,
         MonitoringInfluxClient influx,
+        NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator alertEvaluator,
         ILogger<OntMonitorService> logger)
     {
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
         _influx = influx;
+        _alertEvaluator = alertEvaluator;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
@@ -97,9 +100,14 @@ public class OntMonitorService : IDisposable
             config.Password = _credentialProtection.Encrypt(config.Password);
         }
 
+        var isNew = config.Id == 0;
+
         using var scope = _scopeFactory.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         await repository.SaveOntConfigurationAsync(config);
+
+        if (isNew)
+            await AlertRuleAutoEnable.EnableBySourceAsync(scope, "ont", _logger);
     }
 
     /// <summary>
@@ -197,6 +205,10 @@ public class OntMonitorService : IDisposable
 
                 // Fire-and-forget write to InfluxDB
                 WriteToInflux(config, stats);
+
+                _ = _alertEvaluator.EvaluateAsync(
+                    config.Id, config.Name,
+                    stats.RxPowerDbm, stats.PonLinkStatus, stats.FecErrors);
 
                 _logger.LogDebug("ONT {Name} polled successfully: Rx={Rx} dBm", config.Name, stats.RxPowerDbm);
                 return stats;

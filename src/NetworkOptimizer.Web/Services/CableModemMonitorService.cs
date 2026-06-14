@@ -18,6 +18,7 @@ public sealed class CableModemMonitorService : IDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly MonitoringInfluxClient _influx;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator _alertEvaluator;
     private readonly ILogger<CableModemMonitorService> _logger;
     private readonly Dictionary<string, ICableModemProvider> _providers;
     private readonly Timer _pollingTimer;
@@ -34,11 +35,13 @@ public sealed class CableModemMonitorService : IDisposable
         IEnumerable<ICableModemProvider> providers,
         ICredentialProtectionService credentialProtection,
         MonitoringInfluxClient influx,
+        NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator alertEvaluator,
         ILogger<CableModemMonitorService> logger)
     {
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
         _influx = influx;
+        _alertEvaluator = alertEvaluator;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
@@ -91,9 +94,14 @@ public sealed class CableModemMonitorService : IDisposable
             config.Password = _credentialProtection.Encrypt(config.Password);
         }
 
+        var isNew = config.Id == 0;
+
         using var scope = _scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         await repo.SaveCmConfigurationAsync(config);
+
+        if (isNew)
+            await AlertRuleAutoEnable.EnableBySourceAsync(scope, "cable_modem", _logger);
     }
 
     /// <summary>
@@ -322,6 +330,12 @@ public sealed class CableModemMonitorService : IDisposable
 
             _previousTotalCorrectables[config.Id] = currentCorrectables;
             _previousTotalUncorrectables[config.Id] = currentUncorrectables;
+
+            _ = _alertEvaluator.EvaluateAsync(
+                config.Id, config.Name,
+                stats.DownstreamSnrAvgDb, stats.DownstreamPowerAvgDbmv, stats.UpstreamPowerAvgDbmv,
+                stats.LockedDsChannels, stats.LockedUsChannels,
+                deltaUncorrectables);
 
             // Fire-and-forget write to InfluxDB
             _ = Task.Run(async () =>

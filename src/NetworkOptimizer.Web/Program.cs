@@ -368,6 +368,10 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPa
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
 builder.Services.AddScoped<InfluxDbProvisioningService>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
@@ -611,6 +615,35 @@ using (var scope = app.Services.CreateScope())
             db.AlertRules.AddRange(missing);
             db.SaveChanges();
             app.Logger.LogInformation("Seeded {Count} new alert rules", missing.Count);
+        }
+
+        // Auto-enable freshly seeded modem/ONT rules for users who already have
+        // configs. Only touches rules we just inserted - never re-enables rules
+        // the user has manually disabled.
+        if (missing.Count > 0)
+        {
+            var seededPatterns = missing.Select(m => m.EventTypePattern).ToHashSet();
+            EnableFreshlySeeded(db, "cable_modem", seededPatterns, () => db.CmConfigurations.Any());
+            EnableFreshlySeeded(db, "ont", seededPatterns, () => db.OntConfigurations.Any());
+            EnableFreshlySeeded(db, "cellular", seededPatterns, () => db.ModemConfigurations.Any());
+        }
+
+        static void EnableFreshlySeeded(
+            NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext db,
+            string source,
+            HashSet<string> seededPatterns,
+            Func<bool> hasConfigs)
+        {
+            var freshlySeeded = db.AlertRules
+                .Where(r => r.Source == source && !r.IsEnabled)
+                .ToList()
+                .Where(r => seededPatterns.Contains(r.EventTypePattern))
+                .ToList();
+            if (freshlySeeded.Count > 0 && hasConfigs())
+            {
+                foreach (var rule in freshlySeeded) rule.IsEnabled = true;
+                db.SaveChanges();
+            }
         }
     }
 

@@ -22,6 +22,7 @@ public class CellularModemService : ICellularModemService
     private readonly MonitoringInfluxClient _influx;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly Dictionary<string, ICellularModemProvider> _providers;
+    private readonly NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator _alertEvaluator;
     private readonly Timer? _pollingTimer;
     private readonly object _lock = new();
     private CellularModemStats? _lastStats;
@@ -37,6 +38,7 @@ public class CellularModemService : ICellularModemService
         UniFiConnectionService connectionService,
         MonitoringInfluxClient influx,
         ICredentialProtectionService credentialProtection,
+        NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator alertEvaluator,
         IEnumerable<ICellularModemProvider> providers)
     {
         _logger = logger;
@@ -45,6 +47,7 @@ public class CellularModemService : ICellularModemService
         _connectionService = connectionService;
         _influx = influx;
         _credentialProtection = credentialProtection;
+        _alertEvaluator = alertEvaluator;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
         if (!_providers.ContainsKey(DefaultProviderKey))
@@ -229,6 +232,10 @@ public class CellularModemService : ICellularModemService
                 // Write to InfluxDB for time-series charting
                 WriteCellularToInflux(modem, stats);
 
+                _ = _alertEvaluator.EvaluateAsync(
+                    modem.Id, modem.Name,
+                    stats.SignalQuality, stats.NetworkMode, stats.IsRoaming);
+
                 return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
             }
             else
@@ -266,9 +273,15 @@ public class CellularModemService : ICellularModemService
             config.Password = _credentialProtection.Encrypt(config.Password);
         }
 
+        var isNew = config.Id == 0;
+
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         await repository.SaveModemConfigurationAsync(config);
+
+        if (isNew)
+            await AlertRuleAutoEnable.EnableBySourceAsync(scope, "cellular", _logger);
+
         return config;
     }
 
