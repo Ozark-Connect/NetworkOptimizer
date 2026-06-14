@@ -267,7 +267,10 @@ public static class StepChangeDetector
 
         foreach (var group in groups)
         {
-            var representative = group.OrderBy(e => e.BeforeMedianMs).First();
+            var representative = group
+                .OrderByDescending(e => e.TargetId?.StartsWith("transit") == true)
+                .ThenBy(e => e.BeforeMedianMs)
+                .First();
             merged.Add(new PathShiftEvent
             {
                 Time = representative.Time,
