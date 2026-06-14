@@ -136,7 +136,7 @@
                                 <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="lg" /> @ap.Name</span>
                                 <span class="ap-model">@ap.Model</span>
                             </div>
-                            <div class="ap-client-count">
+                            <div class="ap-client-count clickable" @onclick="@(() => OnNavigateToClients.InvokeAsync((ap.Mac, (RadioBand?)null)))">
                                 <span class="count-value">@ap.TotalClients</span>
                                 <span class="count-label">clients</span>
                             </div>
@@ -147,7 +147,7 @@
                             {
                                 <div class="radio-summary">
                                     <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
-                                    <span class="radio-clients">@(radio.ClientCount ?? 0) clients</span>
+                                    <span class="radio-clients clickable" @onclick="@(() => OnNavigateToClients.InvokeAsync((ap.Mac, (RadioBand?)radio.Band)))">@(radio.ClientCount ?? 0) clients</span>
                                     <span class="radio-util @GetUtilizationClass(radio.ChannelUtilization ?? 0)">
                                         @(radio.ChannelUtilization ?? 0)% util
                                     </span>
@@ -196,6 +196,7 @@
 
 @code {
     [Parameter] public EventCallback<string> OnClientClick { get; set; }
+    [Parameter] public EventCallback<(string? ApMac, RadioBand? Band)> OnNavigateToClients { get; set; }
 
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();

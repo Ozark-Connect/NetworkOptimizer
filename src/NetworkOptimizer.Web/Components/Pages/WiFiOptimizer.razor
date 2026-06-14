@@ -268,7 +268,7 @@
         <!-- AP Load Balance -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance OnClientClick="HandleMapClientClick" />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance OnClientClick="HandleMapClientClick" OnNavigateToClients="HandleApLoadBalanceNavigate" />
             </div>
         </div>
     }
@@ -404,21 +404,21 @@
                 else
                 {
                     <div class="band-distribution">
-                        <div class="band-item">
+                        <div class="band-item clickable" @onclick="@(() => NavigateToTab("client", null, RadioBand.Band2_4GHz))">
                             <div class="band-bar-container">
                                 <div class="band-bar band-2ghz" style="height: @GetBandPercentage(_summary?.ClientsOn2_4GHz ?? 0)%"></div>
                             </div>
                             <div class="band-value">@(_summary?.ClientsOn2_4GHz ?? 0)</div>
                             <div class="band-label">2.4 GHz</div>
                         </div>
-                        <div class="band-item">
+                        <div class="band-item clickable" @onclick="@(() => NavigateToTab("client", null, RadioBand.Band5GHz))">
                             <div class="band-bar-container">
                                 <div class="band-bar band-5ghz" style="height: @GetBandPercentage(_summary?.ClientsOn5GHz ?? 0)%"></div>
                             </div>
                             <div class="band-value">@(_summary?.ClientsOn5GHz ?? 0)</div>
                             <div class="band-label">5 GHz</div>
                         </div>
-                        <div class="band-item">
+                        <div class="band-item clickable" @onclick="@(() => NavigateToTab("client", null, RadioBand.Band6GHz))">
                             <div class="band-bar-container">
                                 <div class="band-bar band-6ghz" style="height: @GetBandPercentage(_summary?.ClientsOn6GHz ?? 0)%"></div>
                             </div>
@@ -970,6 +970,11 @@
         _initialClientMac = mac;
         NavigationManager.NavigateTo("/wifi-optimizer?tab=client&client=" + Uri.EscapeDataString(mac), forceLoad: false, replace: false);
         _lastTabParam = "client";
+    }
+
+    private void HandleApLoadBalanceNavigate((string? ApMac, RadioBand? Band) filter)
+    {
+        NavigateToTab("client", filter.ApMac, filter.Band);
     }
 
     private async Task HandleSignalTimeRangeChanged(int hours)

@@ -7669,6 +7669,16 @@ a.path-hop.hop-clickable:hover {
     gap: 0.5rem;
 }
 
+.band-item.clickable {
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background-color 0.15s ease;
+}
+
+.band-item.clickable:hover {
+    background-color: var(--bg-hover);
+}
+
 .band-bar-container {
     width: 60px;
     height: 120px;
@@ -11106,6 +11116,16 @@ a.path-hop.hop-clickable:hover {
     text-align: right;
 }
 
+.ap-client-count.clickable {
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background-color 0.15s ease;
+}
+
+.ap-client-count.clickable:hover {
+    background-color: var(--bg-hover);
+}
+
 .ap-client-count .count-value {
     font-size: 1.5rem;
     font-weight: 600;
@@ -11156,6 +11176,16 @@ a.path-hop.hop-clickable:hover {
 
 .radio-summary .radio-clients {
     color: var(--text-secondary);
+}
+
+.radio-summary .radio-clients.clickable {
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s ease;
+}
+
+.radio-summary .radio-clients.clickable:hover {
+    background-color: var(--bg-hover);
 }
 
 .radio-summary .radio-util {
