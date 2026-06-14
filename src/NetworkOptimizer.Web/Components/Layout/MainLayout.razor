@@ -108,6 +108,13 @@
             return currentEl && currentEl.scrollHeight - barH > currentEl.clientHeight + 10;
         }
 
+        function collapseIfSafe(topBar) {
+            if (!topBar || !topBar.classList.contains('top-bar-hidden') || !wouldStillScroll()) return;
+            var barH = topBar.offsetHeight;
+            topBar.classList.add('top-bar-collapsed');
+            if (currentEl) currentEl.scrollTop = Math.max(0, currentEl.scrollTop - barH);
+        }
+
         function startAutoHideTimer(topBar) {
             clearAutoHideTimer();
             var page = document.querySelector('[data-autohide-nav]');
@@ -118,7 +125,7 @@
                 if (sidebarOpen) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
-                    setTimeout(function() { if (topBar.classList.contains('top-bar-hidden') && wouldStillScroll()) topBar.classList.add('top-bar-collapsed'); }, 350);
+                    setTimeout(function() { collapseIfSafe(topBar); }, 350);
                     if (currentEl) currentEl.style.scrollPaddingTop = '0px';
                     var identityBar = document.querySelector('.identity-bar');
                     if (identityBar) identityBar.classList.remove('below-topbar');
@@ -160,7 +167,7 @@
 
                     if (st > lastScrollTop && st > 60 && isContentScrollable()) {
                         topBar.classList.add('top-bar-hidden');
-                        setTimeout(function() { if (topBar.classList.contains('top-bar-hidden') && wouldStillScroll()) topBar.classList.add('top-bar-collapsed'); }, 350);
+                        setTimeout(function() { collapseIfSafe(topBar); }, 350);
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
                     } else if (!nearBottom && scrollUpAccum > 60) {
