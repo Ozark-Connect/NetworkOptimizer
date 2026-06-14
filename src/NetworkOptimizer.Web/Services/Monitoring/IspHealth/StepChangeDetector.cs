@@ -64,8 +64,16 @@ public static class StepChangeDetector
                 AfterMedianMs = after.MedianMs
             });
 
-            // Skip past the persistence span so one shift is not re-reported per boundary
-            i = afterIdx + options.StepPersistenceWindows - 1;
+            var revert = TryDetectRevert(windows, samples, before, after, afterIdx, windowSize, series, options);
+            if (revert != null)
+            {
+                events.Add(revert.Value.Event);
+                i = revert.Value.SkipTo;
+            }
+            else
+            {
+                i = afterIdx + options.StepPersistenceWindows - 1;
+            }
         }
         return events;
     }
@@ -174,6 +182,65 @@ public static class StepChangeDetector
             if (!onNewSide) return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// After a step is confirmed, scans forward for a revert back to the original
+    /// level. Handles short-lived transit shifts where the elevated level persists
+    /// long enough to confirm the step-up but not long enough for
+    /// <see cref="EstablishedAtOldLevel"/> to anchor an independent step-down.
+    /// </summary>
+    private static (PathShiftEvent Event, int SkipTo)? TryDetectRevert(
+        List<Window> windows, List<LatencySample> samples,
+        Window stepBefore, Window stepAfter, int stepAfterIdx,
+        TimeSpan windowSize, AsnSeries series, IspHealthOptions options)
+    {
+        var midpoint = (stepBefore.MedianMs + stepAfter.MedianMs) / 2.0;
+        var wentUp = stepAfter.MedianMs > stepBefore.MedianMs;
+
+        var searchStart = stepAfterIdx + options.StepPersistenceWindows;
+
+        for (var r = searchStart; r < windows.Count; r++)
+        {
+            var reverted = wentUp
+                ? windows[r].MedianMs < midpoint
+                : windows[r].MedianMs > midpoint;
+            if (!reverted) continue;
+            if (!IsStableLevel(windows[r], options)) continue;
+
+            var lastRequired = r + options.StepPersistenceWindows - 1;
+            if (lastRequired >= windows.Count) return null;
+            var persists = true;
+            for (var j = r; j <= lastRequired; j++)
+            {
+                var onSide = wentUp ? windows[j].MedianMs < midpoint : windows[j].MedianMs > midpoint;
+                if (!onSide) { persists = false; break; }
+            }
+            if (!persists) continue;
+
+            var revertBoundary = r - 1;
+            if (revertBoundary < stepAfterIdx) return null;
+            var revertBefore = windows[revertBoundary];
+            var revertAfter = windows[r];
+
+            var crossing = FindCrossingTime(samples, revertBefore, revertAfter,
+                searchStart: revertBefore.Start,
+                searchEnd: revertAfter.Start + windowSize);
+
+            var evt = new PathShiftEvent
+            {
+                Time = RoundToQuarterHour(crossing ?? windows[r].Start),
+                AsnNumber = series.AsnNumber,
+                AsnName = series.AsnName,
+                TargetId = series.TargetIds.Count == 1 ? series.TargetIds[0] : null,
+                BeforeMedianMs = revertBefore.MedianMs,
+                AfterMedianMs = revertAfter.MedianMs
+            };
+
+            return (evt, lastRequired);
+        }
+
+        return null;
     }
 
     /// <summary>
