@@ -2599,6 +2599,10 @@ select.form-control {
     border-left: 4px solid var(--border-color);
 }
 
+.issue-item + .issue-item {
+    margin-top: 0.5rem;
+}
+
 .issue-item.issue-critical {
     border-left-color: var(--danger-color);
 }
@@ -2675,6 +2679,7 @@ select.form-control {
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
+    margin-bottom: 0.375rem;
 }
 
 .issue-critical .issue-severity {
