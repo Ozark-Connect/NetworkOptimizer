@@ -126,7 +126,7 @@ public class IspHealthOptions
     public int StepWindowMinutes { get; set; } = 30;
 
     /// <summary>Absolute floor in ms for a step-change candidate delta.</summary>
-    public double StepMinDeltaMs { get; set; } = 1.5;
+    public double StepMinDeltaMs { get; set; } = 1.2;
 
     /// <summary>Relative floor (fraction of the before-median) for a step-change candidate delta.</summary>
     public double StepMinRelativeChange { get; set; } = 0.06;
