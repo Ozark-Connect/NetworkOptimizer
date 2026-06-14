@@ -238,12 +238,7 @@
                 if (el.hasAttribute('data-tooltip-follow')) {
                     opts.followCursor = true;
                 }
-                if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
-                    opts.trigger = 'mouseenter';
-                }
-                // Desktop-hover only: no click trigger and no tap on touch devices,
-                // so the tap just performs the element's action.
-                if (el.hasAttribute('data-tooltip-no-touch')) {
+                if (el.hasAttribute('data-tooltip-no-touch') || el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
                 }
@@ -297,12 +292,7 @@
                 if (el.hasAttribute('data-tooltip-follow')) {
                     opts.followCursor = true;
                 }
-                if (el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
-                    opts.trigger = 'mouseenter';
-                }
-                // Desktop-hover only: no click trigger and no tap on touch devices,
-                // so the tap just performs the element's action.
-                if (el.hasAttribute('data-tooltip-no-touch')) {
+                if (el.hasAttribute('data-tooltip-no-touch') || el.hasAttribute('data-tooltip-hover-only') || el.tagName === 'BUTTON') {
                     opts.trigger = 'mouseenter';
                     opts.touch = false;
                 }
