@@ -154,6 +154,7 @@
 
                     if (st > lastScrollTop && st > 60 && isContentScrollable()) {
                         topBar.classList.add('top-bar-hidden');
+                        setTimeout(function() { if (topBar.classList.contains('top-bar-hidden')) topBar.classList.add('top-bar-collapsed'); }, 350);
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
                     } else if (!nearBottom && scrollUpAccum > 60) {
