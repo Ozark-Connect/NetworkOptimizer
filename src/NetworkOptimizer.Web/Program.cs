@@ -368,6 +368,10 @@ builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPa
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator>();
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
 builder.Services.AddScoped<InfluxDbProvisioningService>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH

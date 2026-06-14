@@ -217,6 +217,133 @@ public static class DefaultAlertRules
             Source = "monitoring",
             MinSeverity = AlertSeverity.Warning,
             CooldownSeconds = 1800 // 30 minutes
+        },
+
+        // --- Gateway health (enabled - always available when monitoring is active) ---
+        new AlertRule
+        {
+            Name = "Gateway: High CPU",
+            IsEnabled = true,
+            EventTypePattern = "device.gateway_high_cpu",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            ThresholdPercent = 70,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Gateway: High Memory",
+            IsEnabled = true,
+            EventTypePattern = "device.gateway_high_memory",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            ThresholdPercent = 95,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+
+        // --- Cable modem (enabled - only fires when CM monitoring is configured) ---
+        new AlertRule
+        {
+            Name = "Cable Modem: Low SNR",
+            IsEnabled = true,
+            EventTypePattern = "cable_modem.ds_snr_low",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: Uncorrectable Errors",
+            IsEnabled = true,
+            EventTypePattern = "cable_modem.uncorrectable_errors",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: DS Power Out of Range",
+            IsEnabled = true,
+            EventTypePattern = "cable_modem.ds_power_out_of_range",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: US Power High",
+            IsEnabled = true,
+            EventTypePattern = "cable_modem.us_power_high",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cable Modem: Channel Loss",
+            IsEnabled = true,
+            EventTypePattern = "cable_modem.channel_loss",
+            Source = "cable_modem",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+
+        // --- External ONT (enabled - only fires when ONT monitoring is configured) ---
+        new AlertRule
+        {
+            Name = "ONT: RX Power Low",
+            IsEnabled = true,
+            EventTypePattern = "ont.rx_power_low",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "ONT: PON Link Down",
+            IsEnabled = true,
+            EventTypePattern = "ont.pon_link_down",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Error,
+            CooldownSeconds = 600 // 10 minutes
+        },
+        new AlertRule
+        {
+            Name = "ONT: FEC Error Spike",
+            IsEnabled = true,
+            EventTypePattern = "ont.fec_errors",
+            Source = "ont",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+
+        // --- Cellular modem (enabled - only fires when cellular monitoring is configured) ---
+        new AlertRule
+        {
+            Name = "Cellular: Poor Signal",
+            IsEnabled = true,
+            EventTypePattern = "cellular.signal_poor",
+            Source = "cellular",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
+        new AlertRule
+        {
+            Name = "Cellular: Network Downgrade",
+            IsEnabled = true,
+            EventTypePattern = "cellular.network_downgrade",
+            Source = "cellular",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
+        },
+        new AlertRule
+        {
+            Name = "Cellular: Roaming",
+            IsEnabled = true,
+            EventTypePattern = "cellular.roaming",
+            Source = "cellular",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 3600 // 1 hour
         }
     ];
 }

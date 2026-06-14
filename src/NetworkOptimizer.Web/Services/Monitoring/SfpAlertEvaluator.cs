@@ -12,18 +12,18 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class SfpAlertEvaluator
 {
-    private const double PonRxPowerLowDbm = -25.0;
-    private const double PonTxPowerHighDbm = 4.0;
-    private const double PonTempHighC = 75.0;
+    private const double PonRxPowerLowDbm = PonThresholds.PonRxPowerLowDbm;
+    private const double PonTxPowerHighDbm = PonThresholds.PonTxPowerHighDbm;
+    private const double PonTempHighC = PonThresholds.PonTempHighC;
 
-    private const double AeRxPowerLowDbm = -14.0;
-    private const double AeTxPowerHighDbm = 1.0;
-    private const double AeTempHighC = 80.0;
+    private const double AeRxPowerLowDbm = PonThresholds.AeRxPowerLowDbm;
+    private const double AeTxPowerHighDbm = PonThresholds.AeTxPowerHighDbm;
+    private const double AeTempHighC = PonThresholds.AeTempHighC;
 
-    private const double SfpTempHighC = 87.0;
+    private const double SfpTempHighC = PonThresholds.SfpTempHighGenericC;
 
-    private const double TempHysteresisC = 5.0;
-    private const double PowerHysteresisDbm = 2.0;
+    private const double TempHysteresisC = PonThresholds.TempHysteresisC;
+    private const double PowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
 
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<SfpAlertEvaluator> _logger;

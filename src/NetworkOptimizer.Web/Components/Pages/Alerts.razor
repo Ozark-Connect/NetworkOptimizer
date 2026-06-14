@@ -1497,6 +1497,43 @@
                     </div>
                 </div>
                 <div>
+                    <h4 class="event-type-group-header">Gateway Health</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("device.gateway_high_cpu")'><code>device.gateway_high_cpu</code> <span>Gateway CPU sustained above threshold</span></div>
+                        <div @onclick='() => SelectEventType("device.gateway_high_memory")'><code>device.gateway_high_memory</code> <span>Gateway memory above threshold</span></div>
+                        <div @onclick='() => SelectEventType("device.*")'><code>device.*</code> <span>All device events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Cable Modem</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("cable_modem.ds_snr_low")'><code>cable_modem.ds_snr_low</code> <span>Downstream SNR below threshold</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.uncorrectable_errors")'><code>cable_modem.uncorrectable_errors</code> <span>Uncorrectable FEC error spike</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.ds_power_out_of_range")'><code>cable_modem.ds_power_out_of_range</code> <span>DS power outside DOCSIS spec range</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.us_power_high")'><code>cable_modem.us_power_high</code> <span>US transmit power too high</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.channel_loss")'><code>cable_modem.channel_loss</code> <span>Locked channel count dropped</span></div>
+                        <div @onclick='() => SelectEventType("cable_modem.*")'><code>cable_modem.*</code> <span>All cable modem events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">External ONT</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("ont.rx_power_low")'><code>ont.rx_power_low</code> <span>Optical RX power below threshold</span></div>
+                        <div @onclick='() => SelectEventType("ont.pon_link_down")'><code>ont.pon_link_down</code> <span>PON link lost</span></div>
+                        <div @onclick='() => SelectEventType("ont.fec_errors")'><code>ont.fec_errors</code> <span>FEC error rate spike</span></div>
+                        <div @onclick='() => SelectEventType("ont.*")'><code>ont.*</code> <span>All ONT events</span></div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="event-type-group-header">Cellular Modem</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("cellular.signal_poor")'><code>cellular.signal_poor</code> <span>Signal quality dropped to poor</span></div>
+                        <div @onclick='() => SelectEventType("cellular.network_downgrade")'><code>cellular.network_downgrade</code> <span>Network mode downgraded (5G to LTE)</span></div>
+                        <div @onclick='() => SelectEventType("cellular.roaming")'><code>cellular.roaming</code> <span>Modem entered roaming state</span></div>
+                        <div @onclick='() => SelectEventType("cellular.*")'><code>cellular.*</code> <span>All cellular events</span></div>
+                    </div>
+                </div>
+                <div>
                     <h4 class="event-type-group-header">WAN Data Usage</h4>
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("wan.data_usage_warning")'><code>wan.data_usage_warning</code> <span>Monthly data cap approaching</span></div>
