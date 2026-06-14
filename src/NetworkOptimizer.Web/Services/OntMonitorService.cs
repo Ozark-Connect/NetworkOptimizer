@@ -100,9 +100,14 @@ public class OntMonitorService : IDisposable
             config.Password = _credentialProtection.Encrypt(config.Password);
         }
 
+        var isNew = config.Id == 0;
+
         using var scope = _scopeFactory.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         await repository.SaveOntConfigurationAsync(config);
+
+        if (isNew)
+            await AlertRuleAutoEnable.EnableBySourceAsync(scope, "ont", _logger);
     }
 
     /// <summary>

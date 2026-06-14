@@ -273,9 +273,15 @@ public class CellularModemService : ICellularModemService
             config.Password = _credentialProtection.Encrypt(config.Password);
         }
 
+        var isNew = config.Id == 0;
+
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         await repository.SaveModemConfigurationAsync(config);
+
+        if (isNew)
+            await AlertRuleAutoEnable.EnableBySourceAsync(scope, "cellular", _logger);
+
         return config;
     }
 

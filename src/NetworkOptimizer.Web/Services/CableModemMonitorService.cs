@@ -94,9 +94,14 @@ public sealed class CableModemMonitorService : IDisposable
             config.Password = _credentialProtection.Encrypt(config.Password);
         }
 
+        var isNew = config.Id == 0;
+
         using var scope = _scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         await repo.SaveCmConfigurationAsync(config);
+
+        if (isNew)
+            await AlertRuleAutoEnable.EnableBySourceAsync(scope, "cable_modem", _logger);
     }
 
     /// <summary>

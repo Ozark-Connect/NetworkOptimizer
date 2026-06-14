@@ -616,6 +616,28 @@ using (var scope = app.Services.CreateScope())
             db.SaveChanges();
             app.Logger.LogInformation("Seeded {Count} new alert rules", missing.Count);
         }
+
+        // Auto-enable modem/ONT alert rules for users who already have configs.
+        // Rules seed as disabled, but existing users shouldn't have to manually
+        // enable them - they already opted in by configuring the monitoring target.
+        EnableRulesIfConfigsExist(db, "cable_modem", () => db.CmConfigurations.Any());
+        EnableRulesIfConfigsExist(db, "ont", () => db.OntConfigurations.Any());
+        EnableRulesIfConfigsExist(db, "cellular", () => db.ModemConfigurations.Any());
+
+        static void EnableRulesIfConfigsExist(
+            NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext db,
+            string source,
+            Func<bool> hasConfigs)
+        {
+            var disabled = db.AlertRules
+                .Where(r => r.Source == source && !r.IsEnabled)
+                .ToList();
+            if (disabled.Count > 0 && hasConfigs())
+            {
+                foreach (var rule in disabled) rule.IsEnabled = true;
+                db.SaveChanges();
+            }
+        }
     }
 
     // Seed default scheduled tasks if none exist
