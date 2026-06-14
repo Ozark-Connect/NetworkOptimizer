@@ -195,6 +195,7 @@ builder.Services.AddSingleton<ICableModemProvider, NetgearCmProvider>();
 builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHttpProvider>();
 builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, MotorolaHnapProvider>();
+builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
 builder.Services.AddSingleton<CableModemMonitorService>();
 
 // Register External ONT providers and service
