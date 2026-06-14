@@ -112,7 +112,7 @@
                 if (sidebarOpen) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
-                    setTimeout(function() { topBar.classList.add('top-bar-collapsed'); }, 350);
+                    setTimeout(function() { if (topBar.classList.contains('top-bar-hidden') && currentEl && currentEl.scrollHeight - topBar.offsetHeight > currentEl.clientHeight + 10) topBar.classList.add('top-bar-collapsed'); }, 350);
                     if (currentEl) currentEl.style.scrollPaddingTop = '0px';
                     var identityBar = document.querySelector('.identity-bar');
                     if (identityBar) identityBar.classList.remove('below-topbar');
@@ -154,7 +154,6 @@
 
                     if (st > lastScrollTop && st > 60 && isContentScrollable()) {
                         topBar.classList.add('top-bar-hidden');
-                        setTimeout(function() { if (topBar.classList.contains('top-bar-hidden')) topBar.classList.add('top-bar-collapsed'); }, 350);
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
                     } else if (!nearBottom && scrollUpAccum > 60) {
@@ -208,6 +207,19 @@
         window.addEventListener('orientationchange', function() {
             setTimeout(function() { window.scrollBy(0, 1); window.scrollBy(0, -1); }, 100);
         });
+
+        // Show nav bar when content shrinks below scrollable (e.g. tab switch to short content)
+        var pageContent = document.querySelector('.page-content');
+        if (window.innerWidth <= 1024 && pageContent) {
+            new ResizeObserver(function() {
+                var topBar = document.querySelector('.top-bar');
+                if (topBar && topBar.classList.contains('top-bar-hidden') && !isContentScrollable()) {
+                    topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
+                    if (currentEl) currentEl.style.scrollPaddingTop = '70px';
+                    startAutoHideTimer(topBar);
+                }
+            }).observe(pageContent);
+        }
 
         // Restart auto-hide timer when sidebar closes
         var sidebar = document.querySelector('.sidebar');
