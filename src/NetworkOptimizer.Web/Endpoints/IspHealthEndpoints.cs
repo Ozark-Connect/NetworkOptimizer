@@ -16,19 +16,31 @@ public static class IspHealthEndpoints
         {
             var (series, report) = await ispHealth.GetAsnChartDataAsync(ct);
 
-            var asns = series.Select(s => new
+            var asnBuckets = series.Select(s => new
             {
                 asn = s.AsnNumber,
                 name = string.IsNullOrEmpty(s.AsnName) ? $"AS{s.AsnNumber}" : s.AsnName,
-                points = s.Samples
+                buckets = s.Samples
                     .Where(p => p.RttAvgMs.HasValue)
                     .GroupBy(p => new DateTime(p.Time.Ticks - p.Time.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc))
-                    .OrderBy(g => g.Key)
-                    .Select(g => new
-                    {
-                        time = g.Key.ToString("o"),
-                        value = Math.Round(g.Average(p => p.RttAvgMs!.Value), 2)
-                    })
+                    .ToDictionary(g => g.Key, g => Math.Round(g.Average(p => p.RttAvgMs!.Value), 2))
+            }).ToList();
+
+            var allTimes = asnBuckets
+                .SelectMany(a => a.buckets.Keys)
+                .Distinct()
+                .OrderBy(t => t)
+                .ToList();
+
+            var asns = asnBuckets.Select(a => new
+            {
+                a.asn,
+                a.name,
+                points = allTimes.Select(t => new
+                {
+                    time = t.ToString("o"),
+                    value = a.buckets.TryGetValue(t, out var v) ? (double?)v : null
+                })
             });
 
             var events = new List<object>();
