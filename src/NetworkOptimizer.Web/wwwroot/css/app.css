@@ -15201,7 +15201,7 @@ a.affected-client:hover {
     margin-bottom: 0.375rem;
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .isp-health-card .issue-severity {
         grid-column: 1;
         grid-row: 1;
