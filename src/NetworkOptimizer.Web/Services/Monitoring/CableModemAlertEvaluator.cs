@@ -23,7 +23,7 @@ public class CableModemAlertEvaluator
     private const double UsPowerHighDbmv = 51.0;
     private const double UsPowerClearDbmv = 48.0;
 
-    private const long UncorrectablesDeltaThreshold = 100;
+    private const long UncorrectablesDeltaThreshold = 500;
 
     private const int ChannelDropThreshold = 4;
 
