@@ -6,7 +6,7 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
-/// Cable modem provider for Xfinity gateways (XB6, XB7, XB8, XB10, etc.).
+/// Cable modem provider for Xfinity gateways (XB8, XB10).
 /// Authenticates via form POST to /check.jst, then scrapes DOCSIS channel
 /// tables from /network_setup.jst. The tables use a transposed layout where
 /// each row is a metric and each column is a channel.
@@ -337,7 +337,9 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         metricRows.TryGetValue("correctablecodewords", out var correctables);
         metricRows.TryGetValue("uncorrectablecodewords", out var uncorrectables);
 
-        var dsLookup = stats.DownstreamChannels.ToDictionary(c => c.ChannelId);
+        var dsLookup = new Dictionary<int, DsChannel>();
+        foreach (var ch in stats.DownstreamChannels)
+            dsLookup.TryAdd(ch.ChannelId, ch);
 
         for (int i = 0; i < channelIds.Count; i++)
         {
