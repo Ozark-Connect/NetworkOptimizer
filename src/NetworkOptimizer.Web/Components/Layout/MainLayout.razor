@@ -102,6 +102,12 @@
             return currentEl && currentEl.scrollHeight > currentEl.clientHeight + 10;
         }
 
+        function wouldStillScroll() {
+            var bar = document.querySelector('.top-bar');
+            var barH = bar ? bar.offsetHeight : 0;
+            return currentEl && currentEl.scrollHeight - barH > currentEl.clientHeight + 10;
+        }
+
         function startAutoHideTimer(topBar) {
             clearAutoHideTimer();
             var page = document.querySelector('[data-autohide-nav]');
@@ -112,7 +118,7 @@
                 if (sidebarOpen) return;
                 if (topBar && !topBar.classList.contains('top-bar-hidden')) {
                     topBar.classList.add('top-bar-hidden');
-                    setTimeout(function() { topBar.classList.add('top-bar-collapsed'); }, 350);
+                    setTimeout(function() { if (topBar.classList.contains('top-bar-hidden') && wouldStillScroll()) topBar.classList.add('top-bar-collapsed'); }, 350);
                     if (currentEl) currentEl.style.scrollPaddingTop = '0px';
                     var identityBar = document.querySelector('.identity-bar');
                     if (identityBar) identityBar.classList.remove('below-topbar');
@@ -154,7 +160,7 @@
 
                     if (st > lastScrollTop && st > 60 && isContentScrollable()) {
                         topBar.classList.add('top-bar-hidden');
-                        setTimeout(function() { if (topBar.classList.contains('top-bar-hidden')) topBar.classList.add('top-bar-collapsed'); }, 350);
+                        setTimeout(function() { if (topBar.classList.contains('top-bar-hidden') && wouldStillScroll()) topBar.classList.add('top-bar-collapsed'); }, 350);
                         currentEl.style.scrollPaddingTop = '0px';
                         clearAutoHideTimer();
                     } else if (!nearBottom && scrollUpAccum > 60) {
@@ -310,47 +316,6 @@
                     indicator.style.opacity = '0';
                 }
             });
-        })();
-        // Reveal nav bar on swipe-down when content is too short to scroll
-        (function() {
-            if (window.innerWidth > 1024) return;
-            var container = document.querySelector('.main-content');
-            if (!container) return;
-            var touchStartY = 0;
-            var revealAccum = 0;
-            var tracking = false;
-
-            container.addEventListener('touchstart', function(e) {
-                var topBar = document.querySelector('.top-bar');
-                if (topBar && topBar.classList.contains('top-bar-hidden') && !isContentScrollable()) {
-                    touchStartY = e.touches[0].pageY;
-                    revealAccum = 0;
-                    tracking = true;
-                } else {
-                    tracking = false;
-                }
-            }, { passive: true });
-
-            container.addEventListener('touchmove', function(e) {
-                if (!tracking) return;
-                var dy = e.touches[0].pageY - touchStartY;
-                if (dy > 0) {
-                    revealAccum = dy;
-                } else {
-                    revealAccum = 0;
-                }
-                if (revealAccum > 60) {
-                    var topBar = document.querySelector('.top-bar');
-                    if (topBar) {
-                        topBar.classList.remove('top-bar-hidden', 'top-bar-collapsed');
-                        if (currentEl) currentEl.style.scrollPaddingTop = '70px';
-                        startAutoHideTimer(topBar);
-                    }
-                    tracking = false;
-                }
-            }, { passive: true });
-
-            container.addEventListener('touchend', function() { tracking = false; }, { passive: true });
         })();
     })();
 </script>
