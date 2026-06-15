@@ -847,10 +847,12 @@ public class IspHealthScorer
 
                 var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt: null, internetMedianDeltaMs: null,
                     intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective);
+                // Log the graded effective (post sub-0.05 ms assimilation snap in GradeAsn),
+                // not the raw witness min, so the log matches what the hop is actually scored on.
                 _logger?.LogDebug(
                     "ISP Health: ISP hop {Target} (AS{Asn}) graded {Score} - measured jitter {Jitter} ms, effective {Eff} ms ({Witnesses} routes-through witnesses), reach +{Reach} ms",
                     hop.TargetIds.FirstOrDefault(), hop.AsnNumber, grade.OverallScore,
-                    FormatMsOrNull(measured), FormatMsOrNull(effective), witnesses.Count, FormatMsOrNull(grade.ReachDeltaMs));
+                    FormatMsOrNull(measured), FormatMsOrNull(grade.P95JitterMs), witnesses.Count, FormatMsOrNull(grade.ReachDeltaMs));
                 grades.Add(grade);
             }
         }
