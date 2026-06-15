@@ -546,11 +546,12 @@ public class ThirdPartyDnsDetector
     }
 
     /// <summary>
-    /// Probe gateway IPs for on-gateway DNS services (NextDNS CLI, ControlD ctrld).
-    /// These services listen on the gateway itself, so the normal per-network
-    /// detection skips them (it filters out DNS servers that match the gateway IP).
-    /// Only NextDNS and ControlD probes run here - Pi-hole and AdGuard Home are
-    /// LAN appliances, not gateway-resident services.
+    /// Probe gateway IPs for user-installed DNS tunnels (NextDNS CLI, ControlD ctrld).
+    /// These are daemons the user manually installs on the gateway via SSH - distinct
+    /// from UniFi's built-in CyberSecure Encrypted DNS, which is detected via the
+    /// DoH settings API. The normal per-network detection skips them because they
+    /// listen on the gateway IP itself. Only NextDNS and ControlD probes run here;
+    /// Pi-hole and AdGuard Home are LAN appliances, not gateway-resident services.
     /// </summary>
     public async Task<List<ThirdPartyDnsInfo>> ProbeGatewayDnsAsync(List<NetworkInfo> networks)
     {

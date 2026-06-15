@@ -2061,9 +2061,10 @@ public class DnsSecurityAnalyzer
             }
         }
 
-        // Probe gateway IPs for on-gateway DNS services (NextDNS CLI, ControlD ctrld).
-        // Only when DoH is not configured - these services handle encryption themselves,
-        // so detecting them prevents false "DoH not configured" warnings.
+        // Probe for user-installed DNS tunnels on the gateway (NextDNS CLI, ControlD ctrld).
+        // These are manually installed via SSH, distinct from UniFi's built-in CyberSecure
+        // DoH. Only probe when DoH is not configured, since these services handle encryption
+        // themselves and their presence prevents false "DoH not configured" warnings.
         if (!result.DohConfigured)
         {
             var gatewayResults = await _thirdPartyDetector.ProbeGatewayDnsAsync(networks);
