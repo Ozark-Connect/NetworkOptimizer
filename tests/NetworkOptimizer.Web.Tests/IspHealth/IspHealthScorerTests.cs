@@ -667,22 +667,33 @@ public class IspHealthScorerTests
     {
         // With ancestor data, a clean transit absolves only the ISP hop it routes through
         // (the hop is in its ancestor set). A divergent hop the transit never traverses keeps
-        // its own jitter - closing the AT&T divergence hole.
+        // its own jitter - closing the divergent-path absolve hole.
         var onPath = new AsnSeries
         {
-            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-onpath" }, RoleTargetIds = { "isp-onpath" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0), HopIps = { "10.0.0.1" }
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-onpath" },
+            RoleTargetIds = { "isp-onpath" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0),
+            HopIps = { "10.0.0.1" }
         };
         var divergent = new AsnSeries
         {
-            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-divergent" }, RoleTargetIds = { "isp-divergent" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0), HopIps = { "10.0.0.9" }
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-divergent" },
+            RoleTargetIds = { "isp-divergent" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0),
+            HopIps = { "10.0.0.9" }
         };
         var transit = new AsnSeries
         {
-            AsnNumber = 64500, AsnName = "Transit", TargetIds = { "transit" },
+            AsnNumber = 64500,
+            AsnName = "Transit",
+            TargetIds = { "transit" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4),
-            HopIps = { "20.0.0.1" }, AncestorIps = { "10.0.0.1" } // routes through the on-path hop only
+            HopIps = { "20.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // routes through the on-path hop only
         };
         var hops = new List<AsnSeries> { onPath, divergent };
 
@@ -849,23 +860,24 @@ public class IspHealthScorerTests
     [Fact]
     public void Same_asn_as_isp_and_transit_attributes_congestion_by_role()
     {
-        // AT&T is AS7018 for both the access ISP and a transit provider. A congestion
-        // event on the transit hops must credit only the transit card, not the ISP card.
+        // A vertically integrated carrier can be the same ASN for both the access ISP and a
+        // transit provider. A congestion event on the transit hops must credit only the
+        // transit card, not the ISP card.
         var ispSeries = new AsnSeries
         {
-            AsnNumber = 7018,
-            AsnName = "AT&T",
-            TargetIds = { "att-isp-hop" },
+            AsnNumber = 64500,
+            AsnName = "IntegratedCarrier",
+            TargetIds = { "carrier-isp-hop" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "att-isp-hop" }
+            RoleTargetIds = { "carrier-isp-hop" }
         };
         var transitSeries = new AsnSeries
         {
-            AsnNumber = 7018,
-            AsnName = "AT&T",
-            TargetIds = { "att-transit-hop" },
+            AsnNumber = 64500,
+            AsnName = "IntegratedCarrier",
+            TargetIds = { "carrier-transit-hop" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "att-transit-hop" }
+            RoleTargetIds = { "carrier-transit-hop" }
         };
         var congestion = new List<CongestionEvent>
         {
@@ -873,8 +885,8 @@ public class IspHealthScorerTests
             {
                 Start = TestSeries.Start.AddHours(19),
                 End = TestSeries.Start.AddHours(21),
-                AsnNumbers = { 7018 },
-                TargetIds = { "att-transit-hop" }
+                AsnNumbers = { 64500 },
+                TargetIds = { "carrier-transit-hop" }
             }
         };
         var report = new IspHealthScorer(Options).Score(
