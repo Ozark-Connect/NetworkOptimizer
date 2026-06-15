@@ -668,6 +668,29 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Without_hop_order_a_transit_asn_is_graded_on_its_near_cluster()
+    {
+        // Backward compat: installs that have not re-run discovery have no stored hop
+        // order, so the service never sets JitterSourceSamples. The ASN must still grade
+        // cleanly - on its nearest cluster's own jitter, with no farther-cluster absolve.
+        var nearJittery = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0);
+        var noHopOrder = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearJittery
+            // JitterSourceSamples intentionally empty (no hop order available)
+        };
+
+        var graded = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { noHopOrder }), Gpon).TransitAsns.Single();
+
+        graded.OverallScore.Should().NotBeNull();
+        graded.MedianJitterMs.Should().BeApproximately(4.0, 0.1, "jitter is the near cluster's own, never absolved without proof");
+    }
+
+    [Fact]
     public void A_jittery_farther_cluster_never_downgrades_the_nearer()
     {
         // The near cluster is clean (0.4 ms); the farther cluster is jittery (4 ms). The far
