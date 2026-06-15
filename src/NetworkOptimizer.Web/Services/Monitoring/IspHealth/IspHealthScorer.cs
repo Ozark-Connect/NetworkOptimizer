@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -299,7 +298,7 @@ public class IspHealthScorer
             Score = (int)Math.Round(score),
             Weight = _options.IdleLatencyWeight,
             ValueText = FormatMs(idleBaseline.Value),
-            Description = $"Idle latency to the first ISP hop vs the {FormatMs(profile.IdleRttNormalLowMs)} to {FormatMs(profile.IdleRttNormalHighMs)} normal band for {profile.DisplayName}."
+            Description = $"Idle latency to the first ISP hop vs the {FormatMsBand(profile.IdleRttNormalLowMs)} to {FormatMsBand(profile.IdleRttNormalHighMs)} normal band for {profile.DisplayName}."
         };
     }
 
@@ -400,7 +399,7 @@ public class IspHealthScorer
             Score = (int)Math.Round(scores.Average()),
             Weight = _options.LoadedLatencyWeight,
             ValueText = string.Join(", ", parts),
-            Description = $"Latency increase under load vs +{FormatMs(profile.LoadedDeltaExcellentMs)} excellent and +{FormatMs(profile.LoadedDeltaAcceptableMs)} acceptable for {profile.DisplayName}.{source}"
+            Description = $"Latency increase under load vs +{FormatMsBand(profile.LoadedDeltaExcellentMs)} excellent and +{FormatMsBand(profile.LoadedDeltaAcceptableMs)} acceptable for {profile.DisplayName}.{source}"
         }, true);
     }
 
@@ -1072,6 +1071,10 @@ public class IspHealthScorer
 
     private static string FormatMs(double ms) =>
         $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";
+
+    /// <summary>Threshold/band references in descriptions: drop trailing zeros (2 ms, not 2.00 ms).</summary>
+    private static string FormatMsBand(double ms) =>
+        $"{ms.ToString("0.##", CultureInfo.InvariantCulture)} ms";
 
     /// <summary>Debug-log helper: a millisecond value to two decimals, or "n/a" when null.</summary>
     private static string FormatMsOrNull(double? ms) =>
