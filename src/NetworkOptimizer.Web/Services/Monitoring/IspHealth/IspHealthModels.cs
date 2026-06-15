@@ -84,6 +84,14 @@ public class IspAsnHealth
     public double? P95RttMs { get; init; }
     public double? MedianJitterMs { get; init; }
     public double? P95JitterMs { get; init; }
+
+    /// <summary>True when the displayed jitter was assimilated from elsewhere (a cleaner
+    /// farther cluster for transit, or the cleanest transit ASN for the ISP) rather than
+    /// this network's own nearest reading. Drives the info icon on the card.</summary>
+    public bool JitterAssimilated { get; init; }
+
+    /// <summary>This network's own measured jitter before assimilation, for the tooltip.</summary>
+    public double? RawJitterMs { get; init; }
     public double? RttMadMs { get; init; }
     public double? LossPct { get; init; }
 

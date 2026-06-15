@@ -279,7 +279,16 @@ else
                                 {
                                     <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatRtt(asn.MeanRttMs)</span></div>
                                 }
-                                <div class="isp-asn-stat"><span class="detail-label">P95 Jitter</span><span class="detail-value">@FormatJitter(asn.P95JitterMs)</span></div>
+                                <div class="isp-asn-stat">
+                                    <span class="detail-label">P95 Jitter</span>
+                                    <span class="detail-value">
+                                        @FormatJitter(asn.P95JitterMs)
+                                        @if (asn.JitterAssimilated)
+                                        {
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
+                                        }
+                                    </span>
+                                </div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @if (asn.ReachDeltaMs.HasValue)
                                 {
@@ -444,6 +453,10 @@ else
     private static string FormatMs(double? ms) => ms.HasValue ? $"{ms.Value:0.#} ms" : "--";
 
     private static string FormatJitter(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
+
+    private static string JitterAssimilationTooltip(IspAsnHealth asn, bool isIsp) => isIsp
+        ? $"Shown jitter is {FormatJitter(asn.P95JitterMs)}, not the ISP hops' own {FormatJitter(asn.RawJitterMs)}. A transit network reached through your ISP measured the lower value, and since that traffic crosses the ISP first, the ISP path can be no jitterier than that. The higher ISP-hop reading is usually ICMP deprioritization, so the cleaner transit value is used."
+        : $"Shown jitter is {FormatJitter(asn.P95JitterMs)}, not this network's nearest-hop {FormatJitter(asn.RawJitterMs)}. A farther hop reached through the nearer one measured the lower value, which proves the path is steady; the nearer hop's higher reading is usually ICMP deprioritization, so the cleaner farther value is used.";
 
     private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
 

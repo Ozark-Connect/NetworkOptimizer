@@ -579,6 +579,8 @@ public class IspHealthScorerTests
 
         withCleanTransit.IspAsnDimension.Score.Should().BeGreaterThan(noTransit.IspAsnDimension.Score!.Value,
             "a clean transit ASN beyond the ISP caps the ISP's jitter");
+        withCleanTransit.IspAsns.Single().JitterAssimilated.Should().BeTrue("the transit floor capped the ISP jitter");
+        noTransit.IspAsns.Single().JitterAssimilated.Should().BeFalse("no transit to assimilate from");
     }
 
     [Fact]
@@ -694,6 +696,8 @@ public class IspHealthScorerTests
         graded.JitterScore.Should().BeGreaterThan(85);
         graded.P95JitterMs.Should().BeApproximately(0.4, 0.1,
             "the displayed jitter is the absolved value, not the near hop's 4 ms");
+        graded.JitterAssimilated.Should().BeTrue("the farther cluster pulled the jitter down");
+        graded.RawJitterMs.Should().BeApproximately(4.0, 0.1, "the raw near reading is kept for the tooltip");
     }
 
     [Fact]
@@ -750,6 +754,7 @@ public class IspHealthScorerTests
 
         withFar.JitterScore.Should().Be(without.JitterScore,
             "a jittery farther cluster must not downgrade the clean nearer cluster");
+        withFar.JitterAssimilated.Should().BeFalse("nothing was assimilated - the near cluster was already cleaner");
     }
 
     [Fact]
