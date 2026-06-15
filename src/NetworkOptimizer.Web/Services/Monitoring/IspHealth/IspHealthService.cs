@@ -51,8 +51,12 @@ public class IspHealthService
     /// </summary>
     public IspHealthSnapshot GetCachedScore()
     {
+        // The glanceable tile tolerates a longer staleness than the detail tab, so sitting on
+        // Live View doesn't drive a full Influx recompute every CacheTtl. A recompute is still
+        // kicked off once the tile crosses DashboardScoreTtl (or on first populate); the ISP
+        // Health tab uses the shorter CacheTtl (via GetReportAsync) for fresher detail.
         var report = _cached?.Report;
-        if (report != null && DateTime.UtcNow - report.ComputedAt < _options.CacheTtl)
+        if (report != null && DateTime.UtcNow - report.ComputedAt < _options.DashboardScoreTtl)
             return new IspHealthSnapshot(IspHealthStatus.Ready, report.OverallScore, report.ComputedAt);
 
         if (!_computing)
