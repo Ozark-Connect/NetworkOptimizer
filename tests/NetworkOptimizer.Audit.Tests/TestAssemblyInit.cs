@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Audit.Tests;
 /// per-class constructor boilerplate.
 /// </summary>
 /// <remarks>
-/// Currently this only owns ThirdPartyDnsDetector.NextDnsProbeOverride.
+/// Currently this owns ThirdPartyDnsDetector.NextDnsProbeOverride and ControlDProbeOverride.
 /// DohProviderRegistry.DnsResolver continues to use the existing per-file
 /// constructor/Dispose pattern - it's set in only two test classes and that
 /// scale is fine. If future work adds more test injection points, or if the
@@ -23,16 +23,15 @@ internal static class TestAssemblyInit
     internal static void Init() => SetSafeDefault();
 
     /// <summary>
-    /// Sets ThirdPartyDnsDetector.NextDnsProbeOverride to a no-op that returns
-    /// (false, null) for any input. Tests that exercise the NextDNS probe path
-    /// explicitly override this with their own outcome, then call this method
-    /// in Dispose to restore the assembly-wide default rather than nulling out
-    /// the override (which would expose subsequent tests to the real DNS+HTTPS
-    /// probe and burn their 2s DnsClient timeout).
+    /// Sets probe overrides to no-ops so tests don't hit real DNS/HTTPS endpoints.
+    /// Tests that exercise a specific probe path override it with their own outcome,
+    /// then call this method in Dispose to restore the assembly-wide default.
     /// </summary>
     internal static void SetSafeDefault()
     {
         ThirdPartyDnsDetector.NextDnsProbeOverride = (_, _) =>
             Task.FromResult<(bool IsNextDns, string? Profile)>((false, null));
+        ThirdPartyDnsDetector.ControlDProbeOverride = (_, _) =>
+            Task.FromResult(false);
     }
 }

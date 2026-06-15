@@ -1639,7 +1639,10 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     [InlineData("208.67.222.222", "OpenDNS")]
     [InlineData("94.140.14.14", "AdGuard DNS")]
     [InlineData("45.90.28.0", "NextDNS")]
+    [InlineData("45.90.28.109", "NextDNS")]
     [InlineData("45.90.30.0", "NextDNS")]
+    [InlineData("76.76.2.0", "ControlD")]
+    [InlineData("76.76.10.11", "ControlD")]
     public void DetectExternalDns_KnownProviders_ReturnsCorrectProviderName(string dnsIp, string expectedProvider)
     {
         var detector = CreateDetector();
@@ -1875,6 +1878,140 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         result.Should().HaveCount(1);
         result[0].IsPihole.Should().BeFalse();
         result[0].IsAdGuardHome.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Gateway DNS Probe Tests
+
+    [Fact]
+    public async Task ProbeGatewayDnsAsync_NextDnsOnGateway_DetectsAcrossAllNetworks()
+    {
+        ThirdPartyDnsDetector.NextDnsProbeOverride = (ip, ct) =>
+            ip == "192.168.1.1"
+                ? Task.FromResult<(bool, string?)>((true, "abc123"))
+                : Task.FromResult<(bool, string?)>((false, null));
+
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Default", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.1.0/24", Gateway = "192.168.1.1" },
+            new() { Id = "n2", Name = "IoT", VlanId = 20, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.20.0/24", Gateway = "192.168.1.1" }
+        };
+
+        var result = await detector.ProbeGatewayDnsAsync(networks);
+
+        result.Should().HaveCount(2);
+        result.Should().AllSatisfy(r =>
+        {
+            r.IsNextDns.Should().BeTrue();
+            r.DnsServerIp.Should().Be("192.168.1.1");
+            r.NextDnsProfile.Should().Be("abc123");
+            r.DnsProviderName.Should().Be("NextDNS CLI");
+        });
+        result.Select(r => r.NetworkName).Should().BeEquivalentTo("Default", "IoT");
+    }
+
+    [Fact]
+    public async Task ProbeGatewayDnsAsync_ControlDOnGateway_DetectsIt()
+    {
+        ThirdPartyDnsDetector.ControlDProbeOverride = (ip, ct) =>
+            Task.FromResult(ip == "192.168.1.1");
+
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Default", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.1.0/24", Gateway = "192.168.1.1" }
+        };
+
+        var result = await detector.ProbeGatewayDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsControlD.Should().BeTrue();
+        result[0].IsNextDns.Should().BeFalse();
+        result[0].DnsServerIp.Should().Be("192.168.1.1");
+        result[0].DnsProviderName.Should().Be("ControlD");
+    }
+
+    [Fact]
+    public async Task ProbeGatewayDnsAsync_NothingOnGateway_ReturnsEmpty()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Default", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.1.0/24", Gateway = "192.168.1.1" }
+        };
+
+        var result = await detector.ProbeGatewayDnsAsync(networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ProbeGatewayDnsAsync_SkipsNetworksWithCustomDns()
+    {
+        ThirdPartyDnsDetector.NextDnsProbeOverride = (ip, ct) =>
+            Task.FromResult<(bool, string?)>((true, "abc123"));
+
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Default", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.1.0/24", Gateway = "192.168.1.1",
+                    DnsServers = new List<string> { "10.0.0.53" } }
+        };
+
+        var result = await detector.ProbeGatewayDnsAsync(networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ProbeGatewayDnsAsync_ExplicitGatewayDns_StillProbes()
+    {
+        ThirdPartyDnsDetector.ControlDProbeOverride = (ip, ct) =>
+            Task.FromResult(ip == "192.168.1.1");
+
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Default", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "192.168.1.0/24", Gateway = "192.168.1.1",
+                    DnsServers = new List<string> { "192.168.1.1" } }
+        };
+
+        var result = await detector.ProbeGatewayDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsControlD.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_ControlDOnLanServer_DetectsIt()
+    {
+        ThirdPartyDnsDetector.ControlDProbeOverride = (ip, ct) =>
+            Task.FromResult(ip == "10.0.100.53");
+
+        var httpClient = CreateMockHttpClient(HttpStatusCode.NotFound);
+        var detector = CreateDetector(httpClient);
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "n1", Name = "Trusted", VlanId = 1, Enabled = true, DhcpEnabled = true,
+                    Subnet = "10.0.0.0/24", Gateway = "10.0.0.1",
+                    DnsServers = new List<string> { "10.0.100.53" } }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsControlD.Should().BeTrue();
+        result[0].IsPihole.Should().BeFalse();
+        result[0].IsNextDns.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("ControlD");
     }
 
     #endregion
