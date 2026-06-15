@@ -77,6 +77,10 @@ public class IspAsnHealth
     /// <summary>Mean RTT across all of the ASN's monitored hops (shown on the Networks on Your Path card).</summary>
     public double? MeanRttMs { get; init; }
 
+    /// <summary>Lowest and highest hop RTT in the ASN, for the ISP card's RTT range.</summary>
+    public double? MinRttMs { get; init; }
+    public double? MaxRttMs { get; init; }
+
     public double? P95RttMs { get; init; }
     public double? MedianJitterMs { get; init; }
     public double? P95JitterMs { get; init; }

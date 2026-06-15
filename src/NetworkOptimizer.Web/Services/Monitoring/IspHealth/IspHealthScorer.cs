@@ -800,6 +800,8 @@ public class IspHealthScorer
                 TargetIds = targetIds,
                 MedianRttMs = medianRtts.Count > 0 ? medianRtts.Min() : null,
                 MeanRttMs = means.Count > 0 ? means.Average() : null,
+                MinRttMs = medianRtts.Count > 0 ? medianRtts.Min() : null,
+                MaxRttMs = medianRtts.Count > 0 ? medianRtts.Max() : null,
                 // The effective ISP jitter: every ISP hop grade carries the same ISP-wide
                 // value (mean ISP jitter capped by the cleanest transit ASN), so this is
                 // that assimilated value - not the worst hop's raw jitter.

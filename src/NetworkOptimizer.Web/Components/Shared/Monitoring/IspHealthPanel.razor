@@ -259,16 +259,26 @@ else
                 <div class="isp-asn-grid">
                     @foreach (var asn in r.IspAsns.Concat(r.TransitAsns))
                     {
+                        var isIspAsn = r.IspAsns.Contains(asn);
+                        var showRange = isIspAsn && asn.MinRttMs.HasValue && asn.MaxRttMs.HasValue
+                            && asn.MaxRttMs.Value - asn.MinRttMs.Value > 0.05;
                         <div class="isp-asn-card">
                             <div class="isp-asn-card-header">
                                 <div>
                                     <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
-                                    <div class="isp-asn-sub">@(r.IspAsns.Contains(asn) ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
+                                    <div class="isp-asn-sub">@(isIspAsn ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
                                 </div>
                                 <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
                             </div>
                             <div class="isp-asn-stats">
-                                <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatRtt(asn.MeanRttMs)</span></div>
+                                @if (showRange)
+                                {
+                                    <div class="isp-asn-stat"><span class="detail-label">RTT Range</span><span class="detail-value">@FormatRttRange(asn.MinRttMs, asn.MaxRttMs)</span></div>
+                                }
+                                else
+                                {
+                                    <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatRtt(asn.MeanRttMs)</span></div>
+                                }
                                 <div class="isp-asn-stat"><span class="detail-label">P95 Jitter</span><span class="detail-value">@FormatJitter(asn.P95JitterMs)</span></div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @if (asn.ReachDeltaMs.HasValue)
@@ -436,6 +446,9 @@ else
     private static string FormatJitter(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
 
     private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
+
+    private static string FormatRttRange(double? min, double? max) =>
+        min.HasValue && max.HasValue ? $"{min.Value:0.00} - {max.Value:0.00} ms" : "--";
 
     private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
 
