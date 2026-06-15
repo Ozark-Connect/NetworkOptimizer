@@ -277,13 +277,15 @@ public class AsnSeries
     /// </summary>
     public List<string> RoleTargetIds { get; init; } = new();
 
+    /// <summary>The IPs of this series' targets, so a witness can be tested for routing through them.</summary>
+    public List<string> HopIps { get; init; } = new();
+
     /// <summary>
-    /// Lowest traceroute hop number among this series' targets on the WAN's global
-    /// canonical trace (from UpstreamDiscoveries). Lets the scorer confirm one series
-    /// routes through another - a witness only absolves a hop it sits downstream of.
-    /// Null when no stored hop order covers these targets.
+    /// The monitored hop IPs proven upstream of this series (union over its targets, from the
+    /// discovery traces). A witness series routes through a hop X - and so may absolve it -
+    /// iff X's IP is in the witness's ancestor set. Empty for a first hop.
     /// </summary>
-    public int? MinHopNumber { get; init; }
+    public List<string> AncestorIps { get; init; } = new();
 }
 
 /// <summary>Load classification of one aggregate window.</summary>
@@ -351,6 +353,13 @@ public class IspHealthInputs
 
     /// <summary>Pre-detected path shift events. Informational only.</summary>
     public List<PathShiftEvent> PathShifts { get; init; } = new();
+
+    /// <summary>
+    /// True when Upstream Discovery has persisted hop-ancestor data for this WAN. When false
+    /// (never discovered, or pre-ancestor data), the jitter absolve gate falls open for
+    /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
+    /// </summary>
+    public bool HopOrderKnown { get; init; }
 }
 
 /// <summary>

@@ -35,7 +35,8 @@ public class IspHealthScorerTests
         List<SpeedTestSample>? speedTests = null,
         bool smartQueuesEnabled = false,
         double? internetDeltaMs = null,
-        bool lineIdle = false)
+        bool lineIdle = false,
+        bool hopOrderKnown = false)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -73,7 +74,8 @@ public class IspHealthScorerTests
                 new(TestSeries.Start.AddHours(6), 980, 490)
             },
             CongestionEvents = congestion ?? new List<CongestionEvent>(),
-            SmartQueuesEnabled = smartQueuesEnabled
+            SmartQueuesEnabled = smartQueuesEnabled,
+            HopOrderKnown = hopOrderKnown
         };
     }
 
@@ -658,6 +660,40 @@ public class IspHealthScorerTests
         withCongestion.IspAsnDimension.Score.Should().BeLessThan(
             withoutCongestion.IspAsnDimension.Score!.Value,
             "congestion on any ISP hop lowers the ISP dimension score");
+    }
+
+    [Fact]
+    public void With_hop_order_a_divergent_isp_hop_is_not_absolved_but_an_on_path_one_is()
+    {
+        // With ancestor data, a clean transit absolves only the ISP hop it routes through
+        // (the hop is in its ancestor set). A divergent hop the transit never traverses keeps
+        // its own jitter - closing the AT&T divergence hole.
+        var onPath = new AsnSeries
+        {
+            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-onpath" }, RoleTargetIds = { "isp-onpath" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0), HopIps = { "10.0.0.1" }
+        };
+        var divergent = new AsnSeries
+        {
+            AsnNumber = 64496, AsnName = "ISP", TargetIds = { "isp-divergent" }, RoleTargetIds = { "isp-divergent" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0), HopIps = { "10.0.0.9" }
+        };
+        var transit = new AsnSeries
+        {
+            AsnNumber = 64500, AsnName = "Transit", TargetIds = { "transit" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4),
+            HopIps = { "20.0.0.1" }, AncestorIps = { "10.0.0.1" } // routes through the on-path hop only
+        };
+        var hops = new List<AsnSeries> { onPath, divergent };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-onpath",
+                transit: new List<AsnSeries> { transit }, hopOrderKnown: true), Gpon);
+
+        var onPathGrade = report.IspTargets.Single(t => t.TargetId == "isp-onpath");
+        var divergentGrade = report.IspTargets.Single(t => t.TargetId == "isp-divergent");
+        onPathGrade.OverallScore.Should().BeGreaterThan(divergentGrade.OverallScore!.Value,
+            "the transit absolves the hop it routes through, not the divergent one");
     }
 
     [Fact]

@@ -1273,45 +1273,48 @@ public class UpstreamTracerService
             return;
         }
 
-        // address -> lowest TTL on each individual trace (responding hops only).
-        var traceMaps = _lastTraces
-            .Select(tr => (Target: tr.Target.Address, Map: tr.Hops
-                .Where(h => h.Responded && !string.IsNullOrEmpty(h.Address))
-                .GroupBy(h => h.Address!, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.Min(h => h.HopNumber), StringComparer.OrdinalIgnoreCase)))
-            .ToList();
-
-        // Global canonical trace: the single trace covering the most monitored hops across
-        // ALL ASNs, so ISP and transit hop numbers are comparable on one real path.
         var monitoredAddrs = targets.Select(t => t.Address).Where(a => !string.IsNullOrEmpty(a))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, int>? canonicalMap = null;
-        string? canonicalTarget = null;
-        var bestCover = 0;
-        foreach (var (target, map) in traceMaps)
+
+        // Ancestor sets from ALL traces: for each monitored hop, the monitored hops that
+        // appear before it on any trace it was seen on (its proven upstream). Every trace
+        // contributes (including those toward transit targets), so coverage is complete and
+        // divergence-correct - a hop is only an ancestor of another when they truly share a
+        // path with it upstream. Also track the lowest TTL seen, for a representative HopNumber.
+        var ancestorsByIp = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var minTtlByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tr in _lastTraces)
         {
-            var cover = monitoredAddrs.Count(a => map.ContainsKey(a));
-            if (cover > bestCover) { bestCover = cover; canonicalMap = map; canonicalTarget = target; }
-        }
-        if (canonicalMap == null || bestCover == 0)
-        {
-            _logger.LogDebug("Tracer: no single trace covered the monitored hops for {Wan}; hop order not persisted", wanInterface);
-            await db.SaveChangesAsync(ct);
-            return;
+            var seenMonitored = new List<string>();
+            foreach (var h in tr.Hops.Where(h => h.Responded && !string.IsNullOrEmpty(h.Address)).OrderBy(h => h.HopNumber))
+            {
+                if (!monitoredAddrs.Contains(h.Address!)) continue;
+                if (!ancestorsByIp.TryGetValue(h.Address!, out var anc))
+                    ancestorsByIp[h.Address!] = anc = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                anc.UnionWith(seenMonitored);
+                seenMonitored.Add(h.Address!);
+                if (!minTtlByIp.TryGetValue(h.Address!, out var ttl) || h.HopNumber < ttl)
+                    minTtlByIp[h.Address!] = h.HopNumber;
+            }
         }
 
         var now = DateTime.UtcNow;
         var written = 0;
         foreach (var t in targets)
         {
-            if (!canonicalMap.TryGetValue(t.Address, out var ttl)) continue;
+            var ancestors = ancestorsByIp.TryGetValue(t.Address, out var anc)
+                ? anc.OrderBy(a => a).ToList()
+                : new List<string>();
             db.UpstreamDiscoveries.Add(new UpstreamDiscovery
             {
                 MonitoringTargetId = t.Id,
                 AsnNumber = t.AsnNumber!.Value,
                 AsnName = t.AsnName,
                 HopIp = t.Address,
-                HopNumber = ttl,
+                HopNumber = minTtlByIp.TryGetValue(t.Address, out var ttl) ? ttl : 0,
+                // Non-null (even if empty) marks that ancestor data exists, so ISP Health can
+                // tell "no discovery yet" (open gate) from "on-path but no ancestors" (a first hop).
+                AncestorHopIps = string.Join(" ", ancestors),
                 Role = t.TargetType == MonitoringTargetType.AccessIsp ? UpstreamRole.AccessHop : UpstreamRole.Transit,
                 WanInterface = wanInterface,
                 LastValidated = now,
@@ -1319,13 +1322,13 @@ public class UpstreamTracerService
                 IsActive = true
             });
             written++;
-            _logger.LogDebug("Tracer: AS{Asn} hop#{Ttl} {Ip} ({Name}) on global canonical trace to {Trace}",
-                t.AsnNumber, ttl, t.Address, t.PtrHostname ?? t.Name, canonicalTarget);
+            _logger.LogDebug("Tracer: AS{Asn} {Ip} ({Name}) ancestors=[{Ancestors}]",
+                t.AsnNumber, t.Address, t.PtrHostname ?? t.Name, string.Join(", ", ancestors));
         }
 
         await db.SaveChangesAsync(ct);
-        _logger.LogInformation("Tracer: persisted {Count} upstream hop-order rows for {Wan} (global canonical trace to {Trace})",
-            written, wanInterface, canonicalTarget);
+        _logger.LogInformation("Tracer: persisted {Count} upstream hop-ancestor rows for {Wan} from {Traces} traces",
+            written, wanInterface, _lastTraces.Count);
     }
 
     private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)

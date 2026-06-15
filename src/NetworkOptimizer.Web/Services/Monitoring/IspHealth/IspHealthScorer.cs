@@ -52,7 +52,7 @@ public class IspHealthScorer
         // absolves a hop it is proven downstream of), so a divergent clean transit can't
         // clear a congested hop it never traverses. Hops further out on the same ISP also
         // get a soft intra-ASN reach ceiling. Access layer idle latency still uses FirstHopSeries.
-        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.CongestionEvents, jitterFloor);
+        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents);
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
@@ -757,33 +757,34 @@ public class IspHealthScorer
 
     /// <summary>
     /// Grades every ISP hop. Each hop's jitter is absolved per-hop, routes-through-gated: a
-    /// witness (a transit ASN or a deeper ISP hop) may only pull a hop's jitter down when its
-    /// stored hop number proves it sits downstream of that hop on the WAN's common trace, so
-    /// a divergent clean transit can never clear a congested hop it does not traverse. When a
-    /// hop has no stored hop number (no re-discovery yet) the gate is open - every witness
-    /// applies - which reproduces the prior ISP-wide cap. Hops are also scored against the
-    /// intra-ASN reach floor (a second POP further out is nominal distance, not a fault).
+    /// witness (a transit ASN or another ISP hop) may only pull a hop's jitter down when the
+    /// hop is in the witness's ancestor set - proven upstream of it on a shared discovery
+    /// trace - so a divergent clean transit can never clear a congested hop it doesn't
+    /// traverse. When no ancestor data exists (no re-discovery yet) the gate falls open for
+    /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
+    /// Hops are also scored against the intra-ASN reach floor (distance, not a fault).
     /// </summary>
     private List<IspAsnHealth> GradeIspHops(
         List<AsnSeries> ispHopSeries,
         List<AsnSeries> transitSeries,
         List<IspAsnHealth> transitAsns,
         List<CongestionEvent> congestionEvents,
-        double? jitterFloorMs)
+        double? jitterFloorMs,
+        bool hopOrderKnown)
     {
-        // Transit witnesses: each transit ASN's nearest hop number + its effective jitter.
+        // Transit witnesses: each transit ASN's ancestor IPs + its effective jitter.
         var transitJitterByAsn = transitAsns
             .Where(a => a.P95JitterMs.HasValue)
             .GroupBy(a => a.AsnNumber)
             .ToDictionary(g => g.Key, g => g.Min(a => a.P95JitterMs!.Value));
         var transitWitnesses = transitSeries
             .Where(s => transitJitterByAsn.ContainsKey(s.AsnNumber))
-            .Select(s => (Hop: s.MinHopNumber, Jitter: transitJitterByAsn[s.AsnNumber]))
+            .Select(s => (Ancestors: s.AncestorIps, Jitter: transitJitterByAsn[s.AsnNumber]))
             .ToList();
 
-        // ISP hop witnesses: each hop's number + its own measured jitter.
+        // ISP hop witnesses: each hop series + its own measured jitter.
         var ispHopJitter = ispHopSeries
-            .Select(s => (Series: s, Hop: s.MinHopNumber, Jitter: ScoringJitterOf(s.Samples)))
+            .Select(s => (Series: s, Jitter: ScoringJitterOf(s.Samples)))
             .ToList();
 
         var grades = new List<IspAsnHealth>();
@@ -800,18 +801,16 @@ public class IspHealthScorer
             foreach (var hop in hops)
             {
                 var measured = ScoringJitterOf(hop.Samples);
-                // Transit witnesses: transit is always downstream of the ISP, so it may
-                // absolve an ISP hop unless hop order proves it does NOT route through it
-                // (open when there's no stored order - the prior behavior; gated to a true
-                // routes-through once hop numbers exist). ISP-sibling witnesses are strict:
-                // a sibling absolves only a hop it is PROVEN downstream of, since without
-                // hop order we can't tell which sibling is nearer.
+                // Transit is always downstream of the ISP: with ancestor data we require a
+                // proven routes-through (this hop is in the transit's ancestor set), without
+                // it the gate is open. ISP siblings are strict either way - a sibling absolves
+                // only a hop in its ancestor set, never on faith.
                 var witnesses = transitWitnesses
-                    .Where(w => RoutesThrough(w.Hop, hop.MinHopNumber))
+                    .Where(w => !hopOrderKnown || RoutesThrough(w.Ancestors, hop.HopIps))
                     .Select(w => w.Jitter)
                     .Concat(ispHopJitter
-                        .Where(h => !ReferenceEquals(h.Series, hop) && h.Jitter.HasValue
-                            && h.Hop.HasValue && hop.MinHopNumber.HasValue && h.Hop.Value > hop.MinHopNumber.Value)
+                        .Where(h => hopOrderKnown && !ReferenceEquals(h.Series, hop) && h.Jitter.HasValue
+                            && RoutesThrough(h.Series.AncestorIps, hop.HopIps))
                         .Select(h => h.Jitter!.Value))
                     .ToList();
                 double? effective = measured;
@@ -821,8 +820,8 @@ public class IspHealthScorer
                 var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt: null, internetMedianDeltaMs: null,
                     intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective);
                 _logger?.LogDebug(
-                    "ISP Health: ISP hop {Target} (AS{Asn}) hop#{Hop} graded {Score} - measured jitter {Jitter} ms, effective {Eff} ms ({Witnesses} routes-through witnesses), reach +{Reach} ms",
-                    hop.TargetIds.FirstOrDefault(), hop.AsnNumber, hop.MinHopNumber, grade.OverallScore,
+                    "ISP Health: ISP hop {Target} (AS{Asn}) graded {Score} - measured jitter {Jitter} ms, effective {Eff} ms ({Witnesses} routes-through witnesses), reach +{Reach} ms",
+                    hop.TargetIds.FirstOrDefault(), hop.AsnNumber, grade.OverallScore,
                     FormatMsOrNull(measured), FormatMsOrNull(effective), witnesses.Count, FormatMsOrNull(grade.ReachDeltaMs));
                 grades.Add(grade);
             }
@@ -831,13 +830,11 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// Whether a witness routes through a hop (and so may absolve it): the witness's hop
-    /// number must be strictly greater (downstream) than the hop's. When the hop has no
-    /// stored hop number the gate is open (reproduces the ungated prior behavior); when the
-    /// witness has none it cannot be proven downstream, so it is excluded.
+    /// Whether a witness routes through a hop (and so may absolve it): the hop's IP must be in
+    /// the witness's ancestor set - proven upstream of the witness on a shared discovery trace.
     /// </summary>
-    private static bool RoutesThrough(int? witnessHop, int? throughHop) =>
-        throughHop == null ? true : (witnessHop.HasValue && witnessHop.Value > throughHop.Value);
+    private static bool RoutesThrough(List<string> witnessAncestors, List<string> hopIps) =>
+        hopIps.Any(ip => witnessAncestors.Contains(ip, StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
     /// Collapses per-hop ISP grades to one entry per ASN for the Networks on Your Path
