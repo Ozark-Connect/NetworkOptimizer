@@ -224,7 +224,7 @@ else
                         "window.__dashMountMap3d = async function(canvasId) {" +
                         $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                         "  window.__dashLanFlowMap = m;" +
-                        "  await m.mount(canvasId,{storagePrefix:'dashLanFlowMap'});" +
+                        "  await m.mount(canvasId,{storagePrefix:'dashLanFlowMap',signalHint:false});" +
                         "}");
                     await JS.InvokeVoidAsync("__dashMountMap3d", "dashboard-lan-flow-map-canvas");
                 }

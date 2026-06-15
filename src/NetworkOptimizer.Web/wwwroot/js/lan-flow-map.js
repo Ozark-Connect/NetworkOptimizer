@@ -123,6 +123,10 @@ export class LanFlowMap {
         this.pollIntervalMs = options.pollIntervalMs ?? 1000;
         this.onError = options.onError ?? ((err) => console.error('[LanFlowMap]', err));
         this._storagePrefix = options.storagePrefix ?? 'lanFlowMap';
+        // The embedded dashboard Live View panel opts out of the Signal Map
+        // discovery hint to keep its compact chrome clean (it also hides the
+        // scrubber/status). Full Monitoring page leaves it on.
+        this._signalHintEnabled = options.signalHint ?? true;
 
         this._snapshot = null;
         this._nodesByLink = new Map();
@@ -511,6 +515,7 @@ export class LanFlowMap {
             this._applyOverlayVisibility();
             this._applyLiveRates(snap.liveRates || {});
             this._refreshCloudRttLabels();
+            this._updateSignalMapHint();
         } catch (err) {
             this.onError(err);
         }
@@ -628,6 +633,16 @@ export class LanFlowMap {
         const springRest = 6.0;
         const springK = 0.22;
         const damping = 0.78;
+        // Per-iteration displacement cap. This explicit-Euler integrator has no dt
+        // and is unstable for graphs with few/no pinned anchors: spring + repulsion
+        // forces can compound ~4x per iteration, blowing positions past Double.MAX to
+        // Infinity within ~65 iters, then Infinity - Infinity = NaN poisons every
+        // position (camera centroid becomes NaN -> entire scene blanks, no error
+        // thrown). Anchored APs normally bleed enough energy to stay bounded, so this
+        // only bites users with no Signal-Map AP placements. Clamping each node's step
+        // makes the system bounded for any graph; it never triggers on already-stable
+        // (anchored) layouts since their velocities stay well under the cap.
+        const maxStep = 4.0;
 
         const velocities = new Map(ids.map((id) => [id, { vx: 0, vy: 0, vz: 0 }]));
         for (let iter = 0; iter < 350; iter += 1) {
@@ -677,11 +692,17 @@ export class LanFlowMap {
                     v.vz -= uz * f;
                 }
             }
-            // Integrate.
+            // Integrate. Clamp the step magnitude so an unstable graph (few/no
+            // pinned anchors) can't diverge to Infinity/NaN; see maxStep above.
             for (const id of ids) {
                 const p = positions.get(id);
                 if (p.pinned) continue;
                 const v = velocities.get(id);
+                const step = Math.sqrt(v.vx * v.vx + v.vy * v.vy + v.vz * v.vz);
+                if (step > maxStep) {
+                    const k = maxStep / step;
+                    v.vx *= k; v.vy *= k; v.vz *= k;
+                }
                 p.x += v.vx;
                 p.y += v.vy;
                 p.z += v.vz;
@@ -707,6 +728,23 @@ export class LanFlowMap {
             p.x = pp.x + dx * WIFI_SPREAD;
             p.y = pp.y + dy * WIFI_SPREAD;
             p.z = pp.z + dz * WIFI_SPREAD;
+        }
+
+        // Safety net: should never trigger given the step clamp above, but if any
+        // position is still non-finite from any source, snap it to a small bounded
+        // scatter. One NaN position would otherwise blank the whole scene (NaN
+        // camera centroid) with no error, so we never let a non-finite leak through.
+        let nonFinite = 0;
+        for (const [id, p] of positions) {
+            if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) {
+                nonFinite += 1;
+                const theta = (Math.random() * 2 - 1) * Math.PI;
+                const r = 12 + Math.random() * 8;
+                positions.set(id, { x: Math.cos(theta) * r, y: (Math.random() - 0.5) * 5, z: Math.sin(theta) * r, pinned: false });
+            }
+        }
+        if (nonFinite > 0) {
+            console.warn(`[LanFlowMap] Layout produced ${nonFinite} non-finite position(s); reset to bounded scatter.`);
         }
 
         this._positions = positions;
@@ -1452,6 +1490,10 @@ export class LanFlowMap {
                         // live poll and would clobber fresh rates momentarily.
                         this._refreshCloudRttLabels();
                     }
+                    // Anchor count can flip (e.g. user just placed APs on the
+                    // Signal Map) without infra membership changing, so refresh
+                    // the discovery hint on every snapshot poll.
+                    this._updateSignalMapHint();
                 } catch { /* transient */ }
             }
         }, 30000);
@@ -1947,6 +1989,53 @@ export class LanFlowMap {
         this._panels.scrubberPlayPause = playPause;
         this._paused = false;
         this._syncSpeedLabel();
+
+        this._buildSignalMapHint();
+    }
+
+    // One-time discovery nudge. A user with no AP placements on the Signal Map gets
+    // no spatial anchoring here (devices fall back to the abstract force layout and
+    // buildings have nothing to anchor to), so they may not realize the map can show
+    // their real floor plan and device positions. Surface a small, dismissible pill
+    // pointing to Wi-Fi Optimizer > Signal Map. Shown only when there are zero anchors
+    // and the user hasn't dismissed it - invisible for anyone who has placed their APs.
+    _buildSignalMapHint() {
+        if (!this._signalHintEnabled) return;
+        const hint = document.createElement('div');
+        hint.className = 'lan-flow-map-signal-hint';
+        hint.style.display = 'none';
+
+        const text = document.createElement('span');
+        text.className = 'lan-flow-map-signal-hint-text';
+        text.textContent = 'Add your floor plan and AP spots in the Signal Map to see them here.';
+
+        const link = document.createElement('a');
+        link.className = 'lan-flow-map-signal-hint-link';
+        link.href = '/wifi-optimizer?tab=floorplan';
+        link.textContent = 'Open Signal Map ↗';
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'lan-flow-map-signal-hint-close';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.textContent = '×';
+        close.addEventListener('click', () => {
+            hint.style.display = 'none';
+            try { localStorage.setItem(this._storagePrefix + 'SignalHintDismissed', '1'); } catch { /* localStorage unavailable */ }
+        });
+
+        hint.append(text, link, close);
+        this.stage.appendChild(hint);
+        this._panels.signalHint = hint;
+    }
+
+    _updateSignalMapHint() {
+        const hint = this._panels?.signalHint;
+        if (!hint) return;
+        let dismissed = false;
+        try { dismissed = localStorage.getItem(this._storagePrefix + 'SignalHintDismissed') === '1'; } catch { /* localStorage unavailable */ }
+        const anchorCount = this._snapshot?.bounds?.anchorCount ?? 0;
+        hint.style.display = (!dismissed && anchorCount === 0) ? 'flex' : 'none';
     }
 
     _makePanel(extraClass) {
