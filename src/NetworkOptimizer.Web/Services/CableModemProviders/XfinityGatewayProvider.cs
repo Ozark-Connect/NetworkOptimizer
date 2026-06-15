@@ -6,7 +6,7 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
-/// Cable modem provider for Xfinity gateways (XB8, XB10).
+/// Cable modem provider for gateways sharing the Xfinity/Technicolor web UI (Xfinity XB8/XB10, Cox CGM4981).
 /// Authenticates via form POST to /check.jst, then scrapes DOCSIS channel
 /// tables from /network_setup.jst. The tables use a transposed layout where
 /// each row is a metric and each column is a channel.

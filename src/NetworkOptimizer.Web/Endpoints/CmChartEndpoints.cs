@@ -37,10 +37,14 @@ public static class CmChartEndpoints
             var configs = await cmService.GetConfigsAsync();
             var nameMap = configs.ToDictionary(c => c.Id.ToString(), c => c.Name);
 
-            var result = data.Select(kvp =>
+            // Only surface modems that still have a config. Deleting a CM config
+            // leaves its historical series in InfluxDB; without this filter those
+            // orphaned cm_ids show up as phantom "CM {id}" entries on the chart.
+            var result = data
+                .Where(kvp => nameMap.ContainsKey(kvp.Key))
+                .Select(kvp =>
             {
-                nameMap.TryGetValue(kvp.Key, out var name);
-                name ??= $"CM {kvp.Key}";
+                var name = nameMap[kvp.Key];
 
                 return new
                 {
