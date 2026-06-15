@@ -1071,7 +1071,7 @@ public class IspHealthScorer
         CongestionDetector.FloorTime(time, TimeSpan.FromSeconds(_options.LoadWindowSeconds));
 
     private static string FormatMs(double ms) =>
-        ms >= 10 ? $"{ms.ToString("0", CultureInfo.InvariantCulture)} ms" : $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";
+        $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";
 
     /// <summary>Debug-log helper: a millisecond value to two decimals, or "n/a" when null.</summary>
     private static string FormatMsOrNull(double? ms) =>
