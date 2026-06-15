@@ -15665,47 +15665,44 @@ a.affected-client:hover {
     z-index: 5;
 }
 
-.isp-target-list {
+.isp-hop-list {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
     margin-top: 0.25rem;
-    padding-top: 0.5rem;
+}
+
+.isp-hop {
+    padding: 0.6rem 0;
+}
+
+.isp-hop + .isp-hop {
     border-top: 1px solid var(--border-color);
 }
 
-.isp-target-row {
+.isp-hop-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0;
+    gap: 0.75rem;
 }
 
-.isp-target-detail {
+.isp-hop-main {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.35rem;
     flex: 1;
     min-width: 0;
 }
 
-.isp-target-score {
-    font-size: 0.95rem;
-    font-weight: 600;
-    min-width: 2rem;
-    text-align: right;
-    flex-shrink: 0;
-}
-
-.isp-target-row + .isp-target-row {
-    border-top: 1px solid var(--border-color);
-}
-
-.isp-target-name {
-    font-size: 0.82rem;
+.isp-hop-name {
+    font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-primary);
-    min-width: 0;
+}
+
+.isp-hop-stats {
+    display: flex;
+    gap: 1.25rem;
+    margin-top: 0.45rem;
 }
 
 .isp-target-graded {
@@ -15718,12 +15715,6 @@ a.affected-client:hover {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-}
-
-.isp-target-stats {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
 }
 
 .isp-target-stat {

@@ -605,6 +605,15 @@ public class IspHealthService
                         .Where(s => s.RttAvgMs.HasValue)
                         .Select(s => s.RttAvgMs!.Value)
                         .ToList();
+                    // Jitter and stability are scored from the farthest cluster when this
+                    // ASN spans more than one: a near hop's jitter is often false (ICMP
+                    // deprioritization), and the farther cluster - reached through the near
+                    // one - is the honest read of the path's jitter. RTT and reach stay on
+                    // the nearest cluster. Only for transit (full clusters graded); the ISP
+                    // grades each hop on its own, so this carve-out does not apply there.
+                    var jitterSource = !gradeLowestTargetOnly && clusters.Count > 1
+                        ? clusters[^1].SelectMany(c => seriesByTarget[c.Target.TargetId]).OrderBy(s => s.Time).ToList()
+                        : new List<LatencySample>();
                     grading.Add(new AsnSeries
                     {
                         AsnNumber = group.Key,
@@ -612,6 +621,7 @@ public class IspHealthService
                         TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
                         Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
                         NearestClusterMeanRttMs = nearestRtts.Count > 0 ? nearestRtts.Average() : null,
+                        JitterSourceSamples = jitterSource,
                         // All of this ASN-role's hops, so congestion is attributed to the
                         // right card when the same ASN is both the access ISP and transit
                         RoleTargetIds = group.Select(t => t.TargetId).ToList()

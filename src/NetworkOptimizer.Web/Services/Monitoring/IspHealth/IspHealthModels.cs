@@ -107,8 +107,11 @@ public class IspTargetHealth
     public double? P95JitterMs { get; init; }
     public double? LossPct { get; init; }
 
-    /// <summary>Per-target quality grade (stability, jitter, loss, congestion).</summary>
+    /// <summary>Per-hop quality grade (stability, jitter, loss, congestion, intra-ASN reach).</summary>
     public int? OverallScore { get; init; }
+
+    /// <summary>RTT beyond this ASN's nearest hop (0 for the nearest). Drives the soft reach ceiling.</summary>
+    public double? ReachDeltaMs { get; init; }
 
     /// <summary>True for the first clean hop, the target the access layer idle latency comes from.</summary>
     public bool IsGradedHop { get; init; }
@@ -242,6 +245,15 @@ public class AsnSeries
     /// graded hop); on transit it equals the graded cluster. Display only.
     /// </summary>
     public double? NearestClusterMeanRttMs { get; init; }
+
+    /// <summary>
+    /// Samples jitter and latency stability are scored from, when they should come from
+    /// a different cluster than <see cref="Samples"/>. Used for transit ASNs with a
+    /// farther cluster: a near hop often shows false jitter from ICMP deprioritization
+    /// that the farther cluster (reached through it) disproves, so jitter is graded on
+    /// the farther cluster while RTT and reach stay on the nearest. Empty means use Samples.
+    /// </summary>
+    public List<LatencySample> JitterSourceSamples { get; init; } = new();
 
     /// <summary>
     /// On a grading series, all of this ASN-role's target IDs (every hop, every

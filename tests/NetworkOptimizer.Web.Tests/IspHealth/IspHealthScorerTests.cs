@@ -29,6 +29,8 @@ public class IspHealthScorerTests
         bool withExpectedSpeeds = true,
         List<AsnSeries>? transit = null,
         List<AsnSeries>? ispAsn = null,
+        List<AsnSeries>? ispTargets = null,
+        string? firstHopTargetId = null,
         List<CongestionEvent>? congestion = null,
         List<SpeedTestSample>? speedTests = null,
         bool smartQueuesEnabled = false,
@@ -51,9 +53,11 @@ public class IspHealthScorerTests
             WindowStart = TestSeries.Start,
             WindowEnd = TestSeries.Start + Day,
             FirstHopSeries = firstHop,
+            FirstHopTargetId = firstHopTargetId,
             LossPoolSeries = new List<List<LatencySample>> { firstHop },
             TransitAsnSeries = transit ?? new List<AsnSeries>(),
             IspAsnSeries = ispAsn ?? new List<AsnSeries>(),
+            IspTargetSeries = ispTargets ?? new List<AsnSeries>(),
             WanRates = rates,
             InternetMedianDeltaMs = internetDeltaMs,
             ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
@@ -473,59 +477,88 @@ public class IspHealthScorerTests
         graded.OverallScore.Should().NotBeNull();
     }
 
+    private static AsnSeries IspHop(string targetId, string name, double rttMs, double jitterMs, double lossPct = 0) => new()
+    {
+        AsnNumber = 64496,
+        AsnName = name,
+        TargetIds = { targetId },
+        Samples = TestSeries.Flat(TestSeries.Start, Day, rttMs, jitterMs, lossPct),
+        RoleTargetIds = { targetId }
+    };
+
     [Fact]
     public void All_isp_hops_are_graded_independently()
     {
-        var nearHop = new AsnSeries
+        // Both hops are the same ISP ASN; each is graded on its own, and the dimension
+        // averages every hop grade (not just the first clean hop).
+        var hops = new List<AsnSeries>
         {
-            AsnNumber = 64496,
-            AsnName = "Near ISP Hop",
-            TargetIds = { "isp-hop-near" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "isp-hop-near" }
-        };
-        var farHop = new AsnSeries
-        {
-            AsnNumber = 64496,
-            AsnName = "Far ISP Hop",
-            TargetIds = { "isp-hop-far" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 6.0, 1.5, lossPct: 0.8),
-            RoleTargetIds = { "isp-hop-far" }
+            IspHop("isp-hop-near", "Near ISP Hop", 2.0, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 6.0, 1.5, lossPct: 0.8)
         };
 
         var report = new IspHealthScorer(Options).Score(
-            BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop }), Gpon);
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
 
-        report.IspAsns.Should().HaveCount(2);
-        var near = report.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-near"));
-        var far = report.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-far"));
-        near.OverallScore.Should().NotBeNull();
-        far.OverallScore.Should().NotBeNull();
+        report.IspAsns.Should().ContainSingle("the hops collapse to one ASN card on Networks on Your Path");
+        report.IspTargets.Should().HaveCount(2);
+        var near = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
+        var far = report.IspTargets.Single(t => t.TargetId == "isp-hop-far");
         near.OverallScore.Should().BeGreaterThan(far.OverallScore!.Value,
-            "the near hop is clean while the far hop has jitter and loss");
+            "the near hop is clean while the far hop has jitter, loss, and distance");
         report.IspAsnDimension.Score.Should().Be(
             (int)Math.Round((near.OverallScore!.Value + far.OverallScore!.Value) / 2.0),
-            "the dimension score should average all ISP hop grades");
+            "the dimension score averages all ISP hop grades");
+    }
+
+    [Fact]
+    public void Far_isp_hop_is_dinged_for_intra_asn_distance_not_perfect()
+    {
+        // A second POP on the same ISP, 2 ms further out and otherwise clean, should read
+        // "fine but not perfect" (~85), not a flawless 100.
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-hop-near", "Near ISP Hop", 2.1, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 4.1, 0.3)
+        };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+
+        var far = report.IspTargets.Single(t => t.TargetId == "isp-hop-far");
+        far.ReachDeltaMs.Should().BeApproximately(2.0, 0.2);
+        far.OverallScore.Should().BeInRange(80, 89);
+        report.IspTargets.Single(t => t.TargetId == "isp-hop-near").OverallScore.Should().Be(100);
+    }
+
+    [Fact]
+    public void Jitter_above_the_path_floor_is_dinged()
+    {
+        // Floor is 0.4 ms (the near hop). A hop at 2x the floor (0.8 ms) is a clear
+        // jitter signal and must score well below a hop sitting at the floor.
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-hop-near", "Near ISP Hop", 2.1, 0.4),
+            IspHop("isp-hop-jittery", "Jittery ISP Hop", 2.1, 0.8)
+        };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+
+        var atFloor = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
+        var jittery = report.IspTargets.Single(t => t.TargetId == "isp-hop-jittery");
+        atFloor.OverallScore.Should().Be(100);
+        (atFloor.OverallScore!.Value - jittery.OverallScore!.Value).Should().BeGreaterThanOrEqualTo(5,
+            "0.8 ms is 2x the 0.4 ms floor and must visibly ding the hop");
     }
 
     [Fact]
     public void Congestion_on_non_first_hop_affects_isp_dimension()
     {
-        var nearHop = new AsnSeries
+        var hops = new List<AsnSeries>
         {
-            AsnNumber = 64496,
-            AsnName = "Near ISP Hop",
-            TargetIds = { "isp-hop-near" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "isp-hop-near" }
-        };
-        var farHop = new AsnSeries
-        {
-            AsnNumber = 64496,
-            AsnName = "Far ISP Hop",
-            TargetIds = { "isp-hop-far" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 5.0, 0.5),
-            RoleTargetIds = { "isp-hop-far" }
+            IspHop("isp-hop-near", "Near ISP Hop", 2.0, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 5.0, 0.5)
         };
         var congestion = new List<CongestionEvent>
         {
@@ -539,60 +572,27 @@ public class IspHealthScorerTests
         };
 
         var withCongestion = new IspHealthScorer(Options).Score(
-            BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop }, congestion: congestion), Gpon);
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near", congestion: congestion), Gpon);
         var withoutCongestion = new IspHealthScorer(Options).Score(
-            BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop }), Gpon);
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
 
-        var farGraded = withCongestion.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-far"));
-        farGraded.CongestionEventCount.Should().Be(1);
-        farGraded.CongestionScore.Should().Be(20);
-
-        var nearGraded = withCongestion.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-near"));
-        nearGraded.CongestionEventCount.Should().Be(0, "congestion only fired on the far hop");
-
+        withCongestion.IspAsns.Single().CongestionEventCount.Should().Be(1, "the event fired on a hop of this ASN");
         withCongestion.IspAsnDimension.Score.Should().BeLessThan(
             withoutCongestion.IspAsnDimension.Score!.Value,
-            "congestion on any ISP hop should lower the ISP dimension score");
+            "congestion on any ISP hop lowers the ISP dimension score");
     }
 
     [Fact]
     public void Isp_target_health_carries_per_target_grade()
     {
-        var nearHop = new AsnSeries
+        var hops = new List<AsnSeries>
         {
-            AsnNumber = 64496,
-            AsnName = "Near ISP Hop",
-            TargetIds = { "isp-hop-near" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "isp-hop-near" }
-        };
-        var farHop = new AsnSeries
-        {
-            AsnNumber = 64496,
-            AsnName = "Far ISP Hop",
-            TargetIds = { "isp-hop-far" },
-            Samples = TestSeries.Flat(TestSeries.Start, Day, 6.0, 1.5, lossPct: 0.8),
-            RoleTargetIds = { "isp-hop-far" }
-        };
-        var inputs = BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop });
-        inputs = new IspHealthInputs
-        {
-            WindowStart = inputs.WindowStart,
-            WindowEnd = inputs.WindowEnd,
-            FirstHopSeries = inputs.FirstHopSeries,
-            FirstHopTargetId = "isp-hop-near",
-            LossPoolSeries = inputs.LossPoolSeries,
-            IspAsnSeries = new List<AsnSeries> { nearHop, farHop },
-            IspTargetSeries = new List<AsnSeries> { nearHop, farHop },
-            WanRates = inputs.WanRates,
-            ExpectedDownloadMbps = inputs.ExpectedDownloadMbps,
-            ExpectedUploadMbps = inputs.ExpectedUploadMbps,
-            ExpectedSpeedSource = inputs.ExpectedSpeedSource,
-            WanSpeedTests = inputs.WanSpeedTests,
-            CongestionEvents = inputs.CongestionEvents
+            IspHop("isp-hop-near", "Near ISP Hop", 2.0, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 6.0, 1.5, lossPct: 0.8)
         };
 
-        var report = new IspHealthScorer(Options).Score(inputs, Gpon);
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
 
         report.IspTargets.Should().HaveCount(2);
         var nearTarget = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
@@ -602,6 +602,40 @@ public class IspHealthScorerTests
         nearTarget.OverallScore.Should().BeGreaterThan(farTarget.OverallScore!.Value);
         nearTarget.IsGradedHop.Should().BeTrue();
         farTarget.IsGradedHop.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Transit_jitter_is_graded_on_the_farther_cluster()
+    {
+        // The near cluster shows 4 ms jitter (false - ICMP deprioritization on that hop),
+        // but the farther cluster, reached through it, is clean at 0.4 ms. Jitter must be
+        // graded on the farther cluster, so the ASN is not punished for the false near jitter.
+        var nearCluster = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0);
+        var farCluster = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4);
+        var withFartherSource = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearCluster,
+            JitterSourceSamples = farCluster
+        };
+        var nearOnly = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearCluster
+        };
+
+        var graded = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { withFartherSource }), Gpon).TransitAsns.Single();
+        var ungraded = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { nearOnly }), Gpon).TransitAsns.Single();
+
+        graded.JitterScore.Should().BeGreaterThan(ungraded.JitterScore!.Value,
+            "the clean farther cluster disproves the near hop's false jitter");
+        graded.JitterScore.Should().BeGreaterThan(85);
     }
 
     [Fact]

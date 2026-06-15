@@ -162,6 +162,20 @@ public class IspHealthOptions
 
     /// <summary>Weight of congestion in the per-ASN quality blend.</summary>
     public double AsnCongestionWeight { get; set; } = 0.3;
+
+    /// <summary>
+    /// Lower clamp for the path jitter floor used in floor-relative jitter scoring.
+    /// Below this, ratio scoring would punish sub-millisecond jitter that is excellent
+    /// in absolute terms, so the floor never reads below this value.
+    /// </summary>
+    public double JitterFloorMinMs { get; set; } = 0.3;
+
+    /// <summary>
+    /// Upper clamp for the path jitter floor. Above this the line is jittery
+    /// everywhere; the absolute high-end anchors take over rather than letting a high
+    /// floor excuse genuinely bad jitter.
+    /// </summary>
+    public double JitterFloorMaxMs { get; set; } = 1.5;
 }
 
 /// <summary>
