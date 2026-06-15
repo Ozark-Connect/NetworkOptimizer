@@ -79,6 +79,15 @@
 </head>
 
 <body>
+    <script>
+        // Apply kiosk mode before the app renders so the sidebar never flashes
+        // in on a kiosk display. Per-device preference; see Settings > UI / Display.
+        try {
+            if (localStorage.getItem('networkOptimizerKioskMode') === '1') {
+                document.body.classList.add('kiosk-mode');
+            }
+        } catch (e) { }
+    </script>
     <Routes />
 
     <!-- Custom reconnect modal (prevents Blazor from injecting shadow DOM version) -->
@@ -101,6 +110,28 @@
         <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/demo-mask.js")"></script>
     }
     <script>
+        // Kiosk mode: per-device (localStorage), forces the collapsed hamburger
+        // layout at any width so a mini-display shows just the content.
+        function setKioskMode(enabled) {
+            try {
+                if (enabled) {
+                    localStorage.setItem('networkOptimizerKioskMode', '1');
+                    document.body.classList.add('kiosk-mode');
+                } else {
+                    localStorage.removeItem('networkOptimizerKioskMode');
+                    document.body.classList.remove('kiosk-mode');
+                }
+            } catch (e) { }
+        }
+
+        function getKioskMode() {
+            try {
+                return localStorage.getItem('networkOptimizerKioskMode') === '1';
+            } catch (e) {
+                return false;
+            }
+        }
+
         function downloadFile(fileName, contentType, base64Data) {
             const linkSource = `data:${contentType};base64,${base64Data}`;
             const downloadLink = document.createElement('a');

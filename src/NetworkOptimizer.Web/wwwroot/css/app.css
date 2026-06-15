@@ -15753,3 +15753,70 @@ a.affected-client:hover {
 .isp-factor-link:hover {
     color: var(--primary-hover);
 }
+
+body.kiosk-mode .hamburger-btn {
+    display: block;
+}
+
+body.kiosk-mode .mobile-logo {
+    display: block;
+    height: 60px;
+    margin: -0.5rem 0;
+    max-height: 20vw;
+}
+
+body.kiosk-mode .mobile-logo img {
+    height: 100%;
+    width: auto;
+}
+
+body.kiosk-mode .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    height: 100dvh;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 1000;
+    overflow-y: auto;
+}
+
+body.kiosk-mode .sidebar.open {
+    transform: translateX(0);
+}
+
+body.kiosk-mode .sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+body.kiosk-mode .sidebar-overlay.visible {
+    display: block;
+}
+
+body.kiosk-mode .main-content {
+    width: 100%;
+}
+
+body.kiosk-mode .top-bar {
+    height: auto;
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+}
+
+body.kiosk-mode .header-actions {
+    flex: 1;
+    justify-content: flex-end;
+}
+
+body.kiosk-mode .status-indicators {
+    display: none;
+}
