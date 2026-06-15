@@ -176,6 +176,14 @@ public class IspHealthOptions
     /// floor excuse genuinely bad jitter.
     /// </summary>
     public double JitterFloorMaxMs { get; set; } = 1.5;
+
+    /// <summary>
+    /// Average WAN load at which packet loss reaches its worst on shared-medium access
+    /// (DOCSIS, PON, fixed wireless). The load-calibrated loss ceiling reaches the
+    /// connection's loaded-loss band at this utilization and holds there above it, rather
+    /// than only at 100%.
+    /// </summary>
+    public double LossSaturationLoadFraction { get; set; } = 0.75;
 }
 
 /// <summary>

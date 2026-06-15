@@ -323,10 +323,11 @@ public class IspHealthScorer
         // Calibrate the acceptable loss ceiling to the average load over the window. An idle
         // line should drop ~nothing; loss only climbs as utilization approaches saturation,
         // so the ceiling rises QUADRATICALLY in load - staying near the idle threshold at low
-        // load and reaching the connection's normal loaded-loss band only near full load.
-        var load = Math.Clamp(avgLoad, 0, 1);
+        // load and reaching the connection's loaded-loss band at LossSaturationLoadFraction
+        // (shared-medium access tops out its loss ~75% load, not 100%), holding there above it.
+        var t = Math.Clamp(Math.Clamp(avgLoad, 0, 1) / _options.LossSaturationLoadFraction, 0, 1);
         var acceptable = profile.IdleLossAcceptablePct
-            + load * load * (profile.LoadedLossDownLowPct - profile.IdleLossAcceptablePct);
+            + t * t * (profile.LoadedLossDownLowPct - profile.IdleLossAcceptablePct);
         var score = meanLoss <= acceptable
             ? ScoreCurve.Interpolate(meanLoss, (0, 100), (profile.IdleLossIdealPct, 95), (acceptable, 70))
             : ScoreCurve.ExponentialFalloff(meanLoss, acceptable, 70);
@@ -346,21 +347,26 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// Average WAN utilization over the window: the mean of each rate sample's busier
-    /// direction (download or upload as a fraction of the configured plan), clamped to
-    /// 0-1. 0 when there are no expected speeds or no rate data.
+    /// Average WAN utilization over the window. Uses the same windowing and per-window
+    /// utilization basis as <see cref="LoadClassifier"/> (which drives Loaded Loss): group
+    /// rates into LoadWindowSeconds windows, take the busier direction's peak rate in each
+    /// as a fraction of the configured plan. Averaged into "average load" here rather than
+    /// thresholded into loaded/idle. 0 when there are no expected speeds or no rate data.
     /// </summary>
-    private static double ComputeAverageLoad(IspHealthInputs inputs)
+    private double ComputeAverageLoad(IspHealthInputs inputs)
     {
-        var down = inputs.ExpectedDownloadMbps;
-        var up = inputs.ExpectedUploadMbps;
-        if (inputs.WanRates.Count == 0 || (!(down > 0) && !(up > 0))) return 0;
+        var expectedDownBps = inputs.ExpectedDownloadMbps * 1_000_000;
+        var expectedUpBps = inputs.ExpectedUploadMbps * 1_000_000;
+        if (inputs.WanRates.Count == 0 || (expectedDownBps is null && expectedUpBps is null)) return 0;
 
+        var windowSize = TimeSpan.FromSeconds(_options.LoadWindowSeconds);
         var utils = new List<double>();
-        foreach (var r in inputs.WanRates)
+        foreach (var group in inputs.WanRates.GroupBy(r => CongestionDetector.FloorTime(r.Time, windowSize)))
         {
-            var d = down > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / 1_000_000.0 / down!.Value : 0;
-            var u = up > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / 1_000_000.0 / up!.Value : 0;
+            var down = group.Max(r => r.DownloadBps ?? 0);
+            var up = group.Max(r => r.UploadBps ?? 0);
+            var d = expectedDownBps > 0 ? down / expectedDownBps.Value : 0;
+            var u = expectedUpBps > 0 ? up / expectedUpBps.Value : 0;
             utils.Add(Math.Clamp(Math.Max(d, u), 0, 1));
         }
         return utils.Count > 0 ? utils.Average() : 0;
