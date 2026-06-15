@@ -665,6 +665,8 @@ public class IspHealthScorerTests
         graded.JitterScore.Should().BeGreaterThan(ungraded.JitterScore!.Value,
             "the clean farther cluster disproves the near hop's false jitter");
         graded.JitterScore.Should().BeGreaterThan(85);
+        graded.P95JitterMs.Should().BeApproximately(0.4, 0.1,
+            "the displayed jitter is the absolved value, not the near hop's 4 ms");
     }
 
     [Fact]
