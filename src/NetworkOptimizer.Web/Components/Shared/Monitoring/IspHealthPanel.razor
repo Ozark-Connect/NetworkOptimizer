@@ -198,7 +198,7 @@ else
                                         <span class="isp-factor-score @ScoreTextClass(target.OverallScore)">@(target.OverallScore?.ToString() ?? "--")</span>
                                     </div>
                                     <div class="isp-hop-stats">
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.MedianRttMs)</span>
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.RttMs)</span>
                                         <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatJitter(target.P95JitterMs)</span>
                                         <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
                                         @if (target.ReachDeltaMs is > 0.15)

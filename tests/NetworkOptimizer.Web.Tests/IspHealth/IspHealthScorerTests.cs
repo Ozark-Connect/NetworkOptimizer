@@ -778,6 +778,21 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Displayed_rtt_winsorizes_a_flap_so_one_spike_does_not_distort_it()
+    {
+        // 8 ms baseline all window with a 5-minute spike to 2000 ms (a route flap). The raw
+        // mean would jump to ~15 ms; the winsorized mean (P99-capped) stays at the baseline.
+        var spikeStart = TestSeries.Start.AddHours(6);
+        var series = TestSeries.Flat(TestSeries.Start, Day, 8, 0.5)
+            .WithSegment(spikeStart, spikeStart.AddMinutes(5), 2000, 0.5);
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", series) };
+
+        var graded = new IspHealthScorer(Options).Score(BuildInputs(transit: transit), Gpon).TransitAsns.Single();
+
+        graded.MeanRttMs.Should().BeApproximately(8, 1.5, "a sub-1% flap is winsorized out of the displayed RTT");
+    }
+
+    [Fact]
     public void Congestion_events_lower_the_asn_grade()
     {
         var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };

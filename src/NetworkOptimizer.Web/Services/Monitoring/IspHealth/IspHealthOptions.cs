@@ -184,6 +184,13 @@ public class IspHealthOptions
     /// than only at 100%.
     /// </summary>
     public double LossSaturationLoadFraction { get; set; } = 0.75;
+
+    /// <summary>
+    /// Upper percentile at which displayed RTT is winsorized: samples above it are capped
+    /// to it before averaging, so a route flap or single bad probe can't distort the mean
+    /// while sustained elevation still shows. 0.99 caps only the worst 1%.
+    /// </summary>
+    public double RttWinsorPercentile { get; set; } = 0.99;
 }
 
 /// <summary>

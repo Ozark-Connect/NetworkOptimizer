@@ -72,7 +72,7 @@ public class IspHealthScorer
             IspAsnDimension = ispAsnDimension,
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
-            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades)).ToList(),
+            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             HasExpectedSpeeds = hasExpectedSpeeds,
@@ -659,9 +659,9 @@ public class IspHealthScorer
             AsnName = series.AsnName,
             TargetIds = series.TargetIds,
             MedianRttMs = medianRtt,
-            // Display: mean across the full nearest cluster (set on the grading series);
-            // falls back to the graded samples' mean when not provided
-            MeanRttMs = series.NearestClusterMeanRttMs ?? (rtts.Count > 0 ? rtts.Average() : null),
+            // Displayed RTT: winsorized mean (P99-capped) so sustained elevation shows but a
+            // flap can't distort it. Reach (above) stays on the median - that measures distance.
+            MeanRttMs = SeriesStats.WinsorizedMean(rtts, _options.RttWinsorPercentile),
             P95RttMs = SeriesStats.Percentile(rtts, 0.95),
             // Raw near-cluster median, informational only. The displayed and scored jitter
             // is the effective (absolve/assimilated) value below.
@@ -874,8 +874,9 @@ public class IspHealthScorer
                 TargetIds = targetIds,
                 MedianRttMs = medianRtts.Count > 0 ? medianRtts.Min() : null,
                 MeanRttMs = means.Count > 0 ? means.Average() : null,
-                MinRttMs = medianRtts.Count > 0 ? medianRtts.Min() : null,
-                MaxRttMs = medianRtts.Count > 0 ? medianRtts.Max() : null,
+                // RTT range across the ISP hops, on the same winsorized mean the hops display.
+                MinRttMs = means.Count > 0 ? means.Min() : null,
+                MaxRttMs = means.Count > 0 ? means.Max() : null,
                 P95JitterMs = effMean,
                 LossPct = lossVals.Count > 0 ? lossVals.Average() : null,
                 OverallScore = scored.Count > 0 ? (int)Math.Round(scored.Average()) : null,
@@ -887,7 +888,7 @@ public class IspHealthScorer
         return result;
     }
 
-    private static IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades)
+    private static IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
@@ -898,7 +899,7 @@ public class IspHealthScorer
         {
             TargetId = targetId,
             Name = series.AsnName ?? targetId,
-            MedianRttMs = SeriesStats.Median(rtts),
+            RttMs = SeriesStats.WinsorizedMean(rtts, winsorPercentile),
             P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
             LossPct = losses.Count > 0 ? losses.Average() : null,
             OverallScore = grade?.OverallScore,

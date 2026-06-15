@@ -115,7 +115,9 @@ public class IspTargetHealth
 {
     public required string TargetId { get; init; }
     public required string Name { get; init; }
-    public double? MedianRttMs { get; init; }
+
+    /// <summary>Displayed RTT: winsorized mean over the window.</summary>
+    public double? RttMs { get; init; }
     public double? P95JitterMs { get; init; }
     public double? LossPct { get; init; }
 
