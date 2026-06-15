@@ -14690,7 +14690,7 @@ a.affected-client:hover {
     position: absolute;
     z-index: 6;
     left: 50%;
-    top: 3rem;
+    top: 3.5rem;
     transform: translateX(-50%);
     max-width: min(520px, calc(100% - 2rem));
     display: flex;
