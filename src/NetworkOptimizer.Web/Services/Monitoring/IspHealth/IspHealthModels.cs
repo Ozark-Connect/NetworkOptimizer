@@ -118,7 +118,16 @@ public class IspTargetHealth
 
     /// <summary>Displayed RTT: winsorized mean over the window.</summary>
     public double? RttMs { get; init; }
+
+    /// <summary>Effective (absolved) P95 jitter this hop is graded on.</summary>
     public double? P95JitterMs { get; init; }
+
+    /// <summary>This hop's own measured P95 jitter, before any absolve.</summary>
+    public double? RawJitterMs { get; init; }
+
+    /// <summary>True when a cleaner witness (transit/sibling/destination) pulled this hop's jitter below its own reading.</summary>
+    public bool JitterAssimilated { get; init; }
+
     public double? LossPct { get; init; }
 
     /// <summary>Per-hop quality grade (stability, jitter, loss, congestion, intra-ASN reach).</summary>

@@ -912,12 +912,17 @@ public class IspHealthScorer
         var losses = series.Samples.Where(s => s.LossPercent.HasValue).Select(s => s.LossPercent!.Value).ToList();
         var targetId = series.TargetIds.FirstOrDefault() ?? "";
         var grade = hopGrades.FirstOrDefault(g => g.TargetIds.Contains(targetId));
+        // Jitter comes from the grade (the effective/absolved value the hop is scored on), so
+        // the row matches the grade beside it. Fall back to the hop's own raw P95 when ungraded.
+        var rawP95 = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null;
         return new IspTargetHealth
         {
             TargetId = targetId,
             Name = series.AsnName ?? targetId,
             RttMs = SeriesStats.WinsorizedMean(rtts, winsorPercentile),
-            P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
+            P95JitterMs = grade?.P95JitterMs ?? rawP95,
+            RawJitterMs = grade?.RawJitterMs ?? rawP95,
+            JitterAssimilated = grade?.JitterAssimilated ?? false,
             LossPct = losses.Count > 0 ? losses.Average() : null,
             OverallScore = grade?.OverallScore,
             ReachDeltaMs = grade?.ReachDeltaMs,
