@@ -84,6 +84,20 @@ else
             }
         </button>
     </div>
+    @if (!r.HasUpstreamTraceMap)
+    {
+        <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    No upstream trace map yet, so per-hop jitter attribution runs in a lenient fallback. Re-run Upstream Discovery to map your trace path, so ISP Health can tell a genuinely congested hop from one that just deprioritizes ICMP.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Re-run Upstream Discovery</button>
+                </div>
+            </div>
+        </div>
+    }
     <div class="isp-health-hero card">
         <span class="isp-health-updated">Last updated: @TimeFormatHelper.FormatRelativeTimeShort(r.ComputedAt)</span>
         <div class="card-body isp-health-hero-body">

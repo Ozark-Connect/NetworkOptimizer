@@ -221,6 +221,12 @@ public class IspHealthReport
     /// <summary>False when expected WAN speeds were unavailable and loaded analysis was skipped.</summary>
     public bool HasExpectedSpeeds { get; init; }
 
+    /// <summary>
+    /// False when no upstream hop-ancestry (trace map) is persisted, so the per-hop jitter
+    /// absolve gate runs in its lenient fallback. Prompts the user to re-run Upstream Discovery.
+    /// </summary>
+    public bool HasUpstreamTraceMap { get; init; }
+
     /// <summary>False when no loaded windows occurred in the window (line never under load).</summary>
     public bool HasLoadedSamples { get; init; }
 
