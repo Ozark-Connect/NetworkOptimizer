@@ -37,10 +37,14 @@ public static class OntChartEndpoints
             var configs = await ontService.GetConfigsAsync();
             var nameMap = configs.ToDictionary(c => c.Id.ToString(), c => c.Name);
 
-            var result = data.Select(kvp =>
+            // Only surface ONTs that still have a config. Deleting an ONT config
+            // leaves its historical series in InfluxDB; without this filter those
+            // orphaned ont_ids show up as phantom "ONT {id}" entries on the chart.
+            var result = data
+                .Where(kvp => nameMap.ContainsKey(kvp.Key))
+                .Select(kvp =>
             {
-                nameMap.TryGetValue(kvp.Key, out var name);
-                name ??= $"ONT {kvp.Key}";
+                var name = nameMap[kvp.Key];
 
                 return new
                 {

@@ -38,14 +38,18 @@ public static class CellularChartEndpoints
             var modems = await modemService.GetModemsAsync();
             var nameMap = modems.ToDictionary(m => m.Id.ToString(), m => m.Name);
 
-            // Keys are "modemId" or "modemId:mode" (e.g. "3:LTE", "3:5G NSA")
-            var result = data.Select(kvp =>
+            // Keys are "modemId" or "modemId:mode" (e.g. "3:LTE", "3:5G NSA").
+            // Only surface modems that still have a config. Deleting a modem config
+            // leaves its historical series in InfluxDB; without this filter those
+            // orphaned modem_ids show up as phantom "Modem {id}" entries on the chart.
+            var result = data
+                .Where(kvp => nameMap.ContainsKey(kvp.Key.Split(':', 2)[0]))
+                .Select(kvp =>
             {
                 var parts = kvp.Key.Split(':', 2);
                 var rawModemId = parts[0];
                 var mode = parts.Length > 1 ? parts[1] : null;
-                nameMap.TryGetValue(rawModemId, out var modemName);
-                modemName ??= $"Modem {rawModemId}";
+                var modemName = nameMap[rawModemId];
 
                 var label = !string.IsNullOrEmpty(mode)
                     ? $"{modemName} ({mode})"
