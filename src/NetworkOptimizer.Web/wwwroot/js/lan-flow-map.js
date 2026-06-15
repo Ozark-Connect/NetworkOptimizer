@@ -2018,7 +2018,6 @@ export class LanFlowMap {
         close.type = 'button';
         close.className = 'lan-flow-map-signal-hint-close';
         close.setAttribute('aria-label', 'Dismiss');
-        close.setAttribute('data-tooltip', 'Dismiss');
         close.textContent = '×';
         close.addEventListener('click', () => {
             hint.style.display = 'none';

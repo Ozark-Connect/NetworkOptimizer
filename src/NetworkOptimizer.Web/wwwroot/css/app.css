@@ -14690,7 +14690,7 @@ a.affected-client:hover {
     position: absolute;
     z-index: 6;
     left: 50%;
-    bottom: 4.5rem;
+    top: 3rem;
     transform: translateX(-50%);
     max-width: min(520px, calc(100% - 2rem));
     display: flex;
@@ -14707,6 +14707,7 @@ a.affected-client:hover {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     font-size: 0.78rem;
     color: var(--text-secondary);
+    text-align: center;
 }
 .lan-flow-map-signal-hint-text {
     flex: 1 1 auto;
@@ -15061,7 +15062,7 @@ a.affected-client:hover {
         display: none;
     }
     .lan-flow-map-signal-hint {
-        bottom: 3.25rem;
+        top: 0.5rem;
         max-width: calc(100% - 1rem);
         font-size: 0.72rem;
         padding: 0.45rem 0.5rem 0.45rem 0.75rem;
