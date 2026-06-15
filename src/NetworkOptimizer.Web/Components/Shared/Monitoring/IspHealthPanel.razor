@@ -455,8 +455,8 @@ else
     private static string FormatJitter(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
 
     private static string JitterAssimilationTooltip(IspAsnHealth asn, bool isIsp) => isIsp
-        ? $"Showing {FormatJitter(asn.P95JitterMs)}, not the ISP hops' {FormatJitter(asn.RawJitterMs)}. A transit network reached through the ISP reads lower, so the ISP can't be jitterier - the higher reading is likely ICMP deprioritization."
-        : $"Showing {FormatJitter(asn.P95JitterMs)}, not the nearest hop's {FormatJitter(asn.RawJitterMs)}. A farther hop reached through it reads lower, proving the path is steady - the higher near reading is likely ICMP deprioritization.";
+        ? $"Showing {FormatJitter(asn.P95JitterMs)} from the cleanest network beyond your ISP, not your ISP routers' {FormatJitter(asn.RawJitterMs)}. All traffic crosses the ISP to reach it, so the ISP is no jitterier - its higher reading is likely ICMP deprioritization."
+        : $"Showing {FormatJitter(asn.P95JitterMs)} from a router deeper in this network, not the {FormatJitter(asn.RawJitterMs)} a closer router reported. Traffic passes through the closer router to reach it, so the lower value is the true path jitter - the closer router just deprioritizes ICMP.";
 
     private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
 
