@@ -29,18 +29,27 @@ public class IspHealthScorerTests
         bool withExpectedSpeeds = true,
         List<AsnSeries>? transit = null,
         List<AsnSeries>? ispAsn = null,
+        List<AsnSeries>? ispTargets = null,
+        List<AsnSeries>? destinations = null,
+        string? firstHopTargetId = null,
         List<CongestionEvent>? congestion = null,
         List<SpeedTestSample>? speedTests = null,
         bool smartQueuesEnabled = false,
-        double? internetDeltaMs = null)
+        double? internetDeltaMs = null,
+        bool lineIdle = false,
+        bool hopOrderKnown = false)
     {
-        var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
-            .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
-                ? r with { DownloadBps = 800_000_000 }
-                : r.Time >= LoadedUpStart && r.Time < LoadedUpEnd
-                    ? r with { UploadBps = 400_000_000 }
-                    : r)
-            .ToList();
+        // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
+        // exercising the load-calibrated packet-loss ceiling at the idle end.
+        var rates = lineIdle
+            ? TestSeries.Throughput(TestSeries.Start, Day, 1, 1)
+            : TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
+                .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
+                    ? r with { DownloadBps = 800_000_000 }
+                    : r.Time >= LoadedUpStart && r.Time < LoadedUpEnd
+                        ? r with { UploadBps = 400_000_000 }
+                        : r)
+                .ToList();
 
         var firstHop = TestSeries.Flat(TestSeries.Start, Day, idleRtt, 0.3, lossPct)
             .WithSegment(LoadedDownStart, LoadedDownEnd, idleRtt + loadedDownDelta, 0.3)
@@ -51,9 +60,12 @@ public class IspHealthScorerTests
             WindowStart = TestSeries.Start,
             WindowEnd = TestSeries.Start + Day,
             FirstHopSeries = firstHop,
+            FirstHopTargetId = firstHopTargetId,
             LossPoolSeries = new List<List<LatencySample>> { firstHop },
             TransitAsnSeries = transit ?? new List<AsnSeries>(),
             IspAsnSeries = ispAsn ?? new List<AsnSeries>(),
+            IspTargetSeries = ispTargets ?? new List<AsnSeries>(),
+            DestinationSeries = destinations ?? new List<AsnSeries>(),
             WanRates = rates,
             InternetMedianDeltaMs = internetDeltaMs,
             ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
@@ -64,7 +76,8 @@ public class IspHealthScorerTests
                 new(TestSeries.Start.AddHours(6), 980, 490)
             },
             CongestionEvents = congestion ?? new List<CongestionEvent>(),
-            SmartQueuesEnabled = smartQueuesEnabled
+            SmartQueuesEnabled = smartQueuesEnabled,
+            HopOrderKnown = hopOrderKnown
         };
     }
 
@@ -147,10 +160,25 @@ public class IspHealthScorerTests
     [Fact]
     public void Loss_past_acceptable_drops_drastically()
     {
-        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.075), Gpon);
+        // On an idle line, 0.075% is well past the strict idle ceiling and collapses.
+        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.075, lineIdle: true), Gpon);
 
         var factor = report.AccessDimension.Factors.Single(f => f.Name == "Packet Loss");
         factor.Score.Should().BeLessThan(30);
+    }
+
+    [Fact]
+    public void Packet_loss_ceiling_is_calibrated_to_average_load()
+    {
+        // The same 0.1% loss is fine on a line that ran loaded much of the window but a
+        // real problem on an idle line, where ~no loss is expected.
+        var idle = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.1, lineIdle: true), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
+        var loaded = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.1), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
+
+        loaded.Should().BeGreaterThan(idle!.Value,
+            "the loss ceiling tolerates more when the line was busy over the window");
     }
 
     [Fact]
@@ -473,6 +501,398 @@ public class IspHealthScorerTests
         graded.OverallScore.Should().NotBeNull();
     }
 
+    private static AsnSeries IspHop(string targetId, string name, double rttMs, double jitterMs, double lossPct = 0) => new()
+    {
+        AsnNumber = 64496,
+        AsnName = name,
+        TargetIds = { targetId },
+        Samples = TestSeries.Flat(TestSeries.Start, Day, rttMs, jitterMs, lossPct),
+        RoleTargetIds = { targetId }
+    };
+
+    [Fact]
+    public void All_isp_hops_are_graded_independently()
+    {
+        // Both hops are the same ISP ASN; each is graded on its own, and the dimension
+        // averages every hop grade (not just the first clean hop).
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-hop-near", "Near ISP Hop", 2.0, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 6.0, 1.5, lossPct: 0.8)
+        };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+
+        report.IspAsns.Should().ContainSingle("the hops collapse to one ASN card on Networks on Your Path");
+        report.IspTargets.Should().HaveCount(2);
+        var near = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
+        var far = report.IspTargets.Single(t => t.TargetId == "isp-hop-far");
+        near.OverallScore.Should().BeGreaterThan(far.OverallScore!.Value,
+            "the near hop is clean while the far hop has jitter, loss, and distance");
+        report.IspAsnDimension.Score.Should().Be(
+            (int)Math.Round((near.OverallScore!.Value + far.OverallScore!.Value) / 2.0),
+            "the dimension score averages all ISP hop grades");
+    }
+
+    [Fact]
+    public void Far_isp_hop_is_dinged_for_intra_asn_distance_not_perfect()
+    {
+        // A second POP on the same ISP, 2 ms further out and otherwise clean, should read
+        // "fine but not perfect" (~85), not a flawless 100.
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-hop-near", "Near ISP Hop", 2.1, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 4.1, 0.3)
+        };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+
+        var far = report.IspTargets.Single(t => t.TargetId == "isp-hop-far");
+        far.ReachDeltaMs.Should().BeApproximately(2.0, 0.2);
+        far.OverallScore.Should().BeInRange(80, 89);
+        report.IspTargets.Single(t => t.TargetId == "isp-hop-near").OverallScore.Should().Be(100);
+    }
+
+    [Fact]
+    public void Higher_isp_jitter_lowers_the_dimension()
+    {
+        // Without hop order, an ISP sibling can't absolve another (we can't prove which is
+        // downstream), so a jittery hop stays jittery and lowers the dimension vs a clean ISP.
+        var clean = new List<AsnSeries>
+        {
+            IspHop("a", "A", 2.1, 0.4),
+            IspHop("b", "B", 2.1, 0.4)
+        };
+        var jittery = new List<AsnSeries>
+        {
+            IspHop("a", "A", 2.1, 0.4),
+            IspHop("b", "B", 2.1, 3.0)
+        };
+
+        var cleanReport = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: clean, ispTargets: clean, firstHopTargetId: "a"), Gpon);
+        var jitteryReport = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: jittery, ispTargets: jittery, firstHopTargetId: "a"), Gpon);
+
+        jitteryReport.IspAsnDimension.Score.Should().BeLessThan(cleanReport.IspAsnDimension.Score!.Value,
+            "higher mean ISP jitter lowers the ISP grade");
+    }
+
+    [Fact]
+    public void Isp_jitter_is_capped_by_the_cleanest_transit_asn()
+    {
+        // The ISP hops look jittery (3 ms, likely ICMP deprioritization), but a transit ASN
+        // reached through the ISP is clean at 0.4 ms - proving the ISP path is steady. The
+        // ISP grade must not be punished for the false ISP-hop jitter.
+        var ispHops = new List<AsnSeries>
+        {
+            IspHop("isp-a", "ISP A", 2.1, 3.0),
+            IspHop("isp-b", "ISP B", 2.2, 3.0)
+        };
+        var cleanTransit = new List<AsnSeries>
+        {
+            TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 8, 0.4))
+        };
+
+        var withCleanTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a", transit: cleanTransit), Gpon);
+        var noTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a"), Gpon);
+
+        withCleanTransit.IspAsnDimension.Score.Should().BeGreaterThan(noTransit.IspAsnDimension.Score!.Value,
+            "a clean transit ASN beyond the ISP caps the ISP's jitter");
+        withCleanTransit.IspAsns.Single().JitterAssimilated.Should().BeTrue("the transit floor capped the ISP jitter");
+        noTransit.IspAsns.Single().JitterAssimilated.Should().BeFalse("no transit to assimilate from");
+    }
+
+    [Fact]
+    public void Transit_jitter_above_the_isp_mean_does_not_raise_isp_jitter()
+    {
+        // The cap is min, not max: a jittery transit ASN must never drag the ISP jitter UP.
+        // ISP hops are clean (0.3 ms); transit is jittery (2.0 ms). The ISP keeps its own
+        // mean for both score and display.
+        var ispHops = new List<AsnSeries>
+        {
+            IspHop("isp-a", "ISP A", 2.1, 0.3),
+            IspHop("isp-b", "ISP B", 2.1, 0.3)
+        };
+        var jitteryTransit = new List<AsnSeries>
+        {
+            TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 8, 2.0))
+        };
+
+        var withJitteryTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a", transit: jitteryTransit), Gpon);
+        var noTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a"), Gpon);
+
+        withJitteryTransit.IspAsnDimension.Score.Should().Be(noTransit.IspAsnDimension.Score,
+            "a jittery transit ASN must not raise the ISP jitter (cap is min, not max)");
+        withJitteryTransit.IspAsns.Single().P95JitterMs.Should().BeApproximately(0.3, 0.05,
+            "the displayed ISP jitter stays at the ISP mean when transit is not cleaner");
+    }
+
+    [Fact]
+    public void Congestion_on_non_first_hop_affects_isp_dimension()
+    {
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-hop-near", "Near ISP Hop", 2.0, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 5.0, 0.5)
+        };
+        var congestion = new List<CongestionEvent>
+        {
+            new()
+            {
+                Start = TestSeries.Start.AddHours(18),
+                End = TestSeries.Start.AddHours(22),
+                AsnNumbers = { 64496 },
+                TargetIds = { "isp-hop-far" }
+            }
+        };
+
+        var withCongestion = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near", congestion: congestion), Gpon);
+        var withoutCongestion = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+
+        withCongestion.IspAsns.Single().CongestionEventCount.Should().Be(1, "the event fired on a hop of this ASN");
+        withCongestion.IspAsnDimension.Score.Should().BeLessThan(
+            withoutCongestion.IspAsnDimension.Score!.Value,
+            "congestion on any ISP hop lowers the ISP dimension score");
+    }
+
+    [Fact]
+    public void With_hop_order_a_divergent_isp_hop_is_not_absolved_but_an_on_path_one_is()
+    {
+        // With ancestor data, a clean transit absolves only the ISP hop it routes through
+        // (the hop is in its ancestor set). A divergent hop the transit never traverses keeps
+        // its own jitter - closing the divergent-path absolve hole.
+        var onPath = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-onpath" },
+            RoleTargetIds = { "isp-onpath" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0),
+            HopIps = { "10.0.0.1" }
+        };
+        var divergent = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-divergent" },
+            RoleTargetIds = { "isp-divergent" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.1, 3.0),
+            HopIps = { "10.0.0.9" }
+        };
+        var transit = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "Transit",
+            TargetIds = { "transit" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 8, 0.4),
+            HopIps = { "20.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // routes through the on-path hop only
+        };
+        var hops = new List<AsnSeries> { onPath, divergent };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-onpath",
+                transit: new List<AsnSeries> { transit }, hopOrderKnown: true), Gpon);
+
+        var onPathGrade = report.IspTargets.Single(t => t.TargetId == "isp-onpath");
+        var divergentGrade = report.IspTargets.Single(t => t.TargetId == "isp-divergent");
+        onPathGrade.OverallScore.Should().BeGreaterThan(divergentGrade.OverallScore!.Value,
+            "the transit absolves the hop it routes through, not the divergent one");
+    }
+
+    [Fact]
+    public void A_clean_destination_absolves_an_icmp_deprioritized_hop_it_routes_through()
+    {
+        // An ISP hop measures high jitter to itself (ICMP control-plane deprioritization),
+        // but a monitored destination reached THROUGH it (the hop is in the destination's
+        // ancestor set) has clean end-to-end jitter - proof the forwarding plane is smooth.
+        // The destination's jitter is a hard upper bound on the hop's true jitter, so it
+        // absolves the hop. No transit routes through the hop; only the destination does.
+        var hop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-icmp-hop" },
+            RoleTargetIds = { "isp-icmp-hop" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.5, 7.0), // high self-jitter
+            HopIps = { "10.0.0.9" }
+        };
+        var cleanDestination = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 6, 0.4), // smooth end-to-end
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.0.0.9" } // reached through the ICMP-deprioritized hop
+        };
+        var hops = new List<AsnSeries> { hop };
+
+        var absolved = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-icmp-hop",
+                destinations: new List<AsnSeries> { cleanDestination }, hopOrderKnown: true), Gpon)
+            .IspTargets.Single(t => t.TargetId == "isp-icmp-hop");
+
+        // Same hop, but the destination does NOT route through it (different ancestor): no absolve.
+        var divergentDest = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 6, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // a different hop, not ours
+        };
+        var notAbsolved = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-icmp-hop",
+                destinations: new List<AsnSeries> { divergentDest }, hopOrderKnown: true), Gpon)
+            .IspTargets.Single(t => t.TargetId == "isp-icmp-hop");
+
+        absolved.OverallScore.Should().BeGreaterThan(notAbsolved.OverallScore!.Value,
+            "a clean destination routing through the hop proves its jitter is an ICMP artifact");
+    }
+
+    [Fact]
+    public void Isp_target_health_carries_per_target_grade()
+    {
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-hop-near", "Near ISP Hop", 2.0, 0.3),
+            IspHop("isp-hop-far", "Far ISP Hop", 6.0, 1.5, lossPct: 0.8)
+        };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+
+        report.IspTargets.Should().HaveCount(2);
+        var nearTarget = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
+        var farTarget = report.IspTargets.Single(t => t.TargetId == "isp-hop-far");
+        nearTarget.OverallScore.Should().NotBeNull();
+        farTarget.OverallScore.Should().NotBeNull();
+        nearTarget.OverallScore.Should().BeGreaterThan(farTarget.OverallScore!.Value);
+        nearTarget.IsGradedHop.Should().BeTrue();
+        farTarget.IsGradedHop.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_clean_farther_cluster_absolves_false_near_jitter()
+    {
+        // The near cluster shows 4 ms jitter (false - ICMP deprioritization on that hop),
+        // but the farther cluster, reached through it, is clean at 0.4 ms. The ASN must take
+        // the better of the two, so it is not punished for the false near jitter.
+        var nearCluster = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0);
+        var farCluster = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4);
+        var withFartherSource = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearCluster,
+            JitterSourceSamples = farCluster
+        };
+        var nearOnly = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearCluster
+        };
+
+        var graded = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { withFartherSource }), Gpon).TransitAsns.Single();
+        var ungraded = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { nearOnly }), Gpon).TransitAsns.Single();
+
+        graded.JitterScore.Should().BeGreaterThan(ungraded.JitterScore!.Value,
+            "the clean farther cluster disproves the near hop's false jitter");
+        graded.JitterScore.Should().BeGreaterThan(85);
+        graded.P95JitterMs.Should().BeApproximately(0.4, 0.1,
+            "the displayed jitter is the absolved value, not the near hop's 4 ms");
+        graded.JitterAssimilated.Should().BeTrue("the farther cluster pulled the jitter down");
+        graded.RawJitterMs.Should().BeApproximately(4.0, 0.1, "the raw near reading is kept for the tooltip");
+    }
+
+    [Fact]
+    public void Without_hop_order_a_transit_asn_is_graded_on_its_near_cluster()
+    {
+        // Backward compat: installs that have not re-run discovery have no stored hop
+        // order, so the service never sets JitterSourceSamples. The ASN must still grade
+        // cleanly - on its nearest cluster's own jitter, with no farther-cluster absolve.
+        var nearJittery = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0);
+        var noHopOrder = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearJittery
+            // JitterSourceSamples intentionally empty (no hop order available)
+        };
+
+        var graded = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { noHopOrder }), Gpon).TransitAsns.Single();
+
+        graded.OverallScore.Should().NotBeNull();
+        graded.MedianJitterMs.Should().BeApproximately(4.0, 0.1, "jitter is the near cluster's own, never absolved without proof");
+    }
+
+    [Fact]
+    public void A_jittery_farther_cluster_never_downgrades_the_nearer()
+    {
+        // The near cluster is clean (0.4 ms); the farther cluster is jittery (4 ms). The far
+        // cluster's jitter is its own problem further along the path and must NOT drag the
+        // nearer cluster's grade down. Absolve-only: take the better, never the worse.
+        var nearClean = TestSeries.Flat(TestSeries.Start, Day, 10, 0.4);
+        var farJittery = TestSeries.Flat(TestSeries.Start, Day, 13, 4.0);
+        var withJitteryFar = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearClean,
+            JitterSourceSamples = farJittery
+        };
+        var nearOnly = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearClean
+        };
+
+        var withFar = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { withJitteryFar }), Gpon).TransitAsns.Single();
+        var without = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { nearOnly }), Gpon).TransitAsns.Single();
+
+        withFar.JitterScore.Should().Be(without.JitterScore,
+            "a jittery farther cluster must not downgrade the clean nearer cluster");
+        withFar.JitterAssimilated.Should().BeFalse("nothing was assimilated - the near cluster was already cleaner");
+    }
+
+    [Fact]
+    public void Displayed_rtt_winsorizes_a_flap_so_one_spike_does_not_distort_it()
+    {
+        // 8 ms baseline all window with a 5-minute spike to 2000 ms (a route flap). The raw
+        // mean would jump to ~15 ms; the winsorized mean (P99-capped) stays at the baseline.
+        var spikeStart = TestSeries.Start.AddHours(6);
+        var series = TestSeries.Flat(TestSeries.Start, Day, 8, 0.5)
+            .WithSegment(spikeStart, spikeStart.AddMinutes(5), 2000, 0.5);
+        var transit = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", series) };
+
+        var graded = new IspHealthScorer(Options).Score(BuildInputs(transit: transit), Gpon).TransitAsns.Single();
+
+        graded.MeanRttMs.Should().BeApproximately(8, 1.5, "a sub-1% flap is winsorized out of the displayed RTT");
+    }
+
     [Fact]
     public void Congestion_events_lower_the_asn_grade()
     {
@@ -494,23 +914,24 @@ public class IspHealthScorerTests
     [Fact]
     public void Same_asn_as_isp_and_transit_attributes_congestion_by_role()
     {
-        // AT&T is AS7018 for both the access ISP and a transit provider. A congestion
-        // event on the transit hops must credit only the transit card, not the ISP card.
+        // A vertically integrated carrier can be the same ASN for both the access ISP and a
+        // transit provider. A congestion event on the transit hops must credit only the
+        // transit card, not the ISP card.
         var ispSeries = new AsnSeries
         {
-            AsnNumber = 7018,
-            AsnName = "AT&T",
-            TargetIds = { "att-isp-hop" },
+            AsnNumber = 64500,
+            AsnName = "IntegratedCarrier",
+            TargetIds = { "carrier-isp-hop" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "att-isp-hop" }
+            RoleTargetIds = { "carrier-isp-hop" }
         };
         var transitSeries = new AsnSeries
         {
-            AsnNumber = 7018,
-            AsnName = "AT&T",
-            TargetIds = { "att-transit-hop" },
+            AsnNumber = 64500,
+            AsnName = "IntegratedCarrier",
+            TargetIds = { "carrier-transit-hop" },
             Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
-            RoleTargetIds = { "att-transit-hop" }
+            RoleTargetIds = { "carrier-transit-hop" }
         };
         var congestion = new List<CongestionEvent>
         {
@@ -518,8 +939,8 @@ public class IspHealthScorerTests
             {
                 Start = TestSeries.Start.AddHours(19),
                 End = TestSeries.Start.AddHours(21),
-                AsnNumbers = { 7018 },
-                TargetIds = { "att-transit-hop" }
+                AsnNumbers = { 64500 },
+                TargetIds = { "carrier-transit-hop" }
             }
         };
         var report = new IspHealthScorer(Options).Score(

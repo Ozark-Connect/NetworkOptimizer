@@ -15532,6 +15532,10 @@ a.affected-client:hover {
     font-size: 0.85rem;
 }
 
+.isp-asn-stat .tooltip-icon {
+    background-color: var(--btn-map-hover);
+}
+
 .isp-asn-score-track {
     height: 5px;
     border-radius: 0 3px 3px 0;
@@ -15665,31 +15669,44 @@ a.affected-client:hover {
     z-index: 5;
 }
 
-.isp-target-list {
+.isp-hop-list {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.25rem;
+}
+
+.isp-hop {
+    padding: 0.6rem 0;
+}
+
+.isp-hop + .isp-hop {
+    border-top: 1px solid var(--border-color);
+}
+
+.isp-hop-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.isp-hop-main {
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    margin-top: 0.25rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--border-color);
+    flex: 1;
+    min-width: 0;
 }
 
-.isp-target-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.55rem 0;
-}
-
-.isp-target-row + .isp-target-row {
-    border-top: 1px solid var(--border-color);
-}
-
-.isp-target-name {
-    font-size: 0.82rem;
+.isp-hop-name {
+    font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-primary);
-    min-width: 0;
+}
+
+.isp-hop-stats {
+    display: flex;
+    gap: 1.25rem;
+    margin-top: 0.45rem;
 }
 
 .isp-target-graded {
@@ -15702,12 +15719,6 @@ a.affected-client:hover {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-}
-
-.isp-target-stats {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
 }
 
 .isp-target-stat {
@@ -15724,6 +15735,12 @@ a.affected-client:hover {
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+}
+
+.isp-target-stat-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .isp-factor-link {

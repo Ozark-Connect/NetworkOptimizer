@@ -32,6 +32,15 @@ public class UpstreamDiscovery
 
     public int HopNumber { get; set; }
 
+    /// <summary>
+    /// Space-separated IPs of the monitored hops that appear before this one on any
+    /// discovery trace it was seen on - its proven upstream ancestors. ISP Health uses
+    /// these to confirm one hop genuinely routes through another (a witness only absolves
+    /// a hop in its ancestor set), correct across divergent paths. Empty for a first hop.
+    /// </summary>
+    [MaxLength(2000)]
+    public string? AncestorHopIps { get; set; }
+
     public UpstreamRole Role { get; set; }
 
     [MaxLength(50)]

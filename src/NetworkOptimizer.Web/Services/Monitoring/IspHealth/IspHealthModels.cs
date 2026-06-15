@@ -77,9 +77,21 @@ public class IspAsnHealth
     /// <summary>Mean RTT across all of the ASN's monitored hops (shown on the Networks on Your Path card).</summary>
     public double? MeanRttMs { get; init; }
 
+    /// <summary>Lowest and highest hop RTT in the ASN, for the ISP card's RTT range.</summary>
+    public double? MinRttMs { get; init; }
+    public double? MaxRttMs { get; init; }
+
     public double? P95RttMs { get; init; }
     public double? MedianJitterMs { get; init; }
     public double? P95JitterMs { get; init; }
+
+    /// <summary>True when the displayed jitter was assimilated from elsewhere (a cleaner
+    /// farther cluster for transit, or the cleanest transit ASN for the ISP) rather than
+    /// this network's own nearest reading. Drives the info icon on the card.</summary>
+    public bool JitterAssimilated { get; init; }
+
+    /// <summary>This network's own measured jitter before assimilation, for the tooltip.</summary>
+    public double? RawJitterMs { get; init; }
     public double? RttMadMs { get; init; }
     public double? LossPct { get; init; }
 
@@ -103,11 +115,28 @@ public class IspTargetHealth
 {
     public required string TargetId { get; init; }
     public required string Name { get; init; }
-    public double? MedianRttMs { get; init; }
+
+    /// <summary>Displayed RTT: winsorized mean over the window.</summary>
+    public double? RttMs { get; init; }
+
+    /// <summary>Effective (absolved) P95 jitter this hop is graded on.</summary>
     public double? P95JitterMs { get; init; }
+
+    /// <summary>This hop's own measured P95 jitter, before any absolve.</summary>
+    public double? RawJitterMs { get; init; }
+
+    /// <summary>True when a cleaner witness (transit/sibling/destination) pulled this hop's jitter below its own reading.</summary>
+    public bool JitterAssimilated { get; init; }
+
     public double? LossPct { get; init; }
 
-    /// <summary>True for the first clean hop, the target the ISP grade is computed from.</summary>
+    /// <summary>Per-hop quality grade (stability, jitter, loss, congestion, intra-ASN reach).</summary>
+    public int? OverallScore { get; init; }
+
+    /// <summary>RTT beyond this ASN's nearest hop (0 for the nearest). Drives the soft reach ceiling.</summary>
+    public double? ReachDeltaMs { get; init; }
+
+    /// <summary>True for the first clean hop, the target the access layer idle latency comes from.</summary>
     public bool IsGradedHop { get; init; }
 }
 
@@ -192,6 +221,12 @@ public class IspHealthReport
     /// <summary>False when expected WAN speeds were unavailable and loaded analysis was skipped.</summary>
     public bool HasExpectedSpeeds { get; init; }
 
+    /// <summary>
+    /// False when no upstream hop-ancestry (trace map) is persisted, so the per-hop jitter
+    /// absolve gate runs in its lenient fallback. Prompts the user to re-run Upstream Discovery.
+    /// </summary>
+    public bool HasUpstreamTraceMap { get; init; }
+
     /// <summary>False when no loaded windows occurred in the window (line never under load).</summary>
     public bool HasLoadedSamples { get; init; }
 
@@ -241,11 +276,31 @@ public class AsnSeries
     public double? NearestClusterMeanRttMs { get; init; }
 
     /// <summary>
+    /// A farther cluster's samples used to absolve false near-hop jitter. A near hop often
+    /// shows false jitter from ICMP deprioritization; a cleaner farther cluster, confirmed
+    /// downstream by stored traceroute hop order, disproves it. Jitter and stability are
+    /// graded on the BETTER (lower) of <see cref="Samples"/> and this (absolve-only: a
+    /// jittery farther cluster never downgrades the nearer). RTT and reach always use
+    /// Samples. Empty means no confirmed farther cluster, so Samples alone is used.
+    /// </summary>
+    public List<LatencySample> JitterSourceSamples { get; init; } = new();
+
+    /// <summary>
     /// On a grading series, all of this ASN-role's target IDs (every hop, every
     /// cluster), used to attribute congestion to the correct card when the same ASN
     /// appears as both the access ISP and transit. Empty on chart-cluster series.
     /// </summary>
     public List<string> RoleTargetIds { get; init; } = new();
+
+    /// <summary>The IPs of this series' targets, so a witness can be tested for routing through them.</summary>
+    public List<string> HopIps { get; init; } = new();
+
+    /// <summary>
+    /// The monitored hop IPs proven upstream of this series (union over its targets, from the
+    /// discovery traces). A witness series routes through a hop X - and so may absolve it -
+    /// iff X's IP is in the witness's ancestor set. Empty for a first hop.
+    /// </summary>
+    public List<string> AncestorIps { get; init; } = new();
 }
 
 /// <summary>Load classification of one aggregate window.</summary>
@@ -286,6 +341,14 @@ public class IspHealthInputs
     /// <summary>Per-ASN series for access ISP targets.</summary>
     public List<AsnSeries> IspAsnSeries { get; init; } = new();
 
+    /// <summary>
+    /// Per-target series for monitored internet/destination endpoints (anycast DNS, CDN
+    /// probes). Each carries the hops proven upstream of it (AncestorIps) so a destination's
+    /// clean end-to-end jitter can absolve an ISP hop it provably routes through - an
+    /// ICMP-deprioritized hop whose forwarded traffic reaches the destination smoothly.
+    /// </summary>
+    public List<AsnSeries> DestinationSeries { get; init; } = new();
+
     /// <summary>WAN throughput over the window (primary WAN).</summary>
     public List<ThroughputSample> WanRates { get; init; } = new();
 
@@ -313,6 +376,13 @@ public class IspHealthInputs
 
     /// <summary>Pre-detected path shift events. Informational only.</summary>
     public List<PathShiftEvent> PathShifts { get; init; } = new();
+
+    /// <summary>
+    /// True when Upstream Discovery has persisted hop-ancestor data for this WAN. When false
+    /// (never discovered, or pre-ancestor data), the jitter absolve gate falls open for
+    /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
+    /// </summary>
+    public bool HopOrderKnown { get; init; }
 }
 
 /// <summary>

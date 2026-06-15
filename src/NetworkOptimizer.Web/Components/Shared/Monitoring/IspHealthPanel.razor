@@ -71,6 +71,20 @@ else if (_report == null)
 else
 {
     var r = _report;
+    @if (!r.HasUpstreamTraceMap)
+    {
+        <div class="alert alert-info" style="margin-bottom: 0.75rem;">
+            <div class="banner-content">
+                <span class="banner-icon banner-icon-info">i</span>
+                <div class="banner-text" style="flex: 1;">
+                    Re-run Upstream Discovery to map your trace path, so ISP Health can tell a genuinely congested hop from one that just deprioritizes ICMP.
+                </div>
+                <div class="banner-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Re-run Upstream Discovery</button>
+                </div>
+            </div>
+        </div>
+    }
     <div class="isp-health-toolbar">
         <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@_refreshing"
                 data-tooltip="Recompute ISP Health now from the latest monitoring data" data-tooltip-hover-only>
@@ -172,60 +186,88 @@ else
                     <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
                 </div>
                 <div class="card-body">
-                    @if (dimension.Factors.Count == 0)
+                    @if (dimension == r.IspAsnDimension)
                     {
-                        <p class="page-description">No data for this dimension in the window.</p>
-                    }
-                    @foreach (var factor in dimension.Factors)
-                    {
-                        <div class="isp-factor-row">
-                            <div class="isp-factor-label">
-                                @{ var investigateUrl = FactorInvestigateUrl(factor.Name); }
-                                @if (investigateUrl != null)
-                                {
-                                    <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
-                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@factor.Name</a>
-                                }
-                                else
-                                {
-                                    <span class="isp-factor-name">@factor.Name</span>
-                                }
-                                @if (!string.IsNullOrEmpty(factor.ValueText))
-                                {
-                                    <span class="isp-factor-value">@factor.ValueText</span>
-                                }
-                            </div>
-                            <div class="isp-factor-bar-track">
-                                <div class="isp-factor-bar @BarClass(factor.Score)" style="width: @(factor.Score ?? 0)%"></div>
-                            </div>
-                            <span class="isp-factor-score @ScoreTextClass(factor.Score)">@(factor.Score?.ToString() ?? "--")</span>
-                        </div>
-                        @if (!string.IsNullOrEmpty(factor.Description))
+                        @if (r.IspTargets.Count == 0)
                         {
-                            <div class="isp-factor-description">@factor.Description</div>
+                            <p class="page-description">No ISP hop data in the window.</p>
                         }
-                    }
-                    @if (dimension == r.IspAsnDimension && r.IspTargets.Count > 1)
-                    {
-                        <div class="isp-target-list">
+                        <div class="isp-hop-list">
                             @foreach (var target in r.IspTargets)
                             {
-                                <div class="isp-target-row">
-                                    <div class="isp-target-name">
-                                        @target.Name
-                                        @if (target.IsGradedHop)
-                                        {
-                                            <span class="isp-target-graded" data-tooltip="The first clean hop; latency factors and the ISP grade come from this target">graded</span>
-                                        }
+                                <div class="isp-hop">
+                                    <div class="isp-hop-row">
+                                        <div class="isp-hop-main">
+                                            <div class="isp-hop-name">
+                                                @target.Name
+                                                @if (target.IsGradedHop)
+                                                {
+                                                    <span class="isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
+                                                }
+                                            </div>
+                                            <div class="isp-factor-bar-track">
+                                                <div class="isp-factor-bar @BarClass(target.OverallScore)" style="width: @(target.OverallScore ?? 0)%"></div>
+                                            </div>
+                                        </div>
+                                        <span class="isp-factor-score @ScoreTextClass(target.OverallScore)">@(target.OverallScore?.ToString() ?? "--")</span>
                                     </div>
-                                    <div class="isp-target-stats">
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.MedianRttMs)</span>
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatMs(target.P95JitterMs)</span>
+                                    <div class="isp-hop-stats">
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.RttMs)</span>
+                                        <span class="isp-target-stat">
+                                            <span class="isp-target-stat-label">P95 Jitter</span>
+                                            <span class="isp-target-stat-value">
+                                                @FormatJitter(target.P95JitterMs)
+                                                @if (target.JitterAssimilated)
+                                                {
+                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
+                                                }
+                                            </span>
+                                        </span>
                                         <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
+                                        @if (target.ReachDeltaMs is > 0.15)
+                                        {
+                                            <span class="isp-target-stat"><span class="isp-target-stat-label">Beyond nearest</span>+@FormatMs(target.ReachDeltaMs)</span>
+                                        }
                                     </div>
                                 </div>
                             }
                         </div>
+                    }
+                    else
+                    {
+                        @if (dimension.Factors.Count == 0)
+                        {
+                            <p class="page-description">No data for this dimension in the window.</p>
+                        }
+                        @foreach (var factor in dimension.Factors)
+                        {
+                            <div class="isp-factor-row">
+                                <div class="isp-factor-label">
+                                    @{ var investigateUrl = FactorInvestigateUrl(factor.Name); }
+                                    @if (investigateUrl != null)
+                                    {
+                                        <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
+                                           data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@factor.Name</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="isp-factor-name">@factor.Name</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(factor.ValueText))
+                                    {
+                                        <span class="isp-factor-value">@factor.ValueText</span>
+                                    }
+                                </div>
+                                <div class="isp-factor-bar-track">
+                                    <div class="isp-factor-bar @BarClass(factor.Score)" style="width: @(factor.Score ?? 0)%"></div>
+                                </div>
+                                <span class="isp-factor-score @ScoreTextClass(factor.Score)">@(factor.Score?.ToString() ?? "--")</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(factor.Description))
+                            {
+                                <div class="isp-factor-description">@factor.Description</div>
+                            }
+                        }
                     }
                 </div>
             </div>
@@ -240,17 +282,36 @@ else
                 <div class="isp-asn-grid">
                     @foreach (var asn in r.IspAsns.Concat(r.TransitAsns))
                     {
+                        var isIspAsn = r.IspAsns.Contains(asn);
+                        var showRange = isIspAsn && asn.MinRttMs.HasValue && asn.MaxRttMs.HasValue
+                            && asn.MaxRttMs.Value - asn.MinRttMs.Value > 0.05;
                         <div class="isp-asn-card">
                             <div class="isp-asn-card-header">
                                 <div>
                                     <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
-                                    <div class="isp-asn-sub">@(r.IspAsns.Contains(asn) ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
+                                    <div class="isp-asn-sub">@(isIspAsn ? "ISP network" : "Transit") @(asn.AsnNumber > 0 ? $"· AS{asn.AsnNumber}" : "")</div>
                                 </div>
                                 <span class="isp-asn-grade @ScoreTextClass(asn.OverallScore)">@(asn.OverallScore?.ToString() ?? "--")</span>
                             </div>
                             <div class="isp-asn-stats">
-                                <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatMs(asn.MeanRttMs)</span></div>
-                                <div class="isp-asn-stat"><span class="detail-label">P95 Jitter</span><span class="detail-value">@FormatMs(asn.P95JitterMs)</span></div>
+                                @if (showRange)
+                                {
+                                    <div class="isp-asn-stat"><span class="detail-label">RTT Range</span><span class="detail-value">@FormatRttRange(asn.MinRttMs, asn.MaxRttMs)</span></div>
+                                }
+                                else
+                                {
+                                    <div class="isp-asn-stat"><span class="detail-label">Mean RTT</span><span class="detail-value">@FormatRtt(asn.MeanRttMs)</span></div>
+                                }
+                                <div class="isp-asn-stat">
+                                    <span class="detail-label">P95 Jitter</span>
+                                    <span class="detail-value">
+                                        @FormatJitter(asn.P95JitterMs)
+                                        @if (asn.JitterAssimilated)
+                                        {
+                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
+                                        }
+                                    </span>
+                                </div>
                                 <div class="isp-asn-stat"><span class="detail-label">Loss</span><span class="detail-value">@FormatLossPct(asn.LossPct)</span></div>
                                 @if (asn.ReachDeltaMs.HasValue)
                                 {
@@ -324,6 +385,7 @@ else
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
+    private System.Threading.Timer? _ageTimer;
 
     protected override async Task OnInitializedAsync()
     {
@@ -341,6 +403,14 @@ else
         {
             _loading = false;
         }
+
+        // Re-render every 30 s so "Last updated: N min ago" ages on its own, without
+        // waiting for a tab reload or a manual refresh.
+        _ageTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(StateHasChanged); }
+            catch { /* never let a render fault kill the timer */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private async Task RefreshAsync()
@@ -414,7 +484,19 @@ else
 
     private static string FormatMs(double? ms) => ms.HasValue ? $"{ms.Value:0.#} ms" : "--";
 
-    private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.0} ms" : "--";
+    private static string FormatJitter(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
+
+    private static string JitterAssimilationTooltip(IspAsnHealth asn, bool isIsp) => isIsp
+        ? $"Showing {FormatJitter(asn.P95JitterMs)} from the cleanest network beyond your ISP, not your ISP routers' {FormatJitter(asn.RawJitterMs)}. All traffic crosses the ISP to reach it, so the ISP is no jitterier - its higher reading is likely ICMP deprioritization."
+        : $"Showing {FormatJitter(asn.P95JitterMs)} from a router deeper in this network, not the {FormatJitter(asn.RawJitterMs)} a closer router reported. Traffic passes through the closer router to reach it, so the lower value is the true path jitter - the closer router just deprioritizes ICMP.";
+
+    private static string JitterAssimilationTooltip(IspTargetHealth target) =>
+        $"Showing {FormatJitter(target.P95JitterMs)} measured to a network reached through this router, not its own {FormatJitter(target.RawJitterMs)}. Traffic passes through it cleanly, so the higher reading is this router deprioritizing ICMP, not real jitter.";
+
+    private static string FormatRtt(double? ms) => ms.HasValue ? $"{ms.Value:0.00} ms" : "--";
+
+    private static string FormatRttRange(double? min, double? max) =>
+        min.HasValue && max.HasValue ? $"{min.Value:0.00} - {max.Value:0.00} ms" : "--";
 
     private static string FormatLossPct(double? pct) => pct switch { null => "--", 0 => "0%", _ => $"{pct.Value:0.##}%" };
 
@@ -447,6 +529,7 @@ else
 
     public void Dispose()
     {
+        _ageTimer?.Dispose();
         if (_chartMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount();"); }

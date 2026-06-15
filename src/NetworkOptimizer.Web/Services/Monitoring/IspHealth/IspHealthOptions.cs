@@ -162,6 +162,42 @@ public class IspHealthOptions
 
     /// <summary>Weight of congestion in the per-ASN quality blend.</summary>
     public double AsnCongestionWeight { get; set; } = 0.3;
+
+    /// <summary>
+    /// Lower clamp for the path jitter floor used in floor-relative jitter scoring.
+    /// Below this, ratio scoring would punish sub-millisecond jitter that is excellent
+    /// in absolute terms, so the floor never reads below this value.
+    /// </summary>
+    public double JitterFloorMinMs { get; set; } = 0.3;
+
+    /// <summary>
+    /// Upper clamp for the path jitter floor. Above this the line is jittery
+    /// everywhere; the absolute high-end anchors take over rather than letting a high
+    /// floor excuse genuinely bad jitter.
+    /// </summary>
+    public double JitterFloorMaxMs { get; set; } = 1.5;
+
+    /// <summary>
+    /// Minimum amount a cleaner witness must sit below a hop's own jitter before it counts as
+    /// assimilated. Within this band the difference is measurement noise, so the hop keeps its
+    /// own jitter (no absolve, no assimilation icon). Applies to ISP hops and transit ASNs.
+    /// </summary>
+    public double JitterAssimilationMinDeltaMs { get; set; } = 0.05;
+
+    /// <summary>
+    /// Average WAN load at which packet loss reaches its worst on shared-medium access
+    /// (DOCSIS, PON, fixed wireless). The load-calibrated loss ceiling reaches the
+    /// connection's loaded-loss band at this utilization and holds there above it, rather
+    /// than only at 100%.
+    /// </summary>
+    public double LossSaturationLoadFraction { get; set; } = 0.75;
+
+    /// <summary>
+    /// Upper percentile at which displayed RTT is winsorized: samples above it are capped
+    /// to it before averaging, so a route flap or single bad probe can't distort the mean
+    /// while sustained elevation still shows. 0.99 caps only the worst 1%.
+    /// </summary>
+    public double RttWinsorPercentile { get; set; } = 0.99;
 }
 
 /// <summary>

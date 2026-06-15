@@ -99,6 +99,13 @@ public class IspHealthService
     }
 
     /// <summary>Pipeline readiness, for the tab's prerequisite funnels.</summary>
+    /// <summary>
+    /// Drop the cached report so the next <see cref="GetReportAsync"/> recomputes from current
+    /// data. Called when Upstream Discovery is committed, so the "re-run discovery" banner
+    /// clears as soon as the user revisits the tab, without a manual refresh.
+    /// </summary>
+    public void Invalidate() => _cached = null;
+
     public IspHealthStatus Status => _cached != null ? IspHealthStatus.Ready : _status;
 
     private async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeAsync(CancellationToken ct)
@@ -111,6 +118,11 @@ public class IspHealthService
 
         AccessTechnology technology;
         List<MonitoringTarget> targets;
+        // TargetId -> the monitored hop IPs proven upstream of it (its ancestors), from
+        // Upstream Discovery's traces. ISP Health uses these to confirm one hop routes
+        // through another before its jitter absolves the other. No live traceroute here.
+        Dictionary<string, List<string>> ancestorIpsByTargetId;
+        bool hopOrderKnown;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
@@ -134,6 +146,27 @@ public class IspHealthService
                     || t.TargetType == MonitoringTargetType.Transit
                     || t.TargetType == MonitoringTargetType.InternetService))
                 .ToListAsync(ct);
+
+            // TODO (multi-WAN): discoveries are read across ALL WANs, not scoped to the WAN
+            // being scored. UpstreamDiscovery rows carry WanInterface, but ISP Health scores
+            // a single (primary) WAN and ancestry/hopOrderKnown here is global, so a second
+            // WAN's discovery data could flip the absolve gate for a WAN that has none of its
+            // own. Scope by WanInterface once ISP Health grades per-WAN. See TODO.md.
+            var discoveries = await db.UpstreamDiscoveries.AsNoTracking()
+                .Where(d => d.IsActive && d.MonitoringTargetId != null)
+                .ToListAsync(ct);
+            // TargetId -> ancestor hop IPs. Join discovery rows to the loaded targets by PK.
+            var targetIdById = targets.ToDictionary(t => t.Id, t => t.TargetId);
+            ancestorIpsByTargetId = discoveries
+                .Where(d => targetIdById.ContainsKey(d.MonitoringTargetId!.Value))
+                .GroupBy(d => targetIdById[d.MonitoringTargetId!.Value])
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.SelectMany(d => (d.AncestorHopIps ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            // Ancestor data exists when any row carries the (non-null) column - distinguishes
+            // "no discovery yet / pre-ancestor data" from "on-path but no upstream ancestors".
+            hopOrderKnown = discoveries.Any(d => d.AncestorHopIps != null);
         }
 
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
@@ -241,7 +274,7 @@ public class IspHealthService
                 && internetSeries.ContainsKey(t.TargetId))
             .Select(t => internetSeries[t.TargetId]));
 
-        var (ispGrading, transitGrading, allClusters, chartClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
+        var (ispGrading, transitGrading, allClusters, chartClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
@@ -249,7 +282,11 @@ public class IspHealthService
                 AsnNumber = t.AsnNumber ?? 0,
                 AsnName = t.Name,
                 TargetIds = { t.TargetId },
-                Samples = internetSeries[t.TargetId]
+                Samples = internetSeries[t.TargetId],
+                HopIps = { t.Address },
+                // Hops proven upstream of this destination, so its clean end-to-end jitter
+                // can absolve an ICMP-deprioritized ISP hop it provably routes through.
+                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>()
             })
             .ToList();
 
@@ -274,6 +311,7 @@ public class IspHealthService
             LossPoolSeries = lossPool,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
+            DestinationSeries = internetTargetSeries,
             WanRates = wanRates,
             InternetMedianDeltaMs = internetMedianDelta,
             ExpectedDownloadMbps = expectedDown,
@@ -282,10 +320,11 @@ public class IspHealthService
             WanSpeedTests = wanSpeedTests,
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
-            SmartQueuesEnabled = smartQueuesEnabled
+            SmartQueuesEnabled = smartQueuesEnabled,
+            HopOrderKnown = hopOrderKnown
         };
 
-        var report = new IspHealthScorer(_options).Score(inputs, profile);
+        var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
         _status = IspHealthStatus.Ready;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
@@ -456,15 +495,47 @@ public class IspHealthService
         List<MonitoringTarget> ispTargets,
         List<MonitoringTarget> transitTargets,
         Dictionary<string, List<LatencySample>> ispSeries,
-        Dictionary<string, List<LatencySample>> transitSeries)
+        Dictionary<string, List<LatencySample>> transitSeries,
+        Dictionary<string, List<string>> ancestorIpsByTargetId)
     {
         var ispOverrides = BuildIspAsnOverrides(ispTargets);
-        // The ISP grade follows the live ISP RTT card: the single lowest-RTT target
-        // is the first clean hop and represents the ISP network
-        var (ispGrading, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
+        // Congestion and path-shift detection still runs on clustered series so
+        // events fire at the right granularity
+        var (_, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true, ancestorIpsByTargetId);
+
+        // Grade each ISP target individually: every hop's own loss, reach, and
+        // congestion contribute to the ISP Network dimension instead of grading only
+        // the first clean hop (jitter is graded ISP-wide in the scorer). The access
+        // layer idle speed rating still uses FirstHopSeries (unchanged). AsnName carries
+        // the ASN org name (not the per-hop target name) so the aggregate ISP card on
+        // Networks on Your Path is labeled by the ASN; the per-hop table uses a separate
+        // series (ispTargetSeries) that keeps each target's own name.
+        var ispGrading = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t =>
+            {
+                var resolvedAsn = t.AsnNumber ?? 0;
+                var asnName = t.AsnName;
+                if (ispOverrides != null && ispOverrides.TryGetValue(t.TargetId, out var o))
+                {
+                    resolvedAsn = o.Asn;
+                    asnName ??= o.Name;
+                }
+                return new AsnSeries
+                {
+                    AsnNumber = resolvedAsn,
+                    AsnName = asnName,
+                    TargetIds = { t.TargetId },
+                    Samples = ispSeries[t.TargetId],
+                    RoleTargetIds = { t.TargetId },
+                    HopIps = { t.Address },
+                    AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : new List<string>()
+                };
+            })
+            .ToList();
 
         var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
-        var (transitGrading, transitClusters, transitChart) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
+        var (transitGrading, transitClusters, transitChart) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false, ancestorIpsByTargetId);
 
         return (ispGrading, transitGrading,
             ispClusters.Concat(transitClusters).ToList(),
@@ -495,7 +566,8 @@ public class IspHealthService
         List<MonitoringTarget> targets,
         Dictionary<string, List<LatencySample>> seriesByTarget,
         Dictionary<string, (int Asn, string? Name)>? asnOverrides,
-        bool gradeLowestTargetOnly)
+        bool gradeLowestTargetOnly,
+        Dictionary<string, List<string>> ancestorIpsByTargetId)
     {
         var grading = new List<AsnSeries>();
         var allClusters = new List<AsnSeries>();
@@ -585,6 +657,30 @@ public class IspHealthService
                         .Where(s => s.RttAvgMs.HasValue)
                         .Select(s => s.RttAvgMs!.Value)
                         .ToList();
+                    // Jitter and stability are scored from the farthest cluster when this
+                    // ASN spans more than one: a near hop's jitter is often false (ICMP
+                    // deprioritization), and the farther cluster - reached through the near
+                    // one - is the honest read of the path's jitter. RTT and reach stay on
+                    // the nearest cluster. Only for transit (full clusters graded); the ISP
+                    // grades each hop on its own, so this carve-out does not apply there.
+                    // The assimilation is gated on traceroute hop order: we only trust the
+                    // farther cluster's lower jitter when Upstream Discovery recorded it
+                    // strictly downstream of the nearest cluster (it actually routes through
+                    // it). Without that proof we keep the nearest cluster's own jitter.
+                    var jitterSource = new List<LatencySample>();
+                    if (!gradeLowestTargetOnly && clusters.Count > 1)
+                    {
+                        var farthest = clusters[^1].Select(c => c.Target).ToList();
+                        if (FarClusterRoutesThroughNear(clusters[0], clusters[^1], ancestorIpsByTargetId))
+                        {
+                            jitterSource = farthest.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList();
+                        }
+                    }
+                    // This cluster's hop IPs and the union of their ancestors, so the scorer can
+                    // confirm this transit routes through a given ISP hop (the hop is an ancestor).
+                    var clusterAncestors = clusterTargets
+                        .SelectMany(t => ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                     grading.Add(new AsnSeries
                     {
                         AsnNumber = group.Key,
@@ -592,6 +688,9 @@ public class IspHealthService
                         TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
                         Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
                         NearestClusterMeanRttMs = nearestRtts.Count > 0 ? nearestRtts.Average() : null,
+                        JitterSourceSamples = jitterSource,
+                        HopIps = clusterTargets.Select(t => t.Address).ToList(),
+                        AncestorIps = clusterAncestors,
                         // All of this ASN-role's hops, so congestion is attributed to the
                         // right card when the same ASN is both the access ISP and transit
                         RoleTargetIds = group.Select(t => t.TargetId).ToList()
@@ -614,6 +713,26 @@ public class IspHealthService
             }
         }
         return (grading, allClusters, chartClusters);
+    }
+
+    /// <summary>
+    /// Confirms a farther RTT cluster is genuinely downstream of the nearer one using the
+    /// ancestor sets stored at Upstream Discovery: some nearer-cluster hop must be in the
+    /// farther cluster's ancestors, proving the route to the farther cluster passes through
+    /// the nearer on a shared trace. Without that proof we decline to assimilate (never
+    /// absolve on faith). Uses stored ancestors - no live traceroute is run.
+    /// </summary>
+    private static bool FarClusterRoutesThroughNear(
+        List<(MonitoringTarget Target, double? Median)> nearCluster,
+        List<(MonitoringTarget Target, double? Median)> farCluster,
+        Dictionary<string, List<string>> ancestorIpsByTargetId)
+    {
+        var nearIps = nearCluster.Select(c => c.Target.Address)
+            .Where(a => !string.IsNullOrEmpty(a)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var farAncestors = farCluster
+            .SelectMany(c => ancestorIpsByTargetId.TryGetValue(c.Target.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return nearIps.Overlaps(farAncestors);
     }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(

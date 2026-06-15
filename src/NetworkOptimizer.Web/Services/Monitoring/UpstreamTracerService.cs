@@ -30,6 +30,7 @@ public class UpstreamTracerService
     private readonly AsnResolutionService _asnResolution;
     private readonly LocalProbeExecutor _localProbe;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IspHealth.IspHealthService _ispHealth;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
     private readonly ILogger<UpstreamTracerService> _logger;
 
@@ -90,6 +91,7 @@ public class UpstreamTracerService
         AsnResolutionService asnResolution,
         LocalProbeExecutor localProbe,
         IServiceScopeFactory scopeFactory,
+        IspHealth.IspHealthService ispHealth,
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
@@ -99,6 +101,7 @@ public class UpstreamTracerService
         _asnResolution = asnResolution;
         _localProbe = localProbe;
         _scopeFactory = scopeFactory;
+        _ispHealth = ispHealth;
         _ouiDb = ouiDb;
         _logger = logger;
     }
@@ -585,6 +588,12 @@ public class UpstreamTracerService
     private List<AttributedHop> _mergedHops = new();
     private List<AttributedHop> _accessHopsResolved = new();
 
+    // Raw per-trace hop sequences from the last discovery sweep. Kept so commit can
+    // persist SAME-PATH hop ordering to UpstreamDiscoveries: the merged pool (_mergedHops)
+    // dedupes hop IPs across ~22 anycast traces, so its hop numbers are not on a common
+    // path and cannot prove "B routes through A". A single trace's sequence can.
+    private List<TracerouteResult> _lastTraces = new();
+
     private async Task TraceAccessIspAsync(CancellationToken ct)
     {
         State.Step = TracerStep.TracingAccessIsp;
@@ -601,6 +610,8 @@ public class UpstreamTracerService
             tasks.Add(TraceOneAsync(endpoint, ProbeMode.Udp, ct));
         }
         var results = await Task.WhenAll(tasks);
+        // Keep the raw per-trace sequences for same-path hop-order persistence at commit.
+        _lastTraces = results.Select(r => r.Result).ToList();
 
         // Summarize per CDN for the live progress UI.
         foreach (var (label, result) in results)
@@ -1225,8 +1236,116 @@ public class UpstreamTracerService
         }
 
         await db.SaveChangesAsync(ct);
+
+        // Persist same-path hop ordering so ISP Health can confirm a farther transit
+        // cluster routes through a nearer one before assimilating its jitter.
+        await PersistHopOrderAsync(db, wanInterface, ct);
+
+        // Drop the ISP Health cache so the "re-run discovery" banner clears on the next tab
+        // view without a manual refresh - the freshly committed ancestry is now in the DB.
+        _ispHealth.Invalidate();
+
         State.Step = TracerStep.Done;
         State.CurrentActivity = "Targets committed. The agent will start probing on the next latency-tier cycle.";
+    }
+
+    /// <summary>
+    /// Persists traceroute hop order to UpstreamDiscoveries so ISP Health can confirm one
+    /// monitored target routes through another (same-path proof) before its jitter absolves
+    /// the other. Hop numbers must be comparable across ASNs (ISP hop vs transit hop), so we
+    /// record TTLs from a SINGLE global canonical trace per WAN - the one discovery trace that
+    /// covered the most monitored hops, i.e. the main path out to the internet. Hops not on
+    /// that trace (divergent side paths) get no row, so the gate conservatively declines to
+    /// order them - exactly the behavior we want for divergent routers.
+    /// </summary>
+    private async Task PersistHopOrderAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        if (_lastTraces.Count == 0)
+        {
+            _logger.LogDebug("Tracer: no per-trace hop data to persist (rehydrated state); leaving UpstreamDiscoveries as-is");
+            return;
+        }
+
+        // Access + transit hops are the graded path; destinations (anycast DNS, CDN probes)
+        // are persisted too so ISP Health can use a destination's clean end-to-end jitter to
+        // absolve an ICMP-deprioritized hop it provably routes through.
+        var targets = await db.MonitoringTargets
+            .Where(t => t.WanInterface == wanInterface && t.Enabled && t.AsnNumber != null
+                && (t.TargetType == MonitoringTargetType.AccessIsp
+                    || t.TargetType == MonitoringTargetType.Transit
+                    || t.TargetType == MonitoringTargetType.InternetService))
+            .ToListAsync(ct);
+
+        // Refresh: drop prior rows for this WAN, then rebuild from this sweep.
+        var prior = await db.UpstreamDiscoveries.Where(d => d.WanInterface == wanInterface).ToListAsync(ct);
+        if (prior.Count > 0) db.UpstreamDiscoveries.RemoveRange(prior);
+        if (targets.Count == 0)
+        {
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
+        var monitoredAddrs = targets.Select(t => t.Address).Where(a => !string.IsNullOrEmpty(a))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Ancestor sets from ALL traces: for each monitored hop, the monitored hops that
+        // appear before it on any trace it was seen on (its proven upstream). Every trace
+        // contributes (including those toward transit targets), so coverage is complete and
+        // divergence-correct - a hop is only an ancestor of another when they truly share a
+        // path with it upstream. Also track the lowest TTL seen, for a representative HopNumber.
+        var ancestorsByIp = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var minTtlByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tr in _lastTraces)
+        {
+            var seenMonitored = new List<string>();
+            foreach (var h in tr.Hops.Where(h => h.Responded && !string.IsNullOrEmpty(h.Address)).OrderBy(h => h.HopNumber))
+            {
+                if (!monitoredAddrs.Contains(h.Address!)) continue;
+                if (!ancestorsByIp.TryGetValue(h.Address!, out var anc))
+                    ancestorsByIp[h.Address!] = anc = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                anc.UnionWith(seenMonitored);
+                seenMonitored.Add(h.Address!);
+                if (!minTtlByIp.TryGetValue(h.Address!, out var ttl) || h.HopNumber < ttl)
+                    minTtlByIp[h.Address!] = h.HopNumber;
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        var written = 0;
+        foreach (var t in targets)
+        {
+            var ancestors = ancestorsByIp.TryGetValue(t.Address, out var anc)
+                ? anc.OrderBy(a => a).ToList()
+                : new List<string>();
+            db.UpstreamDiscoveries.Add(new UpstreamDiscovery
+            {
+                MonitoringTargetId = t.Id,
+                AsnNumber = t.AsnNumber!.Value,
+                AsnName = t.AsnName,
+                HopIp = t.Address,
+                HopNumber = minTtlByIp.TryGetValue(t.Address, out var ttl) ? ttl : 0,
+                // Non-null (even if empty) marks that ancestor data exists, so ISP Health can
+                // tell "no discovery yet" (open gate) from "on-path but no ancestors" (a first hop).
+                AncestorHopIps = string.Join(" ", ancestors),
+                Role = t.TargetType switch
+                {
+                    MonitoringTargetType.AccessIsp => UpstreamRole.AccessHop,
+                    MonitoringTargetType.Transit => UpstreamRole.Transit,
+                    _ => UpstreamRole.PathProxy
+                },
+                WanInterface = wanInterface,
+                LastValidated = now,
+                LastTracerouteAt = now,
+                IsActive = true
+            });
+            written++;
+            _logger.LogDebug("Tracer: AS{Asn} {Ip} ({Name}) ancestors=[{Ancestors}]",
+                t.AsnNumber, t.Address, t.PtrHostname ?? t.Name, string.Join(", ", ancestors));
+        }
+
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Tracer: persisted {Count} upstream hop-ancestor rows for {Wan} from {Traces} traces",
+            written, wanInterface, _lastTraces.Count);
     }
 
     private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)
