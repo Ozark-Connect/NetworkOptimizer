@@ -14556,6 +14556,7 @@ a.affected-client:hover {
     flex-wrap: wrap;
     gap: 0.3rem;
     margin-top: 0.45rem;
+    margin-bottom: 0.15rem;
 }
 .lan-flow-map-chip {
     display: inline-flex;
