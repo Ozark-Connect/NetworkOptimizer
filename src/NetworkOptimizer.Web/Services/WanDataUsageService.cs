@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -63,7 +62,7 @@ public class WanDataUsageService : BackgroundService
 
         foreach (var config in configs)
         {
-            var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+            var (cycleStart, cycleEnd) = GetCycleWindow(config, now);
             var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, ct);
             var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
 
@@ -78,13 +77,14 @@ public class WanDataUsageService : BackgroundService
             {
                 WanKey = config.WanKey,
                 Name = config.Name,
+                ResetMode = config.ResetMode,
                 UsedGb = usedGb,
                 CapGb = config.DataCapGb,
                 WarningThresholdPercent = config.WarningThresholdPercent,
                 UsagePercent = config.DataCapGb > 0 ? usedGb / config.DataCapGb * 100.0 : 0,
                 BillingCycleStart = cycleStart,
                 BillingCycleEnd = cycleEnd,
-                DaysRemaining = Math.Max(0, (int)Math.Ceiling((cycleEnd - now).TotalDays)),
+                DaysRemaining = cycleEnd.HasValue ? Math.Max(0, (int)Math.Ceiling((cycleEnd.Value - now).TotalDays)) : null,
                 IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
                 IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
                 Enabled = config.Enabled,
@@ -137,6 +137,18 @@ public class WanDataUsageService : BackgroundService
             existing.ManualAdjustmentGb = config.ManualAdjustmentGb;
             existing.WarningThresholdPercent = Math.Clamp(config.WarningThresholdPercent, 1, 100);
             existing.BillingCycleDayOfMonth = Math.Clamp(config.BillingCycleDayOfMonth, 1, 28);
+
+            // Switching into Manual mode absorbs the current cycle's usage into the bucket by
+            // anchoring its window to the billing cycle start, so the displayed total is
+            // unchanged across the switch (no measured usage is silently discarded). If the user
+            // actually topped up mid-cycle, a single "Reset bucket" click zeroes it from now.
+            if (config.ResetMode == DataUsageResetMode.Manual && existing.ResetMode != DataUsageResetMode.Manual)
+            {
+                var (cycleStart, _) = GetBillingCycleDates(existing.BillingCycleDayOfMonth, DateTime.UtcNow);
+                existing.LastResetAt = cycleStart;
+            }
+            existing.ResetMode = config.ResetMode;
+
             existing.UpdatedAt = DateTime.UtcNow;
         }
         else
@@ -146,6 +158,7 @@ public class WanDataUsageService : BackgroundService
             config.BillingCycleDayOfMonth = Math.Clamp(config.BillingCycleDayOfMonth, 1, 28);
             config.CreatedAt = DateTime.UtcNow;
             config.UpdatedAt = DateTime.UtcNow;
+            // A new Manual bucket counts from creation; LastResetAt stays null until first reset.
             db.WanDataUsageConfigs.Add(config);
         }
 
@@ -159,6 +172,71 @@ public class WanDataUsageService : BackgroundService
         _currentUsage = [];
 
         return existing ?? config;
+    }
+
+    /// <summary>
+    /// Resets a Manual (pay-as-you-go) bucket: rolls the bucket's current usage into durable
+    /// history, stamps a new reset time so counting restarts from zero, and clears the manual
+    /// adjustment. No-op for Monthly configs, which roll over automatically on their billing day.
+    /// </summary>
+    public async Task ResetUsageAsync(string wanKey)
+    {
+        // Serialize against the background poll: it mutates _alertState and _lastCycleStart
+        // (plain dictionaries) under this same lock, so we must hold it too before touching them.
+        await _pollLock.WaitAsync();
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var config = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == wanKey);
+            if (config == null || config.ResetMode != DataUsageResetMode.Manual)
+                return;
+
+            var now = DateTime.UtcNow;
+            var (cycleStart, _) = GetCycleWindow(config, now);
+
+            // Capture the bucket's usage (including any manual adjustment) so history keeps a record.
+            var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, CancellationToken.None);
+            var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
+
+            // Only write history for a non-empty, non-degenerate window, and never collide with an
+            // existing (WanKey, CycleStart) row (the table has a unique index on that pair).
+            if (usedGb > 0 && cycleStart < now)
+            {
+                var alreadyRecorded = await db.WanDataUsageHistory
+                    .AnyAsync(h => h.WanKey == config.WanKey && h.CycleStart == cycleStart);
+                if (!alreadyRecorded)
+                {
+                    db.WanDataUsageHistory.Add(new WanDataUsageHistory
+                    {
+                        WanKey = config.WanKey,
+                        Name = config.Name,
+                        CycleStart = cycleStart,
+                        CycleEnd = now,
+                        UsedGb = usedGb,
+                        CapGb = config.DataCapGb,
+                        RecordedAt = now
+                    });
+                }
+            }
+
+            config.LastResetAt = now;
+            config.ManualAdjustmentGb = 0;
+            config.UpdatedAt = now;
+
+            await db.SaveChangesAsync();
+
+            // Clear in-memory state so the fresh bucket can alert again and the cache recomputes.
+            _alertState.Remove(wanKey);
+            _lastCycleStart[wanKey] = now;
+            _currentUsage = [];
+
+            _logger.LogInformation("Manual data usage bucket reset for {WanName}: archived {UsedGb:F2} GB, counting restarts now",
+                config.Name, usedGb);
+        }
+        finally
+        {
+            _pollLock.Release();
+        }
     }
 
     /// <summary>
@@ -292,11 +370,11 @@ public class WanDataUsageService : BackgroundService
                 var isReset = lastSnapshot != null &&
                     (wan.RxBytes < lastSnapshot.RxBytes || wan.TxBytes < lastSnapshot.TxBytes);
 
-                // First snapshot for this WAN: check if gateway booted within current billing cycle.
+                // First snapshot for this WAN: check if gateway booted within the current cycle.
                 // If so, the raw byte counters represent all usage since boot = all usage this cycle.
                 if (lastSnapshot == null && gatewayBootTime.HasValue)
                 {
-                    var (blCycleStart, _) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+                    var (blCycleStart, _) = GetCycleWindow(config, now);
                     isBaseline = gatewayBootTime.Value >= blCycleStart;
 
                     if (isBaseline)
@@ -316,15 +394,17 @@ public class WanDataUsageService : BackgroundService
                 });
             }
 
-            // Calculate billing cycle usage
-            var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+            // Calculate cycle usage window (monthly billing cycle, or open-ended manual bucket)
+            var (cycleStart, cycleEnd) = GetCycleWindow(config, now);
 
-            // Reset manual adjustment when a new billing cycle starts
+            // Reset manual adjustment when the cycle rolls over. In Monthly mode this fires when the
+            // calendar billing cycle changes. In Manual mode the window start only advances via an
+            // explicit reset (which already clears the adjustment), so this is a harmless backstop.
             if (_lastCycleStart.TryGetValue(config.WanKey, out var prevCycleStart) && prevCycleStart != cycleStart
                 && config.ManualAdjustmentGb != 0)
             {
                 config.ManualAdjustmentGb = 0;
-                _logger.LogInformation("Billing cycle rolled over for {WanName}, reset manual adjustment to 0", config.Name);
+                _logger.LogInformation("Usage cycle rolled over for {WanName}, reset manual adjustment to 0", config.Name);
             }
             _lastCycleStart[config.WanKey] = cycleStart;
 
@@ -343,6 +423,7 @@ public class WanDataUsageService : BackgroundService
             {
                 WanKey = config.WanKey,
                 Name = config.Name,
+                ResetMode = config.ResetMode,
                 WanType = wan?.Type,
                 IsUp = wan?.Up ?? false,
                 UsedGb = usedGb,
@@ -351,7 +432,7 @@ public class WanDataUsageService : BackgroundService
                 UsagePercent = config.DataCapGb > 0 ? usedGb / config.DataCapGb * 100.0 : 0,
                 BillingCycleStart = cycleStart,
                 BillingCycleEnd = cycleEnd,
-                DaysRemaining = Math.Max(0, (int)Math.Ceiling((cycleEnd - now).TotalDays)),
+                DaysRemaining = cycleEnd.HasValue ? Math.Max(0, (int)Math.Ceiling((cycleEnd.Value - now).TotalDays)) : null,
                 IsOverCap = config.DataCapGb > 0 && usedGb >= config.DataCapGb,
                 IsOverWarning = config.DataCapGb > 0 && usedGb >= config.DataCapGb * config.WarningThresholdPercent / 100.0,
                 Enabled = config.Enabled,
@@ -557,6 +638,26 @@ public class WanDataUsageService : BackgroundService
         return (cycleStart, cycleEnd);
     }
 
+    /// <summary>
+    /// Returns the usage cycle window for a config based on its reset mode.
+    /// Monthly: the calendar billing cycle containing <paramref name="now"/>, with an end date.
+    /// Manual: an open-ended window starting at the last reset (or creation if never reset),
+    /// with a null end date (the bucket has no scheduled rollover).
+    /// Public for testing.
+    /// </summary>
+    public static (DateTime CycleStart, DateTime? CycleEnd) GetCycleWindow(WanDataUsageConfig config, DateTime now)
+    {
+        if (config.ResetMode == DataUsageResetMode.Manual)
+        {
+            // Cycle/snapshot math operates in UTC; LastResetAt and CreatedAt are stored UTC.
+            var start = config.LastResetAt ?? config.CreatedAt;
+            return (DateTime.SpecifyKind(start, DateTimeKind.Utc), null);
+        }
+
+        var (cycleStart, cycleEnd) = GetBillingCycleDates(config.BillingCycleDayOfMonth, now);
+        return (cycleStart, cycleEnd);
+    }
+
     private async Task CheckThresholdsAsync(WanDataUsageConfig config, WanUsageSummary summary,
         DateTime cycleStart, CancellationToken ct)
     {
@@ -587,7 +688,7 @@ public class WanDataUsageService : BackgroundService
                     ["wanKey"] = config.WanKey,
                     ["usedGb"] = summary.UsedGb.ToString("F2"),
                     ["capGb"] = config.DataCapGb.ToString("F0"),
-                    ["daysRemaining"] = summary.DaysRemaining.ToString()
+                    ["daysRemaining"] = summary.DaysRemaining?.ToString() ?? ""
                 }
             }, ct);
 
@@ -614,7 +715,7 @@ public class WanDataUsageService : BackgroundService
                     ["wanKey"] = config.WanKey,
                     ["usedGb"] = summary.UsedGb.ToString("F2"),
                     ["capGb"] = config.DataCapGb.ToString("F0"),
-                    ["daysRemaining"] = summary.DaysRemaining.ToString()
+                    ["daysRemaining"] = summary.DaysRemaining?.ToString() ?? ""
                 }
             }, ct);
 
@@ -640,6 +741,11 @@ public class WanDataUsageService : BackgroundService
 
         foreach (var config in configs)
         {
+            // Manual (pay-as-you-go) buckets have no calendar cycles to roll up; their history
+            // rows are written on explicit reset via ResetUsageAsync.
+            if (config.ResetMode == DataUsageResetMode.Manual)
+                continue;
+
             var minTsRaw = await db.WanDataUsageSnapshots
                 .Where(s => s.WanKey == config.WanKey)
                 .MinAsync(s => (DateTime?)s.Timestamp, ct);
@@ -718,8 +824,20 @@ public class WanDataUsageService : BackgroundService
     {
         try
         {
-            // Keep 2 billing cycles worth of data
+            // Keep 2 billing cycles worth of data for monthly configs.
             var cutoff = now.AddMonths(-2);
+
+            // Never prune snapshots a Manual (pay-as-you-go) bucket still needs: its window can
+            // stay open for many months and usage is summed from the cycle start forward, so
+            // pull the cutoff back to the earliest active manual bucket start. Without this, an
+            // open bucket older than 2 months would lose its early deltas and undercount.
+            foreach (var config in configs.Where(c => c.ResetMode == DataUsageResetMode.Manual))
+            {
+                var (manualStart, _) = GetCycleWindow(config, now);
+                if (manualStart < cutoff)
+                    cutoff = manualStart;
+            }
+
             var deleted = await db.WanDataUsageSnapshots
                 .Where(s => s.Timestamp < cutoff)
                 .ExecuteDeleteAsync(ct);
@@ -785,15 +903,20 @@ public record WanUsageSummary
 {
     public string WanKey { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
+    /// <summary>How this WAN's usage cycle resets (monthly billing day vs. manual bucket).</summary>
+    public DataUsageResetMode ResetMode { get; init; } = DataUsageResetMode.Monthly;
     public string? WanType { get; init; }
     public bool IsUp { get; init; }
     public double UsedGb { get; init; }
     public double CapGb { get; init; }
     public int WarningThresholdPercent { get; init; }
     public double UsagePercent { get; init; }
+    /// <summary>Start of the current cycle. For Manual mode this is the last reset (or creation) time.</summary>
     public DateTime BillingCycleStart { get; init; }
-    public DateTime BillingCycleEnd { get; init; }
-    public int DaysRemaining { get; init; }
+    /// <summary>End of the current billing cycle, or null for an open-ended Manual bucket.</summary>
+    public DateTime? BillingCycleEnd { get; init; }
+    /// <summary>Days left in the current billing cycle, or null for an open-ended Manual bucket.</summary>
+    public int? DaysRemaining { get; init; }
     public bool IsOverCap { get; init; }
     public bool IsOverWarning { get; init; }
     public bool Enabled { get; init; }

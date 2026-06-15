@@ -81,6 +81,63 @@ public class WanDataUsageServiceTests
         end.Should().Be(new DateTime(2026, 1, 14, 0, 0, 0, DateTimeKind.Unspecified));
     }
 
+    // ========== Cycle Window (reset mode) ==========
+
+    [Fact]
+    public void GetCycleWindow_Monthly_MatchesBillingCycleDates()
+    {
+        var now = new DateTime(2026, 3, 15, 12, 0, 0, DateTimeKind.Utc);
+        var config = new WanDataUsageConfig
+        {
+            ResetMode = DataUsageResetMode.Monthly,
+            BillingCycleDayOfMonth = 1
+        };
+
+        var (start, end) = WanDataUsageService.GetCycleWindow(config, now);
+        var (expectedStart, expectedEnd) = WanDataUsageService.GetBillingCycleDates(1, now);
+
+        start.Should().Be(expectedStart);
+        end.Should().Be(expectedEnd);
+    }
+
+    [Fact]
+    public void GetCycleWindow_ManualNeverReset_StartsAtCreatedAtWithNoEnd()
+    {
+        var created = new DateTime(2026, 1, 10, 8, 0, 0, DateTimeKind.Utc);
+        var now = new DateTime(2026, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+        var config = new WanDataUsageConfig
+        {
+            ResetMode = DataUsageResetMode.Manual,
+            CreatedAt = created,
+            LastResetAt = null
+        };
+
+        var (start, end) = WanDataUsageService.GetCycleWindow(config, now);
+
+        start.Should().Be(created);
+        start.Kind.Should().Be(DateTimeKind.Utc);
+        end.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetCycleWindow_ManualAfterReset_StartsAtLastResetWithNoEnd()
+    {
+        var created = new DateTime(2026, 1, 10, 8, 0, 0, DateTimeKind.Utc);
+        var lastReset = new DateTime(2026, 5, 2, 14, 30, 0, DateTimeKind.Utc);
+        var now = new DateTime(2026, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+        var config = new WanDataUsageConfig
+        {
+            ResetMode = DataUsageResetMode.Manual,
+            CreatedAt = created,
+            LastResetAt = lastReset
+        };
+
+        var (start, end) = WanDataUsageService.GetCycleWindow(config, now);
+
+        start.Should().Be(lastReset);
+        end.Should().BeNull();
+    }
+
     // ========== Usage Calculation from Snapshots ==========
 
     [Fact]

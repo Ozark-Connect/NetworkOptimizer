@@ -404,6 +404,8 @@
                     var capGb = config?.DataCapGb ?? 0;
                     var warningPct = config?.WarningThresholdPercent ?? 80;
                     var billingDay = config?.BillingCycleDayOfMonth ?? 1;
+                    var resetMode = config?.ResetMode ?? DataUsageResetMode.Monthly;
+                    var isManual = resetMode == DataUsageResetMode.Manual;
                     var displayName = wan.Name;
                     var manualAdj = config?.ManualAdjustmentGb ?? 0;
                     var isAdjustmentUnlocked = _unlockedAdjustmentWans.Contains(wanGroup);
@@ -438,7 +440,7 @@
                                 {
                                     @* Usage display *@
                                     var savedBillingDay = summary?.BillingCycleStart.Day ?? billingDay;
-                                    var billingDayChanged = billingDay != savedBillingDay;
+                                    var billingDayChanged = !isManual && billingDay != savedBillingDay;
                                     @if (summary != null && capGb > 0 && !billingDayChanged)
                                     {
                                         var fillPct = Math.Min(summary.UsagePercent, 100);
@@ -483,18 +485,29 @@
                                                    @oninput="() => _dirtyConfigs.Add(wanGroup)"
                                                    @onchange="e => EditDataUsageConfig(wanGroup, warningPct: int.TryParse(e.Value?.ToString(), out var v) ? v : 80)" />
                                         </div>
-                                        <div class="form-group schedule-field schedule-field-compact" style="max-width: 180px;">
-                                            <label>Usage Resets On <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The day of the month your ISP resets your data usage to zero. Check your carrier account for the renewal or due date.">?</span></label>
-                                            <select class="form-control" value="@billingDay"
-                                                    @onchange="e => EditDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
-                                                @for (var d = 1; d <= 28; d++)
-                                                {
-                                                    <option value="@d">@(DisplayFormatters.FormatOrdinal(d)) of month</option>
-                                                }
+                                        <div class="form-group schedule-field schedule-field-compact" style="max-width: 200px;">
+                                            <label>Usage Resets <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Monthly: usage zeroes on a calendar day each month. Pay-as-you-go: an open-ended prepaid bucket you reset yourself when you top up (e.g. a prepaid 5G/LTE balance that never expires).">?</span></label>
+                                            <select class="form-control" value="@((int)resetMode)"
+                                                    @onchange="e => EditDataUsageConfig(wanGroup, resetMode: int.TryParse(e.Value?.ToString(), out var v) ? (DataUsageResetMode)v : DataUsageResetMode.Monthly)">
+                                                <option value="0">Monthly on a set day</option>
+                                                <option value="1">Pay-as-you-go bucket</option>
                                             </select>
                                         </div>
+                                        @if (!isManual)
+                                        {
+                                            <div class="form-group schedule-field schedule-field-compact" style="max-width: 180px;">
+                                                <label>Resets On <span class="tooltip-icon tooltip-icon-sm" data-tooltip="The day of the month your ISP resets your data usage to zero. Check your carrier account for the renewal or due date.">?</span></label>
+                                                <select class="form-control" value="@billingDay"
+                                                        @onchange="e => EditDataUsageConfig(wanGroup, billingDay: int.TryParse(e.Value?.ToString(), out var v) ? v : 1)">
+                                                    @for (var d = 1; d <= 28; d++)
+                                                    {
+                                                        <option value="@d">@(DisplayFormatters.FormatOrdinal(d)) of month</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
                                         <div class="form-group schedule-field schedule-field-compact">
-                                            <label>Usage Adjustment (GB) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Added to the tracked total. Use positive values for usage before tracking was enabled, or negative to correct an overcount. Resets to 0 each billing cycle.">?</span></label>
+                                            <label>Usage Adjustment (GB) <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Added to the tracked total. Use positive values for usage before tracking was enabled, or negative to correct an overcount. Resets to 0 when the cycle resets.">?</span></label>
                                             <input type="number" class="form-control" value="@manualAdj" step="0.1"
                                                    readonly="@(!_unlockedAdjustmentWans.Contains(wanGroup))"
                                                    style="@(!_unlockedAdjustmentWans.Contains(wanGroup) ? "cursor: pointer; opacity: 0.7;" : "")"
@@ -505,7 +518,17 @@
                                     </div>
 
                                     @* Mid-cycle hint - show when first enabling tracking mid-cycle *@
-                                    @if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0)
+                                    @if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0 && isManual)
+                                    {
+                                        <div class="alert-info" style="margin-top: 0.75rem; padding: 0.625rem 0.75rem; font-size: 0.8125rem; line-height: 1.5;">
+                                            <span>
+                                                This bucket counts usage from now forward. If you've already used part of your current
+                                                balance, add it with the <strong>Usage Adjustment</strong> field above so the cap reflects
+                                                what's actually left. Hit <strong>Reset bucket</strong> each time you top up to start a fresh count.
+                                            </span>
+                                        </div>
+                                    }
+                                    else if (_newlyEnabledWans.Contains(wanGroup) && manualAdj == 0)
                                     {
                                         var now = DateTime.UtcNow;
                                         var (cycleStart, cycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, now);
@@ -545,7 +568,24 @@
                                         </div>
                                     }
 
-                                    @* Billing cycle status - computed from in-memory billingDay so it updates live *@
+                                    @* Cycle status - computed live. Monthly shows the billing window; Manual shows the open bucket. *@
+                                    @if (isManual)
+                                    {
+                                        var bucketSince = (config?.LastResetAt ?? config?.CreatedAt ?? DateTime.UtcNow);
+                                        <div class="schedule-status" style="margin-top: 0.75rem; justify-content: space-between;">
+                                            <span class="schedule-status-item">
+                                                <span class="detail-label">Counting since:</span>
+                                                <span class="detail-value">@DateTime.SpecifyKind(bucketSince, DateTimeKind.Utc).ToLocalTime().ToString("MMM d, yyyy")</span>
+                                            </span>
+                                            @if (!isDirty)
+                                            {
+                                                <button class="btn btn-secondary btn-sm"
+                                                        @onclick="() => ResetUsageBucket(wanGroup)"
+                                                        data-tooltip="Archive the current total and start counting from zero - do this when you top up your balance.">Reset bucket</button>
+                                            }
+                                        </div>
+                                    }
+                                    else
                                     {
                                         var (dispCycleStart, dispCycleEnd) = WanDataUsageService.GetBillingCycleDates(billingDay, DateTime.Now);
                                         var dispDaysRemaining = Math.Max(0, (int)Math.Ceiling((dispCycleEnd - DateTime.UtcNow).TotalDays));
@@ -575,11 +615,11 @@
                                         if (history != null && history.Count > 0)
                                         {
                                             <details class="usage-history">
-                                                <summary>Usage history (@history.Count past @(history.Count == 1 ? "cycle" : "cycles"))</summary>
+                                                <summary>Usage history (@history.Count past @((isManual ? "bucket" : "cycle") + (history.Count == 1 ? "" : "s")))</summary>
                                                 <div class="table-responsive" style="margin-top: 0.5rem;">
                                                     <table class="data-table">
                                                         <thead>
-                                                            <tr><th>Billing cycle</th><th>Used</th><th>Cap</th></tr>
+                                                            <tr><th>@(isManual ? "Bucket" : "Billing cycle")</th><th>Used</th><th>Cap</th></tr>
                                                         </thead>
                                                         <tbody>
                                                             @foreach (var h in history)
@@ -3144,7 +3184,8 @@
     }
 
     private void EditDataUsageConfig(string wanKey,
-        double? capGb = null, int? warningPct = null, int? billingDay = null, double? manualAdj = null)
+        double? capGb = null, int? warningPct = null, int? billingDay = null, double? manualAdj = null,
+        DataUsageResetMode? resetMode = null)
     {
         if (!_dataUsageConfigs.TryGetValue(wanKey, out var config))
             return;
@@ -3153,8 +3194,22 @@
         if (warningPct.HasValue) config.WarningThresholdPercent = warningPct.Value;
         if (billingDay.HasValue) config.BillingCycleDayOfMonth = billingDay.Value;
         if (manualAdj.HasValue) config.ManualAdjustmentGb = manualAdj.Value;
+        if (resetMode.HasValue) config.ResetMode = resetMode.Value;
 
         _dirtyConfigs.Add(wanKey);
+    }
+
+    private async Task ResetUsageBucket(string wanKey)
+    {
+        try
+        {
+            await DataUsageService.ResetUsageAsync(wanKey);
+            await LoadDataUsageAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resetting data usage bucket for {WanKey}", wanKey);
+        }
     }
 
     private async Task SaveDataUsageConfig(string wanKey)
