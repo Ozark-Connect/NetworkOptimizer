@@ -1072,16 +1072,16 @@ public class IspHealthScorer
     private static string FormatMs(double ms) =>
         $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";
 
-    /// <summary>Threshold/band references in descriptions: drop trailing zeros (2 ms, not 2.00 ms).</summary>
+    /// <summary>Band references and loaded deltas: one decimal (2.0 ms), not the value's two.</summary>
     private static string FormatMsBand(double ms) =>
-        $"{ms.ToString("0.##", CultureInfo.InvariantCulture)} ms";
+        $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";
 
     /// <summary>Debug-log helper: a millisecond value to two decimals, or "n/a" when null.</summary>
     private static string FormatMsOrNull(double? ms) =>
         ms.HasValue ? ms.Value.ToString("0.00", CultureInfo.InvariantCulture) : "n/a";
 
     /// <summary>Loaded-latency delta for display: a non-positive delta shows as "0 ms".</summary>
-    private static string FormatLoadedDelta(double ms) => ms <= 0 ? "0 ms" : FormatMs(ms);
+    private static string FormatLoadedDelta(double ms) => ms <= 0 ? "0 ms" : FormatMsBand(ms);
 
     private static string FormatPct(double pct) =>
         pct == 0 ? "0%" : $"{pct.ToString(pct < 0.1 ? "0.###" : "0.##", CultureInfo.InvariantCulture)}%";

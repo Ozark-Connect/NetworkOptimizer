@@ -137,7 +137,7 @@ public class IspHealthScorerTests
 
         nearOnly.Score.Should().Be(100);
         withOlt.Score.Should().BeLessThan(100);
-        withOlt.ValueText.Should().Contain("6.00 ms down");
+        withOlt.ValueText.Should().Contain("6.0 ms down");
     }
 
     [Fact]
