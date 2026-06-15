@@ -123,6 +123,10 @@ export class LanFlowMap {
         this.pollIntervalMs = options.pollIntervalMs ?? 1000;
         this.onError = options.onError ?? ((err) => console.error('[LanFlowMap]', err));
         this._storagePrefix = options.storagePrefix ?? 'lanFlowMap';
+        // The embedded dashboard Live View panel opts out of the Signal Map
+        // discovery hint to keep its compact chrome clean (it also hides the
+        // scrubber/status). Full Monitoring page leaves it on.
+        this._signalHintEnabled = options.signalHint ?? true;
 
         this._snapshot = null;
         this._nodesByLink = new Map();
@@ -511,6 +515,7 @@ export class LanFlowMap {
             this._applyOverlayVisibility();
             this._applyLiveRates(snap.liveRates || {});
             this._refreshCloudRttLabels();
+            this._updateSignalMapHint();
         } catch (err) {
             this.onError(err);
         }
@@ -1485,6 +1490,10 @@ export class LanFlowMap {
                         // live poll and would clobber fresh rates momentarily.
                         this._refreshCloudRttLabels();
                     }
+                    // Anchor count can flip (e.g. user just placed APs on the
+                    // Signal Map) without infra membership changing, so refresh
+                    // the discovery hint on every snapshot poll.
+                    this._updateSignalMapHint();
                 } catch { /* transient */ }
             }
         }, 30000);
@@ -1980,6 +1989,54 @@ export class LanFlowMap {
         this._panels.scrubberPlayPause = playPause;
         this._paused = false;
         this._syncSpeedLabel();
+
+        this._buildSignalMapHint();
+    }
+
+    // One-time discovery nudge. A user with no AP placements on the Signal Map gets
+    // no spatial anchoring here (devices fall back to the abstract force layout and
+    // buildings have nothing to anchor to), so they may not realize the map can show
+    // their real floor plan and device positions. Surface a small, dismissible pill
+    // pointing to Wi-Fi Optimizer > Signal Map. Shown only when there are zero anchors
+    // and the user hasn't dismissed it - invisible for anyone who has placed their APs.
+    _buildSignalMapHint() {
+        if (!this._signalHintEnabled) return;
+        const hint = document.createElement('div');
+        hint.className = 'lan-flow-map-signal-hint';
+        hint.style.display = 'none';
+
+        const text = document.createElement('span');
+        text.className = 'lan-flow-map-signal-hint-text';
+        text.textContent = 'Add your floor plan and AP spots in the Signal Map to see them here.';
+
+        const link = document.createElement('a');
+        link.className = 'lan-flow-map-signal-hint-link';
+        link.href = '/wifi-optimizer?tab=floorplan';
+        link.textContent = 'Open Signal Map ↗';
+
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'lan-flow-map-signal-hint-close';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.setAttribute('data-tooltip', 'Dismiss');
+        close.textContent = '×';
+        close.addEventListener('click', () => {
+            hint.style.display = 'none';
+            try { localStorage.setItem(this._storagePrefix + 'SignalHintDismissed', '1'); } catch { /* localStorage unavailable */ }
+        });
+
+        hint.append(text, link, close);
+        this.stage.appendChild(hint);
+        this._panels.signalHint = hint;
+    }
+
+    _updateSignalMapHint() {
+        const hint = this._panels?.signalHint;
+        if (!hint) return;
+        let dismissed = false;
+        try { dismissed = localStorage.getItem(this._storagePrefix + 'SignalHintDismissed') === '1'; } catch { /* localStorage unavailable */ }
+        const anchorCount = this._snapshot?.bounds?.anchorCount ?? 0;
+        hint.style.display = (!dismissed && anchorCount === 0) ? 'flex' : 'none';
     }
 
     _makePanel(extraClass) {
