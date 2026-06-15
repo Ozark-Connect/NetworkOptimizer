@@ -554,8 +554,8 @@ public class IspHealthScorerTests
     [Fact]
     public void Higher_isp_jitter_lowers_the_dimension()
     {
-        // Jitter is graded ISP-wide (mean of the ISP targets), not per hop. A jittery ISP
-        // (one hop well above the floor) lowers the dimension vs a clean ISP.
+        // Without hop order, an ISP sibling can't absolve another (we can't prove which is
+        // downstream), so a jittery hop stays jittery and lowers the dimension vs a clean ISP.
         var clean = new List<AsnSeries>
         {
             IspHop("a", "A", 2.1, 0.4),

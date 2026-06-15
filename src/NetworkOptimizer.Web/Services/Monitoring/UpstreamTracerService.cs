@@ -1243,13 +1243,13 @@ public class UpstreamTracerService
     }
 
     /// <summary>
-    /// Persists traceroute hop order to UpstreamDiscoveries so ISP Health can confirm a
-    /// farther transit cluster genuinely routes through a nearer one (same-path proof)
-    /// before assimilating its jitter. Ordering must come from a SINGLE trace - the merged
-    /// discovery pool dedupes hop IPs across ~22 anycast traces, so its hop numbers are not
-    /// on a common path. For each ASN we pick the one discovery trace that covered the most
-    /// of that ASN's monitored hops and record each hop's TTL on it. Hops absent from that
-    /// trace get no row, so the gate conservatively declines to order them.
+    /// Persists traceroute hop order to UpstreamDiscoveries so ISP Health can confirm one
+    /// monitored target routes through another (same-path proof) before its jitter absolves
+    /// the other. Hop numbers must be comparable across ASNs (ISP hop vs transit hop), so we
+    /// record TTLs from a SINGLE global canonical trace per WAN - the one discovery trace that
+    /// covered the most monitored hops, i.e. the main path out to the internet. Hops not on
+    /// that trace (divergent side paths) get no row, so the gate conservatively declines to
+    /// order them - exactly the behavior we want for divergent routers.
     /// </summary>
     private async Task PersistHopOrderAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
@@ -1281,53 +1281,51 @@ public class UpstreamTracerService
                 .ToDictionary(g => g.Key, g => g.Min(h => h.HopNumber), StringComparer.OrdinalIgnoreCase)))
             .ToList();
 
+        // Global canonical trace: the single trace covering the most monitored hops across
+        // ALL ASNs, so ISP and transit hop numbers are comparable on one real path.
+        var monitoredAddrs = targets.Select(t => t.Address).Where(a => !string.IsNullOrEmpty(a))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, int>? canonicalMap = null;
+        string? canonicalTarget = null;
+        var bestCover = 0;
+        foreach (var (target, map) in traceMaps)
+        {
+            var cover = monitoredAddrs.Count(a => map.ContainsKey(a));
+            if (cover > bestCover) { bestCover = cover; canonicalMap = map; canonicalTarget = target; }
+        }
+        if (canonicalMap == null || bestCover == 0)
+        {
+            _logger.LogDebug("Tracer: no single trace covered the monitored hops for {Wan}; hop order not persisted", wanInterface);
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
         var now = DateTime.UtcNow;
         var written = 0;
-        foreach (var asnGroup in targets.GroupBy(t => t.AsnNumber!.Value))
+        foreach (var t in targets)
         {
-            var addrs = asnGroup.Select(t => t.Address).Where(a => !string.IsNullOrEmpty(a))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            // Canonical trace for this ASN: the single trace covering the most of its hops,
-            // so every recorded hop number is comparable on one real path.
-            Dictionary<string, int>? canonicalMap = null;
-            string? canonicalTarget = null;
-            var bestCover = 0;
-            foreach (var (target, map) in traceMaps)
+            if (!canonicalMap.TryGetValue(t.Address, out var ttl)) continue;
+            db.UpstreamDiscoveries.Add(new UpstreamDiscovery
             {
-                var cover = addrs.Count(a => map.ContainsKey(a));
-                if (cover > bestCover) { bestCover = cover; canonicalMap = map; canonicalTarget = target; }
-            }
-            if (canonicalMap == null || bestCover == 0)
-            {
-                _logger.LogDebug("Tracer: AS{Asn} hop order not persisted - no single trace covered its hops", asnGroup.Key);
-                continue;
-            }
-
-            foreach (var t in asnGroup)
-            {
-                if (!canonicalMap.TryGetValue(t.Address, out var ttl)) continue;
-                db.UpstreamDiscoveries.Add(new UpstreamDiscovery
-                {
-                    MonitoringTargetId = t.Id,
-                    AsnNumber = t.AsnNumber!.Value,
-                    AsnName = t.AsnName,
-                    HopIp = t.Address,
-                    HopNumber = ttl,
-                    Role = t.TargetType == MonitoringTargetType.AccessIsp ? UpstreamRole.AccessHop : UpstreamRole.Transit,
-                    WanInterface = wanInterface,
-                    LastValidated = now,
-                    LastTracerouteAt = now,
-                    IsActive = true
-                });
-                written++;
-                _logger.LogDebug("Tracer: AS{Asn} hop#{Ttl} {Ip} ({Name}) on trace to {Trace}",
-                    t.AsnNumber, ttl, t.Address, t.PtrHostname ?? t.Name, canonicalTarget);
-            }
+                MonitoringTargetId = t.Id,
+                AsnNumber = t.AsnNumber!.Value,
+                AsnName = t.AsnName,
+                HopIp = t.Address,
+                HopNumber = ttl,
+                Role = t.TargetType == MonitoringTargetType.AccessIsp ? UpstreamRole.AccessHop : UpstreamRole.Transit,
+                WanInterface = wanInterface,
+                LastValidated = now,
+                LastTracerouteAt = now,
+                IsActive = true
+            });
+            written++;
+            _logger.LogDebug("Tracer: AS{Asn} hop#{Ttl} {Ip} ({Name}) on global canonical trace to {Trace}",
+                t.AsnNumber, ttl, t.Address, t.PtrHostname ?? t.Name, canonicalTarget);
         }
 
         await db.SaveChangesAsync(ct);
-        _logger.LogInformation("Tracer: persisted {Count} upstream hop-order rows for {Wan}", written, wanInterface);
+        _logger.LogInformation("Tracer: persisted {Count} upstream hop-order rows for {Wan} (global canonical trace to {Trace})",
+            written, wanInterface, canonicalTarget);
     }
 
     private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)

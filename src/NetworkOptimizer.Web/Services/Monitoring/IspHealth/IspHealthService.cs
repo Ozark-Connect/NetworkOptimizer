@@ -503,7 +503,8 @@ public class IspHealthService
                     AsnName = asnName,
                     TargetIds = { t.TargetId },
                     Samples = ispSeries[t.TargetId],
-                    RoleTargetIds = { t.TargetId }
+                    RoleTargetIds = { t.TargetId },
+                    MinHopNumber = hopNumberByTargetId.TryGetValue(t.TargetId, out var hn) ? hn : null
                 };
             })
             .ToList();
@@ -650,6 +651,11 @@ public class IspHealthService
                             jitterSource = farthest.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList();
                         }
                     }
+                    // Nearest hop number across this graded cluster, so the scorer can tell
+                    // whether this transit routes through a given ISP hop (downstream of it).
+                    var clusterHopNums = clusterTargets
+                        .Select(t => hopNumberByTargetId.TryGetValue(t.TargetId, out var h) ? (int?)h : null)
+                        .Where(h => h.HasValue).Select(h => h!.Value).ToList();
                     grading.Add(new AsnSeries
                     {
                         AsnNumber = group.Key,
@@ -658,6 +664,7 @@ public class IspHealthService
                         Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
                         NearestClusterMeanRttMs = nearestRtts.Count > 0 ? nearestRtts.Average() : null,
                         JitterSourceSamples = jitterSource,
+                        MinHopNumber = clusterHopNums.Count > 0 ? clusterHopNums.Min() : null,
                         // All of this ASN-role's hops, so congestion is attributed to the
                         // right card when the same ASN is both the access ISP and transit
                         RoleTargetIds = group.Select(t => t.TargetId).ToList()

@@ -274,6 +274,14 @@ public class AsnSeries
     /// appears as both the access ISP and transit. Empty on chart-cluster series.
     /// </summary>
     public List<string> RoleTargetIds { get; init; } = new();
+
+    /// <summary>
+    /// Lowest traceroute hop number among this series' targets on the WAN's global
+    /// canonical trace (from UpstreamDiscoveries). Lets the scorer confirm one series
+    /// routes through another - a witness only absolves a hop it sits downstream of.
+    /// Null when no stored hop order covers these targets.
+    /// </summary>
+    public int? MinHopNumber { get; init; }
 }
 
 /// <summary>Load classification of one aggregate window.</summary>
