@@ -111,6 +111,10 @@ public class IspHealthService
 
         AccessTechnology technology;
         List<MonitoringTarget> targets;
+        // TargetId -> traceroute hop number from Upstream Discovery, used to confirm a
+        // farther transit cluster actually routes through the nearer one before its lower
+        // jitter is assimilated. Stored at discovery time; no live traceroute is run here.
+        Dictionary<string, int> hopNumberByTargetId;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
@@ -134,6 +138,17 @@ public class IspHealthService
                     || t.TargetType == MonitoringTargetType.Transit
                     || t.TargetType == MonitoringTargetType.InternetService))
                 .ToListAsync(ct);
+
+            var discoveries = await db.UpstreamDiscoveries.AsNoTracking()
+                .Where(d => d.IsActive && d.MonitoringTargetId != null)
+                .ToListAsync(ct);
+            // Lowest active hop number per target (a target should map to one hop, but be
+            // defensive). Join discovery rows to the loaded targets by primary key.
+            var targetIdById = targets.ToDictionary(t => t.Id, t => t.TargetId);
+            hopNumberByTargetId = discoveries
+                .Where(d => targetIdById.ContainsKey(d.MonitoringTargetId!.Value))
+                .GroupBy(d => targetIdById[d.MonitoringTargetId!.Value])
+                .ToDictionary(g => g.Key, g => g.Min(d => d.HopNumber));
         }
 
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
@@ -241,7 +256,7 @@ public class IspHealthService
                 && internetSeries.ContainsKey(t.TargetId))
             .Select(t => internetSeries[t.TargetId]));
 
-        var (ispGrading, transitGrading, allClusters, chartClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries);
+        var (ispGrading, transitGrading, allClusters, chartClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, hopNumberByTargetId);
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
@@ -285,7 +300,7 @@ public class IspHealthService
             SmartQueuesEnabled = smartQueuesEnabled
         };
 
-        var report = new IspHealthScorer(_options).Score(inputs, profile);
+        var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
         _status = IspHealthStatus.Ready;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
@@ -456,26 +471,36 @@ public class IspHealthService
         List<MonitoringTarget> ispTargets,
         List<MonitoringTarget> transitTargets,
         Dictionary<string, List<LatencySample>> ispSeries,
-        Dictionary<string, List<LatencySample>> transitSeries)
+        Dictionary<string, List<LatencySample>> transitSeries,
+        Dictionary<string, int> hopNumberByTargetId)
     {
         var ispOverrides = BuildIspAsnOverrides(ispTargets);
         // Congestion and path-shift detection still runs on clustered series so
         // events fire at the right granularity
-        var (_, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
+        var (_, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true, hopNumberByTargetId);
 
-        // Grade each ISP target individually: every hop's own loss, jitter,
-        // stability, and congestion contribute to the ISP Network dimension
-        // instead of grading only the first clean hop. The access layer idle
-        // speed rating still uses FirstHopSeries (unchanged).
+        // Grade each ISP target individually: every hop's own loss, reach, and
+        // congestion contribute to the ISP Network dimension instead of grading only
+        // the first clean hop (jitter is graded ISP-wide in the scorer). The access
+        // layer idle speed rating still uses FirstHopSeries (unchanged). AsnName carries
+        // the ASN org name (not the per-hop target name) so the aggregate ISP card on
+        // Networks on Your Path is labeled by the ASN; the per-hop table uses a separate
+        // series (ispTargetSeries) that keeps each target's own name.
         var ispGrading = ispTargets
             .Where(t => ispSeries.ContainsKey(t.TargetId))
             .Select(t =>
             {
-                var resolvedAsn = ispOverrides != null && ispOverrides.TryGetValue(t.TargetId, out var o) ? o.Asn : t.AsnNumber ?? 0;
+                var resolvedAsn = t.AsnNumber ?? 0;
+                var asnName = t.AsnName;
+                if (ispOverrides != null && ispOverrides.TryGetValue(t.TargetId, out var o))
+                {
+                    resolvedAsn = o.Asn;
+                    asnName ??= o.Name;
+                }
                 return new AsnSeries
                 {
                     AsnNumber = resolvedAsn,
-                    AsnName = t.Name,
+                    AsnName = asnName,
                     TargetIds = { t.TargetId },
                     Samples = ispSeries[t.TargetId],
                     RoleTargetIds = { t.TargetId }
@@ -484,7 +509,7 @@ public class IspHealthService
             .ToList();
 
         var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
-        var (transitGrading, transitClusters, transitChart) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);
+        var (transitGrading, transitClusters, transitChart) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false, hopNumberByTargetId);
 
         return (ispGrading, transitGrading,
             ispClusters.Concat(transitClusters).ToList(),
@@ -515,7 +540,8 @@ public class IspHealthService
         List<MonitoringTarget> targets,
         Dictionary<string, List<LatencySample>> seriesByTarget,
         Dictionary<string, (int Asn, string? Name)>? asnOverrides,
-        bool gradeLowestTargetOnly)
+        bool gradeLowestTargetOnly,
+        Dictionary<string, int> hopNumberByTargetId)
     {
         var grading = new List<AsnSeries>();
         var allClusters = new List<AsnSeries>();
@@ -611,9 +637,19 @@ public class IspHealthService
                     // one - is the honest read of the path's jitter. RTT and reach stay on
                     // the nearest cluster. Only for transit (full clusters graded); the ISP
                     // grades each hop on its own, so this carve-out does not apply there.
-                    var jitterSource = !gradeLowestTargetOnly && clusters.Count > 1
-                        ? clusters[^1].SelectMany(c => seriesByTarget[c.Target.TargetId]).OrderBy(s => s.Time).ToList()
-                        : new List<LatencySample>();
+                    // The assimilation is gated on traceroute hop order: we only trust the
+                    // farther cluster's lower jitter when Upstream Discovery recorded it
+                    // strictly downstream of the nearest cluster (it actually routes through
+                    // it). Without that proof we keep the nearest cluster's own jitter.
+                    var jitterSource = new List<LatencySample>();
+                    if (!gradeLowestTargetOnly && clusters.Count > 1)
+                    {
+                        var farthest = clusters[^1].Select(c => c.Target).ToList();
+                        if (FarClusterRoutesThroughNear(clusters[0], clusters[^1], hopNumberByTargetId, group.Key))
+                        {
+                            jitterSource = farthest.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList();
+                        }
+                    }
                     grading.Add(new AsnSeries
                     {
                         AsnNumber = group.Key,
@@ -644,6 +680,42 @@ public class IspHealthService
             }
         }
         return (grading, allClusters, chartClusters);
+    }
+
+    /// <summary>
+    /// Confirms a farther RTT cluster is genuinely downstream of the nearer one using the
+    /// traceroute hop numbers stored at Upstream Discovery: the farther cluster's lowest
+    /// hop number must be strictly greater than the nearer cluster's highest, so the route
+    /// to the farther cluster passes through the nearer. Without hop data for both clusters
+    /// we cannot prove it routes through, so we decline to assimilate (never absolve on
+    /// faith). Uses stored hop order - no live traceroute is run.
+    /// </summary>
+    private bool FarClusterRoutesThroughNear(
+        List<(MonitoringTarget Target, double? Median)> nearCluster,
+        List<(MonitoringTarget Target, double? Median)> farCluster,
+        Dictionary<string, int> hopNumberByTargetId,
+        int asn)
+    {
+        var nearHops = nearCluster
+            .Select(c => hopNumberByTargetId.TryGetValue(c.Target.TargetId, out var h) ? (int?)h : null)
+            .Where(h => h.HasValue).Select(h => h!.Value).ToList();
+        var farHops = farCluster
+            .Select(c => hopNumberByTargetId.TryGetValue(c.Target.TargetId, out var h) ? (int?)h : null)
+            .Where(h => h.HasValue).Select(h => h!.Value).ToList();
+
+        if (nearHops.Count == 0 || farHops.Count == 0)
+        {
+            _logger.LogDebug(
+                "ISP Health: AS{Asn} farther-cluster jitter NOT assimilated - no stored hop order (near {NearN}, far {FarN} hops with numbers)",
+                asn, nearHops.Count, farHops.Count);
+            return false;
+        }
+
+        var routesThrough = farHops.Min() > nearHops.Max();
+        _logger.LogDebug(
+            "ISP Health: AS{Asn} farther-cluster routes-through-nearer={Ok} (nearest hop# max {NearMax}, farthest hop# min {FarMin})",
+            asn, routesThrough, nearHops.Max(), farHops.Min());
+        return routesThrough;
     }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(

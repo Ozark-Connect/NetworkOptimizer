@@ -532,24 +532,53 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Jitter_above_the_path_floor_is_dinged()
+    public void Higher_isp_jitter_lowers_the_dimension()
     {
-        // Floor is 0.4 ms (the near hop). A hop at 2x the floor (0.8 ms) is a clear
-        // jitter signal and must score well below a hop sitting at the floor.
-        var hops = new List<AsnSeries>
+        // Jitter is graded ISP-wide (mean of the ISP targets), not per hop. A jittery ISP
+        // (one hop well above the floor) lowers the dimension vs a clean ISP.
+        var clean = new List<AsnSeries>
         {
-            IspHop("isp-hop-near", "Near ISP Hop", 2.1, 0.4),
-            IspHop("isp-hop-jittery", "Jittery ISP Hop", 2.1, 0.8)
+            IspHop("a", "A", 2.1, 0.4),
+            IspHop("b", "B", 2.1, 0.4)
+        };
+        var jittery = new List<AsnSeries>
+        {
+            IspHop("a", "A", 2.1, 0.4),
+            IspHop("b", "B", 2.1, 3.0)
         };
 
-        var report = new IspHealthScorer(Options).Score(
-            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-hop-near"), Gpon);
+        var cleanReport = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: clean, ispTargets: clean, firstHopTargetId: "a"), Gpon);
+        var jitteryReport = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: jittery, ispTargets: jittery, firstHopTargetId: "a"), Gpon);
 
-        var atFloor = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
-        var jittery = report.IspTargets.Single(t => t.TargetId == "isp-hop-jittery");
-        atFloor.OverallScore.Should().Be(100);
-        (atFloor.OverallScore!.Value - jittery.OverallScore!.Value).Should().BeGreaterThanOrEqualTo(5,
-            "0.8 ms is 2x the 0.4 ms floor and must visibly ding the hop");
+        jitteryReport.IspAsnDimension.Score.Should().BeLessThan(cleanReport.IspAsnDimension.Score!.Value,
+            "higher mean ISP jitter lowers the ISP grade");
+    }
+
+    [Fact]
+    public void Isp_jitter_is_capped_by_the_cleanest_transit_asn()
+    {
+        // The ISP hops look jittery (3 ms, likely ICMP deprioritization), but a transit ASN
+        // reached through the ISP is clean at 0.4 ms - proving the ISP path is steady. The
+        // ISP grade must not be punished for the false ISP-hop jitter.
+        var ispHops = new List<AsnSeries>
+        {
+            IspHop("isp-a", "ISP A", 2.1, 3.0),
+            IspHop("isp-b", "ISP B", 2.2, 3.0)
+        };
+        var cleanTransit = new List<AsnSeries>
+        {
+            TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 8, 0.4))
+        };
+
+        var withCleanTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a", transit: cleanTransit), Gpon);
+        var noTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a"), Gpon);
+
+        withCleanTransit.IspAsnDimension.Score.Should().BeGreaterThan(noTransit.IspAsnDimension.Score!.Value,
+            "a clean transit ASN beyond the ISP caps the ISP's jitter");
     }
 
     [Fact]
@@ -605,11 +634,11 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Transit_jitter_is_graded_on_the_farther_cluster()
+    public void A_clean_farther_cluster_absolves_false_near_jitter()
     {
         // The near cluster shows 4 ms jitter (false - ICMP deprioritization on that hop),
-        // but the farther cluster, reached through it, is clean at 0.4 ms. Jitter must be
-        // graded on the farther cluster, so the ASN is not punished for the false near jitter.
+        // but the farther cluster, reached through it, is clean at 0.4 ms. The ASN must take
+        // the better of the two, so it is not punished for the false near jitter.
         var nearCluster = TestSeries.Flat(TestSeries.Start, Day, 10, 4.0);
         var farCluster = TestSeries.Flat(TestSeries.Start, Day, 13, 0.4);
         var withFartherSource = new AsnSeries
@@ -636,6 +665,39 @@ public class IspHealthScorerTests
         graded.JitterScore.Should().BeGreaterThan(ungraded.JitterScore!.Value,
             "the clean farther cluster disproves the near hop's false jitter");
         graded.JitterScore.Should().BeGreaterThan(85);
+    }
+
+    [Fact]
+    public void A_jittery_farther_cluster_never_downgrades_the_nearer()
+    {
+        // The near cluster is clean (0.4 ms); the farther cluster is jittery (4 ms). The far
+        // cluster's jitter is its own problem further along the path and must NOT drag the
+        // nearer cluster's grade down. Absolve-only: take the better, never the worse.
+        var nearClean = TestSeries.Flat(TestSeries.Start, Day, 10, 0.4);
+        var farJittery = TestSeries.Flat(TestSeries.Start, Day, 13, 4.0);
+        var withJitteryFar = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearClean,
+            JitterSourceSamples = farJittery
+        };
+        var nearOnly = new AsnSeries
+        {
+            AsnNumber = 64500,
+            AsnName = "TransitOne",
+            TargetIds = { "transit-near" },
+            Samples = nearClean
+        };
+
+        var withFar = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { withJitteryFar }), Gpon).TransitAsns.Single();
+        var without = new IspHealthScorer(Options).Score(
+            BuildInputs(transit: new List<AsnSeries> { nearOnly }), Gpon).TransitAsns.Single();
+
+        withFar.JitterScore.Should().Be(without.JitterScore,
+            "a jittery farther cluster must not downgrade the clean nearer cluster");
     }
 
     [Fact]

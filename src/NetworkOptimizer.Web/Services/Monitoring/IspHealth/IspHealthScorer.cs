@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -11,10 +12,12 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 public class IspHealthScorer
 {
     private readonly IspHealthOptions _options;
+    private readonly ILogger? _logger;
 
-    public IspHealthScorer(IspHealthOptions options)
+    public IspHealthScorer(IspHealthOptions options, ILogger? logger = null)
     {
         _options = options;
+        _logger = logger;
     }
 
     public IspHealthReport Score(IspHealthInputs inputs, AccessProfile profile)
@@ -40,12 +43,21 @@ public class IspHealthScorer
         // path (ISP hops and transit clusters). It represents the access layer's inherent
         // stability - every probe crosses it - so jitter is graded relative to this floor.
         var jitterFloor = ComputeJitterFloor(inputs);
+        _logger?.LogDebug("ISP Health: path jitter floor {Floor} ms", FormatMsOrNull(jitterFloor));
 
         var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, jitterFloor, accessMedianRtt, inputs.InternetMedianDeltaMs)).ToList();
+
+        // ISP jitter is bounded by the cleanest transit ASN. Transit sits beyond the ISP
+        // and is reached through it, so a clean transit ASN proves the ISP path is at least
+        // that steady - the ISP's own per-hop jitter is routinely inflated by ICMP
+        // deprioritization and cannot be trusted above that bound. Effective ISP jitter =
+        // min(mean of the ISP targets' jitter, lowest transit ASN jitter).
+        var effectiveIspJitter = ComputeEffectiveIspJitter(inputs.IspAsnSeries, transitAsns);
+
         // Every ISP hop is graded; the dimension averages them all. Hops further out on
         // the same ISP get a soft intra-ASN reach ceiling (distance is "fine but not
         // perfect", not a fault). The access layer idle latency still uses FirstHopSeries.
-        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.CongestionEvents, jitterFloor);
+        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.CongestionEvents, jitterFloor, effectiveIspJitter);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents);
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
@@ -494,36 +506,42 @@ public class IspHealthScorer
         double? jitterFloorMs,
         double? accessBaselineRtt,
         double? internetMedianDeltaMs,
-        double? intraAsnFloorRttMs = null)
+        double? intraAsnFloorRttMs = null,
+        double? jitterOverrideMs = null)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var losses = series.Samples.Where(s => s.LossPercent.HasValue).Select(s => s.LossPercent!.Value).ToList();
-
-        // Jitter and stability are scored from the jitter source (the farther cluster
-        // for a multi-cluster transit ASN), which proves whether the path is truly
-        // jittery or the near hop is just deprioritizing ICMP replies.
-        var jitterSource = JitterSamples(series);
-        var jitterRtts = jitterSource.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
-        var jitters = jitterSource.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
 
         var medianRtt = SeriesStats.Median(rtts);
-        var stabilityMedian = SeriesStats.Median(jitterRtts);
-        var mad = SeriesStats.Mad(jitterRtts);
-        var medianJitter = jitters.Count > 0 ? SeriesStats.Median(jitters) : null;
+        var mad = SeriesStats.Mad(rtts);
 
-        int? stabilityScore = null;
-        if (stabilityMedian is > 0 && mad.HasValue)
+        // Jitter and stability are absolve-only across clusters. The nearest cluster's
+        // variance can be false (ICMP deprioritization at that hop); a cleaner farther
+        // cluster - reached through it - proves the path is steady, so we take the BETTER
+        // (lower) of near and far. We never take the worse: a jittery farther cluster is
+        // its own problem further along the path and must not downgrade the nearer cluster.
+        // An ISP hop instead takes the ISP-wide jitter bound (jitterOverrideMs), which is
+        // already capped by the cleanest transit ASN.
+        var medianJitter = jitterOverrideMs ?? EffectiveLower(series.Samples, series.JitterSourceSamples, MedianJitterOf);
+        var stabilityRatio = EffectiveLower(series.Samples, series.JitterSourceSamples, StabilityRatioOf);
+
+        if (jitterOverrideMs == null && series.JitterSourceSamples.Count > 0)
         {
-            var ratio = mad.Value / stabilityMedian.Value;
-            stabilityScore = (int)Math.Round(ScoreCurve.Interpolate(ratio,
-                (0.02, 100), (0.10, 80), (0.25, 55), (0.5, 25), (1.0, 0)));
+            _logger?.LogDebug(
+                "ISP Health: AS{Asn} ({Name}) jitter absolve - near {Near} ms, farther cluster {Far} ms, effective {Eff} ms",
+                series.AsnNumber, series.AsnName, FormatMsOrNull(MedianJitterOf(series.Samples)),
+                FormatMsOrNull(MedianJitterOf(series.JitterSourceSamples)), FormatMsOrNull(medianJitter));
         }
 
-        int? jitterScore = null;
-        if (medianJitter.HasValue)
-        {
-            jitterScore = (int)Math.Round(ScoreJitterVsFloor(medianJitter.Value, jitterFloorMs));
-        }
+        int? stabilityScore = stabilityRatio.HasValue
+            ? (int)Math.Round(ScoreCurve.Interpolate(stabilityRatio.Value,
+                (0.02, 100), (0.10, 80), (0.25, 55), (0.5, 25), (1.0, 0)))
+            : null;
+
+        int? jitterScore = medianJitter.HasValue
+            ? (int)Math.Round(ScoreJitterVsFloor(medianJitter.Value, jitterFloorMs))
+            : null;
 
         // Reach ceiling: the best grade this hop's distance allows.
         double? reachDelta = null;
@@ -627,17 +645,49 @@ public class IspHealthScorer
         var medians = new List<double>();
         void Add(IReadOnlyList<LatencySample> samples)
         {
-            var js = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-            var m = SeriesStats.Median(js);
+            var m = MedianJitterOf(samples);
             if (m.HasValue) medians.Add(m.Value);
         }
         foreach (var s in inputs.IspAsnSeries) Add(s.Samples);
-        foreach (var s in inputs.TransitAsnSeries) Add(JitterSamples(s));
+        foreach (var s in inputs.TransitAsnSeries)
+        {
+            Add(s.Samples);
+            if (s.JitterSourceSamples.Count > 0) Add(s.JitterSourceSamples);
+        }
         return medians.Count > 0 ? medians.Min() : null;
     }
 
-    private static IReadOnlyList<LatencySample> JitterSamples(AsnSeries series) =>
-        series.JitterSourceSamples.Count > 0 ? series.JitterSourceSamples : series.Samples;
+    /// <summary>Median effective jitter of a sample set, or null when none reported jitter.</summary>
+    private static double? MedianJitterOf(IReadOnlyList<LatencySample> samples)
+    {
+        var js = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        return js.Count > 0 ? SeriesStats.Median(js) : null;
+    }
+
+    /// <summary>RTT stability ratio (MAD / median) of a sample set; lower is steadier. Null without RTT.</summary>
+    private static double? StabilityRatioOf(IReadOnlyList<LatencySample> samples)
+    {
+        var rtts = samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
+        var median = SeriesStats.Median(rtts);
+        var mad = SeriesStats.Mad(rtts);
+        return median is > 0 && mad.HasValue ? mad.Value / median.Value : null;
+    }
+
+    /// <summary>
+    /// The better (lower) of a metric over the near samples and over the far samples -
+    /// absolve-only. A cleaner farther cluster pulls the value down (the near hop's jitter
+    /// was false); a worse farther cluster is ignored so it never downgrades the nearer
+    /// hop. Far empty means near only.
+    /// </summary>
+    private static double? EffectiveLower(IReadOnlyList<LatencySample> near, IReadOnlyList<LatencySample> far, Func<IReadOnlyList<LatencySample>, double?> metric)
+    {
+        var n = metric(near);
+        if (far.Count == 0) return n;
+        var f = metric(far);
+        if (!f.HasValue) return n;
+        if (!n.HasValue) return f;
+        return Math.Min(n.Value, f.Value);
+    }
 
     /// <summary>
     /// Floor-relative jitter score. A target at the floor is as stable as the line
@@ -658,7 +708,7 @@ public class IspHealthScorer
     /// ISP's nearest-hop RTT (the intra-ASN reach floor): a second POP further out is
     /// nominal distance, not a fault, so it gets a soft ceiling rather than a perfect score.
     /// </summary>
-    private List<IspAsnHealth> GradeIspHops(List<AsnSeries> ispHopSeries, List<CongestionEvent> congestionEvents, double? jitterFloorMs)
+    private List<IspAsnHealth> GradeIspHops(List<AsnSeries> ispHopSeries, List<CongestionEvent> congestionEvents, double? jitterFloorMs, double? effectiveIspJitterMs)
     {
         var grades = new List<IspAsnHealth>();
         foreach (var asnGroup in ispHopSeries.GroupBy(s => s.AsnNumber))
@@ -672,9 +722,40 @@ public class IspHealthScorer
                 .Min();
             double? intraFloor = hops.Any(s => s.Samples.Any(x => x.RttAvgMs.HasValue)) ? floorRtt : null;
             foreach (var hop in hops)
-                grades.Add(GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt: null, internetMedianDeltaMs: null, intraAsnFloorRttMs: intraFloor));
+            {
+                var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt: null, internetMedianDeltaMs: null,
+                    intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effectiveIspJitterMs);
+                _logger?.LogDebug(
+                    "ISP Health: ISP hop {Target} (AS{Asn}) graded {Score} - measured jitter {Jitter} ms, ISP-wide jitter {Eff} ms, reach +{Reach} ms",
+                    hop.TargetIds.FirstOrDefault(), hop.AsnNumber, grade.OverallScore, FormatMsOrNull(MedianJitterOf(hop.Samples)),
+                    FormatMsOrNull(effectiveIspJitterMs), FormatMsOrNull(grade.ReachDeltaMs));
+                grades.Add(grade);
+            }
         }
         return grades;
+    }
+
+    /// <summary>
+    /// Effective ISP jitter: the lower of the ISP targets' mean jitter and the cleanest
+    /// transit ASN's jitter. Transit is reached through the ISP, so a clean transit ASN
+    /// bounds how jittery the ISP path can really be; the ISP targets' own jitter is often
+    /// inflated by ICMP deprioritization. Null when nothing reported jitter.
+    /// </summary>
+    private double? ComputeEffectiveIspJitter(List<AsnSeries> ispHopSeries, List<IspAsnHealth> transitAsns)
+    {
+        var ispJitters = ispHopSeries.Select(s => MedianJitterOf(s.Samples)).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        double? meanIsp = ispJitters.Count > 0 ? ispJitters.Average() : null;
+
+        var transitJitters = transitAsns.Select(a => a.MedianJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        double? minTransit = transitJitters.Count > 0 ? transitJitters.Min() : null;
+
+        double? effective = meanIsp;
+        if (minTransit.HasValue)
+            effective = effective.HasValue ? Math.Min(effective.Value, minTransit.Value) : minTransit;
+
+        _logger?.LogDebug("ISP Health: effective ISP jitter {Eff} ms (mean ISP {Mean} ms, cleanest transit {Transit} ms)",
+            FormatMsOrNull(effective), FormatMsOrNull(meanIsp), FormatMsOrNull(minTransit));
+        return effective;
     }
 
     /// <summary>
@@ -706,7 +787,9 @@ public class IspHealthScorer
                 TargetIds = targetIds,
                 MedianRttMs = medianRtts.Count > 0 ? medianRtts.Min() : null,
                 MeanRttMs = means.Count > 0 ? means.Average() : null,
-                P95JitterMs = jitters.Count > 0 ? jitters.Max() : null,
+                // Mean of the hops' jitter, not the worst: ISP hops are routinely
+                // ICMP-deprioritized, so a single hop's high jitter is not the ASN's jitter.
+                P95JitterMs = jitters.Count > 0 ? jitters.Average() : null,
                 LossPct = lossVals.Count > 0 ? lossVals.Average() : null,
                 OverallScore = scored.Count > 0 ? (int)Math.Round(scored.Average()) : null,
                 CongestionEventCount = asnEvents.Count
@@ -914,6 +997,10 @@ public class IspHealthScorer
 
     private static string FormatMs(double ms) =>
         ms >= 10 ? $"{ms.ToString("0", CultureInfo.InvariantCulture)} ms" : $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";
+
+    /// <summary>Debug-log helper: a millisecond value to two decimals, or "n/a" when null.</summary>
+    private static string FormatMsOrNull(double? ms) =>
+        ms.HasValue ? ms.Value.ToString("0.00", CultureInfo.InvariantCulture) : "n/a";
 
     /// <summary>Loaded-latency delta for display: a non-positive delta shows as "0 ms".</summary>
     private static string FormatLoadedDelta(double ms) => ms <= 0 ? "0 ms" : FormatMs(ms);

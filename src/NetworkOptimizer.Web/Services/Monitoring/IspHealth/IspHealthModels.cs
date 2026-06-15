@@ -247,11 +247,12 @@ public class AsnSeries
     public double? NearestClusterMeanRttMs { get; init; }
 
     /// <summary>
-    /// Samples jitter and latency stability are scored from, when they should come from
-    /// a different cluster than <see cref="Samples"/>. Used for transit ASNs with a
-    /// farther cluster: a near hop often shows false jitter from ICMP deprioritization
-    /// that the farther cluster (reached through it) disproves, so jitter is graded on
-    /// the farther cluster while RTT and reach stay on the nearest. Empty means use Samples.
+    /// A farther cluster's samples used to absolve false near-hop jitter. A near hop often
+    /// shows false jitter from ICMP deprioritization; a cleaner farther cluster, confirmed
+    /// downstream by stored traceroute hop order, disproves it. Jitter and stability are
+    /// graded on the BETTER (lower) of <see cref="Samples"/> and this (absolve-only: a
+    /// jittery farther cluster never downgrades the nearer). RTT and reach always use
+    /// Samples. Empty means no confirmed farther cluster, so Samples alone is used.
     /// </summary>
     public List<LatencySample> JitterSourceSamples { get; init; } = new();
 
