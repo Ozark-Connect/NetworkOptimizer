@@ -2349,7 +2349,23 @@
         </div>
     </div>
 
-    <!-- 12. Data Management -->
+    <!-- 12. UI / Display Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">UI / Display Settings</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" checked="@_kioskMode" @onchange="OnKioskModeChanged" />
+                    <span>Kiosk mode</span>
+                </label>
+                <small class="form-help">Collapses the side menu into the hamburger button at any window size, giving the content full width - handy for presenting graphs on a mini display. This preference is saved per device (this browser only).</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- 13. Data Management -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Data Management</h2>
@@ -2749,6 +2765,24 @@
     private bool testingCrowdsec = false;
     private string crowdsecMessage = "";
     private string crowdsecMessageClass = "";
+
+    // UI / Display Settings - per-device, persisted in localStorage (not the DB)
+    private bool _kioskMode = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _kioskMode = await JS.InvokeAsync<bool>("getKioskMode");
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnKioskModeChanged(ChangeEventArgs e)
+    {
+        _kioskMode = e.Value is true;
+        await JS.InvokeVoidAsync("setKioskMode", _kioskMode);
+    }
 
     protected override async Task OnInitializedAsync()
     {
