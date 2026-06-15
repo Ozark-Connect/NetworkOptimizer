@@ -54,7 +54,7 @@ public class IspHealthScorer
         // get a soft intra-ASN reach ceiling. Access layer idle latency still uses FirstHopSeries.
         var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
-        var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents);
+        var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents, _options.JitterAssimilationMinDeltaMs);
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
@@ -558,7 +558,14 @@ public class IspHealthScorer
         // An ISP hop instead takes the ISP-wide jitter bound (jitterOverrideMs), which is
         // already capped by the cleanest transit ASN.
         var nearJitter = ScoringJitterOf(series.Samples);
-        var effectiveJitter = jitterOverrideMs ?? EffectiveLower(series.Samples, series.JitterSourceSamples, ScoringJitterOf);
+        var rawEffectiveJitter = jitterOverrideMs ?? EffectiveLower(series.Samples, series.JitterSourceSamples, ScoringJitterOf);
+        // Don't assimilate on a trivial difference: a witness must sit at least the minimum
+        // delta below this series' own reading to pull it down. Within that band it's noise,
+        // so keep our own jitter (no absolve, no assimilation flag). Applies to ISP and transit.
+        var effectiveJitter = rawEffectiveJitter.HasValue && nearJitter.HasValue
+            && rawEffectiveJitter.Value > nearJitter.Value - _options.JitterAssimilationMinDeltaMs
+            ? nearJitter
+            : rawEffectiveJitter;
         var stabilityRatio = EffectiveLower(series.Samples, series.JitterSourceSamples, StabilityRatioOf);
 
         // Assimilated when a witness (a farther transit cluster, or - for an ISP hop via
@@ -862,7 +869,7 @@ public class IspHealthScorer
     /// card: mean RTT and jitter across the hops, averaged grade, and the union of the
     /// ASN's congestion events.
     /// </summary>
-    private static List<IspAsnHealth> AggregateIspAsns(List<IspAsnHealth> hopGrades, List<CongestionEvent> congestionEvents)
+    private static List<IspAsnHealth> AggregateIspAsns(List<IspAsnHealth> hopGrades, List<CongestionEvent> congestionEvents, double assimilationMinDeltaMs)
     {
         var result = new List<IspAsnHealth>();
         foreach (var group in hopGrades.GroupBy(h => h.AsnNumber))
@@ -899,7 +906,7 @@ public class IspHealthScorer
                 LossPct = lossVals.Count > 0 ? lossVals.Average() : null,
                 OverallScore = scored.Count > 0 ? (int)Math.Round(scored.Average()) : null,
                 CongestionEventCount = asnEvents.Count,
-                JitterAssimilated = effMean.HasValue && rawMean.HasValue && effMean.Value < rawMean.Value - 0.001,
+                JitterAssimilated = effMean.HasValue && rawMean.HasValue && effMean.Value < rawMean.Value - assimilationMinDeltaMs,
                 RawJitterMs = rawMean
             });
         }

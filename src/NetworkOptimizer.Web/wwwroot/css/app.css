@@ -15737,6 +15737,12 @@ a.affected-client:hover {
     letter-spacing: 0.04em;
 }
 
+.isp-target-stat-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
 .isp-factor-link {
     color: var(--text-primary);
     text-decoration: underline;

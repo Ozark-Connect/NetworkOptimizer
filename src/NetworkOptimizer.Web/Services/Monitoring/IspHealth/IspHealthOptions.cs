@@ -178,6 +178,13 @@ public class IspHealthOptions
     public double JitterFloorMaxMs { get; set; } = 1.5;
 
     /// <summary>
+    /// Minimum amount a cleaner witness must sit below a hop's own jitter before it counts as
+    /// assimilated. Within this band the difference is measurement noise, so the hop keeps its
+    /// own jitter (no absolve, no assimilation icon). Applies to ISP hops and transit ASNs.
+    /// </summary>
+    public double JitterAssimilationMinDeltaMs { get; set; } = 0.05;
+
+    /// <summary>
     /// Average WAN load at which packet loss reaches its worst on shared-medium access
     /// (DOCSIS, PON, fixed wireless). The load-calibrated loss ceiling reaches the
     /// connection's loaded-loss band at this utilization and holds there above it, rather
