@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -139,10 +138,15 @@ public class WanDataUsageService : BackgroundService
             existing.WarningThresholdPercent = Math.Clamp(config.WarningThresholdPercent, 1, 100);
             existing.BillingCycleDayOfMonth = Math.Clamp(config.BillingCycleDayOfMonth, 1, 28);
 
-            // Switching into Manual mode anchors the bucket window now so usage counts forward
-            // from the switch (rather than from some arbitrary past calendar cycle start).
+            // Switching into Manual mode absorbs the current cycle's usage into the bucket by
+            // anchoring its window to the billing cycle start, so the displayed total is
+            // unchanged across the switch (no measured usage is silently discarded). If the user
+            // actually topped up mid-cycle, a single "Reset bucket" click zeroes it from now.
             if (config.ResetMode == DataUsageResetMode.Manual && existing.ResetMode != DataUsageResetMode.Manual)
-                existing.LastResetAt = DateTime.UtcNow;
+            {
+                var (cycleStart, _) = GetBillingCycleDates(existing.BillingCycleDayOfMonth, DateTime.UtcNow);
+                existing.LastResetAt = cycleStart;
+            }
             existing.ResetMode = config.ResetMode;
 
             existing.UpdatedAt = DateTime.UtcNow;
