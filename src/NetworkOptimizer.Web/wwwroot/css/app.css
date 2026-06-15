@@ -15532,6 +15532,10 @@ a.affected-client:hover {
     font-size: 0.85rem;
 }
 
+.isp-asn-stat .tooltip-icon {
+    background-color: var(--btn-map-hover);
+}
+
 .isp-asn-score-track {
     height: 5px;
     border-radius: 0 3px 3px 0;
