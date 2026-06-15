@@ -181,52 +181,62 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task ResetUsageAsync(string wanKey)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var config = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == wanKey);
-        if (config == null || config.ResetMode != DataUsageResetMode.Manual)
-            return;
-
-        var now = DateTime.UtcNow;
-        var (cycleStart, _) = GetCycleWindow(config, now);
-
-        // Capture the bucket's usage (including any manual adjustment) so history keeps a record.
-        var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, CancellationToken.None);
-        var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
-
-        // Only write history for a non-empty, non-degenerate window, and never collide with an
-        // existing (WanKey, CycleStart) row (the table has a unique index on that pair).
-        if (usedGb > 0 && cycleStart < now)
+        // Serialize against the background poll: it mutates _alertState and _lastCycleStart
+        // (plain dictionaries) under this same lock, so we must hold it too before touching them.
+        await _pollLock.WaitAsync();
+        try
         {
-            var alreadyRecorded = await db.WanDataUsageHistory
-                .AnyAsync(h => h.WanKey == config.WanKey && h.CycleStart == cycleStart);
-            if (!alreadyRecorded)
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var config = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == wanKey);
+            if (config == null || config.ResetMode != DataUsageResetMode.Manual)
+                return;
+
+            var now = DateTime.UtcNow;
+            var (cycleStart, _) = GetCycleWindow(config, now);
+
+            // Capture the bucket's usage (including any manual adjustment) so history keeps a record.
+            var usedBytes = await CalculateCycleUsageAsync(db, config.WanKey, cycleStart, now, CancellationToken.None);
+            var usedGb = Math.Max(0, usedBytes / (1024.0 * 1024.0 * 1024.0) + config.ManualAdjustmentGb);
+
+            // Only write history for a non-empty, non-degenerate window, and never collide with an
+            // existing (WanKey, CycleStart) row (the table has a unique index on that pair).
+            if (usedGb > 0 && cycleStart < now)
             {
-                db.WanDataUsageHistory.Add(new WanDataUsageHistory
+                var alreadyRecorded = await db.WanDataUsageHistory
+                    .AnyAsync(h => h.WanKey == config.WanKey && h.CycleStart == cycleStart);
+                if (!alreadyRecorded)
                 {
-                    WanKey = config.WanKey,
-                    Name = config.Name,
-                    CycleStart = cycleStart,
-                    CycleEnd = now,
-                    UsedGb = usedGb,
-                    CapGb = config.DataCapGb,
-                    RecordedAt = now
-                });
+                    db.WanDataUsageHistory.Add(new WanDataUsageHistory
+                    {
+                        WanKey = config.WanKey,
+                        Name = config.Name,
+                        CycleStart = cycleStart,
+                        CycleEnd = now,
+                        UsedGb = usedGb,
+                        CapGb = config.DataCapGb,
+                        RecordedAt = now
+                    });
+                }
             }
+
+            config.LastResetAt = now;
+            config.ManualAdjustmentGb = 0;
+            config.UpdatedAt = now;
+
+            await db.SaveChangesAsync();
+
+            // Clear in-memory state so the fresh bucket can alert again and the cache recomputes.
+            _alertState.Remove(wanKey);
+            _lastCycleStart[wanKey] = now;
+            _currentUsage = [];
+
+            _logger.LogInformation("Manual data usage bucket reset for {WanName}: archived {UsedGb:F2} GB, counting restarts now",
+                config.Name, usedGb);
         }
-
-        config.LastResetAt = now;
-        config.ManualAdjustmentGb = 0;
-        config.UpdatedAt = now;
-
-        await db.SaveChangesAsync();
-
-        // Clear in-memory state so the fresh bucket can alert again and the cache recomputes.
-        _alertState.Remove(wanKey);
-        _lastCycleStart[wanKey] = now;
-        _currentUsage = [];
-
-        _logger.LogInformation("Manual data usage bucket reset for {WanName}: archived {UsedGb:F2} GB, counting restarts now",
-            config.Name, usedGb);
+        finally
+        {
+            _pollLock.Release();
+        }
     }
 
     /// <summary>
