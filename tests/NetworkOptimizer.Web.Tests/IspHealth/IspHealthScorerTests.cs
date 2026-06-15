@@ -582,6 +582,33 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Transit_jitter_above_the_isp_mean_does_not_raise_isp_jitter()
+    {
+        // The cap is min, not max: a jittery transit ASN must never drag the ISP jitter UP.
+        // ISP hops are clean (0.3 ms); transit is jittery (2.0 ms). The ISP keeps its own
+        // mean for both score and display.
+        var ispHops = new List<AsnSeries>
+        {
+            IspHop("isp-a", "ISP A", 2.1, 0.3),
+            IspHop("isp-b", "ISP B", 2.1, 0.3)
+        };
+        var jitteryTransit = new List<AsnSeries>
+        {
+            TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 8, 2.0))
+        };
+
+        var withJitteryTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a", transit: jitteryTransit), Gpon);
+        var noTransit = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: ispHops, ispTargets: ispHops, firstHopTargetId: "isp-a"), Gpon);
+
+        withJitteryTransit.IspAsnDimension.Score.Should().Be(noTransit.IspAsnDimension.Score,
+            "a jittery transit ASN must not raise the ISP jitter (cap is min, not max)");
+        withJitteryTransit.IspAsns.Single().P95JitterMs.Should().BeApproximately(0.3, 0.05,
+            "the displayed ISP jitter stays at the ISP mean when transit is not cleaner");
+    }
+
+    [Fact]
     public void Congestion_on_non_first_hop_affects_isp_dimension()
     {
         var hops = new List<AsnSeries>
