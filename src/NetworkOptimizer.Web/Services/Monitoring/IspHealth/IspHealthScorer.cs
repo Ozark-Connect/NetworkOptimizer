@@ -921,7 +921,7 @@ public class IspHealthScorer
             Name = string.IsNullOrEmpty(a.AsnName) ? $"AS{a.AsnNumber}" : a.AsnName,
             Score = a.OverallScore,
             Weight = 1.0,
-            ValueText = a.MedianRttMs.HasValue ? FormatMs(a.MedianRttMs.Value) : null,
+            ValueText = a.MedianRttMs.HasValue ? FormatMsCoarse(a.MedianRttMs.Value) : null,
             Description = a.CongestionEventCount > 0
                 ? $"{a.CongestionEventCount} congestion event{(a.CongestionEventCount == 1 ? "" : "s")} in the window."
                 : null
@@ -1071,6 +1071,11 @@ public class IspHealthScorer
 
     private static string FormatMs(double ms) =>
         $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";
+
+    /// <summary>Coarse RTT for dimension summaries: no decimals at or above 10 ms, one below.
+    /// Detail lives on the Networks on Your Path cards.</summary>
+    private static string FormatMsCoarse(double ms) =>
+        ms >= 10 ? $"{ms.ToString("0", CultureInfo.InvariantCulture)} ms" : $"{ms.ToString("0.0", CultureInfo.InvariantCulture)} ms";
 
     /// <summary>Band references and loaded deltas: one decimal (2.0 ms), not the value's two.</summary>
     private static string FormatMsBand(double ms) =>
