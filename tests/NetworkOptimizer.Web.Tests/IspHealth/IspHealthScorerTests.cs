@@ -166,11 +166,11 @@ public class IspHealthScorerTests
     [Fact]
     public void Packet_loss_ceiling_is_calibrated_to_average_load()
     {
-        // The same 0.3% loss is fine on a line that ran loaded much of the window but a
+        // The same 0.1% loss is fine on a line that ran loaded much of the window but a
         // real problem on an idle line, where ~no loss is expected.
-        var idle = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.3, lineIdle: true), Gpon)
+        var idle = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.1, lineIdle: true), Gpon)
             .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
-        var loaded = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.3), Gpon)
+        var loaded = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.1), Gpon)
             .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
 
         loaded.Should().BeGreaterThan(idle!.Value,

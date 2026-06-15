@@ -321,17 +321,19 @@ public class IspHealthScorer
 
         var meanLoss = losses.Average();
         // Calibrate the acceptable loss ceiling to the average load over the window. An idle
-        // line should drop ~nothing, but a line that ran loaded for much of the window sheds
-        // some packets as expected, so the ceiling blends from the idle threshold toward the
-        // under-load acceptable band by the average utilization.
+        // line should drop ~nothing; loss only climbs as utilization approaches saturation,
+        // so the ceiling rises QUADRATICALLY in load - staying near the idle threshold at low
+        // load and reaching the connection's normal loaded-loss band only near full load.
+        var load = Math.Clamp(avgLoad, 0, 1);
         var acceptable = profile.IdleLossAcceptablePct
-            + Math.Clamp(avgLoad, 0, 1) * (profile.LoadedLossDownLowPct - profile.IdleLossAcceptablePct);
+            + load * load * (profile.LoadedLossDownLowPct - profile.IdleLossAcceptablePct);
         var score = meanLoss <= acceptable
             ? ScoreCurve.Interpolate(meanLoss, (0, 100), (profile.IdleLossIdealPct, 95), (acceptable, 70))
             : ScoreCurve.ExponentialFalloff(meanLoss, acceptable, 70);
 
-        _logger?.LogDebug("ISP Health: packet loss {Loss}% vs load-calibrated ceiling {Ceiling}% ({Load:P0} avg load)",
-            meanLoss.ToString("0.###", CultureInfo.InvariantCulture), acceptable.ToString("0.###", CultureInfo.InvariantCulture), avgLoad);
+        _logger?.LogDebug("ISP Health: packet loss {Loss}% vs load-calibrated ceiling {Ceiling}% ({Load} avg load)",
+            meanLoss.ToString("0.###", CultureInfo.InvariantCulture), acceptable.ToString("0.###", CultureInfo.InvariantCulture),
+            avgLoad.ToString("0%", CultureInfo.InvariantCulture));
 
         return new IspScoreFactor
         {
@@ -339,7 +341,7 @@ public class IspHealthScorer
             Score = (int)Math.Round(score),
             Weight = _options.IdleLossWeight,
             ValueText = FormatPct(meanLoss),
-            Description = $"Average loss across ISP, transit, and anycast DNS targets vs the {FormatPct(acceptable)} ceiling for {profile.DisplayName} at {avgLoad:P0} average load."
+            Description = $"Average loss across ISP, transit, and anycast DNS targets vs the {FormatPct(acceptable)} ceiling for {profile.DisplayName} at {avgLoad.ToString("0%", CultureInfo.InvariantCulture)} average load."
         };
     }
 
