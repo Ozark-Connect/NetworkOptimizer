@@ -162,12 +162,22 @@ function buildOpts() {
 
 // Time labels pinned to a fixed grid, rendered as x-axis annotations so
 // they scroll with the data. Full 24-hour time on every tick, placed below
-// the axis in the space freed by the hidden built-in labels. The 20s grid
-// fits ~15 HH:mm:ss labels on desktop widths; narrow (mobile) charts drop
-// to a 60s grid so the labels don't collide.
+// the axis in the space freed by the hidden built-in labels. The grid
+// interval is chosen from the chart's own rendered width (clientWidth), not
+// the viewport, so half-view panels and mobile - which constrain the chart
+// below full width while the viewport stays wide - step out to a sparser
+// grid instead of colliding. Full width keeps the dense 20s grid.
 function buildTimeTicks(minMs, maxMs) {
     const width = document.getElementById(elId)?.clientWidth || 800;
-    const GRID_MS = width < 640 ? 60000 : 20000;
+    // An HH:mm:ss label is ~46px at 10px; budget 64px per slot for breathing
+    // room, then pick the densest grid whose tick count fits that budget.
+    const slots = Math.max(2, Math.floor(width / 64));
+    const spanMs = maxMs - minMs;
+    const GRIDS = [20000, 30000, 60000, 120000];
+    let GRID_MS = GRIDS[GRIDS.length - 1];
+    for (const g of GRIDS) {
+        if (spanMs / g <= slots) { GRID_MS = g; break; }
+    }
     const ticks = [];
     for (let t = Math.ceil(minMs / GRID_MS) * GRID_MS; t <= maxMs; t += GRID_MS) {
         const d = new Date(t);
