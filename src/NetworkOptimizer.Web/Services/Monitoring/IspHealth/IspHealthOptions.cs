@@ -79,8 +79,21 @@ public class IspHealthOptions
     /// </summary>
     public int LoadWindowSeconds { get; set; } = 15;
 
-    /// <summary>How long a computed report stays fresh before recompute.</summary>
-    public TimeSpan CacheTtl { get; set; } = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// How long a computed report stays fresh before the ISP Health tab recomputes it.
+    /// The score is a 48 h rolling metric, so a few minutes of staleness is invisible; the
+    /// "Last updated" label discloses the age. Each recompute is a heavy Influx query burst,
+    /// so this is kept generous.
+    /// </summary>
+    public TimeSpan CacheTtl { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Max report age the glanceable dashboard / Live View score tile tolerates before it
+    /// triggers a background recompute. Longer than <see cref="CacheTtl"/> because the tile is
+    /// a summary, not the detail view - this decouples the tile from the recompute cadence so
+    /// simply watching Live View doesn't drive a full ISP Health query every few minutes.
+    /// </summary>
+    public TimeSpan DashboardScoreTtl { get; set; } = TimeSpan.FromMinutes(30);
 
     /// <summary>Bucket size in minutes for congestion detection.</summary>
     public int CongestionBucketMinutes { get; set; } = 15;
