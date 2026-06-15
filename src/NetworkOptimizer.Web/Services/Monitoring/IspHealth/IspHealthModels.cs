@@ -107,7 +107,10 @@ public class IspTargetHealth
     public double? P95JitterMs { get; init; }
     public double? LossPct { get; init; }
 
-    /// <summary>True for the first clean hop, the target the ISP grade is computed from.</summary>
+    /// <summary>Per-target quality grade (stability, jitter, loss, congestion).</summary>
+    public int? OverallScore { get; init; }
+
+    /// <summary>True for the first clean hop, the target the access layer idle latency comes from.</summary>
     public bool IsGradedHop { get; init; }
 }
 

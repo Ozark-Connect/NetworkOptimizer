@@ -459,9 +459,29 @@ public class IspHealthService
         Dictionary<string, List<LatencySample>> transitSeries)
     {
         var ispOverrides = BuildIspAsnOverrides(ispTargets);
-        // The ISP grade follows the live ISP RTT card: the single lowest-RTT target
-        // is the first clean hop and represents the ISP network
-        var (ispGrading, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
+        // Congestion and path-shift detection still runs on clustered series so
+        // events fire at the right granularity
+        var (_, ispClusters, ispChart) = GroupAndCluster(ispTargets, ispSeries, ispOverrides, gradeLowestTargetOnly: true);
+
+        // Grade each ISP target individually: every hop's own loss, jitter,
+        // stability, and congestion contribute to the ISP Network dimension
+        // instead of grading only the first clean hop. The access layer idle
+        // speed rating still uses FirstHopSeries (unchanged).
+        var ispGrading = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t =>
+            {
+                var resolvedAsn = ispOverrides != null && ispOverrides.TryGetValue(t.TargetId, out var o) ? o.Asn : t.AsnNumber ?? 0;
+                return new AsnSeries
+                {
+                    AsnNumber = resolvedAsn,
+                    AsnName = t.Name,
+                    TargetIds = { t.TargetId },
+                    Samples = ispSeries[t.TargetId],
+                    RoleTargetIds = { t.TargetId }
+                };
+            })
+            .ToList();
 
         var attributedTransit = transitTargets.Where(t => t.AsnNumber is > 0).ToList();
         var (transitGrading, transitClusters, transitChart) = GroupAndCluster(attributedTransit, transitSeries, null, gradeLowestTargetOnly: false);

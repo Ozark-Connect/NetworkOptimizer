@@ -38,7 +38,7 @@ public class IspHealthScorer
         var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessMedianRtt, inputs.InternetMedianDeltaMs)).ToList();
         var ispAsns = inputs.IspAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, accessBaselineRtt: null, internetMedianDeltaMs: null)).ToList();
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
-        var ispAsnDimension = BuildAsnDimension("ISP Network", _options.IspAsnWeight, ispAsns, gradedOnBestHop: true);
+        var ispAsnDimension = BuildAsnDimension("ISP Network", _options.IspAsnWeight, ispAsns);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
 
@@ -54,7 +54,7 @@ public class IspHealthScorer
             IspAsnDimension = ispAsnDimension,
             TransitAsns = transitAsns,
             IspAsns = ispAsns,
-            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId)).ToList(),
+            IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispAsns)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
             HasExpectedSpeeds = hasExpectedSpeeds,
@@ -589,12 +589,13 @@ public class IspHealthScorer
         };
     }
 
-    private static IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId)
+    private static IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> ispGrades)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
         var losses = series.Samples.Where(s => s.LossPercent.HasValue).Select(s => s.LossPercent!.Value).ToList();
         var targetId = series.TargetIds.FirstOrDefault() ?? "";
+        var grade = ispGrades.FirstOrDefault(g => g.TargetIds.Contains(targetId));
         return new IspTargetHealth
         {
             TargetId = targetId,
@@ -602,6 +603,7 @@ public class IspHealthScorer
             MedianRttMs = SeriesStats.Median(rtts),
             P95JitterMs = jitters.Count > 0 ? SeriesStats.Percentile(jitters, 0.95) : null,
             LossPct = losses.Count > 0 ? losses.Average() : null,
+            OverallScore = grade?.OverallScore,
             IsGradedHop = targetId == firstHopTargetId
         };
     }

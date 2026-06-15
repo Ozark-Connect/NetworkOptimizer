@@ -15676,9 +15676,25 @@ a.affected-client:hover {
 
 .isp-target-row {
     display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0;
+}
+
+.isp-target-detail {
+    display: flex;
     flex-direction: column;
     gap: 0.3rem;
-    padding: 0.55rem 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.isp-target-score {
+    font-size: 0.95rem;
+    font-weight: 600;
+    min-width: 2rem;
+    text-align: right;
+    flex-shrink: 0;
 }
 
 .isp-target-row + .isp-target-row {

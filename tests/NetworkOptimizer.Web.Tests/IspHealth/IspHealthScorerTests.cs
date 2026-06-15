@@ -474,6 +474,137 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void All_isp_hops_are_graded_independently()
+    {
+        var nearHop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "Near ISP Hop",
+            TargetIds = { "isp-hop-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            RoleTargetIds = { "isp-hop-near" }
+        };
+        var farHop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "Far ISP Hop",
+            TargetIds = { "isp-hop-far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 6.0, 1.5, lossPct: 0.8),
+            RoleTargetIds = { "isp-hop-far" }
+        };
+
+        var report = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop }), Gpon);
+
+        report.IspAsns.Should().HaveCount(2);
+        var near = report.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-near"));
+        var far = report.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-far"));
+        near.OverallScore.Should().NotBeNull();
+        far.OverallScore.Should().NotBeNull();
+        near.OverallScore.Should().BeGreaterThan(far.OverallScore!.Value,
+            "the near hop is clean while the far hop has jitter and loss");
+        report.IspAsnDimension.Score.Should().Be(
+            (int)Math.Round((near.OverallScore!.Value + far.OverallScore!.Value) / 2.0),
+            "the dimension score should average all ISP hop grades");
+    }
+
+    [Fact]
+    public void Congestion_on_non_first_hop_affects_isp_dimension()
+    {
+        var nearHop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "Near ISP Hop",
+            TargetIds = { "isp-hop-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            RoleTargetIds = { "isp-hop-near" }
+        };
+        var farHop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "Far ISP Hop",
+            TargetIds = { "isp-hop-far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 5.0, 0.5),
+            RoleTargetIds = { "isp-hop-far" }
+        };
+        var congestion = new List<CongestionEvent>
+        {
+            new()
+            {
+                Start = TestSeries.Start.AddHours(18),
+                End = TestSeries.Start.AddHours(22),
+                AsnNumbers = { 64496 },
+                TargetIds = { "isp-hop-far" }
+            }
+        };
+
+        var withCongestion = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop }, congestion: congestion), Gpon);
+        var withoutCongestion = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop }), Gpon);
+
+        var farGraded = withCongestion.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-far"));
+        farGraded.CongestionEventCount.Should().Be(1);
+        farGraded.CongestionScore.Should().Be(20);
+
+        var nearGraded = withCongestion.IspAsns.Single(a => a.TargetIds.Contains("isp-hop-near"));
+        nearGraded.CongestionEventCount.Should().Be(0, "congestion only fired on the far hop");
+
+        withCongestion.IspAsnDimension.Score.Should().BeLessThan(
+            withoutCongestion.IspAsnDimension.Score!.Value,
+            "congestion on any ISP hop should lower the ISP dimension score");
+    }
+
+    [Fact]
+    public void Isp_target_health_carries_per_target_grade()
+    {
+        var nearHop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "Near ISP Hop",
+            TargetIds = { "isp-hop-near" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3),
+            RoleTargetIds = { "isp-hop-near" }
+        };
+        var farHop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "Far ISP Hop",
+            TargetIds = { "isp-hop-far" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 6.0, 1.5, lossPct: 0.8),
+            RoleTargetIds = { "isp-hop-far" }
+        };
+        var inputs = BuildInputs(ispAsn: new List<AsnSeries> { nearHop, farHop });
+        inputs = new IspHealthInputs
+        {
+            WindowStart = inputs.WindowStart,
+            WindowEnd = inputs.WindowEnd,
+            FirstHopSeries = inputs.FirstHopSeries,
+            FirstHopTargetId = "isp-hop-near",
+            LossPoolSeries = inputs.LossPoolSeries,
+            IspAsnSeries = new List<AsnSeries> { nearHop, farHop },
+            IspTargetSeries = new List<AsnSeries> { nearHop, farHop },
+            WanRates = inputs.WanRates,
+            ExpectedDownloadMbps = inputs.ExpectedDownloadMbps,
+            ExpectedUploadMbps = inputs.ExpectedUploadMbps,
+            ExpectedSpeedSource = inputs.ExpectedSpeedSource,
+            WanSpeedTests = inputs.WanSpeedTests,
+            CongestionEvents = inputs.CongestionEvents
+        };
+
+        var report = new IspHealthScorer(Options).Score(inputs, Gpon);
+
+        report.IspTargets.Should().HaveCount(2);
+        var nearTarget = report.IspTargets.Single(t => t.TargetId == "isp-hop-near");
+        var farTarget = report.IspTargets.Single(t => t.TargetId == "isp-hop-far");
+        nearTarget.OverallScore.Should().NotBeNull();
+        farTarget.OverallScore.Should().NotBeNull();
+        nearTarget.OverallScore.Should().BeGreaterThan(farTarget.OverallScore!.Value);
+        nearTarget.IsGradedHop.Should().BeTrue();
+        farTarget.IsGradedHop.Should().BeFalse();
+    }
+
+    [Fact]
     public void Congestion_events_lower_the_asn_grade()
     {
         var series = new List<AsnSeries> { TestSeries.Asn(64500, "TransitOne", TestSeries.Flat(TestSeries.Start, Day, 10, 0.5)) };

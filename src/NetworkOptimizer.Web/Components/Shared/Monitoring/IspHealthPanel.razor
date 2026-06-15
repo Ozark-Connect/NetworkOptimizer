@@ -211,18 +211,21 @@ else
                             @foreach (var target in r.IspTargets)
                             {
                                 <div class="isp-target-row">
-                                    <div class="isp-target-name">
-                                        @target.Name
-                                        @if (target.IsGradedHop)
-                                        {
-                                            <span class="isp-target-graded" data-tooltip="The first clean hop; latency factors and the ISP grade come from this target">graded</span>
-                                        }
+                                    <div class="isp-target-detail">
+                                        <div class="isp-target-name">
+                                            @target.Name
+                                            @if (target.IsGradedHop)
+                                            {
+                                                <span class="isp-target-graded" data-tooltip="The first clean hop; access layer idle latency comes from this target">idle</span>
+                                            }
+                                        </div>
+                                        <div class="isp-target-stats">
+                                            <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.MedianRttMs)</span>
+                                            <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatMs(target.P95JitterMs)</span>
+                                            <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
+                                        </div>
                                     </div>
-                                    <div class="isp-target-stats">
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.MedianRttMs)</span>
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">P95 Jitter</span>@FormatMs(target.P95JitterMs)</span>
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
-                                    </div>
+                                    <span class="isp-target-score @ScoreTextClass(target.OverallScore)">@(target.OverallScore?.ToString() ?? "--")</span>
                                 </div>
                             }
                         </div>
