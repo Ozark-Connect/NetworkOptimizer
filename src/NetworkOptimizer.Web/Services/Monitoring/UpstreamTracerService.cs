@@ -30,6 +30,7 @@ public class UpstreamTracerService
     private readonly AsnResolutionService _asnResolution;
     private readonly LocalProbeExecutor _localProbe;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IspHealth.IspHealthService _ispHealth;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
     private readonly ILogger<UpstreamTracerService> _logger;
 
@@ -90,6 +91,7 @@ public class UpstreamTracerService
         AsnResolutionService asnResolution,
         LocalProbeExecutor localProbe,
         IServiceScopeFactory scopeFactory,
+        IspHealth.IspHealthService ispHealth,
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
@@ -99,6 +101,7 @@ public class UpstreamTracerService
         _asnResolution = asnResolution;
         _localProbe = localProbe;
         _scopeFactory = scopeFactory;
+        _ispHealth = ispHealth;
         _ouiDb = ouiDb;
         _logger = logger;
     }
@@ -1237,6 +1240,10 @@ public class UpstreamTracerService
         // Persist same-path hop ordering so ISP Health can confirm a farther transit
         // cluster routes through a nearer one before assimilating its jitter.
         await PersistHopOrderAsync(db, wanInterface, ct);
+
+        // Drop the ISP Health cache so the "re-run discovery" banner clears on the next tab
+        // view without a manual refresh - the freshly committed ancestry is now in the DB.
+        _ispHealth.Invalidate();
 
         State.Step = TracerStep.Done;
         State.CurrentActivity = "Targets committed. The agent will start probing on the next latency-tier cycle.";

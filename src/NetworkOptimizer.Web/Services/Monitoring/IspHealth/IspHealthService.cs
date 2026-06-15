@@ -99,6 +99,13 @@ public class IspHealthService
     }
 
     /// <summary>Pipeline readiness, for the tab's prerequisite funnels.</summary>
+    /// <summary>
+    /// Drop the cached report so the next <see cref="GetReportAsync"/> recomputes from current
+    /// data. Called when Upstream Discovery is committed, so the "re-run discovery" banner
+    /// clears as soon as the user revisits the tab, without a manual refresh.
+    /// </summary>
+    public void Invalidate() => _cached = null;
+
     public IspHealthStatus Status => _cached != null ? IspHealthStatus.Ready : _status;
 
     private async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeAsync(CancellationToken ct)

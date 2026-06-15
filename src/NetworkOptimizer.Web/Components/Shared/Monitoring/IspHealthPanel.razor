@@ -385,6 +385,7 @@ else
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
+    private System.Threading.Timer? _ageTimer;
 
     protected override async Task OnInitializedAsync()
     {
@@ -402,6 +403,14 @@ else
         {
             _loading = false;
         }
+
+        // Re-render every 30 s so "Last updated: N min ago" ages on its own, without
+        // waiting for a tab reload or a manual refresh.
+        _ageTimer = new System.Threading.Timer(_ =>
+        {
+            try { _ = InvokeAsync(StateHasChanged); }
+            catch { /* never let a render fault kill the timer */ }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private async Task RefreshAsync()
@@ -520,6 +529,7 @@ else
 
     public void Dispose()
     {
+        _ageTimer?.Dispose();
         if (_chartMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount();"); }
