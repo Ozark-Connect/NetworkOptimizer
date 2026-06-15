@@ -52,7 +52,7 @@ public class IspHealthScorer
         // absolves a hop it is proven downstream of), so a divergent clean transit can't
         // clear a congested hop it never traverses. Hops further out on the same ISP also
         // get a soft intra-ASN reach ceiling. Access layer idle latency still uses FirstHopSeries.
-        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown);
+        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents);
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
@@ -757,17 +757,21 @@ public class IspHealthScorer
 
     /// <summary>
     /// Grades every ISP hop. Each hop's jitter is absolved per-hop, routes-through-gated: a
-    /// witness (a transit ASN or another ISP hop) may only pull a hop's jitter down when the
-    /// hop is in the witness's ancestor set - proven upstream of it on a shared discovery
-    /// trace - so a divergent clean transit can never clear a congested hop it doesn't
-    /// traverse. When no ancestor data exists (no re-discovery yet) the gate falls open for
-    /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
+    /// witness (a transit ASN, another ISP hop, or a monitored destination) may only pull a
+    /// hop's jitter down when the hop is in the witness's ancestor set - proven upstream of it
+    /// on a shared discovery trace - so a divergent clean transit can never clear a congested
+    /// hop it doesn't traverse. When no ancestor data exists (no re-discovery yet) the gate
+    /// falls open for transit (transit is always downstream of the ISP) and stays closed for
+    /// ISP siblings and destinations. A destination's clean end-to-end jitter is a hard upper
+    /// bound on any on-path hop's true jitter, so a smooth path to it absolves an
+    /// ICMP-deprioritized hop whose forwarded traffic actually reaches the destination cleanly.
     /// Hops are also scored against the intra-ASN reach floor (distance, not a fault).
     /// </summary>
     private List<IspAsnHealth> GradeIspHops(
         List<AsnSeries> ispHopSeries,
         List<AsnSeries> transitSeries,
         List<IspAsnHealth> transitAsns,
+        List<AsnSeries> destinationSeries,
         List<CongestionEvent> congestionEvents,
         double? jitterFloorMs,
         bool hopOrderKnown)
@@ -781,6 +785,19 @@ public class IspHealthScorer
             .Where(s => transitJitterByAsn.ContainsKey(s.AsnNumber))
             .Select(s => (Ancestors: s.AncestorIps, Jitter: transitJitterByAsn[s.AsnNumber]))
             .ToList();
+
+        // Destination witnesses: each monitored endpoint's ancestor IPs + its end-to-end
+        // jitter. Always strict (routes-through required) - a destination's clean path says
+        // nothing about a hop it doesn't cross, so it never absolves on faith. Only built when
+        // ancestry exists; without it (hopOrderKnown false) destinations can never absolve, so
+        // we skip computing their jitter entirely.
+        var destinationWitnesses = hopOrderKnown
+            ? destinationSeries
+                .Select(s => (s.AncestorIps, Jitter: ScoringJitterOf(s.Samples)))
+                .Where(w => w.Jitter.HasValue)
+                .Select(w => (w.AncestorIps, Jitter: w.Jitter!.Value))
+                .ToList()
+            : new List<(List<string> AncestorIps, double Jitter)>();
 
         // ISP hop witnesses: each hop series + its own measured jitter.
         var ispHopJitter = ispHopSeries
@@ -812,6 +829,9 @@ public class IspHealthScorer
                         .Where(h => hopOrderKnown && !ReferenceEquals(h.Series, hop) && h.Jitter.HasValue
                             && RoutesThrough(h.Series.AncestorIps, hop.HopIps))
                         .Select(h => h.Jitter!.Value))
+                    .Concat(destinationWitnesses
+                        .Where(w => hopOrderKnown && RoutesThrough(w.AncestorIps, hop.HopIps))
+                        .Select(w => w.Jitter))
                     .ToList();
                 double? effective = measured;
                 if (witnesses.Count > 0)

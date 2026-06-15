@@ -239,6 +239,13 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## Monitoring
 
+### Multi-WAN Support (ISP Health & NMS)
+- ISP Health currently grades a single (primary) WAN. Several inputs are read globally rather than scoped to the WAN being scored:
+  - **Upstream ancestry / `hopOrderKnown`** (`IspHealthService.ComputeAsync`): `UpstreamDiscoveries` are queried across all WANs. Rows carry `WanInterface`, and the tracer persists per-WAN, but the scorer reads them globally - so a second WAN's discovery data can flip the jitter-absolve gate (and the routes-through witnesses) for a WAN that has no ancestry of its own. Scope the discovery query and `hopOrderKnown` by `WanInterface`.
+  - **Targets / series / rates** are likewise resolved for the primary WAN only; per-WAN scoring needs each WAN's own targets, latency series, throughput, and expected speeds.
+- Plan: grade ISP Health per-WAN (one report per active WAN), keyed by `WanInterface` end-to-end, and surface a per-WAN selector in the UI. Until then, secondary WANs are not separately graded.
+- **Relevant code:** `IspHealthService.ComputeAsync` (TODO marker at the discoveries query), `UpstreamTracerService.PersistHopOrderAsync` (already per-WAN), `MonitoringPathView` (already WAN-scoped).
+
 ### Gap-Gated SNMP Counter Reset Detection
 - `InterfaceRateCalculator` currently distinguishes a genuine counter reset (device reboot) from a single corrupt SNMP read by requiring two consecutive below-baseline reads before reseeding the baseline (`ResetPending` → `ResetConfirmed`). A discarded over-ceiling rate then advances the baseline so nothing can wedge an interface.
 - Cleaner discriminator: the **elapsed gap**. A real reset only follows a reboot, which trips ~5 consecutive SNMP failures (~25 s) and a 5-minute exclusion, so the first sample back has a large elapsed gap (~5 min). A corrupt-read glitch arrives at the normal ~5 s cadence with a tiny gap. So: backwards counter with a large gap (e.g. ≥ 60 s, above poll jitter and below the exclusion window) → reset, reseed immediately; backwards counter at normal cadence → glitch, hold the baseline and suppress. This reseeds genuine resets in one poll instead of two and makes the rare two-fast-corrupt-reads false-confirm impossible by construction.

@@ -1259,9 +1259,14 @@ public class UpstreamTracerService
             return;
         }
 
+        // Access + transit hops are the graded path; destinations (anycast DNS, CDN probes)
+        // are persisted too so ISP Health can use a destination's clean end-to-end jitter to
+        // absolve an ICMP-deprioritized hop it provably routes through.
         var targets = await db.MonitoringTargets
             .Where(t => t.WanInterface == wanInterface && t.Enabled && t.AsnNumber != null
-                && (t.TargetType == MonitoringTargetType.AccessIsp || t.TargetType == MonitoringTargetType.Transit))
+                && (t.TargetType == MonitoringTargetType.AccessIsp
+                    || t.TargetType == MonitoringTargetType.Transit
+                    || t.TargetType == MonitoringTargetType.InternetService))
             .ToListAsync(ct);
 
         // Refresh: drop prior rows for this WAN, then rebuild from this sweep.
@@ -1315,7 +1320,12 @@ public class UpstreamTracerService
                 // Non-null (even if empty) marks that ancestor data exists, so ISP Health can
                 // tell "no discovery yet" (open gate) from "on-path but no ancestors" (a first hop).
                 AncestorHopIps = string.Join(" ", ancestors),
-                Role = t.TargetType == MonitoringTargetType.AccessIsp ? UpstreamRole.AccessHop : UpstreamRole.Transit,
+                Role = t.TargetType switch
+                {
+                    MonitoringTargetType.AccessIsp => UpstreamRole.AccessHop,
+                    MonitoringTargetType.Transit => UpstreamRole.Transit,
+                    _ => UpstreamRole.PathProxy
+                },
                 WanInterface = wanInterface,
                 LastValidated = now,
                 LastTracerouteAt = now,

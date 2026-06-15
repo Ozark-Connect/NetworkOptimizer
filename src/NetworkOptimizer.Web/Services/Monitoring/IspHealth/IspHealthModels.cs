@@ -326,6 +326,14 @@ public class IspHealthInputs
     /// <summary>Per-ASN series for access ISP targets.</summary>
     public List<AsnSeries> IspAsnSeries { get; init; } = new();
 
+    /// <summary>
+    /// Per-target series for monitored internet/destination endpoints (anycast DNS, CDN
+    /// probes). Each carries the hops proven upstream of it (AncestorIps) so a destination's
+    /// clean end-to-end jitter can absolve an ISP hop it provably routes through - an
+    /// ICMP-deprioritized hop whose forwarded traffic reaches the destination smoothly.
+    /// </summary>
+    public List<AsnSeries> DestinationSeries { get; init; } = new();
+
     /// <summary>WAN throughput over the window (primary WAN).</summary>
     public List<ThroughputSample> WanRates { get; init; } = new();
 

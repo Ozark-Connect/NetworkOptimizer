@@ -140,6 +140,11 @@ public class IspHealthService
                     || t.TargetType == MonitoringTargetType.InternetService))
                 .ToListAsync(ct);
 
+            // TODO (multi-WAN): discoveries are read across ALL WANs, not scoped to the WAN
+            // being scored. UpstreamDiscovery rows carry WanInterface, but ISP Health scores
+            // a single (primary) WAN and ancestry/hopOrderKnown here is global, so a second
+            // WAN's discovery data could flip the absolve gate for a WAN that has none of its
+            // own. Scope by WanInterface once ISP Health grades per-WAN. See TODO.md.
             var discoveries = await db.UpstreamDiscoveries.AsNoTracking()
                 .Where(d => d.IsActive && d.MonitoringTargetId != null)
                 .ToListAsync(ct);
@@ -270,7 +275,11 @@ public class IspHealthService
                 AsnNumber = t.AsnNumber ?? 0,
                 AsnName = t.Name,
                 TargetIds = { t.TargetId },
-                Samples = internetSeries[t.TargetId]
+                Samples = internetSeries[t.TargetId],
+                HopIps = { t.Address },
+                // Hops proven upstream of this destination, so its clean end-to-end jitter
+                // can absolve an ICMP-deprioritized ISP hop it provably routes through.
+                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>()
             })
             .ToList();
 
@@ -295,6 +304,7 @@ public class IspHealthService
             LossPoolSeries = lossPool,
             TransitAsnSeries = transitGrading,
             IspAsnSeries = ispGrading,
+            DestinationSeries = internetTargetSeries,
             WanRates = wanRates,
             InternetMedianDeltaMs = internetMedianDelta,
             ExpectedDownloadMbps = expectedDown,

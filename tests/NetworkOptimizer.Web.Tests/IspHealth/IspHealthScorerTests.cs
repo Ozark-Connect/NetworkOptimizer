@@ -30,6 +30,7 @@ public class IspHealthScorerTests
         List<AsnSeries>? transit = null,
         List<AsnSeries>? ispAsn = null,
         List<AsnSeries>? ispTargets = null,
+        List<AsnSeries>? destinations = null,
         string? firstHopTargetId = null,
         List<CongestionEvent>? congestion = null,
         List<SpeedTestSample>? speedTests = null,
@@ -64,6 +65,7 @@ public class IspHealthScorerTests
             TransitAsnSeries = transit ?? new List<AsnSeries>(),
             IspAsnSeries = ispAsn ?? new List<AsnSeries>(),
             IspTargetSeries = ispTargets ?? new List<AsnSeries>(),
+            DestinationSeries = destinations ?? new List<AsnSeries>(),
             WanRates = rates,
             InternetMedianDeltaMs = internetDeltaMs,
             ExpectedDownloadMbps = withExpectedSpeeds ? 1000 : null,
@@ -705,6 +707,58 @@ public class IspHealthScorerTests
         var divergentGrade = report.IspTargets.Single(t => t.TargetId == "isp-divergent");
         onPathGrade.OverallScore.Should().BeGreaterThan(divergentGrade.OverallScore!.Value,
             "the transit absolves the hop it routes through, not the divergent one");
+    }
+
+    [Fact]
+    public void A_clean_destination_absolves_an_icmp_deprioritized_hop_it_routes_through()
+    {
+        // An ISP hop measures high jitter to itself (ICMP control-plane deprioritization),
+        // but a monitored destination reached THROUGH it (the hop is in the destination's
+        // ancestor set) has clean end-to-end jitter - proof the forwarding plane is smooth.
+        // The destination's jitter is a hard upper bound on the hop's true jitter, so it
+        // absolves the hop. No transit routes through the hop; only the destination does.
+        var hop = new AsnSeries
+        {
+            AsnNumber = 64496,
+            AsnName = "ISP",
+            TargetIds = { "isp-icmp-hop" },
+            RoleTargetIds = { "isp-icmp-hop" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 4.5, 7.0), // high self-jitter
+            HopIps = { "10.0.0.9" }
+        };
+        var cleanDestination = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 6, 0.4), // smooth end-to-end
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.0.0.9" } // reached through the ICMP-deprioritized hop
+        };
+        var hops = new List<AsnSeries> { hop };
+
+        var absolved = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-icmp-hop",
+                destinations: new List<AsnSeries> { cleanDestination }, hopOrderKnown: true), Gpon)
+            .IspTargets.Single(t => t.TargetId == "isp-icmp-hop");
+
+        // Same hop, but the destination does NOT route through it (different ancestor): no absolve.
+        var divergentDest = new AsnSeries
+        {
+            AsnNumber = 64512,
+            AsnName = "Destination",
+            TargetIds = { "dest-clean" },
+            Samples = TestSeries.Flat(TestSeries.Start, Day, 6, 0.4),
+            HopIps = { "30.0.0.1" },
+            AncestorIps = { "10.0.0.1" } // a different hop, not ours
+        };
+        var notAbsolved = new IspHealthScorer(Options).Score(
+            BuildInputs(ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-icmp-hop",
+                destinations: new List<AsnSeries> { divergentDest }, hopOrderKnown: true), Gpon)
+            .IspTargets.Single(t => t.TargetId == "isp-icmp-hop");
+
+        absolved.OverallScore.Should().BeGreaterThan(notAbsolved.OverallScore!.Value,
+            "a clean destination routing through the hop proves its jitter is an ICMP artifact");
     }
 
     [Fact]
