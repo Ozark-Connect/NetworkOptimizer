@@ -26,9 +26,10 @@ public class IspHealthScorer
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;
 
         var idleBaseline = ComputeIdleBaseline(inputs.FirstHopSeries, loadWindows);
+        var avgLoad = ComputeAverageLoad(inputs);
         var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
-        var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile);
+        var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile, avgLoad);
         var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows);
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
@@ -302,7 +303,7 @@ public class IspHealthScorer
         };
     }
 
-    private IspScoreFactor ScoreIdleLoss(List<List<LatencySample>> lossPool, AccessProfile profile)
+    private IspScoreFactor ScoreIdleLoss(List<List<LatencySample>> lossPool, AccessProfile profile, double avgLoad)
     {
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue)
@@ -319,9 +320,18 @@ public class IspHealthScorer
         }
 
         var meanLoss = losses.Average();
-        var score = meanLoss <= profile.IdleLossAcceptablePct
-            ? ScoreCurve.Interpolate(meanLoss, (0, 100), (profile.IdleLossIdealPct, 95), (profile.IdleLossAcceptablePct, 70))
-            : ScoreCurve.ExponentialFalloff(meanLoss, profile.IdleLossAcceptablePct, 70);
+        // Calibrate the acceptable loss ceiling to the average load over the window. An idle
+        // line should drop ~nothing, but a line that ran loaded for much of the window sheds
+        // some packets as expected, so the ceiling blends from the idle threshold toward the
+        // under-load acceptable band by the average utilization.
+        var acceptable = profile.IdleLossAcceptablePct
+            + Math.Clamp(avgLoad, 0, 1) * (profile.LoadedLossDownLowPct - profile.IdleLossAcceptablePct);
+        var score = meanLoss <= acceptable
+            ? ScoreCurve.Interpolate(meanLoss, (0, 100), (profile.IdleLossIdealPct, 95), (acceptable, 70))
+            : ScoreCurve.ExponentialFalloff(meanLoss, acceptable, 70);
+
+        _logger?.LogDebug("ISP Health: packet loss {Loss}% vs load-calibrated ceiling {Ceiling}% ({Load:P0} avg load)",
+            meanLoss.ToString("0.###", CultureInfo.InvariantCulture), acceptable.ToString("0.###", CultureInfo.InvariantCulture), avgLoad);
 
         return new IspScoreFactor
         {
@@ -329,8 +339,29 @@ public class IspHealthScorer
             Score = (int)Math.Round(score),
             Weight = _options.IdleLossWeight,
             ValueText = FormatPct(meanLoss),
-            Description = $"Average loss across ISP, transit, and anycast DNS targets vs the {FormatPct(profile.IdleLossAcceptablePct)} acceptable ceiling for {profile.DisplayName}."
+            Description = $"Average loss across ISP, transit, and anycast DNS targets vs the {FormatPct(acceptable)} ceiling for {profile.DisplayName} at {avgLoad:P0} average load."
         };
+    }
+
+    /// <summary>
+    /// Average WAN utilization over the window: the mean of each rate sample's busier
+    /// direction (download or upload as a fraction of the configured plan), clamped to
+    /// 0-1. 0 when there are no expected speeds or no rate data.
+    /// </summary>
+    private static double ComputeAverageLoad(IspHealthInputs inputs)
+    {
+        var down = inputs.ExpectedDownloadMbps;
+        var up = inputs.ExpectedUploadMbps;
+        if (inputs.WanRates.Count == 0 || (!(down > 0) && !(up > 0))) return 0;
+
+        var utils = new List<double>();
+        foreach (var r in inputs.WanRates)
+        {
+            var d = down > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / 1_000_000.0 / down!.Value : 0;
+            var u = up > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / 1_000_000.0 / up!.Value : 0;
+            utils.Add(Math.Clamp(Math.Max(d, u), 0, 1));
+        }
+        return utils.Count > 0 ? utils.Average() : 0;
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLatency(LoadedDeltas deltas, AccessProfile profile)
@@ -1042,7 +1073,7 @@ public class IspHealthScorer
     private static string FormatLoadedDelta(double ms) => ms <= 0 ? "0 ms" : FormatMs(ms);
 
     private static string FormatPct(double pct) =>
-        pct == 0 ? "0%" : $"{pct.ToString(pct < 0.1 ? "0.000" : "0.00", CultureInfo.InvariantCulture)}%";
+        pct == 0 ? "0%" : $"{pct.ToString(pct < 0.1 ? "0.###" : "0.##", CultureInfo.InvariantCulture)}%";
 
     private static string FormatMbps(double mbps) =>
         mbps.ToString(mbps >= 100 ? "0" : "0.#", CultureInfo.InvariantCulture);

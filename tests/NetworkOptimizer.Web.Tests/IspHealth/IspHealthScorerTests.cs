@@ -34,15 +34,20 @@ public class IspHealthScorerTests
         List<CongestionEvent>? congestion = null,
         List<SpeedTestSample>? speedTests = null,
         bool smartQueuesEnabled = false,
-        double? internetDeltaMs = null)
+        double? internetDeltaMs = null,
+        bool lineIdle = false)
     {
-        var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
-            .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
-                ? r with { DownloadBps = 800_000_000 }
-                : r.Time >= LoadedUpStart && r.Time < LoadedUpEnd
-                    ? r with { UploadBps = 400_000_000 }
-                    : r)
-            .ToList();
+        // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
+        // exercising the load-calibrated packet-loss ceiling at the idle end.
+        var rates = lineIdle
+            ? TestSeries.Throughput(TestSeries.Start, Day, 1, 1)
+            : TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
+                .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
+                    ? r with { DownloadBps = 800_000_000 }
+                    : r.Time >= LoadedUpStart && r.Time < LoadedUpEnd
+                        ? r with { UploadBps = 400_000_000 }
+                        : r)
+                .ToList();
 
         var firstHop = TestSeries.Flat(TestSeries.Start, Day, idleRtt, 0.3, lossPct)
             .WithSegment(LoadedDownStart, LoadedDownEnd, idleRtt + loadedDownDelta, 0.3)
@@ -151,10 +156,25 @@ public class IspHealthScorerTests
     [Fact]
     public void Loss_past_acceptable_drops_drastically()
     {
-        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.075), Gpon);
+        // On an idle line, 0.075% is well past the strict idle ceiling and collapses.
+        var report = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.075, lineIdle: true), Gpon);
 
         var factor = report.AccessDimension.Factors.Single(f => f.Name == "Packet Loss");
         factor.Score.Should().BeLessThan(30);
+    }
+
+    [Fact]
+    public void Packet_loss_ceiling_is_calibrated_to_average_load()
+    {
+        // The same 0.3% loss is fine on a line that ran loaded much of the window but a
+        // real problem on an idle line, where ~no loss is expected.
+        var idle = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.3, lineIdle: true), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
+        var loaded = new IspHealthScorer(Options).Score(BuildInputs(lossPct: 0.3), Gpon)
+            .AccessDimension.Factors.Single(f => f.Name == "Packet Loss").Score;
+
+        loaded.Should().BeGreaterThan(idle!.Value,
+            "the loss ceiling tolerates more when the line was busy over the window");
     }
 
     [Fact]
