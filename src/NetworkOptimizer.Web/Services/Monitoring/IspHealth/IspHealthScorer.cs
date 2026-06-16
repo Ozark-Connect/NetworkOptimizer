@@ -160,7 +160,7 @@ public class IspHealthScorer
             .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time), out var w) && w.IsIdle)
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
-        if (idleRtts.Count > 0) return SeriesStats.Median(idleRtts);
+        if (idleRtts.Count > 0) return SeriesStats.WinsorizedMean(idleRtts, _options.RttWinsorPercentile);
 
         return SeriesStats.Percentile(rtts.Select(s => s.RttAvgMs!.Value).ToList(), 0.10);
     }
@@ -282,9 +282,9 @@ public class IspHealthScorer
         var mid = (profile.IdleRttNormalLowMs + profile.IdleRttNormalHighMs) / 2.0;
         var score = ScoreCurve.Interpolate(idleBaseline.Value,
             (profile.IdleRttIdealMs, 100),
-            (profile.IdleRttNormalLowMs, 92),
-            (mid, 84),
-            (profile.IdleRttNormalHighMs, 75),
+            (profile.IdleRttNormalLowMs, 96),
+            (mid, 92),
+            (profile.IdleRttNormalHighMs, 85),
             (profile.IdleRttPoorMs, 25),
             (profile.IdleRttPoorMs * 2, 0));
 

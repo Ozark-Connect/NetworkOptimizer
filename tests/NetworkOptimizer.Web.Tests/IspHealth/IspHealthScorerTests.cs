@@ -22,7 +22,7 @@ public class IspHealthScorerTests
     /// and rises by the given deltas under load.
     /// </summary>
     private static IspHealthInputs BuildInputs(
-        double idleRtt = 2.0,
+        double idleRtt = 1.5,
         double loadedDownDelta = 1.0,
         double loadedUpDelta = 1.0,
         double lossPct = 0,
@@ -99,7 +99,7 @@ public class IspHealthScorerTests
         var report = new IspHealthScorer(Options).Score(BuildInputs(idleRtt: 2.5), Gpon);
 
         var factor = report.AccessDimension.Factors.Single(f => f.Name == "Idle Latency");
-        factor.Score.Should().Be(84);
+        factor.Score.Should().Be(92);
     }
 
     [Fact]
