@@ -11,8 +11,11 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
 /// Cable modem provider for Motorola DOCSIS modems that use the HNAP protocol
-/// (MB8611, MB8600, MB7621, etc.). Communicates via JSON-over-HTTPS to the /HNAP1/
-/// endpoint with HMAC-MD5 authentication.
+/// (MB8611, MB8600, MB7621, etc.). Communicates via JSON to the /HNAP1/ endpoint
+/// with HMAC-MD5 authentication. The transport scheme is detected on first contact
+/// and cached per configuration: HTTPS is tried first so modems already working over
+/// TLS are unaffected, with HTTP as a fallback for modems whose HTTPS handshake .NET
+/// cannot complete.
 /// </summary>
 public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 {
@@ -50,6 +53,13 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     /// </summary>
     private readonly ConcurrentDictionary<int, DateTime> _loginBackoffUntil = new();
 
+    /// <summary>
+    /// Per-config detected transport scheme: true = HTTPS, false = HTTP. Determined on
+    /// first successful contact (a Test press or the first poll) and reused so later
+    /// polls skip protocol detection. Re-detected after a process restart.
+    /// </summary>
+    private readonly ConcurrentDictionary<int, bool> _useHttps = new();
+
     public MotorolaHnapProvider(ILogger<MotorolaHnapProvider> logger)
     {
         _logger = logger;
@@ -82,14 +92,15 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         try
         {
             using var client = CreateHttpClient();
-            var baseUrl = BuildBaseUrl(context);
 
-            var session = await EnsureSessionAsync(client, baseUrl, context, cancellationToken);
-            if (session == null)
+            var sessionInfo = await EnsureSessionAsync(client, context, cancellationToken);
+            if (sessionInfo == null)
             {
                 _logger.LogWarning("Motorola HNAP {Name} at {Host}: login failed", context.Name, context.Host);
                 return null;
             }
+
+            var (session, baseUrl) = sessionInfo.Value;
 
             using var response = await CallMultipleHnapsAsync(
                 client, baseUrl, session,
@@ -137,13 +148,13 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         try
         {
             using var client = CreateHttpClient();
-            var baseUrl = BuildBaseUrl(context);
 
-            var session = await LoginAsync(client, baseUrl, context, cancellationToken);
-            if (session == null)
-                return (false, "Login failed. Check credentials, or wait 5 minutes if locked out from failed attempts.");
+            var sessionInfo = await EnsureSessionAsync(client, context, cancellationToken);
+            if (sessionInfo == null)
+                return (false, "Could not log in over HTTP or HTTPS. Check the host and credentials; " +
+                    "if there have been several failed logins, wait 5 minutes for the modem's lockout to clear.");
 
-            _sessions[context.Id] = session;
+            var (session, baseUrl) = sessionInfo.Value;
 
             using var response = await CallMultipleHnapsAsync(
                 client, baseUrl, session,
@@ -172,29 +183,85 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         }
     }
 
-    private async Task<HnapSession?> EnsureSessionAsync(
-        HttpClient client, string baseUrl, CmPollContext context, CancellationToken cancellationToken)
+    /// <summary>
+    /// Resolve a working session, detecting (and caching) the HTTP/HTTPS scheme the
+    /// modem's HNAP endpoint speaks. Returns the session and the base URL that worked,
+    /// or null if no scheme could log in.
+    /// </summary>
+    private async Task<SessionInfo?> EnsureSessionAsync(
+        HttpClient client, CmPollContext context, CancellationToken cancellationToken)
     {
-        if (_sessions.TryGetValue(context.Id, out var cached))
+        // Fast path: reuse a cached session over the scheme we already detected.
+        if (_useHttps.TryGetValue(context.Id, out var knownScheme) &&
+            _sessions.TryGetValue(context.Id, out var cached))
         {
+            var cachedUrl = BuildBaseUrl(context, knownScheme);
             using var testResponse = await CallMultipleHnapsAsync(
-                client, baseUrl, cached,
+                client, cachedUrl, cached,
                 ["GetMotoStatusConnectionInfo"],
                 cancellationToken);
 
             if (testResponse != null)
-                return cached;
+                return new SessionInfo(cached, cachedUrl);
 
             _sessions.TryRemove(context.Id, out _);
             _logger.LogDebug("Motorola HNAP session expired for {Name}, re-authenticating", context.Name);
         }
 
-        var session = await LoginAsync(client, baseUrl, context, cancellationToken);
-        if (session != null)
-            _sessions[context.Id] = session;
+        // Detect the scheme the modem's HNAP endpoint speaks. HTTPS is tried first so
+        // modems already working over TLS keep the exact same path they use today; HTTP
+        // is the fallback for modems whose HTTPS handshake .NET can't complete (it stalls
+        // until timeout, e.g. on macOS) - those modems also serve /HNAP1/ over plain HTTP.
+        foreach (var useHttps in SchemesToTry(context.Id))
+        {
+            var baseUrl = BuildBaseUrl(context, useHttps);
 
-        return session;
+            HnapSession? session;
+            try
+            {
+                session = await LoginAsync(client, baseUrl, context, cancellationToken);
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Request stalled on this scheme (e.g. an HTTPS handshake .NET can't
+                // finish); move on and try the next candidate.
+                _logger.LogDebug("Motorola HNAP {Name}: {Scheme} attempt timed out, trying next scheme",
+                    context.Name, useHttps ? "HTTPS" : "HTTP");
+                continue;
+            }
+
+            if (session != null)
+            {
+                _sessions[context.Id] = session;
+                _useHttps[context.Id] = useHttps;
+                return new SessionInfo(session, baseUrl);
+            }
+
+            // The endpoint answered on this scheme but auth failed (lockout backoff is
+            // now set). The scheme is correct, so remember it and stop - retrying the
+            // other scheme would just burn another failed login against the lockout.
+            if (_loginBackoffUntil.ContainsKey(context.Id))
+            {
+                _useHttps[context.Id] = useHttps;
+                return null;
+            }
+
+            // Otherwise this scheme never reached the HNAP endpoint (e.g. an HTTP->HTTPS
+            // redirect); fall through and try the next scheme.
+        }
+
+        // Nothing worked and no scheme was confirmed - drop any stale cached scheme so
+        // the next attempt probes both again.
+        _useHttps.TryRemove(context.Id, out _);
+        return null;
     }
+
+    /// <summary>
+    /// Schemes to attempt for this config: the cached one if known, otherwise HTTPS
+    /// first (so modems already working over TLS are unchanged) then HTTP.
+    /// </summary>
+    private bool[] SchemesToTry(int id) =>
+        _useHttps.TryGetValue(id, out var scheme) ? [scheme] : [true, false];
 
     /// <summary>
     /// Two-phase HNAP login: request challenge, derive keys, authenticate.
@@ -205,6 +272,10 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var endpoint = baseUrl + HnapPath;
         var username = context.Username ?? "admin";
         var password = context.Password ?? "";
+
+        // Phase 1 is unauthenticated; clear cookies left from any prior attempt (e.g. a
+        // different scheme on this reused client) so the challenge request is sent clean.
+        client.DefaultRequestHeaders.Remove("Cookie");
 
         // Phase 1: request challenge
         var requestPayload = new
@@ -370,6 +441,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             _logger.LogDebug(ex, "HNAP POST {Action} failed", action);
             return null;
         }
+        catch (JsonException ex)
+        {
+            // A non-JSON response (e.g. an HTML error/redirect page from the wrong
+            // scheme) means this isn't a working HNAP endpoint; treat it as a failed
+            // call so scheme detection falls through to the next candidate.
+            _logger.LogDebug(ex, "HNAP POST {Action} returned non-JSON body", action);
+            return null;
+        }
     }
 
     private async Task LogoutAsync(HttpClient client, string baseUrl, CancellationToken cancellationToken)
@@ -504,11 +583,26 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         return 0;
     }
 
-    private static string BuildBaseUrl(CmPollContext context)
+    /// <summary>
+    /// Build the base URL for the given scheme. A user-specified non-default port is
+    /// honored; otherwise the standard port for the scheme is used (80 for HTTP, 443
+    /// for HTTPS). HTTPS is attempted first; HTTP is the fallback used when .NET cannot
+    /// complete a modem's HTTPS handshake (it stalls until the request times out, even
+    /// though the modem's TLS is otherwise standard and a browser connects fine). The
+    /// HTML web UI redirects HTTP to HTTPS, but the /HNAP1/ endpoint answers over HTTP.
+    /// </summary>
+    private static string BuildBaseUrl(CmPollContext context, bool useHttps)
     {
-        var port = context.Port > 0 ? context.Port : 443;
-        var portSuffix = port == 443 ? "" : $":{port}";
-        return $"https://{context.Host}{portSuffix}";
+        if (useHttps)
+        {
+            var httpsPort = context.Port is > 0 and not 80 ? context.Port : 443;
+            var httpsSuffix = httpsPort == 443 ? "" : $":{httpsPort}";
+            return $"https://{context.Host}{httpsSuffix}";
+        }
+
+        var port = context.Port is > 0 and not 443 ? context.Port : 80;
+        var portSuffix = port == 80 ? "" : $":{port}";
+        return $"http://{context.Host}{portSuffix}";
     }
 
     /// <summary>
@@ -551,8 +645,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var handler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            // Accept the modem's self-signed cert when the HTTPS fallback is used.
             ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
             UseCookies = false,
+            // Don't follow redirects: a modem that only serves its UI over HTTPS will
+            // 301 an HTTP request, and following it would land on the HTTPS path .NET
+            // may not be able to complete. A 301 instead reads as "wrong scheme" so
+            // detection moves on to HTTPS.
+            AllowAutoRedirect = false,
         };
 
         return new HttpClient(handler)
@@ -623,7 +723,11 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     {
         _sessions.Clear();
         _loginBackoffUntil.Clear();
+        _useHttps.Clear();
     }
 
     private sealed record HnapSession(string PrivateKey, string? Uid);
+
+    /// <summary>A logged-in session together with the base URL (scheme) that worked.</summary>
+    private readonly record struct SessionInfo(HnapSession Session, string BaseUrl);
 }
