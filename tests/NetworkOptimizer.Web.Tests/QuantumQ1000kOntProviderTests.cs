@@ -80,8 +80,11 @@ public class QuantumQ1000kOntProviderTests
                 {"ParamName":"TransmitOpticalLevel","ParamValue":"2602"},
                 {"ParamName":"X_AXON_DownstreamRate","ParamValue":"2488"},
                 {"ParamName":"X_AXON_LineStatus","ParamValue":"GOOD"},
+                {"ParamName":"X_AXON_LinkUpTime","ParamValue":"943292"},
                 {"ParamName":"X_AXON_UpstreamRate","ParamValue":"1244"},
                 {"ParamName":"X_CTL_BiasCurrent","ParamValue":"13822"},
+                {"ParamName":"X_CTL_OLTModel","ParamValue":"E7"},
+                {"ParamName":"X_CTL_OLTVendor","ParamValue":"CALX"},
                 {"ParamName":"X_CTL_Temperature","ParamValue":"56"},
                 {"ParamName":"X_CTL_Voltage","ParamValue":"3317"}]},
               {"ObjName":"Device.Optical.Interface.1.Stats.","Param":[
@@ -100,6 +103,9 @@ public class QuantumQ1000kOntProviderTests
         stats.LinkState.Should().Be("Up");
         stats.OperationalStatus.Should().Be("Up");
         stats.PonType.Should().Be("GPON");
+        stats.LinkUptimeSeconds.Should().Be(943292);
+        stats.OltVendor.Should().Be("CALX");
+        stats.OltModel.Should().Be("E7");
     }
 
     [Fact]

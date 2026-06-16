@@ -241,6 +241,14 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
 
         if (ParseLong(GetValue(p, "X_AXON_DownstreamRate")) is { } downMbps)
             stats.PonType = downMbps >= 9000 ? "XGS-PON" : "GPON";
+
+        stats.LinkUptimeSeconds = ParseLong(GetValue(p, "X_AXON_LinkUpTime")) ?? stats.LinkUptimeSeconds;
+
+        var oltVendor = GetValue(p, "X_CTL_OLTVendor");
+        if (!string.IsNullOrWhiteSpace(oltVendor)) stats.OltVendor = oltVendor;
+
+        var oltModel = GetValue(p, "X_CTL_OLTModel");
+        if (!string.IsNullOrWhiteSpace(oltModel)) stats.OltModel = oltModel;
     }
 
     /// <summary>
