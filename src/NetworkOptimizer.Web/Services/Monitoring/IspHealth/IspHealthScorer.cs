@@ -408,12 +408,12 @@ public class IspHealthScorer
 
     /// <summary>
     /// <summary>
-    /// Global loaded-latency delta across all monitored targets (ISP access hops,
-    /// transit, and internet destinations). Each target's p80 loaded RTT minus its own
-    /// idle baseline produces a delta in ms-above-idle. Targets below 0.5 ms are not
-    /// showing meaningful load signal; the p25 of the remaining deltas is the result.
-    /// P25 rejects high outliers (ICMP deprioritization, destination degradation)
-    /// while letting clean-under-load evidence pull the score down.
+    /// Loaded-latency delta from ISP access hops only. Each access hop's loaded RTT
+    /// samples are baseline-subtracted and pooled; p25 of the pool (filtered > 0.5 ms)
+    /// is the result. Pooling raw samples instead of per-target aggregates is stable
+    /// even with sparse loaded data (typical residential). P25 rejects ICMP
+    /// deprioritization spikes (high outliers) while clean-under-load samples from
+    /// speed tests naturally pull the estimate down.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
@@ -426,59 +426,24 @@ public class IspHealthScorer
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
 
-        var transitSeries = inputs.TransitAsnSeries
-            .Select(s => (IReadOnlyList<LatencySample>)s.Samples)
-            .ToList();
-
-        var destSeries = inputs.DestinationSeries
-            .Select(d => (IReadOnlyList<LatencySample>)d.Samples)
-            .ToList();
-
-        var allDeltas = CohortDeltas(accessCohort, loadWindows, directionSelector)
-            .Concat(CohortDeltas(transitSeries, loadWindows, directionSelector))
-            .Concat(CohortDeltas(destSeries, loadWindows, directionSelector))
-            .Where(d => d >= noiseFloor)
-            .ToList();
-
-        return allDeltas.Count > 0 ? Math.Max(0, SeriesStats.Percentile(allDeltas, 0.25)!.Value) : null;
-    }
-
-    /// <summary>
-    /// Per-target loaded deltas for a cohort: each target's p80 loaded-window RTT minus its
-    /// own idle baseline (delta space, so targets at different distances are comparable). Each
-    /// target keeps all its loaded samples; a target without a usable baseline or enough loaded
-    /// samples is skipped - the window is not.
-    /// </summary>
-    private List<double> CohortDeltas(
-        IReadOnlyList<IReadOnlyList<LatencySample>> cohort,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector)
-    {
-        var deltas = new List<double>();
-        foreach (var target in cohort)
+        var pooledDeltas = new List<double>();
+        foreach (var hop in accessCohort)
         {
-            var baseline = ComputeIdleBaseline(target, loadWindows);
+            var baseline = ComputeIdleBaseline(hop, loadWindows);
             if (baseline == null) continue;
-            var delta = LoadedDelta(target, loadWindows, baseline.Value, directionSelector);
-            if (delta != null) deltas.Add(delta.Value);
-        }
-        return deltas;
-    }
 
-    private double? LoadedDelta(
-        IReadOnlyList<LatencySample> hop,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        double idleBaseline,
-        Func<LoadWindow, bool> directionSelector)
-    {
-        var rtts = hop
-            .Where(s => s.RttAvgMs.HasValue
-                && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
-                && directionSelector(w))
-            .Select(s => s.RttAvgMs!.Value)
-            .ToList();
-        if (rtts.Count < _options.MinLoadedSamples) return null;
-        return SeriesStats.Percentile(rtts, 0.80)!.Value - idleBaseline;
+            var deltas = hop
+                .Where(s => s.RttAvgMs.HasValue
+                    && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
+                    && directionSelector(w))
+                .Select(s => s.RttAvgMs!.Value - baseline.Value);
+
+            pooledDeltas.AddRange(deltas);
+        }
+
+        var credible = pooledDeltas.Where(d => d >= noiseFloor).ToList();
+        if (credible.Count < _options.MinLoadedSamples) return null;
+        return Math.Max(0, SeriesStats.Percentile(credible, 0.25)!.Value);
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
