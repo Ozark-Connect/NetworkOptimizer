@@ -4,6 +4,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -349,7 +350,7 @@ public class UpstreamTracerService
                     }
                     else
                     {
-                        interfaceKey = i == 1 ? "wan" : $"wan{i}";
+                        interfaceKey = GatewayWanHelper.WanInterfaceKey(i);
                     }
 
                     wanInterfaceName = interfaceKey;

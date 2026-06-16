@@ -937,19 +937,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         if (wanInterfaces.Count == 0) return null;
 
         // Build ifname → networkgroup from ethernet_overrides
-        var ifnameToNg = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (gw.AdditionalData != null &&
-            gw.AdditionalData.TryGetValue("ethernet_overrides", out var eoElem) &&
-            eoElem.ValueKind == System.Text.Json.JsonValueKind.Array)
-        {
-            foreach (var ov in eoElem.EnumerateArray())
-            {
-                var ifn = ov.TryGetProperty("ifname", out var ifnP) ? ifnP.GetString() : null;
-                var ng = ov.TryGetProperty("networkgroup", out var ngP) ? ngP.GetString() : null;
-                if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
-                    ifnameToNg[ifn] = ng;
-            }
-        }
+        var ifnameToNg = GatewayWanHelper.BuildNetworkGroupByIfname(
+            gw.AdditionalData != null && gw.AdditionalData.TryGetValue("ethernet_overrides", out var eoElem)
+                ? eoElem : default);
 
         // Find the wan object whose physical interface maps to the primary networkgroup
         foreach (var wan in wanInterfaces)
@@ -957,7 +947,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             string? ng = null;
             if (!string.IsNullOrEmpty(wan.IfName))
                 ifnameToNg.TryGetValue(wan.IfName, out ng);
-            ng ??= wan.Key == "wan1" ? "WAN" : wan.Key.ToUpperInvariant();
+            ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
 
             if (string.Equals(ng, primary.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))
             {

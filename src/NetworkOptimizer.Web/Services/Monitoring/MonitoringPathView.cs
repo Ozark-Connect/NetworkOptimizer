@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
@@ -235,18 +236,8 @@ public class MonitoringPathView
                     }
                 }
 
-                var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
-                    ethOverrides.ValueKind == System.Text.Json.JsonValueKind.Array)
-                {
-                    foreach (var ov in ethOverrides.EnumerateArray())
-                    {
-                        var ifn = ov.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
-                        var ng = ov.TryGetProperty("networkgroup", out var ngProp) ? ngProp.GetString() : null;
-                        if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
-                            ifnameToNetworkGroup[ifn] = ng;
-                    }
-                }
+                var ifnameToNetworkGroup = GatewayWanHelper.BuildNetworkGroupByIfname(
+                    device.TryGetProperty("ethernet_overrides", out var ethOverrides) ? ethOverrides : default);
 
                 for (int i = 1; i <= 6; i++)
                 {
@@ -287,12 +278,12 @@ public class MonitoringPathView
                         string? networkGroup = null;
                         if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
                             networkGroup = ng;
-                        networkGroup ??= i == 1 ? "WAN" : $"WAN{i}";
+                        networkGroup ??= GatewayWanHelper.WanNetworkGroup(i);
                         if (networkGroupToName.TryGetValue(networkGroup, out var configName))
                             friendlyName = configName;
                     }
 
-                    interfaceKey ??= i == 1 ? "wan" : $"wan{i}";
+                    interfaceKey ??= GatewayWanHelper.WanInterfaceKey(i);
 
                     results.Add(new WanSummary
                     {
