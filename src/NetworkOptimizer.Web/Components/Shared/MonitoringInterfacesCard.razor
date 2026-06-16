@@ -6,6 +6,7 @@
 @inject IMonitoringInterfaceRepository Repo
 @inject MonitoringInterfaceDeploymentService Deploy
 @inject ISqmService SqmService
+@inject Microsoft.JSInterop.IJSRuntime JS
 @inject ILogger<MonitoringInterfacesCard> Logger
 
 <div class="card" id="monitoring-interfaces">
@@ -18,7 +19,7 @@
             <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
     </div>
-    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+    <div class="expand-wrapper @(!_collapsed && _stateLoaded ? "expanded" : "")" style="@(!_stateLoaded ? "display:none" : "")">
         <div class="expand-content">
             <div class="card-body">
         <p class="section-description">
@@ -301,6 +302,8 @@
     private MonitoringInterface _editing = NewInterface();
     private MonitoringInterface? _editingOriginal;
     private bool _collapsed = true;
+    private bool _stateLoaded;
+    private const string CollapseKey = "monitoring-interfaces-collapsed";
     private bool _saving;
     private int? _busyId;
     private string? _busyAction;
@@ -340,6 +343,29 @@
         // collapse once interfaces exist. A deep-link from Settings overrides this in
         // OnParametersSet (it always expands).
         _collapsed = _interfaces.Count > 0;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        // Honor the user's saved collapse preference, unless a deep-link is forcing the
+        // card open (in which case OnParametersSet already expanded it). With no saved
+        // preference, the count-based default from OnInitializedAsync stands.
+        if (string.IsNullOrWhiteSpace(PrefillTargetIp))
+        {
+            try
+            {
+                var val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey);
+                if (val == "true") _collapsed = true;
+                else if (val == "false") _collapsed = false;
+            }
+            catch { }
+        }
+
+        _stateLoaded = true;
+        StateHasChanged();
     }
 
     protected override void OnParametersSet()
@@ -385,12 +411,18 @@
         }
     }
 
-    private void ToggleCollapse() => _collapsed = !_collapsed;
+    private async Task ToggleCollapse()
+    {
+        _collapsed = !_collapsed;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", CollapseKey, _collapsed ? "true" : "false"); }
+        catch { }
+    }
 
     /// <summary>Expand the card from outside (e.g. when a deep-link or banner jumps here).</summary>
     public void Expand()
     {
         _collapsed = false;
+        _stateLoaded = true;
         StateHasChanged();
     }
 
