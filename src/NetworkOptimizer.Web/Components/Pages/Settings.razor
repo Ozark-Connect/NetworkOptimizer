@@ -843,7 +843,7 @@
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Password</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" />
+                                    <input type="password" class="form-control" @bind="editingModem.Password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">USB Bus Path (optional)</label>
@@ -857,7 +857,7 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 2;">
                                     <label class="form-label">Admin Password (optional)</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" placeholder="Leave empty for anonymous mode" />
+                                    <input type="password" class="form-control" @bind="editingModem.Password" placeholder="Leave empty for anonymous mode" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                     <small class="form-help">
                                         Without a password, signal/band/cell metrics are still polled.
                                         Setting the admin password unlocks throughput counters.
@@ -1047,7 +1047,8 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
                             <input type="password" class="form-control" @bind="_editingCm.Password"
-                                   placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")" />
+                                   placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")"
+                                   autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                     </div>
 
@@ -1218,7 +1219,8 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
                             <input type="password" class="form-control" @bind="_editingOnt.Password"
-                                   placeholder="@(_editingOnt.Id > 0 && !string.IsNullOrEmpty(_editingOnt.Password) ? "••••••••" : "")" />
+                                   placeholder="@(_editingOnt.Id > 0 && !string.IsNullOrEmpty(_editingOnt.Password) ? "••••••••" : "")"
+                                   autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                     </div>
 
