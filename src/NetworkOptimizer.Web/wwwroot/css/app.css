@@ -14184,12 +14184,15 @@ a.affected-client:hover {
     padding: 0.25rem 0.6rem;
     border-radius: var(--border-radius-lg);
     border: 1px solid transparent;
-    cursor: pointer;
     transition: border-color 0.15s;
     white-space: nowrap;
 }
 
-.stat-filter-badge:hover {
+td[data-stat-id] {
+    cursor: pointer;
+}
+
+td[data-stat-id]:hover .stat-filter-badge {
     border-color: rgba(255, 255, 255, 0.5);
 }
 

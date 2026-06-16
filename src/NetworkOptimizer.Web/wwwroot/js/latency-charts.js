@@ -5,6 +5,7 @@
 // device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -278,26 +279,6 @@ async function loadAndUpdate() {
     }
 }
 
-function percentile(sorted, p) {
-    if (sorted.length === 0) return null;
-    const idx = (p / 100) * (sorted.length - 1);
-    const lo = Math.floor(idx);
-    const hi = Math.ceil(idx);
-    if (lo === hi) return sorted[lo];
-    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
-function computeStats(values) {
-    if (!values || values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    return {
-        mean: values.reduce((s, v) => s + v, 0) / values.length,
-        min: sorted[0],
-        max: sorted[sorted.length - 1],
-        p95: percentile(sorted, 95),
-        p99: percentile(sorted, 99),
-    };
-}
 
 function fmtRtt(v) { return v != null ? v.toFixed(3) : '-'; }
 function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt, subtleAt, decimals) {
@@ -335,7 +316,7 @@ function renderStatsTable(container, data) {
         const meta = targetMeta.find(m => m.id === t.targetId);
         const color = meta?.color || '#9ca3af';
         return `<tr>
-            <td><span class="stat-filter-badge" data-stat-id="${t.targetId}"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(t.name)}</span></td>
+            <td data-stat-id="${t.targetId}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(t.name)}</span></td>
             <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
             <td>${fmtLossMean(loss?.mean)}</td><td>${fmtLossMax(loss?.max)}</td>
         </tr>`;
@@ -358,27 +339,13 @@ function renderStatsTable(container, data) {
     const next = el.querySelector('.table-responsive');
     if (next && scrollLeft) next.scrollLeft = scrollLeft;
 
-    if (!el._delegated) {
-        el._delegated = true;
-        el.addEventListener('click', (e) => {
-            const badge = e.target.closest('[data-stat-id]');
-            if (!badge) return;
-            const id = badge.dataset.statId;
-            if (e.ctrlKey || e.metaKey) {
-                visibility[id] = visibility[id] === false ? undefined : false;
-            } else {
-                const allVis = targetMeta.every(t => visibility[t.id] !== false);
-                const onlyThis = visibility[id] !== false
-                    && targetMeta.filter(t => t.id !== id).every(t => visibility[t.id] === false);
-                if (onlyThis) { visibility = {}; }
-                else if (allVis) { targetMeta.forEach(t => visibility[t.id] = t.id === id); }
-                else { visibility[id] = visibility[id] === false; }
-            }
-            updateChartVisibility();
-            renderBadges(container);
-            renderStatsTable(container, lastFetchData);
-        });
-    }
+    initStatsFilter(el, container, {
+        meta: () => targetMeta,
+        key: 'id',
+        visibility: () => visibility,
+        resetVisibility: () => { visibility = {}; },
+        onChanged: (c) => { updateChartVisibility(); renderBadges(c); renderStatsTable(c, lastFetchData); },
+    });
 }
 
 function isVisible() { return isInViewport; }

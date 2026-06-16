@@ -2,6 +2,7 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -21,16 +22,6 @@ function hashColor(id) {
 }
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
-
-function computeStats(values) {
-    if (!values || values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    return {
-        mean: values.reduce((s, v) => s + v, 0) / values.length,
-        min: sorted[0],
-        max: sorted[sorted.length - 1],
-    };
-}
 
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
@@ -214,7 +205,7 @@ function renderStatsTable(container) {
         const mem = computeStats(memVals);
         const color = hashColor(d.name);
         return `<tr>
-            <td><span class="stat-filter-badge" data-stat-id="${d.mac}"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(d.name)}</span></td>
+            <td data-stat-id="${d.mac}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(d.name)}</span></td>
             <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
             <td>${fmtPct(cpu?.mean)}</td><td>${fmtPct(cpu?.min)}</td><td>${fmtPct(cpu?.max)}</td>
             <td>${fmtPct(mem?.mean)}</td><td>${fmtPct(mem?.min)}</td><td>${fmtPct(mem?.max)}</td>
@@ -239,27 +230,13 @@ function renderStatsTable(container) {
     const next = el.querySelector('.table-responsive');
     if (next && scrollLeft) next.scrollLeft = scrollLeft;
 
-    if (!el._delegated) {
-        el._delegated = true;
-        el.addEventListener('click', (e) => {
-            const badge = e.target.closest('[data-stat-id]');
-            if (!badge) return;
-            const mac = badge.dataset.statId;
-            if (e.ctrlKey || e.metaKey) {
-                visibility[mac] = visibility[mac] === false ? undefined : false;
-            } else {
-                const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
-                const onlyThis = visibility[mac] !== false
-                    && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
-                if (onlyThis) { visibility = {}; }
-                else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
-                else { visibility[mac] = visibility[mac] === false; }
-            }
-            updateVisibility();
-            renderBadges(container);
-            renderStatsTable(container);
-        });
-    }
+    initStatsFilter(el, container, {
+        meta: () => deviceMeta,
+        key: 'mac',
+        visibility: () => visibility,
+        resetVisibility: () => { visibility = {}; },
+        onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c); },
+    });
 }
 
 function isVisible() { return isInViewport; }

@@ -2,29 +2,11 @@
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
-
-function percentile(sorted, p) {
-    if (sorted.length === 0) return null;
-    const idx = (p / 100) * (sorted.length - 1);
-    const lo = Math.floor(idx);
-    const hi = Math.ceil(idx);
-    if (lo === hi) return sorted[lo];
-    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
-function computeStats(values) {
-    if (!values || values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    return {
-        mean: values.reduce((s, v) => s + v, 0) / values.length,
-        min: sorted[0],
-        max: sorted[sorted.length - 1],
-    };
-}
 
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
@@ -242,7 +224,7 @@ function renderStatsTable(container) {
         const meta = moduleMeta.find(mm => mm.id === m.id);
         const color = meta?.color || '#9ca3af';
         return `<tr>
-            <td><span class="stat-filter-badge" data-stat-id="${m.id}"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(m.label)}</span></td>
+            <td data-stat-id="${m.id}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(m.label)}</span></td>
             <td>${fmtDbm(rx?.mean)}</td><td>${fmtDbm(rx?.min)}</td><td>${fmtDbm(rx?.max)}</td>
             <td>${fmtDbm(tx?.mean)}</td><td>${fmtDbm(tx?.min)}</td><td>${fmtDbm(tx?.max)}</td>
             <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
@@ -267,27 +249,13 @@ function renderStatsTable(container) {
     const next = el.querySelector('.table-responsive');
     if (next && scrollLeft) next.scrollLeft = scrollLeft;
 
-    if (!el._delegated) {
-        el._delegated = true;
-        el.addEventListener('click', (e) => {
-            const badge = e.target.closest('[data-stat-id]');
-            if (!badge) return;
-            const id = badge.dataset.statId;
-            if (e.ctrlKey || e.metaKey) {
-                visibility[id] = visibility[id] === false ? undefined : false;
-            } else {
-                const allVis = moduleMeta.every(m => visibility[m.id] !== false);
-                const onlyThis = visibility[id] !== false
-                    && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
-                if (onlyThis) { visibility = {}; }
-                else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
-                else { visibility[id] = visibility[id] === false; }
-            }
-            updateVisibility();
-            renderBadges(container);
-            renderStatsTable(container);
-        });
-    }
+    initStatsFilter(el, container, {
+        meta: () => moduleMeta,
+        key: 'id',
+        visibility: () => visibility,
+        resetVisibility: () => { visibility = {}; },
+        onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c); },
+    });
 }
 
 function isVisible() { return isInViewport; }
