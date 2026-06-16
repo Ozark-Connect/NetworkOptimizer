@@ -148,7 +148,7 @@ function buildOpts() {
         tooltip: {
             theme: 'dark',
             shared: true,
-            x: { format: 'HH:mm:ss' },
+            x: { format: 'HH:mm:ss', formatter: (val) => new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
             y: [
                 { formatter: v => formatBps(v) },
                 { formatter: v => formatBps(v) },

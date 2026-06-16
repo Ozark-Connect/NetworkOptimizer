@@ -80,6 +80,14 @@ public class IspHealthOptions
     public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
+    /// SNMP interface counters lag behind real-time ping probes by several seconds.
+    /// When classifying a latency/loss sample as idle or loaded, the sample's timestamp
+    /// is shifted back by this amount so it aligns with the counter window that reflects
+    /// the actual throughput at the time the sample was taken.
+    /// </summary>
+    public int CounterLagOffsetSeconds { get; set; } = 4;
+
+    /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.
     /// The score is a 48 h rolling metric, so a few minutes of staleness is invisible; the
     /// "Last updated" label discloses the age. Each recompute is a heavy Influx query burst,

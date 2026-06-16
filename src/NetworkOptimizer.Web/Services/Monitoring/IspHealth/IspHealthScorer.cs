@@ -34,14 +34,13 @@ public class IspHealthScorer
         var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
         var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile, avgLoad);
+        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows);
+
         // The path jitter floor: the quietest median jitter measured anywhere along the
         // path (ISP hops and transit clusters). It represents the access layer's inherent
         // stability - every probe crosses it - so jitter is graded relative to this floor.
-        // Also used as the noise gate for loaded-latency deltas.
         var jitterFloor = ComputeJitterFloor(inputs);
         _logger?.LogDebug("ISP Health: path jitter floor {Floor} ms", FormatMsOrNull(jitterFloor));
-
-        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows, jitterFloor);
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
 
@@ -109,14 +108,13 @@ public class IspHealthScorer
     /// </summary>
     internal LoadedDeltas ResolveLoadedDeltas(
         IspHealthInputs inputs,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        double? jitterFloor = null)
+        Dictionary<DateTime, LoadWindow> loadWindows)
     {
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, jitterFloor);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, jitterFloor);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp);
         }
 
         var fromSpeedTests = false;
@@ -410,81 +408,43 @@ public class IspHealthScorer
 
     /// <summary>
     /// <summary>
-    /// Global loaded-latency delta across all monitored targets (ISP access hops,
-    /// transit, and internet destinations). Each target's p80 loaded RTT minus its own
-    /// idle baseline produces a delta in ms-above-idle. Targets below the jitter floor
-    /// are noise, not load signal; the p25 of the remaining deltas is the result.
-    ///
-    /// Why p25: any target inflated beyond the real bottleneck (ICMP deprioritization,
-    /// destination degradation, peering congestion) reads HIGH. The lowest quartile
-    /// reflects real access-layer queueing without being pulled down by one target
-    /// that happened to sample the edge of a load burst due to poll timing.
+    /// Loaded-latency delta from ISP access hops only. Each access hop's loaded RTT
+    /// samples are baseline-subtracted and pooled; the median of the pool (filtered
+    /// > 0.5 ms) is the result. Pooling raw samples instead of per-target aggregates
+    /// is stable even with sparse loaded data (typical residential). Sample timestamps
+    /// are shifted back by the counter lag offset so they align with the interface
+    /// counter window that reflects actual throughput at probe time.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector,
-        double? jitterFloor)
+        Func<LoadWindow, bool> directionSelector)
     {
-        var noiseFloor = Math.Clamp(jitterFloor ?? 0.4, _options.JitterFloorMinMs, _options.JitterFloorMaxMs);
+        const double noiseFloor = 0.5;
+        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
 
         var accessCohort = inputs.AccessHopSeries.Count > 0
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
 
-        var transitSeries = inputs.TransitAsnSeries
-            .Select(s => (IReadOnlyList<LatencySample>)s.Samples)
-            .ToList();
-
-        var destSeries = inputs.DestinationSeries
-            .Select(d => (IReadOnlyList<LatencySample>)d.Samples)
-            .ToList();
-
-        var allDeltas = CohortDeltas(accessCohort, loadWindows, directionSelector)
-            .Concat(CohortDeltas(transitSeries, loadWindows, directionSelector))
-            .Concat(CohortDeltas(destSeries, loadWindows, directionSelector))
-            .Where(d => d >= noiseFloor)
-            .ToList();
-
-        return allDeltas.Count > 0 ? Math.Max(0, SeriesStats.Percentile(allDeltas, 0.25)!.Value) : null;
-    }
-
-    /// <summary>
-    /// Per-target loaded deltas for a cohort: each target's p80 loaded-window RTT minus its
-    /// own idle baseline (delta space, so targets at different distances are comparable). Each
-    /// target keeps all its loaded samples; a target without a usable baseline or enough loaded
-    /// samples is skipped - the window is not.
-    /// </summary>
-    private List<double> CohortDeltas(
-        IReadOnlyList<IReadOnlyList<LatencySample>> cohort,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector)
-    {
-        var deltas = new List<double>();
-        foreach (var target in cohort)
+        var pooledDeltas = new List<double>();
+        foreach (var hop in accessCohort)
         {
-            var baseline = ComputeIdleBaseline(target, loadWindows);
+            var baseline = ComputeIdleBaseline(hop, loadWindows);
             if (baseline == null) continue;
-            var delta = LoadedDelta(target, loadWindows, baseline.Value, directionSelector);
-            if (delta != null) deltas.Add(delta.Value);
-        }
-        return deltas;
-    }
 
-    private double? LoadedDelta(
-        IReadOnlyList<LatencySample> hop,
-        Dictionary<DateTime, LoadWindow> loadWindows,
-        double idleBaseline,
-        Func<LoadWindow, bool> directionSelector)
-    {
-        var rtts = hop
-            .Where(s => s.RttAvgMs.HasValue
-                && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
-                && directionSelector(w))
-            .Select(s => s.RttAvgMs!.Value)
-            .ToList();
-        if (rtts.Count < _options.MinLoadedSamples) return null;
-        return SeriesStats.Percentile(rtts, 0.80)!.Value - idleBaseline;
+            var deltas = hop
+                .Where(s => s.RttAvgMs.HasValue
+                    && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
+                    && directionSelector(w))
+                .Select(s => s.RttAvgMs!.Value - baseline.Value);
+
+            pooledDeltas.AddRange(deltas);
+        }
+
+        var credible = pooledDeltas.Where(d => d >= noiseFloor).ToList();
+        if (credible.Count < _options.MinLoadedSamples) return null;
+        return Math.Max(0, SeriesStats.Median(credible)!.Value);
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
@@ -549,9 +509,10 @@ public class IspHealthScorer
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector)
     {
+        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue
-                && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
+                && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
                 && directionSelector(w))
             .Select(s => s.LossPercent!.Value)
             .ToList();
