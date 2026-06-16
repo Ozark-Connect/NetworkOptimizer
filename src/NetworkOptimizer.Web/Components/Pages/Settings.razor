@@ -883,7 +883,7 @@
                                     @probeResult
                                     @if (LooksUnreachable(probeResult) && !string.IsNullOrWhiteSpace(editingModem.Host))
                                     {
-                                        <div style="margin-top: 0.5rem;">
+                                        <div class="mi-funnel">
                                             Can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host)">Set up a monitoring interface →</a>
                                         </div>
                                     }
@@ -925,7 +925,7 @@
                     @modemMessage
                     @if (LooksUnreachable(modemMessage) && !string.IsNullOrWhiteSpace(_modemTestedHost))
                     {
-                        <div style="margin-top: 0.5rem;">
+                        <div class="mi-funnel">
                             Can't reach it? <a href="@MonitoringInterfaceLink(_modemTestedHost)">Set up a monitoring interface →</a>
                         </div>
                     }
@@ -1097,7 +1097,7 @@
                     @_cmTestResult
                     @if (LooksUnreachable(_cmTestResult) && !string.IsNullOrWhiteSpace(_cmTestedHost))
                     {
-                        <div style="margin-top: 0.5rem;">
+                        <div class="mi-funnel">
                             Can't reach it? <a href="@MonitoringInterfaceLink(_cmTestedHost)">Set up a monitoring interface →</a>
                         </div>
                     }
@@ -1267,7 +1267,7 @@
                     @_ontTestResult
                     @if (LooksUnreachable(_ontTestResult) && !string.IsNullOrWhiteSpace(_ontTestedHost))
                     {
-                        <div style="margin-top: 0.5rem;">
+                        <div class="mi-funnel">
                             Can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost)">Set up a monitoring interface →</a>
                         </div>
                     }
@@ -2572,6 +2572,22 @@
 </div>
 
 <SponsorshipBanner AlwaysShow="true" />
+
+<style>
+    .mi-funnel {
+        margin-top: 0.5rem;
+        color: var(--text-secondary);
+    }
+
+    .mi-funnel a,
+    .mi-funnel a:visited {
+        color: var(--primary-color);
+    }
+
+    .mi-funnel a:hover {
+        color: var(--primary-hover);
+    }
+</style>
 
 @code {
     // UniFi Controller
