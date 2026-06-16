@@ -339,10 +339,9 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        // Start expanded when nothing is configured yet so the feature is discoverable;
-        // collapse once interfaces exist. A deep-link from Settings overrides this in
-        // OnParametersSet (it always expands).
-        _collapsed = _interfaces.Count > 0;
+        // NOTE: collapse state is decided once in OnAfterRenderAsync (saved preference, else
+        // count-based default). Don't set _collapsed here - this runs after an await and can
+        // land after OnAfterRenderAsync, clobbering the loaded localStorage preference.
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -350,18 +349,19 @@
         if (!firstRender)
             return;
 
-        // Honor the user's saved collapse preference, unless a deep-link is forcing the
-        // card open (in which case OnParametersSet already expanded it). With no saved
-        // preference, the count-based default from OnInitializedAsync stands.
+        // Decide collapse state once, deterministically: a saved preference wins; with none,
+        // default to expanded when nothing is configured (discoverable) and collapsed once
+        // interfaces exist. A deep-link forcing the card open (PrefillTargetIp) skips this -
+        // OnParametersSet already expanded it.
         if (string.IsNullOrWhiteSpace(PrefillTargetIp))
         {
-            try
-            {
-                var val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey);
-                if (val == "true") _collapsed = true;
-                else if (val == "false") _collapsed = false;
-            }
+            string? val = null;
+            try { val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey); }
             catch { }
+
+            if (val == "true") _collapsed = true;
+            else if (val == "false") _collapsed = false;
+            else _collapsed = _interfaces.Count > 0;
         }
 
         _stateLoaded = true;
