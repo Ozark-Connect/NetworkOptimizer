@@ -409,16 +409,19 @@ public class IspHealthScorer
     /// <summary>
     /// <summary>
     /// Global loaded-latency delta across all monitored targets (ISP access hops,
-    /// transit, and internet destinations). Each target's p80 loaded RTT minus its own
-    /// idle baseline produces a delta in ms-above-idle; the p25 of all positive deltas
-    /// is the result. P25 rejects high outliers (ICMP deprioritization, destination
-    /// degradation) while letting clean-under-load evidence pull the score down.
+    /// transit, and internet destinations). Each target's p85 loaded RTT minus its own
+    /// idle baseline produces a delta in ms-above-idle. Targets below 0.5 ms are not
+    /// showing meaningful load signal; the p25 of the remaining deltas is the result.
+    /// P25 rejects high outliers (ICMP deprioritization, destination degradation)
+    /// while letting clean-under-load evidence pull the score down.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector)
     {
+        const double noiseFloor = 0.5;
+
         var accessCohort = inputs.AccessHopSeries.Count > 0
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
@@ -434,14 +437,14 @@ public class IspHealthScorer
         var allDeltas = CohortDeltas(accessCohort, loadWindows, directionSelector)
             .Concat(CohortDeltas(transitSeries, loadWindows, directionSelector))
             .Concat(CohortDeltas(destSeries, loadWindows, directionSelector))
-            .Where(d => d > 0)
+            .Where(d => d >= noiseFloor)
             .ToList();
 
         return allDeltas.Count > 0 ? Math.Max(0, SeriesStats.Percentile(allDeltas, 0.25)!.Value) : null;
     }
 
     /// <summary>
-    /// Per-target loaded deltas for a cohort: each target's p80 loaded-window RTT minus its
+    /// Per-target loaded deltas for a cohort: each target's p85 loaded-window RTT minus its
     /// own idle baseline (delta space, so targets at different distances are comparable). Each
     /// target keeps all its loaded samples; a target without a usable baseline or enough loaded
     /// samples is skipped - the window is not.
@@ -475,7 +478,7 @@ public class IspHealthScorer
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
         if (rtts.Count < _options.MinLoadedSamples) return null;
-        return SeriesStats.Percentile(rtts, 0.80)!.Value - idleBaseline;
+        return SeriesStats.Percentile(rtts, 0.85)!.Value - idleBaseline;
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(

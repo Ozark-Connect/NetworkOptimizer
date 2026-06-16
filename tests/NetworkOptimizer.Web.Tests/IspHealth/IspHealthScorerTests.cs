@@ -1039,15 +1039,15 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Loaded_latency_near_zero_deltas_produce_near_zero_result()
+    public void Loaded_latency_filters_sub_half_ms_deltas()
     {
-        // All targets show near-zero delta under load (no real bufferbloat). Positive
-        // deltas pass the filter and p25 produces a near-zero result.
+        // All targets show sub-0.5 ms delta under load (not meaningful load signal).
+        // Filtered out, leaving null.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 0.1), LoadedDownHop(3, 0.2) },
             destinations: new() { Destination(15169, 13, 0.1), Destination(13335, 14, 0.15) });
 
-        ResolvedDownDelta(inputs).Should().BeInRange(0, 0.3);
+        ResolvedDownDelta(inputs).Should().BeNull();
     }
 
     [Fact]
