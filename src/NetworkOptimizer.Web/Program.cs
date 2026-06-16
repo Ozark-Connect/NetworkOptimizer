@@ -317,6 +317,7 @@ builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 
 // Register Admin Auth service (scoped - depends on ISettingsRepository)
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.AdminAuthCache>();
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 
 // Register JWT service (singleton - caches secret key)
