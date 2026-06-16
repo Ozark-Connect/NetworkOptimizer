@@ -8,6 +8,7 @@ using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -484,8 +485,7 @@ public class MonitoringCollectionAgent : BackgroundService
             // PPPoE and over-counts (overhead + sibling VLANs), while VLAN
             // sub-interfaces double-count on some kernels. The other name remains
             // a fallback in case the preferred interface has no SNMP rate yet.
-            var physIfName = _cachedGatewayWanPhysicalIfNames.TryGetValue(gwMac, out var physIf) ? physIf : null;
-            var uplinkIfName = _cachedGatewayWanIfNames.TryGetValue(gwMac, out var uplinkIf) ? uplinkIf : null;
+            var (physIfName, uplinkIfName) = UniFiDiscovery.ResolveActiveWanInterface(gw);
             var preferred = NetworkUtilities.PreferredWanCounterInterface(physIfName, uplinkIfName);
             var fallback = preferred == physIfName ? uplinkIfName : physIfName;
             var portRate = preferred != null ? _liveStats.GetPortRate(gwMac, preferred) : null;
@@ -1656,8 +1656,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private List<UniFiDeviceResponse> _cachedDevices = new();
     private DateTime _cachedDevicesAt = DateTime.MinValue;
     private readonly SemaphoreSlim _deviceFetchLock = new(1, 1);
-    private Dictionary<string, string> _cachedGatewayWanIfNames = new(StringComparer.OrdinalIgnoreCase);
-    private Dictionary<string, string> _cachedGatewayWanPhysicalIfNames = new(StringComparer.OrdinalIgnoreCase);
 
     // Gateway LAN IP cache. UniFi reports the gateway's "ip" as the WAN public IP
     // which never answers SNMP from inside the LAN. The actual SNMP-reachable IP is
@@ -1751,67 +1749,6 @@ public class MonitoringCollectionAgent : BackgroundService
                 .ToList() ?? new List<UniFiDeviceResponse>();
             _cachedDevices = filtered;
             _cachedDevicesAt = DateTime.UtcNow;
-
-            // Extract gateway WAN uplink_ifname from raw device JSON so the
-            // gateway rate override uses the correct interface (e.g. eth6.100
-            // for VLAN-tagged, ppp3 for PPPoE) instead of the physical port.
-            var gwIfNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var gwPhysIfNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                var rawJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
-                if (!string.IsNullOrEmpty(rawJson))
-                {
-                    using var doc = System.Text.Json.JsonDocument.Parse(rawJson);
-                    var root = doc.RootElement;
-                    var devArray = root.ValueKind == System.Text.Json.JsonValueKind.Array
-                        ? root
-                        : root.TryGetProperty("data", out var arr) ? arr : root;
-                    foreach (var dev in devArray.EnumerateArray())
-                    {
-                        var type = dev.TryGetProperty("type", out var tp) ? tp.GetString() : null;
-                        var model = dev.TryGetProperty("model", out var mdl) ? mdl.GetString() : null;
-                        var name = dev.TryGetProperty("name", out var nm) ? nm.GetString() : null;
-                        var devType = type != null ? NetworkOptimizer.Core.Enums.DeviceTypeExtensions.FromUniFiApiType(type) : (NetworkOptimizer.Core.Enums.DeviceType?)null;
-                        if (devType != NetworkOptimizer.Core.Enums.DeviceType.Gateway)
-                        {
-                            if (type != null && (type == "ugw" || type == "usg" || type == "udm" || type == "uxg" || type == "ucg"))
-                                _logger.LogTrace("WAN ifname: device {Name} ({Model}) type={Type} classified as {DevType} - unexpected",
-                                    name, model, type, devType);
-                            continue;
-                        }
-                        _logger.LogTrace("WAN ifname: processing gateway {Name} ({Model}) type={Type}", name, model, type);
-                        var mac = dev.TryGetProperty("mac", out var mp) ? mp.GetString() : null;
-                        if (string.IsNullOrEmpty(mac)) continue;
-                        var normalizedMac = mac.ToLowerInvariant().Replace('-', ':');
-                        bool foundWan = false;
-                        for (int i = 1; i <= 6; i++)
-                        {
-                            if (!dev.TryGetProperty($"wan{i}", out var wanObj)) continue;
-                            var uplinkIf = wanObj.TryGetProperty("uplink_ifname", out var up) ? up.GetString() : null;
-                            _logger.LogTrace("WAN ifname: {Name} wan{Idx} uplink_ifname={UplinkIf}", name, i, uplinkIf ?? "(null)");
-                            if (!string.IsNullOrEmpty(uplinkIf))
-                            {
-                                gwIfNames[normalizedMac] = uplinkIf;
-                                var physIf = wanObj.TryGetProperty("ifname", out var pf) ? pf.GetString() : null;
-                                if (!string.IsNullOrEmpty(physIf))
-                                    gwPhysIfNames[normalizedMac] = physIf;
-                                _logger.LogTrace("WAN ifname: {Name} resolved uplink_ifname={UplinkIf} physIf={PhysIf}", name, uplinkIf, physIf ?? "(null)");
-                                foundWan = true;
-                                break;
-                            }
-                        }
-                        if (!foundWan)
-                            _logger.LogTrace("WAN ifname: {Name} ({Model}) - no wan1..wan6 with uplink_ifname found", name, model);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to extract gateway WAN ifnames from raw JSON");
-            }
-            _cachedGatewayWanIfNames = gwIfNames;
-            _cachedGatewayWanPhysicalIfNames = gwPhysIfNames;
 
             return filtered;
         }
