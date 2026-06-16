@@ -129,6 +129,8 @@
                             <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
                             <small class="form-help">The management IP you're trying to reach (e.g. your modem or ONT status page).</small>
                         </div>
+                    </div>
+                    <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">WAN interface</label>
                             <select class="form-control" @bind="_editing.WanIfName" @bind:after="OnWanChanged">
@@ -146,6 +148,17 @@
                                 }
                             </select>
                             <small class="form-help">The WAN your modem/ONT sits behind. The interface rides this port.</small>
+                        </div>
+                        <div class="form-group mi-grow-2">
+                            <label class="form-label">VLAN</label>
+                            <div class="mi-vlan">
+                                <label class="checkbox-label mi-vlan-toggle">
+                                    <input type="checkbox" @bind="_vlanEnabled" @bind:after="OnVlanToggled" />
+                                    <span>Tagged</span>
+                                </label>
+                                <input type="number" class="form-control mi-vlan-id" @bind="_editing.WanVlanId" min="1" max="4094" placeholder="100" disabled="@(!_vlanEnabled)" />
+                            </div>
+                            <small class="form-help">Tag the interface when your WAN runs on a VLAN (some fiber ISPs). Leave off for a plain port.</small>
                         </div>
                     </div>
 
@@ -280,6 +293,20 @@
     .mi-grow-2 {
         flex: 2;
     }
+
+    .mi-vlan {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .mi-vlan-toggle {
+        white-space: nowrap;
+    }
+
+    .mi-vlan-id {
+        max-width: 6rem;
+    }
 </style>
 
 @code {
@@ -301,6 +328,7 @@
 
     private MonitoringInterface _editing = NewInterface();
     private MonitoringInterface? _editingOriginal;
+    private bool _vlanEnabled;
     private bool _collapsed = true;
     private bool _stateLoaded;
     private const string CollapseKey = "monitoring-interfaces-collapsed";
@@ -320,6 +348,7 @@
         Id = mi.Id,
         Name = mi.Name,
         WanIfName = mi.WanIfName,
+        WanVlanId = mi.WanVlanId,
         WanKey = mi.WanKey,
         TargetIp = mi.TargetIp,
         SubnetPrefix = mi.SubnetPrefix,
@@ -332,7 +361,8 @@
     // into the macvlan name, route, SNAT rule, or script filename - otherwise the old
     // artifacts (interface, route, SNAT, cron, /data/on_boot.d file) are orphaned.
     private static bool NeedsOldTeardown(MonitoringInterface a, MonitoringInterface b)
-        => a.Name != b.Name || a.WanIfName != b.WanIfName || a.TargetIp != b.TargetIp
+        => a.Name != b.Name || a.WanIfName != b.WanIfName || a.WanVlanId != b.WanVlanId
+            || a.TargetIp != b.TargetIp
             || a.GatewayLocalIp != b.GatewayLocalIp || a.SubnetPrefix != b.SubnetPrefix
             || a.SnatEnabled != b.SnatEnabled;
 
@@ -469,6 +499,7 @@
     {
         _editing = Snapshot(mi);
         _editingOriginal = Snapshot(mi);
+        _vlanEnabled = mi.WanVlanId.HasValue;
         _collapsed = false;
         _message = null;
         _deploySteps.Clear();
@@ -478,7 +509,15 @@
     {
         _editing = NewInterface();
         _editingOriginal = null;
+        _vlanEnabled = false;
         _message = null;
+    }
+
+    // When VLAN tagging is turned off, drop the stored VLAN so we deploy on the raw port.
+    private void OnVlanToggled()
+    {
+        if (!_vlanEnabled)
+            _editing.WanVlanId = null;
     }
 
     private void OnTargetChanged()
@@ -517,6 +556,7 @@
         var saved = _interfaces.FirstOrDefault(i => i.TargetIp == _editing.TargetIp && i.WanIfName == _editing.WanIfName);
         _editing = NewInterface();
         _editingOriginal = null;
+        _vlanEnabled = false;
 
         // Editing changed gateway-affecting fields: remove the old config first so we don't
         // leave a stale macvlan/route/SNAT/cron/boot-script behind.

@@ -78,6 +78,7 @@ public class MonitoringInterfaceRepository : IMonitoringInterfaceRepository
                 {
                     existing.Name = config.Name;
                     existing.WanIfName = config.WanIfName;
+                    existing.WanVlanId = config.WanVlanId;
                     existing.WanKey = config.WanKey;
                     existing.TargetIp = config.TargetIp;
                     existing.SubnetPrefix = config.SubnetPrefix;

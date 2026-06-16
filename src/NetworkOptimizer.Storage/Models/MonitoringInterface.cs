@@ -32,6 +32,14 @@ public class MonitoringInterface
     public string WanIfName { get; set; } = "";
 
     /// <summary>
+    /// Optional 802.1Q VLAN ID for the WAN. When set, the macvlan attaches to the VLAN
+    /// subinterface (e.g. "eth6.100") instead of the bare physical port, so frames are
+    /// tagged. The gateway creates that subinterface if it doesn't already exist (UniFi
+    /// creates it itself when the WAN runs on the VLAN). Null = untagged (raw port).
+    /// </summary>
+    public int? WanVlanId { get; set; }
+
+    /// <summary>
     /// WAN object key this interface targets (e.g., "wan1", "wan2"), used to
     /// re-derive the WAN display label and disambiguate dual-WAN setups. Optional.
     /// </summary>
