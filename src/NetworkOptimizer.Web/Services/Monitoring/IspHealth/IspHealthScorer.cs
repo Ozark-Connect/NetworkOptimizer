@@ -409,11 +409,11 @@ public class IspHealthScorer
     /// <summary>
     /// <summary>
     /// Loaded-latency delta from ISP access hops only. Each access hop's loaded RTT
-    /// samples are baseline-subtracted and pooled; p25 of the pool (filtered > 0.5 ms)
-    /// is the result. Pooling raw samples instead of per-target aggregates is stable
-    /// even with sparse loaded data (typical residential). P25 rejects ICMP
-    /// deprioritization spikes (high outliers) while clean-under-load samples from
-    /// speed tests naturally pull the estimate down.
+    /// samples are baseline-subtracted and pooled; the median of the pool (filtered
+    /// > 0.5 ms) is the result. Pooling raw samples instead of per-target aggregates
+    /// is stable even with sparse loaded data (typical residential). Sample timestamps
+    /// are shifted back by the counter lag offset so they align with the interface
+    /// counter window that reflects actual throughput at probe time.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
@@ -421,6 +421,7 @@ public class IspHealthScorer
         Func<LoadWindow, bool> directionSelector)
     {
         const double noiseFloor = 0.5;
+        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
 
         var accessCohort = inputs.AccessHopSeries.Count > 0
             ? inputs.AccessHopSeries
@@ -434,7 +435,7 @@ public class IspHealthScorer
 
             var deltas = hop
                 .Where(s => s.RttAvgMs.HasValue
-                    && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
+                    && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
                     && directionSelector(w))
                 .Select(s => s.RttAvgMs!.Value - baseline.Value);
 
@@ -443,7 +444,7 @@ public class IspHealthScorer
 
         var credible = pooledDeltas.Where(d => d >= noiseFloor).ToList();
         if (credible.Count < _options.MinLoadedSamples) return null;
-        return Math.Max(0, SeriesStats.Percentile(credible, 0.25)!.Value);
+        return Math.Max(0, SeriesStats.Median(credible)!.Value);
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
@@ -508,9 +509,10 @@ public class IspHealthScorer
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector)
     {
+        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue
-                && loadWindows.TryGetValue(FloorToWindow(s.Time), out var w)
+                && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
                 && directionSelector(w))
             .Select(s => s.LossPercent!.Value)
             .ToList();
