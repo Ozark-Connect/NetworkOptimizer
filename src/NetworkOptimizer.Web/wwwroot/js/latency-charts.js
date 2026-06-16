@@ -54,7 +54,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             height: type === 'area' ? 200 : 260,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },

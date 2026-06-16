@@ -49,7 +49,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'line', height,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
