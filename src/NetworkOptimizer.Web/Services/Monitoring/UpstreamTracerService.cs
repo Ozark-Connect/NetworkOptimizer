@@ -285,6 +285,20 @@ public class UpstreamTracerService
             return Fail($"Couldn't fetch UniFi devices: {ex.Message}");
         }
 
+        // ISP/transit tracing follows the CONFIGURED primary WAN (not whichever WAN
+        // happens to be first), matching the rest of the monitoring umbrella. Resolve
+        // its networkgroup so the wan-object loop can pick the matching connection.
+        string? primaryNg = null;
+        try
+        {
+            var networks = await _connectionService.GetNetworksAsync(ct);
+            primaryNg = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger)?.WanNetworkgroup;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "UpstreamTracer: failed to resolve primary WAN networkgroup; falling back to first WAN");
+        }
+
         string? wanInterfaceName = null;
         string? wanUplinkIfName = null;
         string? wanIp = null;
@@ -327,6 +341,12 @@ public class UpstreamTracerService
                     }
                 }
 
+                // ifname → networkgroup so each wan object can be matched against the
+                // configured primary; falls back to the wan-key convention.
+                var ifnameToNg = GatewayWanHelper.BuildNetworkGroupByIfname(
+                    device.TryGetProperty("ethernet_overrides", out var eo) ? eo : default);
+
+                (string Key, string Uplink, string? Ip)? firstWan = null;
                 for (int i = 1; i <= 6; i++)
                 {
                     var wanKey = $"wan{i}";
@@ -353,10 +373,30 @@ public class UpstreamTracerService
                         interfaceKey = GatewayWanHelper.WanInterfaceKey(i);
                     }
 
-                    wanInterfaceName = interfaceKey;
-                    wanUplinkIfName = uplinkIfname;
-                    wanIp = ip;
-                    break;
+                    firstWan ??= (interfaceKey, uplinkIfname, ip);
+
+                    // Resolve this wan's networkgroup and prefer the configured primary.
+                    var physIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                    string? ng = null;
+                    if (!string.IsNullOrEmpty(physIfname))
+                        ifnameToNg.TryGetValue(physIfname, out ng);
+                    ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wanKey);
+
+                    if (primaryNg != null && string.Equals(ng, primaryNg, StringComparison.OrdinalIgnoreCase))
+                    {
+                        wanInterfaceName = interfaceKey;
+                        wanUplinkIfName = uplinkIfname;
+                        wanIp = ip;
+                        break;
+                    }
+                }
+
+                // Primary unresolved or not matched: fall back to the first WAN found.
+                if (wanInterfaceName == null && firstWan != null)
+                {
+                    wanInterfaceName = firstWan.Value.Key;
+                    wanUplinkIfName = firstWan.Value.Uplink;
+                    wanIp = firstWan.Value.Ip;
                 }
 
                 if (wanInterfaceName != null) break;
