@@ -89,7 +89,8 @@ export function renderStatsTable(el, container, opts) {
             if (!th) return;
             const col = parseInt(th.dataset.sortCol);
             if (el._sortCol === col) {
-                el._sortDir = (el._sortDir ?? 'asc') === 'asc' ? 'desc' : 'asc';
+                if (el._sortDir === 'asc') { el._sortDir = 'desc'; }
+                else { el._sortCol = -1; el._sortDir = 'asc'; }
             } else {
                 el._sortCol = col;
                 el._sortDir = 'asc';

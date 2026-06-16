@@ -14215,12 +14215,11 @@ tr.stats-row-filtered {
 }
 
 [class$="-stats-table"] .table-responsive {
-    scrollbar-width: thin;
     scrollbar-color: var(--bg-tertiary) transparent;
 }
 
 [class$="-stats-table"] .table-responsive::-webkit-scrollbar {
-    height: 6px;
+    height: 10px;
 }
 
 [class$="-stats-table"] .table-responsive::-webkit-scrollbar-track {
