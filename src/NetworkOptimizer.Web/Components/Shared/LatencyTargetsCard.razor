@@ -2,6 +2,7 @@
 @using Microsoft.EntityFrameworkCore
 @inject MonitoringLiveStats LiveStats
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService AsnResolution
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -292,6 +293,31 @@
             var probeMode = _newTargetProbeMode == "Tcp" ? NetworkOptimizer.Core.Enums.ProbeMode.Tcp : NetworkOptimizer.Core.Enums.ProbeMode.Icmp;
             var targetId = $"custom-{Guid.NewGuid():N}"[..24];
 
+            int? asnNumber = null;
+            string? asnName = null;
+            if (targetType is MonitoringTargetType.Transit or MonitoringTargetType.AccessIsp)
+            {
+                var ip = address;
+                if (!System.Net.IPAddress.TryParse(address, out _))
+                {
+                    try
+                    {
+                        var entries = await System.Net.Dns.GetHostAddressesAsync(address);
+                        ip = entries.FirstOrDefault()?.ToString();
+                    }
+                    catch { ip = null; }
+                }
+                if (ip != null)
+                {
+                    var asn = await AsnResolution.ResolveAsync(ip);
+                    if (asn != null)
+                    {
+                        asnNumber = asn.Asn;
+                        asnName = asn.Name;
+                    }
+                }
+            }
+
             await using var db = await DbFactory.CreateDbContextAsync();
             db.MonitoringTargets.Add(new MonitoringTarget
             {
@@ -306,7 +332,9 @@
                 Enabled = true,
                 AutoDiscovered = false,
                 VantagePoint = "server",
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                AsnNumber = asnNumber,
+                AsnName = asnName
             });
             await db.SaveChangesAsync();
 
