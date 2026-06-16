@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
-using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +11,7 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
 /// Cable modem provider for Motorola DOCSIS modems that use the HNAP protocol
-/// (MB8611, MB8600, MB7621, etc.). Communicates via JSON-over-HTTPS to the /HNAP1/
+/// (MB8611, MB8600, MB7621, etc.). Communicates via JSON-over-HTTP to the /HNAP1/
 /// endpoint with HMAC-MD5 authentication.
 /// </summary>
 public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
@@ -507,9 +506,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 
     private static string BuildBaseUrl(CmPollContext context)
     {
-        var port = context.Port > 0 ? context.Port : 443;
-        var portSuffix = port == 443 ? "" : $":{port}";
-        return $"https://{context.Host}{portSuffix}";
+        // Motorola modems serve the HNAP API over plain HTTP on port 80. The HTML
+        // web UI redirects HTTP to HTTPS, but the /HNAP1/ endpoint answers over HTTP
+        // directly, and .NET cannot complete the modem's HTTPS handshake (it stalls
+        // until the request times out, even though the modem's TLS is otherwise
+        // standard and a browser connects fine). So the API is reached over HTTP.
+        var port = context.Port is > 0 and not 443 ? context.Port : 80;
+        var portSuffix = port == 80 ? "" : $":{port}";
+        return $"http://{context.Host}{portSuffix}";
     }
 
     /// <summary>
@@ -552,15 +556,11 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         var handler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
             UseCookies = false,
-            // Motorola DOCSIS modems serve their web UI over TLS 1.2 only with a
-            // baked-in self-signed cert. .NET 10 began offering TLS 1.3 by default
-            // (including on macOS), and these modems' legacy TLS stacks don't always
-            // negotiate a 1.3-capable ClientHello down to 1.2 - the handshake stalls
-            // until the request times out, even though a browser reaches the modem
-            // fine. Pin to TLS 1.2 to match what the modem actually speaks.
-            SslProtocols = SslProtocols.Tls12,
+            // Don't follow redirects: the modem's HTML UI 301s HTTP to HTTPS, and
+            // following that would drag requests onto the HTTPS path .NET can't
+            // complete. The /HNAP1/ POSTs answer 200 over HTTP without redirecting.
+            AllowAutoRedirect = false,
         };
 
         return new HttpClient(handler)
