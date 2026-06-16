@@ -310,6 +310,10 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
+        // Start expanded when nothing is configured yet so the feature is discoverable;
+        // collapse once interfaces exist. A deep-link from Settings overrides this in
+        // OnParametersSet (it always expands).
+        _collapsed = _interfaces.Count > 0;
     }
 
     protected override void OnParametersSet()
