@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.Core;
 
 namespace NetworkOptimizer.UniFi;
 
@@ -43,6 +44,7 @@ public static class GatewayWanHelper
     /// parsers read WAN fields (ifname, uplink_ifname, ip, port_idx, speed) without each
     /// hand-rolling the wan{i} loop. Objects that fail to deserialize are skipped.
     /// </summary>
+    [VendorSpecific("UniFi", "Parses UniFi gateway wan1..wan6 device JSON into typed GatewayWanInterface")]
     public static IEnumerable<Models.GatewayWanInterface> EnumerateWanInterfaces(JsonElement device)
     {
         for (var i = 1; i <= 6; i++)
@@ -85,6 +87,7 @@ public static class GatewayWanHelper
     /// JSON array (e.g. "eth6" → "WAN"). Returns an empty case-insensitive map when the
     /// element is absent or not an array.
     /// </summary>
+    [VendorSpecific("UniFi", "Parses UniFi gateway ethernet_overrides JSON array (ifname -> networkgroup)")]
     public static Dictionary<string, string> BuildNetworkGroupByIfname(JsonElement ethernetOverrides)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
