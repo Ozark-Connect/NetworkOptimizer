@@ -221,7 +221,7 @@ async function loadAndUpdate() {
     }
 }
 
-function fmtDbm(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtDbm(v) { return v != null ? v.toFixed(2) : '-'; }
 function fmtTemp(v) { return v != null ? v.toFixed(1) : '-'; }
 
 function renderStatsTable(container) {

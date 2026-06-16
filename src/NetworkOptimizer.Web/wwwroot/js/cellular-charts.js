@@ -209,8 +209,8 @@ async function loadAndUpdate() {
     }
 }
 
-function fmtDbm(v) { return v != null ? v.toFixed(0) : '-'; }
-function fmtDb(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtDbm(v) { return v != null ? v.toFixed(2) : '-'; }
+function fmtDb(v) { return v != null ? v.toFixed(2) : '-'; }
 function fmtPct(v) { return v != null ? v.toFixed(0) + '%' : '-'; }
 
 function renderStatsTable(container) {
