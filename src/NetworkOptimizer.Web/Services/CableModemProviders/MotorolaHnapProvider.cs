@@ -12,8 +12,10 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 /// <summary>
 /// Cable modem provider for Motorola DOCSIS modems that use the HNAP protocol
 /// (MB8611, MB8600, MB7621, etc.). Communicates via JSON to the /HNAP1/ endpoint
-/// with HMAC-MD5 authentication, preferring HTTP and falling back to HTTPS (the
-/// working scheme is detected on first contact and cached per configuration).
+/// with HMAC-MD5 authentication. The transport scheme is detected on first contact
+/// and cached per configuration: HTTPS is tried first so modems already working over
+/// TLS are unaffected, with HTTP as a fallback for modems whose HTTPS handshake .NET
+/// cannot complete.
 /// </summary>
 public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
 {
@@ -206,10 +208,10 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             _logger.LogDebug("Motorola HNAP session expired for {Name}, re-authenticating", context.Name);
         }
 
-        // Detect the scheme the modem's HNAP endpoint speaks. HTTP is tried first:
-        // these modems serve /HNAP1/ over HTTP, an HTTP miss fails fast (a redirect or
-        // refused connection), and .NET cannot complete some modems' HTTPS handshake
-        // (it stalls until timeout). HTTPS is the fallback for modems that only speak TLS.
+        // Detect the scheme the modem's HNAP endpoint speaks. HTTPS is tried first so
+        // modems already working over TLS keep the exact same path they use today; HTTP
+        // is the fallback for modems whose HTTPS handshake .NET can't complete (it stalls
+        // until timeout, e.g. on macOS) - those modems also serve /HNAP1/ over plain HTTP.
         foreach (var useHttps in SchemesToTry(context.Id))
         {
             var baseUrl = BuildBaseUrl(context, useHttps);
@@ -255,11 +257,11 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     }
 
     /// <summary>
-    /// Schemes to attempt for this config: the cached one if known, otherwise HTTP
-    /// first then HTTPS.
+    /// Schemes to attempt for this config: the cached one if known, otherwise HTTPS
+    /// first (so modems already working over TLS are unchanged) then HTTP.
     /// </summary>
     private bool[] SchemesToTry(int id) =>
-        _useHttps.TryGetValue(id, out var scheme) ? [scheme] : [false, true];
+        _useHttps.TryGetValue(id, out var scheme) ? [scheme] : [true, false];
 
     /// <summary>
     /// Two-phase HNAP login: request challenge, derive keys, authenticate.
@@ -584,10 +586,10 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
     /// <summary>
     /// Build the base URL for the given scheme. A user-specified non-default port is
     /// honored; otherwise the standard port for the scheme is used (80 for HTTP, 443
-    /// for HTTPS). The HTML web UI redirects HTTP to HTTPS, but the /HNAP1/ endpoint
-    /// itself answers over HTTP, which is preferred because .NET cannot complete some
-    /// modems' HTTPS handshake (it stalls until the request times out, even though the
-    /// modem's TLS is otherwise standard and a browser connects fine).
+    /// for HTTPS). HTTPS is attempted first; HTTP is the fallback used when .NET cannot
+    /// complete a modem's HTTPS handshake (it stalls until the request times out, even
+    /// though the modem's TLS is otherwise standard and a browser connects fine). The
+    /// HTML web UI redirects HTTP to HTTPS, but the /HNAP1/ endpoint answers over HTTP.
     /// </summary>
     private static string BuildBaseUrl(CmPollContext context, bool useHttps)
     {
