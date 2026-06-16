@@ -846,7 +846,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
             WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps,
             WanNetworkgroup = n.WanNetworkgroup,
-            WanSmartqEnabled = n.WanSmartqEnabled
+            WanSmartqEnabled = n.WanSmartqEnabled,
+            WanLoadBalanceType = n.WanLoadBalanceType,
+            WanLoadBalanceWeight = n.WanLoadBalanceWeight,
+            WanFailoverPriority = n.WanFailoverPriority
         }).ToList() ?? new List<NetworkInfo>();
         _networkCacheTime = DateTime.UtcNow;
 

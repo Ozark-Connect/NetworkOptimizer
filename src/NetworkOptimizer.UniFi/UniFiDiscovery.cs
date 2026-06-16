@@ -58,6 +58,7 @@ public class UniFiDiscovery
         {
             var hardwareType = DeviceTypeExtensions.FromUniFiApiType(d.Type, d.Model);
             var effectiveType = DetermineDeviceType(d, allDeviceMacs, _logger);
+            var (wanCounterNames, wanUplinkName) = ResolveWanInterfaces(d);
 
             return new DiscoveredDevice
             {
@@ -100,7 +101,8 @@ public class UniFiDiscovery
                 TxBytes = d.Stats?.TxBytes ?? 0,
                 RxBytes = d.Stats?.RxBytes ?? 0,
                 PortCount = d.PortTable?.Count ?? 0,
-                WanInterfaceNames = GetWanInterfaceNames(d),
+                WanInterfaceNames = wanCounterNames,
+                WanUplinkName = wanUplinkName,
                 // Wi-Fi specific (APs only)
                 RadioTable = d.RadioTable,
                 RadioTableStats = d.RadioTableStats,
@@ -144,7 +146,7 @@ public class UniFiDiscovery
     /// 3. The first wan object, preferring ones reported up (seen on PPPoE
     ///    gateways where neither of the above is populated).
     /// </summary>
-    internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
+    internal static (List<string> CounterNames, string? UplinkName) ResolveWanInterfaces(UniFiDeviceResponse d)
     {
         var wans = d.GetWanInterfaces();
 
@@ -156,9 +158,10 @@ public class UniFiDiscovery
             var wan = wans.FirstOrDefault(w => w.UplinkIfName == activeUplink || w.IfName == activeUplink);
             if (wan != null)
             {
-                var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-                if (!string.IsNullOrEmpty(name))
-                    return new List<string> { name };
+                var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
+                var uplink = wan.UplinkIfName ?? wan.IfName;
+                if (!string.IsNullOrEmpty(counter))
+                    return (new List<string> { counter }, uplink);
             }
         }
 
@@ -168,20 +171,23 @@ public class UniFiDiscovery
             var wan = wans.FirstOrDefault(w =>
                 (!string.IsNullOrEmpty(w.IfName) && w.IfName == uplinkPort.IfName) ||
                 (w.PortIdx.HasValue && w.PortIdx == uplinkPort.PortIdx));
-            var name = wan != null
+            var counter = wan != null
                 ? NetworkUtilities.PreferredWanCounterInterface(wan.IfName ?? uplinkPort.IfName, wan.UplinkIfName)
                 : uplinkPort.IfName;
-            return string.IsNullOrEmpty(name) ? new() : new List<string> { name };
+            var uplink = wan?.UplinkIfName ?? wan?.IfName ?? uplinkPort.IfName;
+            return string.IsNullOrEmpty(counter) ? (new(), uplink) : (new List<string> { counter }, uplink);
         }
 
         foreach (var wan in wans.OrderBy(w => w.Up ? 0 : 1).ThenBy(w => w.Key, StringComparer.Ordinal))
         {
-            var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-            if (!string.IsNullOrEmpty(name))
-                return new List<string> { name };
+            var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
+            if (!string.IsNullOrEmpty(counter))
+                return (new List<string> { counter }, wan.UplinkIfName ?? wan.IfName);
         }
-        return new();
+        return (new(), null);
     }
+
+    internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d) => ResolveWanInterfaces(d).CounterNames;
 
     /// <summary>
     /// Discovers all devices with wireless radios for WiFi Optimizer.
@@ -735,6 +741,16 @@ public class DiscoveredDevice
     /// </summary>
     public List<string> WanInterfaceNames { get; set; } = new();
 
+    /// <summary>
+    /// Data-path interface of the primary WAN - the Linux ifname that carries
+    /// WAN traffic (e.g. eth6.100 for VLAN-tagged, ppp0 for PPPoE, gre1 for
+    /// tunnel). This is what SQM deploys on and what SqmWanConfiguration.Interface
+    /// stores. Differs from WanInterfaceNames on VLAN-tagged WANs where the
+    /// counter interface is the physical parent (eth6) but the data path is the
+    /// sub-interface (eth6.100).
+    /// </summary>
+    public string? WanUplinkName { get; set; }
+
     // Wi-Fi specific (APs only)
     /// <summary>
     /// Radio configuration table - per-radio settings (channel, tx_power, antenna).
@@ -908,6 +924,15 @@ public class NetworkInfo
 
     /// <summary>Whether Smart Queues (SQM) is enabled on this WAN</summary>
     public bool WanSmartqEnabled { get; set; }
+
+    /// <summary>WAN load balance type ("failover-only" or "weighted")</summary>
+    public string? WanLoadBalanceType { get; set; }
+
+    /// <summary>WAN load balance weight (higher = more traffic in weighted mode)</summary>
+    public int? WanLoadBalanceWeight { get; set; }
+
+    /// <summary>WAN failover priority (lower = higher priority)</summary>
+    public int? WanFailoverPriority { get; set; }
 
     /// <summary>Whether this is the primary WAN (wan_networkgroup = "WAN")</summary>
     public bool IsPrimaryWan => WanNetworkgroup?.Equals("WAN", StringComparison.OrdinalIgnoreCase) == true;

@@ -281,6 +281,14 @@ public class UniFiNetworkConfig
     [JsonConverter(typeof(FlexibleIntConverter))]
     public int? WanLoadBalanceWeight { get; set; }
 
+    /// <summary>
+    /// WAN failover priority (lower = higher priority). Used to break ties
+    /// among weighted WANs when determining the primary WAN connection.
+    /// </summary>
+    [JsonPropertyName("wan_failover_priority")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? WanFailoverPriority { get; set; }
+
     [JsonPropertyName("wan_ip")]
     public string? WanIp { get; set; }
 

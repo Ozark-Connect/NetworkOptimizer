@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -304,7 +305,8 @@ public class IspHealthService
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
         // event labels. It is published together with the report (see Snapshot).
-        var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, ct);
+        var primaryWanInterface = await GetPrimaryWanInterfaceAsync(ct);
+        var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, primaryWanInterface, ct);
 
         var inputs = new IspHealthInputs
         {
@@ -392,11 +394,7 @@ public class IspHealthService
         try
         {
             var networks = await _connectionService.GetNetworksAsync(ct);
-            var wanNets = networks
-                .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(n => string.Equals(n.WanNetworkgroup, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .ToList();
-            var primary = wanNets.FirstOrDefault();
+            var primary = ResolvePrimaryWanNetwork(networks);
             if (primary != null)
             {
                 if (primary.WanDownloadMbps > 0) down = primary.WanDownloadMbps;
@@ -426,15 +424,68 @@ public class IspHealthService
         return (down, up, source, smartQueues);
     }
 
+    /// <summary>
+    /// Resolves the primary WAN network from networkconf using load-balance
+    /// configuration. Among enabled WANs with purpose "wan": weighted WANs
+    /// beat failover-only, highest weight wins, lowest failover priority breaks
+    /// ties, and networkgroup "WAN" is the final fallback.
+    /// </summary>
+    internal NetworkInfo? ResolvePrimaryWanNetwork(IReadOnlyList<NetworkInfo> networks)
+    {
+        var wanNets = networks
+            .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && n.Enabled)
+            .ToList();
+        if (wanNets.Count == 0) return null;
+        if (wanNets.Count == 1)
+        {
+            _logger.LogDebug("ISP Health: primary WAN is {Name} (networkgroup={NG}, single WAN)",
+                wanNets[0].Name, wanNets[0].WanNetworkgroup);
+            return wanNets[0];
+        }
+
+        var primary = wanNets
+            .OrderBy(n => string.Equals(n.WanLoadBalanceType, "failover-only", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .ThenByDescending(n => n.WanLoadBalanceWeight ?? 0)
+            .ThenBy(n => n.WanFailoverPriority ?? int.MaxValue)
+            .ThenBy(n => string.Equals(n.WanNetworkgroup, "WAN", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .First();
+
+        _logger.LogDebug(
+            "ISP Health: primary WAN is {Name} (networkgroup={NG}, type={LBType}, weight={Weight}, priority={Priority}) out of {Count} WANs",
+            primary.Name, primary.WanNetworkgroup, primary.WanLoadBalanceType ?? "weighted",
+            primary.WanLoadBalanceWeight, primary.WanFailoverPriority, wanNets.Count);
+        return primary;
+    }
+
     private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(20);
 
-    private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(
-        DateTime windowStart, DateTime windowEnd, CancellationToken ct)
+    private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
     {
+        try
+        {
+            var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
+            var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+            var uplinkName = gw?.WanUplinkName;
+            var counterName = gw?.WanInterfaceNames?.FirstOrDefault();
+            if (uplinkName != null)
+                _logger.LogDebug("ISP Health: primary WAN data-path interface is {Uplink} (counter: {Counter})", uplinkName, counterName);
+            return uplinkName;
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(
+        DateTime windowStart, DateTime windowEnd, string? primaryWanInterface, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(primaryWanInterface)) return new List<(DateTime, DateTime)>();
+
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
             .Where(c => c.Enabled)
             .ToListAsync(ct);
+        sqmConfigs = sqmConfigs
+            .Where(c => string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase))
+            .ToList();
         if (sqmConfigs.Count == 0) return new List<(DateTime, DateTime)>();
 
         // Schedule hours are in the gateway's local time (crontab timezone). The app runs
