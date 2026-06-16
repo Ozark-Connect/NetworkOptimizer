@@ -394,7 +394,7 @@ public class IspHealthService
         try
         {
             var networks = await _connectionService.GetNetworksAsync(ct);
-            var primary = ResolvePrimaryWanNetwork(networks);
+            var primary = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger);
             if (primary != null)
             {
                 if (primary.WanDownloadMbps > 0) down = primary.WanDownloadMbps;
@@ -422,39 +422,6 @@ public class IspHealthService
             }
         }
         return (down, up, source, smartQueues);
-    }
-
-    /// <summary>
-    /// Resolves the primary WAN network from networkconf using load-balance
-    /// configuration. Among enabled WANs with purpose "wan": weighted WANs
-    /// beat failover-only, highest weight wins, lowest failover priority breaks
-    /// ties, and networkgroup "WAN" is the final fallback.
-    /// </summary>
-    internal NetworkInfo? ResolvePrimaryWanNetwork(IReadOnlyList<NetworkInfo> networks)
-    {
-        var wanNets = networks
-            .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && n.Enabled)
-            .ToList();
-        if (wanNets.Count == 0) return null;
-        if (wanNets.Count == 1)
-        {
-            _logger.LogDebug("ISP Health: primary WAN is {Name} (networkgroup={NG}, single WAN)",
-                wanNets[0].Name, wanNets[0].WanNetworkgroup);
-            return wanNets[0];
-        }
-
-        var primary = wanNets
-            .OrderBy(n => string.Equals(n.WanLoadBalanceType, "failover-only", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-            .ThenByDescending(n => n.WanLoadBalanceWeight ?? 0)
-            .ThenBy(n => n.WanFailoverPriority ?? int.MaxValue)
-            .ThenBy(n => string.Equals(n.WanNetworkgroup, "WAN", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-            .First();
-
-        _logger.LogDebug(
-            "ISP Health: primary WAN is {Name} (networkgroup={NG}, type={LBType}, weight={Weight}, priority={Priority}) out of {Count} WANs",
-            primary.Name, primary.WanNetworkgroup, primary.WanLoadBalanceType ?? "weighted",
-            primary.WanLoadBalanceWeight, primary.WanFailoverPriority, wanNets.Count);
-        return primary;
     }
 
     private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(20);

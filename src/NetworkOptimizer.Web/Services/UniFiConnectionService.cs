@@ -857,6 +857,49 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Resolves the primary WAN network from networkconf using load-balance
+    /// configuration. Among enabled WANs with purpose "wan": weighted WANs
+    /// beat failover-only, highest weight wins, lowest failover priority breaks
+    /// ties, and networkgroup "WAN" is the final fallback. Returns null when no
+    /// WAN networks are configured.
+    /// </summary>
+    public static NetworkInfo? ResolvePrimaryWanNetwork(IReadOnlyList<NetworkInfo> networks, ILogger? logger = null)
+    {
+        var wanNets = networks
+            .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && n.Enabled)
+            .ToList();
+        if (wanNets.Count == 0) return null;
+        if (wanNets.Count == 1)
+        {
+            logger?.LogDebug("Primary WAN is {Name} (networkgroup={NG}, single WAN)",
+                wanNets[0].Name, wanNets[0].WanNetworkgroup);
+            return wanNets[0];
+        }
+
+        var primary = wanNets
+            .OrderBy(n => string.Equals(n.WanLoadBalanceType, "failover-only", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .ThenByDescending(n => n.WanLoadBalanceWeight ?? 0)
+            .ThenBy(n => n.WanFailoverPriority ?? int.MaxValue)
+            .ThenBy(n => string.Equals(n.WanNetworkgroup, "WAN", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .First();
+
+        logger?.LogDebug(
+            "Primary WAN is {Name} (networkgroup={NG}, type={LBType}, weight={Weight}, priority={Priority}) out of {Count} WANs",
+            primary.Name, primary.WanNetworkgroup, primary.WanLoadBalanceType ?? "weighted",
+            primary.WanLoadBalanceWeight, primary.WanFailoverPriority, wanNets.Count);
+        return primary;
+    }
+
+    /// <summary>
+    /// Convenience: fetches networks and resolves the primary WAN in one call.
+    /// </summary>
+    public async Task<NetworkInfo?> GetPrimaryWanNetworkAsync(CancellationToken ct = default)
+    {
+        var networks = await GetNetworksAsync(ct);
+        return ResolvePrimaryWanNetwork(networks, _logger);
+    }
+
+    /// <summary>
     /// Enrich a speed test result with client info from UniFi (MAC, name, Wi-Fi signal).
     /// </summary>
     /// <param name="result">The speed test result to enrich</param>

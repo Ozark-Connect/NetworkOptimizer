@@ -281,7 +281,7 @@ public class MonitoringPathView
                     {
                         WanInterface = interfaceKey,
                         FriendlyName = string.IsNullOrEmpty(friendlyName) ? null : friendlyName,
-                        IsPrimary = results.Count == 0,
+                        IsPrimary = false,
                         GatewayMac = gwMac,
                         GatewayPortName = friendlyName,
                         UplinkIfName = uplinkIfname,
@@ -294,6 +294,27 @@ public class MonitoringPathView
 
                 if (results.Count > 0) break;
             }
+        }
+
+        // Mark the primary WAN using networkconf load-balance config instead
+        // of naive first-found ordering.
+        if (results.Count > 0)
+        {
+            WanSummary? primary = null;
+            try
+            {
+                var networks = await _connectionService.GetNetworksAsync(ct);
+                var primaryNet = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger);
+                if (primaryNet != null)
+                    primary = results.FirstOrDefault(w =>
+                        string.Equals(w.WanInterface, primaryNet.WanNetworkgroup, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "GetWansAsync: failed to resolve primary WAN from networkconf");
+            }
+            primary ??= results[0];
+            primary.IsPrimary = true;
         }
 
         _wanCache = results;
@@ -425,7 +446,7 @@ public record WanSummary
 {
     public required string WanInterface { get; init; }
     public string? FriendlyName { get; init; }
-    public required bool IsPrimary { get; init; }
+    public required bool IsPrimary { get; set; }
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
     public string? UplinkIfName { get; init; }
