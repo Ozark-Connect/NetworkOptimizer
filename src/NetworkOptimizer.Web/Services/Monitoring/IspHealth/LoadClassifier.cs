@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 /// <summary>
@@ -27,20 +25,26 @@ public static class LoadClassifier
 
         var windowSize = TimeSpan.FromSeconds(options.LoadWindowSeconds);
         var excluded = 0;
+        var excludedLoaded = 0;
         foreach (var group in rates.GroupBy(r => CongestionDetector.FloorTime(r.Time, windowSize)))
         {
-            if (exclusionWindows != null && IsExcluded(group.Key, windowSize, exclusionWindows))
-            {
-                result[group.Key] = new LoadWindow(false, false, false);
-                excluded++;
-                continue;
-            }
-
             var down = group.Max(r => r.DownloadBps ?? 0);
             var up = group.Max(r => r.UploadBps ?? 0);
 
             var loadedDown = expectedDownBps.HasValue && down >= options.LoadedThresholdFraction * expectedDownBps.Value;
             var loadedUp = expectedUpBps.HasValue && up >= options.LoadedThresholdFraction * expectedUpBps.Value;
+
+            if (exclusionWindows != null && IsExcluded(group.Key, windowSize, exclusionWindows))
+            {
+                // Still drop the window from the analysis, but classify it first so the
+                // log reflects how many GENUINELY-LOADED windows were removed - the only
+                // exclusions that change the loaded-line result. Idle exclusions are noise.
+                result[group.Key] = new LoadWindow(false, false, false);
+                excluded++;
+                if (loadedDown || loadedUp) excludedLoaded++;
+                continue;
+            }
+
             var idle = expectedDownBps.HasValue && expectedUpBps.HasValue
                 && down < options.IdleThresholdFraction * expectedDownBps.Value
                 && up < options.IdleThresholdFraction * expectedUpBps.Value;
@@ -48,7 +52,9 @@ public static class LoadClassifier
             result[group.Key] = new LoadWindow(idle, loadedDown, loadedUp);
         }
         if (excluded > 0)
-            logger?.LogDebug("ISP Health: excluded {Count} load window(s) overlapping SQM probe schedule", excluded);
+            logger?.LogDebug(
+                "ISP Health: excluded {Count} window(s) overlapping SQM probe schedule, {Loaded} of which would have classified as loaded",
+                excluded, excludedLoaded);
         return result;
     }
 
