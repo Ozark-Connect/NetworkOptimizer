@@ -14214,6 +14214,28 @@ tr.stats-row-filtered {
     opacity: 0.35;
 }
 
+[class$="-stats-table"] .table-responsive {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar {
+    height: 6px;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
 .wan-badge-dot {
     width: 10px;
     height: 10px;
