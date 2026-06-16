@@ -1052,16 +1052,18 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Loaded_latency_includes_transit_in_global_min()
+    public void Loaded_latency_includes_transit_in_global_pool()
     {
-        // Transit hop shows a lower credible delta than access or destinations.
-        // Global min should pick the transit target as the cleanest witness.
-        var inputs = BuildInputs(
+        // Transit hops with lower deltas pull the p25 down compared to access-only.
+        var withTransit = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 5), LoadedDownHop(3, 5.5) },
-            transit: new() { TransitHop(3356, 8, 3) },
+            transit: new() { TransitHop(3356, 8, 3), TransitHop(174, 10, 3.5) },
+            destinations: new() { Destination(15169, 13, 6), Destination(13335, 14, 6) });
+        var withoutTransit = BuildInputs(
+            accessHops: new() { LoadedDownHop(2, 5), LoadedDownHop(3, 5.5) },
             destinations: new() { Destination(15169, 13, 6), Destination(13335, 14, 6) });
 
-        ResolvedDownDelta(inputs).Should().BeApproximately(3, 0.8);
+        ResolvedDownDelta(withTransit).Should().BeLessThan(ResolvedDownDelta(withoutTransit)!.Value);
     }
 }
 

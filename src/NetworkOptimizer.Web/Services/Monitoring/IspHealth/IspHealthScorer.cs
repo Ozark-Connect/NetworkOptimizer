@@ -415,9 +415,10 @@ public class IspHealthScorer
     /// idle baseline produces a delta in ms-above-idle; the minimum credible delta is
     /// the answer. Targets below the jitter floor are noise, not load signal.
     ///
-    /// Why min: any target inflated beyond the real bottleneck (ICMP deprioritization,
-    /// destination degradation, peering congestion) reads HIGH. The target with the
-    /// lowest credible delta is the cleanest witness of real access-layer queueing.
+    /// Why p25: any target inflated beyond the real bottleneck (ICMP deprioritization,
+    /// destination degradation, peering congestion) reads HIGH. The lowest quartile
+    /// reflects real access-layer queueing without being pulled down by one target
+    /// that happened to sample the edge of a load burst due to poll timing.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
@@ -445,7 +446,7 @@ public class IspHealthScorer
             .Where(d => d >= noiseFloor)
             .ToList();
 
-        return allDeltas.Count > 0 ? Math.Max(0, allDeltas.Min()) : null;
+        return allDeltas.Count > 0 ? Math.Max(0, SeriesStats.Percentile(allDeltas, 0.25)!.Value) : null;
     }
 
     /// <summary>
