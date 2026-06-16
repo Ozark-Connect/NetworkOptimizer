@@ -481,6 +481,10 @@ public class IspHealthService
                 foreach (var (hour, minute) in probeTimes)
                 {
                     var localProbe = new DateTime(day.Year, day.Month, day.Day, hour, minute, 0, DateTimeKind.Unspecified);
+                    // A probe time inside the DST spring-forward gap is an invalid local time;
+                    // ConvertTimeToUtc would throw. The probe never runs at a nonexistent
+                    // wall-clock time anyway, so skip the exclusion for that day.
+                    if (localZone.IsInvalidTime(localProbe)) continue;
                     var utcProbe = TimeZoneInfo.ConvertTimeToUtc(localProbe, localZone);
                     if (utcProbe >= windowStart && utcProbe <= windowEnd)
                         exclusions.Add((utcProbe, utcProbe + SqmProbeDuration));

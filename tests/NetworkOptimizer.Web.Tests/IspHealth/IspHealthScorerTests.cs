@@ -1009,8 +1009,9 @@ public class IspHealthScorerTests
     public void Loaded_latency_rejects_single_icmp_deprioritized_access_hop()
     {
         // One access hop slams to +12 ms under load (control-plane ICMP throttle); the rest
-        // of the cohort and the destinations only see the real +3. The cohort median drops
-        // the outlier - it must NOT carry the score the way the old worst-hop did.
+        // of the cohort and the destinations only see the real +3. access = MAX = 12, but the
+        // end-to-end median (3) caps it via min() because the spike didn't propagate - so it
+        // must NOT carry the score the way the old worst-hop did.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 3), LoadedDownHop(3, 3), LoadedDownHop(2.5, 12) },
             destinations: new() { Destination(15169, 13, 3), Destination(13335, 14, 3) });
