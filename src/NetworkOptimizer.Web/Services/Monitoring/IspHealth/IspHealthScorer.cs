@@ -34,7 +34,14 @@ public class IspHealthScorer
         var (speedVsPlan, bestSpeedTest, typicalDownMbps, typicalUpMbps) = ScoreSpeedVsPlan(inputs);
         var idleLatency = ScoreIdleLatency(idleBaseline, profile);
         var idleLoss = ScoreIdleLoss(inputs.LossPoolSeries, profile, avgLoad);
-        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows);
+        // The path jitter floor: the quietest median jitter measured anywhere along the
+        // path (ISP hops and transit clusters). It represents the access layer's inherent
+        // stability - every probe crosses it - so jitter is graded relative to this floor.
+        // Also used as the noise gate for loaded-latency deltas.
+        var jitterFloor = ComputeJitterFloor(inputs);
+        _logger?.LogDebug("ISP Health: path jitter floor {Floor} ms", FormatMsOrNull(jitterFloor));
+
+        var loadedDeltas = ResolveLoadedDeltas(inputs, loadWindows, jitterFloor);
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
 
@@ -43,12 +50,6 @@ public class IspHealthScorer
 
         var accessMedianRtt = SeriesStats.Median(
             inputs.FirstHopSeries.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList());
-
-        // The path jitter floor: the quietest median jitter measured anywhere along the
-        // path (ISP hops and transit clusters). It represents the access layer's inherent
-        // stability - every probe crosses it - so jitter is graded relative to this floor.
-        var jitterFloor = ComputeJitterFloor(inputs);
-        _logger?.LogDebug("ISP Health: path jitter floor {Floor} ms", FormatMsOrNull(jitterFloor));
 
         var transitAsns = inputs.TransitAsnSeries.Select(s => GradeAsn(s, inputs.CongestionEvents, jitterFloor, accessMedianRtt, inputs.InternetMedianDeltaMs)).ToList();
 
@@ -108,13 +109,14 @@ public class IspHealthScorer
     /// </summary>
     internal LoadedDeltas ResolveLoadedDeltas(
         IspHealthInputs inputs,
-        Dictionary<DateTime, LoadWindow> loadWindows)
+        Dictionary<DateTime, LoadWindow> loadWindows,
+        double? jitterFloor = null)
     {
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, jitterFloor);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, jitterFloor);
         }
 
         var fromSpeedTests = false;
@@ -407,60 +409,44 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// The worst (largest) loaded delta across the supplied access hops. Each hop is
-    /// measured against its own idle baseline, so a hop with a higher idle RTT is not
-    /// penalised; the maximum is taken because the access link is shared and any hop that
-    /// captured the under-load spike is reporting the real signal.
-    /// </summary>
     /// <summary>
-    /// Loaded-latency delta, robust to the two independent contaminants that fool a single
-    /// vantage point: intermediate-hop ICMP deprioritization (inflates one access hop under
-    /// load) and destination/peering degradation (inflates one end-to-end target).
+    /// Global-min loaded-latency delta across all monitored targets (ISP access hops,
+    /// transit, and internet destinations). Each target's p95 loaded RTT minus its own
+    /// idle baseline produces a delta in ms-above-idle; the minimum credible delta is
+    /// the answer. Targets below the jitter floor are noise, not load signal.
     ///
-    ///   access = MAX over the ISP access hops          - a real bottleneck at ANY hop (the
-    ///            near hop, or a far one like a briefly-spiking OLT) must surface; a flat near
-    ///            hop must never hide it. Safe because of the cap below.
-    ///   total  = MEDIAN over the end-to-end destinations - a single degraded destination/PoP
-    ///            (the ATL 1.1.1.1 case) is an outlier, not the path. This cohort is immune to
-    ///            intermediate-hop ICMP by construction: a transiting ping is forwarded in the
-    ///            data plane and never touches an intermediate router's control plane.
-    ///   result = min(access, total)
-    /// Reconciled by the one physical truth - the access layer is part of every path, so its
-    /// loaded delta can never exceed the total path's. A real access spike PROPAGATES, so
-    /// end-to-end corroborates it and min() keeps it; an ICMP spike does NOT propagate, so the
-    /// total is lower and min() caps it back to the real value. When only the total is lifted
-    /// (transit/destination problem) min() keeps the lower, clean access value - a bad night on
-    /// 1.1.1.1 never dings access.
-    ///
-    /// No quorum or sufficiency gate: residential NMS is load-scarce, so every loaded sample
-    /// counts. Whichever cohort has loaded data is used when the other has none; rejection is
-    /// the cross-cohort cap and the destination median, never a gate that discards a window.
+    /// Why p25: any target inflated beyond the real bottleneck (ICMP deprioritization,
+    /// destination degradation, peering congestion) reads HIGH. The lowest quartile
+    /// reflects real access-layer queueing without being pulled down by one target
+    /// that happened to sample the edge of a load burst due to poll timing.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector)
+        Func<LoadWindow, bool> directionSelector,
+        double? jitterFloor)
     {
+        var noiseFloor = Math.Clamp(jitterFloor ?? 0.4, _options.JitterFloorMinMs, _options.JitterFloorMaxMs);
+
         var accessCohort = inputs.AccessHopSeries.Count > 0
             ? inputs.AccessHopSeries
             : new List<List<LatencySample>> { inputs.FirstHopSeries };
-        var accessDeltas = CohortDeltas(accessCohort, loadWindows, directionSelector);
-        double? access = accessDeltas.Count > 0 ? accessDeltas.Max() : null;
 
-        var destinations = inputs.DestinationSeries
+        var transitSeries = inputs.TransitAsnSeries
+            .Select(s => (IReadOnlyList<LatencySample>)s.Samples)
+            .ToList();
+
+        var destSeries = inputs.DestinationSeries
             .Select(d => (IReadOnlyList<LatencySample>)d.Samples)
             .ToList();
-        var destDeltas = CohortDeltas(destinations, loadWindows, directionSelector);
-        double? total = destDeltas.Count > 0 ? SeriesStats.Median(destDeltas) : null;
 
-        double? loaded = (access, total) switch
-        {
-            (not null, not null) => Math.Min(access.Value, total.Value),
-            (not null, null) => access,
-            (null, not null) => total,
-            _ => null,
-        };
-        return loaded.HasValue ? Math.Max(0, loaded.Value) : null;
+        var allDeltas = CohortDeltas(accessCohort, loadWindows, directionSelector)
+            .Concat(CohortDeltas(transitSeries, loadWindows, directionSelector))
+            .Concat(CohortDeltas(destSeries, loadWindows, directionSelector))
+            .Where(d => d >= noiseFloor)
+            .ToList();
+
+        return allDeltas.Count > 0 ? Math.Max(0, SeriesStats.Percentile(allDeltas, 0.25)!.Value) : null;
     }
 
     /// <summary>

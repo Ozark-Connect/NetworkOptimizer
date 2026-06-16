@@ -105,11 +105,11 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Loaded_latency_takes_worst_access_hop_so_a_spiky_far_hop_is_not_hidden_by_a_flat_near_hop()
+    public void Loaded_latency_surfaces_spiky_far_hop_not_hidden_by_flat_near_hop()
     {
         // The near hop stays flat under download load; a second access hop (the OLT)
-        // briefly spikes to 8 ms. p95 worst-hop must surface the spike rather than letting
-        // the flat near hop read +0 ms - the regression that prompted this (real Mac event).
+        // briefly spikes to 8 ms. The OLT is the only target above the jitter floor,
+        // so global min picks its delta - it must surface, not be hidden by the flat hop.
         var rates = TestSeries.Throughput(TestSeries.Start, Day, 50, 5)
             .Select(r => r.Time >= LoadedDownStart && r.Time < LoadedDownEnd
                 ? r with { DownloadBps = 800_000_000 }
@@ -121,12 +121,12 @@ public class IspHealthScorerTests
         var olt = TestSeries.Flat(TestSeries.Start, Day, 2.0, 0.3)
             .WithSegment(spikeStart, spikeStart.AddMinutes(30), 8.0, 0.3);
 
-        IspHealthInputs Make(List<List<LatencySample>> accessHops) => new()
+        var inputs = new IspHealthInputs
         {
             WindowStart = TestSeries.Start,
             WindowEnd = TestSeries.Start + Day,
             FirstHopSeries = nearHop,
-            AccessHopSeries = accessHops,
+            AccessHopSeries = new List<List<LatencySample>> { nearHop, olt },
             LossPoolSeries = new List<List<LatencySample>> { nearHop },
             WanRates = rates,
             ExpectedDownloadMbps = 1000,
@@ -135,13 +135,9 @@ public class IspHealthScorerTests
             WanSpeedTests = new List<SpeedTestSample> { new(TestSeries.Start.AddHours(6), 980, 490) }
         };
 
-        var scorer = new IspHealthScorer(Options);
-        var nearOnly = scorer.Score(Make(new List<List<LatencySample>> { nearHop }), Gpon)
-            .AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
-        var withOlt = scorer.Score(Make(new List<List<LatencySample>> { nearHop, olt }), Gpon)
+        var withOlt = new IspHealthScorer(Options).Score(inputs, Gpon)
             .AccessDimension.Factors.Single(f => f.Name == "Loaded Latency");
 
-        nearOnly.Score.Should().Be(100);
         withOlt.Score.Should().BeLessThan(100);
         withOlt.ValueText.Should().Contain("6.0 ms down");
     }
@@ -976,11 +972,9 @@ public class IspHealthScorerTests
         withShifts.PathShifts.Should().HaveCount(1);
     }
 
-    // ─── Two-cohort loaded-latency reconciliation: access hops vs end-to-end destinations,
-    // reconciled by min() (access ⊆ every path). Robust to the two independent contaminants
-    // that fool a single vantage - intermediate-hop ICMP deprioritization and destination/
-    // peering degradation - while never discarding thin loaded data. Asserts the resolved
-    // DownMs delta directly via internal ResolveLoadedDeltas. ───
+    // ─── Global-min loaded-latency: pool ISP access, transit, and internet targets,
+    // filter below jitter floor, take the global minimum. The cleanest credible witness
+    // of real access-layer queueing. ───
 
     private static List<LatencySample> LoadedDownHop(double idle, double loadedDelta) =>
         TestSeries.Flat(TestSeries.Start, Day, idle, 0.2, 0)
@@ -989,29 +983,31 @@ public class IspHealthScorerTests
     private static AsnSeries Destination(int asn, double idle, double loadedDelta) =>
         new() { AsnNumber = asn, Samples = LoadedDownHop(idle, loadedDelta) };
 
+    private static AsnSeries TransitHop(int asn, double idle, double loadedDelta) =>
+        new() { AsnNumber = asn, Samples = LoadedDownHop(idle, loadedDelta) };
+
     private static double? ResolvedDownDelta(IspHealthInputs inputs)
     {
         var lw = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, Options);
-        return new IspHealthScorer(Options).ResolveLoadedDeltas(inputs, lw).DownMs;
+        return new IspHealthScorer(Options).ResolveLoadedDeltas(inputs, lw, jitterFloor: 0.4).DownMs;
     }
 
     [Fact]
-    public void Loaded_latency_reported_when_both_cohorts_agree()
+    public void Loaded_latency_takes_global_min_when_all_targets_agree()
     {
         var inputs = BuildInputs(
-            accessHops: new() { LoadedDownHop(2, 4), LoadedDownHop(3, 4), LoadedDownHop(2.5, 4) },
-            destinations: new() { Destination(15169, 13, 4), Destination(13335, 14, 4) });
+            accessHops: new() { LoadedDownHop(2, 4), LoadedDownHop(3, 4.5) },
+            transit: new() { TransitHop(3356, 8, 4.2) },
+            destinations: new() { Destination(15169, 13, 4), Destination(13335, 14, 3.8) });
 
-        ResolvedDownDelta(inputs).Should().BeApproximately(4, 0.7);
+        ResolvedDownDelta(inputs).Should().BeApproximately(3.8, 0.7);
     }
 
     [Fact]
-    public void Loaded_latency_rejects_single_icmp_deprioritized_access_hop()
+    public void Loaded_latency_rejects_icmp_deprioritized_access_hop()
     {
-        // One access hop slams to +12 ms under load (control-plane ICMP throttle); the rest
-        // of the cohort and the destinations only see the real +3. access = MAX = 12, but the
-        // end-to-end median (3) caps it via min() because the spike didn't propagate - so it
-        // must NOT carry the score the way the old worst-hop did.
+        // One access hop slams to +12 ms under load (control-plane ICMP throttle). Global
+        // min picks the cleanest credible target at +3 - the inflated hop is ignored.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 3), LoadedDownHop(3, 3), LoadedDownHop(2.5, 12) },
             destinations: new() { Destination(15169, 13, 3), Destination(13335, 14, 3) });
@@ -1023,9 +1019,8 @@ public class IspHealthScorerTests
     [Fact]
     public void Loaded_latency_rejects_single_degraded_destination()
     {
-        // The ATL case: one destination hits +100 ms while the access layer and the other
-        // destinations stay at the real +3. Destination-cohort median drops it and the clean
-        // access cohort caps the result - a bad night on one destination cannot ding access.
+        // One destination hits +100 ms (bad night on 1.1.1.1). Global min picks +3
+        // from the clean targets - external degradation doesn't ding access.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 3), LoadedDownHop(3, 3) },
             destinations: new() { Destination(15169, 13, 3), Destination(13335, 14, 100), Destination(19281, 16, 3) });
@@ -1038,23 +1033,37 @@ public class IspHealthScorerTests
     public void Loaded_latency_uses_thin_single_hop_data_without_discarding()
     {
         // Data-scarce residential window: one access hop sampled the loaded burst, no
-        // destination samples. The lone observation must be used, not thrown away.
+        // destination or transit samples. The lone observation must be used.
         var inputs = BuildInputs(accessHops: new() { LoadedDownHop(2, 5) });
 
         ResolvedDownDelta(inputs).Should().BeApproximately(5, 0.8);
     }
 
     [Fact]
-    public void Loaded_latency_keeps_access_clean_when_only_destinations_degrade()
+    public void Loaded_latency_filters_noise_below_jitter_floor()
     {
-        // Access flat under load, destinations rise +20 (transit/peering or destination-side
-        // congestion past the ISP). min(access, total) keeps the clean access value -
-        // external degradation is not the user's access bufferbloat.
+        // Access hops show near-zero delta under load (no real bufferbloat). These are
+        // below the jitter floor and should be filtered, leaving null.
         var inputs = BuildInputs(
-            accessHops: new() { LoadedDownHop(2, 0), LoadedDownHop(3, 0) },
-            destinations: new() { Destination(15169, 13, 20), Destination(13335, 14, 20) });
+            accessHops: new() { LoadedDownHop(2, 0.1), LoadedDownHop(3, 0.2) },
+            destinations: new() { Destination(15169, 13, 0.1), Destination(13335, 14, 0.15) });
 
-        ResolvedDownDelta(inputs).Should().BeApproximately(0, 0.8);
+        ResolvedDownDelta(inputs).Should().BeNull();
+    }
+
+    [Fact]
+    public void Loaded_latency_includes_transit_in_global_pool()
+    {
+        // Transit hops with lower deltas pull the p25 down compared to access-only.
+        var withTransit = BuildInputs(
+            accessHops: new() { LoadedDownHop(2, 5), LoadedDownHop(3, 5.5) },
+            transit: new() { TransitHop(3356, 8, 3), TransitHop(174, 10, 3.5) },
+            destinations: new() { Destination(15169, 13, 6), Destination(13335, 14, 6) });
+        var withoutTransit = BuildInputs(
+            accessHops: new() { LoadedDownHop(2, 5), LoadedDownHop(3, 5.5) },
+            destinations: new() { Destination(15169, 13, 6), Destination(13335, 14, 6) });
+
+        ResolvedDownDelta(withTransit).Should().BeLessThan(ResolvedDownDelta(withoutTransit)!.Value);
     }
 }
 
