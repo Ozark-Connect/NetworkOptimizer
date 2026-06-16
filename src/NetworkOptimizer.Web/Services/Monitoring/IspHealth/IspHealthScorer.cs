@@ -409,7 +409,7 @@ public class IspHealthScorer
     /// <summary>
     /// <summary>
     /// Global loaded-latency delta across all monitored targets (ISP access hops,
-    /// transit, and internet destinations). Each target's p85 loaded RTT minus its own
+    /// transit, and internet destinations). Each target's p80 loaded RTT minus its own
     /// idle baseline produces a delta in ms-above-idle. Targets below 0.5 ms are not
     /// showing meaningful load signal; the p25 of the remaining deltas is the result.
     /// P25 rejects high outliers (ICMP deprioritization, destination degradation)
@@ -444,7 +444,7 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// Per-target loaded deltas for a cohort: each target's p85 loaded-window RTT minus its
+    /// Per-target loaded deltas for a cohort: each target's p80 loaded-window RTT minus its
     /// own idle baseline (delta space, so targets at different distances are comparable). Each
     /// target keeps all its loaded samples; a target without a usable baseline or enough loaded
     /// samples is skipped - the window is not.
@@ -478,7 +478,7 @@ public class IspHealthScorer
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
         if (rtts.Count < _options.MinLoadedSamples) return null;
-        return SeriesStats.Percentile(rtts, 0.85)!.Value - idleBaseline;
+        return SeriesStats.Percentile(rtts, 0.80)!.Value - idleBaseline;
     }
 
     private (IspScoreFactor Factor, bool HasData) ScoreLoadedLoss(
