@@ -134,7 +134,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
-            renderStatsTable(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -496,7 +496,7 @@ export function soloDevice(deviceId) {
     deviceMeta.forEach(m => { visibility[m.id] = m.id === deviceId; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {

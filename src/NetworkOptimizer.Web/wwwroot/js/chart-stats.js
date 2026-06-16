@@ -28,7 +28,8 @@ export function renderStatsTable(el, container, opts) {
 
     if (!rows || rows.length === 0) { el.innerHTML = ''; return; }
 
-    const display = opts.showAllRows ? rows : rows.filter(r => r.visible !== false);
+    if (opts.showAllRows !== undefined) el._showAllRows = opts.showAllRows;
+    const display = (el._showAllRows ?? false) ? rows : rows.filter(r => r.visible !== false);
     if (display.length === 0) { el.innerHTML = ''; return; }
 
     const sortCol = el._sortCol ?? -1;

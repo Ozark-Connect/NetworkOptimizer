@@ -125,7 +125,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
-            renderStatsTable(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -466,7 +466,7 @@ export function soloModem(modemId) {
     modemMeta.forEach(m => { visibility[m.id] = m.id === modemId || m.id.startsWith(modemId + ':'); });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {

@@ -203,7 +203,7 @@ function renderBadges(container) {
 
             updateChartVisibility();
             renderBadges(container);
-            if (lastFetchData) renderStatsTable(container);
+            if (lastFetchData) renderStatsTable(container, false);
         });
     }
 }
@@ -650,7 +650,7 @@ export function soloTarget(targetId) {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
-        if (lastFetchData) renderStatsTable(container);
+        if (lastFetchData) renderStatsTable(container, false);
     }
 }
 

@@ -131,7 +131,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
-            renderStatsTable(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -460,7 +460,7 @@ export function soloModule(id) {
     moduleMeta.forEach(m => { visibility[m.id] = m.id === id; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {

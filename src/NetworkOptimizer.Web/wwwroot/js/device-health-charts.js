@@ -137,7 +137,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
-            renderStatsTable(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -431,7 +431,7 @@ export function soloDevice(mac) {
     deviceMeta.forEach(d => { visibility[d.mac] = d.mac === mac; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {
