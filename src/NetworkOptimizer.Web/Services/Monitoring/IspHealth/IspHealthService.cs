@@ -476,6 +476,12 @@ public class IspHealthService
                 (config.SpeedtestMorningHour, config.SpeedtestMorningMinute),
                 (config.SpeedtestEveningHour, config.SpeedtestEveningMinute)
             };
+            // The loop walks LOCAL calendar days but seeds `day` from UTC window bounds, so the
+            // -24h start and +1-day end overshoot are LOAD-BEARING: they guarantee every probe
+            // whose UTC instant lands in [windowStart, windowEnd] is generated regardless of the
+            // local UTC offset (real offsets reach +-14h). The `utcProbe >= windowStart &&
+            // <= windowEnd` filter below trims the overshoot. Do not "tighten" this to .Date
+            // without the buffer - it would drop boundary probes for any non-UTC zone.
             for (var day = windowStart.AddHours(-24).Date; day <= windowEnd.Date; day = day.AddDays(1))
             {
                 foreach (var (hour, minute) in probeTimes)

@@ -39,10 +39,12 @@ public static class GatewayWanHelper
     /// <summary>
     /// Enumerates a gateway's wan1..wan6 objects from raw device JSON as typed
     /// <see cref="Models.GatewayWanInterface"/> values (Key set to the source property),
-    /// using the same model deserialization as
-    /// <see cref="Models.UniFiDeviceResponse.GetWanInterfaces"/>. Lets the monitoring
-    /// parsers read WAN fields (ifname, uplink_ifname, ip, port_idx, speed) without each
-    /// hand-rolling the wan{i} loop. Objects that fail to deserialize are skipped.
+    /// reusing the same per-object deserialization as
+    /// <see cref="Models.UniFiDeviceResponse.GetWanInterfaces"/>. Covers the wan1..wan6 keys
+    /// that gateways actually report (not the keyless "wan" that GetWanInterfaces' regex also
+    /// accepts) - matching the wan{i} loops this replaces. Lets the monitoring parsers read
+    /// WAN fields (ifname, uplink_ifname, ip, port_idx, speed) without each hand-rolling the
+    /// loop. Objects that fail to deserialize are skipped.
     /// </summary>
     [VendorSpecific("UniFi", "Parses UniFi gateway wan1..wan6 device JSON into typed GatewayWanInterface")]
     public static IEnumerable<Models.GatewayWanInterface> EnumerateWanInterfaces(JsonElement device)

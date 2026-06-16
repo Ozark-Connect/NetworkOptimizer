@@ -882,7 +882,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public static NetworkInfo? ResolvePrimaryWanNetwork(IReadOnlyList<NetworkInfo> networks, ILogger? logger = null)
     {
         var wanNets = networks
-            .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase) && n.Enabled)
+            .Where(n => n.IsWan && n.Enabled)
             .ToList();
         if (wanNets.Count == 0) return null;
         if (wanNets.Count == 1)
