@@ -21,6 +21,17 @@ function hashColor(id) {
 }
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+
+function computeStats(values) {
+    if (!values || values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    return {
+        mean: values.reduce((s, v) => s + v, 0) / values.length,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+    };
+}
+
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
@@ -39,6 +50,7 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
+let lastData = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -134,6 +146,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderStatsTable(container);
         });
     }
 }
@@ -166,8 +179,65 @@ async function loadAndUpdate() {
     if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
     if (memChart) memChart.updateSeries(makeSeries('mem'), false);
     updateVisibility();
+    lastData = data;
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container);
+    }
+}
+
+function fmtTemp(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtPct(v) { return v != null ? v.toFixed(1) + '%' : '-'; }
+
+function renderStatsTable(container) {
+    const el = container.querySelector('.health-stats-table');
+    if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
+
+    const visibleDevices = lastData.devices.filter(d => {
+        const meta = deviceMeta.find(dm => dm.mac === d.mac);
+        return meta && visibility[meta.mac] !== false;
+    });
+
+    if (visibleDevices.length === 0) { el.innerHTML = ''; return; }
+
+    const prev = el.querySelector('.table-responsive');
+    const scrollLeft = prev ? prev.scrollLeft : 0;
+
+    const rows = visibleDevices.map(d => {
+        const pts = d.data || [];
+        const tempVals = pts.map(p => p.temp).filter(v => v != null);
+        const cpuVals = pts.map(p => p.cpu).filter(v => v != null);
+        const memVals = pts.map(p => p.mem).filter(v => v != null);
+        const temp = computeStats(tempVals);
+        const cpu = computeStats(cpuVals);
+        const mem = computeStats(memVals);
+        const color = hashColor(d.name);
+        return `<tr>
+            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(d.name)}</td>
+            <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
+            <td>${fmtPct(cpu?.mean)}</td><td>${fmtPct(cpu?.min)}</td><td>${fmtPct(cpu?.max)}</td>
+            <td>${fmtPct(mem?.mean)}</td><td>${fmtPct(mem?.min)}</td><td>${fmtPct(mem?.max)}</td>
+        </tr>`;
+    });
+
+    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
+        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
+        <div class="table-responsive">
+        <table class="data-table" style="font-size:0.8125rem">
+            <thead><tr>
+                <th>Device</th>
+                <th>Temp Mean</th><th>Temp Min</th><th>Temp Max</th>
+                <th>CPU Mean</th><th>CPU Min</th><th>CPU Max</th>
+                <th>Mem Mean</th><th>Mem Min</th><th>Mem Max</th>
+            </tr></thead>
+            <tbody>${rows.join('')}</tbody>
+        </table>
+        </div>
+    </div>`;
+
+    const next = el.querySelector('.table-responsive');
+    if (next && scrollLeft) next.scrollLeft = scrollLeft;
 }
 
 function isVisible() { return isInViewport; }
@@ -406,6 +476,7 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    lastData = null;
     currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;
