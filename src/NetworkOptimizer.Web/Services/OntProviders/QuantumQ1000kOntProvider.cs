@@ -253,7 +253,8 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
 
     /// <summary>
     /// Flattens the TR-181-style response {"Objects":[{"Param":[{"ParamName":..,"ParamValue":..}]}]}
-    /// into a name/value dictionary from the first object.
+    /// into a single name/value dictionary, merging the parameters of every object in the
+    /// array (the optical endpoint splits its data across Interface.1 and Interface.1.Stats).
     /// </summary>
     private static Dictionary<string, string> ParseParamObject(string json)
     {
