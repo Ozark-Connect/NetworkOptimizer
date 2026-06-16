@@ -9,10 +9,18 @@
 @inject ILogger<MonitoringInterfacesCard> Logger
 
 <div class="card" id="monitoring-interfaces">
-    <div class="card-header">
-        <h2 class="card-title">Monitoring Interfaces</h2>
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+        <div class="card-title-group">
+            <h2 class="card-title">Monitoring Interfaces</h2>
+        </div>
+        <div class="card-header-right">
+            <span class="status-badge status-active" @onclick:stopPropagation="true">@SummaryLabel()</span>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
     </div>
-    <div class="card-body">
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+            <div class="card-body">
         <p class="section-description">
             Having trouble reaching your ONT or modem for polling? When a modem or ONT management
             page sits behind your WAN, the gateway can't route to it and monitoring (and your
@@ -99,105 +107,159 @@
             <div class="alert @(_messageSuccess ? "alert-success" : "alert-danger")" style="margin-top: 1rem;">@_message</div>
         }
 
-        @if (_deploySteps.Count > 0)
-        {
-            <div class="deployment-log" style="margin-top: 1rem;">
-                <h4>Deployment progress</h4>
-                <ul class="step-list">
-                    @foreach (var step in _deploySteps)
-                    {
-                        <li>@step</li>
-                    }
-                </ul>
-            </div>
-        }
-
-        <details class="add-form" open="@_formVisible">
-            <summary @onclick="ToggleForm">@(_editing.Id > 0 ? "Edit Monitoring Interface" : "Add Monitoring Interface")</summary>
-            <div class="add-form-content add-form-content-spaced">
-                <div class="form-row">
-                    <div class="form-group" style="flex: 2;">
-                        <label class="form-label">Modem/ONT IP</label>
-                        <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
-                        <small class="form-help">The management IP you're trying to reach (e.g. your modem or ONT status page).</small>
-                    </div>
-                    <div class="form-group" style="flex: 2;">
-                        <label class="form-label">WAN interface</label>
-                        <select class="form-control" @bind="_editing.WanIfName" @bind:after="OnWanChanged">
-                            <option value="">Select WAN...</option>
-                            @foreach (var w in _wans)
+                @if (_deploySteps.Count > 0)
+                {
+                    <div class="mi-deploy-log">
+                        <h4>Deployment progress</h4>
+                        <ul class="mi-step-list">
+                            @foreach (var step in _deploySteps)
                             {
-                                @if (string.IsNullOrEmpty(w.PhysicalIfName))
-                                {
-                                    <option value="" disabled>@WanOptionLabel(w) - no physical port</option>
-                                }
-                                else
-                                {
-                                    <option value="@w.PhysicalIfName">@WanOptionLabel(w)</option>
-                                }
+                                <li>@step</li>
                             }
-                        </select>
-                        <small class="form-help">The WAN your modem/ONT sits behind. The interface rides this port.</small>
+                        </ul>
                     </div>
-                </div>
+                }
 
-                <details class="setup-guide">
-                    <summary>Advanced</summary>
-                    <div class="setup-guide-content">
-                        <div class="form-row">
-                            <div class="form-group" style="flex: 2;">
-                                <label class="form-label">Gateway-local IP</label>
-                                <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" placeholder="192.168.100.2" />
-                                <small class="form-help">The gateway's address on the modem's subnet. Auto-suggested; must be free and on the same subnet.</small>
-                            </div>
-                            <div class="form-group" style="flex: 1;">
-                                <label class="form-label">Subnet prefix</label>
-                                <input type="number" class="form-control" @bind="_editing.SubnetPrefix" min="8" max="30" />
-                            </div>
-                            <div class="form-group" style="flex: 1;">
-                                <label class="form-label">Interface name</label>
-                                <input type="text" class="form-control" @bind="_editing.Name" placeholder="modem0" />
-                            </div>
+                <div class="mi-add-section">
+                    <h3>@(_editing.Id > 0 ? "Edit monitoring interface" : "Add a monitoring interface")</h3>
+                    <div class="form-row">
+                        <div class="form-group mi-grow-2">
+                            <label class="form-label">Modem/ONT IP</label>
+                            <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
+                            <small class="form-help">The management IP you're trying to reach (e.g. your modem or ONT status page).</small>
                         </div>
-                        <div class="form-row">
-                            <div class="form-group" style="flex: 1;">
-                                <label class="form-label">Watchdog interval (min)</label>
-                                <input type="number" class="form-control" @bind="_editing.WatchdogIntervalMinutes" min="1" max="60" />
-                                <small class="form-help">How often the gateway re-applies the route so it survives reprovisioning.</small>
-                            </div>
-                            <div class="form-group" style="flex: 2;">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" @bind="_editing.SnatEnabled" />
-                                    <span>Allow LAN clients to reach the device (SNAT)</span>
-                                </label>
-                                <small class="form-help">Required for the Network Optimizer server and browsers to reach the device. Leave on unless you only need gateway-local access.</small>
-                            </div>
+                        <div class="form-group mi-grow-2">
+                            <label class="form-label">WAN interface</label>
+                            <select class="form-control" @bind="_editing.WanIfName" @bind:after="OnWanChanged">
+                                <option value="">Select WAN...</option>
+                                @foreach (var w in _wans)
+                                {
+                                    @if (string.IsNullOrEmpty(w.PhysicalIfName))
+                                    {
+                                        <option value="" disabled>@WanOptionLabel(w) - no physical port</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@w.PhysicalIfName">@WanOptionLabel(w)</option>
+                                    }
+                                }
+                            </select>
+                            <small class="form-help">The WAN your modem/ONT sits behind. The interface rides this port.</small>
                         </div>
                     </div>
-                </details>
 
-                <div class="action-buttons">
-                    <button class="btn btn-primary" @onclick="SaveAndDeploy" disabled="@(_busyId != null || _saving)">
-                        @if (_saving)
+                    <details class="setup-guide mi-advanced">
+                        <summary>Advanced</summary>
+                        <div class="setup-guide-content">
+                            <div class="form-row">
+                                <div class="form-group mi-grow-2">
+                                    <label class="form-label">Gateway-local IP</label>
+                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" placeholder="192.168.100.2" />
+                                    <small class="form-help">The gateway's address on the modem's subnet. Auto-suggested; must be free and on the same subnet.</small>
+                                </div>
+                                <div class="form-group mi-grow-1">
+                                    <label class="form-label">Subnet prefix</label>
+                                    <input type="number" class="form-control" @bind="_editing.SubnetPrefix" min="8" max="30" />
+                                </div>
+                                <div class="form-group mi-grow-1">
+                                    <label class="form-label">Interface name</label>
+                                    <input type="text" class="form-control" @bind="_editing.Name" placeholder="modem0" />
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group mi-grow-1">
+                                    <label class="form-label">Watchdog interval (min)</label>
+                                    <input type="number" class="form-control" @bind="_editing.WatchdogIntervalMinutes" min="1" max="60" />
+                                    <small class="form-help">How often the gateway re-applies the route so it survives reprovisioning.</small>
+                                </div>
+                                <div class="form-group mi-grow-2">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" @bind="_editing.SnatEnabled" />
+                                        <span>Allow LAN clients to reach the device (SNAT)</span>
+                                    </label>
+                                    <small class="form-help">Required for the Network Optimizer server and browsers to reach the device. Leave on unless you only need gateway-local access.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveAndDeploy" disabled="@(_busyId != null || _saving)">
+                            @if (_saving)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                                <span>Working...</span>
+                            }
+                            else
+                            {
+                                <span>Save &amp; Deploy</span>
+                            }
+                        </button>
+                        <button class="btn btn-secondary" @onclick="SaveOnly" disabled="@(_busyId != null || _saving)">Save without deploying</button>
+                        @if (_editing.Id > 0)
                         {
-                            <span class="spinner spinner-sm"></span>
-                            <span>Working...</span>
+                            <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Cancel edit</button>
                         }
-                        else
-                        {
-                            <span>Save &amp; Deploy</span>
-                        }
-                    </button>
-                    <button class="btn btn-secondary" @onclick="SaveOnly" disabled="@(_busyId != null || _saving)">Save without deploying</button>
-                    @if (_editing.Id > 0 || _formVisible)
-                    {
-                        <button class="btn btn-secondary" @onclick="CancelEdit" disabled="@_saving">Cancel</button>
-                    }
+                    </div>
                 </div>
             </div>
-        </details>
+        </div>
     </div>
 </div>
+
+<style>
+    .mi-deploy-log {
+        margin-top: 1rem;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-lg);
+        padding: 1rem;
+    }
+
+    .mi-deploy-log h4 {
+        margin: 0 0 0.5rem 0;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+    }
+
+    .mi-step-list {
+        margin: 0;
+        padding-left: 1.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .mi-step-list li {
+        margin: 0.25rem 0;
+    }
+
+    .mi-add-section {
+        margin-top: 1.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-lg);
+        background: var(--bg-tertiary);
+        padding: 1rem 1.25rem 1.25rem 1.25rem;
+    }
+
+    .mi-add-section h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+    }
+
+    .mi-advanced {
+        margin-bottom: 1rem;
+    }
+
+    .mi-grow-1 {
+        flex: 1;
+    }
+
+    .mi-grow-2 {
+        flex: 2;
+    }
+</style>
 
 @code {
     /// <summary>
@@ -211,7 +273,7 @@
     private readonly Dictionary<int, MonitoringInterfaceDeploymentService.InterfaceStatus> _statuses = new();
 
     private MonitoringInterface _editing = NewInterface();
-    private bool _formVisible;
+    private bool _collapsed = true;
     private bool _saving;
     private int? _busyId;
     private string? _busyAction;
@@ -244,10 +306,23 @@
                 _editing = NewInterface();
                 _editing.TargetIp = PrefillTargetIp!.Trim();
                 OnTargetChanged();
-                _formVisible = true;
             }
+            _collapsed = false;
         }
     }
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    /// <summary>Expand the card from outside (e.g. when a deep-link or banner jumps here).</summary>
+    public void Expand()
+    {
+        _collapsed = false;
+        StateHasChanged();
+    }
+
+    private string SummaryLabel()
+        => _interfaces.Count == 0 ? "None configured"
+            : $"{_interfaces.Count} configured";
 
     private async Task LoadAsync()
     {
@@ -272,8 +347,6 @@
         }
     }
 
-    private void ToggleForm() => _formVisible = !_formVisible;
-
     private void EditInterface(MonitoringInterface mi)
     {
         _editing = new MonitoringInterface
@@ -288,7 +361,7 @@
             SnatEnabled = mi.SnatEnabled,
             WatchdogIntervalMinutes = mi.WatchdogIntervalMinutes
         };
-        _formVisible = true;
+        _collapsed = false;
         _message = null;
         _deploySteps.Clear();
     }
@@ -296,7 +369,6 @@
     private void CancelEdit()
     {
         _editing = NewInterface();
-        _formVisible = false;
         _message = null;
     }
 
@@ -330,7 +402,6 @@
         // Reload so we have the persisted Id, then deploy that row.
         await LoadAsync();
         var saved = _interfaces.FirstOrDefault(i => i.TargetIp == _editing.TargetIp && i.WanIfName == _editing.WanIfName);
-        _formVisible = false;
         _editing = NewInterface();
         if (saved != null)
             await DeployInterface(saved);

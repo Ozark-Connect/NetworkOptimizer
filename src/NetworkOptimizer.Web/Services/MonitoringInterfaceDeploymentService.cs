@@ -280,29 +280,41 @@ public class MonitoringInterfaceDeploymentService
     }
 
     /// <summary>
-    /// On-gateway duplicate-address detection for the chosen gateway-local IP. Brings up a
-    /// bare macvlan (no address) and runs arping in DAD mode. Returns
-    /// <see cref="PreflightBlock.LocalIpInUse"/> if the address answers, <see cref="PreflightBlock.None"/>
-    /// if free or if arping is unavailable to verify.
+    /// On-gateway check that the chosen gateway-local IP isn't already answering on the
+    /// modem's L2 segment. Brings up a bare macvlan and sends a plain ARP probe (sender
+    /// 0.0.0.0) for the candidate: a reply means the address is taken. We deliberately do
+    /// NOT use <c>arping -D</c> - on UniFi OS that mode errors on a bare interface and
+    /// returns a non-zero code even for free addresses (it would false-positive every
+    /// deploy). A reply line ("reply from") is the only reliable signal here.
+    /// Returns <see cref="PreflightBlock.LocalIpInUse"/> when taken,
+    /// <see cref="PreflightBlock.Skipped"/> when arping is unavailable, otherwise
+    /// <see cref="PreflightBlock.None"/> (free, or we couldn't create the probe interface -
+    /// in which case the boot script will surface any real failure).
     /// </summary>
     private async Task<PreflightBlock> CheckLocalIpAvailableAsync(MonitoringInterface mi)
     {
-        // Create the macvlan (idempotent) and bring it up so arping can transmit. The boot
-        // script will reuse this interface. arping -D returns 1 when a duplicate replies.
+        // Create the macvlan (idempotent) and bring it up so arping can transmit on the
+        // modem segment. The boot script reuses this interface.
         var probe =
             $"ip link show {mi.Name} >/dev/null 2>&1 || ip link add {mi.Name} link {mi.WanIfName} type macvlan mode bridge; " +
             $"ip link set {mi.Name} up 2>/dev/null; " +
-            $"if command -v arping >/dev/null 2>&1; then arping -D -q -c 2 -w 3 -I {mi.Name} {mi.GatewayLocalIp}; echo RC:$?; else echo RC:SKIP; fi";
+            $"if ! ip link show {mi.Name} >/dev/null 2>&1; then echo RESULT:NOIFACE; " +
+            $"elif ! command -v arping >/dev/null 2>&1; then echo RESULT:SKIP; " +
+            $"else out=$(arping -c 2 -w 2 -I {mi.Name} -S 0.0.0.0 {mi.GatewayLocalIp} 2>&1); " +
+            $"if echo \"$out\" | grep -qi 'reply from'; then echo RESULT:INUSE; else echo RESULT:FREE; fi; fi";
 
         var result = await RunAsync(probe, TimeSpan.FromSeconds(15));
         if (!result.success)
             return PreflightBlock.None; // can't verify; let the apply proceed
 
-        if (result.output.Contains("RC:SKIP"))
+        if (result.output.Contains("RESULT:INUSE"))
+            return PreflightBlock.LocalIpInUse;
+        if (result.output.Contains("RESULT:SKIP"))
             return PreflightBlock.Skipped;
 
-        // arping -D exit code: 0 = address free, non-zero = duplicate detected
-        return result.output.Contains("RC:0") ? PreflightBlock.None : PreflightBlock.LocalIpInUse;
+        // RESULT:FREE, RESULT:NOIFACE, or anything unexpected -> don't block; let the
+        // boot-script apply proceed and surface any genuine error.
+        return PreflightBlock.None;
     }
 
     private async Task<bool> IsReachableFromServerAsync(string ip)
