@@ -6,6 +6,26 @@ import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+
+function percentile(sorted, p) {
+    if (sorted.length === 0) return null;
+    const idx = (p / 100) * (sorted.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function computeStats(values) {
+    if (!values || values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    return {
+        mean: values.reduce((s, v) => s + v, 0) / values.length,
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+    };
+}
+
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
@@ -25,6 +45,7 @@ let modemMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
+let lastData = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -122,6 +143,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderStatsTable(container);
         });
     }
 }
@@ -179,8 +201,71 @@ async function loadAndUpdate() {
     if (qualityChart) qualityChart.updateSeries(qualitySeries, false);
 
     updateVisibility();
+    lastData = data;
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container);
+    }
+}
+
+function fmtDbm(v) { return v != null ? v.toFixed(0) : '-'; }
+function fmtDb(v) { return v != null ? v.toFixed(1) : '-'; }
+function fmtPct(v) { return v != null ? v.toFixed(0) + '%' : '-'; }
+
+function renderStatsTable(container) {
+    const el = container.querySelector('.cellular-stats-table');
+    if (!el || !lastData?.modems?.length) { if (el) el.innerHTML = ''; return; }
+
+    const visibleModems = lastData.modems.filter(m => {
+        const meta = modemMeta.find(mm => mm.id === m.id);
+        return meta && visibility[meta.id] !== false;
+    });
+
+    if (visibleModems.length === 0) { el.innerHTML = ''; return; }
+
+    const prev = el.querySelector('.table-responsive');
+    const scrollLeft = prev ? prev.scrollLeft : 0;
+
+    const rows = visibleModems.map(m => {
+        const pts = m.data || [];
+        const rsrpVals = pts.map(p => p.rsrp).filter(v => v != null);
+        const rsrqVals = pts.map(p => p.rsrq).filter(v => v != null);
+        const snrVals = pts.map(p => p.snr).filter(v => v != null);
+        const qualityVals = pts.map(p => p.quality).filter(v => v != null);
+        const rsrp = computeStats(rsrpVals);
+        const rsrq = computeStats(rsrqVals);
+        const snr = computeStats(snrVals);
+        const quality = computeStats(qualityVals);
+        const meta = modemMeta.find(mm => mm.id === m.id);
+        const color = meta?.color || '#9ca3af';
+        return `<tr>
+            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(m.label)}</td>
+            <td>${fmtDbm(rsrp?.mean)}</td><td>${fmtDbm(rsrp?.min)}</td><td>${fmtDbm(rsrp?.max)}</td>
+            <td>${fmtDb(rsrq?.mean)}</td><td>${fmtDb(rsrq?.min)}</td><td>${fmtDb(rsrq?.max)}</td>
+            <td>${fmtDb(snr?.mean)}</td><td>${fmtDb(snr?.min)}</td><td>${fmtDb(snr?.max)}</td>
+            <td>${fmtPct(quality?.mean)}</td><td>${fmtPct(quality?.min)}</td><td>${fmtPct(quality?.max)}</td>
+        </tr>`;
+    });
+
+    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
+        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
+        <div class="table-responsive">
+        <table class="data-table" style="font-size:0.8125rem">
+            <thead><tr>
+                <th>Modem</th>
+                <th>RSRP Mean</th><th>RSRP Min</th><th>RSRP Max</th>
+                <th>RSRQ Mean</th><th>RSRQ Min</th><th>RSRQ Max</th>
+                <th>SNR Mean</th><th>SNR Min</th><th>SNR Max</th>
+                <th>Qual Mean</th><th>Qual Min</th><th>Qual Max</th>
+            </tr></thead>
+            <tbody>${rows.join('')}</tbody>
+        </table>
+        </div>
+    </div>`;
+
+    const next = el.querySelector('.table-responsive');
+    if (next && scrollLeft) next.scrollLeft = scrollLeft;
 }
 
 function isVisible() { return isInViewport; }
@@ -437,6 +522,7 @@ export function unmount() {
     containerId = null;
     modemMeta = [];
     visibility = {};
+    lastData = null;
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;

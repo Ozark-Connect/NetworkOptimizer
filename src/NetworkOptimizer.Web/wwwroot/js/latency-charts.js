@@ -324,6 +324,9 @@ function renderStatsTable(container, data) {
 
     if (visibleTargets.length === 0) { el.innerHTML = ''; return; }
 
+    const prev = el.querySelector('.table-responsive');
+    const scrollLeft = prev ? prev.scrollLeft : 0;
+
     const rows = visibleTargets.map((t, i) => {
         const rttVals = (t.rtt || []).map(p => p.value).filter(v => v != null && v > 0);
         const lossVals = (t.loss || []).map(p => p.value).filter(v => v != null);
@@ -351,6 +354,9 @@ function renderStatsTable(container, data) {
         </table>
         </div>
     </div>`;
+
+    const next = el.querySelector('.table-responsive');
+    if (next && scrollLeft) next.scrollLeft = scrollLeft;
 }
 
 function isVisible() { return isInViewport; }
