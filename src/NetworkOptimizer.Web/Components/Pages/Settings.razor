@@ -813,6 +813,10 @@
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Host / IP</label>
                                 <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
+                                <small class="form-help">
+                                    Behind your WAN and unreachable for polling?
+                                    <a href="@MonitoringInterfaceLink(editingModem.Host)">Set up a monitoring interface →</a>
+                                </small>
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
@@ -1012,6 +1016,10 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
                             <input type="text" class="form-control" @bind="_editingCm.Host" placeholder="192.168.100.1" required />
+                            <small class="form-help">
+                                Behind your WAN and unreachable for polling?
+                                <a href="@MonitoringInterfaceLink(_editingCm.Host)">Set up a monitoring interface →</a>
+                            </small>
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
@@ -1075,6 +1083,12 @@
             {
                 <div class="alert alert-@_cmTestResultClass" style="margin-top: 1rem;">
                     @_cmTestResult
+                    @if (_cmTestResultClass == "danger" && !string.IsNullOrWhiteSpace(_editingCm.Host))
+                    {
+                        <div style="margin-top: 0.5rem;">
+                            If it's behind your WAN, <a href="@MonitoringInterfaceLink(_editingCm.Host)">set up a monitoring interface →</a>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -1173,6 +1187,10 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
                             <input type="text" class="form-control" @bind="_editingOnt.Host" placeholder="192.168.1.254" required />
+                            <small class="form-help">
+                                Behind your WAN and unreachable for polling?
+                                <a href="@MonitoringInterfaceLink(_editingOnt.Host)">Set up a monitoring interface →</a>
+                            </small>
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
@@ -1235,6 +1253,12 @@
             {
                 <div class="alert alert-@_ontTestResultClass" style="margin-top: 1rem;">
                     @_ontTestResult
+                    @if (_ontTestResultClass == "danger" && !string.IsNullOrWhiteSpace(_editingOnt.Host))
+                    {
+                        <div style="margin-top: 0.5rem;">
+                            If it's behind your WAN, <a href="@MonitoringInterfaceLink(_editingOnt.Host)">set up a monitoring interface →</a>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -2594,6 +2618,16 @@
     private bool _savingOnt;
     private string? _ontTestResult;
     private string _ontTestResultClass = "info";
+
+    /// <summary>
+    /// Deep-link to the Monitoring Interfaces section (Monitoring → Setup), absorbing the
+    /// in-progress modem/ONT IP so the add form opens pre-filled.
+    /// </summary>
+    private static string MonitoringInterfaceLink(string? host)
+    {
+        var ip = string.IsNullOrWhiteSpace(host) ? "" : Uri.EscapeDataString(host.Trim());
+        return $"/monitoring?tab=setup&mifip={ip}";
+    }
     private int? _ontTestingId;
     private string _ontStatus = "Inactive";
 

@@ -167,6 +167,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IUniFiRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository, NetworkOptimizer.Storage.Repositories.ModemRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, NetworkOptimizer.Storage.Repositories.CmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
@@ -177,6 +178,10 @@ builder.Services.AddSingleton<SshClientService>();
 
 // Register Gateway SSH service (singleton - SSH access to UniFi gateway/UDM)
 builder.Services.AddSingleton<IGatewaySshService, GatewaySshService>();
+
+// Register udm-boot installer (singleton - shared gateway boot-script infrastructure
+// used by Adaptive SQM, Monitoring Interfaces, etc.)
+builder.Services.AddSingleton<IUdmBootService, UdmBootService>();
 
 // Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
 builder.Services.AddSingleton<UniFiSshService>();
@@ -408,6 +413,7 @@ builder.Services.AddScoped<ISqmService, SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<WanSteerDeploymentService>();
 builder.Services.AddScoped<PerfTweaksDeploymentService>();
+builder.Services.AddScoped<MonitoringInterfaceDeploymentService>();
 builder.Services.AddScoped<AgentService>();
 
 // Register WiFi Optimizer rules and engine

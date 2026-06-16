@@ -259,6 +259,17 @@ The following were implemented in the WiFi Optimizer feature:
 - **Not required** - the confirmed-by-repeat version is correct and the worst edge (double glitch) self-heals in ~10-15 s with no spike written. Revisit only if logs show clusters of "Discarding implausible SNMP rate" WARNs that aren't explained by a single bad read. Keep a fallback for the (unrealistic) small-gap reset so nothing can wedge.
 - **Relevant code:** `InterfaceRateCalculator.Compute` (reset/candidate branch), `MonitoringCollectionAgent.WriteInterfaceCounters`.
 
+### Monitoring Interfaces: Duplicate Reachable IP (DNAT + SNAT to alternate IP)
+
+- **Context:** The Monitoring Interfaces feature (Setup tab) deploys a macvlan + `/32` route + SNAT on the gateway so the Network Optimizer server (a LAN client) and browsers can reach an ONT/modem management IP that sits behind the WAN. v1 runs two preflight gates before deploy and **bails with a report** if either fails:
+  1. The target IP's subnet overlaps a known UniFi Network/VLAN (we already enumerate these via `UniFiNetworkConfig`) - monitoring that device this way isn't possible; user must renumber.
+  2. The target IP is already pingable/reachable from the Network Optimizer server - either it already works (no plumbing needed) or it's a duplicate-IP collision we can't safely route to.
+- **The deferred case:** Two devices share the same management IP on different WANs - e.g. a cable modem on `192.168.100.1` (WAN1) and a Starlink dish also on `192.168.100.1` (WAN2). A plain `/32` route is ambiguous; only one can win. To monitor both, we'd need to give each an **alternate virtual IP** the server targets, then **DNAT** that virtual IP to the real `192.168.100.1` pinned to the correct egress interface, plus the matching **SNAT** so replies return through the same macvlan.
+  - Example shape: server polls `192.168.100.1` (modem) and `192.168.101.1` (alias for Starlink); gateway DNATs `192.168.101.1 -> 192.168.100.1 out <starlink-wan-macvlan>` and SNATs the LAN source to the per-WAN alias.
+  - Needs: per-target alternate-IP allocation, DNAT+SNAT rule generation in the boot/watchdog script, idempotent teardown, and UI to surface the alternate IP the user should point monitoring at (since it's no longer the device's real IP).
+- **v1 behavior:** detect the duplicate (preflight gate 2) and bail with a clear message explaining the collision and that alternate-IP DNAT support is planned. Do **not** silently deploy a route that hijacks the shared IP.
+- **Relevant code (once built):** Monitoring Interfaces deployment service (preflight checks + boot script generation), `UniFiNetworkConfig` enumeration for the overlap gate, `NetworkUtilities.IsIpInSubnet` for overlap math.
+
 ## Multi-Tenant / Multi-Site Support
 
 ### Multi-Tenant Architecture
@@ -403,6 +414,16 @@ The following were implemented in the WiFi Optimizer feature:
 - **Issue:** Two overloads of `TryProbePiholeEndpointAsync` and `TryProbeAdGuardHomeEndpointAsync` - one takes a full URL, one takes IP+port+scheme. The logic is nearly identical.
 - **Fix:** Unify into a single method that takes a URL string. The IP+port caller can construct the URL before calling.
 - **Scope:** `ThirdPartyDnsDetector.cs` only
+
+### Consolidate udm-boot handling on IUdmBootService
+
+- **Context:** udm-boot install was extracted into a shared `IUdmBootService` / `UdmBootService` (`src/NetworkOptimizer.Web/Services/Ssh/UdmBootService.cs`) when the Monitoring Interfaces feature landed. `SqmDeploymentService.InstallUdmBootAsync` now delegates to it, but several other call sites still hand-roll udm-boot logic and should adopt the shared service. Each is marked with a `TODO` comment in code.
+- **Sites to migrate (do not duplicate the systemd unit or the inline check):**
+  - `PerfTweaksDeploymentService.InstallUdmBootAsync` - currently routes through `SqmDeploymentService.InstallUdmBootAsync`; depend on `IUdmBootService` directly to drop the PerfTweaks -> SQM -> UdmBootService chain.
+  - `PerfTweaksDeploymentService.CheckAllStatusAsync` - inline `test -f /etc/systemd/system/udm-boot.service` check; use `IUdmBootService.IsInstalledAsync()`.
+  - `SqmDeploymentService.CheckDeploymentStatusAsync` - inline udm-boot test; use `IUdmBootService.IsInstalledAsync()`.
+  - `WanSteerDeploymentService` status check - inline udm-boot test; use `IUdmBootService.IsInstalledAsync()`.
+- **Note:** these inline checks are batched into larger delimited SSH status commands, so migrating them means either issuing a small extra call or having `IUdmBootService` expose the raw check fragment. Weigh the extra round-trip against the dedup; not blocking.
 
 ### Rename ISpeedTestRepository to IGatewayRepository
 - **Issue:** `ISpeedTestRepository` is a misleading name - it handles Gateway SSH settings, iperf3 results, AND SQM WAN configuration

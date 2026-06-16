@@ -1079,6 +1079,10 @@ else
                         <SnmpDeviceStatusCard @ref="_snmpDeviceCard" Devices="_snmpDeviceStatuses" />
                     </div>
 
+                    <div style="margin-top: 1.25rem;">
+                        <MonitoringInterfacesCard PrefillTargetIp="@MiTargetParam" />
+                    </div>
+
                     <details class="setup-guide" style="margin-top: 1.25rem;">
                         <summary>Not seeing data for some devices?</summary>
                         <div class="setup-guide-content">
@@ -1137,6 +1141,9 @@ else
 
     [SupplyParameterFromQuery(Name = "ont")]
     public string? OntParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "mifip")]
+    public string? MiTargetParam { get; set; }
 
     private string? _lastTabParam;
     private string? _soloCellularModemId;
