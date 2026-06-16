@@ -5,6 +5,7 @@
 // device-health-charts, and future chart sets share one implementation.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -53,7 +54,7 @@ function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
             height: type === 'area' ? 200 : 260,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
@@ -202,7 +203,7 @@ function renderBadges(container) {
 
             updateChartVisibility();
             renderBadges(container);
-            if (lastFetchData) renderStatsTable(container, lastFetchData);
+            if (lastFetchData) renderStatsTable(container, false);
         });
     }
 }
@@ -253,7 +254,7 @@ async function loadAndUpdate() {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
-        renderStatsTable(container, data);
+        renderStatsTable(container);
     }
 
     // WAN rate chart - show for non-Fabric categories
@@ -278,26 +279,6 @@ async function loadAndUpdate() {
     }
 }
 
-function percentile(sorted, p) {
-    if (sorted.length === 0) return null;
-    const idx = (p / 100) * (sorted.length - 1);
-    const lo = Math.floor(idx);
-    const hi = Math.ceil(idx);
-    if (lo === hi) return sorted[lo];
-    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
-function computeStats(values) {
-    if (!values || values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    return {
-        mean: values.reduce((s, v) => s + v, 0) / values.length,
-        min: sorted[0],
-        max: sorted[sorted.length - 1],
-        p95: percentile(sorted, 95),
-        p99: percentile(sorted, 99),
-    };
-}
 
 function fmtRtt(v) { return v != null ? v.toFixed(3) : '-'; }
 function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt, subtleAt, decimals) {
@@ -313,44 +294,33 @@ function fmtLossColored(v, redAt, orangeAt, yellowAt, lightAt, subtleAt, decimal
 function fmtLossMean(v) { return fmtLossColored(v, 1, 0.2, 0.05, 0.005, 0.0005, 3); }
 function fmtLossMax(v) { return fmtLossColored(v, 5, 2, 0.5, 0.005, 0.005, 2); }
 
-function renderStatsTable(container, data) {
+function renderStatsTable(container, showAll) {
     const el = container.querySelector('.latency-stats-table');
+    const data = lastFetchData;
     if (!el || !data?.targets?.length) { if (el) el.innerHTML = ''; return; }
 
-    const visibleTargets = data.targets.filter((t, i) => {
-        const meta = targetMeta[i];
-        return meta && visibility[meta.id] !== false;
-    });
-
-    if (visibleTargets.length === 0) { el.innerHTML = ''; return; }
-
-    const rows = visibleTargets.map((t, i) => {
+    const rows = data.targets.map(t => {
         const rttVals = (t.rtt || []).map(p => p.value).filter(v => v != null && v > 0);
         const lossVals = (t.loss || []).map(p => p.value).filter(v => v != null);
         const rtt = computeStats(rttVals);
         const loss = computeStats(lossVals);
         const meta = targetMeta.find(m => m.id === t.targetId);
-        const color = meta?.color || '#9ca3af';
-        return `<tr>
-            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(t.name)}</td>
-            <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
-            <td>${fmtLossMean(loss?.mean)}</td><td>${fmtLossMax(loss?.max)}</td>
-        </tr>`;
+        return { id: t.targetId, label: t.name, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [rtt?.mean, rtt?.min, rtt?.max, rtt?.p95, rtt?.p99, loss?.mean, loss?.max] };
     });
 
-    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
-        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
-        <div class="table-responsive">
-        <table class="data-table" style="font-size:0.8125rem">
-            <thead><tr>
-                <th>Target</th>
-                <th>RTT Mean</th><th>Min</th><th>Max</th><th>P95</th><th>P99</th>
-                <th>Loss Mean</th><th>Loss Max</th>
-            </tr></thead>
-            <tbody>${rows.join('')}</tbody>
-        </table>
-        </div>
-    </div>`;
+    renderTable(el, container, {
+        nameHeader: 'Target', rows, showAllRows: showAll,
+        columns: [
+            { header: 'RTT Mean', format: fmtRtt }, { header: 'Min', format: fmtRtt }, { header: 'Max', format: fmtRtt },
+            { header: 'P95', format: fmtRtt }, { header: 'P99', format: fmtRtt },
+            { header: 'Loss Mean', format: fmtLossMean }, { header: 'Loss Max', format: fmtLossMax },
+        ],
+        filter: { meta: () => targetMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateChartVisibility(); renderBadges(c); renderStatsTable(c, true); } },
+    });
 }
 
 function isVisible() { return isInViewport; }
@@ -680,7 +650,7 @@ export function soloTarget(targetId) {
     const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
-        if (lastFetchData) renderStatsTable(container, lastFetchData);
+        if (lastFetchData) renderStatsTable(container, false);
     }
 }
 

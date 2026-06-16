@@ -2,10 +2,12 @@
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
@@ -23,6 +25,7 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
+let lastData = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     const base = {
@@ -30,7 +33,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'area', height,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
@@ -127,6 +130,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -191,8 +195,43 @@ async function loadAndUpdate() {
     if (tempChart) tempChart.updateSeries(tempSeries, false);
 
     updateVisibility();
+    lastData = data;
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container);
+    }
+}
+
+const fmtDbm = v => v != null ? v.toFixed(2) : '-';
+const fmtTemp = v => v != null ? v.toFixed(1) : '-';
+
+function renderStatsTable(container, showAll) {
+    const el = container.querySelector('.ont-stats-table');
+    if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
+
+    const rows = lastData.devices.map(d => {
+        const pts = d.data || [];
+        const rx = computeStats(pts.map(p => p.rx).filter(v => v != null));
+        const tx = computeStats(pts.map(p => p.tx).filter(v => v != null));
+        const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
+        const meta = deviceMeta.find(dm => dm.id === d.id);
+        return { id: d.id, label: d.label, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [rx?.mean, rx?.min, rx?.max, tx?.mean, tx?.min, tx?.max, temp?.mean, temp?.min, temp?.max] };
+    });
+
+    renderTable(el, container, {
+        nameHeader: 'Device', rows, showAllRows: showAll,
+        columns: [
+            { header: 'RX Mean', format: fmtDbm }, { header: 'RX Min', format: fmtDbm }, { header: 'RX Max', format: fmtDbm },
+            { header: 'TX Mean', format: fmtDbm }, { header: 'TX Min', format: fmtDbm }, { header: 'TX Max', format: fmtDbm },
+            { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+        ],
+        filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
+    });
 }
 
 function isVisible() { return isInViewport; }
@@ -417,7 +456,7 @@ export function soloDevice(deviceId) {
     deviceMeta.forEach(m => { visibility[m.id] = m.id === deviceId; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {
@@ -429,6 +468,7 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    lastData = null;
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;

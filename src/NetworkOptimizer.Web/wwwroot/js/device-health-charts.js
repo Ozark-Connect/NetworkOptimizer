@@ -2,6 +2,7 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -21,6 +22,7 @@ function hashColor(id) {
 }
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+
 const POLL_INTERVALS = { 0: 5000, 1: 5000, 6: 10000, 24: 15000, 168: 30000, 720: 30000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
@@ -39,6 +41,7 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
+let lastData = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -46,7 +49,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'line', height,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
@@ -134,6 +137,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -166,8 +170,42 @@ async function loadAndUpdate() {
     if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
     if (memChart) memChart.updateSeries(makeSeries('mem'), false);
     updateVisibility();
+    lastData = data;
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container);
+    }
+}
+
+const fmtTemp = v => v != null ? v.toFixed(1) : '-';
+const fmtPct = v => v != null ? v.toFixed(1) + '%' : '-';
+
+function renderStatsTable(container, showAll) {
+    const el = container.querySelector('.health-stats-table');
+    if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
+
+    const rows = lastData.devices.map(d => {
+        const pts = d.data || [];
+        const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
+        const cpu = computeStats(pts.map(p => p.cpu).filter(v => v != null));
+        const mem = computeStats(pts.map(p => p.mem).filter(v => v != null));
+        return { id: d.mac, label: d.name, color: hashColor(d.name),
+            visible: deviceMeta.some(dm => dm.mac === d.mac) && visibility[d.mac] !== false,
+            values: [temp?.mean, temp?.min, temp?.max, cpu?.mean, cpu?.min, cpu?.max, mem?.mean, mem?.min, mem?.max] };
+    });
+
+    renderTable(el, container, {
+        nameHeader: 'Device', rows, showAllRows: showAll,
+        columns: [
+            { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+            { header: 'CPU Mean', format: fmtPct }, { header: 'CPU Min', format: fmtPct }, { header: 'CPU Max', format: fmtPct },
+            { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
+        ],
+        filter: { meta: () => deviceMeta, key: 'mac', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
+    });
 }
 
 function isVisible() { return isInViewport; }
@@ -393,7 +431,7 @@ export function soloDevice(mac) {
     deviceMeta.forEach(d => { visibility[d.mac] = d.mac === mac; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {
@@ -406,6 +444,7 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    lastData = null;
     currentRangeHours = 1;
     windowOffset = 0;
     isCustomRange = false;

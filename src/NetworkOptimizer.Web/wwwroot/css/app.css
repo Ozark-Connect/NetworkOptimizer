@@ -14177,6 +14177,64 @@ a.affected-client:hover {
     color: var(--text-muted, #666);
 }
 
+.stat-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--border-radius-lg);
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+    white-space: nowrap;
+}
+
+td[data-stat-id] {
+    cursor: pointer;
+}
+
+td[data-stat-id]:hover .stat-filter-badge {
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+th[data-sort-col] {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+th[data-sort-col]:hover {
+    color: var(--text-primary);
+}
+
+th.stats-sort-active {
+    color: var(--primary-color);
+}
+
+tr.stats-row-filtered {
+    opacity: 0.35;
+}
+
+[class$="-stats-table"] .table-responsive {
+    scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar {
+    height: 10px;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+[class$="-stats-table"] .table-responsive::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
 .wan-badge-dot {
     width: 10px;
     height: 10px;

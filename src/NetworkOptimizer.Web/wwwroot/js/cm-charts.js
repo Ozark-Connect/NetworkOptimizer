@@ -2,10 +2,12 @@
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
@@ -25,6 +27,7 @@ let deviceMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
+let lastData = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     const base = {
@@ -32,7 +35,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'area', height,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
@@ -131,6 +134,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -209,8 +213,49 @@ async function loadAndUpdate() {
     if (errorsChart) errorsChart.updateSeries(errorsSeries, false);
 
     updateVisibility();
+    lastData = data;
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container);
+    }
+}
+
+const fmtDbmv = v => v != null ? v.toFixed(2) : '-';
+const fmtDb = v => v != null ? v.toFixed(2) : '-';
+const fmtInt = v => v != null ? Math.round(v).toString() : '-';
+
+function renderStatsTable(container, showAll) {
+    const el = container.querySelector('.cm-stats-table');
+    if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
+
+    const rows = lastData.devices.map(d => {
+        const pts = d.data || [];
+        const dsPower = computeStats(pts.map(p => p.dsPower).filter(v => v != null));
+        const dsSnr = computeStats(pts.map(p => p.dsSnr).filter(v => v != null));
+        const usPower = computeStats(pts.map(p => p.usPower).filter(v => v != null));
+        const uncorr = computeStats(pts.map(p => p.uncorrDelta).filter(v => v != null));
+        const corr = computeStats(pts.map(p => p.corrDelta).filter(v => v != null));
+        const meta = deviceMeta.find(dm => dm.id === d.id);
+        return { id: d.id, label: d.label, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [dsPower?.mean, dsPower?.min, dsPower?.max, dsSnr?.mean, dsSnr?.min, dsSnr?.max,
+                usPower?.mean, usPower?.min, usPower?.max, uncorr?.mean, uncorr?.max, corr?.mean, corr?.max] };
+    });
+
+    renderTable(el, container, {
+        nameHeader: 'Device', rows, showAllRows: showAll,
+        columns: [
+            { header: 'DS Pwr Mean', format: fmtDbmv }, { header: 'DS Pwr Min', format: fmtDbmv }, { header: 'DS Pwr Max', format: fmtDbmv },
+            { header: 'DS SNR Mean', format: fmtDb }, { header: 'DS SNR Min', format: fmtDb }, { header: 'DS SNR Max', format: fmtDb },
+            { header: 'US Pwr Mean', format: fmtDbmv }, { header: 'US Pwr Min', format: fmtDbmv }, { header: 'US Pwr Max', format: fmtDbmv },
+            { header: 'Uncorr Mean', format: fmtInt }, { header: 'Uncorr Max', format: fmtInt },
+            { header: 'Corr Mean', format: fmtInt }, { header: 'Corr Max', format: fmtInt },
+        ],
+        filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
+    });
 }
 
 function isVisible() { return isInViewport; }
@@ -451,7 +496,7 @@ export function soloDevice(deviceId) {
     deviceMeta.forEach(m => { visibility[m.id] = m.id === deviceId; });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {
@@ -465,6 +510,7 @@ export function unmount() {
     containerId = null;
     deviceMeta = [];
     visibility = {};
+    lastData = null;
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;

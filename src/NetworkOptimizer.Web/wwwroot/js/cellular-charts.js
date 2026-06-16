@@ -2,10 +2,12 @@
 // Same control pattern as sfp-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s; return _esc.innerHTML; }
+
 const POLL_INTERVALS = { 0: 10000, 1: 10000, 6: 15000, 24: 30000, 168: 60000, 720: 60000 };
 const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*86400000, 720: 30*86400000 };
 
@@ -25,6 +27,7 @@ let modemMeta = [];
 let visibility = {};
 let visibilityObserver = null;
 let isInViewport = true;
+let lastData = null;
 
 function baseOpts(height, yTitle, yFormatter, extra) {
     return {
@@ -32,7 +35,7 @@ function baseOpts(height, yTitle, yFormatter, extra) {
             type: 'area', height,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: true, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
             events: { beforeZoom: (ctx, opts) => applyDragZoom(opts?.xaxis) },
             animations: { enabled: false },
         },
@@ -122,6 +125,7 @@ function renderBadges(container) {
             }
             updateVisibility();
             renderBadges(container);
+            renderStatsTable(container, false);
         });
     }
 }
@@ -179,8 +183,47 @@ async function loadAndUpdate() {
     if (qualityChart) qualityChart.updateSeries(qualitySeries, false);
 
     updateVisibility();
+    lastData = data;
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) {
+        renderBadges(container);
+        renderStatsTable(container);
+    }
+}
+
+const fmtDbm = v => v != null ? v.toFixed(2) : '-';
+const fmtDb = v => v != null ? v.toFixed(2) : '-';
+const fmtPct = v => v != null ? v.toFixed(0) + '%' : '-';
+
+function renderStatsTable(container, showAll) {
+    const el = container.querySelector('.cellular-stats-table');
+    if (!el || !lastData?.modems?.length) { if (el) el.innerHTML = ''; return; }
+
+    const rows = lastData.modems.map(m => {
+        const pts = m.data || [];
+        const rsrp = computeStats(pts.map(p => p.rsrp).filter(v => v != null));
+        const rsrq = computeStats(pts.map(p => p.rsrq).filter(v => v != null));
+        const snr = computeStats(pts.map(p => p.snr).filter(v => v != null));
+        const quality = computeStats(pts.map(p => p.quality).filter(v => v != null));
+        const meta = modemMeta.find(mm => mm.id === m.id);
+        return { id: m.id, label: m.label, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [rsrp?.mean, rsrp?.min, rsrp?.max, rsrq?.mean, rsrq?.min, rsrq?.max,
+                snr?.mean, snr?.min, snr?.max, quality?.mean, quality?.min, quality?.max] };
+    });
+
+    renderTable(el, container, {
+        nameHeader: 'Modem', rows, showAllRows: showAll,
+        columns: [
+            { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
+            { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
+            { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
+            { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
+        ],
+        filter: { meta: () => modemMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
+    });
 }
 
 function isVisible() { return isInViewport; }
@@ -423,7 +466,7 @@ export function soloModem(modemId) {
     modemMeta.forEach(m => { visibility[m.id] = m.id === modemId || m.id.startsWith(modemId + ':'); });
     updateVisibility();
     const container = document.getElementById(containerId);
-    if (container) renderBadges(container);
+    if (container) { renderBadges(container); renderStatsTable(container, false); }
 }
 
 export function unmount() {
@@ -437,6 +480,7 @@ export function unmount() {
     containerId = null;
     modemMeta = [];
     visibility = {};
+    lastData = null;
     currentRangeHours = 24;
     windowOffset = 0;
     isCustomRange = false;
