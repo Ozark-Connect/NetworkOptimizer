@@ -2,7 +2,7 @@
 // filter badges, poll interval scaling) into a shared module so latency-charts,
 // device-health-charts, and future chart sets share one implementation.
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _colorCache = {};
@@ -178,64 +178,33 @@ async function loadAndUpdate() {
     }
 }
 
-function fmtTemp(v) { return v != null ? v.toFixed(1) : '-'; }
-function fmtPct(v) { return v != null ? v.toFixed(1) + '%' : '-'; }
+const fmtTemp = v => v != null ? v.toFixed(1) : '-';
+const fmtPct = v => v != null ? v.toFixed(1) + '%' : '-';
 
-function renderStatsTable(container) {
+function renderStatsTable(container, showAll) {
     const el = container.querySelector('.health-stats-table');
     if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
 
-    const visibleDevices = lastData.devices.filter(d => {
-        const meta = deviceMeta.find(dm => dm.mac === d.mac);
-        return meta && visibility[meta.mac] !== false;
-    });
-
-    if (visibleDevices.length === 0) { el.innerHTML = ''; return; }
-
-    const prev = el.querySelector('.table-responsive');
-    const scrollLeft = prev ? prev.scrollLeft : 0;
-
-    const rows = visibleDevices.map(d => {
+    const rows = lastData.devices.map(d => {
         const pts = d.data || [];
-        const tempVals = pts.map(p => p.temp).filter(v => v != null);
-        const cpuVals = pts.map(p => p.cpu).filter(v => v != null);
-        const memVals = pts.map(p => p.mem).filter(v => v != null);
-        const temp = computeStats(tempVals);
-        const cpu = computeStats(cpuVals);
-        const mem = computeStats(memVals);
-        const color = hashColor(d.name);
-        return `<tr>
-            <td data-stat-id="${d.mac}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(d.name)}</span></td>
-            <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
-            <td>${fmtPct(cpu?.mean)}</td><td>${fmtPct(cpu?.min)}</td><td>${fmtPct(cpu?.max)}</td>
-            <td>${fmtPct(mem?.mean)}</td><td>${fmtPct(mem?.min)}</td><td>${fmtPct(mem?.max)}</td>
-        </tr>`;
+        const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
+        const cpu = computeStats(pts.map(p => p.cpu).filter(v => v != null));
+        const mem = computeStats(pts.map(p => p.mem).filter(v => v != null));
+        return { id: d.mac, label: d.name, color: hashColor(d.name),
+            visible: deviceMeta.some(dm => dm.mac === d.mac) && visibility[d.mac] !== false,
+            values: [temp?.mean, temp?.min, temp?.max, cpu?.mean, cpu?.min, cpu?.max, mem?.mean, mem?.min, mem?.max] };
     });
 
-    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
-        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
-        <div class="table-responsive">
-        <table class="data-table" style="font-size:0.8125rem">
-            <thead><tr>
-                <th>Device</th>
-                <th>Temp Mean</th><th>Temp Min</th><th>Temp Max</th>
-                <th>CPU Mean</th><th>CPU Min</th><th>CPU Max</th>
-                <th>Mem Mean</th><th>Mem Min</th><th>Mem Max</th>
-            </tr></thead>
-            <tbody>${rows.join('')}</tbody>
-        </table>
-        </div>
-    </div>`;
-
-    const next = el.querySelector('.table-responsive');
-    if (next && scrollLeft) next.scrollLeft = scrollLeft;
-
-    initStatsFilter(el, container, {
-        meta: () => deviceMeta,
-        key: 'mac',
-        visibility: () => visibility,
-        resetVisibility: () => { visibility = {}; },
-        onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c); },
+    renderTable(el, container, {
+        nameHeader: 'Device', rows, showAllRows: showAll,
+        columns: [
+            { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+            { header: 'CPU Mean', format: fmtPct }, { header: 'CPU Min', format: fmtPct }, { header: 'CPU Max', format: fmtPct },
+            { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
+        ],
+        filter: { meta: () => deviceMeta, key: 'mac', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
     });
 }
 

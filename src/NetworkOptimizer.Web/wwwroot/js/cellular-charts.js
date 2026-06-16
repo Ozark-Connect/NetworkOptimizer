@@ -2,7 +2,7 @@
 // Same control pattern as sfp-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -191,70 +191,38 @@ async function loadAndUpdate() {
     }
 }
 
-function fmtDbm(v) { return v != null ? v.toFixed(2) : '-'; }
-function fmtDb(v) { return v != null ? v.toFixed(2) : '-'; }
-function fmtPct(v) { return v != null ? v.toFixed(0) + '%' : '-'; }
+const fmtDbm = v => v != null ? v.toFixed(2) : '-';
+const fmtDb = v => v != null ? v.toFixed(2) : '-';
+const fmtPct = v => v != null ? v.toFixed(0) + '%' : '-';
 
-function renderStatsTable(container) {
+function renderStatsTable(container, showAll) {
     const el = container.querySelector('.cellular-stats-table');
     if (!el || !lastData?.modems?.length) { if (el) el.innerHTML = ''; return; }
 
-    const visibleModems = lastData.modems.filter(m => {
-        const meta = modemMeta.find(mm => mm.id === m.id);
-        return meta && visibility[meta.id] !== false;
-    });
-
-    if (visibleModems.length === 0) { el.innerHTML = ''; return; }
-
-    const prev = el.querySelector('.table-responsive');
-    const scrollLeft = prev ? prev.scrollLeft : 0;
-
-    const rows = visibleModems.map(m => {
+    const rows = lastData.modems.map(m => {
         const pts = m.data || [];
-        const rsrpVals = pts.map(p => p.rsrp).filter(v => v != null);
-        const rsrqVals = pts.map(p => p.rsrq).filter(v => v != null);
-        const snrVals = pts.map(p => p.snr).filter(v => v != null);
-        const qualityVals = pts.map(p => p.quality).filter(v => v != null);
-        const rsrp = computeStats(rsrpVals);
-        const rsrq = computeStats(rsrqVals);
-        const snr = computeStats(snrVals);
-        const quality = computeStats(qualityVals);
+        const rsrp = computeStats(pts.map(p => p.rsrp).filter(v => v != null));
+        const rsrq = computeStats(pts.map(p => p.rsrq).filter(v => v != null));
+        const snr = computeStats(pts.map(p => p.snr).filter(v => v != null));
+        const quality = computeStats(pts.map(p => p.quality).filter(v => v != null));
         const meta = modemMeta.find(mm => mm.id === m.id);
-        const color = meta?.color || '#9ca3af';
-        return `<tr>
-            <td data-stat-id="${m.id}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(m.label)}</span></td>
-            <td>${fmtDbm(rsrp?.mean)}</td><td>${fmtDbm(rsrp?.min)}</td><td>${fmtDbm(rsrp?.max)}</td>
-            <td>${fmtDb(rsrq?.mean)}</td><td>${fmtDb(rsrq?.min)}</td><td>${fmtDb(rsrq?.max)}</td>
-            <td>${fmtDb(snr?.mean)}</td><td>${fmtDb(snr?.min)}</td><td>${fmtDb(snr?.max)}</td>
-            <td>${fmtPct(quality?.mean)}</td><td>${fmtPct(quality?.min)}</td><td>${fmtPct(quality?.max)}</td>
-        </tr>`;
+        return { id: m.id, label: m.label, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [rsrp?.mean, rsrp?.min, rsrp?.max, rsrq?.mean, rsrq?.min, rsrq?.max,
+                snr?.mean, snr?.min, snr?.max, quality?.mean, quality?.min, quality?.max] };
     });
 
-    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
-        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
-        <div class="table-responsive">
-        <table class="data-table" style="font-size:0.8125rem">
-            <thead><tr>
-                <th>Modem</th>
-                <th>RSRP Mean</th><th>RSRP Min</th><th>RSRP Max</th>
-                <th>RSRQ Mean</th><th>RSRQ Min</th><th>RSRQ Max</th>
-                <th>SNR Mean</th><th>SNR Min</th><th>SNR Max</th>
-                <th>Qual Mean</th><th>Qual Min</th><th>Qual Max</th>
-            </tr></thead>
-            <tbody>${rows.join('')}</tbody>
-        </table>
-        </div>
-    </div>`;
-
-    const next = el.querySelector('.table-responsive');
-    if (next && scrollLeft) next.scrollLeft = scrollLeft;
-
-    initStatsFilter(el, container, {
-        meta: () => modemMeta,
-        key: 'id',
-        visibility: () => visibility,
-        resetVisibility: () => { visibility = {}; },
-        onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c); },
+    renderTable(el, container, {
+        nameHeader: 'Modem', rows, showAllRows: showAll,
+        columns: [
+            { header: 'RSRP Mean', format: fmtDbm }, { header: 'RSRP Min', format: fmtDbm }, { header: 'RSRP Max', format: fmtDbm },
+            { header: 'RSRQ Mean', format: fmtDb }, { header: 'RSRQ Min', format: fmtDb }, { header: 'RSRQ Max', format: fmtDb },
+            { header: 'SNR Mean', format: fmtDb }, { header: 'SNR Min', format: fmtDb }, { header: 'SNR Max', format: fmtDb },
+            { header: 'Qual Mean', format: fmtPct }, { header: 'Qual Min', format: fmtPct }, { header: 'Qual Max', format: fmtPct },
+        ],
+        filter: { meta: () => modemMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
     });
 }
 

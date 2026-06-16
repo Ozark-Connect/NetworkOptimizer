@@ -2,7 +2,7 @@
 // Same control pattern as latency-charts.js and device-health-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#7EB26D', '#EAB839', '#6ED0E0', '#EF843C', '#E24D42', '#1F78C1'];
 const _esc = document.createElement('span');
@@ -196,65 +196,34 @@ async function loadAndUpdate() {
     }
 }
 
-function fmtDbm(v) { return v != null ? v.toFixed(2) : '-'; }
-function fmtTemp(v) { return v != null ? v.toFixed(1) : '-'; }
+const fmtDbm = v => v != null ? v.toFixed(2) : '-';
+const fmtTemp = v => v != null ? v.toFixed(1) : '-';
 
-function renderStatsTable(container) {
+function renderStatsTable(container, showAll) {
     const el = container.querySelector('.sfp-stats-table');
     if (!el || !lastData?.modules?.length) { if (el) el.innerHTML = ''; return; }
 
-    const visibleModules = lastData.modules.filter(m => {
-        const meta = moduleMeta.find(mm => mm.id === m.id);
-        return meta && visibility[meta.id] !== false;
-    });
-
-    if (visibleModules.length === 0) { el.innerHTML = ''; return; }
-
-    const prev = el.querySelector('.table-responsive');
-    const scrollLeft = prev ? prev.scrollLeft : 0;
-
-    const rows = visibleModules.map(m => {
+    const rows = lastData.modules.map(m => {
         const pts = m.data || [];
-        const rxVals = pts.map(p => p.rx).filter(v => v != null);
-        const txVals = pts.map(p => p.tx).filter(v => v != null);
-        const tempVals = pts.map(p => p.temp).filter(v => v != null);
-        const rx = computeStats(rxVals);
-        const tx = computeStats(txVals);
-        const temp = computeStats(tempVals);
+        const rx = computeStats(pts.map(p => p.rx).filter(v => v != null));
+        const tx = computeStats(pts.map(p => p.tx).filter(v => v != null));
+        const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
         const meta = moduleMeta.find(mm => mm.id === m.id);
-        const color = meta?.color || '#9ca3af';
-        return `<tr>
-            <td data-stat-id="${m.id}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(m.label)}</span></td>
-            <td>${fmtDbm(rx?.mean)}</td><td>${fmtDbm(rx?.min)}</td><td>${fmtDbm(rx?.max)}</td>
-            <td>${fmtDbm(tx?.mean)}</td><td>${fmtDbm(tx?.min)}</td><td>${fmtDbm(tx?.max)}</td>
-            <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
-        </tr>`;
+        return { id: m.id, label: m.label, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [rx?.mean, rx?.min, rx?.max, tx?.mean, tx?.min, tx?.max, temp?.mean, temp?.min, temp?.max] };
     });
 
-    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
-        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
-        <div class="table-responsive">
-        <table class="data-table" style="font-size:0.8125rem">
-            <thead><tr>
-                <th>Module</th>
-                <th>RX Mean</th><th>RX Min</th><th>RX Max</th>
-                <th>TX Mean</th><th>TX Min</th><th>TX Max</th>
-                <th>Temp Mean</th><th>Temp Min</th><th>Temp Max</th>
-            </tr></thead>
-            <tbody>${rows.join('')}</tbody>
-        </table>
-        </div>
-    </div>`;
-
-    const next = el.querySelector('.table-responsive');
-    if (next && scrollLeft) next.scrollLeft = scrollLeft;
-
-    initStatsFilter(el, container, {
-        meta: () => moduleMeta,
-        key: 'id',
-        visibility: () => visibility,
-        resetVisibility: () => { visibility = {}; },
-        onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c); },
+    renderTable(el, container, {
+        nameHeader: 'Module', rows, showAllRows: showAll,
+        columns: [
+            { header: 'RX Mean', format: fmtDbm }, { header: 'RX Min', format: fmtDbm }, { header: 'RX Max', format: fmtDbm },
+            { header: 'TX Mean', format: fmtDbm }, { header: 'TX Min', format: fmtDbm }, { header: 'TX Max', format: fmtDbm },
+            { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
+        ],
+        filter: { meta: () => moduleMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
     });
 }
 

@@ -2,7 +2,7 @@
 // Same control pattern as cellular-charts.js.
 
 import ApexCharts from '/_content/Blazor-ApexCharts/js/apexcharts.esm.js';
-import { computeStats, initStatsFilter } from './chart-stats.js?v=1';
+import { computeStats, renderStatsTable as renderTable } from './chart-stats.js?v=2';
 
 const PALETTE = window.Apex?.colors || ['#4269d0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7'];
 const _esc = document.createElement('span');
@@ -221,74 +221,40 @@ async function loadAndUpdate() {
     }
 }
 
-function fmtDbmv(v) { return v != null ? v.toFixed(2) : '-'; }
-function fmtDb(v) { return v != null ? v.toFixed(2) : '-'; }
-function fmtInt(v) { return v != null ? Math.round(v).toString() : '-'; }
+const fmtDbmv = v => v != null ? v.toFixed(2) : '-';
+const fmtDb = v => v != null ? v.toFixed(2) : '-';
+const fmtInt = v => v != null ? Math.round(v).toString() : '-';
 
-function renderStatsTable(container) {
+function renderStatsTable(container, showAll) {
     const el = container.querySelector('.cm-stats-table');
     if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
 
-    const visibleDevices = lastData.devices.filter(d => {
-        const meta = deviceMeta.find(dm => dm.id === d.id);
-        return meta && visibility[meta.id] !== false;
-    });
-
-    if (visibleDevices.length === 0) { el.innerHTML = ''; return; }
-
-    const prev = el.querySelector('.table-responsive');
-    const scrollLeft = prev ? prev.scrollLeft : 0;
-
-    const rows = visibleDevices.map(d => {
+    const rows = lastData.devices.map(d => {
         const pts = d.data || [];
-        const dsPowerVals = pts.map(p => p.dsPower).filter(v => v != null);
-        const dsSnrVals = pts.map(p => p.dsSnr).filter(v => v != null);
-        const usPowerVals = pts.map(p => p.usPower).filter(v => v != null);
-        const uncorrVals = pts.map(p => p.uncorrDelta).filter(v => v != null);
-        const corrVals = pts.map(p => p.corrDelta).filter(v => v != null);
-        const dsPower = computeStats(dsPowerVals);
-        const dsSnr = computeStats(dsSnrVals);
-        const usPower = computeStats(usPowerVals);
-        const uncorr = computeStats(uncorrVals);
-        const corr = computeStats(corrVals);
+        const dsPower = computeStats(pts.map(p => p.dsPower).filter(v => v != null));
+        const dsSnr = computeStats(pts.map(p => p.dsSnr).filter(v => v != null));
+        const usPower = computeStats(pts.map(p => p.usPower).filter(v => v != null));
+        const uncorr = computeStats(pts.map(p => p.uncorrDelta).filter(v => v != null));
+        const corr = computeStats(pts.map(p => p.corrDelta).filter(v => v != null));
         const meta = deviceMeta.find(dm => dm.id === d.id);
-        const color = meta?.color || '#9ca3af';
-        return `<tr>
-            <td data-stat-id="${d.id}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(d.label)}</span></td>
-            <td>${fmtDbmv(dsPower?.mean)}</td><td>${fmtDbmv(dsPower?.min)}</td><td>${fmtDbmv(dsPower?.max)}</td>
-            <td>${fmtDb(dsSnr?.mean)}</td><td>${fmtDb(dsSnr?.min)}</td><td>${fmtDb(dsSnr?.max)}</td>
-            <td>${fmtDbmv(usPower?.mean)}</td><td>${fmtDbmv(usPower?.min)}</td><td>${fmtDbmv(usPower?.max)}</td>
-            <td>${fmtInt(uncorr?.mean)}</td><td>${fmtInt(uncorr?.max)}</td>
-            <td>${fmtInt(corr?.mean)}</td><td>${fmtInt(corr?.max)}</td>
-        </tr>`;
+        return { id: d.id, label: d.label, color: meta?.color || '#9ca3af',
+            visible: meta && visibility[meta.id] !== false,
+            values: [dsPower?.mean, dsPower?.min, dsPower?.max, dsSnr?.mean, dsSnr?.min, dsSnr?.max,
+                usPower?.mean, usPower?.min, usPower?.max, uncorr?.mean, uncorr?.max, corr?.mean, corr?.max] };
     });
 
-    el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
-        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
-        <div class="table-responsive">
-        <table class="data-table" style="font-size:0.8125rem">
-            <thead><tr>
-                <th>Device</th>
-                <th>DS Pwr Mean</th><th>DS Pwr Min</th><th>DS Pwr Max</th>
-                <th>DS SNR Mean</th><th>DS SNR Min</th><th>DS SNR Max</th>
-                <th>US Pwr Mean</th><th>US Pwr Min</th><th>US Pwr Max</th>
-                <th>Uncorr Mean</th><th>Uncorr Max</th>
-                <th>Corr Mean</th><th>Corr Max</th>
-            </tr></thead>
-            <tbody>${rows.join('')}</tbody>
-        </table>
-        </div>
-    </div>`;
-
-    const next = el.querySelector('.table-responsive');
-    if (next && scrollLeft) next.scrollLeft = scrollLeft;
-
-    initStatsFilter(el, container, {
-        meta: () => deviceMeta,
-        key: 'id',
-        visibility: () => visibility,
-        resetVisibility: () => { visibility = {}; },
-        onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c); },
+    renderTable(el, container, {
+        nameHeader: 'Device', rows, showAllRows: showAll,
+        columns: [
+            { header: 'DS Pwr Mean', format: fmtDbmv }, { header: 'DS Pwr Min', format: fmtDbmv }, { header: 'DS Pwr Max', format: fmtDbmv },
+            { header: 'DS SNR Mean', format: fmtDb }, { header: 'DS SNR Min', format: fmtDb }, { header: 'DS SNR Max', format: fmtDb },
+            { header: 'US Pwr Mean', format: fmtDbmv }, { header: 'US Pwr Min', format: fmtDbmv }, { header: 'US Pwr Max', format: fmtDbmv },
+            { header: 'Uncorr Mean', format: fmtInt }, { header: 'Uncorr Max', format: fmtInt },
+            { header: 'Corr Mean', format: fmtInt }, { header: 'Corr Max', format: fmtInt },
+        ],
+        filter: { meta: () => deviceMeta, key: 'id', visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: (c) => { updateVisibility(); renderBadges(c); renderStatsTable(c, true); } },
     });
 }
 

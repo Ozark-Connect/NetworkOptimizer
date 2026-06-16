@@ -14196,6 +14196,24 @@ td[data-stat-id]:hover .stat-filter-badge {
     border-color: rgba(255, 255, 255, 0.5);
 }
 
+th[data-sort-col] {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+th[data-sort-col]:hover {
+    color: var(--text-primary);
+}
+
+th.stats-sort-active {
+    color: var(--primary-color);
+}
+
+tr.stats-row-filtered {
+    opacity: 0.35;
+}
+
 .wan-badge-dot {
     width: 10px;
     height: 10px;
