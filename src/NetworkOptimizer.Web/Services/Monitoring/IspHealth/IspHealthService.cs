@@ -430,13 +430,7 @@ public class IspHealthService
     {
         try
         {
-            var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-            var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
-            var uplinkName = gw?.WanUplinkName;
-            var counterName = gw?.WanInterfaceNames?.FirstOrDefault();
-            if (uplinkName != null)
-                _logger.LogDebug("ISP Health: primary WAN data-path interface is {Uplink} (counter: {Counter})", uplinkName, counterName);
-            return uplinkName;
+            return await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
         }
         catch { return null; }
     }

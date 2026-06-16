@@ -934,6 +934,9 @@ public class NetworkInfo
     /// <summary>WAN failover priority (lower = higher priority)</summary>
     public int? WanFailoverPriority { get; set; }
 
+    /// <summary>WAN interface name from networkconf (e.g., "eth4", "eth6")</summary>
+    public string? WanIfname { get; set; }
+
     /// <summary>Whether this is the primary WAN (wan_networkgroup = "WAN")</summary>
     public bool IsPrimaryWan => WanNetworkgroup?.Equals("WAN", StringComparison.OrdinalIgnoreCase) == true;
 }

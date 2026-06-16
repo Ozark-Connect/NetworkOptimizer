@@ -849,7 +849,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             WanSmartqEnabled = n.WanSmartqEnabled,
             WanLoadBalanceType = n.WanLoadBalanceType,
             WanLoadBalanceWeight = n.WanLoadBalanceWeight,
-            WanFailoverPriority = n.WanFailoverPriority
+            WanFailoverPriority = n.WanFailoverPriority,
+            WanIfname = n.WanIfname
         }).ToList() ?? new List<NetworkInfo>();
         _networkCacheTime = DateTime.UtcNow;
 
@@ -897,6 +898,58 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         var networks = await GetNetworksAsync(ct);
         return ResolvePrimaryWanNetwork(networks, _logger);
+    }
+
+    /// <summary>
+    /// Resolves the data-path interface name (e.g. "eth6.100", "ppp0") for the
+    /// primary WAN by combining networkconf (which WAN is primary) with the
+    /// cached device call (which interface carries that WAN's traffic).
+    /// </summary>
+    public async Task<string?> GetPrimaryWanDataPathInterfaceAsync(CancellationToken ct = default)
+    {
+        var primary = await GetPrimaryWanNetworkAsync(ct);
+        if (primary?.WanNetworkgroup == null) return null;
+
+        if (_client == null) return null;
+        var rawDevices = await _client.GetDevicesAsync(ct);
+        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg");
+        if (gw == null) return null;
+
+        var wanInterfaces = gw.GetWanInterfaces();
+        if (wanInterfaces.Count == 0) return null;
+
+        // Build ifname → networkgroup from ethernet_overrides
+        var ifnameToNg = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (gw.AdditionalData != null &&
+            gw.AdditionalData.TryGetValue("ethernet_overrides", out var eoElem) &&
+            eoElem.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var ov in eoElem.EnumerateArray())
+            {
+                var ifn = ov.TryGetProperty("ifname", out var ifnP) ? ifnP.GetString() : null;
+                var ng = ov.TryGetProperty("networkgroup", out var ngP) ? ngP.GetString() : null;
+                if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
+                    ifnameToNg[ifn] = ng;
+            }
+        }
+
+        // Find the wan object whose physical interface maps to the primary networkgroup
+        foreach (var wan in wanInterfaces)
+        {
+            string? ng = null;
+            if (!string.IsNullOrEmpty(wan.IfName))
+                ifnameToNg.TryGetValue(wan.IfName, out ng);
+            ng ??= wan.Key == "wan1" ? "WAN" : wan.Key.ToUpperInvariant();
+
+            if (string.Equals(ng, primary.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Primary WAN data-path interface: {Uplink} (physical={Physical}, networkgroup={NG})",
+                    wan.UplinkIfName, wan.IfName, ng);
+                return wan.UplinkIfName ?? wan.IfName;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
