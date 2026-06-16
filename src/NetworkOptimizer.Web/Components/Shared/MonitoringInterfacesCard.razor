@@ -20,6 +20,15 @@
             gateway so that device becomes reachable from the LAN.
         </p>
 
+        <div class="alert alert-info">
+            <strong>Try this first - a native static route may be all you need.</strong>
+            In UniFi Network, go to <strong>Settings → Policy Engine → Policy Table</strong> and add a
+            <strong>Static Route</strong> for the device's IP (for example <code>192.168.100.1/32</code>)
+            out the WAN interface it sits behind. No scripts and nothing to maintain. If the device
+            still isn't reachable afterward - common for modems and ONTs that only answer when the
+            gateway has an on-link address on their subnet - add a monitoring interface below.
+        </div>
+
         @if (_interfaces.Count == 0)
         {
             <p class="empty-state">

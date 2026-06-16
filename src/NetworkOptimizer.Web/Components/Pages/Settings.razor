@@ -881,6 +881,12 @@
                             {
                                 <div class="alert alert-@probeResultClass" style="margin-top: 0.5rem;">
                                     @probeResult
+                                    @if (LooksUnreachable(probeResult) && !string.IsNullOrWhiteSpace(editingModem.Host))
+                                    {
+                                        <div style="margin-top: 0.5rem;">
+                                            Can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host)">Set up a monitoring interface →</a>
+                                        </div>
+                                    }
                                 </div>
                             }
                         }
@@ -1083,10 +1089,10 @@
             {
                 <div class="alert alert-@_cmTestResultClass" style="margin-top: 1rem;">
                     @_cmTestResult
-                    @if (_cmTestResultClass == "danger" && !string.IsNullOrWhiteSpace(_editingCm.Host))
+                    @if (LooksUnreachable(_cmTestResult) && !string.IsNullOrWhiteSpace(_editingCm.Host))
                     {
                         <div style="margin-top: 0.5rem;">
-                            If it's behind your WAN, <a href="@MonitoringInterfaceLink(_editingCm.Host)">set up a monitoring interface →</a>
+                            Can't reach it? <a href="@MonitoringInterfaceLink(_editingCm.Host)">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -1253,10 +1259,10 @@
             {
                 <div class="alert alert-@_ontTestResultClass" style="margin-top: 1rem;">
                     @_ontTestResult
-                    @if (_ontTestResultClass == "danger" && !string.IsNullOrWhiteSpace(_editingOnt.Host))
+                    @if (LooksUnreachable(_ontTestResult) && !string.IsNullOrWhiteSpace(_editingOnt.Host))
                     {
                         <div style="margin-top: 0.5rem;">
-                            If it's behind your WAN, <a href="@MonitoringInterfaceLink(_editingOnt.Host)">set up a monitoring interface →</a>
+                            Can't reach it? <a href="@MonitoringInterfaceLink(_editingOnt.Host)">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -2627,6 +2633,21 @@
     {
         var ip = string.IsNullOrWhiteSpace(host) ? "" : Uri.EscapeDataString(host.Trim());
         return $"/monitoring?tab=setup&mifip={ip}";
+    }
+
+    /// <summary>
+    /// Whether a failed Test/Probe message looks like the device couldn't be reached
+    /// (timeout, canceled, refused, no route) - the signature of a modem/ONT sitting
+    /// behind the WAN. Auth (401) or parse failures mean the device IS reachable, so we
+    /// don't funnel those toward a monitoring interface.
+    /// </summary>
+    private static bool LooksUnreachable(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return false;
+        var m = message.ToLowerInvariant();
+        return m.Contains("timeout") || m.Contains("timed out") || m.Contains("canceled") || m.Contains("cancelled")
+            || m.Contains("refused") || m.Contains("no route") || m.Contains("unreachable")
+            || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed");
     }
     private int? _ontTestingId;
     private string _ontStatus = "Inactive";
