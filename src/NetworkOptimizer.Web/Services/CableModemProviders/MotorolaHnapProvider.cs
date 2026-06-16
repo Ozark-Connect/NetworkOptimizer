@@ -439,6 +439,14 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             _logger.LogDebug(ex, "HNAP POST {Action} failed", action);
             return null;
         }
+        catch (JsonException ex)
+        {
+            // A non-JSON response (e.g. an HTML error/redirect page from the wrong
+            // scheme) means this isn't a working HNAP endpoint; treat it as a failed
+            // call so scheme detection falls through to the next candidate.
+            _logger.LogDebug(ex, "HNAP POST {Action} returned non-JSON body", action);
+            return null;
+        }
     }
 
     private async Task LogoutAsync(HttpClient client, string baseUrl, CancellationToken cancellationToken)
