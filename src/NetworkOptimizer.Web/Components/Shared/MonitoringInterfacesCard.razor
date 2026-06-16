@@ -28,7 +28,7 @@
             gateway so that device becomes reachable from the LAN.
         </p>
 
-        <div class="alert alert-info">
+        <div class="mi-tip">
             <strong>Try this first - a native static route may be all you need.</strong>
             In UniFi Network, go to <strong>Settings → Policy Engine → Policy Table</strong> and add a
             <strong>Static Route</strong> for the device's IP (for example <code>192.168.100.1/32</code>)
@@ -246,6 +246,22 @@
         margin: 0 0 1rem 0;
         font-size: 1rem;
         color: var(--text-primary);
+    }
+
+    .mi-tip {
+        background: rgba(71, 151, 255, 0.1);
+        border: 1px solid var(--info-color);
+        border-left: 4px solid var(--info-color);
+        border-radius: var(--border-radius);
+        padding: 1rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+    }
+
+    .mi-tip strong {
+        color: var(--info-color);
     }
 
     .mi-advanced {
