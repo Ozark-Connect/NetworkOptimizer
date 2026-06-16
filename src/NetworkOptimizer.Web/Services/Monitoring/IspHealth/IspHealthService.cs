@@ -361,10 +361,27 @@ public class IspHealthService
         {
             var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
             var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
-            if (gw?.Mac == null || gw.WanInterfaceNames == null || gw.WanInterfaceNames.Count == 0)
+            if (gw?.Mac == null)
                 return new List<ThroughputSample>();
 
-            var rates = await _influx.QueryGatewayWanRatesAsync(gw.Mac, gw.WanInterfaceNames, from, to, aggregate, ct);
+            // ISP Health analyzes the CONFIGURED primary WAN (same WAN as the expected
+            // speeds and SQM exclusion), so the rate series must come from that WAN's
+            // SNMP counter interface (e.g. "eth6" for a VLAN-tagged primary), not the
+            // live active uplink in WanInterfaceNames. Fall back to the active uplink
+            // only if the config-primary cannot be resolved, so analysis still runs.
+            var primaryIfaces = await _connectionService.GetPrimaryWanInterfacesAsync(ct);
+            var wanCounterNames = !string.IsNullOrEmpty(primaryIfaces?.CounterIfName)
+                ? new List<string> { primaryIfaces!.CounterIfName! }
+                : gw.WanInterfaceNames;
+            if (wanCounterNames == null || wanCounterNames.Count == 0)
+            {
+                _logger.LogDebug("ISP Health: no WAN counter interface resolved for rate query");
+                return new List<ThroughputSample>();
+            }
+            if (primaryIfaces?.CounterIfName == null)
+                _logger.LogDebug("ISP Health: primary WAN unresolved, rate query falling back to active uplink {Ifaces}", string.Join(",", wanCounterNames));
+
+            var rates = await _influx.QueryGatewayWanRatesAsync(gw.Mac, wanCounterNames, from, to, aggregate, ct);
             return rates.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList();
         }
         catch (Exception ex)

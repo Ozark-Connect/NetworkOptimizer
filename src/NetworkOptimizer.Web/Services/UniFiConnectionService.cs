@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Interfaces;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -7,6 +8,20 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
+
+/// <summary>
+/// Interface forms of the configured primary WAN, resolved by joining networkconf
+/// (which WAN is primary) with the device JSON (which interfaces carry it).
+/// </summary>
+/// <param name="NetworkGroup">WAN networkgroup, e.g. "WAN".</param>
+/// <param name="PhysicalIfName">Physical port ifname, e.g. "eth6".</param>
+/// <param name="UplinkIfName">Data-path ifname, e.g. "eth6.100"/"ppp0" (where SQM deploys).</param>
+/// <param name="CounterIfName">SNMP counter ifname, e.g. "eth6" (where InfluxDB rates are stored).</param>
+public record PrimaryWanInterfaces(
+    string NetworkGroup,
+    string? PhysicalIfName,
+    string? UplinkIfName,
+    string? CounterIfName);
 
 /// <summary>
 /// Manages the UniFi controller connection and configuration persistence.
@@ -901,11 +916,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
-    /// Resolves the data-path interface name (e.g. "eth6.100", "ppp0") for the
-    /// primary WAN by combining networkconf (which WAN is primary) with the
-    /// cached device call (which interface carries that WAN's traffic).
+    /// Resolves the interface forms of the CONFIGURED primary WAN by combining
+    /// networkconf (which WAN is primary) with the cached device call (which
+    /// interfaces carry that WAN's traffic). Returns both the SNMP counter
+    /// interface (e.g. "eth6" - where InfluxDB rates are stored) and the data-path
+    /// interface (e.g. "eth6.100"/"ppp0" - where SQM deploys). These differ on
+    /// VLAN-tagged WANs. Returns null when no primary WAN can be resolved.
     /// </summary>
-    public async Task<string?> GetPrimaryWanDataPathInterfaceAsync(CancellationToken ct = default)
+    public async Task<PrimaryWanInterfaces?> GetPrimaryWanInterfacesAsync(CancellationToken ct = default)
     {
         var primary = await GetPrimaryWanNetworkAsync(ct);
         if (primary?.WanNetworkgroup == null) return null;
@@ -943,13 +961,26 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             if (string.Equals(ng, primary.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogDebug("Primary WAN data-path interface: {Uplink} (physical={Physical}, networkgroup={NG})",
-                    wan.UplinkIfName, wan.IfName, ng);
-                return wan.UplinkIfName ?? wan.IfName;
+                var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
+                _logger.LogDebug("Primary WAN interfaces: counter={Counter}, data-path={Uplink} (physical={Physical}, networkgroup={NG})",
+                    counter, wan.UplinkIfName ?? wan.IfName, wan.IfName, ng);
+                return new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter);
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the data-path interface name (e.g. "eth6.100", "ppp0") for the
+    /// primary WAN - the Linux ifname SQM deploys on. Thin accessor over
+    /// <see cref="GetPrimaryWanInterfacesAsync"/>.
+    /// </summary>
+    public async Task<string?> GetPrimaryWanDataPathInterfaceAsync(CancellationToken ct = default)
+    {
+        var ifaces = await GetPrimaryWanInterfacesAsync(ct);
+        if (ifaces == null) return null;
+        return ifaces.UplinkIfName ?? ifaces.PhysicalIfName;
     }
 
     /// <summary>
