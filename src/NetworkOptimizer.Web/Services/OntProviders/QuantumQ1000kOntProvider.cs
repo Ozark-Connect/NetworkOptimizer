@@ -130,10 +130,12 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Form login: POST username/password (text/plain, matching the device's React UI) to
-    /// /cgi/cgi_action. The device replies with a Session-Id cookie stored by the
-    /// CookieContainer. Unauthenticated /cgi/cgi_get reads are rejected (HTTP 444), so we
-    /// confirm success by probing GetConnectionStatus and checking for the wan_status payload.
+    /// Form login: POST username/password to /cgi/cgi_action as a raw text/plain body,
+    /// replicating exactly what the device's React UI sends (content type included) since
+    /// that is the only request form we have confirmed yields a session. The device replies
+    /// with a Session-Id cookie stored by the CookieContainer. Unauthenticated /cgi/cgi_get
+    /// reads are rejected (HTTP 444), so we confirm success by probing GetConnectionStatus
+    /// and checking for the wan_status payload.
     /// </summary>
     private async Task<bool> LoginAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
