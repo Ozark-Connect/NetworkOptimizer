@@ -351,9 +351,9 @@
 
         // Decide collapse state once, deterministically: a saved preference wins; with none,
         // default to expanded when nothing is configured (discoverable) and collapsed once
-        // interfaces exist. A deep-link forcing the card open (PrefillTargetIp) skips this -
-        // OnParametersSet already expanded it.
-        if (string.IsNullOrWhiteSpace(PrefillTargetIp))
+        // interfaces exist. A funnel deep-link (PrefillTargetIp OR PrefillSourceType) forces
+        // the card open in OnParametersSet, so skip this for it.
+        if (string.IsNullOrWhiteSpace(PrefillTargetIp) && string.IsNullOrWhiteSpace(PrefillSourceType))
         {
             string? val = null;
             try { val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey); }
@@ -370,25 +370,37 @@
 
     protected override void OnParametersSet()
     {
-        // Absorb the IP the user was trying to reach (from a monitor form deep-link).
-        if (!string.IsNullOrWhiteSpace(PrefillTargetIp) && PrefillTargetIp != _appliedPrefill)
+        // A funnel deep-link from the monitor forms carries the source type (cm/wmodem/ont)
+        // and optionally the IP - the Host field may be empty, which is a valid use case.
+        // Absorb whatever's present, default a sensible name, and force the card open.
+        if (string.IsNullOrWhiteSpace(PrefillTargetIp) && string.IsNullOrWhiteSpace(PrefillSourceType))
+            return;
+
+        var prefillKey = $"{PrefillTargetIp}|{PrefillSourceType}";
+        if (prefillKey == _appliedPrefill)
+            return;
+        _appliedPrefill = prefillKey;
+
+        var existing = string.IsNullOrWhiteSpace(PrefillTargetIp)
+            ? null
+            : _interfaces.FirstOrDefault(i => i.TargetIp == PrefillTargetIp);
+        if (existing != null)
         {
-            _appliedPrefill = PrefillTargetIp;
-            var existing = _interfaces.FirstOrDefault(i => i.TargetIp == PrefillTargetIp);
-            if (existing != null)
+            EditInterface(existing);
+        }
+        else
+        {
+            _editing = NewInterface();
+            _editingOriginal = null;
+            if (!string.IsNullOrWhiteSpace(PrefillTargetIp))
             {
-                EditInterface(existing);
-            }
-            else
-            {
-                _editing = NewInterface();
-                _editingOriginal = null;
                 _editing.TargetIp = PrefillTargetIp!.Trim();
-                _editing.Name = NextFreeName(PrefixForType(PrefillSourceType));
                 OnTargetChanged();
             }
-            _collapsed = false;
+            if (!string.IsNullOrWhiteSpace(PrefillSourceType))
+                _editing.Name = NextFreeName(PrefixForType(PrefillSourceType));
         }
+        _collapsed = false;
     }
 
     private static string PrefixForType(string? type) => type switch

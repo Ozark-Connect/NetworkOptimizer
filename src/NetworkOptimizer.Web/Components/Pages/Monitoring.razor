@@ -1306,7 +1306,10 @@ else
             _soloOntId = OntParam;
         }
 
-        if (!string.IsNullOrEmpty(MiTargetParam) && _activeTab == "setup")
+        // Expand on any funnel deep-link from the monitor forms. Those links always carry
+        // mitype (cm/wmodem/ont), even when the Host field was empty so mifip is blank, so
+        // mitype is the reliable "set up a monitoring interface" signal.
+        if ((!string.IsNullOrEmpty(MiTargetParam) || !string.IsNullOrEmpty(MiTypeParam)) && _activeTab == "setup")
         {
             _pendingExpandMiCard = true;
         }
