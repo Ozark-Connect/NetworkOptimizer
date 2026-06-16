@@ -13,9 +13,9 @@ namespace NetworkOptimizer.Web.Services.OntProviders;
 /// form POST to /cgi/cgi_action which returns a Session-Id cookie; data is then read
 /// from /cgi/cgi_get?Object=... endpoints that return TR-181-style parameter objects.
 ///
-/// The SmartNID only reports line status (GOOD/BAD), PON line rates, and device
-/// identity - it does not expose DDM optics (Rx/Tx power, temperature, voltage), so
-/// those OntStats fields are left null.
+/// The Device.Optical.Interface.1 object exposes full DDM optics (Rx/Tx power,
+/// temperature, voltage, bias current), link status, PON line rate, and BIP error
+/// counts, alongside device identity from Device.DeviceInfo.
 /// </summary>
 public sealed class QuantumQ1000kOntProvider : IOntProvider
 {
@@ -27,8 +27,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
     private const string ConnectionStatusPath = "/cgi/cgi_get?Object=GetConnectionStatus";
     private const string DeviceInfoPath =
         "/cgi/cgi_get?Object=Device.DeviceInfo&SoftwareVersion=&ModelName=&HardwareVersion=&SerialNumber=";
-    private const string OpticalPath =
-        "/cgi/cgi_get?Object=Device.Optical.Interface.1&X_AXON_LineStatus=";
+    private const string OpticalPath = "/cgi/cgi_get?Object=Device.Optical.Interface.1";
 
     private readonly ILogger<QuantumQ1000kOntProvider> _logger;
 
@@ -75,8 +74,11 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
             ApplyOpticalInterface(opticalJson, stats);
 
             _logger.LogDebug(
-                "Quantum Q1000K ONT {Name} polled: LineStatus={Line}, Link={Link}, {PonType}",
-                context.Name, stats.OperationalStatus ?? "-", stats.LinkState ?? "-", stats.PonType ?? "-");
+                "Quantum Q1000K ONT {Name} polled: Rx={Rx} dBm, Tx={Tx} dBm, Temp={Temp} C, Link={Link}, {PonType}",
+                context.Name, stats.RxPowerDbm?.ToString("F2") ?? "-",
+                stats.TxPowerDbm?.ToString("F2") ?? "-",
+                stats.TemperatureC?.ToString("F0") ?? "-",
+                stats.LinkState ?? "-", stats.PonType ?? "-");
 
             return stats;
         }
@@ -110,8 +112,12 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
             var stats = new OntStats { DeviceModel = "Quantum Q1000K" };
             ApplyDeviceInfo(deviceInfoJson, stats);
 
+            var opticalJson = await client.GetStringAsync($"{baseUrl}{OpticalPath}", cancellationToken);
+            ApplyOpticalInterface(opticalJson, stats);
+
             var scheme = baseUrl.StartsWith("https") ? "HTTPS" : "HTTP";
-            return (true, $"Connected ({scheme}) - {stats.DeviceModel}");
+            var rx = stats.RxPowerDbm.HasValue ? $", RX: {stats.RxPowerDbm.Value:F2} dBm" : "";
+            return (true, $"Connected ({scheme}) - {stats.DeviceModel}{rx}");
         }
         catch (HttpRequestException ex) when (ex.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase))
         {
@@ -199,19 +205,42 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Parses Device.Optical.Interface.1 X_AXON_LineStatus (GOOD/BAD). When the WAN link
-    /// state was unavailable, a GOOD line status is treated as Up.
+    /// Parses the full Device.Optical.Interface.1 object (and its Stats sub-object).
+    /// DDM optics power/voltage/bias are reported in milli-units (0.001 dBm, mV, µA);
+    /// temperature is whole degrees Celsius. The standard TR-181 Status field
+    /// ("Up"/"Down") drives link health, with the X_AXON_LineStatus (GOOD/BAD) flag as
+    /// a fallback. The downstream line rate (Mbps) confirms the PON variant.
     /// </summary>
     internal static void ApplyOpticalInterface(string json, OntStats stats)
     {
         var p = ParseParamObject(json);
 
-        if (p.TryGetValue("X_AXON_LineStatus", out var line) && !string.IsNullOrWhiteSpace(line))
+        stats.RxPowerDbm = ParseMilli(GetValue(p, "OpticalSignalLevel")) ?? stats.RxPowerDbm;
+        stats.TxPowerDbm = ParseMilli(GetValue(p, "TransmitOpticalLevel")) ?? stats.TxPowerDbm;
+        stats.VoltageV = ParseMilli(GetValue(p, "X_CTL_Voltage")) ?? stats.VoltageV;
+        stats.BiasMa = ParseMilli(GetValue(p, "X_CTL_BiasCurrent")) ?? stats.BiasMa;
+
+        if (ParseDouble(GetValue(p, "X_CTL_Temperature")) is { } temp)
+            stats.TemperatureC = temp;
+
+        if (ParseLong(GetValue(p, "X_CTL_BIPErrorsReceived")) is { } bip)
+            stats.BipErrors = bip;
+
+        var status = GetValue(p, "Status");
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            stats.LinkState = status;
+            stats.OperationalStatus = status;
+        }
+        else if (p.TryGetValue("X_AXON_LineStatus", out var line) && !string.IsNullOrWhiteSpace(line))
         {
             var good = string.Equals(line, "GOOD", StringComparison.OrdinalIgnoreCase);
-            stats.OperationalStatus ??= good ? "Up" : "Down";
             stats.LinkState ??= good ? "Up" : "Down";
+            stats.OperationalStatus ??= good ? "Up" : "Down";
         }
+
+        if (ParseLong(GetValue(p, "X_AXON_DownstreamRate")) is { } downMbps)
+            stats.PonType = downMbps >= 9000 ? "XGS-PON" : "GPON";
     }
 
     /// <summary>
@@ -253,8 +282,18 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
             ? prop.GetString()
             : null;
 
+    private static string? GetValue(Dictionary<string, string> p, string key) =>
+        p.TryGetValue(key, out var v) ? v : null;
+
     private static long? ParseLong(string? text) =>
         long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var val) ? val : null;
+
+    private static double? ParseDouble(string? text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var val) ? val : null;
+
+    /// <summary>Parses an integer reported in milli-units (0.001) into its base unit.</summary>
+    private static double? ParseMilli(string? text) =>
+        ParseLong(text) is { } v ? v / 1000.0 : null;
 
     /// <summary>
     /// Tries the port-based scheme first (HTTPS for 443, HTTP for 80), then falls back to the

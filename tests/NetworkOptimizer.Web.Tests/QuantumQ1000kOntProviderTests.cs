@@ -68,7 +68,57 @@ public class QuantumQ1000kOntProviderTests
     }
 
     [Fact]
-    public void ApplyOpticalInterface_GoodLineStatus_SetsUpWhenLinkUnknown()
+    public void ApplyOpticalInterface_ParsesFullDdmDump()
+    {
+        var stats = new OntStats();
+        // Trimmed from a real Device.Optical.Interface.1 dump (issue #830).
+        var json = """
+            {"Objects":[
+              {"ObjName":"Device.Optical.Interface.1.","Param":[
+                {"ParamName":"OpticalSignalLevel","ParamValue":"-14449"},
+                {"ParamName":"Status","ParamValue":"Up"},
+                {"ParamName":"TransmitOpticalLevel","ParamValue":"2602"},
+                {"ParamName":"X_AXON_DownstreamRate","ParamValue":"2488"},
+                {"ParamName":"X_AXON_LineStatus","ParamValue":"GOOD"},
+                {"ParamName":"X_AXON_UpstreamRate","ParamValue":"1244"},
+                {"ParamName":"X_CTL_BiasCurrent","ParamValue":"13822"},
+                {"ParamName":"X_CTL_Temperature","ParamValue":"56"},
+                {"ParamName":"X_CTL_Voltage","ParamValue":"3317"}]},
+              {"ObjName":"Device.Optical.Interface.1.Stats.","Param":[
+                {"ParamName":"X_CTL_BIPErrorsReceived","ParamValue":"0"},
+                {"ParamName":"ErrorsReceived","ParamValue":"0"}]}]}
+            """;
+
+        QuantumQ1000kOntProvider.ApplyOpticalInterface(json, stats);
+
+        stats.RxPowerDbm.Should().BeApproximately(-14.449, 0.0001);
+        stats.TxPowerDbm.Should().BeApproximately(2.602, 0.0001);
+        stats.TemperatureC.Should().Be(56);
+        stats.VoltageV.Should().BeApproximately(3.317, 0.0001);
+        stats.BiasMa.Should().BeApproximately(13.822, 0.0001);
+        stats.BipErrors.Should().Be(0);
+        stats.LinkState.Should().Be("Up");
+        stats.OperationalStatus.Should().Be("Up");
+        stats.PonType.Should().Be("GPON");
+    }
+
+    [Fact]
+    public void ApplyOpticalInterface_StatusIsAuthoritativeOverConnectionStatus()
+    {
+        var stats = new OntStats { LinkState = "Down", OperationalStatus = "Down" };
+        var json = """
+            {"Objects":[{"ObjName":"Device.Optical.Interface.1.","Param":[
+            {"ParamName":"Status","ParamValue":"Up"}]}]}
+            """;
+
+        QuantumQ1000kOntProvider.ApplyOpticalInterface(json, stats);
+
+        stats.LinkState.Should().Be("Up");
+        stats.OperationalStatus.Should().Be("Up");
+    }
+
+    [Fact]
+    public void ApplyOpticalInterface_FallsBackToLineStatusWhenNoStatusField()
     {
         var stats = new OntStats();
         var json = """
@@ -80,21 +130,6 @@ public class QuantumQ1000kOntProviderTests
 
         stats.LinkState.Should().Be("Up");
         stats.OperationalStatus.Should().Be("Up");
-    }
-
-    [Fact]
-    public void ApplyOpticalInterface_DoesNotOverrideExistingLinkState()
-    {
-        var stats = new OntStats { LinkState = "Down", OperationalStatus = "Down" };
-        var json = """
-            {"Objects":[{"ObjName":"Device.Optical.Interface.1.","Param":[
-            {"ParamName":"X_AXON_LineStatus","ParamValue":"GOOD"}]}]}
-            """;
-
-        QuantumQ1000kOntProvider.ApplyOpticalInterface(json, stats);
-
-        stats.LinkState.Should().Be("Down");
-        stats.OperationalStatus.Should().Be("Down");
     }
 
     [Fact]
