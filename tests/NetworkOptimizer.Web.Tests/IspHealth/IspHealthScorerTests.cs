@@ -988,7 +988,7 @@ public class IspHealthScorerTests
     private static double? ResolvedDownDelta(IspHealthInputs inputs)
     {
         var lw = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, Options);
-        return new IspHealthScorer(Options).ResolveLoadedDeltas(inputs, lw, jitterFloor: 0.4).DownMs;
+        return new IspHealthScorer(Options).ResolveLoadedDeltas(inputs, lw).DownMs;
     }
 
     [Fact]
@@ -1039,15 +1039,15 @@ public class IspHealthScorerTests
     }
 
     [Fact]
-    public void Loaded_latency_filters_noise_below_jitter_floor()
+    public void Loaded_latency_near_zero_deltas_produce_near_zero_result()
     {
-        // Access hops show near-zero delta under load (no real bufferbloat). These are
-        // below the jitter floor and should be filtered, leaving null.
+        // All targets show near-zero delta under load (no real bufferbloat). Positive
+        // deltas pass the filter and p25 produces a near-zero result.
         var inputs = BuildInputs(
             accessHops: new() { LoadedDownHop(2, 0.1), LoadedDownHop(3, 0.2) },
             destinations: new() { Destination(15169, 13, 0.1), Destination(13335, 14, 0.15) });
 
-        ResolvedDownDelta(inputs).Should().BeNull();
+        ResolvedDownDelta(inputs).Should().BeInRange(0, 0.3);
     }
 
     [Fact]
