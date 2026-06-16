@@ -239,26 +239,20 @@ public class MonitoringPathView
                 var ifnameToNetworkGroup = GatewayWanHelper.BuildNetworkGroupByIfname(
                     device.TryGetProperty("ethernet_overrides", out var ethOverrides) ? ethOverrides : default);
 
-                for (int i = 1; i <= 6; i++)
+                foreach (var wan in GatewayWanHelper.EnumerateWanInterfaces(device))
                 {
-                    var wanKey = $"wan{i}";
-                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
-
-                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
-                        ? uplinkProp.GetString() : null;
+                    var uplinkIfname = wan.UplinkIfName;
                     if (string.IsNullOrEmpty(uplinkIfname)) continue;
 
-                    var ip = wanObj.TryGetProperty("ip", out var ipProp) ? ipProp.GetString() : null;
-                    var wanSpeed = wanObj.TryGetProperty("speed", out var wanSpeedProp) &&
-                        wanSpeedProp.TryGetInt32(out var ws) && ws > 0 ? ws : 0;
+                    var ip = wan.Ip;
+                    var wanSpeed = wan.Speed is int s && s > 0 ? s : 0;
 
                     string? interfaceKey = null;
                     string? friendlyName = null;
                     int linkSpeed = wanSpeed;
 
-                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
-                        portIdxProp.TryGetInt32(out var portIdx) &&
-                        portInfo.TryGetValue(portIdx, out var pi))
+                    if (wan.PortIdx.HasValue &&
+                        portInfo.TryGetValue(wan.PortIdx.Value, out var pi))
                     {
                         interfaceKey = pi.networkName;
                         friendlyName = pi.name;
@@ -267,7 +261,7 @@ public class MonitoringPathView
 
                     // Physical port name (e.g. "eth6" for VLAN-tagged "eth6.100",
                     // same as uplinkIfname for non-VLAN connections).
-                    var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                    var physicalIfname = wan.IfName;
 
                     // For virtual WANs (GRE, etc.) without port_table entries,
                     // resolve the friendly name from WAN network configs via
@@ -278,12 +272,12 @@ public class MonitoringPathView
                         string? networkGroup = null;
                         if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
                             networkGroup = ng;
-                        networkGroup ??= GatewayWanHelper.WanNetworkGroup(i);
+                        networkGroup ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
                         if (networkGroupToName.TryGetValue(networkGroup, out var configName))
                             friendlyName = configName;
                     }
 
-                    interfaceKey ??= GatewayWanHelper.WanInterfaceKey(i);
+                    interfaceKey ??= GatewayWanHelper.WanInterfaceKeyFromKey(wan.Key);
 
                     results.Add(new WanSummary
                     {

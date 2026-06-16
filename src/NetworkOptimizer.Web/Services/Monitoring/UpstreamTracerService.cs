@@ -347,40 +347,33 @@ public class UpstreamTracerService
                     device.TryGetProperty("ethernet_overrides", out var eo) ? eo : default);
 
                 (string Key, string Uplink, string? Ip)? firstWan = null;
-                for (int i = 1; i <= 6; i++)
+                foreach (var wan in GatewayWanHelper.EnumerateWanInterfaces(device))
                 {
-                    var wanKey = $"wan{i}";
-                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
-
-                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
-                        ? uplinkProp.GetString() : null;
+                    var uplinkIfname = wan.UplinkIfName;
                     if (string.IsNullOrEmpty(uplinkIfname)) continue;
 
-                    var ip = wanObj.TryGetProperty("ip", out var wanIpProp)
-                        ? wanIpProp.GetString() : null;
+                    var ip = wan.Ip;
 
                     // Derive the WAN key from port_table network_name when available
                     // (e.g. "wan", "wan2") to match convention used by prior code.
                     string interfaceKey;
-                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
-                        portIdxProp.TryGetInt32(out var portIdx) &&
-                        portIdxToNetworkName.TryGetValue(portIdx, out var networkName))
+                    if (wan.PortIdx.HasValue &&
+                        portIdxToNetworkName.TryGetValue(wan.PortIdx.Value, out var networkName))
                     {
                         interfaceKey = networkName;
                     }
                     else
                     {
-                        interfaceKey = GatewayWanHelper.WanInterfaceKey(i);
+                        interfaceKey = GatewayWanHelper.WanInterfaceKeyFromKey(wan.Key);
                     }
 
                     firstWan ??= (interfaceKey, uplinkIfname, ip);
 
                     // Resolve this wan's networkgroup and prefer the configured primary.
-                    var physIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
                     string? ng = null;
-                    if (!string.IsNullOrEmpty(physIfname))
-                        ifnameToNg.TryGetValue(physIfname, out ng);
-                    ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wanKey);
+                    if (!string.IsNullOrEmpty(wan.IfName))
+                        ifnameToNg.TryGetValue(wan.IfName, out ng);
+                    ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
 
                     if (primaryNg != null && string.Equals(ng, primaryNg, StringComparison.OrdinalIgnoreCase))
                     {

@@ -366,6 +366,14 @@ public class GatewayWanInterface
     public int? PortIdx { get; set; }
 
     /// <summary>
+    /// Negotiated link speed of the WAN port in Mbps, when reported. Used for the
+    /// flow-map WAN link speed label (falls back to the port_table speed).
+    /// </summary>
+    [JsonPropertyName("speed")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Speed { get; set; }
+
+    /// <summary>
     /// Cumulative bytes received on this WAN interface since device boot.
     /// </summary>
     [JsonPropertyName("rx_bytes")]

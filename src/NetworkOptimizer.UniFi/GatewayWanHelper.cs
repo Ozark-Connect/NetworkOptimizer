@@ -25,6 +25,51 @@ public static class GatewayWanHelper
     public static string WanInterfaceKey(int wanIndex) => wanIndex == 1 ? "wan" : $"wan{wanIndex}";
 
     /// <summary>
+    /// Lowercase interface-key from a wan object key ("wan"/"wan1" → "wan",
+    /// "wan2" → "wan2"). The wanN counterpart of <see cref="WanInterfaceKey"/> for
+    /// callers iterating <see cref="EnumerateWanInterfaces"/>.
+    /// </summary>
+    public static string WanInterfaceKeyFromKey(string wanKey)
+        => string.Equals(wanKey, "wan", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(wanKey, "wan1", StringComparison.OrdinalIgnoreCase)
+            ? "wan"
+            : wanKey.ToLowerInvariant();
+
+    /// <summary>
+    /// Enumerates a gateway's wan1..wan6 objects from raw device JSON as typed
+    /// <see cref="Models.GatewayWanInterface"/> values (Key set to the source property),
+    /// using the same model deserialization as
+    /// <see cref="Models.UniFiDeviceResponse.GetWanInterfaces"/>. Lets the monitoring
+    /// parsers read WAN fields (ifname, uplink_ifname, ip, port_idx, speed) without each
+    /// hand-rolling the wan{i} loop. Objects that fail to deserialize are skipped.
+    /// </summary>
+    public static IEnumerable<Models.GatewayWanInterface> EnumerateWanInterfaces(JsonElement device)
+    {
+        for (var i = 1; i <= 6; i++)
+        {
+            var key = $"wan{i}";
+            if (!device.TryGetProperty(key, out var wanObj) || wanObj.ValueKind != JsonValueKind.Object)
+                continue;
+
+            Models.GatewayWanInterface? wan = null;
+            try
+            {
+                wan = wanObj.Deserialize<Models.GatewayWanInterface>();
+            }
+            catch (JsonException)
+            {
+                // Mirror GetWanInterfaces(): skip a malformed wan object rather than throw.
+            }
+
+            if (wan == null)
+                continue;
+
+            wan.Key = key;
+            yield return wan;
+        }
+    }
+
+    /// <summary>
     /// Network-group convention from a wan object key ("wan"/"wan1" → "WAN",
     /// "wan2" → "WAN2"). Used when iterating GetWanInterfaces() whose Key is the
     /// raw JSON property name.
