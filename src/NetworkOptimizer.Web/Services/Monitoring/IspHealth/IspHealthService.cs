@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -441,7 +440,7 @@ public class IspHealthService
         return (down, up, source, smartQueues);
     }
 
-    private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(30);
 
     private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
     {
