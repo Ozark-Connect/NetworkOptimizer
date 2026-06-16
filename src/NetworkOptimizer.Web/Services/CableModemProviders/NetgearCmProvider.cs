@@ -157,14 +157,17 @@ public sealed class NetgearCmProvider : ICableModemProvider
         string? password,
         CancellationToken cancellationToken)
     {
-        // A cookie jar keeps the session across the optional MultiLogin takeover (GET ->
-        // POST -> re-GET). AllowAutoRedirect (the default) lets the modem 302 us onto
-        // MultiLogin.asp when another session is active.
+        // Follow redirects manually (AllowAutoRedirect = false) so the Basic auth header is
+        // sent on EVERY hop. .NET drops the Authorization header when auto-following a
+        // redirect, which breaks single-session modems (e.g. CM600) that 302 every page to
+        // MultiLogin.asp when another session is active - the redirected request would 401.
+        // The cookie jar keeps the session across the takeover (GET -> POST -> re-GET).
         using var handler = new HttpClientHandler
         {
             AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
             CookieContainer = new System.Net.CookieContainer(),
             UseCookies = true,
+            AllowAutoRedirect = false,
         };
         using var client = new HttpClient(handler)
         {
@@ -177,7 +180,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         }
 
-        var response = await client.GetAsync(url, cancellationToken);
+        var response = await GetFollowingRedirectsAsync(client, url, cancellationToken);
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
@@ -188,13 +191,40 @@ public sealed class NetgearCmProvider : ICableModemProvider
         {
             if (await TryTakeOverSessionAsync(client, url, content, cancellationToken))
             {
-                response = await client.GetAsync(url, cancellationToken);
+                response = await GetFollowingRedirectsAsync(client, url, cancellationToken);
                 response.EnsureSuccessStatusCode();
                 content = await response.Content.ReadAsStringAsync(cancellationToken);
             }
         }
 
         return string.IsNullOrWhiteSpace(content) ? null : content;
+    }
+
+    /// <summary>
+    /// GET a URL, following same-style redirects manually so the client's default headers
+    /// (notably Basic auth) are re-sent on each hop - unlike HttpClient auto-redirect, which
+    /// strips the Authorization header. Resolves relative Location values (e.g.
+    /// "MultiLogin.asp"). Stops after a few hops to avoid loops.
+    /// </summary>
+    private static async Task<HttpResponseMessage> GetFollowingRedirectsAsync(
+        HttpClient client,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        var current = url;
+        var response = await client.GetAsync(current, cancellationToken);
+
+        for (int hop = 0; hop < 5
+            && (int)response.StatusCode is >= 300 and < 400
+            && response.Headers.Location != null; hop++)
+        {
+            var next = new Uri(new Uri(current), response.Headers.Location);
+            response.Dispose();
+            current = next.ToString();
+            response = await client.GetAsync(current, cancellationToken);
+        }
+
+        return response;
     }
 
     /// <summary>
@@ -238,7 +268,9 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
         _logger.LogDebug("Netgear CM: another web session active; logging it out via MultiLogin to poll");
         var postResponse = await client.PostAsync(postUrl, form, cancellationToken);
-        return postResponse.IsSuccessStatusCode;
+        // The takeover POST returns a 302 redirect on success (we don't auto-follow it; the
+        // caller re-fetches the status page). Treat any non-error status as accepted.
+        return (int)postResponse.StatusCode < 400;
     }
 
     private CableModemStats ParseDocsisStatus(string html, CmPollContext context)

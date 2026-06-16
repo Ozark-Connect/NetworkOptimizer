@@ -93,6 +93,16 @@ public static class GatewayWanHelper
         var port = string.IsNullOrWhiteSpace(portLabel) ? null : portLabel.Trim();
         var wanLabel = wanIndex >= 1 ? $"WAN{wanIndex}" : null;
 
+        // Drop a port label that just repeats another part (common when the port is named
+        // after the ISP), so we don't render "Acme Fiber WAN4 (eth1 - Acme Fiber)".
+        if (port != null && (
+                string.Equals(port, name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(port, iface, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(port, wanLabel, StringComparison.OrdinalIgnoreCase)))
+        {
+            port = null;
+        }
+
         var prefix = string.Join(" ", new[] { name, wanLabel }.Where(p => !string.IsNullOrEmpty(p)));
         var suffixParts = new List<string?> { iface, port };
 

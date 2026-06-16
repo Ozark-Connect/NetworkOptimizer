@@ -87,6 +87,14 @@ public class GatewayWanHelperTests
     public void FormatWanLabel_degrades_gracefully(string? name, int wanIndex, string? ifName, string? portLabel, string expected)
         => GatewayWanHelper.FormatWanLabel(name, wanIndex, ifName, portLabel).Should().Be(expected);
 
+    [Theory]
+    [InlineData("Acme Fiber", 4, "eth1", "Acme Fiber", "Acme Fiber WAN4 (eth1)")]
+    [InlineData("Acme Fiber", 4, "eth1", "acme fiber", "Acme Fiber WAN4 (eth1)")]
+    [InlineData("Comcast", 2, "eth0", "WAN2", "Comcast WAN2 (eth0)")]
+    [InlineData("Comcast", 1, "eth0", "eth0", "Comcast WAN1 (eth0)")]
+    public void FormatWanLabel_drops_redundant_port_label(string? name, int wanIndex, string? ifName, string? portLabel, string expected)
+        => GatewayWanHelper.FormatWanLabel(name, wanIndex, ifName, portLabel).Should().Be(expected);
+
     [Fact]
     public void FormatWanLabel_treats_blank_pieces_as_missing()
     {
