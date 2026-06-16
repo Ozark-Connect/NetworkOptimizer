@@ -90,6 +90,13 @@ public class LanFlowMapService
 
         var anchors = ProjectAnchors(markers, deviceLocations,
             out var centerLat, out var centerLng, out var lngScale);
+        var droppedAnchors = PruneAnchorOutliers(anchors);
+        if (droppedAnchors.Count > 0)
+        {
+            _logger.LogDebug(
+                "LAN map: dropped {Count} outlier anchor(s) far outside the cluster (bad/stale placement): {Macs}",
+                droppedAnchors.Count, string.Join(", ", droppedAnchors));
+        }
         snapshot.Bounds = ComputeBounds(anchors, centerLat, centerLng, lngScale);
         snapshot.Buildings = await BuildBuildingsAsync(centerLat, centerLng, lngScale, ct);
         snapshot.MaterialColors = new Dictionary<string, string>(
@@ -839,6 +846,41 @@ public class LanFlowMapService
         }
 
         return anchors;
+    }
+
+    // A single anchor placed wildly far from the rest (bad geocode, a mis-drag, or a
+    // stale placement from a since-relocated device) inflates the scene radius and
+    // collapses the whole map: the shared node/building scale is driven by the
+    // farthest anchor, so one outlier 1+ km out shrinks real buildings to a speck and
+    // skews the camera centroid. Drop anchors that sit BOTH far beyond the cluster
+    // (> OutlierMedianFactor x the median anchor distance) AND past an absolute sanity
+    // range. Requiring both conditions means legitimately spread-out layouts
+    // (multi-building / campus) are never touched - only a lone runaway spike is. A
+    // dropped node loses its pin and simply floats with the force layout instead.
+    private const double OutlierMedianFactor = 6.0;
+    private const double OutlierAbsoluteMetres = 200.0;
+
+    private static List<string> PruneAnchorOutliers(Dictionary<string, LanPlacement> anchors)
+    {
+        var removed = new List<string>();
+        // Need enough anchors for a median to be meaningful; with 1-2 we can't tell
+        // which one is the outlier, so leave them alone.
+        if (anchors.Count < 3) return removed;
+
+        var distances = anchors.ToDictionary(
+            kv => kv.Key,
+            kv => Math.Sqrt(kv.Value.X * kv.Value.X + kv.Value.Y * kv.Value.Y));
+
+        var sorted = distances.Values.OrderBy(d => d).ToList();
+        var median = sorted[sorted.Count / 2];
+        var threshold = Math.Max(OutlierMedianFactor * median, OutlierAbsoluteMetres);
+
+        foreach (var mac in distances.Where(kv => kv.Value > threshold).Select(kv => kv.Key).ToList())
+        {
+            anchors.Remove(mac);
+            removed.Add(mac);
+        }
+        return removed;
     }
 
     private static LanFlowMapBounds ComputeBounds(
