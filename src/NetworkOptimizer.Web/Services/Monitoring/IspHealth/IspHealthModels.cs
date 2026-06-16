@@ -371,6 +371,13 @@ public class IspHealthInputs
     /// <summary>Whether UniFi Smart Queues is already enabled on the WAN.</summary>
     public bool SmartQueuesEnabled { get; init; }
 
+    /// <summary>
+    /// Time windows to exclude from loaded-line analysis. Adaptive SQM speed probes
+    /// briefly crank the HTB rate for an unshaped measurement; the resulting bufferbloat
+    /// is real but does not represent the user's normal SQM-protected experience.
+    /// </summary>
+    public List<(DateTime Start, DateTime End)> LoadExclusionWindows { get; init; } = new();
+
     /// <summary>Pre-detected congestion events (post correlation pass).</summary>
     public List<CongestionEvent> CongestionEvents { get; init; } = new();
 

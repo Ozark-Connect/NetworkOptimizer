@@ -21,7 +21,12 @@ public class IspHealthScorer
 
     public IspHealthReport Score(IspHealthInputs inputs, AccessProfile profile)
     {
-        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options);
+        if (inputs.LoadExclusionWindows.Count > 0)
+        {
+            foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
+                _logger?.LogDebug("ISP Health: excluding SQM probe window {Start} to {End}", exStart.ToString("u"), exEnd.ToString("u"));
+        }
+        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger);
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;
 
         var idleBaseline = ComputeIdleBaseline(inputs.FirstHopSeries, loadWindows);

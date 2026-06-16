@@ -304,6 +304,8 @@ public class IspHealthService
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
         // event labels. It is published together with the report (see Snapshot).
+        var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, ct);
+
         var inputs = new IspHealthInputs
         {
             WindowStart = windowStart,
@@ -325,7 +327,8 @@ public class IspHealthService
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
             SmartQueuesEnabled = smartQueuesEnabled,
-            HopOrderKnown = hopOrderKnown
+            HopOrderKnown = hopOrderKnown,
+            LoadExclusionWindows = loadExclusions
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
@@ -421,6 +424,42 @@ public class IspHealthService
             }
         }
         return (down, up, source, smartQueues);
+    }
+
+    private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(20);
+
+    private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(
+        DateTime windowStart, DateTime windowEnd, CancellationToken ct)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
+            .Where(c => c.Enabled)
+            .ToListAsync(ct);
+        if (sqmConfigs.Count == 0) return new List<(DateTime, DateTime)>();
+
+        // Schedule hours are in the gateway's local time (crontab timezone). The app runs
+        // on the same network, so server local time matches. Convert to UTC for comparison
+        // with the ISP Health window (all UTC).
+        var localZone = TimeZoneInfo.Local;
+        var exclusions = new List<(DateTime Start, DateTime End)>();
+        foreach (var config in sqmConfigs)
+        {
+            var probeTimes = new[] {
+                (config.SpeedtestMorningHour, config.SpeedtestMorningMinute),
+                (config.SpeedtestEveningHour, config.SpeedtestEveningMinute)
+            };
+            for (var day = windowStart.AddHours(-24).Date; day <= windowEnd.Date; day = day.AddDays(1))
+            {
+                foreach (var (hour, minute) in probeTimes)
+                {
+                    var localProbe = new DateTime(day.Year, day.Month, day.Day, hour, minute, 0, DateTimeKind.Unspecified);
+                    var utcProbe = TimeZoneInfo.ConvertTimeToUtc(localProbe, localZone);
+                    if (utcProbe >= windowStart && utcProbe <= windowEnd)
+                        exclusions.Add((utcProbe, utcProbe + SqmProbeDuration));
+                }
+            }
+        }
+        return exclusions;
     }
 
     /// <summary>

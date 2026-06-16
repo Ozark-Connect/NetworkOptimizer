@@ -18,9 +18,11 @@ public class LoadClassifierTests
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
-        windows[TestSeries.Start].IsLoadedDown.Should().BeTrue();
-        windows[TestSeries.Start].IsLoadedUp.Should().BeFalse();
-        windows[TestSeries.Start].IsIdle.Should().BeFalse();
+        windows.Should().HaveCount(1);
+        var w = windows.Values.Single();
+        w.IsLoadedDown.Should().BeTrue();
+        w.IsLoadedUp.Should().BeFalse();
+        w.IsIdle.Should().BeFalse();
     }
 
     [Fact]
@@ -33,9 +35,11 @@ public class LoadClassifierTests
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
-        windows[TestSeries.Start].IsIdle.Should().BeTrue();
-        windows[TestSeries.Start].IsLoadedDown.Should().BeFalse();
-        windows[TestSeries.Start].IsLoadedUp.Should().BeFalse();
+        windows.Should().HaveCount(1);
+        var w = windows.Values.Single();
+        w.IsIdle.Should().BeTrue();
+        w.IsLoadedDown.Should().BeFalse();
+        w.IsLoadedUp.Should().BeFalse();
     }
 
     [Fact]
@@ -48,8 +52,10 @@ public class LoadClassifierTests
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
-        windows[TestSeries.Start].IsIdle.Should().BeFalse();
-        windows[TestSeries.Start].IsLoadedDown.Should().BeFalse();
+        windows.Should().HaveCount(1);
+        var w = windows.Values.Single();
+        w.IsIdle.Should().BeFalse();
+        w.IsLoadedDown.Should().BeFalse();
     }
 
     [Fact]
@@ -62,8 +68,10 @@ public class LoadClassifierTests
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
-        windows[TestSeries.Start].IsLoadedDown.Should().BeTrue();
-        windows[TestSeries.Start].IsLoadedUp.Should().BeTrue();
+        windows.Should().HaveCount(1);
+        var w = windows.Values.Single();
+        w.IsLoadedDown.Should().BeTrue();
+        w.IsLoadedUp.Should().BeTrue();
     }
 
     [Fact]
@@ -80,35 +88,61 @@ public class LoadClassifierTests
     [Fact]
     public void Uses_peak_rate_within_load_window()
     {
+        // Both samples within one LoadWindowSeconds span so they group into one bucket
+        var ws = Options.LoadWindowSeconds;
+        var baseTime = CongestionDetector.FloorTime(TestSeries.Start, TimeSpan.FromSeconds(ws));
         var rates = new List<ThroughputSample>
         {
-            new(TestSeries.Start, 100_000_000, 1_000_000),
-            new(TestSeries.Start.AddSeconds(10), 750_000_000, 1_000_000)
+            new(baseTime, 100_000_000, 1_000_000),
+            new(baseTime.AddSeconds(ws - 1), 750_000_000, 1_000_000)
         };
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
         windows.Should().HaveCount(1);
-        windows[TestSeries.Start].IsLoadedDown.Should().BeTrue();
+        windows.Values.Single().IsLoadedDown.Should().BeTrue();
     }
 
     [Fact]
-    public void Fifteen_second_burst_registers_as_loaded()
+    public void Short_burst_registers_as_loaded_in_its_own_window()
     {
-        // A short speed-test burst lands in its own 15 s window instead of diluting
-        // into a minute-level mean
+        var ws = Options.LoadWindowSeconds;
         var rates = new List<ThroughputSample>
         {
             new(TestSeries.Start, 10_000_000, 1_000_000),
-            new(TestSeries.Start.AddSeconds(15), 900_000_000, 2_000_000),
-            new(TestSeries.Start.AddSeconds(30), 10_000_000, 1_000_000)
+            new(TestSeries.Start.AddSeconds(ws), 900_000_000, 2_000_000),
+            new(TestSeries.Start.AddSeconds(ws * 2), 10_000_000, 1_000_000)
         };
 
         var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options);
 
         windows.Should().HaveCount(3);
-        windows[TestSeries.Start.AddSeconds(15)].IsLoadedDown.Should().BeTrue();
-        windows[TestSeries.Start].IsIdle.Should().BeTrue();
-        windows[TestSeries.Start.AddSeconds(30)].IsIdle.Should().BeTrue();
+        var keys = windows.Keys.OrderBy(k => k).ToList();
+        windows[keys[1]].IsLoadedDown.Should().BeTrue();
+        windows[keys[0]].IsIdle.Should().BeTrue();
+        windows[keys[2]].IsIdle.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Exclusion_window_forces_non_loaded()
+    {
+        var ws = Options.LoadWindowSeconds;
+        var baseTime = CongestionDetector.FloorTime(TestSeries.Start, TimeSpan.FromSeconds(ws));
+        var rates = new List<ThroughputSample>
+        {
+            new(baseTime, 900_000_000, 90_000_000)
+        };
+        var exclusions = new List<(DateTime Start, DateTime End)>
+        {
+            (baseTime, baseTime.AddSeconds(20))
+        };
+
+        var windows = LoadClassifier.Classify(rates, expectedDownloadMbps: 1000, expectedUploadMbps: 100, Options, exclusions);
+
+        windows.Should().HaveCount(1);
+        var w = windows.Values.Single();
+        w.IsLoadedDown.Should().BeFalse();
+        w.IsLoadedUp.Should().BeFalse();
+        w.IsIdle.Should().BeFalse();
     }
 }

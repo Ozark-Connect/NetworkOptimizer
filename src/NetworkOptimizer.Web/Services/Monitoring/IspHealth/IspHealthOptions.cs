@@ -77,7 +77,7 @@ public class IspHealthOptions
     /// bursts (speed tests, large downloads) register instead of diluting into
     /// minute-level means.
     /// </summary>
-    public int LoadWindowSeconds { get; set; } = 15;
+    public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.

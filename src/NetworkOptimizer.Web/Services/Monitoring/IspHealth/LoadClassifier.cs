@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 /// <summary>
@@ -12,7 +14,9 @@ public static class LoadClassifier
         IReadOnlyList<ThroughputSample> rates,
         double? expectedDownloadMbps,
         double? expectedUploadMbps,
-        IspHealthOptions options)
+        IspHealthOptions options,
+        IReadOnlyList<(DateTime Start, DateTime End)>? exclusionWindows = null,
+        ILogger? logger = null)
     {
         var result = new Dictionary<DateTime, LoadWindow>();
         if (rates.Count == 0) return result;
@@ -22,8 +26,16 @@ public static class LoadClassifier
         if (expectedDownBps is null && expectedUpBps is null) return result;
 
         var windowSize = TimeSpan.FromSeconds(options.LoadWindowSeconds);
+        var excluded = 0;
         foreach (var group in rates.GroupBy(r => CongestionDetector.FloorTime(r.Time, windowSize)))
         {
+            if (exclusionWindows != null && IsExcluded(group.Key, windowSize, exclusionWindows))
+            {
+                result[group.Key] = new LoadWindow(false, false, false);
+                excluded++;
+                continue;
+            }
+
             var down = group.Max(r => r.DownloadBps ?? 0);
             var up = group.Max(r => r.UploadBps ?? 0);
 
@@ -35,6 +47,18 @@ public static class LoadClassifier
 
             result[group.Key] = new LoadWindow(idle, loadedDown, loadedUp);
         }
+        if (excluded > 0)
+            logger?.LogDebug("ISP Health: excluded {Count} load window(s) overlapping SQM probe schedule", excluded);
         return result;
+    }
+
+    private static bool IsExcluded(DateTime windowStart, TimeSpan windowSize, IReadOnlyList<(DateTime Start, DateTime End)> exclusions)
+    {
+        var windowEnd = windowStart + windowSize;
+        foreach (var (exStart, exEnd) in exclusions)
+        {
+            if (windowStart < exEnd && windowEnd > exStart) return true;
+        }
+        return false;
     }
 }
