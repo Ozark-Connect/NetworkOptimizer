@@ -288,6 +288,12 @@
     /// </summary>
     [Parameter] public string? PrefillTargetIp { get; set; }
 
+    /// <summary>
+    /// Source type of the deep-link (cm/wmodem/ont) used to choose a sensible default
+    /// interface name (cmodem0, wmodem0, ont0), incremented past any existing ones.
+    /// </summary>
+    [Parameter] public string? PrefillSourceType { get; set; }
+
     private List<MonitoringInterface> _interfaces = new();
     private List<WanInterfaceInfo> _wans = new();
     private readonly Dictionary<int, MonitoringInterfaceDeploymentService.InterfaceStatus> _statuses = new();
@@ -352,9 +358,30 @@
                 _editing = NewInterface();
                 _editingOriginal = null;
                 _editing.TargetIp = PrefillTargetIp!.Trim();
+                _editing.Name = NextFreeName(PrefixForType(PrefillSourceType));
                 OnTargetChanged();
             }
             _collapsed = false;
+        }
+    }
+
+    private static string PrefixForType(string? type) => type switch
+    {
+        "cm" => "cmodem",
+        "wmodem" => "wmodem",
+        "ont" => "ont",
+        _ => "modem"
+    };
+
+    /// <summary>Lowest free "{prefix}{n}" name (n from 0) not already used by an interface.</summary>
+    private string NextFreeName(string prefix)
+    {
+        var used = new HashSet<string>(_interfaces.Select(i => i.Name), StringComparer.OrdinalIgnoreCase);
+        for (var n = 0; ; n++)
+        {
+            var candidate = $"{prefix}{n}";
+            if (!used.Contains(candidate))
+                return candidate;
         }
     }
 
