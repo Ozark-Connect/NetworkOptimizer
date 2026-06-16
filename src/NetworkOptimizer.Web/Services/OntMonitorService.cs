@@ -260,7 +260,10 @@ public class OntMonitorService : IDisposable
                 ponLinkStatus: stats.PonLinkStatus != PonLinkState.Unknown ? stats.PonLinkStatus.ToInfluxValue() : null,
                 bwpSpeedMbps: stats.BwpSpeedMbps,
                 sfpLinkSpeedMbps: stats.SfpLinkSpeedMbps,
-                timestamp: stats.Timestamp);
+                timestamp: stats.Timestamp,
+                linkUptimeSeconds: stats.LinkUptimeSeconds,
+                oltVendor: stats.OltVendor,
+                oltModel: stats.OltModel);
         }
         catch (Exception ex)
         {

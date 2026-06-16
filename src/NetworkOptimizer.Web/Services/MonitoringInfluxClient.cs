@@ -557,7 +557,10 @@ public class MonitoringInfluxClient : IAsyncDisposable
         string? ponLinkStatus,
         int? bwpSpeedMbps,
         int? sfpLinkSpeedMbps,
-        DateTime timestamp)
+        DateTime timestamp,
+        long? linkUptimeSeconds = null,
+        string? oltVendor = null,
+        string? oltModel = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("ont")
@@ -567,6 +570,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
 
         if (!string.IsNullOrEmpty(ponType)) point = point.Tag("pon_type", ponType);
         if (!string.IsNullOrEmpty(wavelength)) point = point.Tag("wavelength", wavelength);
+        if (!string.IsNullOrEmpty(oltVendor)) point = point.Tag("olt_vendor", oltVendor);
+        if (!string.IsNullOrEmpty(oltModel)) point = point.Tag("olt_model", oltModel);
 
         if (rxPowerDbm.HasValue) point = point.Field("rx_power_dbm", rxPowerDbm.Value);
         if (txPowerDbm.HasValue) point = point.Field("tx_power_dbm", txPowerDbm.Value);
@@ -578,6 +583,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (!string.IsNullOrEmpty(ponLinkStatus)) point = point.Field("pon_link_status", ponLinkStatus);
         if (bwpSpeedMbps.HasValue) point = point.Field("bwp_speed_mbps", bwpSpeedMbps.Value);
         if (sfpLinkSpeedMbps.HasValue) point = point.Field("sfp_link_speed_mbps", sfpLinkSpeedMbps.Value);
+        if (linkUptimeSeconds.HasValue) point = point.Field("link_uptime_seconds", linkUptimeSeconds.Value);
 
         Enqueue(point, longterm: true);
         return Task.CompletedTask;

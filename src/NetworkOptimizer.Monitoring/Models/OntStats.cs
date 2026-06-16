@@ -68,4 +68,13 @@ public class OntStats
 
     /// <summary>Estimated distance to OLT in meters</summary>
     public double? Distance { get; set; }
+
+    /// <summary>Seconds the PON link has been continuously up</summary>
+    public long? LinkUptimeSeconds { get; set; }
+
+    /// <summary>Upstream OLT vendor reported by the ONT (e.g. "CALX" for Calix)</summary>
+    public string? OltVendor { get; set; }
+
+    /// <summary>Upstream OLT model reported by the ONT (e.g. "E7")</summary>
+    public string? OltModel { get; set; }
 }
