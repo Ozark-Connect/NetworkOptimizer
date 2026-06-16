@@ -8626,6 +8626,7 @@ a.path-hop.hop-clickable:hover {
 /* ApexCharts dark theme overrides */
 .apexcharts-canvas {
     background: transparent !important;
+    touch-action: pan-y;
 }
 
 /* ApexCharts dark theme overrides annotation label fill - needs double class
