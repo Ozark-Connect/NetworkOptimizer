@@ -156,7 +156,7 @@
                                     <input type="checkbox" @bind="_vlanEnabled" @bind:after="OnVlanToggled" />
                                     <span>Tagged</span>
                                 </label>
-                                <input type="number" class="form-control mi-vlan-id" @bind="_editing.WanVlanId" min="1" max="4094" placeholder="100" disabled="@(!_vlanEnabled)" />
+                                <input type="number" class="form-control mi-vlan-id" @bind="_editing.WanVlanId" @bind:event="oninput" min="1" max="4094" placeholder="100" disabled="@(!_vlanEnabled)" />
                             </div>
                             <small class="form-help">Tag the interface when your WAN runs on a VLAN (some fiber ISPs). Leave off for a plain port.</small>
                         </div>
