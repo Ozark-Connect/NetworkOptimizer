@@ -273,6 +273,7 @@
     private readonly Dictionary<int, MonitoringInterfaceDeploymentService.InterfaceStatus> _statuses = new();
 
     private MonitoringInterface _editing = NewInterface();
+    private MonitoringInterface? _editingOriginal;
     private bool _collapsed = true;
     private bool _saving;
     private int? _busyId;
@@ -284,6 +285,27 @@
     private string? _appliedPrefill;
 
     private static MonitoringInterface NewInterface() => new() { Name = "modem0", SubnetPrefix = 24, SnatEnabled = true, WatchdogIntervalMinutes = 5 };
+
+    private static MonitoringInterface Snapshot(MonitoringInterface mi) => new()
+    {
+        Id = mi.Id,
+        Name = mi.Name,
+        WanIfName = mi.WanIfName,
+        WanKey = mi.WanKey,
+        TargetIp = mi.TargetIp,
+        SubnetPrefix = mi.SubnetPrefix,
+        GatewayLocalIp = mi.GatewayLocalIp,
+        SnatEnabled = mi.SnatEnabled,
+        WatchdogIntervalMinutes = mi.WatchdogIntervalMinutes
+    };
+
+    // A gateway re-teardown is needed when an edit changes anything the boot script bakes
+    // into the macvlan name, route, SNAT rule, or script filename - otherwise the old
+    // artifacts (interface, route, SNAT, cron, /data/on_boot.d file) are orphaned.
+    private static bool NeedsOldTeardown(MonitoringInterface a, MonitoringInterface b)
+        => a.Name != b.Name || a.WanIfName != b.WanIfName || a.TargetIp != b.TargetIp
+            || a.GatewayLocalIp != b.GatewayLocalIp || a.SubnetPrefix != b.SubnetPrefix
+            || a.SnatEnabled != b.SnatEnabled;
 
     protected override async Task OnInitializedAsync()
     {
@@ -304,6 +326,7 @@
             else
             {
                 _editing = NewInterface();
+                _editingOriginal = null;
                 _editing.TargetIp = PrefillTargetIp!.Trim();
                 OnTargetChanged();
             }
@@ -349,18 +372,8 @@
 
     private void EditInterface(MonitoringInterface mi)
     {
-        _editing = new MonitoringInterface
-        {
-            Id = mi.Id,
-            Name = mi.Name,
-            WanIfName = mi.WanIfName,
-            WanKey = mi.WanKey,
-            TargetIp = mi.TargetIp,
-            SubnetPrefix = mi.SubnetPrefix,
-            GatewayLocalIp = mi.GatewayLocalIp,
-            SnatEnabled = mi.SnatEnabled,
-            WatchdogIntervalMinutes = mi.WatchdogIntervalMinutes
-        };
+        _editing = Snapshot(mi);
+        _editingOriginal = Snapshot(mi);
         _collapsed = false;
         _message = null;
         _deploySteps.Clear();
@@ -369,6 +382,7 @@
     private void CancelEdit()
     {
         _editing = NewInterface();
+        _editingOriginal = null;
         _message = null;
     }
 
@@ -396,6 +410,10 @@
 
     private async Task SaveAndDeploy()
     {
+        // Capture the pre-edit config before save/reset so we can tear down any orphaned
+        // gateway state (renamed interface, changed WAN/target, disabled SNAT, etc.).
+        var original = _editingOriginal;
+
         if (!await ValidateAndSaveAsync())
             return;
 
@@ -403,6 +421,22 @@
         await LoadAsync();
         var saved = _interfaces.FirstOrDefault(i => i.TargetIp == _editing.TargetIp && i.WanIfName == _editing.WanIfName);
         _editing = NewInterface();
+        _editingOriginal = null;
+
+        // Editing changed gateway-affecting fields: remove the old config first so we don't
+        // leave a stale macvlan/route/SNAT/cron/boot-script behind.
+        if (original != null && saved != null && NeedsOldTeardown(original, saved))
+        {
+            try
+            {
+                await Deploy.RemoveAsync(original);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to tear down previous monitoring interface config before re-deploy");
+            }
+        }
+
         if (saved != null)
             await DeployInterface(saved);
     }
@@ -488,6 +522,14 @@
             _deploySteps = steps;
             await Repo.DeleteMonitoringInterfaceAsync(mi.Id);
             _statuses.Remove(mi.Id);
+
+            // If we were editing the interface we just removed, drop back to the add form.
+            if (_editing.Id == mi.Id)
+            {
+                _editing = NewInterface();
+                _editingOriginal = null;
+            }
+
             _message = success ? $"Removed monitoring interface {mi.Name}." : "Removed configuration; some gateway cleanup may have failed (see log).";
             _messageSuccess = success;
             await LoadAsync();
