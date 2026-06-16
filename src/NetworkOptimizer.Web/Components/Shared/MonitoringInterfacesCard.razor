@@ -769,7 +769,12 @@
     /// </summary>
     private static string SuggestLocalIp(string? targetIp)
     {
-        if (!IPAddress.TryParse(targetIp, out var ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        // Require a complete dotted-quad. IPAddress.TryParse accepts shorthand like "1"
+        // (-> 0.0.0.1) or "192.168.100" (-> 192.168.0.100), which under per-keystroke
+        // (oninput) binding would suggest off a half-typed address (e.g. "0.0.0.2").
+        if (targetIp is null || targetIp.Split('.').Length != 4 ||
+            !IPAddress.TryParse(targetIp, out var ip) ||
+            ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "";
         var bytes = ip.GetAddressBytes();
         int last = bytes[3];

@@ -37,6 +37,17 @@ public class MonitoringInterfaceDeploymentServiceTests
     public void Validate_VlanOutOfRange_Rejected(int vlan)
         => MonitoringInterfaceDeploymentService.Validate(Valid(vlan)).Should().Contain("VLAN");
 
+    [Theory]
+    [InlineData("1")]
+    [InlineData("192.168.100")]
+    [InlineData("192.168.100.1.1")]
+    public void Validate_ShorthandOrMalformedTargetIp_Rejected(string targetIp)
+    {
+        var mi = Valid();
+        mi.TargetIp = targetIp;
+        MonitoringInterfaceDeploymentService.Validate(mi).Should().Contain("Modem/ONT IP");
+    }
+
     [Fact]
     public void BootScript_NoVlan_LeavesVlanIdEmpty()
     {

@@ -57,10 +57,14 @@ public class MonitoringInterfaceDeploymentService
         if (mi.WanVlanId is int vlan && (vlan < 1 || vlan > 4094))
             return "VLAN ID must be between 1 and 4094.";
 
-        if (!IPAddress.TryParse(mi.TargetIp, out var target) || target.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        // Require dotted-quad: IPAddress.TryParse accepts shorthand ("192.168.100" ->
+        // 192.168.0.100), which would deploy a route/macvlan to the wrong address.
+        if ((mi.TargetIp ?? "").Split('.').Length != 4 ||
+            !IPAddress.TryParse(mi.TargetIp, out var target) || target.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "Modem/ONT IP must be a valid IPv4 address.";
 
-        if (!IPAddress.TryParse(mi.GatewayLocalIp, out var local) || local.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        if ((mi.GatewayLocalIp ?? "").Split('.').Length != 4 ||
+            !IPAddress.TryParse(mi.GatewayLocalIp, out var local) || local.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "Gateway-local IP must be a valid IPv4 address.";
 
         if (mi.SubnetPrefix < 8 || mi.SubnetPrefix > 30)
