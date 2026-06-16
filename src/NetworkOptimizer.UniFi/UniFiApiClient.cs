@@ -511,6 +511,14 @@ public class UniFiApiClient : IDisposable
         if (_pathDetected)
             return;
 
+        if (_useStandaloneLogin)
+        {
+            _isUniFiOs = false;
+            _pathDetected = true;
+            _logger.LogInformation("Using standalone API paths (confirmed by login detection)");
+            return;
+        }
+
         _logger.LogDebug("Detecting controller type (UniFi OS vs standalone)...");
 
         // Try UniFi OS path first (UDM/UCG) - this is the modern path
