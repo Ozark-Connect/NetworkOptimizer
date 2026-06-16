@@ -4,6 +4,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
@@ -284,6 +285,20 @@ public class UpstreamTracerService
             return Fail($"Couldn't fetch UniFi devices: {ex.Message}");
         }
 
+        // ISP/transit tracing follows the CONFIGURED primary WAN (not whichever WAN
+        // happens to be first), matching the rest of the monitoring umbrella. Resolve
+        // its networkgroup so the wan-object loop can pick the matching connection.
+        string? primaryNg = null;
+        try
+        {
+            var networks = await _connectionService.GetNetworksAsync(ct);
+            primaryNg = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger)?.WanNetworkgroup;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "UpstreamTracer: failed to resolve primary WAN networkgroup; falling back to first WAN");
+        }
+
         string? wanInterfaceName = null;
         string? wanUplinkIfName = null;
         string? wanIp = null;
@@ -326,36 +341,55 @@ public class UpstreamTracerService
                     }
                 }
 
-                for (int i = 1; i <= 6; i++)
-                {
-                    var wanKey = $"wan{i}";
-                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
+                // ifname → networkgroup so each wan object can be matched against the
+                // configured primary; falls back to the wan-key convention.
+                var ifnameToNg = GatewayWanHelper.BuildNetworkGroupByIfname(
+                    device.TryGetProperty("ethernet_overrides", out var eo) ? eo : default);
 
-                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
-                        ? uplinkProp.GetString() : null;
+                (string Key, string Uplink, string? Ip)? firstWan = null;
+                foreach (var wan in GatewayWanHelper.EnumerateWanInterfaces(device))
+                {
+                    var uplinkIfname = wan.UplinkIfName;
                     if (string.IsNullOrEmpty(uplinkIfname)) continue;
 
-                    var ip = wanObj.TryGetProperty("ip", out var wanIpProp)
-                        ? wanIpProp.GetString() : null;
+                    var ip = wan.Ip;
 
                     // Derive the WAN key from port_table network_name when available
                     // (e.g. "wan", "wan2") to match convention used by prior code.
                     string interfaceKey;
-                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
-                        portIdxProp.TryGetInt32(out var portIdx) &&
-                        portIdxToNetworkName.TryGetValue(portIdx, out var networkName))
+                    if (wan.PortIdx.HasValue &&
+                        portIdxToNetworkName.TryGetValue(wan.PortIdx.Value, out var networkName))
                     {
                         interfaceKey = networkName;
                     }
                     else
                     {
-                        interfaceKey = i == 1 ? "wan" : $"wan{i}";
+                        interfaceKey = GatewayWanHelper.WanInterfaceKeyFromKey(wan.Key);
                     }
 
-                    wanInterfaceName = interfaceKey;
-                    wanUplinkIfName = uplinkIfname;
-                    wanIp = ip;
-                    break;
+                    firstWan ??= (interfaceKey, uplinkIfname, ip);
+
+                    // Resolve this wan's networkgroup and prefer the configured primary.
+                    string? ng = null;
+                    if (!string.IsNullOrEmpty(wan.IfName))
+                        ifnameToNg.TryGetValue(wan.IfName, out ng);
+                    ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
+
+                    if (primaryNg != null && string.Equals(ng, primaryNg, StringComparison.OrdinalIgnoreCase))
+                    {
+                        wanInterfaceName = interfaceKey;
+                        wanUplinkIfName = uplinkIfname;
+                        wanIp = ip;
+                        break;
+                    }
+                }
+
+                // Primary unresolved or not matched: fall back to the first WAN found.
+                if (wanInterfaceName == null && firstWan != null)
+                {
+                    wanInterfaceName = firstWan.Value.Key;
+                    wanUplinkIfName = firstWan.Value.Uplink;
+                    wanIp = firstWan.Value.Ip;
                 }
 
                 if (wanInterfaceName != null) break;

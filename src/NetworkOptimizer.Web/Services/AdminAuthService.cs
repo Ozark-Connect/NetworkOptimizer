@@ -33,21 +33,18 @@ public class AdminAuthService : IAdminAuthService
 {
     private readonly ISettingsRepository _settingsRepository;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly AdminAuthCache _cache;
     private readonly ILogger<AdminAuthService> _logger;
-
-    // Cached hash and source (never cache plaintext passwords)
-    private string? _cachedPasswordHash;
-    private AdminPasswordSource _cachedSource = AdminPasswordSource.None;
-    private DateTime _lastRefresh = DateTime.MinValue;
-    private readonly TimeSpan _cacheTimeout = TimeSpan.FromSeconds(30);
 
     public AdminAuthService(
         ISettingsRepository settingsRepository,
         IPasswordHasher passwordHasher,
+        AdminAuthCache cache,
         ILogger<AdminAuthService> logger)
     {
         _settingsRepository = settingsRepository;
         _passwordHasher = passwordHasher;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -57,7 +54,7 @@ public class AdminAuthService : IAdminAuthService
     public async Task<AdminPasswordSource> GetPasswordSourceAsync(CancellationToken cancellationToken = default)
     {
         await RefreshCacheIfNeededAsync(cancellationToken);
-        return _cachedSource;
+        return _cache.Source;
     }
 
     /// <summary>
@@ -68,7 +65,7 @@ public class AdminAuthService : IAdminAuthService
     {
         await RefreshCacheIfNeededAsync(cancellationToken);
 
-        if (string.IsNullOrEmpty(_cachedPasswordHash))
+        if (string.IsNullOrEmpty(_cache.PasswordHash))
         {
             _logger.LogWarning("Password validation attempted but no admin password is configured");
             return false;
@@ -77,7 +74,7 @@ public class AdminAuthService : IAdminAuthService
         bool isValid;
 
         // For environment variable, we compare directly (env var is plaintext)
-        if (_cachedSource == AdminPasswordSource.Environment)
+        if (_cache.Source == AdminPasswordSource.Environment)
         {
             // Use constant-time comparison for env var too
             var envPassword = Environment.GetEnvironmentVariable("APP_PASSWORD") ?? "";
@@ -88,16 +85,16 @@ public class AdminAuthService : IAdminAuthService
         else
         {
             // For database passwords, verify against hash
-            isValid = _passwordHasher.VerifyPassword(password, _cachedPasswordHash);
+            isValid = _passwordHasher.VerifyPassword(password, _cache.PasswordHash);
         }
 
         if (!isValid)
         {
-            _logger.LogWarning("Invalid admin password attempt. Source: {Source}", _cachedSource);
+            _logger.LogWarning("Invalid admin password attempt. Source: {Source}", _cache.Source);
         }
         else
         {
-            _logger.LogDebug("Admin password validated successfully. Source: {Source}", _cachedSource);
+            _logger.LogDebug("Admin password validated successfully. Source: {Source}", _cache.Source);
         }
 
         return isValid;
@@ -109,7 +106,7 @@ public class AdminAuthService : IAdminAuthService
     public async Task<bool> IsAuthenticationRequiredAsync(CancellationToken cancellationToken = default)
     {
         await RefreshCacheIfNeededAsync(cancellationToken);
-        return !string.IsNullOrEmpty(_cachedPasswordHash);
+        return !string.IsNullOrEmpty(_cache.PasswordHash);
     }
 
     /// <summary>
@@ -136,7 +133,7 @@ public class AdminAuthService : IAdminAuthService
         await _settingsRepository.SaveAdminSettingsAsync(settings, cancellationToken);
 
         // Force cache refresh
-        _lastRefresh = DateTime.MinValue;
+        _cache.Invalidate();
 
         // Log the change
         var newSource = await GetPasswordSourceAsync(cancellationToken);
@@ -188,7 +185,7 @@ public class AdminAuthService : IAdminAuthService
         await _settingsRepository.SaveAdminSettingsAsync(settings, cancellationToken);
 
         // Force cache refresh
-        _lastRefresh = DateTime.MinValue;
+        _cache.Invalidate();
 
         _logger.LogInformation("Database admin password cleared. Will use environment variable (APP_PASSWORD) if configured");
     }
@@ -200,7 +197,7 @@ public class AdminAuthService : IAdminAuthService
     {
         await RefreshCacheIfNeededAsync(cancellationToken);
 
-        switch (_cachedSource)
+        switch (_cache.Source)
         {
             case AdminPasswordSource.Database:
                 _logger.LogInformation("Admin authentication enabled using database-stored password");
@@ -220,20 +217,23 @@ public class AdminAuthService : IAdminAuthService
 
     private async Task RefreshCacheIfNeededAsync(CancellationToken cancellationToken)
     {
-        if (DateTime.UtcNow - _lastRefresh < _cacheTimeout)
+        // Cache hit: nothing to do, nothing to log.
+        if (_cache.IsFresh)
             return;
 
+        await _cache.RefreshGate.WaitAsync(cancellationToken);
         try
         {
+            // Re-check inside the gate: another request may have refreshed while we waited.
+            if (_cache.IsFresh)
+                return;
+
             var dbSettings = await _settingsRepository.GetAdminSettingsAsync(cancellationToken);
 
             // Check database first - only if explicitly enabled by user
             if (dbSettings?.Enabled == true && dbSettings.HasPassword)
             {
-                _cachedPasswordHash = dbSettings.Password;
-                _cachedSource = AdminPasswordSource.Database;
-                _lastRefresh = DateTime.UtcNow;
-                _logger.LogDebug("Using database-stored admin password");
+                StoreSource(dbSettings.Password, AdminPasswordSource.Database, "Using database-stored admin password");
                 return;
             }
 
@@ -242,20 +242,14 @@ public class AdminAuthService : IAdminAuthService
             if (!string.IsNullOrEmpty(envPassword))
             {
                 // For env var, we store a marker - validation handles it specially
-                _cachedPasswordHash = "__ENV__";
-                _cachedSource = AdminPasswordSource.Environment;
-                _lastRefresh = DateTime.UtcNow;
-                _logger.LogDebug("Using environment variable (APP_PASSWORD) for admin password");
+                StoreSource("__ENV__", AdminPasswordSource.Environment, "Using environment variable (APP_PASSWORD) for admin password");
                 return;
             }
 
             // Check for auto-generated password (Enabled=false but password exists)
             if (dbSettings?.HasPassword == true)
             {
-                _cachedPasswordHash = dbSettings.Password;
-                _cachedSource = AdminPasswordSource.AutoGenerated;
-                _lastRefresh = DateTime.UtcNow;
-                _logger.LogDebug("Using auto-generated admin password");
+                StoreSource(dbSettings.Password, AdminPasswordSource.AutoGenerated, "Using auto-generated admin password");
                 return;
             }
 
@@ -281,15 +275,29 @@ public class AdminAuthService : IAdminAuthService
             };
             await _settingsRepository.SaveAdminSettingsAsync(settings, cancellationToken);
 
-            _cachedPasswordHash = hashedPassword;
-            _cachedSource = AdminPasswordSource.AutoGenerated;
-            _lastRefresh = DateTime.UtcNow;
+            _cache.Store(hashedPassword, AdminPasswordSource.AutoGenerated);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to refresh admin password cache");
             // Keep existing cached values on error
         }
+        finally
+        {
+            _cache.RefreshGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Stores a resolved password source in the shared cache, logging the source only
+    /// when it actually changes (startup or a password change) - never on the periodic
+    /// 30s re-resolve, so steady-state auth checks stay silent.
+    /// </summary>
+    private void StoreSource(string? passwordHash, AdminPasswordSource source, string debugMessage)
+    {
+        if (_cache.Source != source)
+            _logger.LogDebug("{Message}", debugMessage);
+        _cache.Store(passwordHash, source);
     }
 
     /// <summary>

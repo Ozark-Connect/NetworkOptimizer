@@ -304,6 +304,9 @@ public class IspHealthService
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
         // event labels. It is published together with the report (see Snapshot).
+        var primaryWanInterface = await GetPrimaryWanInterfaceAsync(ct);
+        var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, primaryWanInterface, ct);
+
         var inputs = new IspHealthInputs
         {
             WindowStart = windowStart,
@@ -325,7 +328,8 @@ public class IspHealthService
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
             SmartQueuesEnabled = smartQueuesEnabled,
-            HopOrderKnown = hopOrderKnown
+            HopOrderKnown = hopOrderKnown,
+            LoadExclusionWindows = loadExclusions
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
@@ -356,10 +360,27 @@ public class IspHealthService
         {
             var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
             var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
-            if (gw?.Mac == null || gw.WanInterfaceNames == null || gw.WanInterfaceNames.Count == 0)
+            if (gw?.Mac == null)
                 return new List<ThroughputSample>();
 
-            var rates = await _influx.QueryGatewayWanRatesAsync(gw.Mac, gw.WanInterfaceNames, from, to, aggregate, ct);
+            // ISP Health analyzes the CONFIGURED primary WAN (same WAN as the expected
+            // speeds and SQM exclusion), so the rate series must come from that WAN's
+            // SNMP counter interface (e.g. "eth6" for a VLAN-tagged primary), not the
+            // live active uplink in WanInterfaceNames. Fall back to the active uplink
+            // only if the config-primary cannot be resolved, so analysis still runs.
+            var primaryIfaces = await _connectionService.GetPrimaryWanInterfacesAsync(ct);
+            var wanCounterNames = !string.IsNullOrEmpty(primaryIfaces?.CounterIfName)
+                ? new List<string> { primaryIfaces!.CounterIfName! }
+                : gw.WanInterfaceNames;
+            if (wanCounterNames == null || wanCounterNames.Count == 0)
+            {
+                _logger.LogDebug("ISP Health: no WAN counter interface resolved for rate query");
+                return new List<ThroughputSample>();
+            }
+            if (primaryIfaces?.CounterIfName == null)
+                _logger.LogDebug("ISP Health: primary WAN unresolved, rate query falling back to active uplink {Ifaces}", string.Join(",", wanCounterNames));
+
+            var rates = await _influx.QueryGatewayWanRatesAsync(gw.Mac, wanCounterNames, from, to, aggregate, ct);
             return rates.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList();
         }
         catch (Exception ex)
@@ -389,11 +410,7 @@ public class IspHealthService
         try
         {
             var networks = await _connectionService.GetNetworksAsync(ct);
-            var wanNets = networks
-                .Where(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(n => string.Equals(n.WanNetworkgroup, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .ToList();
-            var primary = wanNets.FirstOrDefault();
+            var primary = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger);
             if (primary != null)
             {
                 if (primary.WanDownloadMbps > 0) down = primary.WanDownloadMbps;
@@ -421,6 +438,66 @@ public class IspHealthService
             }
         }
         return (down, up, source, smartQueues);
+    }
+
+    private static readonly TimeSpan SqmProbeDuration = TimeSpan.FromSeconds(30);
+
+    private async Task<string?> GetPrimaryWanInterfaceAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await _connectionService.GetPrimaryWanDataPathInterfaceAsync(ct);
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<(DateTime Start, DateTime End)>> BuildSqmProbeExclusionsAsync(
+        DateTime windowStart, DateTime windowEnd, string? primaryWanInterface, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(primaryWanInterface)) return new List<(DateTime, DateTime)>();
+
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
+            .Where(c => c.Enabled)
+            .ToListAsync(ct);
+        sqmConfigs = sqmConfigs
+            .Where(c => string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (sqmConfigs.Count == 0) return new List<(DateTime, DateTime)>();
+
+        // Schedule hours are in the gateway's local time (crontab timezone). The app runs
+        // on the same network, so server local time matches. Convert to UTC for comparison
+        // with the ISP Health window (all UTC).
+        var localZone = TimeZoneInfo.Local;
+        var exclusions = new List<(DateTime Start, DateTime End)>();
+        foreach (var config in sqmConfigs)
+        {
+            var probeTimes = new[] {
+                (config.SpeedtestMorningHour, config.SpeedtestMorningMinute),
+                (config.SpeedtestEveningHour, config.SpeedtestEveningMinute)
+            };
+            // The loop walks LOCAL calendar days but seeds `day` from UTC window bounds, so the
+            // -24h start and +1-day end overshoot are LOAD-BEARING: they guarantee every probe
+            // whose UTC instant lands in [windowStart, windowEnd] is generated regardless of the
+            // local UTC offset (real offsets reach +-14h). The `utcProbe >= windowStart &&
+            // <= windowEnd` filter below trims the overshoot. Do not "tighten" this to .Date
+            // without the buffer - it would drop boundary probes for any non-UTC zone.
+            for (var day = windowStart.AddHours(-24).Date; day <= windowEnd.Date; day = day.AddDays(1))
+            {
+                foreach (var (hour, minute) in probeTimes)
+                {
+                    var localProbe = new DateTime(day.Year, day.Month, day.Day, hour, minute, 0, DateTimeKind.Unspecified);
+                    // A probe time inside the DST spring-forward gap is an invalid local time;
+                    // ConvertTimeToUtc would throw. The probe never runs at a nonexistent
+                    // wall-clock time anyway, so skip the exclusion for that day.
+                    if (localZone.IsInvalidTime(localProbe)) continue;
+                    var utcProbe = TimeZoneInfo.ConvertTimeToUtc(localProbe, localZone);
+                    if (utcProbe >= windowStart && utcProbe <= windowEnd)
+                        exclusions.Add((utcProbe, utcProbe + SqmProbeDuration));
+                }
+            }
+        }
+        return exclusions;
     }
 
     /// <summary>

@@ -77,7 +77,7 @@ public class IspHealthOptions
     /// bursts (speed tests, large downloads) register instead of diluting into
     /// minute-level means.
     /// </summary>
-    public int LoadWindowSeconds { get; set; } = 15;
+    public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.
@@ -244,56 +244,56 @@ public static class IspHealthProfiles
     public static AccessProfile? GetProfile(AccessTechnology technology) => technology switch
     {
         AccessTechnology.Gpon => new AccessProfile("GPON",
-            IdleRttIdealMs: 2.0, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
+            IdleRttIdealMs: 1.5, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0),
 
         AccessTechnology.XgsPon => new AccessProfile("XGS-PON",
-            IdleRttIdealMs: 2.0, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
+            IdleRttIdealMs: 1.5, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0),
 
         AccessTechnology.Docsis => new AccessProfile("DOCSIS",
-            IdleRttIdealMs: 9.0, IdleRttNormalLowMs: 9.0, IdleRttNormalHighMs: 12.0, IdleRttPoorMs: 25.0,
+            IdleRttIdealMs: 7.0, IdleRttNormalLowMs: 9.0, IdleRttNormalHighMs: 12.0, IdleRttPoorMs: 25.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.2,
             LoadedLossDownLowPct: 3.0, LoadedLossDownHighPct: 5.0,
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
             LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0),
 
         AccessTechnology.Satellite => new AccessProfile("Satellite (LEO)",
-            IdleRttIdealMs: 25.0, IdleRttNormalLowMs: 25.0, IdleRttNormalHighMs: 45.0, IdleRttPoorMs: 80.0,
+            IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 45.0, IdleRttPoorMs: 80.0,
             IdleLossIdealPct: 0.2, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
             LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 25.0),
 
         AccessTechnology.DirectEthernet => new AccessProfile("Active Ethernet",
-            IdleRttIdealMs: 1.0, IdleRttNormalLowMs: 1.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
+            IdleRttIdealMs: 0.5, IdleRttNormalLowMs: 1.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0),
 
         AccessTechnology.FixedWireless => new AccessProfile("Fixed Wireless",
-            IdleRttIdealMs: 5.0, IdleRttNormalLowMs: 5.0, IdleRttNormalHighMs: 15.0, IdleRttPoorMs: 35.0,
+            IdleRttIdealMs: 5.0, IdleRttNormalLowMs: 8.0, IdleRttNormalHighMs: 15.0, IdleRttPoorMs: 35.0,
             IdleLossIdealPct: 0.3, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
             LoadedLossUpLowPct: 1.0, LoadedLossUpHighPct: 2.0,
             LoadedDeltaExcellentMs: 10.0, LoadedDeltaAcceptableMs: 20.0),
 
         AccessTechnology.Cellular => new AccessProfile("Cellular",
-            IdleRttIdealMs: 20.0, IdleRttNormalLowMs: 20.0, IdleRttNormalHighMs: 50.0, IdleRttPoorMs: 90.0,
+            IdleRttIdealMs: 20.0, IdleRttNormalLowMs: 25.0, IdleRttNormalHighMs: 50.0, IdleRttPoorMs: 90.0,
             IdleLossIdealPct: 0.3, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
             LoadedLossUpLowPct: 2.0, LoadedLossUpHighPct: 4.0,
             LoadedDeltaExcellentMs: 20.0, LoadedDeltaAcceptableMs: 50.0),
 
         AccessTechnology.Dsl => new AccessProfile("DSL",
-            IdleRttIdealMs: 8.0, IdleRttNormalLowMs: 8.0, IdleRttNormalHighMs: 25.0, IdleRttPoorMs: 50.0,
+            IdleRttIdealMs: 6.0, IdleRttNormalLowMs: 10.0, IdleRttNormalHighMs: 25.0, IdleRttPoorMs: 50.0,
             IdleLossIdealPct: 0.05, IdleLossAcceptablePct: 0.2,
             LoadedLossDownLowPct: 3.0, LoadedLossDownHighPct: 5.0,
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
@@ -309,7 +309,7 @@ public static class IspHealthProfiles
     /// Deliberately less discriminating so neither fiber nor DSL users are penalized.
     /// </summary>
     private static AccessProfile NeutralProfile(string displayName) => new(displayName,
-        IdleRttIdealMs: 2.0, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 20.0, IdleRttPoorMs: 45.0,
+        IdleRttIdealMs: 1.5, IdleRttNormalLowMs: 4.0, IdleRttNormalHighMs: 20.0, IdleRttPoorMs: 45.0,
         IdleLossIdealPct: 0.05, IdleLossAcceptablePct: 0.2,
         LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
         LoadedLossUpLowPct: 1.0, LoadedLossUpHighPct: 2.0,

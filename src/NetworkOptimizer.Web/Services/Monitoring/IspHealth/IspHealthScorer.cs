@@ -21,7 +21,12 @@ public class IspHealthScorer
 
     public IspHealthReport Score(IspHealthInputs inputs, AccessProfile profile)
     {
-        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options);
+        if (inputs.LoadExclusionWindows.Count > 0)
+        {
+            foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
+                _logger?.LogDebug("ISP Health: excluding SQM probe window {Start} to {End}", exStart.ToString("u"), exEnd.ToString("u"));
+        }
+        var loadWindows = LoadClassifier.Classify(inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps, _options, inputs.LoadExclusionWindows, _logger);
         var hasExpectedSpeeds = inputs.ExpectedDownloadMbps.HasValue || inputs.ExpectedUploadMbps.HasValue;
 
         var idleBaseline = ComputeIdleBaseline(inputs.FirstHopSeries, loadWindows);
@@ -108,16 +113,8 @@ public class IspHealthScorer
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            // Worst loaded delta across the public access hops (each vs its own idle
-            // baseline). Access congestion can land on any access hop, not just the
-            // nearest, and probe timing means a given hop may miss a brief spike - so the
-            // worst hop carries the signal. Falls back to the first hop when no per-hop
-            // set was supplied (e.g. unit tests).
-            var hops = inputs.AccessHopSeries.Count > 0
-                ? inputs.AccessHopSeries
-                : new List<List<LatencySample>> { inputs.FirstHopSeries };
-            down = WorstLoadedDelta(hops, loadWindows, w => w.IsLoadedDown);
-            up = WorstLoadedDelta(hops, loadWindows, w => w.IsLoadedUp);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp);
         }
 
         var fromSpeedTests = false;
@@ -160,7 +157,7 @@ public class IspHealthScorer
             .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time), out var w) && w.IsIdle)
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
-        if (idleRtts.Count > 0) return SeriesStats.Median(idleRtts);
+        if (idleRtts.Count > 0) return SeriesStats.WinsorizedMean(idleRtts, _options.RttWinsorPercentile);
 
         return SeriesStats.Percentile(rtts.Select(s => s.RttAvgMs!.Value).ToList(), 0.10);
     }
@@ -282,9 +279,9 @@ public class IspHealthScorer
         var mid = (profile.IdleRttNormalLowMs + profile.IdleRttNormalHighMs) / 2.0;
         var score = ScoreCurve.Interpolate(idleBaseline.Value,
             (profile.IdleRttIdealMs, 100),
-            (profile.IdleRttNormalLowMs, 92),
-            (mid, 84),
-            (profile.IdleRttNormalHighMs, 75),
+            (profile.IdleRttNormalLowMs, 96),
+            (mid, 92),
+            (profile.IdleRttNormalHighMs, 85),
             (profile.IdleRttPoorMs, 25),
             (profile.IdleRttPoorMs * 2, 0));
 
@@ -415,21 +412,77 @@ public class IspHealthScorer
     /// penalised; the maximum is taken because the access link is shared and any hop that
     /// captured the under-load spike is reporting the real signal.
     /// </summary>
-    private double? WorstLoadedDelta(
-        IReadOnlyList<IReadOnlyList<LatencySample>> hops,
+    /// <summary>
+    /// Loaded-latency delta, robust to the two independent contaminants that fool a single
+    /// vantage point: intermediate-hop ICMP deprioritization (inflates one access hop under
+    /// load) and destination/peering degradation (inflates one end-to-end target).
+    ///
+    ///   access = MAX over the ISP access hops          - a real bottleneck at ANY hop (the
+    ///            near hop, or a far one like a briefly-spiking OLT) must surface; a flat near
+    ///            hop must never hide it. Safe because of the cap below.
+    ///   total  = MEDIAN over the end-to-end destinations - a single degraded destination/PoP
+    ///            (the ATL 1.1.1.1 case) is an outlier, not the path. This cohort is immune to
+    ///            intermediate-hop ICMP by construction: a transiting ping is forwarded in the
+    ///            data plane and never touches an intermediate router's control plane.
+    ///   result = min(access, total)
+    /// Reconciled by the one physical truth - the access layer is part of every path, so its
+    /// loaded delta can never exceed the total path's. A real access spike PROPAGATES, so
+    /// end-to-end corroborates it and min() keeps it; an ICMP spike does NOT propagate, so the
+    /// total is lower and min() caps it back to the real value. When only the total is lifted
+    /// (transit/destination problem) min() keeps the lower, clean access value - a bad night on
+    /// 1.1.1.1 never dings access.
+    ///
+    /// No quorum or sufficiency gate: residential NMS is load-scarce, so every loaded sample
+    /// counts. Whichever cohort has loaded data is used when the other has none; rejection is
+    /// the cross-cohort cap and the destination median, never a gate that discards a window.
+    /// </summary>
+    private double? LoadedLatencyDelta(
+        IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector)
     {
-        double? worst = null;
-        foreach (var hop in hops)
+        var accessCohort = inputs.AccessHopSeries.Count > 0
+            ? inputs.AccessHopSeries
+            : new List<List<LatencySample>> { inputs.FirstHopSeries };
+        var accessDeltas = CohortDeltas(accessCohort, loadWindows, directionSelector);
+        double? access = accessDeltas.Count > 0 ? accessDeltas.Max() : null;
+
+        var destinations = inputs.DestinationSeries
+            .Select(d => (IReadOnlyList<LatencySample>)d.Samples)
+            .ToList();
+        var destDeltas = CohortDeltas(destinations, loadWindows, directionSelector);
+        double? total = destDeltas.Count > 0 ? SeriesStats.Median(destDeltas) : null;
+
+        double? loaded = (access, total) switch
         {
-            var baseline = ComputeIdleBaseline(hop, loadWindows);
+            (not null, not null) => Math.Min(access.Value, total.Value),
+            (not null, null) => access,
+            (null, not null) => total,
+            _ => null,
+        };
+        return loaded.HasValue ? Math.Max(0, loaded.Value) : null;
+    }
+
+    /// <summary>
+    /// Per-target loaded deltas for a cohort: each target's p95 loaded-window RTT minus its
+    /// own idle baseline (delta space, so targets at different distances are comparable). Each
+    /// target keeps all its loaded samples; a target without a usable baseline or enough loaded
+    /// samples is skipped - the window is not.
+    /// </summary>
+    private List<double> CohortDeltas(
+        IReadOnlyList<IReadOnlyList<LatencySample>> cohort,
+        Dictionary<DateTime, LoadWindow> loadWindows,
+        Func<LoadWindow, bool> directionSelector)
+    {
+        var deltas = new List<double>();
+        foreach (var target in cohort)
+        {
+            var baseline = ComputeIdleBaseline(target, loadWindows);
             if (baseline == null) continue;
-            var delta = LoadedDelta(hop, loadWindows, baseline.Value, directionSelector);
-            if (delta == null) continue;
-            if (worst == null || delta.Value > worst.Value) worst = delta.Value;
+            var delta = LoadedDelta(target, loadWindows, baseline.Value, directionSelector);
+            if (delta != null) deltas.Add(delta.Value);
         }
-        return worst;
+        return deltas;
     }
 
     private double? LoadedDelta(

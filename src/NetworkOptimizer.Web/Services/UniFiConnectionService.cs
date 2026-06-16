@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Interfaces;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -7,6 +8,20 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
+
+/// <summary>
+/// Interface forms of the configured primary WAN, resolved by joining networkconf
+/// (which WAN is primary) with the device JSON (which interfaces carry it).
+/// </summary>
+/// <param name="NetworkGroup">WAN networkgroup, e.g. "WAN".</param>
+/// <param name="PhysicalIfName">Physical port ifname, e.g. "eth6".</param>
+/// <param name="UplinkIfName">Data-path ifname, e.g. "eth6.100"/"ppp0" (where SQM deploys).</param>
+/// <param name="CounterIfName">SNMP counter ifname, e.g. "eth6" (where InfluxDB rates are stored).</param>
+public record PrimaryWanInterfaces(
+    string NetworkGroup,
+    string? PhysicalIfName,
+    string? UplinkIfName,
+    string? CounterIfName);
 
 /// <summary>
 /// Manages the UniFi controller connection and configuration persistence.
@@ -846,11 +861,116 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
             WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps,
             WanNetworkgroup = n.WanNetworkgroup,
-            WanSmartqEnabled = n.WanSmartqEnabled
+            WanSmartqEnabled = n.WanSmartqEnabled,
+            WanLoadBalanceType = n.WanLoadBalanceType,
+            WanLoadBalanceWeight = n.WanLoadBalanceWeight,
+            WanFailoverPriority = n.WanFailoverPriority,
+            WanIfname = n.WanIfname
         }).ToList() ?? new List<NetworkInfo>();
         _networkCacheTime = DateTime.UtcNow;
 
         return _cachedNetworks;
+    }
+
+    /// <summary>
+    /// Resolves the primary WAN network from networkconf using load-balance
+    /// configuration. Among enabled WANs with purpose "wan": weighted WANs
+    /// beat failover-only, highest weight wins, lowest failover priority breaks
+    /// ties, and networkgroup "WAN" is the final fallback. Returns null when no
+    /// WAN networks are configured.
+    /// </summary>
+    public static NetworkInfo? ResolvePrimaryWanNetwork(IReadOnlyList<NetworkInfo> networks, ILogger? logger = null)
+    {
+        var wanNets = networks
+            .Where(n => n.IsWan && n.Enabled)
+            .ToList();
+        if (wanNets.Count == 0) return null;
+        if (wanNets.Count == 1)
+        {
+            logger?.LogDebug("Primary WAN is {Name} (networkgroup={NG}, single WAN)",
+                wanNets[0].Name, wanNets[0].WanNetworkgroup);
+            return wanNets[0];
+        }
+
+        var primary = wanNets
+            .OrderBy(n => string.Equals(n.WanLoadBalanceType, "failover-only", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .ThenByDescending(n => n.WanLoadBalanceWeight ?? 0)
+            .ThenBy(n => n.WanFailoverPriority ?? int.MaxValue)
+            .ThenBy(n => string.Equals(n.WanNetworkgroup, "WAN", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .First();
+
+        logger?.LogDebug(
+            "Primary WAN is {Name} (networkgroup={NG}, type={LBType}, weight={Weight}, priority={Priority}) out of {Count} WANs",
+            primary.Name, primary.WanNetworkgroup, primary.WanLoadBalanceType ?? "weighted",
+            primary.WanLoadBalanceWeight, primary.WanFailoverPriority, wanNets.Count);
+        return primary;
+    }
+
+    /// <summary>
+    /// Convenience: fetches networks and resolves the primary WAN in one call.
+    /// </summary>
+    public async Task<NetworkInfo?> GetPrimaryWanNetworkAsync(CancellationToken ct = default)
+    {
+        var networks = await GetNetworksAsync(ct);
+        return ResolvePrimaryWanNetwork(networks, _logger);
+    }
+
+    /// <summary>
+    /// Resolves the interface forms of the CONFIGURED primary WAN by combining
+    /// networkconf (which WAN is primary) with the cached device call (which
+    /// interfaces carry that WAN's traffic). Returns both the SNMP counter
+    /// interface (e.g. "eth6" - where InfluxDB rates are stored) and the data-path
+    /// interface (e.g. "eth6.100"/"ppp0" - where SQM deploys). These differ on
+    /// VLAN-tagged WANs. Returns null when no primary WAN can be resolved.
+    /// </summary>
+    public async Task<PrimaryWanInterfaces?> GetPrimaryWanInterfacesAsync(CancellationToken ct = default)
+    {
+        var primary = await GetPrimaryWanNetworkAsync(ct);
+        if (primary?.WanNetworkgroup == null) return null;
+
+        if (_client == null) return null;
+        var rawDevices = await _client.GetDevicesAsync(ct);
+        var gw = rawDevices.FirstOrDefault(d => d.Type is "ugw" or "udm" or "uxg");
+        if (gw == null) return null;
+
+        var wanInterfaces = gw.GetWanInterfaces();
+        if (wanInterfaces.Count == 0) return null;
+
+        // Build ifname → networkgroup from ethernet_overrides
+        var ifnameToNg = GatewayWanHelper.BuildNetworkGroupByIfname(
+            gw.AdditionalData != null && gw.AdditionalData.TryGetValue("ethernet_overrides", out var eoElem)
+                ? eoElem : default);
+
+        // Find the wan object whose physical interface maps to the primary networkgroup
+        foreach (var wan in wanInterfaces)
+        {
+            string? ng = null;
+            if (!string.IsNullOrEmpty(wan.IfName))
+                ifnameToNg.TryGetValue(wan.IfName, out ng);
+            ng ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
+
+            if (string.Equals(ng, primary.WanNetworkgroup, StringComparison.OrdinalIgnoreCase))
+            {
+                var counter = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
+                _logger.LogDebug("Primary WAN interfaces: counter={Counter}, data-path={Uplink} (physical={Physical}, networkgroup={NG})",
+                    counter, wan.UplinkIfName ?? wan.IfName, wan.IfName, ng);
+                return new PrimaryWanInterfaces(ng, wan.IfName, wan.UplinkIfName, counter);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the data-path interface name (e.g. "eth6.100", "ppp0") for the
+    /// primary WAN - the Linux ifname SQM deploys on. Thin accessor over
+    /// <see cref="GetPrimaryWanInterfacesAsync"/>.
+    /// </summary>
+    public async Task<string?> GetPrimaryWanDataPathInterfaceAsync(CancellationToken ct = default)
+    {
+        var ifaces = await GetPrimaryWanInterfacesAsync(ct);
+        if (ifaces == null) return null;
+        return ifaces.UplinkIfName ?? ifaces.PhysicalIfName;
     }
 
     /// <summary>

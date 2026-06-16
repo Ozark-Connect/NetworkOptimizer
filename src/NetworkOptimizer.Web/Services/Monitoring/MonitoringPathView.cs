@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 
@@ -24,19 +25,22 @@ public class MonitoringPathView
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringLiveStats _liveStats;
+    private readonly WanSummaryCache _wanCache;
     private readonly ILogger<MonitoringPathView> _logger;
-    private IReadOnlyList<WanSummary>? _wanCache;
-    private DateTime _wanCacheExpiry;
+
+    private static readonly TimeSpan WanStructureTtl = TimeSpan.FromSeconds(30);
 
     public MonitoringPathView(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
         MonitoringLiveStats liveStats,
+        WanSummaryCache wanCache,
         ILogger<MonitoringPathView> logger)
     {
         _dbFactory = dbFactory;
         _connectionService = connectionService;
         _liveStats = liveStats;
+        _wanCache = wanCache;
         _logger = logger;
     }
 
@@ -145,30 +149,44 @@ public class MonitoringPathView
     /// </summary>
     public async Task<IReadOnlyList<WanSummary>> GetWansAsync(CancellationToken ct = default)
     {
-        if (_wanCache != null && DateTime.UtcNow < _wanCacheExpiry)
-        {
-            RefreshWanLiveRates(_wanCache);
-            return _wanCache;
-        }
-
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return Array.Empty<WanSummary>();
 
-        // Read wan1...wan6 from raw device JSON instead of relying on
-        // port_table.is_uplink, which may not be set for PPPoE, VLAN-tagged,
-        // or GRE tunnel connections.
-        string? deviceJson;
+        // The structural WAN list (interfaces, IPs, link speeds, primary flag) is
+        // near-static, so it is cached process-wide and shared across request scopes
+        // rather than re-fetched on every flow-map poll. A transient build failure
+        // (console unreachable) throws and is not cached; fall back to empty.
+        IReadOnlyList<WanSummary> structure;
         try
         {
-            deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync(ct);
-            if (string.IsNullOrEmpty(deviceJson))
-                return Array.Empty<WanSummary>();
+            structure = await _wanCache.GetOrBuildAsync(BuildWansAsync, WanStructureTtl, ct);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "GetWansAsync: failed to fetch UniFi devices");
+            _logger.LogDebug(ex, "GetWansAsync: failed to build WAN structure");
             return Array.Empty<WanSummary>();
         }
+
+        // Clone per request so the shared snapshot stays immutable while each caller
+        // layers on its own fresh in-memory throughput rates (cheap; a handful of WANs).
+        var wans = structure.Select(w => w with { }).ToList();
+        RefreshWanLiveRates(wans);
+        return wans;
+    }
+
+    /// <summary>
+    /// Builds the structural WAN summary list from the gateway device JSON. Throws on a
+    /// failed device fetch so the caller's process-wide cache does not store a transient
+    /// empty result. Live throughput rates are layered on by the caller, not here.
+    /// </summary>
+    private async Task<List<WanSummary>> BuildWansAsync(CancellationToken ct)
+    {
+        // Read wan1...wan6 from raw device JSON instead of relying on
+        // port_table.is_uplink, which may not be set for PPPoE, VLAN-tagged,
+        // or GRE tunnel connections.
+        var deviceJson = await _connectionService.Client!.GetDevicesRawJsonAsync(ct);
+        if (string.IsNullOrEmpty(deviceJson))
+            throw new InvalidOperationException("GetWansAsync: no device JSON returned");
 
         // Fetch WAN network configs for friendly names (covers GRE tunnels and
         // other virtual WANs that don't have port_table entries).
@@ -218,39 +236,23 @@ public class MonitoringPathView
                     }
                 }
 
-                var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
-                    ethOverrides.ValueKind == System.Text.Json.JsonValueKind.Array)
-                {
-                    foreach (var ov in ethOverrides.EnumerateArray())
-                    {
-                        var ifn = ov.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
-                        var ng = ov.TryGetProperty("networkgroup", out var ngProp) ? ngProp.GetString() : null;
-                        if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
-                            ifnameToNetworkGroup[ifn] = ng;
-                    }
-                }
+                var ifnameToNetworkGroup = GatewayWanHelper.BuildNetworkGroupByIfname(
+                    device.TryGetProperty("ethernet_overrides", out var ethOverrides) ? ethOverrides : default);
 
-                for (int i = 1; i <= 6; i++)
+                foreach (var wan in GatewayWanHelper.EnumerateWanInterfaces(device))
                 {
-                    var wanKey = $"wan{i}";
-                    if (!device.TryGetProperty(wanKey, out var wanObj)) continue;
-
-                    var uplinkIfname = wanObj.TryGetProperty("uplink_ifname", out var uplinkProp)
-                        ? uplinkProp.GetString() : null;
+                    var uplinkIfname = wan.UplinkIfName;
                     if (string.IsNullOrEmpty(uplinkIfname)) continue;
 
-                    var ip = wanObj.TryGetProperty("ip", out var ipProp) ? ipProp.GetString() : null;
-                    var wanSpeed = wanObj.TryGetProperty("speed", out var wanSpeedProp) &&
-                        wanSpeedProp.TryGetInt32(out var ws) && ws > 0 ? ws : 0;
+                    var ip = wan.Ip;
+                    var wanSpeed = wan.Speed is int s && s > 0 ? s : 0;
 
                     string? interfaceKey = null;
                     string? friendlyName = null;
                     int linkSpeed = wanSpeed;
 
-                    if (wanObj.TryGetProperty("port_idx", out var portIdxProp) &&
-                        portIdxProp.TryGetInt32(out var portIdx) &&
-                        portInfo.TryGetValue(portIdx, out var pi))
+                    if (wan.PortIdx.HasValue &&
+                        portInfo.TryGetValue(wan.PortIdx.Value, out var pi))
                     {
                         interfaceKey = pi.networkName;
                         friendlyName = pi.name;
@@ -259,7 +261,7 @@ public class MonitoringPathView
 
                     // Physical port name (e.g. "eth6" for VLAN-tagged "eth6.100",
                     // same as uplinkIfname for non-VLAN connections).
-                    var physicalIfname = wanObj.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                    var physicalIfname = wan.IfName;
 
                     // For virtual WANs (GRE, etc.) without port_table entries,
                     // resolve the friendly name from WAN network configs via
@@ -270,18 +272,18 @@ public class MonitoringPathView
                         string? networkGroup = null;
                         if (!string.IsNullOrEmpty(lookupIfname) && ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
                             networkGroup = ng;
-                        networkGroup ??= i == 1 ? "WAN" : $"WAN{i}";
+                        networkGroup ??= GatewayWanHelper.WanNetworkGroupFromKey(wan.Key);
                         if (networkGroupToName.TryGetValue(networkGroup, out var configName))
                             friendlyName = configName;
                     }
 
-                    interfaceKey ??= i == 1 ? "wan" : $"wan{i}";
+                    interfaceKey ??= GatewayWanHelper.WanInterfaceKeyFromKey(wan.Key);
 
                     results.Add(new WanSummary
                     {
                         WanInterface = interfaceKey,
                         FriendlyName = string.IsNullOrEmpty(friendlyName) ? null : friendlyName,
-                        IsPrimary = results.Count == 0,
+                        IsPrimary = false,
                         GatewayMac = gwMac,
                         GatewayPortName = friendlyName,
                         UplinkIfName = uplinkIfname,
@@ -296,9 +298,27 @@ public class MonitoringPathView
             }
         }
 
-        _wanCache = results;
-        _wanCacheExpiry = DateTime.UtcNow.AddSeconds(30);
-        RefreshWanLiveRates(results);
+        // Mark the primary WAN using networkconf load-balance config instead
+        // of naive first-found ordering.
+        if (results.Count > 0)
+        {
+            WanSummary? primary = null;
+            try
+            {
+                var networks = await _connectionService.GetNetworksAsync(ct);
+                var primaryNet = UniFiConnectionService.ResolvePrimaryWanNetwork(networks, _logger);
+                if (primaryNet != null)
+                    primary = results.FirstOrDefault(w =>
+                        string.Equals(w.WanInterface, primaryNet.WanNetworkgroup, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "GetWansAsync: failed to resolve primary WAN from networkconf");
+            }
+            primary ??= results[0];
+            primary.IsPrimary = true;
+        }
+
         return results;
     }
 
@@ -425,7 +445,7 @@ public record WanSummary
 {
     public required string WanInterface { get; init; }
     public string? FriendlyName { get; init; }
-    public required bool IsPrimary { get; init; }
+    public required bool IsPrimary { get; set; }
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
     public string? UplinkIfName { get; init; }

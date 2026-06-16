@@ -144,7 +144,15 @@ public class UniFiDiscovery
     /// 3. The first wan object, preferring ones reported up (seen on PPPoE
     ///    gateways where neither of the above is populated).
     /// </summary>
-    internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
+    /// <summary>
+    /// Resolves the (physical, data-path) interface names of the gateway's ACTIVE WAN
+    /// uplink - the WAN currently carrying the default route. Selection order matches
+    /// the counter-interface rules above: the gateway's live uplink object, then the
+    /// port_table is_uplink entry, then the first WAN reported up. Shared by
+    /// <see cref="GetWanInterfaceNames"/> and the live gateway rate override so both
+    /// track the same active WAN. Returns (null, null) when no WAN can be resolved.
+    /// </summary>
+    public static (string? PhysicalIfName, string? UplinkIfName) ResolveActiveWanInterface(UniFiDeviceResponse d)
     {
         var wans = d.GetWanInterfaces();
 
@@ -154,12 +162,9 @@ public class UniFiDiscovery
         if (!string.IsNullOrEmpty(activeUplink))
         {
             var wan = wans.FirstOrDefault(w => w.UplinkIfName == activeUplink || w.IfName == activeUplink);
-            if (wan != null)
-            {
-                var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-                if (!string.IsNullOrEmpty(name))
-                    return new List<string> { name };
-            }
+            if (wan != null &&
+                !string.IsNullOrEmpty(NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName)))
+                return (wan.IfName, wan.UplinkIfName);
         }
 
         var uplinkPort = d.PortTable?.FirstOrDefault(p => p.IsUplink && !string.IsNullOrEmpty(p.IfName));
@@ -168,19 +173,24 @@ public class UniFiDiscovery
             var wan = wans.FirstOrDefault(w =>
                 (!string.IsNullOrEmpty(w.IfName) && w.IfName == uplinkPort.IfName) ||
                 (w.PortIdx.HasValue && w.PortIdx == uplinkPort.PortIdx));
-            var name = wan != null
-                ? NetworkUtilities.PreferredWanCounterInterface(wan.IfName ?? uplinkPort.IfName, wan.UplinkIfName)
-                : uplinkPort.IfName;
-            return string.IsNullOrEmpty(name) ? new() : new List<string> { name };
+            return wan != null
+                ? (wan.IfName ?? uplinkPort.IfName, wan.UplinkIfName)
+                : (uplinkPort.IfName, null);
         }
 
         foreach (var wan in wans.OrderBy(w => w.Up ? 0 : 1).ThenBy(w => w.Key, StringComparer.Ordinal))
         {
-            var name = NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName);
-            if (!string.IsNullOrEmpty(name))
-                return new List<string> { name };
+            if (!string.IsNullOrEmpty(NetworkUtilities.PreferredWanCounterInterface(wan.IfName, wan.UplinkIfName)))
+                return (wan.IfName, wan.UplinkIfName);
         }
-        return new();
+        return (null, null);
+    }
+
+    internal static List<string> GetWanInterfaceNames(UniFiDeviceResponse d)
+    {
+        var (phys, uplink) = ResolveActiveWanInterface(d);
+        var name = NetworkUtilities.PreferredWanCounterInterface(phys, uplink);
+        return string.IsNullOrEmpty(name) ? new() : new List<string> { name };
     }
 
     /// <summary>
@@ -908,6 +918,18 @@ public class NetworkInfo
 
     /// <summary>Whether Smart Queues (SQM) is enabled on this WAN</summary>
     public bool WanSmartqEnabled { get; set; }
+
+    /// <summary>WAN load balance type ("failover-only" or "weighted")</summary>
+    public string? WanLoadBalanceType { get; set; }
+
+    /// <summary>WAN load balance weight (higher = more traffic in weighted mode)</summary>
+    public int? WanLoadBalanceWeight { get; set; }
+
+    /// <summary>WAN failover priority (lower = higher priority)</summary>
+    public int? WanFailoverPriority { get; set; }
+
+    /// <summary>WAN interface name from networkconf (e.g., "eth4", "eth6")</summary>
+    public string? WanIfname { get; set; }
 
     /// <summary>Whether this is the primary WAN (wan_networkgroup = "WAN")</summary>
     public bool IsPrimaryWan => WanNetworkgroup?.Equals("WAN", StringComparison.OrdinalIgnoreCase) == true;
