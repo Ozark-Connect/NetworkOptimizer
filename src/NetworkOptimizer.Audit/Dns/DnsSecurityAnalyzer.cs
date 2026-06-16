@@ -803,14 +803,14 @@ public class DnsSecurityAnalyzer
                 var dnsServerIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Distinct().ToList();
                 var networkNames = result.ThirdPartyDnsServers.Select(t => t.NetworkName).Distinct().ToList();
 
-                // Known providers (Pi-hole, AdGuard Home, NextDNS CLI) are trusted - neutral score impact
+                // Known providers (Pi-hole, AdGuard Home, NextDNS CLI, ControlD) are trusted - neutral score impact
                 // Unknown third-party DNS servers get a minor penalty since we can't verify their filtering
-                var isKnownProvider = result.IsPiholeDetected || result.IsAdGuardHomeDetected || result.IsNextDnsDetected;
+                var isKnownProvider = result.IsPiholeDetected || result.IsAdGuardHomeDetected || result.IsNextDnsDetected || result.IsControlDDetected;
                 var scoreImpact = isKnownProvider ? 0 : 3; // Minor penalty for unknown providers
                 var severity = isKnownProvider ? AuditSeverity.Informational : AuditSeverity.Recommended;
                 var recommendedAction = isKnownProvider
                     ? "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass."
-                    : "Configure the third-party DNS management port in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home, NextDNS) or CyberSecure Encrypted DNS (DoH).";
+                    : "Configure the third-party DNS management port in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home, NextDNS, ControlD) or CyberSecure Encrypted DNS (DoH).";
 
                 result.Issues.Add(new AuditIssue
                 {
@@ -827,6 +827,7 @@ public class DnsSecurityAnalyzer
                         { "is_pihole", result.IsPiholeDetected },
                         { "is_adguard_home", result.IsAdGuardHomeDetected },
                         { "is_nextdns", result.IsNextDnsDetected },
+                        { "is_controld", result.IsControlDDetected },
                         { "is_known_provider", isKnownProvider },
                         { "affected_networks", networkNames },
                         { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" },
@@ -2012,6 +2013,12 @@ public class DnsSecurityAnalyzer
                 _logger.LogInformation("NextDNS CLI detected as third-party DNS on {Count} network(s)",
                     thirdPartyResults.Count(t => t.IsNextDns));
             }
+            else if (thirdPartyResults.Any(t => t.IsControlD))
+            {
+                result.ThirdPartyDnsProviderName = "ControlD";
+                _logger.LogInformation("ControlD detected as third-party DNS on {Count} network(s)",
+                    thirdPartyResults.Count(t => t.IsControlD));
+            }
             else
             {
                 result.ThirdPartyDnsProviderName = "Third-Party LAN DNS";
@@ -2051,6 +2058,59 @@ public class DnsSecurityAnalyzer
             else
             {
                 _logger.LogInformation("Third-party DNS only on Corporate networks - treating as specialized internal DNS, not site-wide");
+            }
+        }
+
+        // Probe for user-installed DNS tunnels on the gateway (NextDNS CLI, ControlD ctrld).
+        // These are manually installed via SSH, distinct from UniFi's built-in CyberSecure
+        // DoH. Only probe when DoH is not configured, since these services handle encryption
+        // themselves and their presence prevents false "DoH not configured" warnings.
+        if (!result.DohConfigured)
+        {
+            var gatewayResults = await _thirdPartyDetector.ProbeGatewayDnsAsync(networks);
+            if (gatewayResults.Any())
+            {
+                result.HasThirdPartyDns = true;
+                result.ThirdPartyDnsServers.AddRange(gatewayResults);
+
+                if (result.ThirdPartyDnsProviderName == null)
+                {
+                    if (gatewayResults.Any(t => t.IsNextDns))
+                    {
+                        result.ThirdPartyDnsProviderName = "NextDNS CLI";
+                        _logger.LogInformation("NextDNS CLI detected on gateway across {Count} network(s)",
+                            gatewayResults.Count(t => t.IsNextDns));
+                    }
+                    else if (gatewayResults.Any(t => t.IsControlD))
+                    {
+                        result.ThirdPartyDnsProviderName = "ControlD";
+                        _logger.LogInformation("ControlD detected on gateway across {Count} network(s)",
+                            gatewayResults.Count(t => t.IsControlD));
+                    }
+                }
+
+                if (!result.IsSiteWideThirdPartyDns)
+                {
+                    var gatewayNetworkNames = gatewayResults
+                        .Select(r => r.NetworkName)
+                        .Distinct()
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    var nonCorporateGatewayNetworks = networks
+                        .Where(n => gatewayNetworkNames.Contains(n.Name))
+                        .Where(n => n.Purpose != NetworkPurpose.Corporate)
+                        .ToList();
+
+                    if (nonCorporateGatewayNetworks.Count > 0)
+                    {
+                        result.IsSiteWideThirdPartyDns = true;
+                        var siteWideDnsIps = gatewayResults
+                            .Select(r => r.DnsServerIp)
+                            .Distinct()
+                            .ToList();
+                        result.SiteWideDnsServerIps.AddRange(siteWideDnsIps);
+                    }
+                }
             }
         }
 
@@ -2784,6 +2844,7 @@ public class DnsSecurityResult
     public bool IsPiholeDetected => ThirdPartyDnsServers.Any(t => t.IsPihole);
     public bool IsAdGuardHomeDetected => ThirdPartyDnsServers.Any(t => t.IsAdGuardHome);
     public bool IsNextDnsDetected => ThirdPartyDnsServers.Any(t => t.IsNextDns);
+    public bool IsControlDDetected => ThirdPartyDnsServers.Any(t => t.IsControlD);
     public string? ThirdPartyDnsProviderName { get; set; }
 
     /// <summary>

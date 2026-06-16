@@ -38,6 +38,7 @@ public class ThirdPartyDnsDetector
         public string? AdGuardHomeVersion { get; init; }
         public bool IsNextDns { get; init; }
         public string? NextDnsProfile { get; init; }
+        public bool IsControlD { get; init; }
         public string DnsProviderName { get; init; } = "Third-Party LAN DNS";
     }
 
@@ -124,6 +125,7 @@ public class ThirdPartyDnsDetector
                 string? adGuardHomeVersion = null;
                 bool isNextDns = false;
                 string? nextDnsProfile = null;
+                bool isControlD = false;
                 string providerName = "Third-Party LAN DNS";
 
                 if (!probedIps.Contains(dnsServer))
@@ -157,6 +159,15 @@ public class ThirdPartyDnsDetector
                                 providerName = "NextDNS CLI";
                                 _logger.LogInformation("Detected NextDNS CLI at {Ip} (profile: {Profile})", dnsServer, nextDnsProfile ?? "unknown");
                             }
+                            else
+                            {
+                                isControlD = await ProbeControlDAsync(dnsServer);
+                                if (isControlD)
+                                {
+                                    providerName = "ControlD";
+                                    _logger.LogInformation("Detected ControlD at {Ip}", dnsServer);
+                                }
+                            }
                         }
                     }
                 }
@@ -172,6 +183,7 @@ public class ThirdPartyDnsDetector
                         adGuardHomeVersion = existingResult.AdGuardHomeVersion;
                         isNextDns = existingResult.IsNextDns;
                         nextDnsProfile = existingResult.NextDnsProfile;
+                        isControlD = existingResult.IsControlD;
                         providerName = existingResult.DnsProviderName;
                     }
                 }
@@ -188,6 +200,7 @@ public class ThirdPartyDnsDetector
                     AdGuardHomeVersion = adGuardHomeVersion,
                     IsNextDns = isNextDns,
                     NextDnsProfile = nextDnsProfile,
+                    IsControlD = isControlD,
                     DnsProviderName = providerName
                 });
             }
@@ -261,14 +274,23 @@ public class ThirdPartyDnsDetector
     {
         return ipAddress switch
         {
-            "1.1.1.1" or "1.0.0.1" => "Cloudflare",
+            "1.1.1.1" or "1.0.0.1"
+                or "1.1.1.2" or "1.0.0.2"
+                or "1.1.1.3" or "1.0.0.3" => "Cloudflare",
             "8.8.8.8" or "8.8.4.4" => "Google",
-            "9.9.9.9" or "149.112.112.112" => "Quad9",
-            "208.67.222.222" or "208.67.220.220" => "OpenDNS",
-            "94.140.14.14" or "94.140.15.15" => "AdGuard DNS",
-            "45.90.28.0" or "45.90.30.0" => "NextDNS",
-            "76.76.2.0" or "76.76.10.0" => "Control D",
-            "185.228.168.9" or "185.228.169.9" => "CleanBrowsing",
+            "9.9.9.9" or "149.112.112.112"
+                or "9.9.9.10" or "149.112.112.10"
+                or "9.9.9.11" or "149.112.112.11" => "Quad9",
+            "208.67.222.222" or "208.67.220.220"
+                or "208.67.222.123" or "208.67.220.123" => "OpenDNS",
+            "94.140.14.14" or "94.140.15.15"
+                or "94.140.14.15" or "94.140.15.16"
+                or "94.140.14.140" or "94.140.14.141" => "AdGuard DNS",
+            "185.228.168.9" or "185.228.169.9"
+                or "185.228.168.168" or "185.228.169.168"
+                or "185.228.168.10" or "185.228.169.11" => "CleanBrowsing",
+            _ when ipAddress.StartsWith("45.90.28.") || ipAddress.StartsWith("45.90.30.") => "NextDNS",
+            _ when ipAddress.StartsWith("76.76.2.") || ipAddress.StartsWith("76.76.10.") => "ControlD",
             _ => null
         };
     }
@@ -452,6 +474,151 @@ public class ThirdPartyDnsDetector
             probeClient?.Dispose();
             probeHandler?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Test hook for ControlD probe, same pattern as <see cref="NextDnsProbeOverride"/>.
+    /// </summary>
+    internal static Func<string, CancellationToken, Task<bool>>? ControlDProbeOverride { get; set; }
+
+    /// <summary>
+    /// Probe an IP address to detect if it's forwarding DNS to ControlD.
+    /// </summary>
+    /// <remarks>
+    /// ControlD doesn't have a random-subdomain correlation endpoint like NextDNS.
+    /// Instead we query <c>verify.controld.com</c> through the audited resolver and
+    /// check whether the CNAME chain includes <c>api.controld.com</c>. When the
+    /// resolver is the local ctrld daemon, it forwards the query upstream to
+    /// ControlD's authoritative servers which return the expected CNAME.
+    /// </remarks>
+    private async Task<bool> ProbeControlDAsync(string ipAddress, CancellationToken ct = default)
+    {
+        if (ControlDProbeOverride != null)
+            return await ControlDProbeOverride(ipAddress, ct);
+
+        if (!IPAddress.TryParse(ipAddress, out var resolverIp))
+            return false;
+
+        try
+        {
+            var lookup = new LookupClient(new LookupClientOptions(resolverIp)
+            {
+                Timeout = TimeSpan.FromSeconds(2),
+                UseCache = false,
+                Retries = 0,
+                ContinueOnDnsError = false
+            });
+
+            var dnsResult = await lookup.QueryAsync("verify.controld.com", QueryType.CNAME, cancellationToken: ct);
+            if (dnsResult.HasError)
+            {
+                _logger.LogDebug("ControlD probe: lookup error for verify.controld.com via {Resolver}: {Error}",
+                    ipAddress, dnsResult.ErrorMessage);
+                return false;
+            }
+
+            var hasCname = dnsResult.Answers
+                .OfType<DnsClient.Protocol.CNameRecord>()
+                .Any(r => r.CanonicalName.Value
+                    .TrimEnd('.')
+                    .EndsWith("controld.com", StringComparison.OrdinalIgnoreCase));
+
+            if (!hasCname)
+            {
+                var aRecords = dnsResult.Answers
+                    .OfType<DnsClient.Protocol.ARecord>()
+                    .Select(r => r.Address.ToString())
+                    .ToList();
+
+                hasCname = aRecords.Any(ip => ip.StartsWith("147.185.34."));
+            }
+
+            if (hasCname)
+                _logger.LogDebug("ControlD probe: detected via verify.controld.com CNAME through {Resolver}", ipAddress);
+
+            return hasCname;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ControlD probe: exception querying verify.controld.com via {Resolver}", ipAddress);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Probe gateway IPs for user-installed DNS tunnels (NextDNS CLI, ControlD ctrld).
+    /// These are daemons the user manually installs on the gateway via SSH - distinct
+    /// from UniFi's built-in CyberSecure Encrypted DNS, which is detected via the
+    /// DoH settings API. The normal per-network detection skips them because they
+    /// listen on the gateway IP itself. Only NextDNS and ControlD probes run here;
+    /// Pi-hole and AdGuard Home are LAN appliances, not gateway-resident services.
+    /// </summary>
+    public async Task<List<ThirdPartyDnsInfo>> ProbeGatewayDnsAsync(List<NetworkInfo> networks)
+    {
+        var results = new List<ThirdPartyDnsInfo>();
+        var probedGateways = new HashSet<string>();
+
+        foreach (var network in networks)
+        {
+            if (!network.Enabled || !network.DhcpEnabled)
+                continue;
+
+            var gatewayIp = network.Gateway;
+            if (string.IsNullOrEmpty(gatewayIp) || !probedGateways.Add(gatewayIp))
+                continue;
+
+            var usesGatewayDns = network.DnsServers == null
+                || !network.DnsServers.Any()
+                || network.DnsServers.Any(d => d == gatewayIp);
+
+            if (!usesGatewayDns)
+                continue;
+
+            _logger.LogDebug("Probing gateway {Gateway} for on-gateway DNS services", gatewayIp);
+
+            var (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(gatewayIp);
+            if (isNextDns)
+            {
+                _logger.LogInformation("Detected NextDNS CLI on gateway {Gateway} (profile: {Profile})", gatewayIp, nextDnsProfile ?? "unknown");
+
+                foreach (var net in networks.Where(n => n.Enabled && n.DhcpEnabled && n.Gateway == gatewayIp))
+                {
+                    results.Add(new ThirdPartyDnsInfo
+                    {
+                        DnsServerIp = gatewayIp,
+                        NetworkName = net.Name,
+                        NetworkVlanId = net.VlanId,
+                        IsLanIp = true,
+                        IsNextDns = true,
+                        NextDnsProfile = nextDnsProfile,
+                        DnsProviderName = "NextDNS CLI"
+                    });
+                }
+
+                continue;
+            }
+
+            var isControlD = await ProbeControlDAsync(gatewayIp);
+            if (isControlD)
+            {
+                _logger.LogInformation("Detected ControlD (ctrld) on gateway {Gateway}", gatewayIp);
+
+                foreach (var net in networks.Where(n => n.Enabled && n.DhcpEnabled && n.Gateway == gatewayIp))
+                {
+                    results.Add(new ThirdPartyDnsInfo
+                    {
+                        DnsServerIp = gatewayIp,
+                        NetworkName = net.Name,
+                        NetworkVlanId = net.VlanId,
+                        IsLanIp = true,
+                        IsControlD = true,
+                        DnsProviderName = "ControlD"
+                    });
+                }
+            }
+        }
+
+        return results;
     }
 
     /// <summary>
