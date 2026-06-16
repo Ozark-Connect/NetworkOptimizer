@@ -813,6 +813,10 @@
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">Host / IP</label>
                                 <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
+                                <small class="form-help">
+                                    Behind your WAN and unreachable for polling?
+                                    <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
+                                </small>
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
@@ -839,7 +843,7 @@
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">SSH Password</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" />
+                                    <input type="password" class="form-control" @bind="editingModem.Password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                 </div>
                                 <div class="form-group" style="flex: 1;">
                                     <label class="form-label">USB Bus Path (optional)</label>
@@ -853,7 +857,7 @@
                             <div class="form-row">
                                 <div class="form-group" style="flex: 2;">
                                     <label class="form-label">Admin Password (optional)</label>
-                                    <input type="password" class="form-control" @bind="editingModem.Password" placeholder="Leave empty for anonymous mode" />
+                                    <input type="password" class="form-control" @bind="editingModem.Password" placeholder="Leave empty for anonymous mode" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                                     <small class="form-help">
                                         Without a password, signal/band/cell metrics are still polled.
                                         Setting the admin password unlocks throughput counters.
@@ -877,6 +881,12 @@
                             {
                                 <div class="alert alert-@probeResultClass" style="margin-top: 0.5rem;">
                                     @probeResult
+                                    @if (LooksUnreachable(probeResult) && !string.IsNullOrWhiteSpace(editingModem.Host))
+                                    {
+                                        <div class="mi-funnel">
+                                            Can't reach it? <a href="@MonitoringInterfaceLink(editingModem.Host, "wmodem")">Set up a monitoring interface →</a>
+                                        </div>
+                                    }
                                 </div>
                             }
                         }
@@ -913,6 +923,12 @@
             {
                 <div class="alert alert-@modemMessageClass" style="margin-top: 1rem;">
                     @modemMessage
+                    @if (LooksUnreachable(modemMessage) && !string.IsNullOrWhiteSpace(_modemTestedHost))
+                    {
+                        <div class="mi-funnel">
+                            Can't reach it? <a href="@MonitoringInterfaceLink(_modemTestedHost, "wmodem")">Set up a monitoring interface →</a>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -1012,6 +1028,10 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
                             <input type="text" class="form-control" @bind="_editingCm.Host" placeholder="192.168.100.1" required />
+                            <small class="form-help">
+                                Behind your WAN and unreachable for polling?
+                                <a href="@MonitoringInterfaceLink(_editingCm.Host, "cm")">Set up a monitoring interface →</a>
+                            </small>
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
@@ -1027,7 +1047,8 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
                             <input type="password" class="form-control" @bind="_editingCm.Password"
-                                   placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")" />
+                                   placeholder="@(_editingCm.Id > 0 && !string.IsNullOrEmpty(_editingCm.Password) ? "••••••••" : "")"
+                                   autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                     </div>
 
@@ -1075,6 +1096,12 @@
             {
                 <div class="alert alert-@_cmTestResultClass" style="margin-top: 1rem;">
                     @_cmTestResult
+                    @if (LooksUnreachable(_cmTestResult) && !string.IsNullOrWhiteSpace(_cmTestedHost))
+                    {
+                        <div class="mi-funnel">
+                            Can't reach it? <a href="@MonitoringInterfaceLink(_cmTestedHost, "cm")">Set up a monitoring interface →</a>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -1173,6 +1200,10 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Host / IP</label>
                             <input type="text" class="form-control" @bind="_editingOnt.Host" placeholder="192.168.1.254" required />
+                            <small class="form-help">
+                                Behind your WAN and unreachable for polling?
+                                <a href="@MonitoringInterfaceLink(_editingOnt.Host, "ont")">Set up a monitoring interface →</a>
+                            </small>
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Port</label>
@@ -1188,7 +1219,8 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Password</label>
                             <input type="password" class="form-control" @bind="_editingOnt.Password"
-                                   placeholder="@(_editingOnt.Id > 0 && !string.IsNullOrEmpty(_editingOnt.Password) ? "••••••••" : "")" />
+                                   placeholder="@(_editingOnt.Id > 0 && !string.IsNullOrEmpty(_editingOnt.Password) ? "••••••••" : "")"
+                                   autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                         </div>
                     </div>
 
@@ -1235,6 +1267,12 @@
             {
                 <div class="alert alert-@_ontTestResultClass" style="margin-top: 1rem;">
                     @_ontTestResult
+                    @if (LooksUnreachable(_ontTestResult) && !string.IsNullOrWhiteSpace(_ontTestedHost))
+                    {
+                        <div class="mi-funnel">
+                            Can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost, "ont")">Set up a monitoring interface →</a>
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -2537,6 +2575,22 @@
 
 <SponsorshipBanner AlwaysShow="true" />
 
+<style>
+    .mi-funnel {
+        margin-top: 0.5rem;
+        color: var(--text-secondary);
+    }
+
+    .mi-funnel a,
+    .mi-funnel a:visited {
+        color: var(--primary-color);
+    }
+
+    .mi-funnel a:hover {
+        color: var(--primary-hover);
+    }
+</style>
+
 @code {
     // UniFi Controller
     private string controllerUrl = "https://192.168.1.1";
@@ -2573,6 +2627,7 @@
     private bool savingModem = false;
     private string modemMessage = "";
     private string modemMessageClass = "";
+    private string? _modemTestedHost;
     private List<DiscoveredModem> discoveredModems = new();
     private bool loadingDiscoveredModems = false;
     private bool modemFormExpanded = false;
@@ -2585,6 +2640,7 @@
     private string? _cmTestResult;
     private string _cmTestResultClass = "info";
     private int? _cmTestingId;
+    private string? _cmTestedHost;
     private string _cmStatus = "Inactive";
 
     // External ONT Monitoring
@@ -2594,6 +2650,33 @@
     private bool _savingOnt;
     private string? _ontTestResult;
     private string _ontTestResultClass = "info";
+    private string? _ontTestedHost;
+
+    /// <summary>
+    /// Deep-link to the Monitoring Interfaces section (Monitoring → Setup), absorbing the
+    /// in-progress modem/ONT IP (and source type, so the new interface gets a sensible
+    /// default name like cmodem0/wmodem0/ont0) so the add form opens pre-filled.
+    /// </summary>
+    private static string MonitoringInterfaceLink(string? host, string type)
+    {
+        var ip = string.IsNullOrWhiteSpace(host) ? "" : Uri.EscapeDataString(host.Trim());
+        return $"/monitoring?tab=setup&mifip={ip}&mitype={type}";
+    }
+
+    /// <summary>
+    /// Whether a failed Test/Probe message looks like the device couldn't be reached
+    /// (timeout, canceled, refused, no route) - the signature of a modem/ONT sitting
+    /// behind the WAN. Auth (401) or parse failures mean the device IS reachable, so we
+    /// don't funnel those toward a monitoring interface.
+    /// </summary>
+    private static bool LooksUnreachable(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return false;
+        var m = message.ToLowerInvariant();
+        return m.Contains("timeout") || m.Contains("timed out") || m.Contains("canceled") || m.Contains("cancelled")
+            || m.Contains("refused") || m.Contains("no route") || m.Contains("unreachable")
+            || m.Contains("no such host") || m.Contains("actively refused") || m.Contains("connection attempt failed");
+    }
     private int? _ontTestingId;
     private string _ontStatus = "Inactive";
 
@@ -4053,6 +4136,7 @@
 
     private async Task TestModemConnection(ModemConfiguration modem)
     {
+        _modemTestedHost = modem.Host;
         modemMessage = $"Polling {modem.Name}...";
         modemMessageClass = "info";
         StateHasChanged();
@@ -4162,6 +4246,7 @@
     private async Task TestCm(CmConfiguration config)
     {
         _cmTestingId = config.Id;
+        _cmTestedHost = config.Host;
         _cmTestResult = $"Testing {config.Name}...";
         _cmTestResultClass = "info";
         StateHasChanged();
@@ -4320,6 +4405,7 @@
     private async Task TestOnt(OntConfiguration config)
     {
         _ontTestingId = config.Id;
+        _ontTestedHost = config.Host;
         _ontTestResult = $"Testing {config.Name}...";
         _ontTestResultClass = "info";
         StateHasChanged();

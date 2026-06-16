@@ -59,6 +59,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<OuiVendor> OuiVendors { get; set; }
     public DbSet<CmConfiguration> CmConfigurations { get; set; }
     public DbSet<OntConfiguration> OntConfigurations { get; set; }
+    public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -122,6 +123,14 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("OntConfigurations");
             entity.HasIndex(e => e.Host);
             entity.HasIndex(e => e.Enabled);
+        });
+
+        // MonitoringInterface configuration (one row per ONT/modem access route)
+        modelBuilder.Entity<MonitoringInterface>(entity =>
+        {
+            entity.ToTable("MonitoringInterfaces");
+            entity.HasIndex(e => e.TargetIp);
+            entity.HasIndex(e => new { e.WanIfName, e.Name }).IsUnique();
         });
 
         // DeviceSshConfiguration configuration

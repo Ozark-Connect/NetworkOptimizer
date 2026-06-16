@@ -74,6 +74,58 @@ public static class GatewayWanHelper
     }
 
     /// <summary>
+    /// Builds a human-readable WAN label from up to four identifiers
+    /// (e.g. "Acme Fiber WAN1 (eth6 - Port 7)"), degrading gracefully when any
+    /// piece is missing so it never emits empty parentheses, doubled spaces, or
+    /// "null". The connection name and WAN index form the prefix; the physical
+    /// interface and port label form a parenthesized suffix. When neither name nor a
+    /// valid WAN index is present, falls back to the interface name, then to
+    /// "Unknown WAN".
+    /// </summary>
+    /// <param name="connectionName">ISP/connection name (GatewayWanInterface.Name), if any</param>
+    /// <param name="wanIndex">1-based WAN index (1 → "WAN1"); &lt;= 0 omits the WAN label</param>
+    /// <param name="ifName">Physical interface name (e.g. "eth6"), if any</param>
+    /// <param name="portLabel">Front-panel port label (e.g. "Port 7"), if any</param>
+    public static string FormatWanLabel(string? connectionName, int wanIndex, string? ifName, string? portLabel)
+    {
+        var name = string.IsNullOrWhiteSpace(connectionName) ? null : connectionName.Trim();
+        var iface = string.IsNullOrWhiteSpace(ifName) ? null : ifName.Trim();
+        var port = string.IsNullOrWhiteSpace(portLabel) ? null : portLabel.Trim();
+        var wanLabel = wanIndex >= 1 ? $"WAN{wanIndex}" : null;
+
+        // Drop a port label that just repeats another part (common when the port is named
+        // after the ISP), so we don't render "Acme Fiber WAN4 (eth1 - Acme Fiber)".
+        if (port != null && (
+                string.Equals(port, name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(port, iface, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(port, wanLabel, StringComparison.OrdinalIgnoreCase)))
+        {
+            port = null;
+        }
+
+        var prefix = string.Join(" ", new[] { name, wanLabel }.Where(p => !string.IsNullOrEmpty(p)));
+        var suffixParts = new List<string?> { iface, port };
+
+        if (string.IsNullOrEmpty(prefix))
+        {
+            // No name and no WAN index: fall back to the interface as the prefix so it
+            // isn't repeated in the suffix; last resort is a generic label.
+            if (iface != null)
+            {
+                prefix = iface;
+                suffixParts = new List<string?> { port };
+            }
+            else
+            {
+                prefix = "Unknown WAN";
+            }
+        }
+
+        var suffix = string.Join(" - ", suffixParts.Where(p => !string.IsNullOrEmpty(p)));
+        return string.IsNullOrEmpty(suffix) ? prefix : $"{prefix} ({suffix})";
+    }
+
+    /// <summary>
     /// Network-group convention from a wan object key ("wan"/"wan1" → "WAN",
     /// "wan2" → "WAN2"). Used when iterating GetWanInterfaces() whose Key is the
     /// raw JSON property name.

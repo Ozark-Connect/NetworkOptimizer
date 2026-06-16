@@ -46,6 +46,9 @@ public class WanSteerDeploymentService
 
         try
         {
+            // TODO: use IUdmBootService.IsInstalledAsync() for the udm-boot check instead of
+            // this inline test (shared gateway boot infrastructure -
+            // NetworkOptimizer.Web.Services.Ssh.UdmBootService).
             var combinedCommand =
                 "echo '---UDM_BOOT---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
                 "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +

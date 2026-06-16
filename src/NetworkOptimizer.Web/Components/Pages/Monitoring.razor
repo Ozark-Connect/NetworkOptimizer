@@ -1092,6 +1092,10 @@ else
                             <p>Devices without per-device SNMP enabled will not report port-level traffic or health metrics.</p>
                         </div>
                     </details>
+
+                    <div style="margin-top: 1.25rem;">
+                        <MonitoringInterfacesCard @ref="_miCard" PrefillTargetIp="@MiTargetParam" PrefillSourceType="@MiTypeParam" />
+                    </div>
                 </div>
             </div>
         }
@@ -1137,6 +1141,12 @@ else
 
     [SupplyParameterFromQuery(Name = "ont")]
     public string? OntParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "mifip")]
+    public string? MiTargetParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "mitype")]
+    public string? MiTypeParam { get; set; }
 
     private string? _lastTabParam;
     private string? _soloCellularModemId;
@@ -1184,6 +1194,8 @@ else
     private IReadOnlyList<SnmpDeviceStatus> _snmpDeviceStatuses = Array.Empty<SnmpDeviceStatus>();
     private SnmpDeviceStatusCard? _snmpDeviceCard;
     private bool _pendingExpandSnmpCard;
+    private MonitoringInterfacesCard? _miCard;
+    private bool _pendingExpandMiCard;
 
 
     // Chart mount tracking
@@ -1292,6 +1304,11 @@ else
         if (!string.IsNullOrEmpty(OntParam) && _activeTab == "ont")
         {
             _soloOntId = OntParam;
+        }
+
+        if (!string.IsNullOrEmpty(MiTargetParam) && _activeTab == "setup")
+        {
+            _pendingExpandMiCard = true;
         }
 
         if (!string.IsNullOrEmpty(DeviceParam) && _activeTab == "devices")
@@ -1667,6 +1684,25 @@ else
         await JS.InvokeVoidAsync("eval", @"
             (function() {
                 var el = document.getElementById('snmp-devices');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
+    private async Task ScrollToMonitoringInterfacesAsync()
+    {
+        // Mirror ScrollToSnmpDevicesAsync: wait for the expand animation, then scroll
+        // to the Monitoring Interfaces card with the same brief highlight outline.
+        await Task.Delay(400);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('monitoring-interfaces');
                 if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     el.style.transition = 'outline-color 0.3s';
@@ -2342,6 +2378,15 @@ else
             _pendingExpandSnmpCard = false;
             _snmpDeviceCard.Expand();
             await ScrollToSnmpDevicesAsync();
+        }
+
+        // Auto-expand the Monitoring Interfaces card when deep-linked from a monitor
+        // form's "set up a monitoring interface" link (mifip query param).
+        if (_pendingExpandMiCard && _activeTab == "setup" && _miCard != null)
+        {
+            _pendingExpandMiCard = false;
+            _miCard.Expand();
+            await ScrollToMonitoringInterfacesAsync();
         }
 
         // Deep-linked investigation fires once the performance tab and its chart exist

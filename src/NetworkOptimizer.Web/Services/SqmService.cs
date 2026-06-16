@@ -338,19 +338,30 @@ public class SqmService : ISqmService
                 _logger.LogDebug("Examining gateway-capable device: type={DeviceType}, model={Model}, name={Name}",
                     deviceType, deviceModel2, deviceName ?? "(unnamed)");
 
-                // Build port_idx -> speed lookup from port_table (for WAN link speed capping)
+                // Build port_idx -> speed and port_idx -> label lookups from port_table
+                // (speed for WAN link speed capping, label for the WAN display name).
                 var portIdxToSpeed = new Dictionary<int, int>();
+                var portIdxToName = new Dictionary<int, string>();
                 if (device.TryGetProperty("port_table", out var portTable) &&
                     portTable.ValueKind == System.Text.Json.JsonValueKind.Array)
                 {
                     foreach (var port in portTable.EnumerateArray())
                     {
-                        var isUp = port.TryGetProperty("up", out var upProp) && upProp.GetBoolean();
                         var portIdx = port.TryGetProperty("port_idx", out var idxProp) && idxProp.TryGetInt32(out var idx) ? idx : -1;
+                        if (portIdx < 0)
+                            continue;
+
+                        var isUp = port.TryGetProperty("up", out var upProp) && upProp.GetBoolean();
                         var speed = port.TryGetProperty("speed", out var speedProp) && speedProp.TryGetInt32(out var spd) ? spd : 0;
-                        if (isUp && portIdx >= 0 && speed > 0)
+                        if (isUp && speed > 0)
                         {
                             portIdxToSpeed[portIdx] = speed;
+                        }
+
+                        var portName = port.TryGetProperty("name", out var portNameProp) ? portNameProp.GetString() : null;
+                        if (!string.IsNullOrEmpty(portName))
+                        {
+                            portIdxToName[portIdx] = portName;
                         }
                     }
                 }
@@ -463,6 +474,13 @@ public class SqmService : ISqmService
                             }
                         }
 
+                        // Physical WAN port index/label (port_table). Used by consumers that
+                        // must attach to the physical port, e.g. a monitoring-interface macvlan.
+                        int? wanPortIdxValue = wanObj.TryGetProperty("port_idx", out var wanPortIdxProp) &&
+                            wanPortIdxProp.TryGetInt32(out var pidx) ? pidx : null;
+                        string? portLabel = wanPortIdxValue.HasValue &&
+                            portIdxToName.TryGetValue(wanPortIdxValue.Value, out var pLabel) ? pLabel : null;
+
                         // TC monitor uses "ifb" + interface name format
                         var tcInterface = $"ifb{uplinkIfname}";
 
@@ -514,7 +532,11 @@ public class SqmService : ISqmService
                             SuggestedPingIp = suggestedPingIp,
                             SmartqEnabled = smartqEnabled,
                             SmartqDownRateMbps = smartqDownRateMbps,
-                            LinkSpeedMbps = linkSpeedMbps
+                            LinkSpeedMbps = linkSpeedMbps,
+                            WanIndex = i,
+                            PhysicalIfName = physicalIfname,
+                            PortIdx = wanPortIdxValue,
+                            PortLabel = portLabel
                         });
 
                         _logger.LogDebug("Accepted {WanKey}: interface={Interface}, name={Name}, networkGroup={NG}, smartQ={SQ}, wanType={WT}",
@@ -779,6 +801,23 @@ public class WanInterfaceInfo
 
     /// <summary>WAN network group identifier from UniFi (e.g., "WAN", "WAN2")</summary>
     public string? NetworkGroup { get; set; }
+
+    /// <summary>1-based WAN index from the device wan{i} key (1 for wan1, 2 for wan2, ...).</summary>
+    public int WanIndex { get; set; }
+
+    /// <summary>
+    /// Physical port backing this WAN (e.g., "eth6"), from the WAN object's ifname.
+    /// Differs from <see cref="Interface"/> on PPPoE/VLAN WANs where Interface is the
+    /// logical uplink (ppp3, eth6.100). Consumers that must attach to the physical port
+    /// (e.g. a monitoring-interface macvlan) use this. Null for virtual WANs (GRE).
+    /// </summary>
+    public string? PhysicalIfName { get; set; }
+
+    /// <summary>port_table index of the physical WAN port, when known.</summary>
+    public int? PortIdx { get; set; }
+
+    /// <summary>Front-panel port label from port_table (e.g., "Port 7"), when known.</summary>
+    public string? PortLabel { get; set; }
 
     /// <summary>Whether UniFi Smart Queues (SQM) is enabled for this WAN in the controller</summary>
     public bool SmartqEnabled { get; set; }

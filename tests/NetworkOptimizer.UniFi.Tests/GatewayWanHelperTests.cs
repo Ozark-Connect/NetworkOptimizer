@@ -72,6 +72,37 @@ public class GatewayWanHelperTests
     public void WanInterfaceKeyFromKey_lowercases_and_maps_primary(string key, string expected)
         => GatewayWanHelper.WanInterfaceKeyFromKey(key).Should().Be(expected);
 
+    // ─── FormatWanLabel: graceful four-identifier WAN label assembly. Must never
+    // emit empty parentheses, doubled spaces, or "null" when a piece is missing. ───
+
+    [Theory]
+    [InlineData("Acme Fiber", 1, "eth6", "Port 7", "Acme Fiber WAN1 (eth6 - Port 7)")]
+    [InlineData(null, 1, "eth6", "Port 7", "WAN1 (eth6 - Port 7)")]
+    [InlineData("Acme Fiber", 1, "eth6", null, "Acme Fiber WAN1 (eth6)")]
+    [InlineData("Acme Fiber", 1, null, "Port 7", "Acme Fiber WAN1 (Port 7)")]
+    [InlineData("Acme Fiber", 1, null, null, "Acme Fiber WAN1")]
+    [InlineData(null, 2, null, null, "WAN2")]
+    [InlineData(null, 0, "eth3", null, "eth3")]
+    [InlineData(null, 0, null, null, "Unknown WAN")]
+    public void FormatWanLabel_degrades_gracefully(string? name, int wanIndex, string? ifName, string? portLabel, string expected)
+        => GatewayWanHelper.FormatWanLabel(name, wanIndex, ifName, portLabel).Should().Be(expected);
+
+    [Theory]
+    [InlineData("Acme Fiber", 4, "eth1", "Acme Fiber", "Acme Fiber WAN4 (eth1)")]
+    [InlineData("Acme Fiber", 4, "eth1", "acme fiber", "Acme Fiber WAN4 (eth1)")]
+    [InlineData("Comcast", 2, "eth0", "WAN2", "Comcast WAN2 (eth0)")]
+    [InlineData("Comcast", 1, "eth0", "eth0", "Comcast WAN1 (eth0)")]
+    public void FormatWanLabel_drops_redundant_port_label(string? name, int wanIndex, string? ifName, string? portLabel, string expected)
+        => GatewayWanHelper.FormatWanLabel(name, wanIndex, ifName, portLabel).Should().Be(expected);
+
+    [Fact]
+    public void FormatWanLabel_treats_blank_pieces_as_missing()
+    {
+        // Whitespace-only inputs must not produce stray spaces or empty parentheses.
+        GatewayWanHelper.FormatWanLabel("  ", 1, "  ", "  ").Should().Be("WAN1");
+        GatewayWanHelper.FormatWanLabel("Comcast", 1, "  ", "Port 1").Should().Be("Comcast WAN1 (Port 1)");
+    }
+
     // ─── EnumerateWanInterfaces: typed field extraction from raw device JSON.
     // The physical (ifname) and data-path (uplink_ifname) extraction here is the
     // PPPoE/VLAN regression surface for the flow-map and upstream parsers, so it is

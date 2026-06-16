@@ -69,6 +69,8 @@ public class PerfTweaksDeploymentService
         {
             var combinedCommand =
                 // UDM boot
+                // TODO: use IUdmBootService.IsInstalledAsync() instead of this inline check
+                // (shared gateway boot infrastructure - NetworkOptimizer.Web.Services.Ssh.UdmBootService).
                 "echo '---UDM_BOOT_CHECK---'; test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'; " +
                 "echo '---UDM_BOOT_ENABLED---'; systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'; " +
                 // Gateway model and firmware
@@ -748,6 +750,10 @@ public class PerfTweaksDeploymentService
         }
     }
 
+    // TODO: depend on IUdmBootService directly instead of routing udm-boot install through
+    // SqmDeploymentService. udm-boot is shared gateway boot infrastructure (see
+    // NetworkOptimizer.Web.Services.Ssh.UdmBootService); this delegation chain
+    // (PerfTweaks -> SQM -> UdmBootService) is incidental coupling.
     public async Task<(bool success, string message)> InstallUdmBootAsync()
     {
         return await _sqmDeployment.InstallUdmBootAsync();
