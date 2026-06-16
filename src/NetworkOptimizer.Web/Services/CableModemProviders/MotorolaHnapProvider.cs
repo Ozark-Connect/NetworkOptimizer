@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -553,6 +554,13 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
             UseCookies = false,
+            // Motorola DOCSIS modems serve their web UI over TLS 1.2 only with a
+            // baked-in self-signed cert. .NET 10 began offering TLS 1.3 by default
+            // (including on macOS), and these modems' legacy TLS stacks don't always
+            // negotiate a 1.3-capable ClientHello down to 1.2 - the handshake stalls
+            // until the request times out, even though a browser reaches the modem
+            // fine. Pin to TLS 1.2 to match what the modem actually speaks.
+            SslProtocols = SslProtocols.Tls12,
         };
 
         return new HttpClient(handler)
