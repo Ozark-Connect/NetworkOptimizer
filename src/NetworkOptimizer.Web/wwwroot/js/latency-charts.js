@@ -335,7 +335,7 @@ function renderStatsTable(container, data) {
         const meta = targetMeta.find(m => m.id === t.targetId);
         const color = meta?.color || '#9ca3af';
         return `<tr>
-            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(t.name)}</td>
+            <td><span class="stat-filter-badge" data-stat-id="${t.targetId}"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(t.name)}</span></td>
             <td>${fmtRtt(rtt?.mean)}</td><td>${fmtRtt(rtt?.min)}</td><td>${fmtRtt(rtt?.max)}</td><td>${fmtRtt(rtt?.p95)}</td><td>${fmtRtt(rtt?.p99)}</td>
             <td>${fmtLossMean(loss?.mean)}</td><td>${fmtLossMax(loss?.max)}</td>
         </tr>`;
@@ -357,6 +357,28 @@ function renderStatsTable(container, data) {
 
     const next = el.querySelector('.table-responsive');
     if (next && scrollLeft) next.scrollLeft = scrollLeft;
+
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const badge = e.target.closest('[data-stat-id]');
+            if (!badge) return;
+            const id = badge.dataset.statId;
+            if (e.ctrlKey || e.metaKey) {
+                visibility[id] = visibility[id] === false ? undefined : false;
+            } else {
+                const allVis = targetMeta.every(t => visibility[t.id] !== false);
+                const onlyThis = visibility[id] !== false
+                    && targetMeta.filter(t => t.id !== id).every(t => visibility[t.id] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { targetMeta.forEach(t => visibility[t.id] = t.id === id); }
+                else { visibility[id] = visibility[id] === false; }
+            }
+            updateChartVisibility();
+            renderBadges(container);
+            renderStatsTable(container, lastFetchData);
+        });
+    }
 }
 
 function isVisible() { return isInViewport; }

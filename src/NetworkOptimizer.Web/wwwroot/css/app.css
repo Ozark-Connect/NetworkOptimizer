@@ -14177,6 +14177,22 @@ a.affected-client:hover {
     color: var(--text-muted, #666);
 }
 
+.stat-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--border-radius-lg);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    white-space: nowrap;
+}
+
+.stat-filter-badge:hover {
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
 .wan-badge-dot {
     width: 10px;
     height: 10px;

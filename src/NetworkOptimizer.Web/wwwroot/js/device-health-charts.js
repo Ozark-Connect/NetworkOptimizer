@@ -214,7 +214,7 @@ function renderStatsTable(container) {
         const mem = computeStats(memVals);
         const color = hashColor(d.name);
         return `<tr>
-            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(d.name)}</td>
+            <td><span class="stat-filter-badge" data-stat-id="${d.mac}"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(d.name)}</span></td>
             <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
             <td>${fmtPct(cpu?.mean)}</td><td>${fmtPct(cpu?.min)}</td><td>${fmtPct(cpu?.max)}</td>
             <td>${fmtPct(mem?.mean)}</td><td>${fmtPct(mem?.min)}</td><td>${fmtPct(mem?.max)}</td>
@@ -238,6 +238,28 @@ function renderStatsTable(container) {
 
     const next = el.querySelector('.table-responsive');
     if (next && scrollLeft) next.scrollLeft = scrollLeft;
+
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const badge = e.target.closest('[data-stat-id]');
+            if (!badge) return;
+            const mac = badge.dataset.statId;
+            if (e.ctrlKey || e.metaKey) {
+                visibility[mac] = visibility[mac] === false ? undefined : false;
+            } else {
+                const allVis = deviceMeta.every(d => visibility[d.mac] !== false);
+                const onlyThis = visibility[mac] !== false
+                    && deviceMeta.filter(d => d.mac !== mac).every(d => visibility[d.mac] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac); }
+                else { visibility[mac] = visibility[mac] === false; }
+            }
+            updateVisibility();
+            renderBadges(container);
+            renderStatsTable(container);
+        });
+    }
 }
 
 function isVisible() { return isInViewport; }

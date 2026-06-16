@@ -242,7 +242,7 @@ function renderStatsTable(container) {
         const meta = moduleMeta.find(mm => mm.id === m.id);
         const color = meta?.color || '#9ca3af';
         return `<tr>
-            <td><span class="wan-badge-dot" style="background-color:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span>${escapeHtml(m.label)}</td>
+            <td><span class="stat-filter-badge" data-stat-id="${m.id}"><span class="wan-badge-dot" style="background-color:${color}"></span>${escapeHtml(m.label)}</span></td>
             <td>${fmtDbm(rx?.mean)}</td><td>${fmtDbm(rx?.min)}</td><td>${fmtDbm(rx?.max)}</td>
             <td>${fmtDbm(tx?.mean)}</td><td>${fmtDbm(tx?.min)}</td><td>${fmtDbm(tx?.max)}</td>
             <td>${fmtTemp(temp?.mean)}</td><td>${fmtTemp(temp?.min)}</td><td>${fmtTemp(temp?.max)}</td>
@@ -266,6 +266,28 @@ function renderStatsTable(container) {
 
     const next = el.querySelector('.table-responsive');
     if (next && scrollLeft) next.scrollLeft = scrollLeft;
+
+    if (!el._delegated) {
+        el._delegated = true;
+        el.addEventListener('click', (e) => {
+            const badge = e.target.closest('[data-stat-id]');
+            if (!badge) return;
+            const id = badge.dataset.statId;
+            if (e.ctrlKey || e.metaKey) {
+                visibility[id] = visibility[id] === false ? undefined : false;
+            } else {
+                const allVis = moduleMeta.every(m => visibility[m.id] !== false);
+                const onlyThis = visibility[id] !== false
+                    && moduleMeta.filter(m => m.id !== id).every(m => visibility[m.id] === false);
+                if (onlyThis) { visibility = {}; }
+                else if (allVis) { moduleMeta.forEach(m => visibility[m.id] = m.id === id); }
+                else { visibility[id] = visibility[id] === false; }
+            }
+            updateVisibility();
+            renderBadges(container);
+            renderStatsTable(container);
+        });
+    }
 }
 
 function isVisible() { return isInViewport; }
