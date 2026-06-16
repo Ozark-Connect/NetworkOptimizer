@@ -726,6 +726,15 @@ public class LanFlowMapService
         {
             try
             {
+                // Only clouds with monitoring targets actually attributed to them get
+                // latency. The historic query buckets by target TYPE (not WAN), so without
+                // this gate every AccessIsp globe - including secondary WANs that have no
+                // targets (only the primary is traced today) - would be painted with the
+                // primary's RTT during playback, and the live path (which keys off
+                // RttTargetIds) wouldn't, leaving the stale value stuck on resume. Mirror
+                // the live path's per-cloud gating until multi-WAN upstream tracing exists.
+                if (cloud.RttTargetIds.Count == 0) continue;
+
                 var targetType = cloud.Kind switch
                 {
                     LanCloudKind.AccessIsp => MonitoringTargetType.AccessIsp,
