@@ -126,7 +126,7 @@
                     <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">Modem/ONT IP</label>
-                            <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
+                            <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:event="oninput" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
                             <small class="form-help">The management IP you're trying to reach (e.g. your modem or ONT status page).</small>
                         </div>
                     </div>
@@ -168,22 +168,22 @@
                             <div class="form-row">
                                 <div class="form-group mi-grow-2">
                                     <label class="form-label">Gateway-local IP</label>
-                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" placeholder="192.168.100.2" />
+                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" @bind:event="oninput" placeholder="192.168.100.2" />
                                     <small class="form-help">The gateway's address on the modem's subnet. Auto-suggested; must be free and on the same subnet.</small>
                                 </div>
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Subnet prefix</label>
-                                    <input type="number" class="form-control" @bind="_editing.SubnetPrefix" min="8" max="30" />
+                                    <input type="number" class="form-control" @bind="_editing.SubnetPrefix" @bind:event="oninput" min="8" max="30" />
                                 </div>
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Interface name</label>
-                                    <input type="text" class="form-control" @bind="_editing.Name" placeholder="modem0" />
+                                    <input type="text" class="form-control" @bind="_editing.Name" @bind:event="oninput" placeholder="modem0" />
                                 </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Watchdog interval (min)</label>
-                                    <input type="number" class="form-control" @bind="_editing.WatchdogIntervalMinutes" min="1" max="60" />
+                                    <input type="number" class="form-control" @bind="_editing.WatchdogIntervalMinutes" @bind:event="oninput" min="1" max="60" />
                                     <small class="form-help">How often the gateway re-applies the route so it survives reprovisioning.</small>
                                 </div>
                                 <div class="form-group mi-grow-2">
