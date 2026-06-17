@@ -167,6 +167,20 @@ public class LanFlowMapService
     }
 
     /// <summary>
+    /// Tolerance for deriving historic online state from telemetry proximity. There is
+    /// no stored online/state field, so a device counts as online at the scrub instant
+    /// when a device_health point falls within this window of it. device_health is written
+    /// ~every 30 s while a device is reachable, so this allows for one dropped sample plus
+    /// jitter without flapping an online device to offline.
+    /// </summary>
+    private const double HistoricOnlineWindowSeconds = 60;
+
+    /// <summary>Gateway / switch / AP - the fabric devices the map renders an explicit
+    /// online/offline appearance for (clients track association, not device state).</summary>
+    private static bool IsInfraKind(LanNodeKind kind) =>
+        kind is LanNodeKind.Gateway or LanNodeKind.Switch or LanNodeKind.AccessPoint;
+
+    /// <summary>
     /// Polling endpoint. Refreshes link rates + per-device aggregates + cloud RTT
     /// from in-memory sources (<see cref="MonitoringLiveStats"/>, <see cref="MonitoringPathView.GetWansAsync"/>).
     /// Does NOT rebuild the snapshot topology - that happens on its own TTL inside the cache.
@@ -338,6 +352,19 @@ public class LanFlowMapService
         foreach (var node in snapshot.Nodes)
         {
             if (string.IsNullOrEmpty(node.Mac)) continue;
+
+            // Offline infra: emit a bare offline badge (no rates) so the map dims the
+            // device and zeros its links. node.Online is the UniFi device State from the
+            // latest snapshot rebuild. We do this before reading live stats on purpose:
+            // GetForDevice keeps the last sample until the next prune, so an offline
+            // device can still have a stale entry - reading it would paint a dead device
+            // with phantom throughput.
+            if (IsInfraKind(node.Kind) && !node.Online)
+            {
+                update.NodeBadges[node.Id] = new NodeLiveBadge { Online = false };
+                continue;
+            }
+
             var dev = _liveStats.GetForDevice(node.Mac);
             if (dev == null) continue;
 
@@ -480,6 +507,26 @@ public class LanFlowMapService
             if (!wiredClientRates.TryGetValue(p.ClientMac, out var existing)
                 || Math.Abs((p.Time - at).TotalMilliseconds) < Math.Abs((existing.Time - at).TotalMilliseconds))
                 wiredClientRates[p.ClientMac] = p;
+        }
+
+        // WiFi client connection stats at the scrub instant (band/signal/PHY rate). Keyed
+        // by client node id ("cli-{mac}") so the maps can override the snapshot-frozen
+        // values. The band tag is "2.4ghz"/"5ghz"/"6ghz" - normalize to match snapshot.
+        foreach (var (mac, p) in wifiClientRates)
+        {
+            var band = NormalizeBand(p.Band);
+            var apNodeId = string.IsNullOrEmpty(p.ApMac) ? null : "dev-" + NormalizeMac(p.ApMac);
+            if (band == null && p.SignalDbm == null && p.TxRateKbps == null
+                && p.RxRateKbps == null && apNodeId == null)
+                continue;
+            update.ClientStats["cli-" + mac] = new NodeClientStats
+            {
+                Band = band,
+                SignalDbm = p.SignalDbm,
+                PhyTxKbps = p.TxRateKbps,
+                PhyRxKbps = p.RxRateKbps,
+                ApNodeId = apNodeId,
+            };
         }
 
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
@@ -707,11 +754,46 @@ public class LanFlowMapService
                     }
                 }
 
-                if (healthPt == null && fabIn == null && aggIn == null) continue;
+                // No explicit online/state is stored in the time series, so derive
+                // historic liveness from telemetry proximity: device_health is written
+                // roughly every 30 s only while a device is reachable, so a health point
+                // close to the scrub instant means the device was online then. For
+                // infrastructure we always emit a badge (offline ones get Online=false
+                // and no rates) so playback reflects the real state at T instead of
+                // freezing the current snapshot's live online state across the timeline.
+                var isInfra = IsInfraKind(node.Kind);
+                var onlineAtT = healthPt != null
+                    && Math.Abs((healthPt.Time - at).TotalSeconds) <= HistoricOnlineWindowSeconds;
+
+                bool infraOnline = false;
+                if (isInfra)
+                {
+                    // device_health is the authoritative liveness signal, but only when we
+                    // actually collect it for this device. If we never recorded health for
+                    // it (SNMP-only / third-party gear), don't force it dark across the
+                    // whole timeline: fall back to rate telemetry, then to the current
+                    // snapshot state. Devices we DO monitor get accurate per-instant state.
+                    var hasHealthHistory =
+                        cached.HealthByDevice.TryGetValue(mac, out var hh) && hh.Count > 0;
+                    if (hasHealthHistory)
+                        infraOnline = onlineAtT;
+                    else
+                        infraOnline = (fabIn != null || aggIn != null) || node.Online;
+
+                    if (!infraOnline)
+                    {
+                        update.NodeBadges[node.Id] = new NodeLiveBadge { Online = false };
+                        continue;
+                    }
+                }
+                else if (healthPt == null && fabIn == null && aggIn == null)
+                {
+                    continue;
+                }
 
                 update.NodeBadges[node.Id] = new NodeLiveBadge
                 {
-                    Online = node.Online,
+                    Online = isInfra ? infraOnline : node.Online,
                     CpuPercent = healthPt?.CpuPercent,
                     MemoryUsedPercent = healthPt?.MemoryUsedPercent,
                     TemperatureC = healthPt?.TemperatureC,

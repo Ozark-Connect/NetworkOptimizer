@@ -295,6 +295,25 @@ public class LanFlowMapLiveUpdate
     public Dictionary<string, LinkLiveRates> LinkRates { get; set; } = new();
     public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
+
+    /// <summary>Per-client connection stats (band/signal/PHY rate) keyed by client node id.
+    /// Lets the maps override the snapshot-frozen values. Populated for historic playback;
+    /// the live tick leaves it empty (snapshot rebuilds keep live values fresh enough).</summary>
+    public Dictionary<string, NodeClientStats> ClientStats { get; set; } = new();
+}
+
+/// <summary>Point-in-time wireless connection stats for a single client. Mirrors the
+/// snapshot's client node fields so the renderers can prefer these during playback.</summary>
+public class NodeClientStats
+{
+    public string? Band { get; set; }
+    public int? SignalDbm { get; set; }
+    public long? PhyTxKbps { get; set; }
+    public long? PhyRxKbps { get; set; }
+    /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
+    /// scrub instant, so the maps can re-attach the client to its historic AP (roam).
+    /// Null when unknown.</summary>
+    public string? ApNodeId { get; set; }
 }
 
 public class NodeLiveBadge
@@ -331,6 +350,11 @@ public class LanFlowMapHistoricUpdate
     public Dictionary<string, LinkLiveRates> LinkRates { get; set; } = new();
     public Dictionary<string, NodeLiveBadge> NodeBadges { get; set; } = new();
     public Dictionary<string, CloudLiveStats> CloudStats { get; set; } = new();
+
+    /// <summary>Per-client connection stats (band/signal/PHY rate) at the scrub instant,
+    /// keyed by client node id. Lets the maps show the client's real wireless state then
+    /// instead of the current snapshot's frozen values.</summary>
+    public Dictionary<string, NodeClientStats> ClientStats { get; set; } = new();
 
     /// <summary>Speed tests whose TestTime falls within the scrub window (or just before it).</summary>
     public List<SpeedTestOverlayItem> SpeedTests { get; set; } = new();

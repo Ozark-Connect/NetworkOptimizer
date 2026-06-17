@@ -15,7 +15,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildBuildings } from './lan-flow-buildings.js?v=1';
 // KEEP IN SYNC: lan-flow-map-2d.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=2';
+import * as flowData from './lan-flow-data.js?v=3';
 
 const COLORS = {
     background: 0x202023,
@@ -54,6 +54,27 @@ function bandBaseColor(band) {
     if (band === '5')   return COLORS.band5;
     if (band === '6')   return COLORS.band6;
     return COLORS.pipeCool;
+}
+
+// Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
+const ROAM_FADE_MS = 350;
+
+// Deterministic PRNG (mulberry32) seeded off a node id. Lets a roamed client scatter
+// near its AP using the same distribution as a freshly-added client, while staying
+// stable across scrub crossings (no re-jitter when re-pointed to the same AP).
+function _roamSeed(id) {
+    let h = 1779033703 ^ id.length;
+    for (let i = 0; i < id.length; i += 1) {
+        h = Math.imul(h ^ id.charCodeAt(i), 3432918353);
+        h = (h << 13) | (h >>> 19);
+    }
+    let a = h >>> 0;
+    return function () {
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
 }
 
 const NODE_RADIUS = {
@@ -479,6 +500,10 @@ export class LanFlowMap {
         this._cloudMeshes.clear();
         this._positions.clear();
         this._currentRates = {};
+        // Mesh refs are recreated below, so any roam re-pointing state is now stale.
+        this._appliedAssoc3D?.clear();
+        this._roamBasePos?.clear();
+        this._roamFade3D?.clear();
         if (this._labelsLayer) {
             for (const { el } of this._floatingLabels.values()) el.remove();
             for (const { el } of this._linkLabels.values()) el.remove();
@@ -550,6 +575,9 @@ export class LanFlowMap {
             const update = await res.json();
             flowData.publishLive(update);
             this._currentBadges = update.nodeBadges || {};
+            this._currentClientStats = update.clientStats || {};
+            this._applyOnlineState();
+            this._applyClientAssoc3D();
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
             // Keep ticking; transient network errors are fine.
@@ -784,7 +812,7 @@ export class LanFlowMap {
                 core.material.transparent = true;
                 halo.material.opacity = 0.05;
             }
-            group.userData = { node, core, baseEmissive };
+            group.userData = { node, core, halo, baseEmissive };
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
@@ -1204,9 +1232,15 @@ export class LanFlowMap {
         // (every 30s). A wholesale replace was wiping wired client rates 2 seconds
         // after each snapshot, leaving the leaf pipes idle forever.
         this._currentRates = { ...(this._currentRates || {}), ...rates };
+        const badges = this._currentBadges || {};
+        const isOffline = (nodeId) => badges[nodeId]?.online === false;
         for (const [linkId, link] of this._linkMeshes) {
             const r = this._currentRates[linkId];
-            if (!r) {
+            // An offline endpoint can't be moving traffic. Because the rate map is
+            // merged (not replaced) the last sample would otherwise stay frozen on the
+            // pipe forever, so force its links idle the moment a device goes offline.
+            const endpointOffline = isOffline(link.link?.fromNodeId) || isOffline(link.link?.toNodeId);
+            if (!r || endpointOffline) {
                 link.down.setRate(0);
                 link.up.setRate(0);
                 this._setPipeHealth(link.pipe, 0);
@@ -1228,6 +1262,142 @@ export class LanFlowMap {
         this._refreshDeviceLabelRates();
         this._refreshLinkLabels();
         this._refreshCloudRttLabels();
+    }
+
+    _applyOnlineState() {
+        // Online/offline isn't baked into the mesh - it changes between snapshot
+        // rebuilds (live) and across the timeline (historic). Re-skin every node from
+        // the latest badge each tick so a device that was online when the mesh was
+        // built doesn't stay lit after it drops (and vice versa during playback).
+        // Badges only carry online for infrastructure; a node with no badge is left
+        // untouched (clients track association, not device state).
+        const badges = this._currentBadges || {};
+        for (const [id, group] of this._nodeMeshes) {
+            const badge = badges[id];
+            if (!badge) continue;
+            const online = badge.online !== false;
+            const { core, halo, node } = group.userData || {};
+            if (node) node.online = online;
+            if (core?.material) {
+                core.material.transparent = true;
+                core.material.opacity = online ? 1 : 0.55;
+            }
+            if (halo?.material) halo.material.opacity = online ? 0.12 : 0.05;
+        }
+    }
+
+    // Re-attach wifi clients to the AP they were on at the scrubbed instant (roam
+    // playback). Historic ticks carry clientStats[id].apNodeId; live ticks send none,
+    // so every client falls back to its snapshot parent (reset). Only mutates on an
+    // actual association change, so steady live is a no-op. Snapshot polls are paused
+    // during historic, so this never races the live incremental add/remove path.
+    _applyClientAssoc3D() {
+        const stats = this._currentClientStats || {};
+        if (!this._appliedAssoc3D) this._appliedAssoc3D = new Map();
+        if (!this._roamBasePos) this._roamBasePos = new Map();
+        for (const [id, group] of this._nodeMeshes) {
+            const node = group.userData?.node;
+            if (!node || node.kind !== NODE_KIND.WifiClient) continue;
+            const baseline = node.parentId;
+            const desired = stats[id]?.apNodeId || baseline;
+            const cur = this._appliedAssoc3D.get(id) || baseline;
+            if (desired === cur) continue;
+            if (!this._positions.get(desired)) continue; // historic AP not present - leave put
+            this._repointClientLink(id, desired, baseline);
+            if (desired === baseline) this._appliedAssoc3D.delete(id);
+            else this._appliedAssoc3D.set(id, desired);
+        }
+    }
+
+    // Historic roam: re-point with baseline restore. On reset (newApId === the live
+    // snapshot parent) the client returns to its exact original spot; otherwise it
+    // scatters near the historic AP.
+    _repointClientLink(clientId, newApId, baselineApId) {
+        const pos = this._positions.get(clientId);
+        if (!pos) return;
+        if (!this._roamBasePos.has(clientId)) {
+            this._roamBasePos.set(clientId, { x: pos.x, y: pos.y, z: pos.z });
+        }
+        if (newApId === baselineApId && this._roamBasePos.has(clientId)) {
+            const b = this._roamBasePos.get(clientId);
+            this._roamBasePos.delete(clientId);
+            this._attachClientToAp(clientId, newApId, b);
+        } else {
+            this._attachClientToAp(clientId, newApId);
+        }
+    }
+
+    // Move a client next to an AP and rebuild its uplink pipe + particle streams from
+    // the new endpoints (geometry is baked, so it must be recreated). Shared by historic
+    // roam playback and live roam (snapshot parent changed). explicitPos restores an
+    // exact spot; otherwise the client scatters to a stable spot near the AP.
+    _attachClientToAp(clientId, apId, explicitPos) {
+        const pos = this._positions.get(clientId);
+        const group = this._nodeMeshes.get(clientId);
+        const apPos = this._positions.get(apId);
+        if (!pos || !group || !apPos) return;
+        if (explicitPos) {
+            pos.x = explicitPos.x; pos.y = explicitPos.y; pos.z = explicitPos.z;
+        } else {
+            // Same scatter as a freshly-attached client (_addNodeIncremental): random
+            // angle, 6-12 units out, slight y jitter - but seeded off the client id so
+            // it's stable across scrub crossings instead of re-rolling each time.
+            const rnd = _roamSeed(clientId);
+            const angle = rnd() * Math.PI * 2;
+            const dist = 6 + rnd() * 6;
+            pos.x = apPos.x + Math.cos(angle) * dist;
+            pos.y = apPos.y - 1.5 + rnd();
+            pos.z = apPos.z + Math.sin(angle) * dist;
+        }
+        group.position.set(pos.x, pos.y, pos.z);
+
+        let linkId = null;
+        for (const [lid, eps] of this._nodesByLink) {
+            if (eps[0] === clientId || eps[1] === clientId) { linkId = lid; break; }
+        }
+        const old = linkId ? this._linkMeshes.get(linkId) : null;
+        if (old) {
+            // Carry the old pipe's visibility onto the rebuilt one - a fresh mesh defaults
+            // to visible, which would resurrect the pipe of a filtered-out client.
+            const wasVisible = old.pipe.visible;
+            this.linkGroup.remove(old.pipe);
+            old.pipe.geometry?.dispose();
+            old.pipe.material?.dispose();
+            this.particleGroup.remove(old.down.mesh, old.up.mesh);
+            old.down.mesh.geometry?.dispose();
+            old.up.mesh.geometry?.dispose();
+            const pipe = this._makePipeMesh(apPos, pos, old.link);
+            pipe.visible = wasVisible;
+            this.linkGroup.add(pipe);
+            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0 });
+            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0 });
+            down.mesh.visible = wasVisible;
+            up.mesh.visible = wasVisible;
+            this.particleGroup.add(down.mesh, up.mesh);
+            this._linkMeshes.set(linkId, { pipe, down, up, link: old.link });
+            this._nodesByLink.set(linkId, [apId, clientId]);
+        }
+
+        if (!this._roamFade3D) this._roamFade3D = new Map();
+        this._roamFade3D.set(clientId, performance.now() + ROAM_FADE_MS);
+    }
+
+    // Live roam: a persisting wifi client whose snapshot parent changed (no add/remove).
+    // The snapshot diff doesn't catch this, so re-attach it to the new AP here. The new
+    // parent becomes the baseline, so any later historic re-point/reset is relative to it.
+    _applyLiveRoam(prev, snap) {
+        const prevById = new Map((prev?.nodes ?? []).map(n => [n.id, n]));
+        for (const node of (snap.nodes ?? [])) {
+            if (node.kind !== NODE_KIND.WifiClient) continue;
+            const pn = prevById.get(node.id);
+            if (!pn || pn.parentId === node.parentId) continue;
+            if (!this._nodeMeshes.has(node.id) || !this._positions.get(node.parentId)) continue;
+            const group = this._nodeMeshes.get(node.id);
+            if (group?.userData) group.userData.node = node; // refresh parentId/band/etc.
+            this._roamBasePos?.delete(node.id);
+            this._appliedAssoc3D?.delete(node.id);
+            this._attachClientToAp(node.id, node.parentId);
+        }
     }
 
     _refreshLinkLabels() {
@@ -1448,6 +1618,18 @@ export class LanFlowMap {
             if (!core || base == null) continue;
             core.material.emissiveIntensity = base * factor;
         }
+        // Ramp opacity back up on clients that just roamed to a new AP so they fade in
+        // rather than pop. _applyOnlineState re-asserts the correct opacity afterwards.
+        if (this._roamFade3D && this._roamFade3D.size) {
+            for (const [id, until] of this._roamFade3D) {
+                const core = this._nodeMeshes.get(id)?.userData?.core;
+                if (!core) { this._roamFade3D.delete(id); continue; }
+                const t = 1 - Math.max(0, (until - nowMs) / ROAM_FADE_MS);
+                core.material.transparent = true;
+                core.material.opacity = Math.max(0.15, t);
+                if (t >= 1) this._roamFade3D.delete(id);
+            }
+        }
     }
 
     _startPolling() {
@@ -1486,6 +1668,9 @@ export class LanFlowMap {
                         const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
                         for (const id of removed) this._removeNodeIncremental(id);
                         for (const node of added) this._addNodeIncremental(node, snap);
+                        // Seamless roam keeps the client's node id, so add/remove misses
+                        // it - re-attach any persisting client whose parent AP changed.
+                        this._applyLiveRoam(prev, snap);
                         // Don't apply snapshot liveRates - they're stale vs the 1s
                         // live poll and would clobber fresh rates momentarily.
                         this._refreshCloudRttLabels();
@@ -1550,14 +1735,25 @@ export class LanFlowMap {
         // Build link pipe + particles
         const a = this._positions.get(link.fromNodeId);
         const b = this._positions.get(link.toNodeId);
+        let pipe = null, down = null, up = null;
         if (a && b) {
-            const pipe = this._makePipeMesh(a, b, link);
+            pipe = this._makePipeMesh(a, b, link);
             this.linkGroup.add(pipe);
-            const down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
-            const up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
+            down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
+            up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
             this.particleGroup.add(down.mesh, up.mesh);
             this._linkMeshes.set(link.id, { pipe, down, up, link });
             this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
+        }
+
+        // Respect the active band/overlay filter: a client that connects while filtered
+        // out shouldn't pop into view (node or pipe).
+        const isClient = node.kind === NODE_KIND.WifiClient || node.kind === NODE_KIND.WiredClient;
+        if (isClient && !this._isClientVisible(node)) {
+            group.visible = false;
+            if (pipe) pipe.visible = false;
+            if (down) down.mesh.visible = false;
+            if (up) up.mesh.visible = false;
         }
     }
 
@@ -2297,8 +2493,13 @@ export class LanFlowMap {
             const update = await res.json();
             if (gen !== this._historicGen) return;
             flowData.publishLive(update);
+            // Set badges before applying rates: _applyOnlineState re-skins the nodes and
+            // _applyLiveRates reads the badges to force offline endpoints' pipes idle.
+            this._currentBadges = update.nodeBadges || {};
+            this._currentClientStats = update.clientStats || {};
+            this._applyOnlineState();
+            this._applyClientAssoc3D();
             this._applyLiveRates(update.linkRates || {});
-            if (update.nodeBadges) this._currentBadges = update.nodeBadges;
         } catch (err) {
             // Keep ticking; transient errors are fine.
         }
@@ -2512,6 +2713,10 @@ export class LanFlowMap {
         for (const [linkId, { el }] of this._linkLabels) {
             const link = this._linkMeshes.get(linkId);
             if (!link || !el._hasData) { el.classList.remove('is-visible'); continue; }
+            // Respect the band/overlay filter: _applyFilter hides a filtered client
+            // link's pipe, so its throughput label must hide too (device labels already
+            // gate on group.visible; link labels need the same check).
+            if (!link.pipe.visible) { el.classList.remove('is-visible'); continue; }
             const fromPos = this._positions.get(link.link.fromNodeId);
             const toPos = this._positions.get(link.link.toNodeId);
             if (!fromPos || !toPos) continue;
@@ -2705,13 +2910,18 @@ export class LanFlowMap {
     _showHover(node) {
         if (!this._tooltipEl) return;
         const rows = [];
+        // During playback prefer the client's wireless stats at the scrubbed instant
+        // over the snapshot-frozen values (band/signal/PHY rate below).
+        const cs = this._currentClientStats?.[node.id];
+        const band = cs?.band ?? node.band;
+        const signalDbm = cs?.signalDbm ?? node.signalDbm;
         if (node.ip) rows.push(['IP', node.ip]);
         if (node.mac) rows.push(['MAC', node.mac]);
         if (node.model) rows.push(['Model', node.model]);
-        if (node.band) rows.push(['Band', `${node.band} GHz`]);
+        if (band) rows.push(['Band', `${band} GHz`]);
         if (node.ssid) rows.push(['SSID', node.ssid]);
         if (node.network) rows.push(['Network', node.network]);
-        if (node.signalDbm) rows.push(['Signal', `${node.signalDbm} dBm`]);
+        if (signalDbm) rows.push(['Signal', `${signalDbm} dBm`]);
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
         // Device health from NodeLiveBadge (infrastructure nodes only)
         const badge = this._currentBadges?.[node.id];
@@ -2792,11 +3002,14 @@ export class LanFlowMap {
         // above the live throughput so the capable rate sits over the actual rate.
         if (node.wiredLinkSpeedMbps) {
             rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
-        } else if (node.phyTxKbps || node.phyRxKbps) {
+        } else if (node.phyTxKbps || node.phyRxKbps || cs?.phyTxKbps || cs?.phyRxKbps) {
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
-            // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
-            const downKbps = isMeshUplink ? node.phyRxKbps : node.phyTxKbps;
-            const upKbps = isMeshUplink ? node.phyTxKbps : node.phyRxKbps;
+            // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap. Prefer
+            // the scrubbed-instant PHY rate during playback.
+            const pTx = cs?.phyTxKbps ?? node.phyTxKbps;
+            const pRx = cs?.phyRxKbps ?? node.phyRxKbps;
+            const downKbps = isMeshUplink ? pRx : pTx;
+            const upKbps = isMeshUplink ? pTx : pRx;
             const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
             const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
             rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);
