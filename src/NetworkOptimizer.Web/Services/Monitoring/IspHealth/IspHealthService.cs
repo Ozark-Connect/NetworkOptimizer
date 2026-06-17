@@ -705,8 +705,9 @@ public class IspHealthService
 
         foreach (var group in groups)
         {
-            // Re-run the name cleanup at display so brand overrides (e.g. Arelion Sweden ->
-            // Arelion) apply to already-stored ASN names without needing re-discovery.
+            // The stored AsnName was cleaned by CleanOrgName at discovery/add time (industry
+            // suffixes). Re-run the lighter AsnNameCleanup here so brand overrides (e.g. Arelion
+            // Sweden -> Arelion) apply to already-stored names without needing re-discovery.
             var asnName = AsnNameCleanup.Clean(
                 group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
                 ?? (asnOverrides != null

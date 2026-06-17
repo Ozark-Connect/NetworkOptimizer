@@ -138,6 +138,19 @@ public class AsnResolutionService
 
 public record AsnLookup(int Asn, string Name);
 
+/// <summary>
+/// The resolve/display ASN-name cleaner. Runs on every IP-&gt;ASN resolve (<see cref="AsnResolutionService"/>)
+/// and again when ISP Health renders a "Networks on Your Path" card, so brand overrides apply
+/// to already-stored names without re-discovery. Strips legal-entity suffixes (LLC, Inc, AB,
+/// B.V. ...) and applies exact-match brand overrides for the cases suffix-stripping can't infer -
+/// a geographic or rebrand word, e.g. "Arelion Sweden" -&gt; "Arelion".
+///
+/// This is the LIGHTER of the two ASN-name cleaners. The heavier industry-suffix pass
+/// (Communications, Telecom, Networks, Parent ...) is <see cref="NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName"/>,
+/// which runs once at STORAGE time (auto-discovery via UpstreamTracerService.CleanAsnName, and
+/// manual add via LatencyTargetsCard). A stored AsnName has therefore been through both passes;
+/// this one re-runs cheaply at display purely so the brand overrides stay applied.
+/// </summary>
 internal static class AsnNameCleanup
 {
     // Strip the most common corporate-form suffixes off the tail of an ASN name
@@ -149,8 +162,11 @@ internal static class AsnNameCleanup
         @"\s*,?\s+(LLC|L\.L\.C\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|Limited|B\.V\.?|BV|AB|AG|GmbH|S\.A\.?S?\.?|S\.r\.l\.?|SA|PLC|Pte\.?|N\.V\.?|NV|OY|OYJ)\.?\s*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Specific brand overrides, applied AFTER suffix stripping. Deliberately exact-match and
-    // not a generic geographic strip - a real ISP could legitimately be named "<x> Sweden".
+    // Specific brand overrides, applied AFTER suffix stripping. This is the ONLY place a name is
+    // canonicalized on a non-suffix word (geography, legacy brand, rebrand) - the suffix strippers
+    // (here and CleanOrgName) can't infer those. Deliberately exact-match and not a generic
+    // geographic strip: a real ISP could legitimately be named "<x> Sweden". Keys are the
+    // post-suffix-strip form (e.g. "Arelion Sweden AB" -> strip "AB" -> match "Arelion Sweden").
     private static readonly Dictionary<string, string> NameOverrides = new(StringComparer.OrdinalIgnoreCase)
     {
         // Arelion (AS1299, ex-Telia Carrier) resolves as "Arelion Sweden AB"; show just "Arelion".

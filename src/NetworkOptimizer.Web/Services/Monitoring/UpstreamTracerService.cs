@@ -1504,6 +1504,12 @@ public class UpstreamTracerService
         await Task.WhenAll(tasks);
     }
 
+    /// <summary>
+    /// Storage-time ASN-name cleanup for discovered hops - delegates to the shared
+    /// <see cref="NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName"/> (industry +
+    /// legal suffixes). Manual target add (LatencyTargetsCard) calls the same helper, so a
+    /// hand-added transit hop stores the same name discovery would ("Level 3", not "Level 3 Parent").
+    /// </summary>
     internal static string CleanAsnName(string? name) =>
         NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(name);
 
