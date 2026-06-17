@@ -515,7 +515,9 @@ public class LanFlowMapService
         foreach (var (mac, p) in wifiClientRates)
         {
             var band = NormalizeBand(p.Band);
-            if (band == null && p.SignalDbm == null && p.TxRateKbps == null && p.RxRateKbps == null)
+            var apNodeId = string.IsNullOrEmpty(p.ApMac) ? null : "dev-" + NormalizeMac(p.ApMac);
+            if (band == null && p.SignalDbm == null && p.TxRateKbps == null
+                && p.RxRateKbps == null && apNodeId == null)
                 continue;
             update.ClientStats["cli-" + mac] = new NodeClientStats
             {
@@ -523,6 +525,7 @@ public class LanFlowMapService
                 SignalDbm = p.SignalDbm,
                 PhyTxKbps = p.TxRateKbps,
                 PhyRxKbps = p.RxRateKbps,
+                ApNodeId = apNodeId,
             };
         }
 

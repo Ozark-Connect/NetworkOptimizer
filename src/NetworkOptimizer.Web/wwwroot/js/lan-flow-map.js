@@ -56,6 +56,17 @@ function bandBaseColor(band) {
     return COLORS.pipeCool;
 }
 
+// Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
+const ROAM_FADE_MS = 350;
+
+// Stable pseudo-angle from a node id so a client scatters to a consistent spot near
+// its historic AP (no jitter if re-pointed again to the same AP).
+function _roamAngle(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) | 0;
+    return ((h >>> 0) % 360) * Math.PI / 180;
+}
+
 const NODE_RADIUS = {
     gateway: 1.6,
     switch: 1.2,
@@ -479,6 +490,10 @@ export class LanFlowMap {
         this._cloudMeshes.clear();
         this._positions.clear();
         this._currentRates = {};
+        // Mesh refs are recreated below, so any roam re-pointing state is now stale.
+        this._appliedAssoc3D?.clear();
+        this._roamBasePos?.clear();
+        this._roamFade3D?.clear();
         if (this._labelsLayer) {
             for (const { el } of this._floatingLabels.values()) el.remove();
             for (const { el } of this._linkLabels.values()) el.remove();
@@ -552,6 +567,7 @@ export class LanFlowMap {
             this._currentBadges = update.nodeBadges || {};
             this._currentClientStats = update.clientStats || {};
             this._applyOnlineState();
+            this._applyClientAssoc3D();
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
             // Keep ticking; transient network errors are fine.
@@ -1260,6 +1276,79 @@ export class LanFlowMap {
         }
     }
 
+    // Re-attach wifi clients to the AP they were on at the scrubbed instant (roam
+    // playback). Historic ticks carry clientStats[id].apNodeId; live ticks send none,
+    // so every client falls back to its snapshot parent (reset). Only mutates on an
+    // actual association change, so steady live is a no-op. Snapshot polls are paused
+    // during historic, so this never races the live incremental add/remove path.
+    _applyClientAssoc3D() {
+        const stats = this._currentClientStats || {};
+        if (!this._appliedAssoc3D) this._appliedAssoc3D = new Map();
+        if (!this._roamBasePos) this._roamBasePos = new Map();
+        for (const [id, group] of this._nodeMeshes) {
+            const node = group.userData?.node;
+            if (!node || node.kind !== NODE_KIND.WifiClient) continue;
+            const baseline = node.parentId;
+            const desired = stats[id]?.apNodeId || baseline;
+            const cur = this._appliedAssoc3D.get(id) || baseline;
+            if (desired === cur) continue;
+            if (!this._positions.get(desired)) continue; // historic AP not present - leave put
+            this._repointClientLink(id, desired, baseline);
+            if (desired === baseline) this._appliedAssoc3D.delete(id);
+            else this._appliedAssoc3D.set(id, desired);
+        }
+    }
+
+    _repointClientLink(clientId, newApId, baselineApId) {
+        const pos = this._positions.get(clientId);
+        const group = this._nodeMeshes.get(clientId);
+        const apPos = this._positions.get(newApId);
+        if (!pos || !group || !apPos) return;
+        // Remember the client's original spot the first time it's moved, so resetting
+        // back to its live AP restores it exactly instead of re-scattering.
+        if (!this._roamBasePos.has(clientId)) {
+            this._roamBasePos.set(clientId, { x: pos.x, y: pos.y, z: pos.z });
+        }
+        if (newApId === baselineApId && this._roamBasePos.has(clientId)) {
+            const b = this._roamBasePos.get(clientId);
+            pos.x = b.x; pos.y = b.y; pos.z = b.z;
+            this._roamBasePos.delete(clientId);
+        } else {
+            const angle = _roamAngle(clientId);
+            const dist = 8;
+            pos.x = apPos.x + Math.cos(angle) * dist;
+            pos.y = apPos.y - 1.5;
+            pos.z = apPos.z + Math.sin(angle) * dist;
+        }
+        group.position.set(pos.x, pos.y, pos.z);
+
+        // Rebuild the client's single uplink pipe + particle streams from the new
+        // endpoints (geometry is baked at build time, so it has to be recreated).
+        let linkId = null;
+        for (const [lid, eps] of this._nodesByLink) {
+            if (eps[0] === clientId || eps[1] === clientId) { linkId = lid; break; }
+        }
+        const old = linkId ? this._linkMeshes.get(linkId) : null;
+        if (old) {
+            this.linkGroup.remove(old.pipe);
+            old.pipe.geometry?.dispose();
+            old.pipe.material?.dispose();
+            this.particleGroup.remove(old.down.mesh, old.up.mesh);
+            old.down.mesh.geometry?.dispose();
+            old.up.mesh.geometry?.dispose();
+            const pipe = this._makePipeMesh(apPos, pos, old.link);
+            this.linkGroup.add(pipe);
+            const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0 });
+            const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0 });
+            this.particleGroup.add(down.mesh, up.mesh);
+            this._linkMeshes.set(linkId, { pipe, down, up, link: old.link });
+            this._nodesByLink.set(linkId, [newApId, clientId]);
+        }
+
+        if (!this._roamFade3D) this._roamFade3D = new Map();
+        this._roamFade3D.set(clientId, performance.now() + ROAM_FADE_MS);
+    }
+
     _refreshLinkLabels() {
         if (!this._linkLabels || this._linkLabels.size === 0) return;
         for (const [linkId, { el, kind }] of this._linkLabels) {
@@ -1477,6 +1566,18 @@ export class LanFlowMap {
             const base = group.userData?.baseEmissive;
             if (!core || base == null) continue;
             core.material.emissiveIntensity = base * factor;
+        }
+        // Ramp opacity back up on clients that just roamed to a new AP so they fade in
+        // rather than pop. _applyOnlineState re-asserts the correct opacity afterwards.
+        if (this._roamFade3D && this._roamFade3D.size) {
+            for (const [id, until] of this._roamFade3D) {
+                const core = this._nodeMeshes.get(id)?.userData?.core;
+                if (!core) { this._roamFade3D.delete(id); continue; }
+                const t = 1 - Math.max(0, (until - nowMs) / ROAM_FADE_MS);
+                core.material.transparent = true;
+                core.material.opacity = Math.max(0.15, t);
+                if (t >= 1) this._roamFade3D.delete(id);
+            }
         }
     }
 
@@ -2332,6 +2433,7 @@ export class LanFlowMap {
             this._currentBadges = update.nodeBadges || {};
             this._currentClientStats = update.clientStats || {};
             this._applyOnlineState();
+            this._applyClientAssoc3D();
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
             // Keep ticking; transient errors are fine.

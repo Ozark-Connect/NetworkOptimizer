@@ -85,6 +85,10 @@ function nodeClr(k,b) {
 function isInfra(k) { return k<=NK.AP||k===NK.VirtualHub; }
 function isClient(k) { return k===NK.WiredClient||k===NK.WifiClient; }
 
+// Duration of the fade-in applied to a client that gets re-attached to a different
+// AP during historic playback (roam), so it doesn't pop at its new position.
+const ROAM_FADE_MS = 350;
+
 function pipeClr(u,band) {
     const cool=bandClr(band)||C.pipeCool;
     if(u<0.7)return cool;
@@ -306,6 +310,7 @@ class LanFlowMap2D {
                 }
             }else if(ev==='live'){
                 Object.assign(this._liveRates,flowData.getLiveRates());
+                this._applyClientAssoc();
                 this._updateStreamRates();
                 this._updateCloudStats();
                 this._needsStaticRedraw=true;
@@ -951,6 +956,9 @@ class LanFlowMap2D {
 
     _buildLayout(snap){
         this._snapshot=snap;
+        // Tree is rebuilt from the snapshot's (current) associations, so any historic
+        // roam re-parenting is gone - reset the applied map so _applyClientAssoc re-diffs.
+        this._appliedAssoc=new Map();
         const byId=new Map();
         for(const n of snap.nodes)byId.set(n.id,new TN(n));
         this._treeMap=byId;
@@ -1021,6 +1029,36 @@ class LanFlowMap2D {
         this._calcBounds();
         this._updateStreamRates();
         this._needsStaticRedraw=true;
+    }
+
+    // Re-attach wifi clients to the AP they were on at the scrubbed instant (roam
+    // playback). The historic update carries clientStats[clientId].apNodeId; in live
+    // mode it's empty, so every client falls back to its snapshot parent (reset).
+    // Only relayouts when an association actually changed, so steady live is free.
+    _applyClientAssoc(){
+        if(!this._root)return;
+        const stats=flowData.getClientStats()||{};
+        if(!this._appliedAssoc)this._appliedAssoc=new Map();
+        const now=performance.now();
+        let changed=false;
+        for(const[id,tn]of this._treeMap){
+            if(!isClient(tn.d.kind))continue;
+            const baseline=tn.d.parentId;
+            const desired=stats[id]?.apNodeId||baseline;
+            const cur=this._appliedAssoc.get(id)||baseline;
+            if(desired===cur)continue;
+            const newParent=this._treeMap.get(desired);
+            if(!newParent)continue; // historic AP not in current topology - leave in place
+            const curParent=this._treeMap.get(cur);
+            if(curParent){const i=curParent.clients.indexOf(tn);if(i>=0)curParent.clients.splice(i,1);}
+            newParent.clients.push(tn);
+            const edge=this._edges.find(e=>e.tn===tn||e.fn===tn);
+            if(edge){if(edge.tn===tn)edge.fn=newParent;else edge.tn=newParent;}
+            this._appliedAssoc.set(id,desired);
+            tn._roamFadeUntil=now+ROAM_FADE_MS;
+            changed=true;
+        }
+        if(changed){this._roamFadeUntil=now+ROAM_FADE_MS;this._relayout();}
     }
 
     // Compute contour (left/right extent at each depth relative to node x=0)
@@ -1269,9 +1307,11 @@ class LanFlowMap2D {
             }
             for(const c of n.clients.slice(0,G.maxClients)){
                 const cT=c.y-G.clientR;
-                const edge=this._edges.find(e=>
-                    (e.lk.fromNodeId===n.d.id&&e.lk.toNodeId===c.d.id)
-                    ||(e.lk.fromNodeId===c.d.id&&e.lk.toNodeId===n.d.id));
+                // Match the client's uplink edge by TN identity, not link ids: during
+                // roam playback the client is re-parented to its historic AP, so the
+                // edge must follow the tree without mutating the shared snapshot link.
+                // A client has exactly one tree edge (its uplink), so this is unambiguous.
+                const edge=this._edges.find(e=>e.tn===c||e.fn===c);
                 if(edge){edge._x1=n.x;edge._y1=pB;edge._x2=c.x;edge._y2=cT;edge._isCl=true;edge._band=edge.lk.band;sibEdges.push(edge);}
             }
 
@@ -1711,7 +1751,12 @@ class LanFlowMap2D {
         const x=n.x, y=n.y, color=nodeClr(n.d.kind,band);
         const badge=flowData.getNodeBadges()?.[n.d.id];
         const online=badge?badge.online!==false:n.d.online;
-        const r=G.clientR, op=online?0.7:0.2;
+        const r=G.clientR; let op=online?0.7:0.2;
+        // Fade the client in after a roam re-attach so it doesn't pop at its new spot.
+        if(n._roamFadeUntil){
+            const t=1-Math.max(0,(n._roamFadeUntil-performance.now())/ROAM_FADE_MS);
+            if(t>=1)n._roamFadeUntil=null; else op*=t;
+        }
 
         ctx.globalAlpha=op;
         if(n.d.kind===NK.WifiClient){
@@ -1860,6 +1905,9 @@ class LanFlowMap2D {
         if(this._liveOnly||!flowData.isPaused()){
             for(const s of this._streams)s.advance(dt);
         }
+        // Clients live on the cached static layer; force it to redraw while a roam
+        // fade is in flight so the fade-in actually animates.
+        if(this._roamFadeUntil&&now<this._roamFadeUntil)this._needsStaticRedraw=true;
         this._draw();
 
         this._animId=requestAnimationFrame(()=>this._animate());

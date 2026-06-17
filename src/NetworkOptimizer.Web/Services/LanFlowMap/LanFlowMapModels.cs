@@ -310,6 +310,10 @@ public class NodeClientStats
     public int? SignalDbm { get; set; }
     public long? PhyTxKbps { get; set; }
     public long? PhyRxKbps { get; set; }
+    /// <summary>Node id ("dev-{mac}") of the AP the client was associated with at the
+    /// scrub instant, so the maps can re-attach the client to its historic AP (roam).
+    /// Null when unknown.</summary>
+    public string? ApNodeId { get; set; }
 }
 
 public class NodeLiveBadge
