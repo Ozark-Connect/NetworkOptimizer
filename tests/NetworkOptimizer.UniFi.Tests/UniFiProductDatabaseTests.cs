@@ -1268,6 +1268,81 @@ public class UniFiProductDatabaseTests
 
     #endregion
 
+    #region IsPowerDevice Tests
+
+    [Theory]
+    [InlineData("USWDA23", null)]   // UPS-Tower
+    [InlineData("USWDA25", null)]   // UPS-2U
+    [InlineData("USWDA26", null)]   // UPS-2U (EU)
+    [InlineData("USPPDUP", null)]   // USP-PDU-Pro
+    [InlineData("USPPDUHD", null)]  // USP-PDU-HD
+    [InlineData("USPRPS", null)]    // USP-RPS
+    [InlineData("USPRPSP", null)]   // USP-RPS-Pro
+    [InlineData("UP1", null)]       // USP-Plug
+    [InlineData("UP6", null)]       // USP-Strip
+    public void IsPowerDevice_PowerDeviceModelCodes_ReturnsTrue(string? model, string? shortname)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsPowerDevice(model, shortname);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    // Real API model codes (unifi.network.model in public.json) must resolve to the
+    // non-region-suffixed friendly name in PowerDeviceProductNames - not the region SKU
+    // (e.g. USWDA25 -> "UPS-2U", never "UPS-2U-US"). If this regresses, IsPowerDevice
+    // silently stops matching and the audit re-flags these ports.
+    [Theory]
+    [InlineData("USWDA23", "UPS-Tower")]
+    [InlineData("USWDA24", "UPS-Tower")]
+    [InlineData("USWDA25", "UPS-2U")]
+    [InlineData("USWDA26", "UPS-2U")]
+    [InlineData("USPPDUP", "USP-PDU-Pro")]
+    [InlineData("USPPDUHD", "USP-PDU-HD")]
+    [InlineData("USPRPS", "USP-RPS")]
+    [InlineData("USPRPSP", "USP-RPS-Pro")]
+    public void GetBestProductName_PowerDeviceModelCodes_ResolveToNonRegionName(string model, string expected)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetBestProductName(model, shortname: null);
+
+        // Assert
+        result.Should().Be(expected);
+        UniFiProductDatabase.IsPowerDevice(model, null).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(null, "USP-PDU-Pro")]
+    [InlineData(null, "UPS-2U")]
+    [InlineData(null, "USPPLUG")]
+    [InlineData(null, "USPSTRIP")]
+    public void IsPowerDevice_PowerDeviceShortnames_ReturnsTrue(string? model, string? shortname)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsPowerDevice(model, shortname);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("USW-Pro-24", null)]   // Real switch
+    [InlineData("UDMPRO", null)]       // Gateway
+    [InlineData("U7PRO", null)]        // Access point
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    public void IsPowerDevice_NonPowerDevices_ReturnsFalse(string? model, string? shortname)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsPowerDevice(model, shortname);
+
+        // Assert
+        result.Should().BeFalse();
+    }
+
+    #endregion
+
     #region GetDefaultQmiDevicePath Tests
 
     [Theory]

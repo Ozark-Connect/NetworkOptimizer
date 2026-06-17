@@ -738,6 +738,53 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
+    /// UniFi power devices (UPS, PDU, redundant power supplies, smart plugs/strips).
+    /// Ubiquiti reports these with SWITCH device capabilities, so the API exposes a
+    /// single internal/management port_table row. That port is not a controllable
+    /// downstream edge port - it cannot be reconfigured with an access/trunk profile -
+    /// so port-level VLAN/profile audits are not actionable for these devices.
+    ///
+    /// HOW TO MAINTAIN THIS LIST:
+    /// Derive it from Ubiquiti's device database at https://static.ui.com/fingerprint/ui/public.json
+    /// A true power device reports type "usw", deviceCapabilities containing "SWITCH" together with
+    /// power capabilities (SMART_POWER / SMART_OUTLET / BATTERY_MANAGEMENT / REDUNDANT_POWER), AND
+    /// numberOfPorts == 1 (the single internal/management port). Add the product name (the value
+    /// GetBestProductName resolves to) here.
+    ///
+    /// DO NOT exclude on power capabilities alone. Some real, fully manageable switches carry the
+    /// same power caps - e.g. USW-Mission-Critical (USL8MP) reports SWITCH + SMART_POWER +
+    /// BATTERY_MANAGEMENT but is a genuine 9-port switch whose ports MUST still be audited. The
+    /// distinguishing signal is the single-port internal view, which is why this is an explicit
+    /// product allow-list rather than a capability heuristic. (USP-Plug / USP-Strip report type
+    /// "uap" with one port and are already skipped as small APs, but are listed here for clarity.)
+    /// </summary>
+    private static readonly HashSet<string> PowerDeviceProductNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "UPS-Tower",
+        "UPS-2U",
+        "USP-PDU-Pro",
+        "USP-PDU-HD",
+        "USP-RPS",
+        "USP-RPS-Pro",
+        "USP-Plug",
+        "USP-Strip",
+    };
+
+    /// <summary>
+    /// Check if a device is a UniFi power device (UPS, PDU, RPS, smart plug/strip).
+    /// These expose a non-controllable internal port view that should be excluded
+    /// from port-level audits.
+    /// </summary>
+    /// <param name="model">The model field (internal code)</param>
+    /// <param name="shortname">The shortname field</param>
+    /// <returns>True if the device is a UniFi power device</returns>
+    public static bool IsPowerDevice(string? model, string? shortname)
+    {
+        var productName = GetBestProductName(model, shortname);
+        return !string.IsNullOrEmpty(productName) && PowerDeviceProductNames.Contains(productName);
+    }
+
+    /// <summary>
     /// Check if a model code represents a cellular/LTE modem
     /// </summary>
     /// <param name="modelCode">The model or shortname from the UniFi API</param>

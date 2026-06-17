@@ -476,6 +476,72 @@ public class PortSecurityAnalyzerTests
         result.Should().NotBeNull();
     }
 
+    [Fact]
+    public void ExtractSwitches_PowerDevice_MarkedAsPowerDevice()
+    {
+        // USP-PDU-Pro reports SWITCH capabilities, so it appears with a port_table
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""USP-PDU-Pro"",
+                ""model"": ""USPPDUP"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true, ""forward"": ""all"" }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPowerDevice.Should().BeTrue();
+        result[0].HasUnmanageablePorts.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AnalyzePorts_PowerDevice_SkipsAuditIssues()
+    {
+        // A power device's internal port is forward=all with no connected device,
+        // which would otherwise trigger AccessPortVlanRule (excessive tagged VLANs).
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 },
+            new() { Id = "net-3", Name = "Cameras", VlanId = 30 }
+        };
+
+        var pduSwitch = new SwitchInfo
+        {
+            Name = "USP-PDU-Pro",
+            ModelName = "USP-PDU-Pro",
+            IsPowerDevice = true
+        };
+
+        var switchWithPorts = new SwitchInfo
+        {
+            Name = pduSwitch.Name,
+            ModelName = pduSwitch.ModelName,
+            IsPowerDevice = pduSwitch.IsPowerDevice,
+            Ports = new List<PortInfo>
+            {
+                new()
+                {
+                    PortIndex = 1,
+                    Name = "Port 1",
+                    IsUp = true,
+                    ForwardMode = "all",
+                    Switch = pduSwitch
+                }
+            }
+        };
+
+        switchWithPorts.HasUnmanageablePorts.Should().BeTrue();
+        var result = _engine.AnalyzePorts(new List<SwitchInfo> { switchWithPorts }, networks);
+
+        result.Should().BeEmpty("power-device internal ports are not actionable");
+    }
+
     #endregion
 
     #region AnalyzeHardening Tests

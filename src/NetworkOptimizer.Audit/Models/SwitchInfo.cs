@@ -62,12 +62,20 @@ public class SwitchInfo
     public bool IsAccessPoint { get; init; }
 
     /// <summary>
+    /// Whether this is a UniFi power device (UPS, PDU, RPS, smart plug/strip).
+    /// Ubiquiti reports these with SWITCH device capabilities, so they expose a single
+    /// internal/management port_table row that is not a controllable downstream edge port.
+    /// </summary>
+    public bool IsPowerDevice { get; init; }
+
+    /// <summary>
     /// Whether this device's ports are unmanageable in UniFi Port Manager.
     /// UX and UX7 devices in AP mode don't expose their switch ports for configuration,
-    /// so port-level audit issues are not actionable.
+    /// and UniFi power devices (UPS/PDU/RPS) expose only a non-controllable internal port,
+    /// so port-level audit issues are not actionable for either.
     /// </summary>
     public bool HasUnmanageablePorts =>
-        IsAccessPoint && ModelName is "UX" or "UX7";
+        (IsAccessPoint && ModelName is "UX" or "UX7") || IsPowerDevice;
 
     /// <summary>
     /// Switch capabilities
