@@ -107,7 +107,7 @@ else
                     Scored as @r.Profile.DisplayName &middot; last @WindowLabel(r)
                 </div>
             </div>
-            <div class="isp-health-hero-speed">
+            <a href="/wan-speedtest" class="isp-health-hero-speed">
                 <div class="isp-speed-label">Speed vs Plan</div>
                 <div class="isp-speed-headline" data-tooltip="Best download and best upload from your recent WAN speed tests; each may come from a different test.">
                     <span class="isp-speed-measured">@FormatSpeed(r.MeasuredDownloadMbps) / @FormatSpeed(r.MeasuredUploadMbps)</span>
@@ -139,7 +139,7 @@ else
                 {
                     <div class="isp-speed-sub">Set your ISP speeds in UniFi Network to grade throughput</div>
                 }
-            </div>
+            </a>
             <div class="isp-health-hero-dimensions">
                 <IspHealthScoreGauge Score="r.AccessDimension.Score" Label="Access Layer" Small="true" />
                 <IspHealthScoreGauge Score="r.IspAsnDimension.Score" Label="ISP Network" Small="true" />
