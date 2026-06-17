@@ -236,8 +236,8 @@ public class OutageDetectorTests
         var hops = new[]
         {
             new OutageDetector.Hop("AT&T nokia-olt", 0, olt, Groupable: true, AsnLabel: "AT&T"),
-            new OutageDetector.Hop("AT&T lightspeed-1", 1, accessLate1, Groupable: true, AsnLabel: "AT&T"),
-            new OutageDetector.Hop("AT&T lightspeed-2", 2, accessLate2, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T hop-1", 1, accessLate1, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T hop-2", 2, accessLate2, Groupable: true, AsnLabel: "AT&T"),
             new OutageDetector.Hop("Cloudflare", 3, internet1),
             new OutageDetector.Hop("Google", 4, internet2),
         };

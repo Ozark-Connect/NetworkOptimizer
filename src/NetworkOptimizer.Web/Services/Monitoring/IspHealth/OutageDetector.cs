@@ -190,33 +190,41 @@ public static class OutageDetector
         foreach (var (hop, state) in tiers.Where(t => !t.Hop.Groupable))
             result.Add(Relabel(state, hop.AsnLabel ?? hop.Name));
 
-        // Access hops: cluster by outage signature. "Up" and "dark, never recovered" are each one
-        // shared signature; "dark and recovered" clusters by recovery time within tolerance.
-        var groupable = tiers.Where(t => t.Hop.Groupable).ToList();
+        // Access hops: WITHIN each ASN, cluster by outage signature - never merge across ASNs (a
+        // dual-WAN could have two access ISPs recover at the same instant). "Up" and "dark, never
+        // recovered" are each one shared signature; "dark and recovered" clusters by recovery time.
         var groups = new List<List<(Hop Hop, OutageTierState State)>>();
         void AddGroup(IEnumerable<(Hop, OutageTierState)> g) { var l = g.ToList(); if (l.Count > 0) groups.Add(l); }
-        AddGroup(groupable.Where(t => !t.State.WentDark));
-        AddGroup(groupable.Where(t => t.State.WentDark && !t.State.RecoveredAt.HasValue));
-        var cluster = new List<(Hop, OutageTierState)>();
-        foreach (var t in groupable.Where(t => t.State.WentDark && t.State.RecoveredAt.HasValue).OrderBy(t => t.State.RecoveredAt!.Value))
+        foreach (var asnGroup in tiers.Where(t => t.Hop.Groupable).GroupBy(t => t.Hop.AsnLabel ?? t.Hop.Name))
         {
-            if (cluster.Count > 0 && t.State.RecoveredAt!.Value - cluster[0].Item2.RecoveredAt!.Value > tol)
+            var members = asnGroup.ToList();
+            AddGroup(members.Where(t => !t.State.WentDark));
+            AddGroup(members.Where(t => t.State.WentDark && !t.State.RecoveredAt.HasValue));
+            var cluster = new List<(Hop, OutageTierState)>();
+            foreach (var t in members.Where(t => t.State.WentDark && t.State.RecoveredAt.HasValue).OrderBy(t => t.State.RecoveredAt!.Value))
             {
-                groups.Add(cluster);
-                cluster = new List<(Hop, OutageTierState)>();
+                if (cluster.Count > 0 && t.State.RecoveredAt!.Value - cluster[0].Item2.RecoveredAt!.Value > tol)
+                {
+                    groups.Add(cluster);
+                    cluster = new List<(Hop, OutageTierState)>();
+                }
+                cluster.Add(t);
             }
-            cluster.Add(t);
+            if (cluster.Count > 0) groups.Add(cluster);
         }
-        if (cluster.Count > 0) groups.Add(cluster);
 
         // A unique ASN shows just its name; several rows split into "(N hops)" / "(hostname tail)".
-        var rowsPerAsn = groups
-            .GroupBy(g => g[0].Hop.AsnLabel ?? g[0].Hop.Name)
-            .ToDictionary(x => x.Key, x => x.Count());
+        // Key and lookup use the SAME nearest-hop expression so they never diverge.
+        static string AsnOf(List<(Hop Hop, OutageTierState State)> g)
+        {
+            var n = g.OrderBy(m => m.State.Depth).First().Hop;
+            return n.AsnLabel ?? n.Name;
+        }
+        var rowsPerAsn = groups.GroupBy(AsnOf).ToDictionary(x => x.Key, x => x.Count());
         foreach (var g in groups)
         {
             var nearest = g.OrderBy(m => m.State.Depth).First();
-            var asn = nearest.Hop.AsnLabel ?? nearest.State.Name;
+            var asn = AsnOf(g);
             var name = rowsPerAsn[asn] == 1 ? asn
                 : g.Count > 1 ? $"{asn} ({g.Count} hops)"
                 : $"{asn} ({HostnameTail(nearest.Hop.Name, asn)})";
