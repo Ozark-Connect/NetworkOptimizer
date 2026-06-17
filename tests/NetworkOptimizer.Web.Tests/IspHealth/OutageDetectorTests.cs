@@ -277,4 +277,26 @@ public class OutageDetectorTests
         events[0].Tiers.Should().Contain(t => t.Name == "AT&T");
         events[0].Tiers.Should().NotContain(t => t.Name.Contains("nokia-olt"));
     }
+
+    [Fact]
+    public void A_target_with_no_data_during_the_outage_is_not_listed()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        // A hop that only started reporting after the outage ended (didn't exist during it).
+        var addedLater = TestSeries.Flat(OutEnd, TimeSpan.FromMinutes(5), rttMs: 20, jitterMs: 0.5, lossPct: 0);
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Late Hop", 0, addedLater, Groupable: true, AsnLabel: "Late"),
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+            new OutageDetector.Hop("Google", 2, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Tiers.Should().NotContain(t => t.Name.Contains("Late"));
+        events[0].Tiers.Should().Contain(t => t.Name == "Cloudflare");
+    }
 }

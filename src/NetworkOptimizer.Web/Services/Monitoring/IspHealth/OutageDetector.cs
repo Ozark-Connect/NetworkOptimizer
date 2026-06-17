@@ -123,7 +123,10 @@ public static class OutageDetector
                     lastDarkBucket = bucketStart;
                 }
             }
-            onBrokenPath[hop.Depth] = totalBuckets > 0 && (double)darkBuckets / totalBuckets >= 0.5;
+            // No samples in the outage window means the target didn't exist or wasn't enabled
+            // then - it has nothing to say about this outage, so don't give it a row.
+            if (totalBuckets == 0) continue;
+            onBrokenPath[hop.Depth] = (double)darkBuckets / totalBuckets >= 0.5;
             tiers.Add((hop, new OutageTierState
             {
                 Name = hop.Name,
