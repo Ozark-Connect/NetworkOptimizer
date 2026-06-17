@@ -299,7 +299,10 @@ public class IspHealthService
                 HopIps = { t.Address },
                 // Hops proven upstream of this destination, so its clean end-to-end jitter
                 // can absolve an ICMP-deprioritized ISP hop it provably routes through.
-                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>()
+                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>(),
+                // Internet/CDN endpoint (by TargetType): path-shift correlation prefers an
+                // on-path ISP/transit hop over these as the event label.
+                IsDestination = true
             })
             .ToList();
 
@@ -317,17 +320,21 @@ public class IspHealthService
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => (IReadOnlyList<LatencySample>)internetSeries[t.TargetId])
             .ToList();
-        var outageHops = ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => (Target: t, Series: ispSeries[t.TargetId]))
-            .Concat(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t => (Target: t, Series: transitSeries[t.TargetId])))
-            .Concat(targets.Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId)).Select(t => (Target: t, Series: internetSeries[t.TargetId])))
-            .Select(x => new
+        // Shape the outage on the SAME per-ASN RTT clusters as the Per-Network RTT card
+        // (chartClusters carry merged loss samples and the cluster names), plus each internet
+        // destination. Ordered nearest-first by the persisted hop map (canonical), RTT as the
+        // tiebreaker and the fallback for untraced targets. So a co-located ASN's hops collapse
+        // to one waterfall row while a distinct-distance hop like the OLT stays on its own.
+        int ClusterHopNumber(AsnSeries s) => s.TargetIds
+            .Select(tid => hopNumberByTargetId.TryGetValue(tid, out var hn) ? hn : int.MaxValue)
+            .DefaultIfEmpty(int.MaxValue).Min();
+        var outageHops = chartClusters.Concat(internetTargetSeries)
+            .Select(s => new
             {
-                x.Target.Name,
-                x.Series,
-                // Canonical hop distance from the persisted trace map first; RTT is only a
-                // tiebreaker and the fallback for untraced targets (trace map is post-launch).
-                HopNumber = hopNumberByTargetId.TryGetValue(x.Target.TargetId, out var hn) ? hn : int.MaxValue,
-                Rtt = SeriesStats.Median(x.Series.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()) ?? double.MaxValue
+                Name = s.AsnName ?? s.TargetIds.FirstOrDefault() ?? "hop",
+                Series = (IReadOnlyList<LatencySample>)s.Samples,
+                HopNumber = ClusterHopNumber(s),
+                Rtt = SeriesStats.Median(s.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList()) ?? double.MaxValue
             })
             .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
             .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series))

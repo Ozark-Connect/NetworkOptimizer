@@ -198,6 +198,10 @@ public class PathShiftEvent
 
     /// <summary>Number of targets showing a correlated step at the same boundary.</summary>
     public int CorrelatedTargetCount { get; init; } = 1;
+
+    /// <summary>True when this shift came from an internet/CDN destination (by DB TargetType),
+    /// not an on-path ISP/transit hop. Correlation prefers a non-destination as the label.</summary>
+    public bool IsDestination { get; init; }
 }
 
 /// <summary>Whether the access/first hop itself went dark, or only everything beyond it.</summary>
@@ -356,6 +360,10 @@ public class AsnSeries
     /// iff X's IP is in the witness's ancestor set. Empty for a first hop.
     /// </summary>
     public List<string> AncestorIps { get; init; } = new();
+
+    /// <summary>True for an internet/CDN destination series (DB TargetType InternetService).
+    /// Carried onto path-shift events so correlation can prefer an on-path hop as the label.</summary>
+    public bool IsDestination { get; init; }
 }
 
 /// <summary>Load classification of one aggregate window.</summary>

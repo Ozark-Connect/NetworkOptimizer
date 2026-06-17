@@ -519,14 +519,16 @@ else
             ? $"Break upstream of {o.LastReachableHop}"
             : "Whole-WAN outage";
 
-    // Share of the outage window this hop spent dark, for the recovery-waterfall bar.
+    // Share of the outage window this hop spent dark (red), for the recovery-waterfall bar.
+    // Capped at 95% so a sliver of the blue "up" track always shows on even the longest bars -
+    // making it obvious the path came back when the outage ended.
     private static double OutageHopDarkPercent(OutageEvent o, OutageTierState t)
     {
         if (!t.WentDark) return 0;
         var span = (o.End - o.Start).TotalSeconds;
-        if (span <= 0) return 100;
+        if (span <= 0) return 95;
         var dark = t.RecoveredAt.HasValue ? (t.RecoveredAt.Value - o.Start).TotalSeconds : span;
-        return Math.Clamp(dark / span * 100, 0, 100);
+        return Math.Clamp(dark / span * 100, 0, 95);
     }
 
     private static string OutageHopStatus(OutageTierState t) =>

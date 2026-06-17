@@ -172,4 +172,26 @@ public class StepChangeDetectorTests
         // Representative is the nearest hop (lowest before-level).
         events[0].BeforeMedianMs.Should().BeApproximately(10, 0.5);
     }
+
+    [Fact]
+    public void Correlated_shift_is_labeled_from_an_on_path_hop_not_a_nearer_destination()
+    {
+        // A transit hop (higher RTT) and an internet/CDN destination (lower RTT) step at the
+        // same boundary. The label must come from the on-path transit hop, not the nearer
+        // destination - even though the destination has the lower before-level.
+        var stepAt = TestSeries.Start.AddHours(12);
+        var transitSamples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 20, jitterMs: 0.5)
+            .WithSegment(stepAt, TestSeries.Start + Day, rttMs: 30, jitterMs: 0.5);
+        var destSamples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 10, jitterMs: 0.5)
+            .WithSegment(stepAt, TestSeries.Start + Day, rttMs: 20, jitterMs: 0.5);
+
+        var transit = new AsnSeries { AsnNumber = 3356, AsnName = "Level 3", TargetIds = { "custom-abc" }, Samples = transitSamples };
+        var destination = new AsnSeries { AsnNumber = 19281, AsnName = "Quad9 DFW", TargetIds = { "path-quad9" }, Samples = destSamples, IsDestination = true };
+
+        var events = StepChangeDetector.Detect(new[] { transit, destination }, Options);
+
+        events.Should().ContainSingle();
+        events[0].CorrelatedTargetCount.Should().Be(2);
+        events[0].AsnName.Should().Be("Level 3");
+    }
 }
