@@ -19,6 +19,15 @@ public class SponsorshipService : ISponsorshipService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SponsorshipService> _logger;
 
+    // Earned level is derived from a ~11-query usage-count fan-out that's expensive relative to how
+    // often the banner asks for it (re-runs on every page load / nav). Usage barely changes minute to
+    // minute, so cache the computed level briefly. Guarded by a lock rather than Interlocked because
+    // the timestamp is a DateTime (Interlocked doesn't support it).
+    private static readonly TimeSpan EarnedLevelCacheTtl = TimeSpan.FromMinutes(5);
+    private readonly object _earnedLevelCacheLock = new();
+    private int _cachedEarnedLevel;
+    private DateTime _earnedLevelCachedAtUtc = DateTime.MinValue;
+
     // Tiered quips with their corresponding action text
     // Order: friendly → self-deprecating → edgy → absurd
     private static readonly (string Quip, string ActionText)[] Tiers =
@@ -85,20 +94,22 @@ public class SponsorshipService : ISponsorshipService
             var lastShownLevel = int.TryParse(lastShownLevelStr, out var level) ? level : 0;
             var lastNagTime = DateTime.TryParse(lastNagTimeStr, out var time) ? time : DateTime.MinValue;
 
+            var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
+
+            // Within 48h of last dismiss - stay hidden (unless alwaysShow for Settings preview).
+            // Checked before computing the earned level so the common "nagged recently" path skips
+            // the expensive usage-count query entirely - the banner re-runs on every page load.
+            if (hoursSinceLastNag < 48 && lastShownLevel > 0 && !alwaysShow)
+            {
+                return null;
+            }
+
             // Get earned level based on usage
             var earnedLevel = await GetEarnedLevelInternalAsync(scope);
 
             if (earnedLevel == 0)
             {
                 // No usage yet
-                return null;
-            }
-
-            var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
-
-            // Within 24h of last dismiss - stay hidden (unless alwaysShow for Settings preview)
-            if (hoursSinceLastNag < 48 && lastShownLevel > 0 && !alwaysShow)
-            {
                 return null;
             }
 
@@ -237,8 +248,28 @@ public class SponsorshipService : ISponsorshipService
 
     private async Task<int> GetEarnedLevelInternalAsync(IServiceScope scope)
     {
-        var usageCount = await GetUsageCountInternalAsync(scope);
+        lock (_earnedLevelCacheLock)
+        {
+            if (DateTime.UtcNow - _earnedLevelCachedAtUtc < EarnedLevelCacheTtl)
+            {
+                return _cachedEarnedLevel;
+            }
+        }
 
+        var usageCount = await GetUsageCountInternalAsync(scope);
+        var earnedLevel = UsageCountToLevel(usageCount);
+
+        lock (_earnedLevelCacheLock)
+        {
+            _cachedEarnedLevel = earnedLevel;
+            _earnedLevelCachedAtUtc = DateTime.UtcNow;
+        }
+
+        return earnedLevel;
+    }
+
+    private static int UsageCountToLevel(int usageCount)
+    {
         if (usageCount == 0)
         {
             return 0;
