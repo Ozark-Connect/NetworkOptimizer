@@ -299,4 +299,26 @@ public class OutageDetectorTests
         events[0].Tiers.Should().NotContain(t => t.Name.Contains("Late"));
         events[0].Tiers.Should().Contain(t => t.Name == "Cloudflare");
     }
+
+    [Fact]
+    public void Outage_with_no_in_window_hop_data_reports_with_no_tiers_and_does_not_throw()
+    {
+        // A fresh install backfilling: the internet trigger has data, but every monitored hop
+        // only started reporting after the window. The outage is still flagged; nothing crashes.
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var lateOnly = TestSeries.Flat(OutEnd, TimeSpan.FromMinutes(5), rttMs: 20, jitterMs: 0.5, lossPct: 0);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Late A", 0, lateOnly, Groupable: true, AsnLabel: "Late"),
+            new OutageDetector.Hop("Late B", 1, lateOnly, Groupable: false),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Tiers.Should().BeEmpty();
+        events[0].Scope.Should().Be(OutageScope.FullWan);
+        events[0].LastReachableHop.Should().BeNull();
+    }
 }
