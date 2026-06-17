@@ -167,6 +167,20 @@ public class LanFlowMapService
     }
 
     /// <summary>
+    /// Tolerance for deriving historic online state from telemetry proximity. There is
+    /// no stored online/state field, so a device counts as online at the scrub instant
+    /// when a device_health point falls within this window of it. device_health is written
+    /// ~every 30 s while a device is reachable, so this allows for one dropped sample plus
+    /// jitter without flapping an online device to offline.
+    /// </summary>
+    private const double HistoricOnlineWindowSeconds = 60;
+
+    /// <summary>Gateway / switch / AP - the fabric devices the map renders an explicit
+    /// online/offline appearance for (clients track association, not device state).</summary>
+    private static bool IsInfraKind(LanNodeKind kind) =>
+        kind is LanNodeKind.Gateway or LanNodeKind.Switch or LanNodeKind.AccessPoint;
+
+    /// <summary>
     /// Polling endpoint. Refreshes link rates + per-device aggregates + cloud RTT
     /// from in-memory sources (<see cref="MonitoringLiveStats"/>, <see cref="MonitoringPathView.GetWansAsync"/>).
     /// Does NOT rebuild the snapshot topology - that happens on its own TTL inside the cache.
@@ -339,7 +353,17 @@ public class LanFlowMapService
         {
             if (string.IsNullOrEmpty(node.Mac)) continue;
             var dev = _liveStats.GetForDevice(node.Mac);
-            if (dev == null) continue;
+            if (dev == null)
+            {
+                // No live telemetry for this device. For infrastructure (offline
+                // APs/switches/gateways report no stats) still emit a badge so the
+                // map can render the offline state and zero out its rates instead
+                // of freezing the last sample it ever saw. node.Online comes from
+                // the UniFi device State in the latest snapshot rebuild.
+                if (IsInfraKind(node.Kind))
+                    update.NodeBadges[node.Id] = new NodeLiveBadge { Online = node.Online };
+                continue;
+            }
 
             // For SNMP-free switches the only aggregate we have is the parent
             // switch's port rate (RateIn/RateOut), and parent-port direction
@@ -707,11 +731,33 @@ public class LanFlowMapService
                     }
                 }
 
-                if (healthPt == null && fabIn == null && aggIn == null) continue;
+                // No explicit online/state is stored in the time series, so derive
+                // historic liveness from telemetry proximity: device_health is written
+                // roughly every 30 s only while a device is reachable, so a health point
+                // close to the scrub instant means the device was online then. For
+                // infrastructure we always emit a badge (offline ones get Online=false
+                // and no rates) so playback reflects the real state at T instead of
+                // freezing the current snapshot's live online state across the timeline.
+                var isInfra = IsInfraKind(node.Kind);
+                var onlineAtT = healthPt != null
+                    && Math.Abs((healthPt.Time - at).TotalSeconds) <= HistoricOnlineWindowSeconds;
+
+                if (isInfra)
+                {
+                    if (!onlineAtT)
+                    {
+                        update.NodeBadges[node.Id] = new NodeLiveBadge { Online = false };
+                        continue;
+                    }
+                }
+                else if (healthPt == null && fabIn == null && aggIn == null)
+                {
+                    continue;
+                }
 
                 update.NodeBadges[node.Id] = new NodeLiveBadge
                 {
-                    Online = node.Online,
+                    Online = isInfra ? onlineAtT : node.Online,
                     CpuPercent = healthPt?.CpuPercent,
                     MemoryUsedPercent = healthPt?.MemoryUsedPercent,
                     TemperatureC = healthPt?.TemperatureC,

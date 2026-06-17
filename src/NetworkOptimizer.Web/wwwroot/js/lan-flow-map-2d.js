@@ -1343,10 +1343,21 @@ class LanFlowMap2D {
 
     // ---- Rate updates ----
 
+    // A device with an offline badge can't be moving traffic. Badges only carry
+    // online for infra (gateway/switch/AP); a node with no badge is assumed online so
+    // clients (which have no badge) are never spuriously zeroed.
+    _isOffline(nodeId){
+        const b=flowData.getNodeBadges()?.[nodeId];
+        return b?b.online===false:false;
+    }
+
     _updateStreamRates(){
         for(const e of this._edges){
             if(!e._sDown)continue;
-            const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+            // Force idle when an endpoint is offline - _liveRates is merged, not
+            // replaced, so the last sample would otherwise stream forever.
+            const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
+            const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             e._sDown.setRate(r?.downstreamBps??0);
             e._sUp.setRate(r?.upstreamBps??0);
         }
@@ -1443,7 +1454,8 @@ class LanFlowMap2D {
                 const child=e.tn||e.fn;
                 if(child&&!this._isNodeVisible(child))continue;
             }
-            const r=this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id];
+            const off=this._isOffline(e.lk.fromNodeId)||this._isOffline(e.lk.toNodeId);
+            const r=off?null:(this._liveRates[e.lk.portKey]||this._liveRates[e.lk.id]);
             const dn=r?.downstreamBps??0,up=r?.upstreamBps??0;
             const cap=e.lk.capacityBps||1e9;
             const u=Math.max(dn,up)/cap;
@@ -1496,7 +1508,9 @@ class LanFlowMap2D {
                     txt=formatSpeed(e.lk.capacityBps/1e6);
                 }
 
-                if(txt) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
+                // Suppress the speed/throughput label for a link to an offline device -
+                // a down port has no meaningful negotiated speed or throughput.
+                if(txt&&!off) this._pendingLinkLabels.push({mx,my,txt,txtColor,txtItalic});
             }
         }
         ctx.globalAlpha=1;
@@ -1627,7 +1641,11 @@ class LanFlowMap2D {
     _drawInfraNode(ctx,n){
         const x=n.x, y=n.y, color=nodeClr(n.d.kind);
         const hw=G.boxW/2, hh=G.boxH/2;
-        const op=n.d.online?1:0.35;
+        // Prefer the live/historic badge online state over the snapshot's build-time
+        // value so the dimming tracks the timeline and live changes between rebuilds.
+        const badge=flowData.getNodeBadges()?.[n.d.id];
+        const online=badge?badge.online!==false:n.d.online;
+        const op=online?1:0.35;
 
         // Glow
         ctx.fillStyle=withAlpha(color,0.07);
@@ -1682,7 +1700,9 @@ class LanFlowMap2D {
 
     _drawClientNode(ctx,n){
         const x=n.x, y=n.y, color=nodeClr(n.d.kind,n.d.band);
-        const r=G.clientR, op=n.d.online?0.7:0.2;
+        const badge=flowData.getNodeBadges()?.[n.d.id];
+        const online=badge?badge.online!==false:n.d.online;
+        const r=G.clientR, op=online?0.7:0.2;
 
         ctx.globalAlpha=op;
         if(n.d.kind===NK.WifiClient){

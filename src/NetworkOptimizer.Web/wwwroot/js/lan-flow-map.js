@@ -550,6 +550,7 @@ export class LanFlowMap {
             const update = await res.json();
             flowData.publishLive(update);
             this._currentBadges = update.nodeBadges || {};
+            this._applyOnlineState();
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
             // Keep ticking; transient network errors are fine.
@@ -784,7 +785,7 @@ export class LanFlowMap {
                 core.material.transparent = true;
                 halo.material.opacity = 0.05;
             }
-            group.userData = { node, core, baseEmissive };
+            group.userData = { node, core, halo, baseEmissive };
             this.nodeGroup.add(group);
             this._nodeMeshes.set(node.id, group);
 
@@ -1204,9 +1205,15 @@ export class LanFlowMap {
         // (every 30s). A wholesale replace was wiping wired client rates 2 seconds
         // after each snapshot, leaving the leaf pipes idle forever.
         this._currentRates = { ...(this._currentRates || {}), ...rates };
+        const badges = this._currentBadges || {};
+        const isOffline = (nodeId) => badges[nodeId]?.online === false;
         for (const [linkId, link] of this._linkMeshes) {
             const r = this._currentRates[linkId];
-            if (!r) {
+            // An offline endpoint can't be moving traffic. Because the rate map is
+            // merged (not replaced) the last sample would otherwise stay frozen on the
+            // pipe forever, so force its links idle the moment a device goes offline.
+            const endpointOffline = isOffline(link.link?.fromNodeId) || isOffline(link.link?.toNodeId);
+            if (!r || endpointOffline) {
                 link.down.setRate(0);
                 link.up.setRate(0);
                 this._setPipeHealth(link.pipe, 0);
@@ -1228,6 +1235,28 @@ export class LanFlowMap {
         this._refreshDeviceLabelRates();
         this._refreshLinkLabels();
         this._refreshCloudRttLabels();
+    }
+
+    _applyOnlineState() {
+        // Online/offline isn't baked into the mesh - it changes between snapshot
+        // rebuilds (live) and across the timeline (historic). Re-skin every node from
+        // the latest badge each tick so a device that was online when the mesh was
+        // built doesn't stay lit after it drops (and vice versa during playback).
+        // Badges only carry online for infrastructure; a node with no badge is left
+        // untouched (clients track association, not device state).
+        const badges = this._currentBadges || {};
+        for (const [id, group] of this._nodeMeshes) {
+            const badge = badges[id];
+            if (!badge) continue;
+            const online = badge.online !== false;
+            const { core, halo, node } = group.userData || {};
+            if (node) node.online = online;
+            if (core?.material) {
+                core.material.transparent = true;
+                core.material.opacity = online ? 1 : 0.55;
+            }
+            if (halo?.material) halo.material.opacity = online ? 0.12 : 0.05;
+        }
     }
 
     _refreshLinkLabels() {
@@ -2297,8 +2326,11 @@ export class LanFlowMap {
             const update = await res.json();
             if (gen !== this._historicGen) return;
             flowData.publishLive(update);
+            // Set badges before applying rates: _applyOnlineState re-skins the nodes and
+            // _applyLiveRates reads the badges to force offline endpoints' pipes idle.
+            this._currentBadges = update.nodeBadges || {};
+            this._applyOnlineState();
             this._applyLiveRates(update.linkRates || {});
-            if (update.nodeBadges) this._currentBadges = update.nodeBadges;
         } catch (err) {
             // Keep ticking; transient errors are fine.
         }
