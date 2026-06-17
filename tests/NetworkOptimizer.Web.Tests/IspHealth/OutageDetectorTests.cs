@@ -151,4 +151,38 @@ public class OutageDetectorTests
 
         events.Should().BeEmpty();
     }
+
+    [Fact]
+    public void Window_and_recovery_carry_real_seconds_not_minute_buckets()
+    {
+        // Samples land at :17 past each minute. Detection still buckets by minute, but the
+        // reported onset, recovery, and per-hop recovery must come from the actual sample
+        // instants - otherwise every time renders :00.
+        var offset = TimeSpan.FromSeconds(17);
+        List<LatencySample> Build()
+        {
+            var s = new List<LatencySample>();
+            for (var t = TestSeries.Start + offset; t < TestSeries.Start + Window + offset; t = t.AddMinutes(1))
+            {
+                var dark = t >= OutStart + offset && t < OutEnd + offset;
+                s.Add(new LatencySample(t, 20, 20.5, 0.5, dark ? 100 : 0));
+            }
+            return s;
+        }
+        var internet1 = Build();
+        var internet2 = Build();
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+            new OutageDetector.Hop("Google", 1, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Start.Should().Be(OutStart + offset);
+        events[0].End.Should().Be(OutEnd + offset);
+        events[0].Tiers.Where(t => t.RecoveredAt.HasValue)
+            .Should().OnlyContain(t => t.RecoveredAt!.Value.Second == 17);
+    }
 }

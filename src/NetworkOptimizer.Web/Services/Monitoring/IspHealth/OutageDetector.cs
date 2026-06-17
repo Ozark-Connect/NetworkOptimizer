@@ -55,7 +55,7 @@ public static class OutageDetector
             i = j + 1;
 
             if (end - start < minDuration) continue;
-            events.Add(BuildEvent(start, end, hops, hopBuckets, windowSize, options));
+            events.Add(BuildEvent(start, end, triggerTargets, hops, hopBuckets, options));
         }
         return events;
     }
@@ -86,9 +86,10 @@ public static class OutageDetector
 
     private static OutageEvent BuildEvent(
         DateTime start, DateTime end,
+        IReadOnlyList<IReadOnlyList<LatencySample>> triggerTargets,
         IReadOnlyList<Hop> hops,
         Dictionary<Hop, Dictionary<DateTime, List<double>>> hopBuckets,
-        TimeSpan windowSize, IspHealthOptions options)
+        IspHealthOptions options)
     {
         var states = new List<OutageTierState>();
         // A hop on the broken path stays dark for (most of) the outage; a hop that merely
@@ -100,7 +101,6 @@ public static class OutageDetector
         {
             double peakLoss = 0;
             int darkBuckets = 0, totalBuckets = 0;
-            DateTime? lastDark = null;
             foreach (var (bucketStart, losses) in hopBuckets[hop]
                          .Where(kv => kv.Key >= start && kv.Key < end)
                          .OrderBy(kv => kv.Key))
@@ -109,11 +109,7 @@ public static class OutageDetector
                 totalBuckets++;
                 var mean = losses.Average();
                 peakLoss = Math.Max(peakLoss, mean);
-                if (mean >= options.OutageDarkLossPct)
-                {
-                    darkBuckets++;
-                    lastDark = bucketStart;
-                }
+                if (mean >= options.OutageDarkLossPct) darkBuckets++;
             }
             onBrokenPath[hop.Depth] = totalBuckets > 0 && (double)darkBuckets / totalBuckets >= 0.5;
             states.Add(new OutageTierState
@@ -122,7 +118,10 @@ public static class OutageDetector
                 Depth = hop.Depth,
                 PeakLossPct = peakLoss,
                 WentDark = darkBuckets > 0,
-                RecoveredAt = darkBuckets > 0 && lastDark.HasValue ? lastDark.Value + windowSize : null
+                // Bucket detection decides whether the hop went dark; the displayed recovery
+                // time comes from the real sample stream so it carries seconds, not a
+                // minute-aligned bucket edge.
+                RecoveredAt = darkBuckets > 0 ? PreciseRecovery(hop.Series, start, end, options) : null
             });
         }
 
@@ -134,13 +133,60 @@ public static class OutageDetector
             ? OutageScope.FullWan
             : OutageScope.Upstream;
 
+        // Bucket edges are minute-aligned; report the real onset and recovery instants from
+        // the pooled trigger stream so the window carries seconds. Fall back to the bucket
+        // edges if the precise edges can't be found (e.g. outage still ongoing at window end).
+        var onset = FirstDark(triggerTargets, start, end, options) ?? start;
+        var recovery = PreciseRecovery(triggerTargets, start, end, options) ?? end;
+
         return new OutageEvent
         {
-            Start = start,
-            End = end,
+            Start = onset,
+            End = recovery,
             Scope = scope,
             LastReachableHop = scope == OutageScope.Upstream ? lastReachable!.Name : null,
             Tiers = states
         };
+    }
+
+    /// <summary>Actual timestamp of the first dark sample (loss at/above the dark threshold) in [start, end).</summary>
+    private static DateTime? FirstDark(
+        IReadOnlyList<IReadOnlyList<LatencySample>> targets,
+        DateTime start, DateTime end, IspHealthOptions options) =>
+        targets.SelectMany(t => t)
+            .Where(s => s.LossPercent.HasValue && s.Time >= start && s.Time < end
+                && s.LossPercent.Value >= options.OutageDarkLossPct)
+            .OrderBy(s => s.Time)
+            .Select(s => (DateTime?)s.Time)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// When the targets came back: the first reporting sample below the dark threshold that
+    /// follows the last dark sample in [start, end). That is the instant recovery was actually
+    /// observed, with seconds. Null when nothing went dark or it never recovered in-window.
+    /// </summary>
+    private static DateTime? PreciseRecovery(
+        IReadOnlyList<LatencySample> series,
+        DateTime start, DateTime end, IspHealthOptions options) =>
+        PreciseRecovery(new[] { series }, start, end, options);
+
+    private static DateTime? PreciseRecovery(
+        IReadOnlyList<IReadOnlyList<LatencySample>> targets,
+        DateTime start, DateTime end, IspHealthOptions options)
+    {
+        var dark = options.OutageDarkLossPct;
+        DateTime? lastDark = targets.SelectMany(t => t)
+            .Where(s => s.LossPercent.HasValue && s.Time >= start && s.Time < end
+                && s.LossPercent.Value >= dark)
+            .OrderBy(s => s.Time)
+            .Select(s => (DateTime?)s.Time)
+            .LastOrDefault();
+        if (!lastDark.HasValue) return null;
+
+        return targets.SelectMany(t => t)
+            .Where(s => s.LossPercent.HasValue && s.LossPercent.Value < dark && s.Time > lastDark.Value)
+            .OrderBy(s => s.Time)
+            .Select(s => (DateTime?)s.Time)
+            .FirstOrDefault();
     }
 }
