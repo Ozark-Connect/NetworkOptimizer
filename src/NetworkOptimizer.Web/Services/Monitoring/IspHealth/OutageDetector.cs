@@ -101,6 +101,7 @@ public static class OutageDetector
         {
             double peakLoss = 0;
             int darkBuckets = 0, totalBuckets = 0;
+            DateTime? lastDarkBucket = null;
             foreach (var (bucketStart, losses) in hopBuckets[hop]
                          .Where(kv => kv.Key >= start && kv.Key < end)
                          .OrderBy(kv => kv.Key))
@@ -109,7 +110,11 @@ public static class OutageDetector
                 totalBuckets++;
                 var mean = losses.Average();
                 peakLoss = Math.Max(peakLoss, mean);
-                if (mean >= options.OutageDarkLossPct) darkBuckets++;
+                if (mean >= options.OutageDarkLossPct)
+                {
+                    darkBuckets++;
+                    lastDarkBucket = bucketStart;
+                }
             }
             onBrokenPath[hop.Depth] = totalBuckets > 0 && (double)darkBuckets / totalBuckets >= 0.5;
             states.Add(new OutageTierState
@@ -118,10 +123,13 @@ public static class OutageDetector
                 Depth = hop.Depth,
                 PeakLossPct = peakLoss,
                 WentDark = darkBuckets > 0,
-                // Bucket detection decides whether the hop went dark; the displayed recovery
-                // time comes from the real sample stream so it carries seconds, not a
-                // minute-aligned bucket edge.
-                RecoveredAt = darkBuckets > 0 ? PreciseRecovery(hop.Series, start, end, options) : null
+                // Recovery is anchored to the last *sustained* dark bucket, not the last dark
+                // sample: a hop can twitch dark for a single probe late in the outage (the OLT
+                // blipping as the upstream heals) without that being a real relapse. We then read
+                // the first good sample at/after that bucket, so the time still carries seconds.
+                RecoveredAt = lastDarkBucket.HasValue
+                    ? RecoveryAfter(hop.Series, lastDarkBucket.Value, options.OutageDarkLossPct)
+                    : null
             });
         }
 
@@ -161,15 +169,24 @@ public static class OutageDetector
             .FirstOrDefault();
 
     /// <summary>
+    /// First reporting sample below the dark threshold at or after a floor time - the instant
+    /// the series came back (with seconds). Used with the last sustained dark bucket as the
+    /// floor so a late single-probe twitch doesn't push recovery to the end of the outage.
+    /// Null when no good sample follows (never recovered in-window).
+    /// </summary>
+    private static DateTime? RecoveryAfter(
+        IReadOnlyList<LatencySample> series, DateTime floor, double darkPct) =>
+        series
+            .Where(s => s.LossPercent.HasValue && s.Time >= floor && s.LossPercent.Value < darkPct)
+            .OrderBy(s => s.Time)
+            .Select(s => (DateTime?)s.Time)
+            .FirstOrDefault();
+
+    /// <summary>
     /// When the targets came back: the first reporting sample below the dark threshold that
     /// follows the last dark sample in [start, end). That is the instant recovery was actually
     /// observed, with seconds. Null when nothing went dark or it never recovered in-window.
     /// </summary>
-    private static DateTime? PreciseRecovery(
-        IReadOnlyList<LatencySample> series,
-        DateTime start, DateTime end, IspHealthOptions options) =>
-        PreciseRecovery(new[] { series }, start, end, options);
-
     private static DateTime? PreciseRecovery(
         IReadOnlyList<IReadOnlyList<LatencySample>> targets,
         DateTime start, DateTime end, IspHealthOptions options)

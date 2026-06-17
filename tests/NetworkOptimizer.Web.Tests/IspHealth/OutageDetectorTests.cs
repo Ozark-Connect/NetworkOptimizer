@@ -153,6 +153,43 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Hop_that_recovers_early_is_not_dragged_to_the_end_by_a_late_blip()
+    {
+        // The validated AT&T shape: the OLT goes dark at onset, recovers early, then twitches
+        // dark for a single probe much later as the upstream heals. That lone late sample must
+        // NOT be read as the OLT's recovery - it came back early. Recovery anchors to the last
+        // sustained dark bucket, which a single sub-minute sample can't form.
+        var cadence = TimeSpan.FromSeconds(5);
+        var recover = OutStart.AddMinutes(2);
+        var lateBlip = OutStart.AddMinutes(9);
+        List<LatencySample> Build(Func<DateTime, bool> isDark)
+        {
+            var s = new List<LatencySample>();
+            for (var t = TestSeries.Start; t < TestSeries.Start + Window; t += cadence)
+                s.Add(new LatencySample(t, 20, 20.5, 0.5, isDark(t) ? 100 : 0));
+            return s;
+        }
+        var internet1 = Build(t => t >= OutStart && t < OutEnd);
+        var internet2 = Build(t => t >= OutStart && t < OutEnd);
+        var olt = Build(t => (t >= OutStart && t < recover) || (t >= lateBlip && t < lateBlip + cadence));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, olt),
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+            new OutageDetector.Hop("Google", 1, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        var oltState = events[0].Tiers.Single(t => t.Name == "AT&T nokia-olt");
+        oltState.RecoveredAt.Should().NotBeNull();
+        oltState.RecoveredAt!.Value.Should().BeCloseTo(recover, TimeSpan.FromSeconds(10));
+        oltState.RecoveredAt.Value.Should().BeBefore(OutStart.AddMinutes(5));
+    }
+
+    [Fact]
     public void Window_and_recovery_carry_real_seconds_not_minute_buckets()
     {
         // Samples land at :17 past each minute. Detection still buckets by minute, but the
