@@ -272,6 +272,8 @@ public class UniFiProductDatabaseTests
     [Theory]
     [InlineData("UNVR4", "UNVR")]
     [InlineData("UNVRPRO", "UNVR-Pro")]
+    [InlineData("UNVREA68", "UNVR-G2")]
+    [InlineData("UNVREA69", "UNVR-G2-Pro")]
     [InlineData("UNASPRO", "UNAS-Pro")]
     public void GetProductName_NVRsAndNAS_ReturnsCorrectName(string modelCode, string expected)
     {
@@ -341,6 +343,7 @@ public class UniFiProductDatabaseTests
     [Theory]
     [InlineData("UDW", "UDW")]
     [InlineData("UDMENT", "EFG")]
+    [InlineData("UDMEA4B", "EF-Core")]
     public void GetProductName_DreamWallAndFortress_ReturnsCorrectName(string modelCode, string expected)
     {
         // Act
@@ -475,6 +478,30 @@ public class UniFiProductDatabaseTests
     [InlineData("UDM-PRO-MAX", "UDM-Pro-Max")]
     [InlineData("UDMSE", "UDM-SE")]
     public void GetProductNameFromShortname_DreamMachineFamily_ReturnsCorrectName(string shortname, string expected)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetProductNameFromShortname(shortname);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    // EF-Core and UNVR-G2 ship with several shortname forms; each must resolve via the
+    // legacy alias table, including the hyphenated forms that hit the hyphen-stripping retry.
+    [Theory]
+    [InlineData("EFGCORE", "EF-Core")]
+    [InlineData("EFCORE", "EF-Core")]
+    [InlineData("EFG-Core", "EF-Core")]
+    [InlineData("EF-Core", "EF-Core")]
+    [InlineData("UNVRG2", "UNVR-G2")]
+    [InlineData("UNVRAI4", "UNVR-G2")]
+    [InlineData("UNVR-G2", "UNVR-G2")]
+    [InlineData("UNVR-AI-4", "UNVR-G2")]
+    [InlineData("UNVRG2PRO", "UNVR-G2-Pro")]
+    [InlineData("UNVRAI8", "UNVR-G2-Pro")]
+    [InlineData("UNVR-G2-Pro", "UNVR-G2-Pro")]
+    [InlineData("UNVR-AI-8", "UNVR-G2-Pro")]
+    public void GetProductNameFromShortname_NewNetworkDevices_ReturnsCorrectName(string shortname, string expected)
     {
         // Act
         var result = UniFiProductDatabase.GetProductNameFromShortname(shortname);
