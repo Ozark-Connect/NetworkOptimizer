@@ -1357,6 +1357,9 @@ export class LanFlowMap {
         }
         const old = linkId ? this._linkMeshes.get(linkId) : null;
         if (old) {
+            // Carry the old pipe's visibility onto the rebuilt one - a fresh mesh defaults
+            // to visible, which would resurrect the pipe of a filtered-out client.
+            const wasVisible = old.pipe.visible;
             this.linkGroup.remove(old.pipe);
             old.pipe.geometry?.dispose();
             old.pipe.material?.dispose();
@@ -1364,9 +1367,12 @@ export class LanFlowMap {
             old.down.mesh.geometry?.dispose();
             old.up.mesh.geometry?.dispose();
             const pipe = this._makePipeMesh(apPos, pos, old.link);
+            pipe.visible = wasVisible;
             this.linkGroup.add(pipe);
             const down = new ParticleStream({ from: apPos, to: pos, color: COLORS.downstream, particleCount: 0 });
             const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0 });
+            down.mesh.visible = wasVisible;
+            up.mesh.visible = wasVisible;
             this.particleGroup.add(down.mesh, up.mesh);
             this._linkMeshes.set(linkId, { pipe, down, up, link: old.link });
             this._nodesByLink.set(linkId, [apId, clientId]);
@@ -1729,14 +1735,25 @@ export class LanFlowMap {
         // Build link pipe + particles
         const a = this._positions.get(link.fromNodeId);
         const b = this._positions.get(link.toNodeId);
+        let pipe = null, down = null, up = null;
         if (a && b) {
-            const pipe = this._makePipeMesh(a, b, link);
+            pipe = this._makePipeMesh(a, b, link);
             this.linkGroup.add(pipe);
-            const down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
-            const up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
+            down = new ParticleStream({ from: a, to: b, color: COLORS.downstream, particleCount: 0 });
+            up = new ParticleStream({ from: b, to: a, color: COLORS.upstream, particleCount: 0 });
             this.particleGroup.add(down.mesh, up.mesh);
             this._linkMeshes.set(link.id, { pipe, down, up, link });
             this._nodesByLink.set(link.id, [link.fromNodeId, link.toNodeId]);
+        }
+
+        // Respect the active band/overlay filter: a client that connects while filtered
+        // out shouldn't pop into view (node or pipe).
+        const isClient = node.kind === NODE_KIND.WifiClient || node.kind === NODE_KIND.WiredClient;
+        if (isClient && !this._isClientVisible(node)) {
+            group.visible = false;
+            if (pipe) pipe.visible = false;
+            if (down) down.mesh.visible = false;
+            if (up) up.mesh.visible = false;
         }
     }
 
