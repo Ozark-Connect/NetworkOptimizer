@@ -1029,11 +1029,17 @@ public class IspHealthScorer
             var count = inputs.Outages.Count == 1
                 ? $"An internet outage of {FormatOutageDuration(inputs.Outages[0].Duration)}"
                 : $"{inputs.Outages.Count} internet outages totaling {FormatOutageDuration(totalDown)}";
+            // Be transparent about the score hit: the outage penalty is applied at the top level
+            // and isn't tied to any one factor, so spell it out here or it's invisible.
+            var penalty = (int)Math.Round(OutageScorePenalty(totalDown.TotalMinutes));
+            var impact = penalty > 0
+                ? $" {(inputs.Outages.Count == 1 ? "It" : "Together they")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
+                : string.Empty;
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = inputs.Outages.Count == 1 ? "Internet outage in the window" : "Internet outages in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing (so this is a real outage, not a monitoring gap).{where}",
+                Description = $"{count} occurred while the Monitoring Agent kept probing (so this is a real outage, not a monitoring gap).{where}{impact}",
                 Recommendation = "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents.",
                 LinkUrl = "#isp-outages",
                 LinkText = "The recovery shape is shown on the timeline below."

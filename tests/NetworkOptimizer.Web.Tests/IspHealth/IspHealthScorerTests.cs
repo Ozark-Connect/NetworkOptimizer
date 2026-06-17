@@ -105,6 +105,22 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Outage_finding_spells_out_the_score_impact()
+    {
+        var outage = new OutageEvent
+        {
+            Start = TestSeries.Start.AddHours(2),
+            End = TestSeries.Start.AddHours(2).AddMinutes(60)
+        };
+        var report = new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { outage }), Gpon);
+
+        // 60 min off a clean 100 is a 45-point penalty; the finding states it for transparency.
+        var finding = report.Issues.Single(i => i.Title == "Internet outage in the window");
+        finding.Description.Should().Contain("lowered your ISP Health score by 45 points");
+    }
+
+    [Fact]
     public void Ideal_gpon_inputs_score_excellent()
     {
         var report = new IspHealthScorer(Options).Score(BuildInputs(), Gpon);
