@@ -15,7 +15,6 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class ThreatDashboardService
 {
-    private readonly IThreatRepository _repository;
     private readonly ExposureValidator _exposureValidator;
     private readonly CrowdSecEnrichmentService _crowdSecService;
     private readonly GeoEnrichmentService _geoService;
@@ -39,7 +38,6 @@ public class ThreatDashboardService
     public int[]? SeverityFilter { get; set; }
 
     public ThreatDashboardService(
-        IThreatRepository repository,
         ExposureValidator exposureValidator,
         CrowdSecEnrichmentService crowdSecService,
         GeoEnrichmentService geoService,
@@ -49,7 +47,6 @@ public class ThreatDashboardService
         IServiceProvider serviceProvider,
         ILogger<ThreatDashboardService> logger)
     {
-        _repository = repository;
         _exposureValidator = exposureValidator;
         _crowdSecService = crowdSecService;
         _geoService = geoService;
@@ -60,16 +57,31 @@ public class ThreatDashboardService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Create a fresh DI scope and resolve a private <see cref="IThreatRepository"/> from it.
+    /// Each public operation gets its own repository instance - and therefore its own DbContext
+    /// and its own noise/severity filter state - so concurrent calls on the same circuit (e.g. a
+    /// dashboard load overlapping a fire-and-forget drilldown) never share a DbContext or clobber
+    /// each other's filters. The caller must dispose the returned scope (use a `using` statement).
+    /// </summary>
+    private IServiceScope NewRepositoryScope(out IThreatRepository repository)
+    {
+        var scope = _serviceProvider.CreateScope();
+        repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
+        return scope;
+    }
+
     public async Task<ThreatDashboardData> GetDashboardDataAsync(DateTime from, DateTime to,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            _repository.SetSeverityFilter(SeverityFilter);
-            var summary = await _repository.GetThreatSummaryAsync(from, to, cancellationToken);
-            var killChain = await _repository.GetKillChainDistributionAsync(from, to, cancellationToken);
-            var topSources = await _repository.GetTopSourcesAsync(from, to, 10, cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            repo.SetSeverityFilter(SeverityFilter);
+            var summary = await repo.GetThreatSummaryAsync(from, to, cancellationToken);
+            var killChain = await repo.GetKillChainDistributionAsync(from, to, cancellationToken);
+            var topSources = await repo.GetTopSourcesAsync(from, to, 10, cancellationToken);
 
             // Re-enrich geo data directly on source IPs.
             // Event-level CountryCode/AsnOrg may reflect the destination for flow events with private sources.
@@ -82,12 +94,12 @@ public class ThreatDashboardService
                 source.AsnOrg = geo.AsnOrg;
             }
 
-            var topPorts = await _repository.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
-            var patterns = await _repository.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
-            _repository.SetSeverityFilter(null);
+            var topPorts = await repo.GetTopTargetedPortsAsync(from, to, 10, cancellationToken);
+            var patterns = await repo.GetPatternsAsync(from, to, limit: 20, cancellationToken: cancellationToken);
+            repo.SetSeverityFilter(null);
 
             // Enrich from DB cache (instant, no API calls) so previously looked-up IPs show badges
-            await EnrichFromCacheAsync(topSources, cancellationToken);
+            await EnrichFromCacheAsync(repo, topSources, cancellationToken);
 
             // Determine which IPs need hydration and kick off background API calls.
             // Returns the count so the caller can schedule a follow-up refresh.
@@ -185,7 +197,7 @@ public class ThreatDashboardService
     /// This ensures previously looked-up IPs (both positive and negative hits) show their badge
     /// even for low-quota users who use manual lookups.
     /// </summary>
-    private async Task EnrichFromCacheAsync(List<SourceIpSummary> sources,
+    private async Task EnrichFromCacheAsync(IThreatRepository repository, List<SourceIpSummary> sources,
         CancellationToken cancellationToken)
     {
         foreach (var source in sources)
@@ -193,7 +205,7 @@ public class ThreatDashboardService
             if (source.CrowdSecReputation != null) continue;
             if (NetworkUtilities.IsPrivateIpAddress(source.SourceIp)) continue;
 
-            var cached = await GetCachedCtiAsync(source.SourceIp, cancellationToken);
+            var cached = await GetCachedCtiCoreAsync(repository, source.SourceIp, cancellationToken);
             if (cached == null) continue;
 
             source.CrowdSecReputation = cached.CrowdSecReputation;
@@ -210,9 +222,16 @@ public class ThreatDashboardService
     public async Task<SourceIpSummary?> GetCachedCtiAsync(string ip,
         CancellationToken cancellationToken = default)
     {
+        using var scope = NewRepositoryScope(out var repo);
+        return await GetCachedCtiCoreAsync(repo, ip, cancellationToken);
+    }
+
+    private async Task<SourceIpSummary?> GetCachedCtiCoreAsync(IThreatRepository repository, string ip,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
-            var cached = await _repository.GetCrowdSecCacheAsync(ip, cancellationToken);
+            var cached = await repository.GetCrowdSecCacheAsync(ip, cancellationToken);
             if (cached == null) return null;
 
             CrowdSecIpInfo? info = null;
@@ -254,7 +273,8 @@ public class ThreatDashboardService
             var apiKey = await GetDecryptedApiKeyAsync(cancellationToken);
             if (apiKey == null) return (null, false);
 
-            var rateLimited = await EnrichSourcesAsync([source], apiKey, cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            var rateLimited = await EnrichSourcesAsync(repo, [source], apiKey, cancellationToken);
             return (source, rateLimited);
         }
         catch (Exception ex)
@@ -271,7 +291,7 @@ public class ThreatDashboardService
         return _credentialService.IsEncrypted(stored) ? _credentialService.Decrypt(stored) : stored;
     }
 
-    private async Task<bool> EnrichSourcesAsync(List<SourceIpSummary> sources, string apiKey,
+    private async Task<bool> EnrichSourcesAsync(IThreatRepository repository, List<SourceIpSummary> sources, string apiKey,
         CancellationToken cancellationToken)
     {
         foreach (var source in sources)
@@ -287,7 +307,7 @@ public class ThreatDashboardService
                 for (var attempt = 0; attempt < 3; attempt++)
                 {
                     (info, outcome) = await _crowdSecService.GetReputationAsync(
-                        source.SourceIp, apiKey, _repository, cancellationToken: cancellationToken);
+                        source.SourceIp, apiKey, repository, cancellationToken: cancellationToken);
 
                     if (outcome == CrowdSecLookupOutcome.QuotaExhausted)
                         return true; // daily quota exhausted - stop enriching and show banner
@@ -319,10 +339,11 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
             // Timeline returns per-severity columns; chart toggles visibility client-side.
             // Fetch without severity filter so all hourly buckets are present (preserves X-axis range).
-            _repository.SetSeverityFilter(null);
+            repo.SetSeverityFilter(null);
 
             // Adaptive bucket granularity based on time range
             var span = to - from;
@@ -333,7 +354,7 @@ public class ThreatDashboardService
                 _ => 60       // 24h+: hourly buckets
             };
 
-            var buckets = await _repository.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
+            var buckets = await repo.GetTimelineAsync(from, to, bucketMinutes, cancellationToken);
 
             // Fill gaps with zero-count buckets so the chart shows continuous time progression
             // instead of stalling at the last data point when there are no new threats.
@@ -352,8 +373,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            return await _repository.GetCountryDistributionAsync(from, to, cancellationToken: cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetCountryDistributionAsync(from, to, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
@@ -368,7 +390,8 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
 
             // Auto-fetch port forward rules from UniFi API
             List<UniFiPortForwardRule>? portForwardRules = null;
@@ -385,7 +408,7 @@ public class ThreatDashboardService
                 }
             }
 
-            return await _exposureValidator.ValidateAsync(portForwardRules, _repository, from, to, cancellationToken);
+            return await _exposureValidator.ValidateAsync(portForwardRules, repo, from, to, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -399,8 +422,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            return await _repository.GetEventsAsync(DateTime.UtcNow.AddDays(-7), DateTime.UtcNow,
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetEventsAsync(DateTime.UtcNow.AddDays(-7), DateTime.UtcNow,
                 limit: limit, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
@@ -413,7 +437,8 @@ public class ThreatDashboardService
     public async Task<CrowdSecIpInfo?> GetCrowdSecReputationAsync(string ip, string apiKey,
         int cacheTtlHours = 720, CancellationToken cancellationToken = default)
     {
-        var (info, _) = await _crowdSecService.GetReputationAsync(ip, apiKey, _repository, cacheTtlHours, cancellationToken);
+        using var scope = NewRepositoryScope(out var repo);
+        var (info, _) = await _crowdSecService.GetReputationAsync(ip, apiKey, repo, cacheTtlHours, cancellationToken);
         return info;
     }
 
@@ -425,10 +450,11 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
             var from = DateTime.UtcNow.AddHours(-hours);
             var to = DateTime.UtcNow;
-            var timeline = await _repository.GetTimelineAsync(from, to, cancellationToken: cancellationToken);
+            var timeline = await repo.GetTimelineAsync(from, to, cancellationToken: cancellationToken);
             var total = timeline.Sum(b => b.Total);
             var points = timeline.Select(b => new ThreatTrendPoint
             {
@@ -449,9 +475,10 @@ public class ThreatDashboardService
     {
         try
         {
+            using var scope = NewRepositoryScope(out var repo);
             // Search is unfiltered - show all data regardless of noise/severity filters
-            _repository.SetNoiseFilters([]);
-            _repository.SetSeverityFilter(null);
+            repo.SetNoiseFilters([]);
+            repo.SetSeverityFilter(null);
 
             // For CIDR searches, determine if we can use SQL prefix matching or need post-filtering
             string? ipPrefix = null;
@@ -478,7 +505,7 @@ public class ThreatDashboardService
                 }
             }
 
-            var results = await _repository.SearchIpsAsync(from, to,
+            var results = await repo.SearchIpsAsync(from, to,
                 ipExact: query.IpExact,
                 ipPrefix: ipPrefix ?? query.IpPrefix,
                 countryCode: query.CountryCode,
@@ -497,7 +524,7 @@ public class ThreatDashboardService
             var isGeoSearch = query.CountryCode != null || query.AsnNumber != null || query.AsnOrgLike != null;
             if (isGeoSearch)
             {
-                var topDests = await _repository.GetTopDestinationIpsAsync(from, to, 500, cancellationToken);
+                var topDests = await repo.GetTopDestinationIpsAsync(from, to, 500, cancellationToken);
                 var sourceIps = results.Select(r => r.Ip).ToHashSet();
 
                 foreach (var dest in topDests)
@@ -549,8 +576,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            return await _repository.GetAttackSequencesAsync(from, to, 50, cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            return await repo.GetAttackSequencesAsync(from, to, 50, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -564,8 +592,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            var events = await _repository.GetEventsByIpAsync(ip, from, to, cancellationToken: cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            var events = await repo.GetEventsByIpAsync(ip, from, to, cancellationToken: cancellationToken);
 
             var asSource = events.Where(e => e.SourceIp == ip).ToList();
             var asDest = events.Where(e => e.DestIp == ip).ToList();
@@ -642,8 +671,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            var events = await _repository.GetEventsByPortAsync(port, from, to, cancellationToken: cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            var events = await repo.GetEventsByPortAsync(port, from, to, cancellationToken: cancellationToken);
 
             var topSources = BuildTopSources(events);
 
@@ -700,8 +730,9 @@ public class ThreatDashboardService
     {
         try
         {
-            await ApplyNoiseFiltersToRepository(cancellationToken);
-            var events = await _repository.GetEventsByProtocolAsync(protocol, from, to, cancellationToken: cancellationToken);
+            using var scope = NewRepositoryScope(out var repo);
+            await ApplyNoiseFiltersToRepository(repo, cancellationToken);
+            var events = await repo.GetEventsByProtocolAsync(protocol, from, to, cancellationToken: cancellationToken);
 
             var topSources = BuildTopSources(events);
 
@@ -929,51 +960,55 @@ public class ThreatDashboardService
         return filled;
     }
 
-    private async Task ApplyNoiseFiltersToRepository(CancellationToken cancellationToken)
+    private async Task ApplyNoiseFiltersToRepository(IThreatRepository repository, CancellationToken cancellationToken)
     {
         if (FiltersDisabled)
         {
-            _repository.SetNoiseFilters([]);
+            repository.SetNoiseFilters([]);
         }
         else
         {
-            var filters = await GetActiveFiltersAsync(cancellationToken);
-            _repository.SetNoiseFilters(filters);
+            var filters = await GetActiveFiltersAsync(repository, cancellationToken);
+            repository.SetNoiseFilters(filters);
         }
 
         // Severity filter is only applied by overview methods that explicitly opt in.
         // Clear it here so non-overview tabs (geographic, exposure, sequences, drilldowns) see all severities.
-        _repository.SetSeverityFilter(null);
+        repository.SetSeverityFilter(null);
     }
 
     // --- Noise Filter Management ---
 
     public async Task<List<ThreatNoiseFilter>> GetNoiseFiltersAsync(CancellationToken cancellationToken = default)
     {
-        return await _repository.GetNoiseFiltersAsync(cancellationToken);
+        using var scope = NewRepositoryScope(out var repo);
+        return await repo.GetNoiseFiltersAsync(cancellationToken);
     }
 
     public async Task SaveNoiseFilterAsync(ThreatNoiseFilter filter, CancellationToken cancellationToken = default)
     {
-        await _repository.SaveNoiseFilterAsync(filter, cancellationToken);
+        using var scope = NewRepositoryScope(out var repo);
+        await repo.SaveNoiseFilterAsync(filter, cancellationToken);
         _activeFilters = null; // Invalidate cache
     }
 
     public async Task DeleteNoiseFilterAsync(int filterId, CancellationToken cancellationToken = default)
     {
-        await _repository.DeleteNoiseFilterAsync(filterId, cancellationToken);
+        using var scope = NewRepositoryScope(out var repo);
+        await repo.DeleteNoiseFilterAsync(filterId, cancellationToken);
         _activeFilters = null;
     }
 
     public async Task ToggleNoiseFilterAsync(int filterId, bool enabled, CancellationToken cancellationToken = default)
     {
-        await _repository.ToggleNoiseFilterAsync(filterId, enabled, cancellationToken);
+        using var scope = NewRepositoryScope(out var repo);
+        await repo.ToggleNoiseFilterAsync(filterId, enabled, cancellationToken);
         _activeFilters = null;
     }
 
-    private async Task<List<ThreatNoiseFilter>> GetActiveFiltersAsync(CancellationToken cancellationToken = default)
+    private async Task<List<ThreatNoiseFilter>> GetActiveFiltersAsync(IThreatRepository repository, CancellationToken cancellationToken = default)
     {
-        _activeFilters ??= (await _repository.GetNoiseFiltersAsync(cancellationToken))
+        _activeFilters ??= (await repository.GetNoiseFiltersAsync(cancellationToken))
             .Where(f => f.Enabled).ToList();
         return _activeFilters;
     }

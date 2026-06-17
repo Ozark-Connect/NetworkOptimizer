@@ -19,6 +19,15 @@ public class SponsorshipService : ISponsorshipService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<SponsorshipService> _logger;
 
+    // Earned level is derived from a ~11-query usage-count fan-out that's expensive relative to how
+    // often the banner asks for it (re-runs on every page load / nav). Usage barely changes minute to
+    // minute, so cache the computed level briefly. Guarded by a lock rather than Interlocked because
+    // the timestamp is a DateTime (Interlocked doesn't support it).
+    private static readonly TimeSpan EarnedLevelCacheTtl = TimeSpan.FromMinutes(5);
+    private readonly object _earnedLevelCacheLock = new();
+    private int _cachedEarnedLevel;
+    private DateTime _earnedLevelCachedAtUtc = DateTime.MinValue;
+
     // Tiered quips with their corresponding action text
     // Order: friendly → self-deprecating → edgy → absurd
     private static readonly (string Quip, string ActionText)[] Tiers =
@@ -85,20 +94,22 @@ public class SponsorshipService : ISponsorshipService
             var lastShownLevel = int.TryParse(lastShownLevelStr, out var level) ? level : 0;
             var lastNagTime = DateTime.TryParse(lastNagTimeStr, out var time) ? time : DateTime.MinValue;
 
+            var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
+
+            // Within 48h of last dismiss - stay hidden (unless alwaysShow for Settings preview).
+            // Checked before computing the earned level so the common "nagged recently" path skips
+            // the expensive usage-count query entirely - the banner re-runs on every page load.
+            if (hoursSinceLastNag < 48 && lastShownLevel > 0 && !alwaysShow)
+            {
+                return null;
+            }
+
             // Get earned level based on usage
             var earnedLevel = await GetEarnedLevelInternalAsync(scope);
 
             if (earnedLevel == 0)
             {
                 // No usage yet
-                return null;
-            }
-
-            var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
-
-            // Within 24h of last dismiss - stay hidden (unless alwaysShow for Settings preview)
-            if (hoursSinceLastNag < 48 && lastShownLevel > 0 && !alwaysShow)
-            {
                 return null;
             }
 
@@ -171,55 +182,58 @@ public class SponsorshipService : ISponsorshipService
         var speedTestRepository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
 
-        // Count all usage sources in parallel
-        var manualAuditCountTask = auditRepository.GetManualAuditCountAsync();
-        var scheduledAuditCountTask = auditRepository.GetScheduledAuditCountAsync();
-        var speedTestCountTask = speedTestRepository.GetIperf3ResultCountAsync();
-        var sqmWan1Task = speedTestRepository.GetSqmWanConfigAsync(1);
-        var sqmWan2Task = speedTestRepository.GetSqmWanConfigAsync(2);
+        // Count all usage sources. These run sequentially rather than in parallel: the repositories
+        // share a single scoped DbContext (and the factory context below is a single instance too),
+        // and a DbContext does not support concurrent operations regardless of the SQLite journal
+        // mode. Fanning these out with Task.WhenAll throws "A second operation was started on this
+        // context instance" (or ObjectDisposedException when a disposal path wins the race). WAL would
+        // permit truly concurrent reads, but only across separate connections - i.e. a distinct
+        // DbContext per query - which isn't worth it for a handful of cheap COUNT queries on a ~60s nag
+        // check.
+        var manualAuditCount = await auditRepository.GetManualAuditCountAsync();
+        var scheduledAuditCount = await auditRepository.GetScheduledAuditCountAsync();
+        var speedTestCount = await speedTestRepository.GetIperf3ResultCountAsync();
+        var sqmWan1 = await speedTestRepository.GetSqmWanConfigAsync(1);
+        var sqmWan2 = await speedTestRepository.GetSqmWanConfigAsync(2);
 
-        // Floor plan feature counts, perf tweaks, and monitoring via DbContext
-        Task<int> signalLogCountTask;
-        Task<int> placedApCountTask;
-        Task<int> plannedApCountTask;
-        Task<int> floorCountTask;
-        Task<int> perfTweakCountTask;
-        Task<int> monitoringTargetCountTask;
+        // Floor plan feature counts, perf tweaks, and monitoring via a short-lived DbContext
+        int signalLogCount;
+        int placedApCount;
+        int plannedApCount;
+        int floorCount;
+        int perfTweakCount;
+        int monitoringTargetCount;
         using (var db = await dbFactory.CreateDbContextAsync())
         {
-            signalLogCountTask = db.ClientSignalLogs.CountAsync();
-            placedApCountTask = db.ApLocations.CountAsync();
-            plannedApCountTask = db.PlannedAps.CountAsync();
-            floorCountTask = db.FloorPlans.CountAsync();
-            perfTweakCountTask = db.PerfTweakSettings.CountAsync();
-            monitoringTargetCountTask = db.MonitoringTargets.Where(t => t.Enabled).CountAsync();
-
-            await Task.WhenAll(manualAuditCountTask, scheduledAuditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
-                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask, perfTweakCountTask,
-                monitoringTargetCountTask);
+            signalLogCount = await db.ClientSignalLogs.CountAsync();
+            placedApCount = await db.ApLocations.CountAsync();
+            plannedApCount = await db.PlannedAps.CountAsync();
+            floorCount = await db.FloorPlans.CountAsync();
+            perfTweakCount = await db.PerfTweakSettings.CountAsync();
+            monitoringTargetCount = await db.MonitoringTargets.Where(t => t.Enabled).CountAsync();
         }
 
         // Manual audits count as 1, scheduled audits count as 0.2 (~2 per workweek), speed tests count as 0.5
-        var count = manualAuditCountTask.Result + (scheduledAuditCountTask.Result / 5) + (speedTestCountTask.Result / 2);
+        var count = manualAuditCount + (scheduledAuditCount / 5) + (speedTestCount / 2);
 
         // 50 signal points = 1 audit equivalent
-        count += signalLogCountTask.Result / 50;
+        count += signalLogCount / 50;
 
         // 2 placed APs (real + planned) = 1 audit equivalent
-        count += (placedApCountTask.Result + plannedApCountTask.Result) / 2;
+        count += (placedApCount + plannedApCount) / 2;
 
         // 2 building-floors = 1 audit equivalent
-        count += floorCountTask.Result / 2;
+        count += floorCount / 2;
 
         // Add SQM bonus if enabled on either WAN
-        var sqmEnabled = sqmWan1Task.Result?.Enabled == true || sqmWan2Task.Result?.Enabled == true;
+        var sqmEnabled = sqmWan1?.Enabled == true || sqmWan2?.Enabled == true;
         if (sqmEnabled)
         {
             count += SqmEnabledBonus;
         }
 
         // 2 points per deployed performance tweak
-        count += perfTweakCountTask.Result * 2;
+        count += perfTweakCount * 2;
 
         // Monitoring: flat bonus if InfluxDB is connected, plus 1 per 5 enabled targets
         var influxClient = scope.ServiceProvider.GetRequiredService<MonitoringInfluxClient>();
@@ -227,15 +241,35 @@ public class SponsorshipService : ISponsorshipService
         {
             count += MonitoringEnabledBonus;
         }
-        count += monitoringTargetCountTask.Result / MonitoringTargetsDivisor;
+        count += monitoringTargetCount / MonitoringTargetsDivisor;
 
         return count;
     }
 
     private async Task<int> GetEarnedLevelInternalAsync(IServiceScope scope)
     {
-        var usageCount = await GetUsageCountInternalAsync(scope);
+        lock (_earnedLevelCacheLock)
+        {
+            if (DateTime.UtcNow - _earnedLevelCachedAtUtc < EarnedLevelCacheTtl)
+            {
+                return _cachedEarnedLevel;
+            }
+        }
 
+        var usageCount = await GetUsageCountInternalAsync(scope);
+        var earnedLevel = UsageCountToLevel(usageCount);
+
+        lock (_earnedLevelCacheLock)
+        {
+            _cachedEarnedLevel = earnedLevel;
+            _earnedLevelCachedAtUtc = DateTime.UtcNow;
+        }
+
+        return earnedLevel;
+    }
+
+    private static int UsageCountToLevel(int usageCount)
+    {
         if (usageCount == 0)
         {
             return 0;
