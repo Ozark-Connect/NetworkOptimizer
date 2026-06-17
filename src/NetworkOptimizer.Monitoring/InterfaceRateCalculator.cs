@@ -62,7 +62,9 @@ public static class InterfaceRateCalculator
     /// <summary>
     /// Per-interface counter state carried between polls: the last trusted
     /// baseline plus an optional "reset candidate" (a below-baseline reading
-    /// awaiting confirmation before we trust it).
+    /// awaiting confirmation before we trust it). <see cref="ProvisionalSeed"/>
+    /// marks a baseline seeded from an all-zero read that is not yet trusted: the
+    /// real baseline is established from the first nonzero read instead (see Compute).
     /// </summary>
     public readonly record struct State(
         long InOctets,
@@ -70,7 +72,8 @@ public static class InterfaceRateCalculator
         DateTime Timestamp,
         long? CandidateInOctets = null,
         long? CandidateOutOctets = null,
-        DateTime? CandidateTimestamp = null);
+        DateTime? CandidateTimestamp = null,
+        bool ProvisionalSeed = false);
 
     public readonly record struct Result(
         double? RateInBps,
@@ -105,7 +108,29 @@ public static class InterfaceRateCalculator
         var fresh = new State(inOctets, outOctets, now);
 
         if (previous is not { } prev)
+        {
+            // An all-zero 64-bit counter read is almost never a real baseline - it is a
+            // corrupt poll (or a device caught mid-boot). Trusting it as the baseline
+            // makes the next true read snap back to a near-link-speed phantom that the
+            // link-speed ceiling is far too loose to reject on a fast port carrying a
+            // slow circuit: a 10G WAN port seeded a (0,0) read after a console reboot,
+            // and the recovery read computed ~6.7 Gbps - under the 14 Gbps ceiling, so it
+            // was emitted. Seed provisionally and wait for the first trustworthy nonzero
+            // read before establishing the baseline.
+            if (useHcCounters && inOctets == 0 && outOctets == 0)
+                return new Result(null, null, fresh with { ProvisionalSeed = true }, Outcome.SeededBaseline);
             return new Result(null, null, fresh, Outcome.SeededBaseline);
+        }
+
+        // A provisional seed (from an earlier all-zero read) is not a trusted baseline,
+        // so never compute a rate against it: a nonzero read now establishes the real
+        // baseline; another all-zero read keeps waiting. Either way no rate is emitted.
+        if (prev.ProvisionalSeed)
+        {
+            if (inOctets == 0 && outOctets == 0)
+                return new Result(null, null, fresh with { ProvisionalSeed = true }, Outcome.SeededBaseline);
+            return new Result(null, null, fresh, Outcome.SeededBaseline);
+        }
 
         var elapsed = (now - prev.Timestamp).TotalSeconds;
         if (elapsed <= 0.5)
