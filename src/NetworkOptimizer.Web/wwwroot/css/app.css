@@ -830,9 +830,13 @@ a.stat-card-link:active {
 .monitoring-stat-card .stat-danger {
     color: var(--danger-color);
 }
-@media (max-width: 1200px) {
+@media (min-width: 769px) and (max-width: 1200px) {
     .monitoring-stat-card {
         min-height: 99px;
+    }
+    .monitoring-stat-pair .monitoring-stat-card,
+    .monitoring-stat-card.stat-card-no-minheight {
+        min-height: auto;
     }
 }
 @media (max-width: 1024px) {
@@ -848,7 +852,6 @@ a.stat-card-link:active {
         flex: 1 1 80px;
         min-width: 70px;
         padding: 0.5rem 0.5rem;
-        min-height: auto;
     }
     .monitoring-stat-card .stat-value {
         font-size: 1rem;
