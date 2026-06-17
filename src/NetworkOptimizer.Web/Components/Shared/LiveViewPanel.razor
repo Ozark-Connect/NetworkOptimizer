@@ -66,11 +66,11 @@ else
                 <div class="stat-label">ISP Loss</div>
             </div>
             @{ var transitTarget = GetMeanTargetStats(MonitoringTargetType.Transit); }
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 <div class="stat-value">@FormatRtt(transitTarget.rtt)</div>
                 <div class="stat-label">Transit RTT</div>
             </div>
-            <div class="monitoring-stat-card clickable-stat-card" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
+            <div class="monitoring-stat-card clickable-stat-card stat-card-no-minheight" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&category=Transit"))">
                 <div class="stat-value @(transitTarget.loss > 0 ? "stat-danger" : "")">@FormatLoss(transitTarget.loss)</div>
                 <div class="stat-label">Transit Loss</div>
             </div>
