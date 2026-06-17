@@ -125,7 +125,7 @@ public static class NetworkFormatHelpers
     private static readonly string[] OrgSuffixes =
     {
         "Communications", "Telephone", "Telecom", "Telecommunications",
-        "Broadband", "Internet", "Fiber", "Cable", "Wireless",
+        "Broadband", "Bandwidth", "Internet", "Fiber", "Cable", "Wireless",
         "Enterprises", "Services", "Technologies", "Networks", "Network",
         "Electric Cooperative", "Cooperative", "Co-op",
         "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",

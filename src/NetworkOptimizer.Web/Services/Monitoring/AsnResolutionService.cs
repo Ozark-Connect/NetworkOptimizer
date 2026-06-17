@@ -173,6 +173,18 @@ internal static class AsnNameCleanup
         ["Arelion Sweden"] = "Arelion",
     };
 
+    // Brand tokens: collapse the whole name to this brand when it appears as a standalone word.
+    // Unlike NameOverrides (exact-match, for a single geographic/rebrand word on one entity), this
+    // is for a brand spread across many regional legal entities under different names - e.g.
+    // "TELECOM ITALIA SPARKLE S.p.A.", "TI Sparkle Turkey ...", "TTi Sparkle Greece SA" all
+    // canonicalize to "Sparkle". Use only for tokens distinctive enough that no unrelated ISP
+    // shares them as a whole word ("Sparkle" won't match Cable One's "Sparklight").
+    private static readonly string[] BrandTokens = { "Sparkle" };
+
+    private static readonly Regex BrandTokenPattern = new(
+        @"\b(" + string.Join('|', BrandTokens) + @")\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public static string? Clean(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return raw;
@@ -183,6 +195,9 @@ internal static class AsnNameCleanup
             if (next.Length == 0 || next == s) break;
             s = next;
         }
+        var brand = BrandTokenPattern.Match(s);
+        if (brand.Success)
+            return BrandTokens.First(t => string.Equals(t, brand.Value, StringComparison.OrdinalIgnoreCase));
         return NameOverrides.TryGetValue(s, out var canonical) ? canonical : s;
     }
 }
