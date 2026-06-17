@@ -1299,20 +1299,35 @@ export class LanFlowMap {
         }
     }
 
+    // Historic roam: re-point with baseline restore. On reset (newApId === the live
+    // snapshot parent) the client returns to its exact original spot; otherwise it
+    // scatters near the historic AP.
     _repointClientLink(clientId, newApId, baselineApId) {
         const pos = this._positions.get(clientId);
-        const group = this._nodeMeshes.get(clientId);
-        const apPos = this._positions.get(newApId);
-        if (!pos || !group || !apPos) return;
-        // Remember the client's original spot the first time it's moved, so resetting
-        // back to its live AP restores it exactly instead of re-scattering.
+        if (!pos) return;
         if (!this._roamBasePos.has(clientId)) {
             this._roamBasePos.set(clientId, { x: pos.x, y: pos.y, z: pos.z });
         }
         if (newApId === baselineApId && this._roamBasePos.has(clientId)) {
             const b = this._roamBasePos.get(clientId);
-            pos.x = b.x; pos.y = b.y; pos.z = b.z;
             this._roamBasePos.delete(clientId);
+            this._attachClientToAp(clientId, newApId, b);
+        } else {
+            this._attachClientToAp(clientId, newApId);
+        }
+    }
+
+    // Move a client next to an AP and rebuild its uplink pipe + particle streams from
+    // the new endpoints (geometry is baked, so it must be recreated). Shared by historic
+    // roam playback and live roam (snapshot parent changed). explicitPos restores an
+    // exact spot; otherwise the client scatters to a stable spot near the AP.
+    _attachClientToAp(clientId, apId, explicitPos) {
+        const pos = this._positions.get(clientId);
+        const group = this._nodeMeshes.get(clientId);
+        const apPos = this._positions.get(apId);
+        if (!pos || !group || !apPos) return;
+        if (explicitPos) {
+            pos.x = explicitPos.x; pos.y = explicitPos.y; pos.z = explicitPos.z;
         } else {
             const angle = _roamAngle(clientId);
             const dist = 8;
@@ -1322,8 +1337,6 @@ export class LanFlowMap {
         }
         group.position.set(pos.x, pos.y, pos.z);
 
-        // Rebuild the client's single uplink pipe + particle streams from the new
-        // endpoints (geometry is baked at build time, so it has to be recreated).
         let linkId = null;
         for (const [lid, eps] of this._nodesByLink) {
             if (eps[0] === clientId || eps[1] === clientId) { linkId = lid; break; }
@@ -1342,11 +1355,29 @@ export class LanFlowMap {
             const up = new ParticleStream({ from: pos, to: apPos, color: COLORS.upstream, particleCount: 0 });
             this.particleGroup.add(down.mesh, up.mesh);
             this._linkMeshes.set(linkId, { pipe, down, up, link: old.link });
-            this._nodesByLink.set(linkId, [newApId, clientId]);
+            this._nodesByLink.set(linkId, [apId, clientId]);
         }
 
         if (!this._roamFade3D) this._roamFade3D = new Map();
         this._roamFade3D.set(clientId, performance.now() + ROAM_FADE_MS);
+    }
+
+    // Live roam: a persisting wifi client whose snapshot parent changed (no add/remove).
+    // The snapshot diff doesn't catch this, so re-attach it to the new AP here. The new
+    // parent becomes the baseline, so any later historic re-point/reset is relative to it.
+    _applyLiveRoam(prev, snap) {
+        const prevById = new Map((prev?.nodes ?? []).map(n => [n.id, n]));
+        for (const node of (snap.nodes ?? [])) {
+            if (node.kind !== NODE_KIND.WifiClient) continue;
+            const pn = prevById.get(node.id);
+            if (!pn || pn.parentId === node.parentId) continue;
+            if (!this._nodeMeshes.has(node.id) || !this._positions.get(node.parentId)) continue;
+            const group = this._nodeMeshes.get(node.id);
+            if (group?.userData) group.userData.node = node; // refresh parentId/band/etc.
+            this._roamBasePos?.delete(node.id);
+            this._appliedAssoc3D?.delete(node.id);
+            this._attachClientToAp(node.id, node.parentId);
+        }
     }
 
     _refreshLinkLabels() {
@@ -1617,6 +1648,9 @@ export class LanFlowMap {
                         const removed = [...prevNodeIds].filter(id => !newNodeIds.has(id));
                         for (const id of removed) this._removeNodeIncremental(id);
                         for (const node of added) this._addNodeIncremental(node, snap);
+                        // Seamless roam keeps the client's node id, so add/remove misses
+                        // it - re-attach any persisting client whose parent AP changed.
+                        this._applyLiveRoam(prev, snap);
                         // Don't apply snapshot liveRates - they're stale vs the 1s
                         // live poll and would clobber fresh rates momentarily.
                         this._refreshCloudRttLabels();

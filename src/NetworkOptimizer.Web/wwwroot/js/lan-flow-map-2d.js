@@ -1237,6 +1237,9 @@ class LanFlowMap2D {
         for(const n of snap.nodes){
             const tn=this._treeMap.get(n.id);
             if(tn){
+                // A client that roamed to a different AP (live) keeps its node id, so the
+                // only signal is its parent changing. Rebuild so it moves to the new AP.
+                if(isClient(n.kind)&&tn.d.parentId!==n.parentId)clientsChanged=true;
                 tn.d.online=n.online;
                 tn.d.phyTxKbps=n.phyTxKbps;
                 tn.d.phyRxKbps=n.phyRxKbps;
