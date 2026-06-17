@@ -67,15 +67,17 @@ public class GatewayApExclusionTests
     }
 
     [Fact]
-    public void EfgCore_ExcludedByPrefix()
+    public void EfCore_Excluded()
     {
-        // EFG-Core not yet in the product database, but FriendlyModelName would
-        // fall back to the shortname. Verify the StartsWith("EFG") prefix catches it.
-        var device = CreateGatewayDevice("EFGCORE", "EFG-Core", radioCount: 2);
+        // Enterprise Firewall Core resolves to "EF-Core" in the product database and has
+        // no Wi-Fi, but the API may report phantom radio_table entries. Verify it is
+        // excluded from AP discovery (the name doesn't start with "EFG", so this relies on
+        // the explicit "EF-Core" branch in IsGatewayOnlyConsole).
+        var device = CreateGatewayDevice("UDMEA4B", "EFG-Core", radioCount: 2);
 
-        // FriendlyModelName may be "EFG-Core" (from shortname fallback) or whatever the DB resolves
+        device.FriendlyModelName.Should().Be("EF-Core");
         UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeTrue(
-            "EFG-Core starts with 'EFG' and should be excluded");
+            "EF-Core is a gateway-only console with no integrated Wi-Fi");
     }
 
     [Theory]
