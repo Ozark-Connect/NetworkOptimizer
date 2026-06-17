@@ -742,9 +742,22 @@ public class LanFlowMapService
                 var onlineAtT = healthPt != null
                     && Math.Abs((healthPt.Time - at).TotalSeconds) <= HistoricOnlineWindowSeconds;
 
+                bool infraOnline = false;
                 if (isInfra)
                 {
-                    if (!onlineAtT)
+                    // device_health is the authoritative liveness signal, but only when we
+                    // actually collect it for this device. If we never recorded health for
+                    // it (SNMP-only / third-party gear), don't force it dark across the
+                    // whole timeline: fall back to rate telemetry, then to the current
+                    // snapshot state. Devices we DO monitor get accurate per-instant state.
+                    var hasHealthHistory =
+                        cached.HealthByDevice.TryGetValue(mac, out var hh) && hh.Count > 0;
+                    if (hasHealthHistory)
+                        infraOnline = onlineAtT;
+                    else
+                        infraOnline = (fabIn != null || aggIn != null) || node.Online;
+
+                    if (!infraOnline)
                     {
                         update.NodeBadges[node.Id] = new NodeLiveBadge { Online = false };
                         continue;
@@ -757,7 +770,7 @@ public class LanFlowMapService
 
                 update.NodeBadges[node.Id] = new NodeLiveBadge
                 {
-                    Online = isInfra ? onlineAtT : node.Online,
+                    Online = isInfra ? infraOnline : node.Online,
                     CpuPercent = healthPt?.CpuPercent,
                     MemoryUsedPercent = healthPt?.MemoryUsedPercent,
                     TemperatureC = healthPt?.TemperatureC,
