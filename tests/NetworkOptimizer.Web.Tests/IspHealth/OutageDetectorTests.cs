@@ -6,7 +6,7 @@ namespace NetworkOptimizer.Web.Tests.IspHealth;
 
 /// <summary>
 /// Tests for internet-outage detection and shaping, calibrated to the real AT&T outage on
-/// the Mac site (2026-06-17): the OLT briefly went dark at onset then recovered ~10 min
+/// a test site (2026-06-17): the OLT briefly went dark at onset then recovered ~10 min
 /// before the upstream, which stayed dark. Detection is internet-tier only (shape- and
 /// trace-map-independent); the per-hop shape and break attribution use the ordered hops.
 /// </summary>
