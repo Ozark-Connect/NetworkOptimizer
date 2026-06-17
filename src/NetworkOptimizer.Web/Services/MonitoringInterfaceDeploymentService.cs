@@ -44,18 +44,27 @@ public class MonitoringInterfaceDeploymentService
     /// </summary>
     public static string? Validate(MonitoringInterface mi)
     {
+        // \A...\z anchors (not ^...$): in .NET, $ also matches just before a trailing
+        // newline, so "eth6\n" would pass and split the interpolated SSH command line.
         if (string.IsNullOrWhiteSpace(mi.Name) ||
-            !System.Text.RegularExpressions.Regex.IsMatch(mi.Name, "^[a-z][a-z0-9-]{0,14}$"))
+            !System.Text.RegularExpressions.Regex.IsMatch(mi.Name, @"\A[a-z][a-z0-9-]{0,14}\z"))
             return "Interface name must be 1-15 chars, start with a letter, and use only lowercase letters, digits, or hyphens.";
 
         if (string.IsNullOrWhiteSpace(mi.WanIfName) ||
-            !System.Text.RegularExpressions.Regex.IsMatch(mi.WanIfName, "^[a-zA-Z0-9._-]{1,20}$"))
+            !System.Text.RegularExpressions.Regex.IsMatch(mi.WanIfName, @"\A[a-zA-Z0-9._-]{1,20}\z"))
             return "Select a WAN interface.";
 
-        if (!IPAddress.TryParse(mi.TargetIp, out var target) || target.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        if (mi.WanVlanId is int vlan && (vlan < 1 || vlan > 4094))
+            return "VLAN ID must be between 1 and 4094.";
+
+        // Require dotted-quad: IPAddress.TryParse accepts shorthand ("192.168.100" ->
+        // 192.168.0.100), which would deploy a route/macvlan to the wrong address.
+        if ((mi.TargetIp ?? "").Split('.').Length != 4 ||
+            !IPAddress.TryParse(mi.TargetIp, out var target) || target.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "Modem/ONT IP must be a valid IPv4 address.";
 
-        if (!IPAddress.TryParse(mi.GatewayLocalIp, out var local) || local.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        if ((mi.GatewayLocalIp ?? "").Split('.').Length != 4 ||
+            !IPAddress.TryParse(mi.GatewayLocalIp, out var local) || local.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "Gateway-local IP must be a valid IPv4 address.";
 
         if (mi.SubnetPrefix < 8 || mi.SubnetPrefix > 30)
@@ -294,9 +303,16 @@ public class MonitoringInterfaceDeploymentService
     private async Task<PreflightBlock> CheckLocalIpAvailableAsync(MonitoringInterface mi)
     {
         // Create the macvlan (idempotent) and bring it up so arping can transmit on the
-        // modem segment. The boot script reuses this interface.
+        // modem segment. The boot script reuses this interface. On a VLAN WAN, the parent
+        // is the VLAN subinterface, which we ensure exists first (same as the boot script).
+        var parent = ParentInterface(mi);
+        var ensureVlan = mi.WanVlanId is int vlan
+            ? $"ip link show {parent} >/dev/null 2>&1 || ip link add link {mi.WanIfName} name {parent} type vlan id {vlan}; " +
+              $"ip link set {parent} up 2>/dev/null; "
+            : "";
         var probe =
-            $"ip link show {mi.Name} >/dev/null 2>&1 || ip link add {mi.Name} link {mi.WanIfName} type macvlan mode bridge; " +
+            ensureVlan +
+            $"ip link show {mi.Name} >/dev/null 2>&1 || ip link add {mi.Name} link {parent} type macvlan mode bridge; " +
             $"ip link set {mi.Name} up 2>/dev/null; " +
             $"if ! ip link show {mi.Name} >/dev/null 2>&1; then echo RESULT:NOIFACE; " +
             $"elif ! command -v arping >/dev/null 2>&1; then echo RESULT:SKIP; " +
@@ -340,6 +356,7 @@ public class MonitoringInterfaceDeploymentService
         return BootScriptTemplate
             .Replace("__IFACE__", mi.Name)
             .Replace("__WAN_IF__", mi.WanIfName)
+            .Replace("__VLAN_ID__", mi.WanVlanId?.ToString() ?? "")
             .Replace("__LOCAL_IP__", mi.GatewayLocalIp)
             .Replace("__PREFIX__", mi.SubnetPrefix.ToString())
             .Replace("__TARGET_IP__", mi.TargetIp)
@@ -358,6 +375,7 @@ public class MonitoringInterfaceDeploymentService
 
 IFACE=""__IFACE__""
 WAN_IF=""__WAN_IF__""
+VLAN_ID=""__VLAN_ID__""
 LOCAL_IP=""__LOCAL_IP__""
 PREFIX=""__PREFIX__""
 TARGET_IP=""__TARGET_IP__""
@@ -373,9 +391,21 @@ ip link show ""$WAN_IF"" >/dev/null 2>&1 || { log ""wan $WAN_IF absent, deferrin
 
 changed=0
 
-# 1. macvlan on the physical WAN port
+# 0. resolve the macvlan parent. With a VLAN, the parent is the subinterface (e.g.
+# eth6.100) so frames are tagged; UniFi creates it for a VLAN WAN, but if it's absent
+# we add it ourselves. We never tear it down on removal - reprovision reaps it.
+PARENT=""$WAN_IF""
+if [ -n ""$VLAN_ID"" ]; then
+    PARENT=""$WAN_IF.$VLAN_ID""
+    if ! ip link show ""$PARENT"" >/dev/null 2>&1; then
+        ip link add link ""$WAN_IF"" name ""$PARENT"" type vlan id ""$VLAN_ID"" && changed=1
+    fi
+    ip link set ""$PARENT"" up 2>/dev/null
+fi
+
+# 1. macvlan on the WAN parent (physical port, or VLAN subinterface)
 if ! ip link show ""$IFACE"" >/dev/null 2>&1; then
-    ip link add ""$IFACE"" link ""$WAN_IF"" type macvlan mode bridge && changed=1
+    ip link add ""$IFACE"" link ""$PARENT"" type macvlan mode bridge && changed=1
 fi
 ip link set ""$IFACE"" up 2>/dev/null
 
@@ -404,7 +434,7 @@ if ! crontab -l 2>/dev/null | grep -qF ""$SCRIPT""; then
 fi
 
 # Log only when something actually changed, to spare the eMMC.
-[ ""$changed"" = ""1"" ] && log ""applied $IFACE on $WAN_IF: $LOCAL_IP/$PREFIX -> $TARGET_IP (snat=$SNAT_ENABLED)""
+[ ""$changed"" = ""1"" ] && log ""applied $IFACE on $PARENT: $LOCAL_IP/$PREFIX -> $TARGET_IP (snat=$SNAT_ENABLED)""
 exit 0
 ";
 
@@ -412,6 +442,13 @@ exit 0
 
     private Task<(bool success, string output)> RunAsync(string command, TimeSpan? timeout = null)
         => _gatewaySsh.RunCommandAsync(command, timeout);
+
+    /// <summary>
+    /// The macvlan's parent interface: the VLAN subinterface (e.g. "eth6.100") when a
+    /// VLAN is configured, otherwise the bare physical WAN port.
+    /// </summary>
+    private static string ParentInterface(MonitoringInterface mi)
+        => mi.WanVlanId is int vlan ? $"{mi.WanIfName}.{vlan}" : mi.WanIfName;
 
     /// <summary>Network (zero-host) address for a CIDR, e.g. "192.168.100.1/24" -> "192.168.100.0/24".</summary>
     private static string NetworkAddress(string cidr)

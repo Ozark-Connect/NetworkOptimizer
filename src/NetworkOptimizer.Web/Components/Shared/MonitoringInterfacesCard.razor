@@ -126,9 +126,11 @@
                     <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">Modem/ONT IP</label>
-                            <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
+                            <input type="text" class="form-control" @bind="_editing.TargetIp" @bind:event="oninput" @bind:after="OnTargetChanged" placeholder="192.168.100.1" />
                             <small class="form-help">The management IP you're trying to reach (e.g. your modem or ONT status page).</small>
                         </div>
+                    </div>
+                    <div class="form-row">
                         <div class="form-group mi-grow-2">
                             <label class="form-label">WAN interface</label>
                             <select class="form-control" @bind="_editing.WanIfName" @bind:after="OnWanChanged">
@@ -147,6 +149,17 @@
                             </select>
                             <small class="form-help">The WAN your modem/ONT sits behind. The interface rides this port.</small>
                         </div>
+                        <div class="form-group mi-grow-2">
+                            <label class="form-label">VLAN</label>
+                            <div class="mi-vlan">
+                                <label class="checkbox-label mi-vlan-toggle">
+                                    <input type="checkbox" @bind="_vlanEnabled" @bind:after="OnVlanToggled" />
+                                    <span>Tagged</span>
+                                </label>
+                                <input type="number" class="form-control mi-vlan-id" @bind="_editing.WanVlanId" @bind:event="oninput" min="1" max="4094" placeholder="100" disabled="@(!_vlanEnabled)" />
+                            </div>
+                            <small class="form-help">Tag the interface when your WAN runs on a VLAN (some fiber ISPs). Leave off for a plain port.</small>
+                        </div>
                     </div>
 
                     <details class="setup-guide mi-advanced">
@@ -155,22 +168,22 @@
                             <div class="form-row">
                                 <div class="form-group mi-grow-2">
                                     <label class="form-label">Gateway-local IP</label>
-                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" placeholder="192.168.100.2" />
+                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" @bind:event="oninput" @bind:after="OnLocalIpEdited" placeholder="192.168.100.2" />
                                     <small class="form-help">The gateway's address on the modem's subnet. Auto-suggested; must be free and on the same subnet.</small>
                                 </div>
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Subnet prefix</label>
-                                    <input type="number" class="form-control" @bind="_editing.SubnetPrefix" min="8" max="30" />
+                                    <input type="number" class="form-control" @bind="_editing.SubnetPrefix" @bind:event="oninput" min="8" max="30" />
                                 </div>
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Interface name</label>
-                                    <input type="text" class="form-control" @bind="_editing.Name" placeholder="modem0" />
+                                    <input type="text" class="form-control" @bind="_editing.Name" @bind:event="oninput" placeholder="modem0" />
                                 </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Watchdog interval (min)</label>
-                                    <input type="number" class="form-control" @bind="_editing.WatchdogIntervalMinutes" min="1" max="60" />
+                                    <input type="number" class="form-control" @bind="_editing.WatchdogIntervalMinutes" @bind:event="oninput" min="1" max="60" />
                                     <small class="form-help">How often the gateway re-applies the route so it survives reprovisioning.</small>
                                 </div>
                                 <div class="form-group mi-grow-2">
@@ -280,6 +293,20 @@
     .mi-grow-2 {
         flex: 2;
     }
+
+    .mi-vlan {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .mi-vlan-toggle {
+        white-space: nowrap;
+    }
+
+    .mi-vlan-id {
+        max-width: 6rem;
+    }
 </style>
 
 @code {
@@ -301,6 +328,12 @@
 
     private MonitoringInterface _editing = NewInterface();
     private MonitoringInterface? _editingOriginal;
+    private bool _vlanEnabled;
+
+    // True while GatewayLocalIp holds an auto-suggested value (not user-entered), so the
+    // suggestion keeps tracking the target as it's typed. Cleared once the user edits the
+    // gateway-local field themselves.
+    private bool _localIpAutoSuggested;
     private bool _collapsed = true;
     private bool _stateLoaded;
     private const string CollapseKey = "monitoring-interfaces-collapsed";
@@ -320,6 +353,7 @@
         Id = mi.Id,
         Name = mi.Name,
         WanIfName = mi.WanIfName,
+        WanVlanId = mi.WanVlanId,
         WanKey = mi.WanKey,
         TargetIp = mi.TargetIp,
         SubnetPrefix = mi.SubnetPrefix,
@@ -332,7 +366,8 @@
     // into the macvlan name, route, SNAT rule, or script filename - otherwise the old
     // artifacts (interface, route, SNAT, cron, /data/on_boot.d file) are orphaned.
     private static bool NeedsOldTeardown(MonitoringInterface a, MonitoringInterface b)
-        => a.Name != b.Name || a.WanIfName != b.WanIfName || a.TargetIp != b.TargetIp
+        => a.Name != b.Name || a.WanIfName != b.WanIfName || a.WanVlanId != b.WanVlanId
+            || a.TargetIp != b.TargetIp
             || a.GatewayLocalIp != b.GatewayLocalIp || a.SubnetPrefix != b.SubnetPrefix
             || a.SnatEnabled != b.SnatEnabled;
 
@@ -469,6 +504,8 @@
     {
         _editing = Snapshot(mi);
         _editingOriginal = Snapshot(mi);
+        _vlanEnabled = mi.WanVlanId.HasValue;
+        _localIpAutoSuggested = false;
         _collapsed = false;
         _message = null;
         _deploySteps.Clear();
@@ -478,14 +515,36 @@
     {
         _editing = NewInterface();
         _editingOriginal = null;
+        _vlanEnabled = false;
+        _localIpAutoSuggested = false;
         _message = null;
+    }
+
+    // When VLAN tagging is turned off, drop the stored VLAN so we deploy on the raw port.
+    private void OnVlanToggled()
+    {
+        if (!_vlanEnabled)
+            _editing.WanVlanId = null;
     }
 
     private void OnTargetChanged()
     {
-        if (string.IsNullOrWhiteSpace(_editing.GatewayLocalIp))
-            _editing.GatewayLocalIp = SuggestLocalIp(_editing.TargetIp);
+        // Keep the suggested gateway-local IP tracking the target until the user edits it
+        // themselves. With per-keystroke (oninput) binding, a one-shot "suggest only when
+        // empty" would lock onto a transient prefix - typing 10.10.10.100 passes through
+        // 10.10.10.1, suggesting .2 and then freezing. Re-suggesting while auto-suggested
+        // lets it follow through to the final octet.
+        if (string.IsNullOrWhiteSpace(_editing.GatewayLocalIp) || _localIpAutoSuggested)
+        {
+            var suggested = SuggestLocalIp(_editing.TargetIp);
+            _editing.GatewayLocalIp = suggested;
+            _localIpAutoSuggested = !string.IsNullOrEmpty(suggested);
+        }
     }
+
+    // The user edited the gateway-local IP by hand: stop auto-suggesting so we don't
+    // overwrite their value when the target changes.
+    private void OnLocalIpEdited() => _localIpAutoSuggested = false;
 
     private void OnWanChanged()
     {
@@ -517,6 +576,8 @@
         var saved = _interfaces.FirstOrDefault(i => i.TargetIp == _editing.TargetIp && i.WanIfName == _editing.WanIfName);
         _editing = NewInterface();
         _editingOriginal = null;
+        _vlanEnabled = false;
+        _localIpAutoSuggested = false;
 
         // Editing changed gateway-affecting fields: remove the old config first so we don't
         // leave a stale macvlan/route/SNAT/cron/boot-script behind.
@@ -540,6 +601,16 @@
     {
         _message = null;
         _deploySteps.Clear();
+
+        // "Tagged" is checked but no VLAN ID entered: the placeholder can read like a
+        // set value, so require an explicit ID rather than silently deploying untagged.
+        if (_vlanEnabled && _editing.WanVlanId is null)
+        {
+            _message = "Enter a VLAN ID, or uncheck Tagged.";
+            _messageSuccess = false;
+            return false;
+        }
+
         var error = MonitoringInterfaceDeploymentService.Validate(_editing);
         if (error != null)
         {
@@ -729,7 +800,12 @@
     /// </summary>
     private static string SuggestLocalIp(string? targetIp)
     {
-        if (!IPAddress.TryParse(targetIp, out var ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        // Require a complete dotted-quad. IPAddress.TryParse accepts shorthand like "1"
+        // (-> 0.0.0.1) or "192.168.100" (-> 192.168.0.100), which under per-keystroke
+        // (oninput) binding would suggest off a half-typed address (e.g. "0.0.0.2").
+        if (targetIp is null || targetIp.Split('.').Length != 4 ||
+            !IPAddress.TryParse(targetIp, out var ip) ||
+            ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "";
         var bytes = ip.GetAddressBytes();
         int last = bytes[3];
