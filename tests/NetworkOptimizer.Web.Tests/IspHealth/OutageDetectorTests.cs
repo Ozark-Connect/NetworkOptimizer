@@ -228,16 +228,16 @@ public class OutageDetectorTests
     {
         var internet1 = Series(0, (OutStart, OutEnd, 100));
         var internet2 = Series(0, (OutStart, OutEnd, 100));
-        // Two access hops recover together (dark the whole outage); one recovers minutes earlier.
-        var accessEarly = Series(0, (OutStart, OutStart.AddMinutes(3), 100));
+        // Two AT&T access hops recover together (dark the whole outage); the OLT recovers earlier.
+        var olt = Series(0, (OutStart, OutStart.AddMinutes(3), 100));
         var accessLate1 = Series(0, (OutStart, OutEnd, 100));
         var accessLate2 = Series(0, (OutStart, OutEnd, 100));
 
         var hops = new[]
         {
-            new OutageDetector.Hop("Access A", 0, accessEarly, Groupable: true),
-            new OutageDetector.Hop("Access B", 1, accessLate1, Groupable: true),
-            new OutageDetector.Hop("Access C", 2, accessLate2, Groupable: true),
+            new OutageDetector.Hop("AT&T nokia-olt", 0, olt, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T lightspeed-1", 1, accessLate1, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T lightspeed-2", 2, accessLate2, Groupable: true, AsnLabel: "AT&T"),
             new OutageDetector.Hop("Cloudflare", 3, internet1),
             new OutageDetector.Hop("Google", 4, internet2),
         };
@@ -245,13 +245,36 @@ public class OutageDetectorTests
         var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
 
         events.Should().ContainSingle();
-        var access = events[0].Tiers.Where(t => t.Name.StartsWith("Access")).ToList();
-        // The early hop keeps its own row; the two that recovered together collapse into one.
+        var access = events[0].Tiers.Where(t => t.Name.StartsWith("AT&T")).ToList();
+        // Same ASN owns two rows, so each is disambiguated: the lone early OLT by its hostname
+        // tail, the two that recovered together by a hop count.
         access.Should().HaveCount(2);
-        access.Should().Contain(t => t.Name == "Access A");
-        access.Should().Contain(t => t.Name == "Access B +1");
-        // Internet endpoints are never grouped.
+        access.Should().Contain(t => t.Name == "AT&T (nokia-olt)");
+        access.Should().Contain(t => t.Name == "AT&T (2 hops)");
+        // Internet endpoints keep their own names and are never grouped.
         events[0].Tiers.Should().Contain(t => t.Name == "Cloudflare");
         events[0].Tiers.Should().Contain(t => t.Name == "Google");
+    }
+
+    [Fact]
+    public void A_unique_access_asn_shows_just_the_asn_name()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var access = Series(0, (OutStart, OutEnd, 100));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, access, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+            new OutageDetector.Hop("Google", 2, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        // One access row for the ASN -> no disambiguation, just the ASN name.
+        events[0].Tiers.Should().Contain(t => t.Name == "AT&T");
+        events[0].Tiers.Should().NotContain(t => t.Name.Contains("nokia-olt"));
     }
 }

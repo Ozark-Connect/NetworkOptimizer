@@ -15,10 +15,10 @@ public class IspHealthService
 {
     private static readonly string[] AnycastDnsIps = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"];
 
-    // The internet endpoints that drive outage detection and the outage waterfall: just the two
-    // canonical anycast resolvers (Cloudflare, Google). 5+ internet rows on the waterfall is just
-    // clutter - two well-known resolvers convey "internet reachable" plainly. The rest still feed
-    // jitter-absolve and path-shift.
+    // The internet endpoints SHOWN on the outage waterfall: just the two canonical anycast
+    // resolvers (Cloudflare, Google). 5+ internet rows is just clutter - two well-known resolvers
+    // convey "internet reachable" plainly. Detection still triggers on every internet target; this
+    // only trims the displayed rows.
     private static readonly string[] OutageInternetIps = ["1.1.1.1", "8.8.8.8"];
 
     private readonly MonitoringInfluxClient _influx;
@@ -322,22 +322,52 @@ public class IspHealthService
 
         // Outage detection: the internet targets going dark defines an outage; every hop is
         // carried (ordered nearest-first by the hop map, RTT tiebreaker) to shape it and
-        // attribute the break. A monitoring gap has no samples and so is never flagged. Both
-        // the trigger and the internet rows are limited to the two canonical resolvers.
+        // attribute the break. A monitoring gap has no samples and so is never flagged. The
+        // trigger keeps ALL internet targets (robust detection); only the waterfall's internet
+        // rows are trimmed to the two canonical resolvers below.
         var internetTriggerTargets = targets
-            .Where(t => t.TargetType == MonitoringTargetType.InternetService
-                && OutageInternetIps.Contains(t.Address)
-                && internetSeries.ContainsKey(t.TargetId))
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => (IReadOnlyList<LatencySample>)internetSeries[t.TargetId])
             .ToList();
         int ClusterHopNumber(AsnSeries s) => s.TargetIds
             .Select(tid => hopNumberByTargetId.TryGetValue(tid, out var hn) ? hn : int.MaxValue)
             .DefaultIfEmpty(int.MaxValue).Min();
+        double MedianRtt(AsnSeries s) => SeriesStats.Median(
+            s.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList()) ?? double.MaxValue;
+        // The two internet rows for the waterfall: prefer Cloudflare/Google, but if the user
+        // doesn't monitor them, fall back to the two nearest other internet targets so the
+        // waterfall still shows an internet-reachability row.
+        var displayInternet = internetTargetSeries
+            .Where(s => s.HopIps.Any(ip => OutageInternetIps.Contains(ip)))
+            .Concat(internetTargetSeries
+                .Where(s => !s.HopIps.Any(ip => OutageInternetIps.Contains(ip)))
+                .OrderBy(MedianRtt))
+            .Take(2)
+            .ToList();
+        // Each waterfall row is labeled by its ASN. Access ISP and Transit can both be the same
+        // ASN (e.g. AT&T is both the access network and a transit hop), so a transit row whose ASN
+        // also appears in the access layer is suffixed " Transit" to disambiguate it.
+        var accessAsnNumbers = ispTargets.Where(t => t.AsnNumber is > 0).Select(t => t.AsnNumber!.Value).ToHashSet();
+        var accessAsnName = ispTargets.Select(t => AsnNameCleanup.Clean(t.AsnName)).FirstOrDefault(n => !string.IsNullOrEmpty(n));
+        var transitAsnNameByNumber = transitTargets
+            .Where(t => t.AsnNumber is > 0 && !string.IsNullOrEmpty(t.AsnName))
+            .GroupBy(t => t.AsnNumber!.Value)
+            .ToDictionary(g => g.Key, g => AsnNameCleanup.Clean(g.Select(t => t.AsnName).First()) ?? "");
+        string TransitLabel(AsnSeries s)
+        {
+            // Single-member transit clusters carry the target's own name; prefer the ASN. Multi /
+            // deeper clusters already carry an ASN-based name ("ASN (+N ms hop)"), so keep it.
+            var asn = transitAsnNameByNumber.GetValueOrDefault(s.AsnNumber);
+            var label = s.TargetIds.Count == 1 && !string.IsNullOrEmpty(asn) ? asn : AsnNameCleanup.Clean(s.AsnName) ?? asn ?? "transit";
+            if (accessAsnNumbers.Contains(s.AsnNumber) && !label.EndsWith("Transit", StringComparison.OrdinalIgnoreCase))
+                label += " Transit";
+            return label;
+        }
         // Waterfall composition:
-        //  - Access ISP targets broken out per target (Groupable) so each access hop's own
-        //    outage timing shows; the detector re-collapses ones that share a signature.
+        //  - Access ISP targets broken out per target (Groupable, labeled by access ASN) so each
+        //    access hop's own outage timing shows; the detector re-collapses shared signatures.
         //  - Transit kept as the per-ASN RTT clusters (the Per-Network RTT grouping), untouched.
-        //  - Internet limited to the two trigger resolvers (Cloudflare, Google).
+        //  - Internet trimmed to two rows (displayInternet).
         var outageSources = ispTargets
             .Where(t => ispSeries.ContainsKey(t.TargetId))
             .Select(t => (Series: new AsnSeries
@@ -347,22 +377,21 @@ public class IspHealthService
                 TargetIds = { t.TargetId },
                 Samples = ispSeries[t.TargetId],
                 HopIps = { t.Address }
-            }, Groupable: true))
-            .Concat(transitChart.Select(s => (Series: s, Groupable: false)))
-            .Concat(internetTargetSeries
-                .Where(s => s.HopIps.Any(ip => OutageInternetIps.Contains(ip)))
-                .Select(s => (Series: s, Groupable: false)));
+            }, Groupable: true, AsnLabel: AsnNameCleanup.Clean(t.AsnName) ?? accessAsnName))
+            .Concat(transitChart.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)TransitLabel(s))))
+            .Concat(displayInternet.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)null)));
         var outageHops = outageSources
             .Select(x => new
             {
                 x.Groupable,
+                x.AsnLabel,
                 Name = x.Series.AsnName ?? x.Series.TargetIds.FirstOrDefault() ?? "hop",
                 Series = (IReadOnlyList<LatencySample>)x.Series.Samples,
                 HopNumber = ClusterHopNumber(x.Series),
-                Rtt = SeriesStats.Median(x.Series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()) ?? double.MaxValue
+                Rtt = MedianRtt(x.Series)
             })
             .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
-            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series, x.Groupable))
+            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series, x.Groupable, x.AsnLabel))
             .ToList();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
 
