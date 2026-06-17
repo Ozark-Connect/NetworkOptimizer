@@ -2370,6 +2370,7 @@
         _ruleError = null;
         _showRuleForm = true;
         await InvokeAsync(StateHasChanged);
+        await Task.Delay(50);
         await JS.InvokeVoidAsync("eval",
             "document.getElementById('rule-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
