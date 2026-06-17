@@ -15827,14 +15827,16 @@ a.isp-health-hero-speed:hover {
 .isp-outage-hop-track {
     height: 7px;
     border-radius: 4px;
-    background: var(--primary-color);
+    background: linear-gradient(90deg, var(--bg-tertiary) 0, var(--bg-tertiary) 3px, var(--primary-color) 3px);
     overflow: hidden;
 }
 
 .isp-outage-hop-dark {
     height: 100%;
     border-radius: 4px 0 0 4px;
-    background: repeating-linear-gradient(45deg, var(--danger-color) 0, var(--danger-color) 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px);
+    background:
+        repeating-linear-gradient(45deg, transparent 0, transparent 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px),
+        linear-gradient(90deg, var(--text-muted), 75%, var(--primary-color));
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
