@@ -138,6 +138,19 @@ public class AsnResolutionService
 
 public record AsnLookup(int Asn, string Name);
 
+/// <summary>
+/// The resolve/display ASN-name cleaner. Runs on every IP-&gt;ASN resolve (<see cref="AsnResolutionService"/>)
+/// and again when ISP Health renders a "Networks on Your Path" card, so brand overrides apply
+/// to already-stored names without re-discovery. Strips legal-entity suffixes (LLC, Inc, AB,
+/// B.V. ...) and applies exact-match brand overrides for the cases suffix-stripping can't infer -
+/// a geographic or rebrand word, e.g. "Arelion Sweden" -&gt; "Arelion".
+///
+/// This is the LIGHTER of the two ASN-name cleaners. The heavier industry-suffix pass
+/// (Communications, Telecom, Networks, Parent ...) is <see cref="NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName"/>,
+/// which runs once at STORAGE time (auto-discovery via UpstreamTracerService.CleanAsnName, and
+/// manual add via LatencyTargetsCard). A stored AsnName has therefore been through both passes;
+/// this one re-runs cheaply at display purely so the brand overrides stay applied.
+/// </summary>
 internal static class AsnNameCleanup
 {
     // Strip the most common corporate-form suffixes off the tail of an ASN name
@@ -147,6 +160,29 @@ internal static class AsnNameCleanup
     // have stacked suffixes (e.g. "Foo Holdings Ltd LLC").
     private static readonly Regex SuffixPattern = new(
         @"\s*,?\s+(LLC|L\.L\.C\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|Limited|B\.V\.?|BV|AB|AG|GmbH|S\.A\.?S?\.?|S\.r\.l\.?|SA|PLC|Pte\.?|N\.V\.?|NV|OY|OYJ)\.?\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Specific brand overrides, applied AFTER suffix stripping. This is the ONLY place a name is
+    // canonicalized on a non-suffix word (geography, legacy brand, rebrand) - the suffix strippers
+    // (here and CleanOrgName) can't infer those. Deliberately exact-match and not a generic
+    // geographic strip: a real ISP could legitimately be named "<x> Sweden". Keys are the
+    // post-suffix-strip form (e.g. "Arelion Sweden AB" -> strip "AB" -> match "Arelion Sweden").
+    private static readonly Dictionary<string, string> NameOverrides = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Arelion (AS1299, ex-Telia Carrier) resolves as "Arelion Sweden AB"; show just "Arelion".
+        ["Arelion Sweden"] = "Arelion",
+    };
+
+    // Brand tokens: collapse the whole name to this brand when it appears as a standalone word.
+    // Unlike NameOverrides (exact-match, for a single geographic/rebrand word on one entity), this
+    // is for a brand spread across many regional legal entities under different names - e.g.
+    // "TELECOM ITALIA SPARKLE S.p.A.", "TI Sparkle Turkey ...", "TTi Sparkle Greece SA" all
+    // canonicalize to "Sparkle". Use only for tokens distinctive enough that no unrelated ISP
+    // shares them as a whole word ("Sparkle" won't match Cable One's "Sparklight").
+    private static readonly string[] BrandTokens = { "Sparkle" };
+
+    private static readonly Regex BrandTokenPattern = new(
+        @"\b(" + string.Join('|', BrandTokens) + @")\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static string? Clean(string? raw)
@@ -159,6 +195,9 @@ internal static class AsnNameCleanup
             if (next.Length == 0 || next == s) break;
             s = next;
         }
-        return s;
+        var brand = BrandTokenPattern.Match(s);
+        if (brand.Success)
+            return BrandTokens.First(t => string.Equals(t, brand.Value, StringComparison.OrdinalIgnoreCase));
+        return NameOverrides.TryGetValue(s, out var canonical) ? canonical : s;
     }
 }

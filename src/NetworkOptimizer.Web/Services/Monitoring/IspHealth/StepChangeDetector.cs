@@ -61,7 +61,8 @@ public static class StepChangeDetector
                 AsnName = series.AsnName,
                 TargetId = series.TargetIds.Count == 1 ? series.TargetIds[0] : null,
                 BeforeMedianMs = before.MedianMs,
-                AfterMedianMs = after.MedianMs
+                AfterMedianMs = after.MedianMs,
+                IsDestination = series.IsDestination
             });
 
             var revert = TryDetectRevert(windows, samples, before, after, afterIdx, windowSize, series, options);
@@ -220,8 +221,17 @@ public static class StepChangeDetector
 
             var revertBoundary = r - 1;
             if (revertBoundary < stepAfterIdx) return null;
-            var revertBefore = windows[revertBoundary];
             var revertAfter = windows[r];
+
+            // Report the revert as the move from the elevated level that actually held
+            // (stepAfter) down to the settled reverted level - not windows[r-1] -> windows[r].
+            // The window just before the first stable reverted window is usually a
+            // transition window already sitting near the reverted level (its wide IQR is
+            // why it failed IsStableLevel and r skipped past it), so windows[r-1] -> windows[r]
+            // reports a near-zero delta for a genuinely large revert (production showed a
+            // ~23 -> 11 ms revert reported as "0 ms"). The crossing search keeps the
+            // transition window's start so the pinpointed time still lands on the drop.
+            var revertBefore = windows[revertBoundary] with { MedianMs = stepAfter.MedianMs, Iqr = stepAfter.Iqr };
 
             var crossing = FindCrossingTime(samples, revertBefore, revertAfter,
                 searchStart: revertBefore.Start,
@@ -234,7 +244,8 @@ public static class StepChangeDetector
                 AsnName = series.AsnName,
                 TargetId = series.TargetIds.Count == 1 ? series.TargetIds[0] : null,
                 BeforeMedianMs = revertBefore.MedianMs,
-                AfterMedianMs = revertAfter.MedianMs
+                AfterMedianMs = revertAfter.MedianMs,
+                IsDestination = series.IsDestination
             };
 
             return (evt, lastRequired);
@@ -246,9 +257,11 @@ public static class StepChangeDetector
     /// <summary>
     /// Collapses shifts that occur at the same boundary (within one window) and in the
     /// same direction into a single event, because a routing change usually steps every
-    /// affected path at once. The representative is the nearest hop (lowest before-level)
-    /// so the reported absolute RTTs match the path being graded; the group size is
-    /// carried as the correlated-path count.
+    /// affected path at once. The representative prefers a transit/ISP path hop over an
+    /// internet/CDN destination - a fabric shift is best named by the transit ASN it
+    /// occurred in, not a CDN endpoint that merely routes through it - and within that
+    /// class the nearest hop (lowest before-level), so the reported RTTs match a graded
+    /// path; the group size is carried as the correlated-path count.
     /// </summary>
     public static List<PathShiftEvent> CorrelateAcrossSeries(List<PathShiftEvent> events, IspHealthOptions options)
     {
@@ -267,8 +280,12 @@ public static class StepChangeDetector
 
         foreach (var group in groups)
         {
+            // Prefer an on-path ISP/transit hop over an internet/CDN destination. Destination
+            // is set from the DB TargetType (InternetService), not the target_id - prefixes
+            // lie: transit hops are often custom-named and "transit-as7018" is actually an
+            // access hop. Within the preferred class the nearest hop (lowest before-level) wins.
             var representative = group
-                .OrderByDescending(e => e.TargetId?.StartsWith("transit") == true)
+                .OrderBy(e => e.IsDestination ? 1 : 0)
                 .ThenBy(e => e.BeforeMedianMs)
                 .First();
             merged.Add(new PathShiftEvent
@@ -279,7 +296,8 @@ public static class StepChangeDetector
                 TargetId = representative.TargetId,
                 BeforeMedianMs = representative.BeforeMedianMs,
                 AfterMedianMs = representative.AfterMedianMs,
-                CorrelatedTargetCount = group.Count
+                CorrelatedTargetCount = group.Count,
+                IsDestination = representative.IsDestination
             });
         }
         return merged.OrderBy(e => e.Time).ToList();

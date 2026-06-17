@@ -38,7 +38,8 @@ public class IspHealthScorerTests
         bool smartQueuesEnabled = false,
         double? internetDeltaMs = null,
         bool lineIdle = false,
-        bool hopOrderKnown = false)
+        bool hopOrderKnown = false,
+        List<OutageEvent>? outages = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -79,8 +80,28 @@ public class IspHealthScorerTests
             },
             CongestionEvents = congestion ?? new List<CongestionEvent>(),
             SmartQueuesEnabled = smartQueuesEnabled,
-            HopOrderKnown = hopOrderKnown
+            HopOrderKnown = hopOrderKnown,
+            Outages = outages ?? new List<OutageEvent>()
         };
+    }
+
+    [Fact]
+    public void Outage_drops_overall_by_the_duration_curve()
+    {
+        new IspHealthScorer(Options).Score(BuildInputs(), Gpon).OverallScore.Should().Be(100);
+
+        OutageEvent Outage(double mins) => new()
+        {
+            Start = TestSeries.Start.AddHours(2),
+            End = TestSeries.Start.AddHours(2).AddMinutes(mins)
+        };
+        int OverallWith(double mins) => new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { Outage(mins) }), Gpon).OverallScore;
+
+        // Default severity curve: 10 min -> 14, 60 min -> 45, 8 h -> 90 (off a clean 100).
+        OverallWith(10).Should().Be(86);
+        OverallWith(60).Should().Be(55);
+        OverallWith(480).Should().Be(10);
     }
 
     [Fact]

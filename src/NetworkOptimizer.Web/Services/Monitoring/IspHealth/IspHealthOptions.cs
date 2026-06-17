@@ -29,16 +29,20 @@ public class IspHealthOptions
     public double SpeedVsPlanWeight { get; set; } = 0.30;
 
     /// <summary>Weight of idle latency within the access dimension.</summary>
-    public double IdleLatencyWeight { get; set; } = 0.15;
+    public double IdleLatencyWeight { get; set; } = 0.10;
 
-    /// <summary>Weight of idle packet loss within the access dimension.</summary>
-    public double IdleLossWeight { get; set; } = 0.15;
+    /// <summary>
+    /// Weight of packet loss within the access dimension. Loss is the heaviest signal
+    /// after speed: it captures both steady physical-layer loss and (via the capped
+    /// outage penalty) internet-unreachable outages, which users care about most.
+    /// </summary>
+    public double IdleLossWeight { get; set; } = 0.25;
 
     /// <summary>Weight of loaded latency delta within the access dimension.</summary>
-    public double LoadedLatencyWeight { get; set; } = 0.20;
+    public double LoadedLatencyWeight { get; set; } = 0.175;
 
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
-    public double LoadedLossWeight { get; set; } = 0.20;
+    public double LoadedLossWeight { get; set; } = 0.175;
 
     /// <summary>How far back to fall when no WAN speed test ran inside the score window.</summary>
     public int SpeedTestFallbackDays { get; set; } = 7;
@@ -165,6 +169,45 @@ public class IspHealthOptions
     /// down (seen in real data).
     /// </summary>
     public double StepStableIqrFraction { get; set; } = 0.15;
+
+    /// <summary>Bucket size in minutes for outage detection.</summary>
+    public int OutageBucketMinutes { get; set; } = 1;
+
+    /// <summary>
+    /// Mean loss (percent) at or above which a tier counts as dark in an outage bucket.
+    /// Near-total loss, not the lower congestion thresholds: an outage is the internet
+    /// going unreachable, not slow.
+    /// </summary>
+    public double OutageDarkLossPct { get; set; } = 95.0;
+
+    /// <summary>
+    /// Fraction of the internet/destination targets that must be dark in a bucket for it
+    /// to count as an outage bucket. A strong majority, so one dead probe target or a
+    /// single unreachable CDN does not read as an internet outage.
+    /// </summary>
+    public double OutageCoverageFraction { get; set; } = 0.75;
+
+    /// <summary>
+    /// Minimum internet/destination targets that must be reporting (have a sample) in a
+    /// bucket before an outage can be declared. Below this the evidence is too thin, and
+    /// a bucket with no samples at all is a monitoring gap (console offline), never an outage.
+    /// </summary>
+    public int OutageMinReportingTargets { get; set; } = 2;
+
+    /// <summary>Minimum sustained duration in minutes for an outage event.</summary>
+    public int OutageMinDurationMinutes { get; set; } = 2;
+
+    /// <summary>
+    /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
+    /// penaltyPoints) anchor, interpolated. Applied at the top level rather than buried in the
+    /// Packet Loss factor (where the dimension weights would dilute a multi-hour outage to a
+    /// couple of points). Scored by total duration alone - shape-independent. A brief blip barely
+    /// registers; ~10 min is a clear ding; multi-hour drives the score toward zero.
+    /// </summary>
+    public (double Minutes, double Penalty)[] OutageSeverityCurve { get; set; } =
+    {
+        (0, 0), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
+    };
 
     /// <summary>Loaded delta beyond excellent by this many band-widths triggers the SQM recommendation.</summary>
     public double SqmDeviationFactor { get; set; } = 1.0;

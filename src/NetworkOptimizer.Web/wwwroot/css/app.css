@@ -15741,6 +15741,11 @@ a.isp-health-hero-speed:hover {
     background: rgba(59, 130, 246, 0.15);
 }
 
+.isp-event-badge-danger {
+    color: var(--danger-color);
+    background: rgba(238, 99, 104, 0.15);
+}
+
 .isp-event-time {
     font-size: 0.78rem;
     font-weight: 600;
@@ -15752,6 +15757,120 @@ a.isp-health-hero-speed:hover {
     font-size: 0.85rem;
     color: var(--text-secondary);
     flex: 1 1 240px;
+}
+
+.isp-outage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.isp-outage {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
+}
+
+.isp-outage-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.7rem;
+}
+
+.isp-outage-duration {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.isp-outage-window {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.isp-outage-scope {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-left: auto;
+}
+
+.isp-outage-shape {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.isp-outage-hop {
+    display: grid;
+    grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 7rem);
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.isp-outage-hop-name {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.isp-outage-hop-track {
+    height: 7px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--bg-tertiary) 0, var(--bg-tertiary) 3px, var(--primary-color) 3px);
+    overflow: hidden;
+}
+
+.isp-outage-hop-dark {
+    height: 100%;
+    border-radius: 4px 0 0 4px;
+    background:
+        repeating-linear-gradient(45deg, transparent 0, transparent 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px),
+        linear-gradient(90deg, var(--text-muted), 75%, var(--primary-color));
+    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.isp-outage-hop-status {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.isp-outage-hop-up {
+    color: var(--success-color);
+}
+
+@media (max-width: 768px) {
+    .isp-outage-hop {
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "name status" "track track";
+        gap: 0.3rem 0.6rem;
+    }
+    .isp-outage-hop-name {
+        grid-area: name;
+    }
+    .isp-outage-hop-status {
+        grid-area: status;
+    }
+    .isp-outage-hop-track {
+        grid-area: track;
+    }
+    .isp-outage-scope {
+        margin-left: 0;
+        flex-basis: 100%;
+    }
 }
 
 @media (max-width: 1024px) {

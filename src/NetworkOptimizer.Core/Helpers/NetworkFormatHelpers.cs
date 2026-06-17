@@ -125,7 +125,7 @@ public static class NetworkFormatHelpers
     private static readonly string[] OrgSuffixes =
     {
         "Communications", "Telephone", "Telecom", "Telecommunications",
-        "Broadband", "Internet", "Fiber", "Cable", "Wireless",
+        "Broadband", "Bandwidth", "Internet", "Fiber", "Cable", "Wireless",
         "Enterprises", "Services", "Technologies", "Networks", "Network",
         "Electric Cooperative", "Cooperative", "Co-op",
         "Corporation", "Incorporated", "Company", "Holdings", "Group", "Parent",
@@ -135,8 +135,14 @@ public static class NetworkFormatHelpers
     };
 
     /// <summary>
-    /// Strip corporate/industry suffixes from an organization name
-    /// ("Hisense Broadband Technologies Co Ltd" -> "Hisense").
+    /// The storage-time ASN/org-name cleaner: strips industry suffixes (Communications, Telecom,
+    /// Broadband, Networks, Services, Parent, Holdings ...) and legal forms (LLC, Inc, AB ...) off
+    /// the tail ("Hisense Broadband Technologies Co Ltd" -> "Hisense", "Level 3 Parent, LLC" ->
+    /// "Level 3"). Applied once when a target's AsnName is persisted - auto-discovery
+    /// (UpstreamTracerService.CleanAsnName) and manual target add (LatencyTargetsCard) both call it,
+    /// so the two paths store identical names. This is the HEAVIER of the two ASN-name cleaners;
+    /// the lighter resolve/display pass that also carries brand overrides (e.g. Arelion Sweden ->
+    /// Arelion, applied without re-discovery) is AsnNameCleanup in AsnResolutionService.
     /// </summary>
     public static string CleanOrgName(string? name)
     {

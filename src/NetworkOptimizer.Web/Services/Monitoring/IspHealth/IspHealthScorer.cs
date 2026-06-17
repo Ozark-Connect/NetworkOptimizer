@@ -13,6 +13,14 @@ public class IspHealthScorer
     private readonly IspHealthOptions _options;
     private readonly ILogger? _logger;
 
+    // Outage windows for the current report. An outage's only score impact is the single
+    // capped Packet Loss penalty, so its near-total-loss samples are excluded from every
+    // other loss aggregation (per-ASN/hop grades, loaded loss, displayed loss) - otherwise
+    // they would double-count and tank the Transit/ISP dimensions. Set per Score() call.
+    private IReadOnlyList<OutageEvent> _outages = System.Array.Empty<OutageEvent>();
+
+    private bool InOutage(DateTime time) => _outages.Any(o => time >= o.Start && time < o.End);
+
     public IspHealthScorer(IspHealthOptions options, ILogger? logger = null)
     {
         _options = options;
@@ -21,6 +29,7 @@ public class IspHealthScorer
 
     public IspHealthReport Score(IspHealthInputs inputs, AccessProfile profile)
     {
+        _outages = inputs.Outages;
         if (inputs.LoadExclusionWindows.Count > 0)
         {
             foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
@@ -64,6 +73,18 @@ public class IspHealthScorer
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
+        // An outage is scored once, here at the top level, on a duration curve - so a long
+        // outage actually drives the score down instead of being diluted to a couple of
+        // points inside one factor. Scored by total downtime alone, shape-independent.
+        var outageMinutes = inputs.Outages.Sum(o => o.Duration.TotalMinutes);
+        if (outageMinutes > 0)
+        {
+            var penalty = OutageScorePenalty(outageMinutes);
+            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} min downtime ({Before} -> {After})",
+                penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0", CultureInfo.InvariantCulture),
+                overall, (int)Math.Max(0, Math.Round(overall - penalty)));
+            overall = (int)Math.Max(0, Math.Round(overall - penalty));
+        }
 
         var report = new IspHealthReport
         {
@@ -80,6 +101,7 @@ public class IspHealthScorer
             IspTargets = inputs.IspTargetSeries.Select(s => BuildIspTargetHealth(s, inputs.FirstHopTargetId, ispHopGrades, _options.RttWinsorPercentile)).ToList(),
             CongestionEvents = inputs.CongestionEvents,
             PathShifts = inputs.PathShifts,
+            Outages = inputs.Outages,
             HasExpectedSpeeds = hasExpectedSpeeds,
             HasUpstreamTraceMap = inputs.HopOrderKnown,
             HasLoadedSamples = hasLoadedLatency || hasLoadedLoss,
@@ -297,8 +319,11 @@ public class IspHealthScorer
 
     private IspScoreFactor ScoreIdleLoss(List<List<LatencySample>> lossPool, AccessProfile profile, double avgLoad)
     {
+        // Steady loss is graded on samples OUTSIDE any outage span, so the number reflects
+        // true physical-layer loss rather than a discrete internet-down event. Outages are
+        // scored separately at the top level (see the outage severity penalty in Score).
         var losses = lossPool.SelectMany(series => series)
-            .Where(s => s.LossPercent.HasValue)
+            .Where(s => s.LossPercent.HasValue && !InOutage(s.Time))
             .Select(s => s.LossPercent!.Value)
             .ToList();
         if (losses.Count == 0)
@@ -511,7 +536,7 @@ public class IspHealthScorer
     {
         var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var losses = lossPool.SelectMany(series => series)
-            .Where(s => s.LossPercent.HasValue
+            .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
                 && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
                 && directionSelector(w))
             .Select(s => s.LossPercent!.Value)
@@ -541,7 +566,7 @@ public class IspHealthScorer
         double? jitterOverrideMs = null)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
-        var losses = series.Samples.Where(s => s.LossPercent.HasValue).Select(s => s.LossPercent!.Value).ToList();
+        var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time)).Select(s => s.LossPercent!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
 
         var medianRtt = SeriesStats.Median(rtts);
@@ -912,11 +937,11 @@ public class IspHealthScorer
         return result;
     }
 
-    private static IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile)
+    private IspTargetHealth BuildIspTargetHealth(AsnSeries series, string? firstHopTargetId, List<IspAsnHealth> hopGrades, double winsorPercentile)
     {
         var rtts = series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-        var losses = series.Samples.Where(s => s.LossPercent.HasValue).Select(s => s.LossPercent!.Value).ToList();
+        var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time)).Select(s => s.LossPercent!.Value).ToList();
         var targetId = series.TargetIds.FirstOrDefault() ?? "";
         var grade = hopGrades.FirstOrDefault(g => g.TargetIds.Contains(targetId));
         // Jitter comes from the grade (the effective/absolved value the hop is scored on), so
@@ -993,6 +1018,27 @@ public class IspHealthScorer
         LoadedDeltas loadedDeltas)
     {
         var issues = new List<IspHealthIssue>();
+
+        if (inputs.Outages.Count > 0)
+        {
+            var totalDown = TimeSpan.FromMinutes(inputs.Outages.Sum(o => o.Duration.TotalMinutes));
+            var upstream = inputs.Outages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var where = inputs.Outages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0
+                ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so this was an ISP-side fault, not your network."
+                : " At least one event took the whole WAN dark, including the first ISP hop.";
+            var count = inputs.Outages.Count == 1
+                ? $"An internet outage of {FormatOutageDuration(inputs.Outages[0].Duration)}"
+                : $"{inputs.Outages.Count} internet outages totaling {FormatOutageDuration(totalDown)}";
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Warning,
+                Title = inputs.Outages.Count == 1 ? "Internet outage in the window" : "Internet outages in the window",
+                Description = $"{count} occurred while the Monitoring Agent kept probing (so this is a real outage, not a monitoring gap).{where}",
+                Recommendation = "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents.",
+                LinkUrl = "#isp-outages",
+                LinkText = "The recovery shape is shown on the timeline below."
+            });
+        }
 
         if (!report.HasExpectedSpeeds)
         {
@@ -1113,6 +1159,17 @@ public class IspHealthScorer
 
     private DateTime FloorToWindow(DateTime time) =>
         CongestionDetector.FloorTime(time, TimeSpan.FromSeconds(_options.LoadWindowSeconds));
+
+    /// <summary>
+    /// The overall-score deduction for outages of the given total downtime, interpolated on the
+    /// configured severity curve. Applied at the top level (not inside a factor) so a long
+    /// outage isn't diluted by the dimension weights; scored by duration alone, shape-independent.
+    /// </summary>
+    private double OutageScorePenalty(double totalDowntimeMinutes) =>
+        ScoreCurve.Interpolate(totalDowntimeMinutes, _options.OutageSeverityCurve);
+
+    private static string FormatOutageDuration(TimeSpan d) =>
+        d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min" : $"{d.TotalHours:0.#} h";
 
     private static string FormatMs(double ms) =>
         $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";

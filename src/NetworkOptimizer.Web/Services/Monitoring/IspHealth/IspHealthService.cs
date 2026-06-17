@@ -126,6 +126,10 @@ public class IspHealthService
         // Upstream Discovery's traces. ISP Health uses these to confirm one hop routes
         // through another before its jitter absolves the other. No live traceroute here.
         Dictionary<string, List<string>> ancestorIpsByTargetId;
+        // TargetId -> persisted hop distance (lowest TTL seen across traces). The canonical
+        // nearest-first ordering for the outage shape; absent for targets never traced
+        // (the trace map landed post-launch), where the caller falls back to RTT.
+        Dictionary<string, int> hopNumberByTargetId;
         bool hopOrderKnown;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
@@ -171,6 +175,11 @@ public class IspHealthService
             // Ancestor data exists when any row carries the (non-null) column - distinguishes
             // "no discovery yet / pre-ancestor data" from "on-path but no upstream ancestors".
             hopOrderKnown = discoveries.Any(d => d.AncestorHopIps != null);
+            // Canonical hop distance per target (lowest TTL across traces) for outage ordering.
+            hopNumberByTargetId = discoveries
+                .Where(d => targetIdById.ContainsKey(d.MonitoringTargetId!.Value))
+                .GroupBy(d => targetIdById[d.MonitoringTargetId!.Value])
+                .ToDictionary(g => g.Key, g => g.Min(d => d.HopNumber));
         }
 
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
@@ -290,7 +299,10 @@ public class IspHealthService
                 HopIps = { t.Address },
                 // Hops proven upstream of this destination, so its clean end-to-end jitter
                 // can absolve an ICMP-deprioritized ISP hop it provably routes through.
-                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>()
+                AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var destAnc) ? destAnc : new List<string>(),
+                // Internet/CDN endpoint (by TargetType): path-shift correlation prefers an
+                // on-path ISP/transit hop over these as the event label.
+                IsDestination = true
             })
             .ToList();
 
@@ -300,6 +312,34 @@ public class IspHealthService
         // network show up on every path that crosses it (per the real shift examples)
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
+
+        // Outage detection: the internet targets going dark defines an outage; every hop is
+        // carried (ordered nearest-first by median RTT, named from the DB) to shape it and
+        // attribute the break. A monitoring gap has no samples and so is never flagged.
+        var internetTriggerTargets = targets
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
+            .Select(t => (IReadOnlyList<LatencySample>)internetSeries[t.TargetId])
+            .ToList();
+        // Shape the outage on the SAME per-ASN RTT clusters as the Per-Network RTT card
+        // (chartClusters carry merged loss samples and the cluster names), plus each internet
+        // destination. Ordered nearest-first by the persisted hop map (canonical), RTT as the
+        // tiebreaker and the fallback for untraced targets. So a co-located ASN's hops collapse
+        // to one waterfall row while a distinct-distance hop like the OLT stays on its own.
+        int ClusterHopNumber(AsnSeries s) => s.TargetIds
+            .Select(tid => hopNumberByTargetId.TryGetValue(tid, out var hn) ? hn : int.MaxValue)
+            .DefaultIfEmpty(int.MaxValue).Min();
+        var outageHops = chartClusters.Concat(internetTargetSeries)
+            .Select(s => new
+            {
+                Name = s.AsnName ?? s.TargetIds.FirstOrDefault() ?? "hop",
+                Series = (IReadOnlyList<LatencySample>)s.Samples,
+                HopNumber = ClusterHopNumber(s),
+                Rtt = SeriesStats.Median(s.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList()) ?? double.MaxValue
+            })
+            .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
+            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series))
+            .ToList();
+        var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
 
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
@@ -327,6 +367,7 @@ public class IspHealthService
             WanSpeedTests = wanSpeedTests,
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
+            Outages = outages,
             SmartQueuesEnabled = smartQueuesEnabled,
             HopOrderKnown = hopOrderKnown,
             LoadExclusionWindows = loadExclusions
@@ -664,11 +705,15 @@ public class IspHealthService
 
         foreach (var group in groups)
         {
-            var asnName = group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
+            // The stored AsnName was cleaned by CleanOrgName at discovery/add time (industry
+            // suffixes). Re-run the lighter AsnNameCleanup here so brand overrides (e.g. Arelion
+            // Sweden -> Arelion) apply to already-stored names without needing re-discovery.
+            var asnName = AsnNameCleanup.Clean(
+                group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
                 ?? (asnOverrides != null
                     ? group.Select(t => asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Name : null).FirstOrDefault(n => !string.IsNullOrEmpty(n))
                     : null)
-                ?? group.Select(t => t.Name).FirstOrDefault();
+                ?? group.Select(t => t.Name).FirstOrDefault());
 
             var byMedian = group
                 .Select(t => (Target: t, Median: SeriesStats.Median(

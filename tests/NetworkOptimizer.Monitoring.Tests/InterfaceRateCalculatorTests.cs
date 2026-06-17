@@ -14,6 +14,7 @@ public class InterfaceRateCalculatorTests
 {
     private static readonly DateTime T0 = new(2026, 6, 11, 4, 43, 0, DateTimeKind.Utc);
     private const long TwoPointFiveGbps = 2_500_000_000L;
+    private const long TenGbps = 10_000_000_000L;
 
     private static InterfaceRateCalculator.State Seed(long inO, long outO, DateTime ts) =>
         new(inO, outO, ts);
@@ -194,6 +195,100 @@ public class InterfaceRateCalculatorTests
         recovered.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
         recovered.RateInBps.Should().BeGreaterThan(0);
         recovered.RateInBps.Should().BeLessThan(TwoPointFiveGbps);
+    }
+
+    // ─── All-zero seed read (corrupt first poll after a cache reset) ───
+
+    [Fact]
+    public void ZeroSeed_OnHcCounters_DefersBaseline_NoRate()
+    {
+        // First poll after the counter cache cleared (e.g. console reboot) returns a
+        // corrupt (0,0). It must not become the baseline.
+        var r = InterfaceRateCalculator.Compute(
+            previous: null, inOctets: 0, outOctets: 0, now: T0,
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        r.RateInBps.Should().BeNull();
+        r.RateOutBps.Should().BeNull();
+        r.NewState.ProvisionalSeed.Should().BeTrue("a (0,0) seed is provisional until a real read");
+    }
+
+    [Fact]
+    public void ZeroSeed_ThenRealCounter_ReseedsWithoutSpike()
+    {
+        // Reproduces Mac eth5 on 2026-06-17 18:33: a (0,0) read seeded the baseline
+        // after a console reboot, then the true ~4.29 GB / ~5.0 GB counters returned
+        // ~5.93 s later. Untreated this emitted 5.79 / 6.75 Gbps - under the 10G x1.4
+        // ceiling, so it slipped through. It must emit nothing and reseed instead.
+        var seed = InterfaceRateCalculator.Compute(
+            previous: null, inOctets: 0, outOctets: 0, now: T0,
+            useHcCounters: true, linkSpeedBps: TenGbps);
+        seed.NewState.ProvisionalSeed.Should().BeTrue();
+
+        var recovered = InterfaceRateCalculator.Compute(
+            seed.NewState, inOctets: 4_291_840_953, outOctets: 4_997_948_108, now: T0.AddSeconds(5.93),
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        recovered.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        recovered.RateInBps.Should().BeNull("the phantom ~5.8/6.7 Gbps snap-back must not be emitted");
+        recovered.RateOutBps.Should().BeNull();
+        recovered.NewState.InOctets.Should().Be(4_291_840_953, "the real read is now the trusted baseline");
+        recovered.NewState.ProvisionalSeed.Should().BeFalse();
+
+        // The next real read computes a normal rate from the now-trusted baseline
+        // (~12.36 MB over 5.21 s = ~18.97 Mbps, the actual Mac value at 18:33:13).
+        var next = InterfaceRateCalculator.Compute(
+            recovered.NewState, inOctets: 4_304_200_890, outOctets: 4_998_357_079, now: T0.AddSeconds(11.14),
+            useHcCounters: true, linkSpeedBps: TenGbps);
+        next.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        next.RateInBps.Should().BeApproximately(18_970_000, 200_000);
+        next.RateInBps.Should().BeLessThan(TenGbps);
+    }
+
+    [Fact]
+    public void ZeroSeed_ThenAnotherZero_StaysProvisional()
+    {
+        var seed = InterfaceRateCalculator.Compute(
+            previous: null, inOctets: 0, outOctets: 0, now: T0,
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        var still = InterfaceRateCalculator.Compute(
+            seed.NewState, inOctets: 0, outOctets: 0, now: T0.AddSeconds(5),
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        still.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        still.RateInBps.Should().BeNull();
+        still.NewState.ProvisionalSeed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void EstablishedZeroBaseline_StillComputesRate_DeferralIsSeedTimeOnly()
+    {
+        // A (0,0) that is an ESTABLISHED baseline (ProvisionalSeed false - e.g. a
+        // low-speed interface idle since the baseline was taken) must still compute a
+        // rate. The deferral applies only to a (0,0) seeded as the first read.
+        var prev = Seed(0, 0, T0);
+        var r = InterfaceRateCalculator.Compute(
+            prev, inOctets: 1_250_000, outOctets: 0, now: T0.AddSeconds(10),
+            useHcCounters: true, linkSpeedBps: TenGbps);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.Normal);
+        r.RateInBps.Should().BeApproximately(1_000_000, 1);
+    }
+
+    [Fact]
+    public void ZeroSeed_On32BitCounters_SeedsNormally_NotDeferred()
+    {
+        // 32-bit counters wrap and a (0,0) is plausible on an idle low-speed interface;
+        // a snap-back there exceeds the low link ceiling and is caught by ImplausibleRate.
+        // The seed deferral is scoped to 64-bit HC counters, so this seeds normally.
+        var r = InterfaceRateCalculator.Compute(
+            previous: null, inOctets: 0, outOctets: 0, now: T0,
+            useHcCounters: false, linkSpeedBps: 1_000_000_000L);
+
+        r.Outcome.Should().Be(InterfaceRateCalculator.Outcome.SeededBaseline);
+        r.NewState.ProvisionalSeed.Should().BeFalse();
     }
 
     [Fact]

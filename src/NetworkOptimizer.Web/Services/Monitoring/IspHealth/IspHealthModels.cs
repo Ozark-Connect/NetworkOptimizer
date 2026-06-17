@@ -198,6 +198,64 @@ public class PathShiftEvent
 
     /// <summary>Number of targets showing a correlated step at the same boundary.</summary>
     public int CorrelatedTargetCount { get; init; } = 1;
+
+    /// <summary>True when this shift came from an internet/CDN destination (by DB TargetType),
+    /// not an on-path ISP/transit hop. Correlation prefers a non-destination as the label.</summary>
+    public bool IsDestination { get; init; }
+}
+
+/// <summary>Whether the access/first hop itself went dark, or only everything beyond it.</summary>
+public enum OutageScope
+{
+    /// <summary>Even the access/first ISP hop stopped responding - the whole WAN went dark.</summary>
+    FullWan,
+
+    /// <summary>The access hop stayed reachable while transit and the internet went dark - the break sat upstream of it.</summary>
+    Upstream
+}
+
+/// <summary>
+/// A period where the internet was unreachable: the destination/internet targets went to
+/// near-total loss while probes kept reporting. A monitoring gap (console offline) has no
+/// samples at all and is never an outage. Scored by duration alone via a capped Packet
+/// Loss penalty - independent of shape or which hops dropped; the scope, break point, and
+/// per-tier recovery shape are presentation only.
+/// </summary>
+public class OutageEvent
+{
+    public DateTime Start { get; init; }
+    public DateTime End { get; init; }
+    public TimeSpan Duration => End - Start;
+
+    /// <summary>Whether even the access hop went dark, or it held while everything beyond it dropped.</summary>
+    public OutageScope Scope { get; init; }
+
+    /// <summary>
+    /// The deepest tier/hop that stayed reachable through the outage - the break sat just
+    /// beyond it. Null when even the access hop went dark (a full WAN outage).
+    /// </summary>
+    public string? LastReachableHop { get; init; }
+
+    /// <summary>Per-tier loss and recovery, nearest first, for the outage-shape display.</summary>
+    public List<OutageTierState> Tiers { get; init; } = new();
+}
+
+/// <summary>One network tier's behavior during an outage, for the recovery-shape display.</summary>
+public class OutageTierState
+{
+    public required string Name { get; init; }
+
+    /// <summary>Distance rank: 0 = nearest (access/OLT), higher = farther out (transit, internet).</summary>
+    public int Depth { get; init; }
+
+    /// <summary>Worst mean loss this tier reached during the outage.</summary>
+    public double PeakLossPct { get; init; }
+
+    /// <summary>True when this tier reached the dark threshold at some point in the outage.</summary>
+    public bool WentDark { get; init; }
+
+    /// <summary>First time this tier fell back below the dark threshold after going dark; null if it never went dark or never recovered in-window.</summary>
+    public DateTime? RecoveredAt { get; init; }
 }
 
 /// <summary>The full ISP Health report for the trailing window.</summary>
@@ -217,6 +275,7 @@ public class IspHealthReport
     public List<IspHealthIssue> Issues { get; init; } = new();
     public List<CongestionEvent> CongestionEvents { get; init; } = new();
     public List<PathShiftEvent> PathShifts { get; init; } = new();
+    public List<OutageEvent> Outages { get; init; } = new();
 
     /// <summary>False when expected WAN speeds were unavailable and loaded analysis was skipped.</summary>
     public bool HasExpectedSpeeds { get; init; }
@@ -301,6 +360,10 @@ public class AsnSeries
     /// iff X's IP is in the witness's ancestor set. Empty for a first hop.
     /// </summary>
     public List<string> AncestorIps { get; init; } = new();
+
+    /// <summary>True for an internet/CDN destination series (DB TargetType InternetService).
+    /// Carried onto path-shift events so correlation can prefer an on-path hop as the label.</summary>
+    public bool IsDestination { get; init; }
 }
 
 /// <summary>Load classification of one aggregate window.</summary>
@@ -383,6 +446,9 @@ public class IspHealthInputs
 
     /// <summary>Pre-detected path shift events. Informational only.</summary>
     public List<PathShiftEvent> PathShifts { get; init; } = new();
+
+    /// <summary>Pre-detected internet-unreachable outages in the window.</summary>
+    public List<OutageEvent> Outages { get; init; } = new();
 
     /// <summary>
     /// True when Upstream Discovery has persisted hop-ancestor data for this WAN. When false

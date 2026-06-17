@@ -166,7 +166,14 @@ else
                                     @issue.Recommendation
                                     @if (!string.IsNullOrEmpty(issue.LinkUrl))
                                     {
-                                        <a href="@issue.LinkUrl" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                        @if (issue.LinkUrl!.StartsWith("#"))
+                                        {
+                                            <a href="javascript:void(0)" onclick="document.getElementById('@(issue.LinkUrl.TrimStart('#'))').scrollIntoView({ behavior: 'smooth', block: 'start' });" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                        }
+                                        else
+                                        {
+                                            <a href="@issue.LinkUrl" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                        }
                                     }
                                 </div>
                             }
@@ -332,6 +339,43 @@ else
         </div>
     }
 
+    @if (r.Outages.Count > 0)
+    {
+        <div class="card isp-health-card" id="isp-outages">
+            <div class="card-header"><h2 class="card-title">Internet Outages (@WindowLabel(r))</h2></div>
+            <div class="card-body">
+                <div class="isp-outage-list">
+                    @foreach (var outage in r.Outages)
+                    {
+                        <div class="isp-outage">
+                            <div class="isp-outage-head">
+                                <span class="isp-event-badge isp-event-badge-danger">Outage</span>
+                                <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
+                                <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
+                                <span class="isp-outage-scope">@OutageScopeLabel(outage)</span>
+                            </div>
+                            @if (outage.Tiers.Any(t => t.WentDark))
+                            {
+                                <div class="isp-outage-shape">
+                                    @foreach (var tier in outage.Tiers)
+                                    {
+                                        <div class="isp-outage-hop">
+                                            <span class="isp-outage-hop-name" data-tooltip="@OutageHopTooltip(tier)">@tier.Name</span>
+                                            <div class="isp-outage-hop-track">
+                                                <div class="isp-outage-hop-dark" style="width: @(OutageHopDarkPercent(outage, tier).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                            </div>
+                                            <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier)</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
     <div class="card isp-health-card">
         <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@WindowLabel(r))</h2></div>
         <div class="card-body">
@@ -469,6 +513,31 @@ else
 
     private static string FormatDuration(TimeSpan d) =>
         d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h" : $"{d.TotalMinutes:0} min";
+
+    private static string OutageScopeLabel(OutageEvent o) =>
+        o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)
+            ? $"Break upstream of {o.LastReachableHop}"
+            : "Whole-WAN outage";
+
+    // Share of the outage window this hop spent dark (red), for the recovery-waterfall bar.
+    // Capped at 95% so a sliver of the blue "up" track always shows on even the longest bars -
+    // making it obvious the path came back when the outage ended.
+    private static double OutageHopDarkPercent(OutageEvent o, OutageTierState t)
+    {
+        if (!t.WentDark) return 0;
+        var span = (o.End - o.Start).TotalSeconds;
+        if (span <= 0) return 95;
+        var dark = t.RecoveredAt.HasValue ? (t.RecoveredAt.Value - o.Start).TotalSeconds : span;
+        return Math.Clamp(dark / span * 100, 0, 95);
+    }
+
+    private static string OutageHopStatus(OutageTierState t) =>
+        !t.WentDark ? "stayed up"
+        : t.RecoveredAt.HasValue ? $"back @ {t.RecoveredAt.Value.ToLocalTime():HH:mm:ss}"
+        : "down";
+
+    private static string OutageHopTooltip(OutageTierState t) =>
+        t.WentDark ? $"Went dark; peak loss {t.PeakLossPct:0}%." : "Stayed reachable through the outage.";
 
     private static string WindowLabel(IspHealthReport r) =>
         $"{(r.WindowEnd - r.WindowStart).TotalHours:0} h";

@@ -313,7 +313,10 @@
                     if (asn != null)
                     {
                         asnNumber = asn.Asn;
-                        asnName = asn.Name;
+                        // Apply the same industry-suffix cleanup auto-discovery uses
+                        // (UpstreamTracerService.CleanAsnName), so a manually-added transit hop
+                        // stores "Level 3", not "Level 3 Parent" / "Lumen", matching discovery.
+                        asnName = NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(asn.Name);
                     }
                 }
             }
