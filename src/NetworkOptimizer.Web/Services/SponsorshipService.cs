@@ -173,10 +173,12 @@ public class SponsorshipService : ISponsorshipService
 
         // Count all usage sources. These run sequentially rather than in parallel: the repositories
         // share a single scoped DbContext (and the factory context below is a single instance too),
-        // and a DbContext does not support concurrent operations. Fanning these out with Task.WhenAll
-        // throws "A second operation was started on this context instance" (or ObjectDisposedException
-        // when a disposal path wins the race). On SQLite the reads serialize at the DB level anyway,
-        // so parallelism buys nothing here.
+        // and a DbContext does not support concurrent operations regardless of the SQLite journal
+        // mode. Fanning these out with Task.WhenAll throws "A second operation was started on this
+        // context instance" (or ObjectDisposedException when a disposal path wins the race). WAL would
+        // permit truly concurrent reads, but only across separate connections - i.e. a distinct
+        // DbContext per query - which isn't worth it for a handful of cheap COUNT queries on a ~60s nag
+        // check.
         var manualAuditCount = await auditRepository.GetManualAuditCountAsync();
         var scheduledAuditCount = await auditRepository.GetScheduledAuditCountAsync();
         var speedTestCount = await speedTestRepository.GetIperf3ResultCountAsync();
