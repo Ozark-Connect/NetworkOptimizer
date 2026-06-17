@@ -59,12 +59,22 @@ function bandBaseColor(band) {
 // Fade-in (ms) applied to a client re-attached to a different AP during roam playback.
 const ROAM_FADE_MS = 350;
 
-// Stable pseudo-angle from a node id so a client scatters to a consistent spot near
-// its historic AP (no jitter if re-pointed again to the same AP).
-function _roamAngle(id) {
-    let h = 0;
-    for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) | 0;
-    return ((h >>> 0) % 360) * Math.PI / 180;
+// Deterministic PRNG (mulberry32) seeded off a node id. Lets a roamed client scatter
+// near its AP using the same distribution as a freshly-added client, while staying
+// stable across scrub crossings (no re-jitter when re-pointed to the same AP).
+function _roamSeed(id) {
+    let h = 1779033703 ^ id.length;
+    for (let i = 0; i < id.length; i += 1) {
+        h = Math.imul(h ^ id.charCodeAt(i), 3432918353);
+        h = (h << 13) | (h >>> 19);
+    }
+    let a = h >>> 0;
+    return function () {
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
 }
 
 const NODE_RADIUS = {
@@ -1329,10 +1339,14 @@ export class LanFlowMap {
         if (explicitPos) {
             pos.x = explicitPos.x; pos.y = explicitPos.y; pos.z = explicitPos.z;
         } else {
-            const angle = _roamAngle(clientId);
-            const dist = 8;
+            // Same scatter as a freshly-attached client (_addNodeIncremental): random
+            // angle, 6-12 units out, slight y jitter - but seeded off the client id so
+            // it's stable across scrub crossings instead of re-rolling each time.
+            const rnd = _roamSeed(clientId);
+            const angle = rnd() * Math.PI * 2;
+            const dist = 6 + rnd() * 6;
             pos.x = apPos.x + Math.cos(angle) * dist;
-            pos.y = apPos.y - 1.5;
+            pos.y = apPos.y - 1.5 + rnd();
             pos.z = apPos.z + Math.sin(angle) * dist;
         }
         group.position.set(pos.x, pos.y, pos.z);
@@ -2682,6 +2696,10 @@ export class LanFlowMap {
         for (const [linkId, { el }] of this._linkLabels) {
             const link = this._linkMeshes.get(linkId);
             if (!link || !el._hasData) { el.classList.remove('is-visible'); continue; }
+            // Respect the band/overlay filter: _applyFilter hides a filtered client
+            // link's pipe, so its throughput label must hide too (device labels already
+            // gate on group.visible; link labels need the same check).
+            if (!link.pipe.visible) { el.classList.remove('is-visible'); continue; }
             const fromPos = this._positions.get(link.link.fromNodeId);
             const toPos = this._positions.get(link.link.toNodeId);
             if (!fromPos || !toPos) continue;
