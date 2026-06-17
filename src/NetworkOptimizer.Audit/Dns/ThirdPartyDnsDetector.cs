@@ -989,13 +989,16 @@ public class ThirdPartyDnsDetector
         return false;
     }
 
-    private async Task<bool> TryProbeTechnitiumDnsEndpointAsync(string baseUrl)
+    /// <summary>
+    /// Probe a direct base URL for Technitium DNS (used for reverse proxy scenarios)
+    /// </summary>
+    private async Task<bool> TryProbeTechnitiumDnsEndpointAsync(string baseUrl, int timeoutSeconds = 3)
     {
         try
         {
             _logger.LogDebug("Probing Technitium DNS at {Url}", baseUrl);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
             var response = await _httpClient.GetAsync(baseUrl, cts.Token);
 
             if (!response.IsSuccessStatusCode)
@@ -1025,7 +1028,9 @@ public class ThirdPartyDnsDetector
     {
         var scheme = useHttps ? "https" : "http";
         var baseUrl = $"{scheme}://{ipAddress}:{port}";
-        return await TryProbeTechnitiumDnsEndpointAsync(baseUrl);
+        // Per-IP-port probes use a short 1s timeout (matching Pi-hole/AdGuard); the
+        // longer 3s default is reserved for the custom-URL/reverse-proxy path.
+        return await TryProbeTechnitiumDnsEndpointAsync(baseUrl, timeoutSeconds: 1);
     }
 
     private static bool DetectTechnitiumDnsFromContent(string content)
@@ -1036,11 +1041,6 @@ public class ThirdPartyDnsDetector
             content.IndexOf("js/main.js", StringComparison.OrdinalIgnoreCase) >= 0 ||
             content.IndexOf("js/auth.js", StringComparison.OrdinalIgnoreCase) >= 0;
 
-        if (!hasTitle || !hasDistinctiveAsset)
-        {
-            return false;
-        }
-
-        return true;
+        return hasTitle && hasDistinctiveAsset;
     }
 }
