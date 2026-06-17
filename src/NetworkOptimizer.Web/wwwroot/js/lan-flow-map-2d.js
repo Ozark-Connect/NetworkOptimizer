@@ -1347,21 +1347,28 @@ class LanFlowMap2D {
 
     _calcBounds(visibleOnly){
         let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-        const exp=(x,y,r)=>{x0=Math.min(x0,x-r);y0=Math.min(y0,y-r);x1=Math.max(x1,x+r);y1=Math.max(y1,y+r);};
+        // Vertical extent is asymmetric on purpose: name + throughput labels sit BELOW a
+        // node and there's nothing above the top node, so reserve only the node's top
+        // half upward and the label band downward. (The old code used boxW - the box
+        // WIDTH - for all four sides, padding empty space above the gateway and clipping
+        // the bottom node's rate label, which biased the whole map downward.)
+        const exp=(x,y,rx,up,down)=>{
+            x0=Math.min(x0,x-rx); x1=Math.max(x1,x+rx);
+            y0=Math.min(y0,y-up); y1=Math.max(y1,y+down);
+        };
+        const INFRA_UP=G.boxH/2+6, INFRA_DOWN=G.boxH/2+44;   // box top ; box + name + rate label
+        const CLIENT_UP=G.clientR+4, CLIENT_DOWN=G.clientR+24; // dot top ; dot + name label
         const walk=(n)=>{
-            exp(n.x,n.y,G.boxW);
+            exp(n.x,n.y,G.boxW,INFRA_UP,INFRA_DOWN);
             for(const c of n.infra)walk(c);
-            if(!visibleOnly){
-                for(const c of n.clients.slice(0,G.maxClients))exp(c.x,c.y,G.clientCellW/2);
-            }else{
-                for(const c of n.clients.slice(0,G.maxClients)){
-                    if(this._isNodeVisible(c))exp(c.x,c.y,G.clientCellW/2);
-                }
+            for(const c of n.clients.slice(0,G.maxClients)){
+                if(visibleOnly&&!this._isNodeVisible(c))continue;
+                exp(c.x,c.y,G.clientCellW/2,CLIENT_UP,CLIENT_DOWN);
             }
         };
         walk(this._root);
         if(!visibleOnly||this._isCloudVisible()){
-            for(const c of this._clouds)exp(c.x,c.y,G.cloudR+30);
+            for(const c of this._clouds)exp(c.x,c.y,G.cloudR+30,G.cloudR+30,G.cloudR+30);
         }
         const p=20;
         this._bx=x0-p; this._by=y0-p;
