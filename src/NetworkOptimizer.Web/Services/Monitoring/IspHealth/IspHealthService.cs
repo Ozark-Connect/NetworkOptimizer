@@ -126,6 +126,10 @@ public class IspHealthService
         // Upstream Discovery's traces. ISP Health uses these to confirm one hop routes
         // through another before its jitter absolves the other. No live traceroute here.
         Dictionary<string, List<string>> ancestorIpsByTargetId;
+        // TargetId -> persisted hop distance (lowest TTL seen across traces). The canonical
+        // nearest-first ordering for the outage shape; absent for targets never traced
+        // (the trace map landed post-launch), where the caller falls back to RTT.
+        Dictionary<string, int> hopNumberByTargetId;
         bool hopOrderKnown;
         await using (var db = await _dbFactory.CreateDbContextAsync(ct))
         {
@@ -171,6 +175,11 @@ public class IspHealthService
             // Ancestor data exists when any row carries the (non-null) column - distinguishes
             // "no discovery yet / pre-ancestor data" from "on-path but no upstream ancestors".
             hopOrderKnown = discoveries.Any(d => d.AncestorHopIps != null);
+            // Canonical hop distance per target (lowest TTL across traces) for outage ordering.
+            hopNumberByTargetId = discoveries
+                .Where(d => targetIdById.ContainsKey(d.MonitoringTargetId!.Value))
+                .GroupBy(d => targetIdById[d.MonitoringTargetId!.Value])
+                .ToDictionary(g => g.Key, g => g.Min(d => d.HopNumber));
         }
 
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
@@ -301,6 +310,30 @@ public class IspHealthService
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
+        // Outage detection: the internet targets going dark defines an outage; every hop is
+        // carried (ordered nearest-first by median RTT, named from the DB) to shape it and
+        // attribute the break. A monitoring gap has no samples and so is never flagged.
+        var internetTriggerTargets = targets
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
+            .Select(t => (IReadOnlyList<LatencySample>)internetSeries[t.TargetId])
+            .ToList();
+        var outageHops = ispTargets.Where(t => ispSeries.ContainsKey(t.TargetId)).Select(t => (Target: t, Series: ispSeries[t.TargetId]))
+            .Concat(transitTargets.Where(t => transitSeries.ContainsKey(t.TargetId)).Select(t => (Target: t, Series: transitSeries[t.TargetId])))
+            .Concat(targets.Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId)).Select(t => (Target: t, Series: internetSeries[t.TargetId])))
+            .Select(x => new
+            {
+                x.Target.Name,
+                x.Series,
+                // Canonical hop distance from the persisted trace map first; RTT is only a
+                // tiebreaker and the fallback for untraced targets (trace map is post-launch).
+                HopNumber = hopNumberByTargetId.TryGetValue(x.Target.TargetId, out var hn) ? hn : int.MaxValue,
+                Rtt = SeriesStats.Median(x.Series.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()) ?? double.MaxValue
+            })
+            .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
+            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series))
+            .ToList();
+        var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
+
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
         // event labels. It is published together with the report (see Snapshot).
@@ -327,6 +360,7 @@ public class IspHealthService
             WanSpeedTests = wanSpeedTests,
             CongestionEvents = congestionEvents,
             PathShifts = pathShifts,
+            Outages = outages,
             SmartQueuesEnabled = smartQueuesEnabled,
             HopOrderKnown = hopOrderKnown,
             LoadExclusionWindows = loadExclusions
