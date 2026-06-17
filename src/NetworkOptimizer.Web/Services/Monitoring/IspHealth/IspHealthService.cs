@@ -15,6 +15,12 @@ public class IspHealthService
 {
     private static readonly string[] AnycastDnsIps = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"];
 
+    // The internet endpoints that drive outage detection and the outage waterfall: just the two
+    // canonical anycast resolvers (Cloudflare, Google). 5+ internet rows on the waterfall is just
+    // clutter - two well-known resolvers convey "internet reachable" plainly. The rest still feed
+    // jitter-absolve and path-shift.
+    private static readonly string[] OutageInternetIps = ["1.1.1.1", "8.8.8.8"];
+
     private readonly MonitoringInfluxClient _influx;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
@@ -287,7 +293,8 @@ public class IspHealthService
                 && internetSeries.ContainsKey(t.TargetId))
             .Select(t => internetSeries[t.TargetId]));
 
-        var (ispGrading, transitGrading, allClusters, chartClusters) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
+        var (ispGrading, transitGrading, allClusters, ispChart, transitChart) = BuildAsnSeriesSets(ispTargets, transitTargets, ispSeries, transitSeries, ancestorIpsByTargetId);
+        var chartClusters = ispChart.Concat(transitChart).ToList();
         var internetTargetSeries = targets
             .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
             .Select(t => new AsnSeries
@@ -314,30 +321,48 @@ public class IspHealthService
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
 
         // Outage detection: the internet targets going dark defines an outage; every hop is
-        // carried (ordered nearest-first by median RTT, named from the DB) to shape it and
-        // attribute the break. A monitoring gap has no samples and so is never flagged.
+        // carried (ordered nearest-first by the hop map, RTT tiebreaker) to shape it and
+        // attribute the break. A monitoring gap has no samples and so is never flagged. Both
+        // the trigger and the internet rows are limited to the two canonical resolvers.
         var internetTriggerTargets = targets
-            .Where(t => t.TargetType == MonitoringTargetType.InternetService && internetSeries.ContainsKey(t.TargetId))
+            .Where(t => t.TargetType == MonitoringTargetType.InternetService
+                && OutageInternetIps.Contains(t.Address)
+                && internetSeries.ContainsKey(t.TargetId))
             .Select(t => (IReadOnlyList<LatencySample>)internetSeries[t.TargetId])
             .ToList();
-        // Shape the outage on the SAME per-ASN RTT clusters as the Per-Network RTT card
-        // (chartClusters carry merged loss samples and the cluster names), plus each internet
-        // destination. Ordered nearest-first by the persisted hop map (canonical), RTT as the
-        // tiebreaker and the fallback for untraced targets. So a co-located ASN's hops collapse
-        // to one waterfall row while a distinct-distance hop like the OLT stays on its own.
         int ClusterHopNumber(AsnSeries s) => s.TargetIds
             .Select(tid => hopNumberByTargetId.TryGetValue(tid, out var hn) ? hn : int.MaxValue)
             .DefaultIfEmpty(int.MaxValue).Min();
-        var outageHops = chartClusters.Concat(internetTargetSeries)
-            .Select(s => new
+        // Waterfall composition:
+        //  - Access ISP targets broken out per target (Groupable) so each access hop's own
+        //    outage timing shows; the detector re-collapses ones that share a signature.
+        //  - Transit kept as the per-ASN RTT clusters (the Per-Network RTT grouping), untouched.
+        //  - Internet limited to the two trigger resolvers (Cloudflare, Google).
+        var outageSources = ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t => (Series: new AsnSeries
             {
-                Name = s.AsnName ?? s.TargetIds.FirstOrDefault() ?? "hop",
-                Series = (IReadOnlyList<LatencySample>)s.Samples,
-                HopNumber = ClusterHopNumber(s),
-                Rtt = SeriesStats.Median(s.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList()) ?? double.MaxValue
+                AsnNumber = t.AsnNumber ?? 0,
+                AsnName = t.Name,
+                TargetIds = { t.TargetId },
+                Samples = ispSeries[t.TargetId],
+                HopIps = { t.Address }
+            }, Groupable: true))
+            .Concat(transitChart.Select(s => (Series: s, Groupable: false)))
+            .Concat(internetTargetSeries
+                .Where(s => s.HopIps.Any(ip => OutageInternetIps.Contains(ip)))
+                .Select(s => (Series: s, Groupable: false)));
+        var outageHops = outageSources
+            .Select(x => new
+            {
+                x.Groupable,
+                Name = x.Series.AsnName ?? x.Series.TargetIds.FirstOrDefault() ?? "hop",
+                Series = (IReadOnlyList<LatencySample>)x.Series.Samples,
+                HopNumber = ClusterHopNumber(x.Series),
+                Rtt = SeriesStats.Median(x.Series.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList()) ?? double.MaxValue
             })
             .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
-            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series))
+            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series, x.Groupable))
             .ToList();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
 
@@ -613,7 +638,7 @@ public class IspHealthService
     ///   clusters still feed the detectors and chart as separately named series so
     ///   monitoring deep hops never inflates the ASN's grade.
     /// </summary>
-    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> AllClusters, List<AsnSeries> ChartClusters) BuildAsnSeriesSets(
+    private (List<AsnSeries> IspGrading, List<AsnSeries> TransitGrading, List<AsnSeries> AllClusters, List<AsnSeries> IspChart, List<AsnSeries> TransitChart) BuildAsnSeriesSets(
         List<MonitoringTarget> ispTargets,
         List<MonitoringTarget> transitTargets,
         Dictionary<string, List<LatencySample>> ispSeries,
@@ -661,7 +686,7 @@ public class IspHealthService
 
         return (ispGrading, transitGrading,
             ispClusters.Concat(transitClusters).ToList(),
-            ispChart.Concat(transitChart).ToList());
+            ispChart, transitChart);
     }
 
     /// <summary>

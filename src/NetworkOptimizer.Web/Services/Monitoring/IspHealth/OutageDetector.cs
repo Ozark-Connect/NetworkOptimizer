@@ -15,8 +15,13 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// </summary>
 public static class OutageDetector
 {
-    /// <summary>One monitored hop, carried for the outage shape and break attribution.</summary>
-    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series);
+    /// <summary>
+    /// One monitored hop, carried for the outage shape and break attribution. <paramref name="Groupable"/>
+    /// hops (the per-target access ISP rows) that end up sharing an outage signature are collapsed
+    /// into one waterfall row; non-groupable hops (transit clusters, internet endpoints) always
+    /// stay on their own.
+    /// </summary>
+    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series, bool Groupable = false);
 
     /// <param name="triggerTargets">The internet/destination loss series whose near-total loss defines an outage.</param>
     /// <param name="hops">Every monitored hop, ordered by distance (Depth ascending = nearest first), for the shape.</param>
@@ -91,7 +96,7 @@ public static class OutageDetector
         Dictionary<Hop, Dictionary<DateTime, List<double>>> hopBuckets,
         IspHealthOptions options)
     {
-        var states = new List<OutageTierState>();
+        var tiers = new List<(Hop Hop, OutageTierState State)>();
         // A hop on the broken path stays dark for (most of) the outage; a hop that merely
         // blipped at onset then held - like the OLT, which recovered ~10 min before the
         // upstream in the validation data - is NOT the break and must read as reachable.
@@ -117,7 +122,7 @@ public static class OutageDetector
                 }
             }
             onBrokenPath[hop.Depth] = totalBuckets > 0 && (double)darkBuckets / totalBuckets >= 0.5;
-            states.Add(new OutageTierState
+            tiers.Add((hop, new OutageTierState
             {
                 Name = hop.Name,
                 Depth = hop.Depth,
@@ -130,11 +135,13 @@ public static class OutageDetector
                 RecoveredAt = lastDarkBucket.HasValue
                     ? RecoveryAfter(hop.Series, lastDarkBucket.Value, options.OutageDarkLossPct)
                     : null
-            });
+            }));
         }
 
         // The break sits just beyond the deepest hop that stayed reachable through the
         // outage. If even the nearest hop was dark for most of it, the whole WAN dropped.
+        // Attribution runs on the per-hop (ungrouped) states so it can name the precise hop.
+        var states = tiers.Select(t => t.State).ToList();
         var nearest = states.OrderBy(s => s.Depth).FirstOrDefault();
         var lastReachable = states.Where(s => !onBrokenPath[s.Depth]).OrderByDescending(s => s.Depth).FirstOrDefault();
         var scope = nearest == null || onBrokenPath[nearest.Depth] || lastReachable == null
@@ -153,8 +160,59 @@ public static class OutageDetector
             End = recovery,
             Scope = scope,
             LastReachableHop = scope == OutageScope.Upstream ? lastReachable!.Name : null,
-            Tiers = states
+            Tiers = GroupAccessTiers(tiers, options)
         };
+    }
+
+    /// <summary>
+    /// Collapses groupable (access ISP) tiers that share an outage signature - recovery within
+    /// <see cref="IspHealthOptions.OutageAccessGroupToleranceSeconds"/> - into one row, so a handful
+    /// of near-identical access hops don't each take a row. Access hops that recovered at a
+    /// distinctly different time (the inside-out heal, e.g. the OLT coming back first) stay
+    /// separate, and non-groupable tiers (transit clusters, internet endpoints) always do.
+    /// Returned nearest-first by depth.
+    /// </summary>
+    private static List<OutageTierState> GroupAccessTiers(
+        List<(Hop Hop, OutageTierState State)> tiers, IspHealthOptions options)
+    {
+        var tol = TimeSpan.FromSeconds(options.OutageAccessGroupToleranceSeconds);
+        var result = tiers.Where(t => !t.Hop.Groupable).Select(t => t.State).ToList();
+        var groupable = tiers.Where(t => t.Hop.Groupable).Select(t => t.State).ToList();
+
+        // Stayed reachable, and went dark but never recovered, are each one shared signature.
+        AddMergedTier(result, groupable.Where(s => !s.WentDark).ToList());
+        AddMergedTier(result, groupable.Where(s => s.WentDark && !s.RecoveredAt.HasValue).ToList());
+
+        // Dark and recovered: cluster by recovery time, a new cluster when the gap exceeds tol.
+        var cluster = new List<OutageTierState>();
+        foreach (var s in groupable.Where(s => s.WentDark && s.RecoveredAt.HasValue).OrderBy(s => s.RecoveredAt!.Value))
+        {
+            if (cluster.Count > 0 && s.RecoveredAt!.Value - cluster[0].RecoveredAt!.Value > tol)
+            {
+                AddMergedTier(result, cluster);
+                cluster = new List<OutageTierState>();
+            }
+            cluster.Add(s);
+        }
+        AddMergedTier(result, cluster);
+
+        return result.OrderBy(s => s.Depth).ToList();
+    }
+
+    /// <summary>Adds a group of tiers as one row: a single member keeps its own row; several merge.</summary>
+    private static void AddMergedTier(List<OutageTierState> result, List<OutageTierState> members)
+    {
+        if (members.Count == 0) return;
+        if (members.Count == 1) { result.Add(members[0]); return; }
+        var nearest = members.OrderBy(m => m.Depth).First();
+        result.Add(new OutageTierState
+        {
+            Name = $"{nearest.Name} +{members.Count - 1}",
+            Depth = nearest.Depth,
+            PeakLossPct = members.Max(m => m.PeakLossPct),
+            WentDark = members.Any(m => m.WentDark),
+            RecoveredAt = members.Where(m => m.RecoveredAt.HasValue).Select(m => m.RecoveredAt).DefaultIfEmpty(null).Min()
+        });
     }
 
     /// <summary>Actual timestamp of the first dark sample (loss at/above the dark threshold) in [start, end).</summary>

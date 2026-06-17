@@ -222,4 +222,36 @@ public class OutageDetectorTests
         events[0].Tiers.Where(t => t.RecoveredAt.HasValue)
             .Should().OnlyContain(t => t.RecoveredAt!.Value.Second == 17);
     }
+
+    [Fact]
+    public void Groupable_access_hops_with_the_same_signature_merge_distinct_ones_stay_separate()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        // Two access hops recover together (dark the whole outage); one recovers minutes earlier.
+        var accessEarly = Series(0, (OutStart, OutStart.AddMinutes(3), 100));
+        var accessLate1 = Series(0, (OutStart, OutEnd, 100));
+        var accessLate2 = Series(0, (OutStart, OutEnd, 100));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Access A", 0, accessEarly, Groupable: true),
+            new OutageDetector.Hop("Access B", 1, accessLate1, Groupable: true),
+            new OutageDetector.Hop("Access C", 2, accessLate2, Groupable: true),
+            new OutageDetector.Hop("Cloudflare", 3, internet1),
+            new OutageDetector.Hop("Google", 4, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        var access = events[0].Tiers.Where(t => t.Name.StartsWith("Access")).ToList();
+        // The early hop keeps its own row; the two that recovered together collapse into one.
+        access.Should().HaveCount(2);
+        access.Should().Contain(t => t.Name == "Access A");
+        access.Should().Contain(t => t.Name == "Access B +1");
+        // Internet endpoints are never grouped.
+        events[0].Tiers.Should().Contain(t => t.Name == "Cloudflare");
+        events[0].Tiers.Should().Contain(t => t.Name == "Google");
+    }
 }
