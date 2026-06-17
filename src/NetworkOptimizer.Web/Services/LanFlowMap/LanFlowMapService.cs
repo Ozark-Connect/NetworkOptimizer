@@ -352,18 +352,21 @@ public class LanFlowMapService
         foreach (var node in snapshot.Nodes)
         {
             if (string.IsNullOrEmpty(node.Mac)) continue;
-            var dev = _liveStats.GetForDevice(node.Mac);
-            if (dev == null)
+
+            // Offline infra: emit a bare offline badge (no rates) so the map dims the
+            // device and zeros its links. node.Online is the UniFi device State from the
+            // latest snapshot rebuild. We do this before reading live stats on purpose:
+            // GetForDevice keeps the last sample until the next prune, so an offline
+            // device can still have a stale entry - reading it would paint a dead device
+            // with phantom throughput.
+            if (IsInfraKind(node.Kind) && !node.Online)
             {
-                // No live telemetry for this device. For infrastructure (offline
-                // APs/switches/gateways report no stats) still emit a badge so the
-                // map can render the offline state and zero out its rates instead
-                // of freezing the last sample it ever saw. node.Online comes from
-                // the UniFi device State in the latest snapshot rebuild.
-                if (IsInfraKind(node.Kind))
-                    update.NodeBadges[node.Id] = new NodeLiveBadge { Online = node.Online };
+                update.NodeBadges[node.Id] = new NodeLiveBadge { Online = false };
                 continue;
             }
+
+            var dev = _liveStats.GetForDevice(node.Mac);
+            if (dev == null) continue;
 
             // For SNMP-free switches the only aggregate we have is the parent
             // switch's port rate (RateIn/RateOut), and parent-port direction
