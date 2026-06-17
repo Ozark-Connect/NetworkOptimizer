@@ -550,6 +550,7 @@ export class LanFlowMap {
             const update = await res.json();
             flowData.publishLive(update);
             this._currentBadges = update.nodeBadges || {};
+            this._currentClientStats = update.clientStats || {};
             this._applyOnlineState();
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
@@ -2329,6 +2330,7 @@ export class LanFlowMap {
             // Set badges before applying rates: _applyOnlineState re-skins the nodes and
             // _applyLiveRates reads the badges to force offline endpoints' pipes idle.
             this._currentBadges = update.nodeBadges || {};
+            this._currentClientStats = update.clientStats || {};
             this._applyOnlineState();
             this._applyLiveRates(update.linkRates || {});
         } catch (err) {
@@ -2737,13 +2739,18 @@ export class LanFlowMap {
     _showHover(node) {
         if (!this._tooltipEl) return;
         const rows = [];
+        // During playback prefer the client's wireless stats at the scrubbed instant
+        // over the snapshot-frozen values (band/signal/PHY rate below).
+        const cs = this._currentClientStats?.[node.id];
+        const band = cs?.band ?? node.band;
+        const signalDbm = cs?.signalDbm ?? node.signalDbm;
         if (node.ip) rows.push(['IP', node.ip]);
         if (node.mac) rows.push(['MAC', node.mac]);
         if (node.model) rows.push(['Model', node.model]);
-        if (node.band) rows.push(['Band', `${node.band} GHz`]);
+        if (band) rows.push(['Band', `${band} GHz`]);
         if (node.ssid) rows.push(['SSID', node.ssid]);
         if (node.network) rows.push(['Network', node.network]);
-        if (node.signalDbm) rows.push(['Signal', `${node.signalDbm} dBm`]);
+        if (signalDbm) rows.push(['Signal', `${signalDbm} dBm`]);
         if (node.switchPortName) rows.push(['Switch port', node.switchPortName]);
         // Device health from NodeLiveBadge (infrastructure nodes only)
         const badge = this._currentBadges?.[node.id];
@@ -2824,11 +2831,14 @@ export class LanFlowMap {
         // above the live throughput so the capable rate sits over the actual rate.
         if (node.wiredLinkSpeedMbps) {
             rows.push(['Link speed', formatLinkSpeed(node.wiredLinkSpeedMbps)]);
-        } else if (node.phyTxKbps || node.phyRxKbps) {
+        } else if (node.phyTxKbps || node.phyRxKbps || cs?.phyTxKbps || cs?.phyRxKbps) {
             // Device perspective: download (↓) is the AP's TX to a Wi-Fi client, upload
-            // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap.
-            const downKbps = isMeshUplink ? node.phyRxKbps : node.phyTxKbps;
-            const upKbps = isMeshUplink ? node.phyTxKbps : node.phyRxKbps;
+            // (↑) is the AP's RX. A mesh uplink's Tx/Rx is the reverse, so swap. Prefer
+            // the scrubbed-instant PHY rate during playback.
+            const pTx = cs?.phyTxKbps ?? node.phyTxKbps;
+            const pRx = cs?.phyRxKbps ?? node.phyRxKbps;
+            const downKbps = isMeshUplink ? pRx : pTx;
+            const upKbps = isMeshUplink ? pTx : pRx;
             const dl = downKbps ? `↓${formatLinkSpeed(Math.round(downKbps / 1000))}` : '';
             const ul = upKbps ? `↑${formatLinkSpeed(Math.round(upKbps / 1000))}` : '';
             rows.push(['Link speed', `${dl}${dl && ul ? '  ' : ''}${ul}`]);

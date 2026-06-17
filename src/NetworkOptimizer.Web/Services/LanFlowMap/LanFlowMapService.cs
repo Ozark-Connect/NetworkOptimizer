@@ -509,6 +509,23 @@ public class LanFlowMapService
                 wiredClientRates[p.ClientMac] = p;
         }
 
+        // WiFi client connection stats at the scrub instant (band/signal/PHY rate). Keyed
+        // by client node id ("cli-{mac}") so the maps can override the snapshot-frozen
+        // values. The band tag is "2.4ghz"/"5ghz"/"6ghz" - normalize to match snapshot.
+        foreach (var (mac, p) in wifiClientRates)
+        {
+            var band = NormalizeBand(p.Band);
+            if (band == null && p.SignalDbm == null && p.TxRateKbps == null && p.RxRateKbps == null)
+                continue;
+            update.ClientStats["cli-" + mac] = new NodeClientStats
+            {
+                Band = band,
+                SignalDbm = p.SignalDbm,
+                PhyTxKbps = p.TxRateKbps,
+                PhyRxKbps = p.RxRateKbps,
+            };
+        }
+
         // Resolve each link, mirroring the live endpoint's kind-aware dispatch.
         foreach (var link in snapshot.Links)
         {

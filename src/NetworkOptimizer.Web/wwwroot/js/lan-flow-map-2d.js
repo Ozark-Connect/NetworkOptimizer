@@ -850,14 +850,18 @@ class LanFlowMap2D {
         const d=node.d;
         const esc=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
         const m=demoMask;
+        // During playback prefer the client's wireless stats at the scrubbed instant.
+        const cs=flowData.getClientStats()?.[d.id];
+        const band=cs?.band??d.band;
+        const signalDbm=cs?.signalDbm??d.signalDbm;
         const rows=[];
         if(d.ip)rows.push(['IP',m(d.ip)]);
         if(d.mac)rows.push(['MAC',m(d.mac)]);
         if(d.model)rows.push(['Model',d.model]);
-        if(d.band)rows.push(['Band',`${d.band} GHz`]);
+        if(band)rows.push(['Band',`${band} GHz`]);
         if(d.ssid)rows.push(['SSID',m(d.ssid)]);
         if(d.network)rows.push(['Network',m(d.network)]);
-        if(d.signalDbm)rows.push(['Signal',`${d.signalDbm} dBm`]);
+        if(signalDbm)rows.push(['Signal',`${signalDbm} dBm`]);
         if(d.switchPortName)rows.push(['Switch port',m(d.switchPortName)]);
 
         const badges=flowData.getNodeBadges();
@@ -1496,11 +1500,14 @@ class LanFlowMap2D {
                         }
                     }
                 }else if(e.lk.kind===LK.MeshBackhaul||e.lk.band){
-                    // Mesh/wireless: show asymmetric PHY rates
+                    // Mesh/wireless: show asymmetric PHY rates. During playback prefer the
+                    // client's PHY rate at the scrubbed instant over the frozen snapshot.
                     const n1=e.fn?.d, n2=e.tn?.d;
                     const phy=n2?.phyTxKbps?n2:n1?.phyTxKbps?n1:null;
-                    if(phy?.phyTxKbps&&phy?.phyRxKbps){
-                        txt=`↓${formatSpeed(phy.phyRxKbps/1000)}  ↑${formatSpeed(phy.phyTxKbps/1000)}`;
+                    const cs=phy?flowData.getClientStats()?.[phy.id]:null;
+                    const phyTx=cs?.phyTxKbps??phy?.phyTxKbps, phyRx=cs?.phyRxKbps??phy?.phyRxKbps;
+                    if(phyTx&&phyRx){
+                        txt=`↓${formatSpeed(phyRx/1000)}  ↑${formatSpeed(phyTx/1000)}`;
                     }else if(e.lk.capacityBps>0){
                         txt=formatSpeed(e.lk.capacityBps/1e6);
                     }
@@ -1699,7 +1706,9 @@ class LanFlowMap2D {
     }
 
     _drawClientNode(ctx,n){
-        const x=n.x, y=n.y, color=nodeClr(n.d.kind,n.d.band);
+        const cs=flowData.getClientStats()?.[n.d.id];
+        const band=cs?.band??n.d.band;
+        const x=n.x, y=n.y, color=nodeClr(n.d.kind,band);
         const badge=flowData.getNodeBadges()?.[n.d.id];
         const online=badge?badge.online!==false:n.d.online;
         const r=G.clientR, op=online?0.7:0.2;

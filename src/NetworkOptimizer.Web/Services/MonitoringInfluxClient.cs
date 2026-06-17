@@ -1380,6 +1380,14 @@ from(bucket: ""{_longtermBucket}"")
         public string? ClientMac { get; init; }
         public double? TxThroughputBps { get; init; }
         public double? RxThroughputBps { get; init; }
+        /// <summary>Connection stats - populated for wifi_client only; null for wired_client.</summary>
+        public int? SignalDbm { get; init; }
+        public long? TxRateKbps { get; init; }
+        public long? RxRateKbps { get; init; }
+        /// <summary>Raw band tag ("2.4ghz"/"5ghz"/"6ghz"); caller normalizes for display.</summary>
+        public string? Band { get; init; }
+        /// <summary>AP the client was associated with (device_mac tag).</summary>
+        public string? ApMac { get; init; }
     }
 
     public async Task<IReadOnlyList<ClientThroughputPoint>> QueryAllClientThroughputAsync(
@@ -1389,10 +1397,13 @@ from(bucket: ""{_longtermBucket}"")
         CancellationToken ct = default)
     {
         if (!IsConfigured) return Array.Empty<ClientThroughputPoint>();
+        // signal_dbm / tx_rate_kbps / rx_rate_kbps only exist on wifi_client; harmless to
+        // request for wired_client (no rows match, columns come back absent -> null). band
+        // and device_mac are tags and survive the pivot as columns.
         var flux = $@"from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""{measurement}"")
-  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"")
+  |> filter(fn: (r) => r._field == ""tx_throughput_bps"" or r._field == ""rx_throughput_bps"" or r._field == ""client_mac"" or r._field == ""signal_dbm"" or r._field == ""tx_rate_kbps"" or r._field == ""rx_rate_kbps"")
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
   |> filter(fn: (r) => (exists r.tx_throughput_bps and r.tx_throughput_bps > 0.0) or (exists r.rx_throughput_bps and r.rx_throughput_bps > 0.0))";
 
@@ -1405,6 +1416,11 @@ from(bucket: ""{_longtermBucket}"")
                 ClientMac = record.GetValueByKey("client_mac") as string,
                 TxThroughputBps = AsDoubleOrNull(record.GetValueByKey("tx_throughput_bps")),
                 RxThroughputBps = AsDoubleOrNull(record.GetValueByKey("rx_throughput_bps")),
+                SignalDbm = (int?)AsDoubleOrNull(record.GetValueByKey("signal_dbm")),
+                TxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("tx_rate_kbps")),
+                RxRateKbps = (long?)AsDoubleOrNull(record.GetValueByKey("rx_rate_kbps")),
+                Band = record.GetValueByKey("band") as string,
+                ApMac = record.GetValueByKey("device_mac") as string,
             });
         }
         return results;
