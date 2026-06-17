@@ -171,55 +171,56 @@ public class SponsorshipService : ISponsorshipService
         var speedTestRepository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
 
-        // Count all usage sources in parallel
-        var manualAuditCountTask = auditRepository.GetManualAuditCountAsync();
-        var scheduledAuditCountTask = auditRepository.GetScheduledAuditCountAsync();
-        var speedTestCountTask = speedTestRepository.GetIperf3ResultCountAsync();
-        var sqmWan1Task = speedTestRepository.GetSqmWanConfigAsync(1);
-        var sqmWan2Task = speedTestRepository.GetSqmWanConfigAsync(2);
+        // Count all usage sources. These run sequentially rather than in parallel: the repositories
+        // share a single scoped DbContext (and the factory context below is a single instance too),
+        // and a DbContext does not support concurrent operations. Fanning these out with Task.WhenAll
+        // throws "A second operation was started on this context instance" (or ObjectDisposedException
+        // when a disposal path wins the race). On SQLite the reads serialize at the DB level anyway,
+        // so parallelism buys nothing here.
+        var manualAuditCount = await auditRepository.GetManualAuditCountAsync();
+        var scheduledAuditCount = await auditRepository.GetScheduledAuditCountAsync();
+        var speedTestCount = await speedTestRepository.GetIperf3ResultCountAsync();
+        var sqmWan1 = await speedTestRepository.GetSqmWanConfigAsync(1);
+        var sqmWan2 = await speedTestRepository.GetSqmWanConfigAsync(2);
 
-        // Floor plan feature counts, perf tweaks, and monitoring via DbContext
-        Task<int> signalLogCountTask;
-        Task<int> placedApCountTask;
-        Task<int> plannedApCountTask;
-        Task<int> floorCountTask;
-        Task<int> perfTweakCountTask;
-        Task<int> monitoringTargetCountTask;
+        // Floor plan feature counts, perf tweaks, and monitoring via a short-lived DbContext
+        int signalLogCount;
+        int placedApCount;
+        int plannedApCount;
+        int floorCount;
+        int perfTweakCount;
+        int monitoringTargetCount;
         using (var db = await dbFactory.CreateDbContextAsync())
         {
-            signalLogCountTask = db.ClientSignalLogs.CountAsync();
-            placedApCountTask = db.ApLocations.CountAsync();
-            plannedApCountTask = db.PlannedAps.CountAsync();
-            floorCountTask = db.FloorPlans.CountAsync();
-            perfTweakCountTask = db.PerfTweakSettings.CountAsync();
-            monitoringTargetCountTask = db.MonitoringTargets.Where(t => t.Enabled).CountAsync();
-
-            await Task.WhenAll(manualAuditCountTask, scheduledAuditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task,
-                signalLogCountTask, placedApCountTask, plannedApCountTask, floorCountTask, perfTweakCountTask,
-                monitoringTargetCountTask);
+            signalLogCount = await db.ClientSignalLogs.CountAsync();
+            placedApCount = await db.ApLocations.CountAsync();
+            plannedApCount = await db.PlannedAps.CountAsync();
+            floorCount = await db.FloorPlans.CountAsync();
+            perfTweakCount = await db.PerfTweakSettings.CountAsync();
+            monitoringTargetCount = await db.MonitoringTargets.Where(t => t.Enabled).CountAsync();
         }
 
         // Manual audits count as 1, scheduled audits count as 0.2 (~2 per workweek), speed tests count as 0.5
-        var count = manualAuditCountTask.Result + (scheduledAuditCountTask.Result / 5) + (speedTestCountTask.Result / 2);
+        var count = manualAuditCount + (scheduledAuditCount / 5) + (speedTestCount / 2);
 
         // 50 signal points = 1 audit equivalent
-        count += signalLogCountTask.Result / 50;
+        count += signalLogCount / 50;
 
         // 2 placed APs (real + planned) = 1 audit equivalent
-        count += (placedApCountTask.Result + plannedApCountTask.Result) / 2;
+        count += (placedApCount + plannedApCount) / 2;
 
         // 2 building-floors = 1 audit equivalent
-        count += floorCountTask.Result / 2;
+        count += floorCount / 2;
 
         // Add SQM bonus if enabled on either WAN
-        var sqmEnabled = sqmWan1Task.Result?.Enabled == true || sqmWan2Task.Result?.Enabled == true;
+        var sqmEnabled = sqmWan1?.Enabled == true || sqmWan2?.Enabled == true;
         if (sqmEnabled)
         {
             count += SqmEnabledBonus;
         }
 
         // 2 points per deployed performance tweak
-        count += perfTweakCountTask.Result * 2;
+        count += perfTweakCount * 2;
 
         // Monitoring: flat bonus if InfluxDB is connected, plus 1 per 5 enabled targets
         var influxClient = scope.ServiceProvider.GetRequiredService<MonitoringInfluxClient>();
@@ -227,7 +228,7 @@ public class SponsorshipService : ISponsorshipService
         {
             count += MonitoringEnabledBonus;
         }
-        count += monitoringTargetCountTask.Result / MonitoringTargetsDivisor;
+        count += monitoringTargetCount / MonitoringTargetsDivisor;
 
         return count;
     }
