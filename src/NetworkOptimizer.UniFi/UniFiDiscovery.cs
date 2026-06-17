@@ -214,7 +214,8 @@ public class UniFiDiscovery
     /// The UniFi API sometimes reports radio_table entries for these devices even though
     /// they have no wireless capability. Uses FriendlyModelName (the UI display name)
     /// as the source of truth rather than trusting API radio data.
-    /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max (start with "UDM-"), EFG, EFG-Core (start with "EFG").
+    /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max (start with "UDM-"), EFG (Enterprise Fortress
+    /// Gateway, starts with "EFG"), and EF-Core (Enterprise Firewall Core).
     /// Allows: UDM (original Dream Machine), UDR, UX, etc. which have real Wi-Fi.
     /// </summary>
     internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
@@ -226,7 +227,8 @@ public class UniFiDiscovery
     private static bool IsGatewayOnlyConsole(string friendlyModelName)
     {
         return friendlyModelName.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
-               friendlyModelName.StartsWith("EFG", StringComparison.OrdinalIgnoreCase);
+               friendlyModelName.StartsWith("EFG", StringComparison.OrdinalIgnoreCase) ||
+               friendlyModelName.StartsWith("EF-Core", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

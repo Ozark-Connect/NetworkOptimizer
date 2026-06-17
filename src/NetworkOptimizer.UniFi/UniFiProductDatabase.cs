@@ -144,6 +144,9 @@ public static class UniFiProductDatabase
         // ----- Enterprise Fortress Gateway -----
         { "UDMENT", "EFG" },
 
+        // ----- Enterprise Firewall Core -----
+        { "UDMEA4B", "EF-Core" },
+
         // ----- Cloud Gateways -----
         { "UCGMAX", "UCG-Max" },
         { "UDMA6A8", "UCG-Fiber" },
@@ -409,6 +412,8 @@ public static class UniFiProductDatabase
         { "UNVR4", "UNVR" },
         { "UNVRPRO", "UNVR-Pro" },
         { "UNVRINS", "UNVR-Instant" },
+        { "UNVREA68", "UNVR-G2" },
+        { "UNVREA69", "UNVR-G2-Pro" },
 
         // ----- Official: UniFi NAS -----
         { "UNASPRO", "UNAS-Pro" },
@@ -481,6 +486,8 @@ public static class UniFiProductDatabase
         { "UDM-PRO-MAX", "UDM-Pro-Max" },
         { "UDMSE", "UDM-SE" },
         { "EFG", "EFG" },
+        { "EFGCORE", "EF-Core" },
+        { "EFCORE", "EF-Core" },
         { "UCGF", "UCG-Fiber" },
         { "UCG-ULTRA", "UCG-Ultra" },
         { "UCG-INDUSTRIAL", "UCG-Industrial" },
@@ -618,6 +625,10 @@ public static class UniFiProductDatabase
         // =====================================================================
         { "UNVR", "UNVR" },
         { "UNVR-PRO", "UNVR-Pro" },
+        { "UNVRG2", "UNVR-G2" },
+        { "UNVRAI4", "UNVR-G2" },
+        { "UNVRG2PRO", "UNVR-G2-Pro" },
+        { "UNVRAI8", "UNVR-G2-Pro" },
         { "U5GMAX", "U5G-Max" },
         { "5G-Link", "U5G-Max" },
         { "U5G-Link", "U5G-Max" },
