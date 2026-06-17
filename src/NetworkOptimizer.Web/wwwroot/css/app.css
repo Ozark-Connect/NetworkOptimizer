@@ -15811,7 +15811,7 @@ a.isp-health-hero-speed:hover {
 
 .isp-outage-hop {
     display: grid;
-    grid-template-columns: minmax(0, 8.5rem) 1fr minmax(0, 5rem);
+    grid-template-columns: minmax(0, 8rem) 1fr minmax(0, 7rem);
     align-items: center;
     gap: 0.6rem;
 }

@@ -351,7 +351,7 @@ else
                             <div class="isp-outage-head">
                                 <span class="isp-event-badge isp-event-badge-danger">Outage</span>
                                 <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
-                                <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm") &ndash; @outage.End.ToLocalTime().ToString("HH:mm")</span>
+                                <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
                                 <span class="isp-outage-scope">@OutageScopeLabel(outage)</span>
                             </div>
                             @if (outage.Tiers.Any(t => t.WentDark))
@@ -533,7 +533,7 @@ else
 
     private static string OutageHopStatus(OutageTierState t) =>
         !t.WentDark ? "stayed up"
-        : t.RecoveredAt.HasValue ? $"back {t.RecoveredAt.Value.ToLocalTime():HH:mm}"
+        : t.RecoveredAt.HasValue ? $"back @ {t.RecoveredAt.Value.ToLocalTime():HH:mm:ss}"
         : "down";
 
     private static string OutageHopTooltip(OutageTierState t) =>
