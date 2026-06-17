@@ -365,6 +365,7 @@ public class PortSecurityAnalyzer
         var model = device.GetStringOrNull("model");
         var shortname = device.GetStringOrNull("shortname");
         var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname);
+        var isPowerDevice = NetworkOptimizer.UniFi.UniFiProductDatabase.IsPowerDevice(model, shortname);
         var ip = device.GetStringOrNull("ip");
         var capabilities = ParseSwitchCapabilities(device);
 
@@ -392,6 +393,7 @@ public class PortSecurityAnalyzer
             NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
             IsAccessPoint = isAccessPoint,
+            IsPowerDevice = isPowerDevice,
             Capabilities = capabilities
         };
 
@@ -432,6 +434,7 @@ public class PortSecurityAnalyzer
             NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
             IsAccessPoint = isAccessPoint,
+            IsPowerDevice = isPowerDevice,
             Capabilities = capabilities,
             Ports = ports
         };
@@ -717,10 +720,10 @@ public class PortSecurityAnalyzer
         foreach (var switchInfo in switches)
         {
             // Skip port-level audit issues for devices whose ports aren't manageable
-            // in UniFi Port Manager (e.g., UX/UX7 in AP mode)
+            // in UniFi Port Manager (e.g., UX/UX7 in AP mode, UPS/PDU power devices)
             if (switchInfo.HasUnmanageablePorts)
             {
-                _logger.LogDebug("Skipping audit for {SwitchName} ({ModelName}) - ports not manageable in AP mode",
+                _logger.LogDebug("Skipping audit for {SwitchName} ({ModelName}) - ports not manageable",
                     switchInfo.Name, switchInfo.ModelName);
                 continue;
             }
