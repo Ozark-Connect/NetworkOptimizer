@@ -705,11 +705,14 @@ public class IspHealthService
 
         foreach (var group in groups)
         {
-            var asnName = group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
+            // Re-run the name cleanup at display so brand overrides (e.g. Arelion Sweden ->
+            // Arelion) apply to already-stored ASN names without needing re-discovery.
+            var asnName = AsnNameCleanup.Clean(
+                group.Select(t => t.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n))
                 ?? (asnOverrides != null
                     ? group.Select(t => asnOverrides.TryGetValue(t.TargetId, out var o) ? o.Name : null).FirstOrDefault(n => !string.IsNullOrEmpty(n))
                     : null)
-                ?? group.Select(t => t.Name).FirstOrDefault();
+                ?? group.Select(t => t.Name).FirstOrDefault());
 
             var byMedian = group
                 .Select(t => (Target: t, Median: SeriesStats.Median(

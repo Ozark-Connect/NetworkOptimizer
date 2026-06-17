@@ -149,6 +149,14 @@ internal static class AsnNameCleanup
         @"\s*,?\s+(LLC|L\.L\.C\.?|Inc\.?|Incorporated|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|Limited|B\.V\.?|BV|AB|AG|GmbH|S\.A\.?S?\.?|S\.r\.l\.?|SA|PLC|Pte\.?|N\.V\.?|NV|OY|OYJ)\.?\s*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Specific brand overrides, applied AFTER suffix stripping. Deliberately exact-match and
+    // not a generic geographic strip - a real ISP could legitimately be named "<x> Sweden".
+    private static readonly Dictionary<string, string> NameOverrides = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Arelion (AS1299, ex-Telia Carrier) resolves as "Arelion Sweden AB"; show just "Arelion".
+        ["Arelion Sweden"] = "Arelion",
+    };
+
     public static string? Clean(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return raw;
@@ -159,6 +167,6 @@ internal static class AsnNameCleanup
             if (next.Length == 0 || next == s) break;
             s = next;
         }
-        return s;
+        return NameOverrides.TryGetValue(s, out var canonical) ? canonical : s;
     }
 }

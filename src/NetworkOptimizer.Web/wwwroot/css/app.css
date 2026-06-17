@@ -15834,7 +15834,7 @@ a.isp-health-hero-speed:hover {
 .isp-outage-hop-dark {
     height: 100%;
     border-radius: 4px 0 0 4px;
-    background: repeating-linear-gradient(45deg, var(--text-muted) 0, var(--text-muted) 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px);
+    background: repeating-linear-gradient(45deg, var(--danger-color) 0, var(--danger-color) 2px, var(--bg-tertiary) 2px, var(--bg-tertiary) 5px);
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
