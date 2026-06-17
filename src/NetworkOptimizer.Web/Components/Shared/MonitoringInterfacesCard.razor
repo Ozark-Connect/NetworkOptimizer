@@ -580,6 +580,16 @@
     {
         _message = null;
         _deploySteps.Clear();
+
+        // "Tagged" is checked but no VLAN ID entered: the placeholder can read like a
+        // set value, so require an explicit ID rather than silently deploying untagged.
+        if (_vlanEnabled && _editing.WanVlanId is null)
+        {
+            _message = "Enter a VLAN ID, or uncheck Tagged.";
+            _messageSuccess = false;
+            return false;
+        }
+
         var error = MonitoringInterfaceDeploymentService.Validate(_editing);
         if (error != null)
         {
