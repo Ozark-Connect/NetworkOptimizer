@@ -1737,7 +1737,7 @@
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Third-Party DNS Management (optional)</label>
                 <input type="text" class="form-control" @bind="piholeManagementEndpoint" placeholder="Port number or URL" style="width: 240px;" />
-                <small class="form-help">Custom port (e.g., 8080) or full URL (e.g., https://pihole.local) for the admin interface. Leave empty to auto-probe ports 80, 443, 3000, 8080.</small>
+                <small class="form-help">Custom port (e.g., 5380 or 8080) or full URL (e.g., https://dns.local) for the admin interface. Leave empty to auto-probe common Pi-hole, AdGuard Home, and Technitium DNS ports on each detected resolver IP.</small>
             </div>
 
             <div class="action-buttons">

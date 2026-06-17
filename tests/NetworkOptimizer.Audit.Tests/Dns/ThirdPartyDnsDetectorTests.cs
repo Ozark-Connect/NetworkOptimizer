@@ -139,6 +139,66 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         nextDnsProbeCalled.Should().BeFalse("NextDNS probe should be skipped when Pi-hole is detected first");
     }
 
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_TechnitiumDnsDetected_FlagsProviderAsTechnitiumDns()
+    {
+        var technitiumResponse = @"<html><head><title>Technitium DNS Server</title><script src=""js/common.js""></script><script src=""js/main.js""></script><script src=""js/auth.js""></script></head><body>Technitium</body></html>";
+        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, technitiumResponse);
+        var detector = CreateDetector(httpClient);
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net1",
+                DhcpEnabled = true,
+                Name = "Trusted",
+                VlanId = 1,
+                Subnet = "10.0.0.0/24",
+                Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.2.4" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].DnsServerIp.Should().Be("10.0.2.4");
+        result[0].IsTechnitiumDns.Should().BeTrue();
+        result[0].IsPihole.Should().BeFalse();
+        result[0].IsAdGuardHome.Should().BeFalse();
+        result[0].IsNextDns.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("Technitium DNS");
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_TechnitiumTitleWithoutAssets_NotDetectedAsTechnitiumDns()
+    {
+        var technitiumLikeResponse = @"<html><head><title>Technitium DNS Server</title></head><body>Technitium</body></html>";
+        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, technitiumLikeResponse);
+        var detector = CreateDetector(httpClient);
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net1",
+                DhcpEnabled = true,
+                Name = "Trusted",
+                VlanId = 1,
+                Subnet = "10.0.0.0/24",
+                Gateway = "10.0.0.1",
+                DnsServers = new List<string> { "10.0.2.4" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsTechnitiumDns.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
+    }
+
     private ThirdPartyDnsDetector CreateDetector(HttpClient? httpClient = null)
     {
         httpClient ??= new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
@@ -1397,7 +1457,8 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         // HTTP handler should only be called once per unique IP
         // Pi-hole probe: 3 attempts (port 80, 443, 8080)
         // AdGuard Home probe: 3 attempts (port 80, 443, 3000)
-        callCount.Should().BeLessThanOrEqualTo(6);
+        // Technitium DNS probe: 4 attempts (port 5380, 53443, 80, 443)
+        callCount.Should().BeLessThanOrEqualTo(10);
     }
 
     #endregion

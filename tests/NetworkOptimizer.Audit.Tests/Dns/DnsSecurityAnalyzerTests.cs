@@ -2232,6 +2232,23 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public void DnsSecurityResult_IsTechnitiumDnsDetected_ReturnsTrue_WhenTechnitiumDnsInThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsTechnitiumDns = true,
+            DnsProviderName = "Technitium DNS"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+        result.IsTechnitiumDnsDetected.Should().BeTrue();
+    }
+
+    [Fact]
     public void DnsSecurityResult_BothPiholeAndAdGuardHome_WhenBothDetected()
     {
         var result = new DnsSecurityResult();
@@ -4171,6 +4188,48 @@ public class DnsSecurityAnalyzerTests : IDisposable
         thirdPartyIssue.Should().NotBeNull();
         thirdPartyIssue!.Metadata.Should().ContainKey("is_known_provider");
         thirdPartyIssue.Metadata!["is_known_provider"].Should().Be(false);
+    }
+
+    [Fact]
+    public async Task Analyze_TechnitiumDns_IsKnownProviderWithNoScoreImpact()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+        var technitiumResponse = @"<html><head><title>Technitium DNS Server</title><script src=""js/common.js""></script><script src=""js/main.js""></script><script src=""js/auth.js""></script></head><body>Technitium</body></html>";
+        var detector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, CreateMockHttpClient(HttpStatusCode.OK, technitiumResponse));
+        var analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, detector);
+
+        var result = await analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks);
+
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsProviderName.Should().Be("Technitium DNS");
+        result.IsTechnitiumDnsDetected.Should().BeTrue();
+
+        var thirdPartyIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsThirdPartyDetected);
+        thirdPartyIssue.Should().NotBeNull();
+        thirdPartyIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        thirdPartyIssue.ScoreImpact.Should().Be(0);
+        thirdPartyIssue.Metadata!["is_known_provider"].Should().Be(true);
+        thirdPartyIssue.Metadata!["is_technitium_dns"].Should().Be(true);
     }
 
     #endregion

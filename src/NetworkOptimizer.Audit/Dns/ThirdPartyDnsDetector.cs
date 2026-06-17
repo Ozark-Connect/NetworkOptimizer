@@ -36,6 +36,7 @@ public class ThirdPartyDnsDetector
         public string? PiholeVersion { get; init; }
         public bool IsAdGuardHome { get; init; }
         public string? AdGuardHomeVersion { get; init; }
+        public bool IsTechnitiumDns { get; init; }
         public bool IsNextDns { get; init; }
         public string? NextDnsProfile { get; init; }
         public bool IsControlD { get; init; }
@@ -123,6 +124,7 @@ public class ThirdPartyDnsDetector
                 string? piholeVersion = null;
                 bool isAdGuardHome = false;
                 string? adGuardHomeVersion = null;
+                bool isTechnitiumDns = false;
                 bool isNextDns = false;
                 string? nextDnsProfile = null;
                 bool isControlD = false;
@@ -150,22 +152,33 @@ public class ThirdPartyDnsDetector
                         }
                         else
                         {
-                            // If not AdGuard Home, try NextDNS CLI detection. This is slower than
-                            // the local-HTTP probes (requires DNS query through the resolver plus
-                            // an HTTPS round-trip to NextDNS's test endpoint), so it goes last.
-                            (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(dnsServer);
-                            if (isNextDns)
+                            // If not AdGuard Home, try Technitium DNS detection before slower
+                            // DNS-based probes.
+                            isTechnitiumDns = await ProbeTechnitiumDnsAsync(dnsServer, customPort, customUrl);
+                            if (isTechnitiumDns)
                             {
-                                providerName = "NextDNS CLI";
-                                _logger.LogInformation("Detected NextDNS CLI at {Ip} (profile: {Profile})", dnsServer, nextDnsProfile ?? "unknown");
+                                providerName = "Technitium DNS";
+                                _logger.LogInformation("Detected Technitium DNS at {Ip}", dnsServer);
                             }
                             else
                             {
-                                isControlD = await ProbeControlDAsync(dnsServer);
-                                if (isControlD)
+                                // If not Technitium, try NextDNS CLI detection. This is slower than
+                                // the local-HTTP probes (requires DNS query through the resolver plus
+                                // an HTTPS round-trip to NextDNS's test endpoint), so it goes last.
+                                (isNextDns, nextDnsProfile) = await ProbeNextDnsAsync(dnsServer);
+                                if (isNextDns)
                                 {
-                                    providerName = "ControlD";
-                                    _logger.LogInformation("Detected ControlD at {Ip}", dnsServer);
+                                    providerName = "NextDNS CLI";
+                                    _logger.LogInformation("Detected NextDNS CLI at {Ip} (profile: {Profile})", dnsServer, nextDnsProfile ?? "unknown");
+                                }
+                                else
+                                {
+                                    isControlD = await ProbeControlDAsync(dnsServer);
+                                    if (isControlD)
+                                    {
+                                        providerName = "ControlD";
+                                        _logger.LogInformation("Detected ControlD at {Ip}", dnsServer);
+                                    }
                                 }
                             }
                         }
@@ -181,6 +194,7 @@ public class ThirdPartyDnsDetector
                         piholeVersion = existingResult.PiholeVersion;
                         isAdGuardHome = existingResult.IsAdGuardHome;
                         adGuardHomeVersion = existingResult.AdGuardHomeVersion;
+                        isTechnitiumDns = existingResult.IsTechnitiumDns;
                         isNextDns = existingResult.IsNextDns;
                         nextDnsProfile = existingResult.NextDnsProfile;
                         isControlD = existingResult.IsControlD;
@@ -198,6 +212,7 @@ public class ThirdPartyDnsDetector
                     PiholeVersion = piholeVersion,
                     IsAdGuardHome = isAdGuardHome,
                     AdGuardHomeVersion = adGuardHomeVersion,
+                    IsTechnitiumDns = isTechnitiumDns,
                     IsNextDns = isNextDns,
                     NextDnsProfile = nextDnsProfile,
                     IsControlD = isControlD,
@@ -937,5 +952,95 @@ public class ThirdPartyDnsDetector
             _logger.LogDebug("AdGuard Home probe to {Ip}:{Port} error: {Type} - {Message}", ipAddress, port, ex.GetType().Name, ex.Message);
             return (false, null);
         }
+    }
+
+    /// <summary>
+    /// Probe an IP address to detect if it's running Technitium DNS Server.
+    /// </summary>
+    private async Task<bool> ProbeTechnitiumDnsAsync(string ipAddress, int? customPort = null, string? customUrl = null)
+    {
+        if (!string.IsNullOrEmpty(customUrl))
+        {
+            var result = await TryProbeTechnitiumDnsEndpointAsync(customUrl.TrimEnd('/'));
+            if (result)
+                return true;
+        }
+
+        var portsToTry = new List<(int Port, bool UseHttps)>();
+
+        if (customPort.HasValue && customPort.Value > 0)
+        {
+            portsToTry.Add((customPort.Value, false));
+            portsToTry.Add((customPort.Value, true));
+        }
+
+        portsToTry.Add((5380, false));
+        portsToTry.Add((53443, true));
+        portsToTry.Add((80, false));
+        portsToTry.Add((443, true));
+
+        foreach (var (port, useHttps) in portsToTry)
+        {
+            var result = await TryProbeTechnitiumDnsEndpointAsync(ipAddress, port, useHttps);
+            if (result)
+                return true;
+        }
+
+        return false;
+    }
+
+    private async Task<bool> TryProbeTechnitiumDnsEndpointAsync(string baseUrl)
+    {
+        try
+        {
+            _logger.LogDebug("Probing Technitium DNS at {Url}", baseUrl);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var response = await _httpClient.GetAsync(baseUrl, cts.Token);
+
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+            return DetectTechnitiumDnsFromContent(content);
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug("Technitium DNS probe to {Url} timed out", baseUrl);
+            return false;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug("Technitium DNS probe to {Url} failed: {Message}", baseUrl, ex.Message);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Technitium DNS probe to {Url} error: {Type} - {Message}", baseUrl, ex.GetType().Name, ex.Message);
+            return false;
+        }
+    }
+
+    private async Task<bool> TryProbeTechnitiumDnsEndpointAsync(string ipAddress, int port, bool useHttps = false)
+    {
+        var scheme = useHttps ? "https" : "http";
+        var baseUrl = $"{scheme}://{ipAddress}:{port}";
+        return await TryProbeTechnitiumDnsEndpointAsync(baseUrl);
+    }
+
+    private static bool DetectTechnitiumDnsFromContent(string content)
+    {
+        var hasTitle = content.IndexOf("<title>Technitium DNS Server</title>", StringComparison.OrdinalIgnoreCase) >= 0;
+        var hasDistinctiveAsset =
+            content.IndexOf("js/common.js", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            content.IndexOf("js/main.js", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            content.IndexOf("js/auth.js", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        if (!hasTitle || !hasDistinctiveAsset)
+        {
+            return false;
+        }
+
+        return true;
     }
 }

@@ -803,14 +803,14 @@ public class DnsSecurityAnalyzer
                 var dnsServerIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Distinct().ToList();
                 var networkNames = result.ThirdPartyDnsServers.Select(t => t.NetworkName).Distinct().ToList();
 
-                // Known providers (Pi-hole, AdGuard Home, NextDNS CLI, ControlD) are trusted - neutral score impact
+                // Known providers (Pi-hole, AdGuard Home, Technitium DNS, NextDNS CLI, ControlD) are trusted - neutral score impact
                 // Unknown third-party DNS servers get a minor penalty since we can't verify their filtering
-                var isKnownProvider = result.IsPiholeDetected || result.IsAdGuardHomeDetected || result.IsNextDnsDetected || result.IsControlDDetected;
+                var isKnownProvider = result.IsPiholeDetected || result.IsAdGuardHomeDetected || result.IsTechnitiumDnsDetected || result.IsNextDnsDetected || result.IsControlDDetected;
                 var scoreImpact = isKnownProvider ? 0 : 3; // Minor penalty for unknown providers
                 var severity = isKnownProvider ? AuditSeverity.Informational : AuditSeverity.Recommended;
                 var recommendedAction = isKnownProvider
                     ? "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass."
-                    : "Configure the third-party DNS management port in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home, NextDNS, ControlD) or CyberSecure Encrypted DNS (DoH).";
+                    : "Configure the third-party DNS management port or URL in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home, Technitium DNS, NextDNS, ControlD) or CyberSecure Encrypted DNS (DoH).";
 
                 result.Issues.Add(new AuditIssue
                 {
@@ -826,12 +826,13 @@ public class DnsSecurityAnalyzer
                         { "third_party_dns_ips", dnsServerIps },
                         { "is_pihole", result.IsPiholeDetected },
                         { "is_adguard_home", result.IsAdGuardHomeDetected },
+                        { "is_technitium_dns", result.IsTechnitiumDnsDetected },
                         { "is_nextdns", result.IsNextDnsDetected },
                         { "is_controld", result.IsControlDDetected },
                         { "is_known_provider", isKnownProvider },
                         { "affected_networks", networkNames },
                         { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" },
-                        { "configurable_setting", "Configure third-party DNS management port in Settings if detection fails" }
+                        { "configurable_setting", "Configure third-party DNS management port or URL in Settings if detection fails" }
                     }
                 });
 
@@ -1994,7 +1995,7 @@ public class DnsSecurityAnalyzer
             result.HasThirdPartyDns = true;
             result.ThirdPartyDnsServers.AddRange(thirdPartyResults);
 
-            // Determine provider name (Pi-hole takes precedence, then AdGuard Home, then NextDNS CLI)
+            // Determine provider name (Pi-hole takes precedence, then AdGuard Home, then Technitium DNS, then NextDNS CLI)
             if (thirdPartyResults.Any(t => t.IsPihole))
             {
                 result.ThirdPartyDnsProviderName = "Pi-hole";
@@ -2006,6 +2007,12 @@ public class DnsSecurityAnalyzer
                 result.ThirdPartyDnsProviderName = "AdGuard Home";
                 _logger.LogInformation("AdGuard Home detected as third-party DNS on {Count} network(s)",
                     thirdPartyResults.Count(t => t.IsAdGuardHome));
+            }
+            else if (thirdPartyResults.Any(t => t.IsTechnitiumDns))
+            {
+                result.ThirdPartyDnsProviderName = "Technitium DNS";
+                _logger.LogInformation("Technitium DNS detected as third-party DNS on {Count} network(s)",
+                    thirdPartyResults.Count(t => t.IsTechnitiumDns));
             }
             else if (thirdPartyResults.Any(t => t.IsNextDns))
             {
@@ -2843,6 +2850,7 @@ public class DnsSecurityResult
     public List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> ThirdPartyDnsServers { get; } = new();
     public bool IsPiholeDetected => ThirdPartyDnsServers.Any(t => t.IsPihole);
     public bool IsAdGuardHomeDetected => ThirdPartyDnsServers.Any(t => t.IsAdGuardHome);
+    public bool IsTechnitiumDnsDetected => ThirdPartyDnsServers.Any(t => t.IsTechnitiumDns);
     public bool IsNextDnsDetected => ThirdPartyDnsServers.Any(t => t.IsNextDns);
     public bool IsControlDDetected => ThirdPartyDnsServers.Any(t => t.IsControlD);
     public string? ThirdPartyDnsProviderName { get; set; }
