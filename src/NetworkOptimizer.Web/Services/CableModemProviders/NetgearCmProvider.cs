@@ -34,7 +34,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     public string ProviderKey => "netgear";
 
     /// <inheritdoc/>
-    public string DisplayName => "Netgear CM (HTTP)";
+    public string DisplayName => "Netgear Nighthawk CM600-CM1200 (HTTP)";
 
     private const string DefaultStatusPath = "/DocsisStatus.asp";
     private const int TimeoutSeconds = 15;
