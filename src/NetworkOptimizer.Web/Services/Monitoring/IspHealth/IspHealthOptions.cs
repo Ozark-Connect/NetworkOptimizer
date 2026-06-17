@@ -198,14 +198,16 @@ public class IspHealthOptions
     public int OutageMinDurationMinutes { get; set; } = 2;
 
     /// <summary>
-    /// Points deducted from the Packet Loss factor per minute of internet-unreachable time,
-    /// capped by <see cref="OutagePenaltyCapPoints"/>. Outages are scored by duration alone,
-    /// independent of shape or which hops dropped; the shape is presentation only.
+    /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
+    /// penaltyPoints) anchor, interpolated. Applied at the top level rather than buried in the
+    /// Packet Loss factor (where the dimension weights would dilute a multi-hour outage to a
+    /// couple of points). Scored by total duration alone - shape-independent. A brief blip barely
+    /// registers; ~10 min is a clear ding; multi-hour drives the score toward zero.
     /// </summary>
-    public double OutagePenaltyPerMinute { get; set; } = 2.0;
-
-    /// <summary>Maximum total points an outage (or outages) can deduct from the Packet Loss factor.</summary>
-    public double OutagePenaltyCapPoints { get; set; } = 40.0;
+    public (double Minutes, double Penalty)[] OutageSeverityCurve { get; set; } =
+    {
+        (0, 0), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
+    };
 
     /// <summary>Loaded delta beyond excellent by this many band-widths triggers the SQM recommendation.</summary>
     public double SqmDeviationFactor { get; set; } = 1.0;

@@ -166,7 +166,14 @@ else
                                     @issue.Recommendation
                                     @if (!string.IsNullOrEmpty(issue.LinkUrl))
                                     {
-                                        <a href="@issue.LinkUrl" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                        @if (issue.LinkUrl!.StartsWith("#"))
+                                        {
+                                            <a href="javascript:void(0)" onclick="document.getElementById('@(issue.LinkUrl.TrimStart('#'))').scrollIntoView({ behavior: 'smooth', block: 'start' });" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                        }
+                                        else
+                                        {
+                                            <a href="@issue.LinkUrl" style="margin-left: 0.4rem;">@(issue.LinkText ?? "Open")</a>
+                                        }
                                     }
                                 </div>
                             }
@@ -334,7 +341,7 @@ else
 
     @if (r.Outages.Count > 0)
     {
-        <div class="card isp-health-card">
+        <div class="card isp-health-card" id="isp-outages">
             <div class="card-header"><h2 class="card-title">Internet Outages (@WindowLabel(r))</h2></div>
             <div class="card-body">
                 <div class="isp-outage-list">
