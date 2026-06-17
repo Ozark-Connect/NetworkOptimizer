@@ -125,6 +125,33 @@ public class StepChangeDetectorTests
     }
 
     [Fact]
+    public void Revert_reports_elevated_to_reverted_magnitude_not_transition_window()
+    {
+        // Production shape: a path steps up and holds for hours, then reverts. The drop
+        // lands mid-window, so the transition window (wide IQR) fails the stability gate
+        // and is skipped; the window just before the first settled reverted window then
+        // sits at the reverted level. Reporting windows[r-1] -> windows[r] yielded a
+        // "0 ms" delta for a real ~12 ms revert. The revert must report the elevated
+        // level it actually came down from, not the transition-adjacent window.
+        var stepUp = TestSeries.Start.AddHours(10);
+        var revertAt = TestSeries.Start.AddHours(22).AddMinutes(7); // mid 22:00-22:30 window
+        var span = TimeSpan.FromHours(34);
+        var samples = TestSeries.Flat(TestSeries.Start, span, rttMs: 10, jitterMs: 0.5)
+            .WithSegment(stepUp, TestSeries.Start.AddHours(22), rttMs: 23, jitterMs: 0.5)
+            .WithSegment(revertAt, TestSeries.Start + span, rttMs: 11, jitterMs: 0.5);
+
+        var events = StepChangeDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().HaveCount(2);
+        events[0].Direction.Should().Be(PathShiftDirection.Up);
+        var revert = events[1];
+        revert.Direction.Should().Be(PathShiftDirection.Down);
+        revert.BeforeMedianMs.Should().BeApproximately(23, 1.0);
+        revert.AfterMedianMs.Should().BeApproximately(11, 1.0);
+        Math.Abs(revert.DeltaMs).Should().BeGreaterThan(10);
+    }
+
+    [Fact]
     public void Correlated_steps_across_targets_merge_into_one_event()
     {
         var stepAt = TestSeries.Start.AddHours(12);

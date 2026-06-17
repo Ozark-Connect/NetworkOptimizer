@@ -220,8 +220,17 @@ public static class StepChangeDetector
 
             var revertBoundary = r - 1;
             if (revertBoundary < stepAfterIdx) return null;
-            var revertBefore = windows[revertBoundary];
             var revertAfter = windows[r];
+
+            // Report the revert as the move from the elevated level that actually held
+            // (stepAfter) down to the settled reverted level - not windows[r-1] -> windows[r].
+            // The window just before the first stable reverted window is usually a
+            // transition window already sitting near the reverted level (its wide IQR is
+            // why it failed IsStableLevel and r skipped past it), so windows[r-1] -> windows[r]
+            // reports a near-zero delta for a genuinely large revert (production showed a
+            // ~23 -> 11 ms revert reported as "0 ms"). The crossing search keeps the
+            // transition window's start so the pinpointed time still lands on the drop.
+            var revertBefore = windows[revertBoundary] with { MedianMs = stepAfter.MedianMs, Iqr = stepAfter.Iqr };
 
             var crossing = FindCrossingTime(samples, revertBefore, revertAfter,
                 searchStart: revertBefore.Start,
