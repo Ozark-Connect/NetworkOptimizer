@@ -168,7 +168,7 @@
                             <div class="form-row">
                                 <div class="form-group mi-grow-2">
                                     <label class="form-label">Gateway-local IP</label>
-                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" @bind:event="oninput" placeholder="192.168.100.2" />
+                                    <input type="text" class="form-control" @bind="_editing.GatewayLocalIp" @bind:event="oninput" @bind:after="OnLocalIpEdited" placeholder="192.168.100.2" />
                                     <small class="form-help">The gateway's address on the modem's subnet. Auto-suggested; must be free and on the same subnet.</small>
                                 </div>
                                 <div class="form-group mi-grow-1">
@@ -329,6 +329,11 @@
     private MonitoringInterface _editing = NewInterface();
     private MonitoringInterface? _editingOriginal;
     private bool _vlanEnabled;
+
+    // True while GatewayLocalIp holds an auto-suggested value (not user-entered), so the
+    // suggestion keeps tracking the target as it's typed. Cleared once the user edits the
+    // gateway-local field themselves.
+    private bool _localIpAutoSuggested;
     private bool _collapsed = true;
     private bool _stateLoaded;
     private const string CollapseKey = "monitoring-interfaces-collapsed";
@@ -500,6 +505,7 @@
         _editing = Snapshot(mi);
         _editingOriginal = Snapshot(mi);
         _vlanEnabled = mi.WanVlanId.HasValue;
+        _localIpAutoSuggested = false;
         _collapsed = false;
         _message = null;
         _deploySteps.Clear();
@@ -510,6 +516,7 @@
         _editing = NewInterface();
         _editingOriginal = null;
         _vlanEnabled = false;
+        _localIpAutoSuggested = false;
         _message = null;
     }
 
@@ -522,9 +529,22 @@
 
     private void OnTargetChanged()
     {
-        if (string.IsNullOrWhiteSpace(_editing.GatewayLocalIp))
-            _editing.GatewayLocalIp = SuggestLocalIp(_editing.TargetIp);
+        // Keep the suggested gateway-local IP tracking the target until the user edits it
+        // themselves. With per-keystroke (oninput) binding, a one-shot "suggest only when
+        // empty" would lock onto a transient prefix - typing 10.10.10.100 passes through
+        // 10.10.10.1, suggesting .2 and then freezing. Re-suggesting while auto-suggested
+        // lets it follow through to the final octet.
+        if (string.IsNullOrWhiteSpace(_editing.GatewayLocalIp) || _localIpAutoSuggested)
+        {
+            var suggested = SuggestLocalIp(_editing.TargetIp);
+            _editing.GatewayLocalIp = suggested;
+            _localIpAutoSuggested = !string.IsNullOrEmpty(suggested);
+        }
     }
+
+    // The user edited the gateway-local IP by hand: stop auto-suggesting so we don't
+    // overwrite their value when the target changes.
+    private void OnLocalIpEdited() => _localIpAutoSuggested = false;
 
     private void OnWanChanged()
     {
@@ -557,6 +577,7 @@
         _editing = NewInterface();
         _editingOriginal = null;
         _vlanEnabled = false;
+        _localIpAutoSuggested = false;
 
         // Editing changed gateway-affecting fields: remove the old config first so we don't
         // leave a stale macvlan/route/SNAT/cron/boot-script behind.
