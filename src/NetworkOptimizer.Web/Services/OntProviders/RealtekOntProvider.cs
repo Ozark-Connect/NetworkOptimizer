@@ -169,7 +169,11 @@ public sealed class RealtekOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Form-based login: POST username and plain-text password to /boaform/admin/formLogin.
+    /// Form-based login: POST plain-text credentials to /boaform/admin/formLogin.
+    /// Sends a superset of the fields used across Realtek Boa firmware variants. The
+    /// modern firmware reads <c>password</c>/<c>challenge</c>/<c>save</c>; the older SDK
+    /// reads <c>psd</c>. Boa's CGI reads only the params it recognizes and ignores the
+    /// rest, so unrecognized fields are inert and the same POST works on either variant.
     /// </summary>
     private async Task<bool> LoginAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
@@ -180,8 +184,11 @@ public sealed class RealtekOntProvider : IOntProvider
         var loginUrl = $"{baseUrl}/boaform/admin/formLogin";
         var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
+            ["challenge"] = "",
             ["username"] = username,
+            ["password"] = password,
             ["psd"] = password,
+            ["save"] = "Login",
             ["submit-url"] = "/admin/login.asp",
         });
 
