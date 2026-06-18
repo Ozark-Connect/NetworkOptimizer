@@ -1,0 +1,130 @@
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Monitoring
+@inject FlakyTargetService FlakyTargets
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+@* Issue #849: flaky-target advisory. Hidden entirely when there are no candidates. Reuses the
+   shared card / button styles; only the row layout is scoped below. *@
+@if (_flaky.Count > 0)
+{
+    <div class="card flaky-card">
+        <div class="card-header flaky-header" @onclick="Toggle">
+            <h2 class="card-title">
+                <span class="flaky-warn">&#9888;</span>
+                Flaky monitoring targets (@_flaky.Count)
+            </h2>
+            <div class="flaky-header-actions" @onclick:stopPropagation="true">
+                <button class="btn btn-sm btn-secondary" @onclick="DisableAllAsync" disabled="@_busy"
+                        data-tooltip="Disable every flagged target">Disable all</button>
+                <button class="btn btn-sm btn-secondary flaky-collapse" @onclick="Toggle"
+                        data-tooltip="@(_expanded ? "Collapse" : "Expand")">@(_expanded ? "▲" : "▼")</button>
+            </div>
+        </div>
+        @if (_expanded)
+        {
+            <div class="card-body">
+                <p class="page-description flaky-intro">
+                    These targets show packet loss well above their peers over the last couple of days,
+                    usually ICMP deprioritization rather than a real problem. Disabling one keeps it out
+                    of ISP Health scoring; you can re-enable it anytime in Latency Targets below.
+                </p>
+                <div class="flaky-list">
+                    @foreach (var f in _flaky)
+                    {
+                        <div class="flaky-row">
+                            <div class="flaky-info">
+                                <span class="flaky-name">@f.Name</span>
+                                <span class="flaky-tag">@TypeLabel(f.Type)</span>
+                                <span class="flaky-evidence">@f.Evidence</span>
+                            </div>
+                            <button class="btn btn-sm btn-secondary" @onclick="() => DisableAsync(f)" disabled="@_busy">
+                                Disable
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<style>
+    .flaky-card { border-left: 3px solid var(--warning-color); }
+    .flaky-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; cursor: pointer; }
+    .flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
+    .flaky-header-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .flaky-collapse { min-width: 2.25rem; }
+    .flaky-intro { margin-top: 0; margin-bottom: 1rem; }
+    .flaky-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .flaky-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+                 padding: 0.6rem 0.75rem; background: var(--bg-tertiary); border-radius: 6px; }
+    .flaky-info { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; min-width: 0; }
+    .flaky-name { color: var(--text-primary); font-weight: 600; }
+    .flaky-tag { color: var(--text-secondary); font-size: 0.78rem; padding: 0.1rem 0.45rem;
+                 background: var(--bg-hover); border-radius: 4px; }
+    .flaky-evidence { color: var(--warning-color); font-size: 0.85rem; }
+
+    @@media (max-width: 768px) {
+        .flaky-row { flex-direction: column; align-items: stretch; }
+        .flaky-row .btn { width: 100%; }
+        .flaky-info { justify-content: flex-start; }
+    }
+</style>
+
+@code {
+    [Parameter] public EventCallback OnTargetsChanged { get; set; }
+
+    private IReadOnlyList<FlakyTargetService.FlakyTarget> _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>();
+    private bool _expanded = true;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _flaky = await FlakyTargets.DetectAsync(); }
+        catch { _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>(); }
+    }
+
+    private void Toggle() => _expanded = !_expanded;
+
+    private async Task DisableAsync(FlakyTargetService.FlakyTarget target)
+    {
+        _busy = true;
+        try
+        {
+            await SetEnabledFalseAsync(new[] { target.Id });
+            _flaky = _flaky.Where(f => f.Id != target.Id).ToList();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DisableAllAsync()
+    {
+        if (_flaky.Count == 0) return;
+        _busy = true;
+        try
+        {
+            await SetEnabledFalseAsync(_flaky.Select(f => f.Id).ToList());
+            _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetEnabledFalseAsync(IReadOnlyCollection<int> ids)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var rows = await db.MonitoringTargets.Where(t => ids.Contains(t.Id)).ToListAsync();
+        foreach (var row in rows) row.Enabled = false;
+        await db.SaveChangesAsync();
+    }
+
+    private static string TypeLabel(MonitoringTargetType type) => type switch
+    {
+        MonitoringTargetType.AccessIsp => "ISP",
+        MonitoringTargetType.Transit => "Transit",
+        MonitoringTargetType.InternetService => "Internet",
+        _ => type.ToString()
+    };
+}

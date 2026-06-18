@@ -31,6 +31,7 @@
 @inject CellularModemService CellularModemService
 @inject MonitoringCollectionAgent CollectionAgent
 @inject IspHealthService IspHealthService
+@inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -143,6 +144,24 @@ else
                     </div>
                     <div class="banner-actions">
                         <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_flakyTargetCount > 0)
+        {
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <div class="banner-content">
+                    <span class="banner-icon banner-icon-info">i</span>
+                    <div class="banner-text" style="flex: 1;">
+                        @(_flakyTargetCount == 1
+                            ? "1 monitoring target looks flaky"
+                            : $"{_flakyTargetCount} monitoring targets look flaky")
+                        - high packet loss versus their peers, usually ICMP deprioritization. Review and disable them so they don't skew ISP Health.
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-primary" @onclick="GoToFlakyTargets">Review flaky targets</button>
                     </div>
                 </div>
             </div>
@@ -377,6 +396,10 @@ else
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
             <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <FlakyTargetsCard OnTargetsChanged="OnTargetsChanged" />
         </div>
 
         <div style="margin-top: 1.5rem;">
@@ -1579,6 +1602,12 @@ else
         SetActiveTab("setup");
     }
 
+    // Flaky-target banner state (#849). Detected once when Live View first loads; never polled.
+    private int _flakyTargetCount;
+    private bool _flakyChecked;
+
+    private void GoToFlakyTargets() => SetActiveTab("performance");
+
     private async Task LoadTargetsAsync()
     {
         try
@@ -2402,6 +2431,18 @@ else
 
         // Mount/unmount charts based on active tab. Only mount when the container
         // div exists in the DOM (i.e., the tab is active). Unmount when switching away.
+
+        // Flaky-target banner (#849): detect once, on the first time Live View is shown. No polling.
+        if (_activeTab == "live" && _monitoringReady && !_flakyChecked)
+        {
+            _flakyChecked = true;
+            try
+            {
+                _flakyTargetCount = (await FlakyTargets.DetectAsync()).Count;
+                if (_flakyTargetCount > 0) StateHasChanged();
+            }
+            catch (Exception ex) { Logger.LogDebug(ex, "Flaky-target banner check failed"); }
+        }
 
         // 3D map - Live tab only
         if (_activeTab == "live" && _monitoringReady && !_mapMounted)

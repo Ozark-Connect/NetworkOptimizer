@@ -1076,6 +1076,52 @@ public class IspHealthScorerTests
 
         ResolvedDownDelta(inputs).Should().BeApproximately(3, 1.0);
     }
+
+    // ── Item E: per-tech jitter band applied to scoring ───────────────────────────
+
+    [Fact]
+    public void Docsis_inherent_jitter_is_not_penalized_like_fiber()
+    {
+        // The same ISP hop at DOCSIS-typical 3 ms jitter: normal for cable, poor for fiber.
+        var docsis = IspHealthProfiles.GetProfile(AccessTechnology.Docsis)!;
+        var hops = new List<AsnSeries> { IspHop("isp-a", "ISP A", 8.0, 3.0) };
+
+        var docsisReport = new IspHealthScorer(Options).Score(
+            BuildInputs(idleRtt: 8.0, ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-a"), docsis);
+        var fiberReport = new IspHealthScorer(Options).Score(
+            BuildInputs(idleRtt: 8.0, ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-a"), Gpon);
+
+        docsisReport.IspAsnDimension.Score.Should().BeGreaterThan(
+            fiberReport.IspAsnDimension.Score!.Value + 10,
+            "3 ms jitter is normal on DOCSIS but poor on fiber");
+    }
+
+    // ── Item D: ISP access-hop reach blend (internet-relative lift) ────────────────
+
+    [Fact]
+    public void Far_isp_hop_is_lifted_when_modest_versus_internet_distance()
+    {
+        // Two hops in one ISP ASN; the far hop sits 4 ms past the near one but the internet
+        // itself is 30 ms out, so that distance is modest in context and should be absolved up.
+        var hops = new List<AsnSeries>
+        {
+            IspHop("isp-near", "Near", 2.0, 0.3),
+            IspHop("isp-far", "Far", 6.0, 0.3)
+        };
+
+        var withContext = new IspHealthScorer(Options).Score(
+            BuildInputs(idleRtt: 2.0, ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-near", internetDeltaMs: 30.0), Gpon);
+        var without = new IspHealthScorer(Options).Score(
+            BuildInputs(idleRtt: 2.0, ispAsn: hops, ispTargets: hops, firstHopTargetId: "isp-near"), Gpon);
+
+        var farWith = withContext.IspTargets.Single(t => t.TargetId == "isp-far").OverallScore;
+        var farWithout = without.IspTargets.Single(t => t.TargetId == "isp-far").OverallScore;
+
+        farWith.Should().BeGreaterThan(farWithout!.Value,
+            "the internet-relative blend lifts a hop that's modest relative to internet distance");
+        // Lift only - the near (zero-distance) hop is untouched at the top.
+        withContext.IspTargets.Single(t => t.TargetId == "isp-near").OverallScore.Should().Be(100);
+    }
 }
 
 public class IspHealthProfilesTests
@@ -1118,5 +1164,28 @@ public class IspHealthProfilesTests
             var p = IspHealthProfiles.GetProfile(tech)!;
             p.LoadedLossUpHighPct.Should().BeLessThanOrEqualTo(p.LoadedLossDownHighPct, $"{tech} upstream band should not exceed downstream");
         }
+    }
+
+    // ── Item E: per-tech jitter band ──────────────────────────────────────────────
+
+    [Fact]
+    public void Jitter_bands_are_set_for_known_techs_and_null_for_neutral()
+    {
+        foreach (var tech in new[]
+        {
+            AccessTechnology.Gpon, AccessTechnology.XgsPon, AccessTechnology.Docsis,
+            AccessTechnology.Satellite, AccessTechnology.DirectEthernet,
+            AccessTechnology.FixedWireless, AccessTechnology.Cellular, AccessTechnology.Dsl
+        })
+        {
+            var p = IspHealthProfiles.GetProfile(tech)!;
+            p.JitterIdealMs.Should().NotBeNull($"{tech} should carry a jitter band");
+            p.JitterTypicalMs.Should().NotBeNull();
+            p.JitterPoorMs.Should().NotBeNull();
+        }
+
+        // Neutral techs keep the measured-floor curve - no band.
+        IspHealthProfiles.GetProfile(AccessTechnology.PppoE)!.JitterTypicalMs.Should().BeNull();
+        IspHealthProfiles.GetProfile(AccessTechnology.Other)!.JitterTypicalMs.Should().BeNull();
     }
 }

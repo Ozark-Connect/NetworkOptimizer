@@ -1,0 +1,176 @@
+using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Storage.Models;
+
+namespace NetworkOptimizer.Web.Services.Monitoring;
+
+/// <summary>
+/// Detects flaky WAN-path monitoring targets (issue #849): an AccessIsp / Transit / InternetService
+/// target whose packet loss is notably above the peer baseline, consistently, over the retained
+/// window - usually ICMP-deprioritized routers. Relative-to-peers so it auto-calibrates per
+/// connection (congested DOCSIS at 0.5% across the board doesn't false-positive; a transit router
+/// at 10% against a 0.2% baseline does).
+///
+/// Computed on demand (Live View banner + Network Performance panel initial loads) - never polled.
+/// Reuses the existing per-target loss query; adds no Influx measurements.
+/// </summary>
+public class FlakyTargetService
+{
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly MonitoringInfluxClient _influx;
+    private readonly ILogger<FlakyTargetService> _logger;
+
+    public FlakyTargetService(
+        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        MonitoringInfluxClient influx,
+        ILogger<FlakyTargetService> logger)
+    {
+        _dbFactory = dbFactory;
+        _influx = influx;
+        _logger = logger;
+    }
+
+    /// <summary>Lookback window. We bin hourly, so this is also the max bin count.</summary>
+    private const int LookbackHours = 48;
+    /// <summary>A target is "over" in a bin when its loss is at least this multiple of the peer median.</summary>
+    private const double LossMultiplier = 4.0;
+    /// <summary>...and at least this absolute loss, so trivial loss on a near-zero baseline isn't flagged.</summary>
+    private const double LossAbsoluteFloorPct = 3.0;
+    /// <summary>Flagged only when over-threshold in at least this fraction of its surviving bins.</summary>
+    private const double ConsistencyFraction = 0.70;
+    /// <summary>A bin is a shared-loss event (excluded) when at least this fraction of the pool loses heavily in it.</summary>
+    private const double SharedLossPoolFraction = 0.5;
+    /// <summary>Loss at or above this in a bin counts as "losing heavily" for the shared-loss test.</summary>
+    private const double SharedLossHeavyPct = 5.0;
+    /// <summary>A target needs at least this many surviving bins of data before we'll judge it (the "couple hours").</summary>
+    private const int MinTargetBins = 6;
+
+    /// <summary>One flagged target plus the evidence behind the call.</summary>
+    public record FlakyTarget(
+        string TargetId,
+        int Id,
+        string Name,
+        MonitoringTargetType Type,
+        double LossPct,
+        double BaselinePct,
+        int OverBins,
+        int TotalBins)
+    {
+        public string Evidence => $"{LossPct:0.0}% loss vs {BaselinePct:0.0}% peer median";
+    }
+
+    /// <summary>
+    /// Returns the flaky targets, worst loss first. Empty when there isn't enough data yet,
+    /// Influx isn't configured, or nothing is flaky.
+    /// </summary>
+    public async Task<IReadOnlyList<FlakyTarget>> DetectAsync(CancellationToken ct = default)
+    {
+        List<MonitoringTarget> pool;
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            pool = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
+                    || t.TargetType == MonitoringTargetType.Transit
+                    || t.TargetType == MonitoringTargetType.InternetService))
+                .ToListAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Flaky-target detect: failed to load pool");
+            return System.Array.Empty<FlakyTarget>();
+        }
+        if (pool.Count < 2) return System.Array.Empty<FlakyTarget>();
+
+        var byId = pool.ToDictionary(t => t.TargetId, t => t);
+        var to = DateTime.UtcNow;
+        var from = to.AddHours(-LookbackHours);
+        var hourly = TimeSpan.FromHours(1);
+
+        // Per-target hourly loss (the aggregateWindow already bins to the hour). Pull all three
+        // WAN-path types and keep only enabled pool targets.
+        var lossByTarget = new Dictionary<string, Dictionary<DateTime, double>>();
+        foreach (var type in new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit, MonitoringTargetType.InternetService })
+        {
+            Dictionary<string, List<MonitoringInfluxClient.LatencySeriesPoint>> series;
+            try
+            {
+                series = await _influx.QueryLatencyDetailByTargetTypeAsync(type, from, to, hourly, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Flaky-target detect: loss query failed for {Type}", type);
+                return System.Array.Empty<FlakyTarget>();
+            }
+            foreach (var (targetId, points) in series)
+            {
+                if (!byId.ContainsKey(targetId)) continue;
+                var bins = lossByTarget.TryGetValue(targetId, out var existing) ? existing : lossByTarget[targetId] = new();
+                foreach (var p in points)
+                {
+                    if (!p.LossPercent.HasValue) continue;
+                    bins[FloorToHour(p.Time)] = p.LossPercent.Value;
+                }
+            }
+        }
+        if (lossByTarget.Count < 2) return System.Array.Empty<FlakyTarget>();
+
+        // Shared-loss exclusion: drop bins where at least half the reporting pool is losing heavily
+        // - a path-wide event (outage/congestion), not one flaky target. Cheap proxy for the real
+        // outage detector: no dark-fraction gating, just "are most targets hurting this hour?".
+        var allBins = lossByTarget.Values.SelectMany(b => b.Keys).ToHashSet();
+        var excludedBins = new HashSet<DateTime>();
+        foreach (var bin in allBins)
+        {
+            var reporting = lossByTarget.Values.Where(b => b.ContainsKey(bin)).Select(b => b[bin]).ToList();
+            if (reporting.Count == 0) continue;
+            var heavy = reporting.Count(l => l >= SharedLossHeavyPct);
+            if ((double)heavy / reporting.Count >= SharedLossPoolFraction)
+                excludedBins.Add(bin);
+        }
+
+        var survivingBins = allBins.Count - excludedBins.Count;
+        if (survivingBins < MinTargetBins)
+        {
+            _logger.LogDebug("Flaky-target detect: only {Bins} surviving bins (< {Min}); not enough data yet", survivingBins, MinTargetBins);
+            return System.Array.Empty<FlakyTarget>();
+        }
+
+        // Peer baseline: median of every surviving (target, bin) loss value. Median, not mean, so the
+        // flaky targets we're hunting don't inflate the baseline and mask each other.
+        var allLosses = new List<double>();
+        foreach (var bins in lossByTarget.Values)
+            foreach (var (bin, loss) in bins)
+                if (!excludedBins.Contains(bin)) allLosses.Add(loss);
+        if (allLosses.Count == 0) return System.Array.Empty<FlakyTarget>();
+        var baseline = Median(allLosses);
+        var threshold = Math.Max(LossMultiplier * baseline, LossAbsoluteFloorPct);
+
+        var flaky = new List<FlakyTarget>();
+        foreach (var (targetId, bins) in lossByTarget)
+        {
+            var survivors = bins.Where(kv => !excludedBins.Contains(kv.Key)).Select(kv => kv.Value).ToList();
+            if (survivors.Count < MinTargetBins) continue;
+            var over = survivors.Count(l => l >= threshold);
+            if ((double)over / survivors.Count < ConsistencyFraction) continue;
+
+            var t = byId[targetId];
+            flaky.Add(new FlakyTarget(targetId, t.Id, string.IsNullOrEmpty(t.Name) ? t.Address : t.Name,
+                t.TargetType, Median(survivors), baseline, over, survivors.Count));
+        }
+
+        _logger.LogDebug("Flaky-target detect: {Count} flagged, baseline {Base:0.00}%, threshold {Thr:0.00}%, {Bins} surviving bins",
+            flaky.Count, baseline, threshold, survivingBins);
+        return flaky.OrderByDescending(f => f.LossPct).ToList();
+    }
+
+    private static DateTime FloorToHour(DateTime t) =>
+        new DateTime(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
+
+    private static double Median(List<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        var n = sorted.Count;
+        if (n == 0) return 0;
+        return n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
+    }
+}
