@@ -169,7 +169,11 @@ public sealed class RealtekOntProvider : IOntProvider
     }
 
     /// <summary>
-    /// Form-based login: POST username and plain-text password to /boaform/admin/formLogin.
+    /// Form-based login: POST plain-text credentials to /boaform/admin/formLogin.
+    /// Sends a superset of the fields used across Realtek Boa firmware variants. The
+    /// modern firmware reads <c>password</c>/<c>challenge</c>/<c>save</c>; the older SDK
+    /// reads <c>psd</c>. Boa's CGI reads only the params it recognizes and ignores the
+    /// rest, so unrecognized fields are inert and the same POST works on either variant.
     /// </summary>
     private async Task<bool> LoginAsync(
         HttpClient client, string baseUrl, OntPollContext context, CancellationToken ct)
@@ -180,26 +184,31 @@ public sealed class RealtekOntProvider : IOntProvider
         var loginUrl = $"{baseUrl}/boaform/admin/formLogin";
         var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
+            ["challenge"] = "",
             ["username"] = username,
+            ["password"] = password,
             ["psd"] = password,
+            ["save"] = "Login",
             ["submit-url"] = "/admin/login.asp",
         });
 
         var response = await client.PostAsync(loginUrl, content, ct);
+        if (!response.IsSuccessStatusCode)
+            return false;
 
-        if (response.StatusCode == HttpStatusCode.Redirect ||
-            response.StatusCode == HttpStatusCode.MovedPermanently ||
-            response.StatusCode == HttpStatusCode.OK)
-        {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            if (body.Contains("login.asp", StringComparison.OrdinalIgnoreCase) &&
-                body.Contains("error", StringComparison.OrdinalIgnoreCase))
-                return false;
+        // Redirects are auto-followed: a successful login lands on the device home (/),
+        // a failed one bounces back to the login page. Treat landing on the login page
+        // (by final URL, page title, or a re-rendered login form) as failure so a real
+        // auth error surfaces as "Login failed" rather than a later malformed-response error.
+        var finalPath = response.RequestMessage?.RequestUri?.AbsolutePath ?? "";
+        var body = await response.Content.ReadAsStringAsync(ct);
 
-            return true;
-        }
+        var landedOnLogin =
+            finalPath.Contains("login.asp", StringComparison.OrdinalIgnoreCase) ||
+            body.Contains("<title>Login</title>", StringComparison.OrdinalIgnoreCase) ||
+            body.Contains("formLogin", StringComparison.OrdinalIgnoreCase);
 
-        return false;
+        return !landedOnLogin;
     }
 
     private OntStats ParseStatusPon(string html, OntPollContext context)
