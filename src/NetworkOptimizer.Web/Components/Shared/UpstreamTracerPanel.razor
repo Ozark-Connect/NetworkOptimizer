@@ -323,9 +323,15 @@
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
-    // Group by ASN so every hop in the same transit network (including an injected witness like
-    // 4.2.2.2 for AS3356, which is added last) lists together; stable within each ASN.
-    private List<TransitAsnCandidate> TransitRouters => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.DirectRouter).OrderBy(a => a.AsnNumber).ToList();
+    // Group by ASN so every hop in the same transit network lists together (including an injected
+    // witness like 4.2.2.2 for AS3356, which is added last). Networks are ordered nearest-first by
+    // their best RTT, and within each network by RTT ascending; unreachable hops sort to the end.
+    private List<TransitAsnCandidate> TransitRouters =>
+        _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.DirectRouter)
+            .GroupBy(a => a.AsnNumber)
+            .OrderBy(g => g.Min(a => a.VerifiedRttMs ?? double.MaxValue))
+            .SelectMany(g => g.OrderBy(a => a.VerifiedRttMs ?? double.MaxValue))
+            .ToList();
     private List<TransitAsnCandidate> PathEndHosts => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.PathProxy).ToList();
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;

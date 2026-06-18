@@ -1304,6 +1304,7 @@ public class UpstreamTracerService
 
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
+            _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
             await UpsertTargetAsync(db, hop, wanInterface, ct);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
@@ -1318,6 +1319,8 @@ public class UpstreamTracerService
         }
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
+            _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
+                transit.TargetId, transit.Label, transit.HopAddress ?? transit.PathProxyTarget, transit.Method);
             await UpsertTransitTargetAsync(db, transit, wanInterface, ct);
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))
