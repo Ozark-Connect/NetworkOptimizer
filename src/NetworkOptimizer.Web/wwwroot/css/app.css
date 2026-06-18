@@ -1148,7 +1148,7 @@ a.stat-card-link:active {
     animation: toast-fade-in 0.2s ease;
 }
 
-@@keyframes toast-fade-in {
+@keyframes toast-fade-in {
     from { opacity: 0; transform: translateY(-4px); }
     to { opacity: 1; transform: translateY(0); }
 }
@@ -3574,7 +3574,7 @@ select.form-control {
     left: calc(140px + 0.5rem);
 }
 
-@@keyframes purposeFadeIn {
+@keyframes purposeFadeIn {
     from { opacity: 0; transform: translateX(-4px); }
     to { opacity: 1; transform: translateX(0); }
 }
