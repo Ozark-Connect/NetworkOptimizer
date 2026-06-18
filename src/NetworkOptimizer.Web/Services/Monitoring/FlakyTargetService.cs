@@ -119,12 +119,14 @@ public class FlakyTargetService
 
     /// <summary>
     /// Pure analysis (no I/O): given per-target binned loss, flag the flaky ones. A target is flaky
-    /// when its MEDIAN surviving-bin loss is at or above the threshold (>= <see cref="LossMultiplier"/>x
-    /// the peer-median loss AND >= <see cref="LossAbsoluteFloorPct"/>). Median - not a per-bin
-    /// over-threshold count - so a target that's notably lossy most of the time is caught even when
-    /// bursty (e.g. 0/1/6/6/3/17% reads a 4.5% median), while a single spike on an otherwise-clean
-    /// target (median ~0) is not. Bins where >= half the pool loses heavily are excluded first as
-    /// path-wide events, and a target needs <see cref="MinTargetBins"/> surviving bins to be judged.
+    /// when its TRIMMED-MEAN surviving-bin loss (drop the single highest + lowest bin, average the
+    /// rest) is at or above the threshold (>= <see cref="LossMultiplier"/>x the peer-median loss AND
+    /// >= <see cref="LossAbsoluteFloorPct"/>). Trimmed mean is spike-robust like a median (a single
+    /// 100% bin on an otherwise-clean target trims away) but, unlike a small-sample median, it does
+    /// not flap when one clean bin rolls in - the median of ~6 bursty bins can swing across the floor
+    /// (e.g. 2.86% -> 4.5%), the trimmed mean stays put (~4%). Bins where >= half the pool loses
+    /// heavily are excluded first as path-wide events, and a target needs <see cref="MinTargetBins"/>
+    /// surviving bins to be judged. The peer baseline still uses a plain median across the pool.
     /// </summary>
     internal static IReadOnlyList<FlakyTarget> Analyze(
         Dictionary<string, Dictionary<DateTime, double>> lossByTarget,
@@ -167,13 +169,13 @@ public class FlakyTargetService
         {
             var survivors = bins.Where(kv => !excludedBins.Contains(kv.Key)).Select(kv => kv.Value).ToList();
             if (survivors.Count < MinTargetBins) continue;
-            var median = Median(survivors);
-            if (median < threshold) continue;
+            var metric = TrimmedMean(survivors);
+            if (metric < threshold) continue;
 
             if (!byId.TryGetValue(targetId, out var t)) continue;
             var over = survivors.Count(l => l >= threshold);
             flaky.Add(new FlakyTarget(targetId, t.Id, string.IsNullOrEmpty(t.Name) ? t.Address : t.Name,
-                t.TargetType, median, baseline, over, survivors.Count));
+                t.TargetType, metric, baseline, over, survivors.Count));
         }
 
         logger?.LogDebug("Flaky-target detect: {Count} flagged, baseline {Base:0.00}%, threshold {Thr:0.00}%, {Bins} surviving bins",
@@ -190,5 +192,18 @@ public class FlakyTargetService
         var n = sorted.Count;
         if (n == 0) return 0;
         return n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
+    }
+
+    /// <summary>
+    /// Mean after dropping the single lowest and single highest value. Spike-robust (one bad bin
+    /// trims away) without the small-sample jumpiness of a median. Callers gate on Count &gt;= 3, so
+    /// at least one value always remains.
+    /// </summary>
+    private static double TrimmedMean(List<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        if (sorted.Count < 3) return sorted.Count == 0 ? 0 : sorted.Average();
+        var core = sorted.GetRange(1, sorted.Count - 2);
+        return core.Average();
     }
 }

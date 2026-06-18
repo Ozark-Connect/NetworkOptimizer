@@ -398,8 +398,8 @@ else
             <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
         </div>
 
-        <div style="margin-top: 1.5rem;">
-            <FlakyTargetsCard OnTargetsChanged="OnTargetsChanged" />
+        <div id="flaky-targets" style="margin-top: 1.5rem;">
+            <FlakyTargetsCard ForceExpand="_forceExpandFlaky" OnTargetsChanged="OnTargetsChanged" />
         </div>
 
         <div style="margin-top: 1.5rem;">
@@ -1274,6 +1274,8 @@ else
 
     private bool _scrollToDiscoveryPending;
     private bool _scrollToSfpChartsPending;
+    private bool _scrollToFlakyPending;
+    private bool _forceExpandFlaky;
     private string? _soloSfpModuleId;
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
@@ -1606,7 +1608,12 @@ else
     private int _flakyTargetCount;
     private bool _flakyChecked;
 
-    private void GoToFlakyTargets() => SetActiveTab("performance");
+    private void GoToFlakyTargets()
+    {
+        _forceExpandFlaky = true;
+        _scrollToFlakyPending = true;
+        SetActiveTab("performance");
+    }
 
     private async Task LoadTargetsAsync()
     {
@@ -1696,6 +1703,23 @@ else
         await JS.InvokeVoidAsync("eval", @"
             (function() {
                 var el = document.getElementById('upstream-discovery');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
+    private async Task ScrollToFlakyTargetsAsync()
+    {
+        await Task.Delay(500);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('flaky-targets');
                 if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     el.style.transition = 'outline-color 0.3s';
@@ -2545,6 +2569,13 @@ else
             _scrollToDiscoveryPending = false;
             _forceExpandUpstream = false;
             await ScrollToUpstreamDiscoveryAsync();
+        }
+
+        if (_scrollToFlakyPending && _activeTab == "performance")
+        {
+            _scrollToFlakyPending = false;
+            _forceExpandFlaky = false;
+            await ScrollToFlakyTargetsAsync();
         }
 
         // Device health charts - Devices tab only

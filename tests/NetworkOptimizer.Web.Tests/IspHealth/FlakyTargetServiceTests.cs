@@ -40,8 +40,8 @@ public class FlakyTargetServiceTests
     [Fact]
     public void Bursty_but_consistently_lossy_target_is_flagged()
     {
-        // The real Mac case: a Level 3 edge hop reading ~7.4% mean / ~4.5% median against
-        // zero-loss peers. The old 70%-of-bins rule missed it (only 3 of 6 bins clear 3%).
+        // The real Mac case: a Level 3 edge hop against zero-loss peers. Trimmed mean drops the
+        // 0% and 17.5% bins and averages the rest -> ~4.1%.
         var (loss, meta) = Build(
             ("level3-edge", new[] { 0.0, 1.05, 6.21, 6.4, 2.86, 17.5 }),
             ("clean-a", new[] { 0.0, 0, 0, 0, 0, 0 }),
@@ -50,7 +50,21 @@ public class FlakyTargetServiceTests
         var flaky = FlakyTargetService.Analyze(loss, meta);
 
         flaky.Should().ContainSingle().Which.TargetId.Should().Be("level3-edge");
-        flaky[0].LossPct.Should().BeApproximately(4.5, 0.6);
+        flaky[0].LossPct.Should().BeApproximately(4.13, 0.3);
+    }
+
+    [Fact]
+    public void Trimmed_mean_holds_where_a_small_sample_median_would_flap()
+    {
+        // The 5-bin snapshot from the observed flap: median is 2.86% (< 3%, would DROP the target)
+        // but the trimmed mean is 3.37% (>= 3%, stays flagged). This is the anti-flap fix.
+        var (loss, meta) = Build(
+            ("level3-edge", new[] { 0.0, 1.05, 2.86, 6.21, 6.4 }),
+            ("clean-a", new[] { 0.0, 0, 0, 0, 0 }),
+            ("clean-b", new[] { 0.0, 0, 0, 0, 0 }));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("level3-edge");
     }
 
     [Fact]

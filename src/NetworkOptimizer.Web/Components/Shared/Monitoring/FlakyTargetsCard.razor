@@ -4,80 +4,77 @@
 @inject FlakyTargetService FlakyTargets
 @inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 
-@* Issue #849: flaky-target advisory. Hidden entirely when there are no candidates. Reuses the
-   shared card / button styles; only the row layout is scoped below. *@
+@* Issue #849: flaky-target advisory. Hidden entirely when there are no candidates. Uses the
+   standard collapsible-card convention (card-header-collapsible + issue-type-chevron + expand-wrapper). *@
 @if (_flaky.Count > 0)
 {
     <div class="card flaky-card">
-        <div class="card-header flaky-header" @onclick="Toggle">
-            <h2 class="card-title">
-                <span class="flaky-warn">&#9888;</span>
-                Flaky monitoring targets (@_flaky.Count)
-            </h2>
-            <div class="flaky-header-actions" @onclick:stopPropagation="true">
-                <button class="btn btn-sm btn-secondary" @onclick="DisableAllAsync" disabled="@_busy"
-                        data-tooltip="Disable every flagged target">Disable all</button>
-                <button class="btn btn-sm btn-secondary flaky-collapse" @onclick="Toggle"
-                        data-tooltip="@(_expanded ? "Collapse" : "Expand")">@(_expanded ? "▲" : "▼")</button>
+        <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+            <h2 class="card-title"><span class="flaky-warn">&#9888;</span> Flaky monitoring targets (@_flaky.Count)</h2>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <button class="btn btn-sm btn-outline-primary" @onclick="DisableAllAsync" disabled="@_busy"
+                        @onclick:stopPropagation="true" data-tooltip="Disable every flagged target">Disable all</button>
+                <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
             </div>
         </div>
-        @if (_expanded)
-        {
-            <div class="card-body">
-                <p class="page-description flaky-intro">
-                    These targets show packet loss well above their peers over recent monitoring,
-                    usually ICMP deprioritization rather than a real problem. Disabling one keeps it out
-                    of ISP Health scoring; you can re-enable it anytime in Latency Targets below.
-                </p>
-                <div class="flaky-list">
-                    @foreach (var f in _flaky)
-                    {
-                        <div class="flaky-row">
-                            <div class="flaky-info">
-                                <span class="flaky-name">@f.Name</span>
-                                <span class="flaky-tag">@TypeLabel(f.Type)</span>
-                                <span class="flaky-evidence">@f.Evidence</span>
-                            </div>
-                            <button class="btn btn-sm btn-secondary" @onclick="() => DisableAsync(f)" disabled="@_busy">
-                                Disable
-                            </button>
-                        </div>
-                    }
+        <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+            <div class="expand-content">
+                <div class="card-body">
+                    <p class="section-description">
+                        These targets show packet loss well above their peers over recent monitoring,
+                        usually ICMP deprioritization rather than a real problem. Disabling one keeps it
+                        out of ISP Health scoring; you can re-enable it anytime in Latency Targets below.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Target</th>
+                                    <th>Type</th>
+                                    <th>Loss vs peers</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var f in _flaky)
+                                {
+                                    <tr>
+                                        <td>@f.Name</td>
+                                        <td>@TypeLabel(f.Type)</td>
+                                        <td class="flaky-evidence">@f.Evidence</td>
+                                        <td class="flaky-action">
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => DisableAsync(f)" disabled="@_busy">Disable</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-        }
+        </div>
     </div>
 }
 
 <style>
     .flaky-card { border-left: 3px solid var(--warning-color); }
-    .flaky-header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; cursor: pointer; }
     .flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
-    .flaky-header-actions { display: flex; align-items: center; gap: 0.5rem; }
-    .flaky-collapse { min-width: 2.25rem; }
-    .flaky-intro { margin-top: 0; margin-bottom: 1rem; }
-    .flaky-list { display: flex; flex-direction: column; gap: 0.5rem; }
-    .flaky-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-                 padding: 0.6rem 0.75rem; background: var(--bg-tertiary); border-radius: 6px; }
-    .flaky-info { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; min-width: 0; }
-    .flaky-name { color: var(--text-primary); font-weight: 600; }
-    .flaky-tag { color: var(--text-secondary); font-size: 0.78rem; padding: 0.1rem 0.45rem;
-                 background: var(--bg-hover); border-radius: 4px; }
-    .flaky-evidence { color: var(--warning-color); font-size: 0.85rem; }
-
-    @@media (max-width: 768px) {
-        .flaky-row { flex-direction: column; align-items: stretch; }
-        .flaky-row .btn { width: 100%; }
-        .flaky-info { justify-content: flex-start; }
-    }
+    .flaky-evidence { color: var(--warning-color); }
+    .flaky-action { text-align: right; white-space: nowrap; }
 </style>
 
 @code {
     [Parameter] public EventCallback OnTargetsChanged { get; set; }
+    [Parameter] public bool ForceExpand { get; set; }
 
     private IReadOnlyList<FlakyTargetService.FlakyTarget> _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>();
-    private bool _expanded = true;
+    private bool _collapsed; // expanded by default when candidates exist
     private bool _busy;
+
+    protected override void OnParametersSet()
+    {
+        if (ForceExpand && _collapsed) _collapsed = false;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -85,7 +82,7 @@
         catch { _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>(); }
     }
 
-    private void Toggle() => _expanded = !_expanded;
+    private void ToggleCollapse() => _collapsed = !_collapsed;
 
     private async Task DisableAsync(FlakyTargetService.FlakyTarget target)
     {
