@@ -15,8 +15,15 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// </summary>
 public static class OutageDetector
 {
-    /// <summary>One monitored hop, carried for the outage shape and break attribution.</summary>
-    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series);
+    /// <summary>
+    /// One monitored hop, carried for the outage shape and break attribution. <paramref name="Groupable"/>
+    /// hops (the per-target access ISP rows) that end up sharing an outage signature are collapsed
+    /// into one waterfall row; non-groupable hops (transit clusters, internet endpoints) always
+    /// stay on their own. <paramref name="AsnLabel"/> is the ASN-level label a row prefers over its
+    /// per-target <paramref name="Name"/> (the PTR hostname); the detector disambiguates when one
+    /// ASN owns several rows. Null AsnLabel (internet endpoints) falls back to <paramref name="Name"/>.
+    /// </summary>
+    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series, bool Groupable = false, string? AsnLabel = null);
 
     /// <param name="triggerTargets">The internet/destination loss series whose near-total loss defines an outage.</param>
     /// <param name="hops">Every monitored hop, ordered by distance (Depth ascending = nearest first), for the shape.</param>
@@ -91,7 +98,7 @@ public static class OutageDetector
         Dictionary<Hop, Dictionary<DateTime, List<double>>> hopBuckets,
         IspHealthOptions options)
     {
-        var states = new List<OutageTierState>();
+        var tiers = new List<(Hop Hop, OutageTierState State)>();
         // A hop on the broken path stays dark for (most of) the outage; a hop that merely
         // blipped at onset then held - like the OLT, which recovered ~10 min before the
         // upstream in the validation data - is NOT the break and must read as reachable.
@@ -116,8 +123,11 @@ public static class OutageDetector
                     lastDarkBucket = bucketStart;
                 }
             }
-            onBrokenPath[hop.Depth] = totalBuckets > 0 && (double)darkBuckets / totalBuckets >= 0.5;
-            states.Add(new OutageTierState
+            // No samples in the outage window means the target didn't exist or wasn't enabled
+            // then - it has nothing to say about this outage, so don't give it a row.
+            if (totalBuckets == 0) continue;
+            onBrokenPath[hop.Depth] = (double)darkBuckets / totalBuckets >= 0.5;
+            tiers.Add((hop, new OutageTierState
             {
                 Name = hop.Name,
                 Depth = hop.Depth,
@@ -130,11 +140,13 @@ public static class OutageDetector
                 RecoveredAt = lastDarkBucket.HasValue
                     ? RecoveryAfter(hop.Series, lastDarkBucket.Value, options.OutageDarkLossPct)
                     : null
-            });
+            }));
         }
 
         // The break sits just beyond the deepest hop that stayed reachable through the
         // outage. If even the nearest hop was dark for most of it, the whole WAN dropped.
+        // Attribution runs on the per-hop (ungrouped) states so it can name the precise hop.
+        var states = tiers.Select(t => t.State).ToList();
         var nearest = states.OrderBy(s => s.Depth).FirstOrDefault();
         var lastReachable = states.Where(s => !onBrokenPath[s.Depth]).OrderByDescending(s => s.Depth).FirstOrDefault();
         var scope = nearest == null || onBrokenPath[nearest.Depth] || lastReachable == null
@@ -153,9 +165,94 @@ public static class OutageDetector
             End = recovery,
             Scope = scope,
             LastReachableHop = scope == OutageScope.Upstream ? lastReachable!.Name : null,
-            Tiers = states
+            Tiers = GroupAccessTiers(tiers, options)
         };
     }
+
+    /// <summary>
+    /// Collapses groupable (access ISP) tiers that share an outage signature - recovery within
+    /// <see cref="IspHealthOptions.OutageAccessGroupToleranceSeconds"/> - into one row, so a handful
+    /// of near-identical access hops don't each take a row, and labels every row by its ASN.
+    /// Access hops that recovered at a distinctly different time (the inside-out heal, e.g. the OLT
+    /// coming back first) stay separate. When one ASN owns several rows they're disambiguated:
+    /// a merged group reads "ASN (N hops)", a lone hop "ASN (hostname tail)"; a unique ASN just
+    /// shows its name. Non-groupable tiers (transit clusters, internet endpoints) always keep their
+    /// own row. Returned nearest-first by depth.
+    /// </summary>
+    private static List<OutageTierState> GroupAccessTiers(
+        List<(Hop Hop, OutageTierState State)> tiers, IspHealthOptions options)
+    {
+        var tol = TimeSpan.FromSeconds(options.OutageAccessGroupToleranceSeconds);
+        var result = new List<OutageTierState>();
+
+        // Transit clusters and internet endpoints keep their own row, labeled by the ASN (transit)
+        // or the endpoint name (internet, AsnLabel null).
+        foreach (var (hop, state) in tiers.Where(t => !t.Hop.Groupable))
+            result.Add(Relabel(state, hop.AsnLabel ?? hop.Name));
+
+        // Access hops: WITHIN each ASN, cluster by outage signature - never merge across ASNs (a
+        // dual-WAN could have two access ISPs recover at the same instant). "Up" and "dark, never
+        // recovered" are each one shared signature; "dark and recovered" clusters by recovery time.
+        var groups = new List<List<(Hop Hop, OutageTierState State)>>();
+        void AddGroup(IEnumerable<(Hop, OutageTierState)> g) { var l = g.ToList(); if (l.Count > 0) groups.Add(l); }
+        foreach (var asnGroup in tiers.Where(t => t.Hop.Groupable).GroupBy(t => t.Hop.AsnLabel ?? t.Hop.Name))
+        {
+            var members = asnGroup.ToList();
+            AddGroup(members.Where(t => !t.State.WentDark));
+            AddGroup(members.Where(t => t.State.WentDark && !t.State.RecoveredAt.HasValue));
+            var cluster = new List<(Hop, OutageTierState)>();
+            foreach (var t in members.Where(t => t.State.WentDark && t.State.RecoveredAt.HasValue).OrderBy(t => t.State.RecoveredAt!.Value))
+            {
+                if (cluster.Count > 0 && t.State.RecoveredAt!.Value - cluster[0].Item2.RecoveredAt!.Value > tol)
+                {
+                    groups.Add(cluster);
+                    cluster = new List<(Hop, OutageTierState)>();
+                }
+                cluster.Add(t);
+            }
+            if (cluster.Count > 0) groups.Add(cluster);
+        }
+
+        // A unique ASN shows just its name; several rows split into "(N hops)" / "(hostname tail)".
+        // Key and lookup use the SAME nearest-hop expression so they never diverge.
+        static string AsnOf(List<(Hop Hop, OutageTierState State)> g)
+        {
+            var n = g.OrderBy(m => m.State.Depth).First().Hop;
+            return n.AsnLabel ?? n.Name;
+        }
+        var rowsPerAsn = groups.GroupBy(AsnOf).ToDictionary(x => x.Key, x => x.Count());
+        foreach (var g in groups)
+        {
+            var nearest = g.OrderBy(m => m.State.Depth).First();
+            var asn = AsnOf(g);
+            var name = rowsPerAsn[asn] == 1 ? asn
+                : g.Count > 1 ? $"{asn} ({g.Count} hops)"
+                : $"{asn} ({HostnameTail(nearest.Hop.Name, asn)})";
+            result.Add(new OutageTierState
+            {
+                Name = name,
+                Depth = nearest.State.Depth,
+                PeakLossPct = g.Max(m => m.State.PeakLossPct),
+                WentDark = g.Any(m => m.State.WentDark),
+                RecoveredAt = g.Where(m => m.State.RecoveredAt.HasValue).Select(m => m.State.RecoveredAt).DefaultIfEmpty(null).Min()
+            });
+        }
+
+        return result.OrderBy(s => s.Depth).ToList();
+    }
+
+    private static OutageTierState Relabel(OutageTierState s, string name) => new()
+    {
+        Name = name,
+        Depth = s.Depth,
+        PeakLossPct = s.PeakLossPct,
+        WentDark = s.WentDark,
+        RecoveredAt = s.RecoveredAt
+    };
+
+    /// <summary>The part of a per-target name after its ASN prefix ("AT&amp;T nokia-olt" -> "nokia-olt").</summary>
+    private static string HostnameTail(string name, string asn) =>
+        name.StartsWith(asn + " ", StringComparison.OrdinalIgnoreCase) ? name[(asn.Length + 1)..] : name;
 
     /// <summary>Actual timestamp of the first dark sample (loss at/above the dark threshold) in [start, end).</summary>
     private static DateTime? FirstDark(

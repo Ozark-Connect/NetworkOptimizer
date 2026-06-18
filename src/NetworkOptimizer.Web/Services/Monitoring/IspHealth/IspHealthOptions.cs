@@ -198,6 +198,13 @@ public class IspHealthOptions
     public int OutageMinDurationMinutes { get; set; } = 2;
 
     /// <summary>
+    /// Recovery-time tolerance for collapsing per-target access ISP rows in the outage waterfall:
+    /// access hops that recovered within this many seconds of each other share a signature and
+    /// merge to one row; ones outside it stay separate (the inside-out heal).
+    /// </summary>
+    public int OutageAccessGroupToleranceSeconds { get; set; } = 10;
+
+    /// <summary>
     /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
     /// penaltyPoints) anchor, interpolated. Applied at the top level rather than buried in the
     /// Packet Loss factor (where the dimension weights would dilute a multi-hour outage to a

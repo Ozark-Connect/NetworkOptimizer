@@ -200,7 +200,7 @@ else
                             <p class="page-description">No ISP hop data in the window.</p>
                         }
                         <div class="isp-hop-list">
-                            @foreach (var target in r.IspTargets)
+                            @foreach (var target in r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue))
                             {
                                 <div class="isp-hop">
                                     <div class="isp-hop-row">

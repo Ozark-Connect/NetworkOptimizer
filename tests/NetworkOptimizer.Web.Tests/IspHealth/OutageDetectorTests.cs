@@ -222,4 +222,103 @@ public class OutageDetectorTests
         events[0].Tiers.Where(t => t.RecoveredAt.HasValue)
             .Should().OnlyContain(t => t.RecoveredAt!.Value.Second == 17);
     }
+
+    [Fact]
+    public void Groupable_access_hops_with_the_same_signature_merge_distinct_ones_stay_separate()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        // Two AT&T access hops recover together (dark the whole outage); the OLT recovers earlier.
+        var olt = Series(0, (OutStart, OutStart.AddMinutes(3), 100));
+        var accessLate1 = Series(0, (OutStart, OutEnd, 100));
+        var accessLate2 = Series(0, (OutStart, OutEnd, 100));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, olt, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T hop-1", 1, accessLate1, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T hop-2", 2, accessLate2, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("Cloudflare", 3, internet1),
+            new OutageDetector.Hop("Google", 4, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        var access = events[0].Tiers.Where(t => t.Name.StartsWith("AT&T")).ToList();
+        // Same ASN owns two rows, so each is disambiguated: the lone early OLT by its hostname
+        // tail, the two that recovered together by a hop count.
+        access.Should().HaveCount(2);
+        access.Should().Contain(t => t.Name == "AT&T (nokia-olt)");
+        access.Should().Contain(t => t.Name == "AT&T (2 hops)");
+        // Internet endpoints keep their own names and are never grouped.
+        events[0].Tiers.Should().Contain(t => t.Name == "Cloudflare");
+        events[0].Tiers.Should().Contain(t => t.Name == "Google");
+    }
+
+    [Fact]
+    public void A_unique_access_asn_shows_just_the_asn_name()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var access = Series(0, (OutStart, OutEnd, 100));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, access, Groupable: true, AsnLabel: "AT&T"),
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+            new OutageDetector.Hop("Google", 2, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        // One access row for the ASN -> no disambiguation, just the ASN name.
+        events[0].Tiers.Should().Contain(t => t.Name == "AT&T");
+        events[0].Tiers.Should().NotContain(t => t.Name.Contains("nokia-olt"));
+    }
+
+    [Fact]
+    public void A_target_with_no_data_during_the_outage_is_not_listed()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        // A hop that only started reporting after the outage ended (didn't exist during it).
+        var addedLater = TestSeries.Flat(OutEnd, TimeSpan.FromMinutes(5), rttMs: 20, jitterMs: 0.5, lossPct: 0);
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Late Hop", 0, addedLater, Groupable: true, AsnLabel: "Late"),
+            new OutageDetector.Hop("Cloudflare", 1, internet1),
+            new OutageDetector.Hop("Google", 2, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Tiers.Should().NotContain(t => t.Name.Contains("Late"));
+        events[0].Tiers.Should().Contain(t => t.Name == "Cloudflare");
+    }
+
+    [Fact]
+    public void Outage_with_no_in_window_hop_data_reports_with_no_tiers_and_does_not_throw()
+    {
+        // A fresh install backfilling: the internet trigger has data, but every monitored hop
+        // only started reporting after the window. The outage is still flagged; nothing crashes.
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var lateOnly = TestSeries.Flat(OutEnd, TimeSpan.FromMinutes(5), rttMs: 20, jitterMs: 0.5, lossPct: 0);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Late A", 0, lateOnly, Groupable: true, AsnLabel: "Late"),
+            new OutageDetector.Hop("Late B", 1, lateOnly, Groupable: false),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Tiers.Should().BeEmpty();
+        events[0].Scope.Should().Be(OutageScope.FullWan);
+        events[0].LastReachableHop.Should().BeNull();
+    }
 }
