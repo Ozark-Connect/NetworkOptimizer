@@ -283,16 +283,20 @@ else
 
     @if (r.TransitAsns.Count > 0 || r.IspAsns.Count > 0)
     {
+        var pathAsns = r.IspAsns.Concat(r.TransitAsns).ToList();
+        var hiddenNetworkCount = pathAsns.Count - NetworkPreviewCount;
+        var visibleAsns = _showAllNetworks ? pathAsns : pathAsns.Take(NetworkPreviewCount).ToList();
         <div class="card isp-health-card">
             <div class="card-header"><h2 class="card-title">Networks on Your Path</h2></div>
             <div class="card-body">
                 <div class="isp-asn-grid">
-                    @foreach (var asn in r.IspAsns.Concat(r.TransitAsns))
+                    @for (var i = 0; i < visibleAsns.Count; i++)
                     {
+                        var asn = visibleAsns[i];
                         var isIspAsn = r.IspAsns.Contains(asn);
                         var showRange = isIspAsn && asn.MinRttMs.HasValue && asn.MaxRttMs.HasValue
                             && asn.MaxRttMs.Value - asn.MinRttMs.Value > 0.05;
-                        <div class="isp-asn-card">
+                        <div class="isp-asn-card @(i >= NetworkPreviewCount ? "isp-asn-card-revealed" : "")" @key="asn">
                             <div class="isp-asn-card-header">
                                 <div>
                                     <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
@@ -335,6 +339,14 @@ else
                         </div>
                     }
                 </div>
+                @if (hiddenNetworkCount > 0)
+                {
+                    <button type="button" class="isp-network-toggle" aria-expanded="@_showAllNetworks"
+                            @onclick="() => _showAllNetworks = !_showAllNetworks">
+                        <span>@(_showAllNetworks ? "Show less" : $"Show {hiddenNetworkCount} more")</span>
+                        <span class="isp-network-toggle-chevron @(_showAllNetworks ? "expanded" : "")">▾</span>
+                    </button>
+                }
             </div>
         </div>
     }
@@ -425,10 +437,13 @@ else
 }
 
 @code {
+    private const int NetworkPreviewCount = 5;
+
     private IspHealthReport? _report;
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
+    private bool _showAllNetworks;
     private System.Threading.Timer? _ageTimer;
 
     protected override async Task OnInitializedAsync()

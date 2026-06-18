@@ -15635,6 +15635,50 @@ a.isp-health-hero-speed:hover {
     transform: translateY(-2px);
 }
 
+.isp-asn-card-revealed {
+    animation: ispAsnReveal 0.25s ease-out both;
+}
+
+@@keyframes ispAsnReveal {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.isp-network-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    margin-top: 0.85rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.isp-network-toggle:hover {
+    border-color: var(--primary-hover);
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.isp-network-toggle-chevron {
+    display: inline-block;
+    font-size: 0.7rem;
+    line-height: 1;
+    transition: transform 0.25s ease;
+}
+
+.isp-network-toggle-chevron.expanded {
+    transform: rotate(180deg);
+}
+
 .isp-asn-card-header {
     display: flex;
     justify-content: space-between;
