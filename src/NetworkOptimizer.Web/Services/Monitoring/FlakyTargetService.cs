@@ -37,8 +37,6 @@ public class FlakyTargetService
     private const double LossMultiplier = 4.0;
     /// <summary>...and at least this absolute loss, so trivial loss on a near-zero baseline isn't flagged.</summary>
     private const double LossAbsoluteFloorPct = 3.0;
-    /// <summary>Flagged only when over-threshold in at least this fraction of its surviving bins.</summary>
-    private const double ConsistencyFraction = 0.70;
     /// <summary>A bin is a shared-loss event (excluded) when at least this fraction of the pool loses heavily in it.</summary>
     private const double SharedLossPoolFraction = 0.5;
     /// <summary>Loss at or above this in a bin counts as "losing heavily" for the shared-loss test.</summary>
@@ -116,9 +114,26 @@ public class FlakyTargetService
         }
         if (lossByTarget.Count < 2) return System.Array.Empty<FlakyTarget>();
 
+        return Analyze(lossByTarget, byId, _logger);
+    }
+
+    /// <summary>
+    /// Pure analysis (no I/O): given per-target binned loss, flag the flaky ones. A target is flaky
+    /// when its MEDIAN surviving-bin loss is at or above the threshold (>= <see cref="LossMultiplier"/>x
+    /// the peer-median loss AND >= <see cref="LossAbsoluteFloorPct"/>). Median - not a per-bin
+    /// over-threshold count - so a target that's notably lossy most of the time is caught even when
+    /// bursty (e.g. 0/1/6/6/3/17% reads a 4.5% median), while a single spike on an otherwise-clean
+    /// target (median ~0) is not. Bins where >= half the pool loses heavily are excluded first as
+    /// path-wide events, and a target needs <see cref="MinTargetBins"/> surviving bins to be judged.
+    /// </summary>
+    internal static IReadOnlyList<FlakyTarget> Analyze(
+        Dictionary<string, Dictionary<DateTime, double>> lossByTarget,
+        IReadOnlyDictionary<string, MonitoringTarget> byId,
+        ILogger? logger = null)
+    {
         // Shared-loss exclusion: drop bins where at least half the reporting pool is losing heavily
         // - a path-wide event (outage/congestion), not one flaky target. Cheap proxy for the real
-        // outage detector: no dark-fraction gating, just "are most targets hurting this hour?".
+        // outage detector: no dark-fraction gating, just "are most targets hurting this bin?".
         var allBins = lossByTarget.Values.SelectMany(b => b.Keys).ToHashSet();
         var excludedBins = new HashSet<DateTime>();
         foreach (var bin in allBins)
@@ -133,7 +148,7 @@ public class FlakyTargetService
         var survivingBins = allBins.Count - excludedBins.Count;
         if (survivingBins < MinTargetBins)
         {
-            _logger.LogDebug("Flaky-target detect: only {Bins} surviving bins (< {Min}); not enough data yet", survivingBins, MinTargetBins);
+            logger?.LogDebug("Flaky-target detect: only {Bins} surviving bins (< {Min}); not enough data yet", survivingBins, MinTargetBins);
             return System.Array.Empty<FlakyTarget>();
         }
 
@@ -152,15 +167,16 @@ public class FlakyTargetService
         {
             var survivors = bins.Where(kv => !excludedBins.Contains(kv.Key)).Select(kv => kv.Value).ToList();
             if (survivors.Count < MinTargetBins) continue;
-            var over = survivors.Count(l => l >= threshold);
-            if ((double)over / survivors.Count < ConsistencyFraction) continue;
+            var median = Median(survivors);
+            if (median < threshold) continue;
 
-            var t = byId[targetId];
+            if (!byId.TryGetValue(targetId, out var t)) continue;
+            var over = survivors.Count(l => l >= threshold);
             flaky.Add(new FlakyTarget(targetId, t.Id, string.IsNullOrEmpty(t.Name) ? t.Address : t.Name,
-                t.TargetType, Median(survivors), baseline, over, survivors.Count));
+                t.TargetType, median, baseline, over, survivors.Count));
         }
 
-        _logger.LogDebug("Flaky-target detect: {Count} flagged, baseline {Base:0.00}%, threshold {Thr:0.00}%, {Bins} surviving bins",
+        logger?.LogDebug("Flaky-target detect: {Count} flagged, baseline {Base:0.00}%, threshold {Thr:0.00}%, {Bins} surviving bins",
             flaky.Count, baseline, threshold, survivingBins);
         return flaky.OrderByDescending(f => f.LossPct).ToList();
     }
