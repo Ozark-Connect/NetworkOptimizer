@@ -189,7 +189,7 @@ public class OutageDetectorTests
     }
 
     [Fact]
-    public void Hop_with_no_data_during_the_outage_is_not_shown_as_reachable()
+    public void No_data_hop_is_not_chosen_as_the_break_point()
     {
         // A target added after the outage has no samples in the outage window. It must NOT
         // render as a hop that "stayed reachable" through the outage, nor be picked as the
