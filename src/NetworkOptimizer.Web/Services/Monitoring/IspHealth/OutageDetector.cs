@@ -48,19 +48,36 @@ public static class OutageDetector
 
         var hopBuckets = hops.ToDictionary(h => h, h => BucketTargets(new[] { h.Series }, windowSize));
 
-        var events = new List<OutageEvent>();
-        var minDuration = TimeSpan.FromMinutes(options.OutageMinDurationMinutes);
+        // Contiguous runs of outage buckets (gap of one window ends a run), then coalesce
+        // runs separated by a short healthy gap (OutageMaxGapMinutes). One real outage dips
+        // below the dark-fraction gate for a bucket or two during staggered onset/recovery
+        // (targets go dark and heal at slightly different times) - without the coalesce that
+        // shatters it into several events. Sealing the gap before duration-filtering also lets
+        // two sub-min-duration runs straddling a blip add up to one qualifying outage.
+        var runs = new List<(DateTime Start, DateTime End)>();
         for (var i = 0; i < outageBuckets.Count;)
         {
-            // Extend a run over adjacent (contiguous) outage buckets; a non-outage bucket ends it.
             var j = i;
             while (j + 1 < outageBuckets.Count && outageBuckets[j + 1] - outageBuckets[j] <= windowSize)
                 j++;
-
-            var start = outageBuckets[i];
-            var end = outageBuckets[j] + windowSize; // through the last dark bucket
+            runs.Add((outageBuckets[i], outageBuckets[j] + windowSize)); // through the last dark bucket
             i = j + 1;
+        }
 
+        var maxGap = TimeSpan.FromMinutes(options.OutageMaxGapMinutes);
+        var merged = new List<(DateTime Start, DateTime End)>();
+        foreach (var run in runs)
+        {
+            if (merged.Count > 0 && run.Start - merged[^1].End <= maxGap)
+                merged[^1] = (merged[^1].Start, run.End);
+            else
+                merged.Add(run);
+        }
+
+        var events = new List<OutageEvent>();
+        var minDuration = TimeSpan.FromMinutes(options.OutageMinDurationMinutes);
+        foreach (var (start, end) in merged)
+        {
             if (end - start < minDuration) continue;
             events.Add(BuildEvent(start, end, triggerTargets, hops, hopBuckets, options));
         }
