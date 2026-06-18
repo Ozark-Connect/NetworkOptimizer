@@ -11,11 +11,7 @@
     <div class="card flaky-card">
         <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
             <h2 class="card-title"><span class="flaky-warn">&#9888;</span> Flaky monitoring targets (@_flaky.Count)</h2>
-            <div class="card-header-right">
-                <button class="btn btn-sm btn-primary" @onclick="DisableAllAsync" disabled="@_busy"
-                        @onclick:stopPropagation="true" data-tooltip="Disable every flagged target">Disable all</button>
-                <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
-            </div>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
         </div>
         <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
             <div class="expand-content">
@@ -25,8 +21,12 @@
                         usually ICMP deprioritization rather than a real problem. Disabling one keeps it
                         out of ISP Health scoring; you can re-enable it anytime in Latency Targets below.
                     </p>
+                    <div class="flaky-toolbar">
+                        <button class="btn btn-sm btn-primary" @onclick="DisableAllAsync" disabled="@_busy"
+                                data-tooltip="Disable every flagged target">Disable all</button>
+                    </div>
                     <div class="table-responsive">
-                        <table class="data-table">
+                        <table class="data-table flaky-table">
                             <thead>
                                 <tr>
                                     <th>Target</th>
@@ -62,6 +62,13 @@
     .flaky-card { border-left: 3px solid var(--warning-color); }
     .flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
     .flaky-evidence { color: var(--warning-color); }
+    .flaky-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+
+    @@media (max-width: 768px) {
+        /* Scoped override of the global .data-table min-width:500px so this table fits the phone
+           (Type + peer-median already hidden, name truncated) instead of forcing horizontal scroll. */
+        .data-table.flaky-table { min-width: 0; }
+    }
 </style>
 
 @code {
