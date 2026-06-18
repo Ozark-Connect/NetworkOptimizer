@@ -1654,6 +1654,7 @@ LanFlowMapEndpoints.Map(app);
 MonitoringChartEndpoints.Map(app);
 IspHealthEndpoints.Map(app);
 MonitoringInvestigateEndpoints.Map(app);
+FlakyTargetEndpoints.Map(app);
 DeviceHealthChartEndpoints.Map(app);
 SfpChartEndpoints.Map(app);
 CellularChartEndpoints.Map(app);

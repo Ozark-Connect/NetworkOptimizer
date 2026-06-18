@@ -29,8 +29,10 @@ public class FlakyTargetService
         _logger = logger;
     }
 
-    /// <summary>Lookback window. We bin hourly, so this is also the max bin count.</summary>
+    /// <summary>Lookback window; we use all available data up to this, never require it.</summary>
     private const int LookbackHours = 48;
+    /// <summary>Bin size. Fine enough (loss arrives every 10-15 s) that we can help within ~30 min of monitoring.</summary>
+    private const int BinMinutes = 10;
     /// <summary>A target is "over" in a bin when its loss is at least this multiple of the peer median.</summary>
     private const double LossMultiplier = 4.0;
     /// <summary>...and at least this absolute loss, so trivial loss on a near-zero baseline isn't flagged.</summary>
@@ -41,8 +43,8 @@ public class FlakyTargetService
     private const double SharedLossPoolFraction = 0.5;
     /// <summary>Loss at or above this in a bin counts as "losing heavily" for the shared-loss test.</summary>
     private const double SharedLossHeavyPct = 5.0;
-    /// <summary>A target needs at least this many surviving bins of data before we'll judge it (the "couple hours").</summary>
-    private const int MinTargetBins = 6;
+    /// <summary>Minimum surviving bins before we'll judge a target. 3 x 10 min = help from ~30 min in, not 6 h.</summary>
+    private const int MinTargetBins = 3;
 
     /// <summary>One flagged target plus the evidence behind the call.</summary>
     public record FlakyTarget(
@@ -84,9 +86,9 @@ public class FlakyTargetService
         var byId = pool.ToDictionary(t => t.TargetId, t => t);
         var to = DateTime.UtcNow;
         var from = to.AddHours(-LookbackHours);
-        var hourly = TimeSpan.FromHours(1);
+        var binSize = TimeSpan.FromMinutes(BinMinutes);
 
-        // Per-target hourly loss (the aggregateWindow already bins to the hour). Pull all three
+        // Per-target binned loss (the aggregateWindow does the binning). Pull all three
         // WAN-path types and keep only enabled pool targets.
         var lossByTarget = new Dictionary<string, Dictionary<DateTime, double>>();
         foreach (var type in new[] { MonitoringTargetType.AccessIsp, MonitoringTargetType.Transit, MonitoringTargetType.InternetService })
@@ -94,7 +96,7 @@ public class FlakyTargetService
             Dictionary<string, List<MonitoringInfluxClient.LatencySeriesPoint>> series;
             try
             {
-                series = await _influx.QueryLatencyDetailByTargetTypeAsync(type, from, to, hourly, ct);
+                series = await _influx.QueryLatencyDetailByTargetTypeAsync(type, from, to, binSize, ct);
             }
             catch (Exception ex)
             {
@@ -108,7 +110,7 @@ public class FlakyTargetService
                 foreach (var p in points)
                 {
                     if (!p.LossPercent.HasValue) continue;
-                    bins[FloorToHour(p.Time)] = p.LossPercent.Value;
+                    bins[FloorToBin(p.Time, binSize)] = p.LossPercent.Value;
                 }
             }
         }
@@ -163,8 +165,8 @@ public class FlakyTargetService
         return flaky.OrderByDescending(f => f.LossPct).ToList();
     }
 
-    private static DateTime FloorToHour(DateTime t) =>
-        new DateTime(t.Year, t.Month, t.Day, t.Hour, 0, 0, DateTimeKind.Utc);
+    private static DateTime FloorToBin(DateTime t, TimeSpan bin) =>
+        new DateTime(t.Ticks - (t.Ticks % bin.Ticks), DateTimeKind.Utc);
 
     private static double Median(List<double> values)
     {
