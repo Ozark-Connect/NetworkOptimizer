@@ -14055,7 +14055,7 @@ a.affected-client:hover {
     border-bottom-color: var(--accent-color);
 }
 
-@@media (max-width: 768px) {
+@media (max-width: 768px) {
     .wan-history-tab {
         padding: 0.5rem 0.75rem;
         font-size: 0.8rem;
@@ -15639,7 +15639,7 @@ a.isp-health-hero-speed:hover {
     animation: ispHopReveal 0.25s ease-out both;
 }
 
-@@keyframes ispHopReveal {
+@keyframes ispHopReveal {
     from { opacity: 0; transform: translateY(-6px); }
     to { opacity: 1; transform: translateY(0); }
 }
