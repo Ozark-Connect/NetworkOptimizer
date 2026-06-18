@@ -10,6 +10,17 @@ namespace NetworkOptimizer.Core.Helpers;
 public static class NetworkUtilities
 {
     /// <summary>
+    /// Well-known public anycast DNS resolvers UniFi Network uses as its default WAN SLA /
+    /// internet-connectivity probe targets. Because the gateway constantly pings these, they
+    /// can leave a neighbor-table entry on the WAN interface that masquerades as the L2 next
+    /// hop, and users sometimes end up with them saved as Access ISP monitoring targets.
+    /// Neither is ISP first-mile infrastructure, so upstream discovery rejects them as the L2
+    /// neighbor and the target cleanup removes any that were saved.
+    /// </summary>
+    public static readonly IReadOnlySet<string> WanSlaProbeIps =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "1.1.1.1", "8.8.8.8" };
+
+    /// <summary>
     /// Detect the best local IP address from network interfaces.
     /// Prioritizes: HOST_IP env var > Physical Ethernet > WiFi > Other.
     /// Skips virtual/container interfaces (Docker, Podman, Hyper-V, etc.).
