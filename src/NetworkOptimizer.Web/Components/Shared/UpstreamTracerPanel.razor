@@ -179,9 +179,8 @@
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
-                                                       value="@hop.Label"
-                                                       disabled="@hop.Unreachable"
-                                                       @onchange="e => hop.Label = (string)e.Value!" />
+                                                       @bind="hop.Label" @bind:event="oninput"
+                                                       disabled="@hop.Unreachable" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
@@ -222,9 +221,8 @@
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
-                                                       value="@asn.Label"
-                                                       disabled="@asn.Unreachable"
-                                                       @onchange="e => asn.Label = (string)e.Value!" />
+                                                       @bind="asn.Label" @bind:event="oninput"
+                                                       disabled="@asn.Unreachable" />
                                             </td>
                                             <td><code>@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
@@ -262,8 +260,7 @@
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
-                                                       value="@host.Label"
-                                                       @onchange="e => host.Label = (string)e.Value!" />
+                                                       @bind="host.Label" @bind:event="oninput" />
                                             </td>
                                             <td><code>@host.PathProxyTarget</code></td>
                                             <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
@@ -323,7 +320,15 @@
     private UpstreamTracerState _state = new();
     private System.Threading.Timer? _pollTimer;
     private bool _needsReview;
-    private List<TransitAsnCandidate> TransitRouters => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.DirectRouter).ToList();
+    // Group by ASN so every hop in the same transit network lists together (including an injected
+    // witness like 4.2.2.2 for AS3356, which is added last). Networks are ordered nearest-first by
+    // their best RTT, and within each network by RTT ascending; unreachable hops sort to the end.
+    private List<TransitAsnCandidate> TransitRouters =>
+        _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.DirectRouter)
+            .GroupBy(a => a.AsnNumber)
+            .OrderBy(g => g.Min(a => a.VerifiedRttMs ?? double.MaxValue))
+            .SelectMany(g => g.OrderBy(a => a.VerifiedRttMs ?? double.MaxValue))
+            .ToList();
     private List<TransitAsnCandidate> PathEndHosts => _state.TransitAsns.Where(a => a.Method == DiscoveryMethod.PathProxy).ToList();
     private bool _collapsed;
     private DateTime _lastReviewCheck = DateTime.MinValue;

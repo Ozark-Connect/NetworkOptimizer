@@ -31,6 +31,7 @@
 @inject CellularModemService CellularModemService
 @inject MonitoringCollectionAgent CollectionAgent
 @inject IspHealthService IspHealthService
+@inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -143,6 +144,24 @@ else
                     </div>
                     <div class="banner-actions">
                         <button class="btn btn-sm btn-primary" @onclick="GoToSnmpDevices">Review SNMP devices</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_flakyTargetCount > 0)
+        {
+            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                <div class="banner-content">
+                    <span class="banner-icon banner-icon-info">i</span>
+                    <div class="banner-text" style="flex: 1;">
+                        @(_flakyTargetCount == 1
+                            ? "1 monitoring target looks flaky"
+                            : $"{_flakyTargetCount} monitoring targets look flaky")
+                        - high packet loss versus their peers, usually ICMP deprioritization. Review and disable them so they don't skew ISP Health.
+                    </div>
+                    <div class="banner-actions">
+                        <button class="btn btn-sm btn-primary" @onclick="GoToFlakyTargets">Review flaky targets</button>
                     </div>
                 </div>
             </div>
@@ -377,6 +396,10 @@ else
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
             <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
+        </div>
+
+        <div id="flaky-targets" style="margin-top: 1.5rem;">
+            <FlakyTargetsCard ForceExpand="_forceExpandFlaky" OnTargetsChanged="OnTargetsChanged" />
         </div>
 
         <div style="margin-top: 1.5rem;">
@@ -1251,6 +1274,8 @@ else
 
     private bool _scrollToDiscoveryPending;
     private bool _scrollToSfpChartsPending;
+    private bool _scrollToFlakyPending;
+    private bool _forceExpandFlaky;
     private string? _soloSfpModuleId;
     private string? _soloDeviceMac;
     private string? _preSelectCategory;
@@ -1579,6 +1604,17 @@ else
         SetActiveTab("setup");
     }
 
+    // Flaky-target banner state (#849). Detected once when Live View first loads; never polled.
+    private int _flakyTargetCount;
+    private bool _flakyChecked;
+
+    private void GoToFlakyTargets()
+    {
+        _forceExpandFlaky = true;
+        _scrollToFlakyPending = true;
+        SetActiveTab("performance");
+    }
+
     private async Task LoadTargetsAsync()
     {
         try
@@ -1667,6 +1703,23 @@ else
         await JS.InvokeVoidAsync("eval", @"
             (function() {
                 var el = document.getElementById('upstream-discovery');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
+    private async Task ScrollToFlakyTargetsAsync()
+    {
+        await Task.Delay(500);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('flaky-targets');
                 if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     el.style.transition = 'outline-color 0.3s';
@@ -2403,6 +2456,18 @@ else
         // Mount/unmount charts based on active tab. Only mount when the container
         // div exists in the DOM (i.e., the tab is active). Unmount when switching away.
 
+        // Flaky-target banner (#849): detect once, on the first time Live View is shown. No polling.
+        if (_activeTab == "live" && _monitoringReady && !_flakyChecked)
+        {
+            _flakyChecked = true;
+            try
+            {
+                _flakyTargetCount = (await FlakyTargets.DetectAsync()).Count;
+                if (_flakyTargetCount > 0) StateHasChanged();
+            }
+            catch (Exception ex) { Logger.LogDebug(ex, "Flaky-target banner check failed"); }
+        }
+
         // 3D map - Live tab only
         if (_activeTab == "live" && _monitoringReady && !_mapMounted)
         {
@@ -2504,6 +2569,13 @@ else
             _scrollToDiscoveryPending = false;
             _forceExpandUpstream = false;
             await ScrollToUpstreamDiscoveryAsync();
+        }
+
+        if (_scrollToFlakyPending && _activeTab == "performance")
+        {
+            _scrollToFlakyPending = false;
+            _forceExpandFlaky = false;
+            await ScrollToFlakyTargetsAsync();
         }
 
         // Device health charts - Devices tab only

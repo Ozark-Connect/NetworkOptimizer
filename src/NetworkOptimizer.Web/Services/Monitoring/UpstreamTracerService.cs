@@ -1060,6 +1060,31 @@ public class UpstreamTracerService
             : "No transit ASNs or path-end targets identified.";
     }
 
+    // Reachability gate: a candidate must answer enough pings in a short rapid burst (200 ms
+    // spacing) to be auto-selected, so flaky, ICMP-deprioritized routers don't get monitored - and
+    // so the Level 3 transit witness (4.2.2.2) is injected exactly when no real AS3356 router clears
+    // the gate. We always send 3; the required successes depend on the connection's access medium
+    // (Item B): air-interface mediums (WISP, cellular) and the unconfigured Unknown case allow one
+    // dropped reply (2/3); stable wired/fiber/LEO mediums demand 3/3.
+    private const int ReachabilityPingCount = 3;
+
+    /// <summary>
+    /// Required successful pings (out of <see cref="ReachabilityPingCount"/>) for a candidate to be
+    /// auto-selected, by the connection's access technology. WISP / cellular have inherent
+    /// air-interface transient loss, and Unknown is unconfigured, so we don't penalize them for a
+    /// single drop; everything else (including LEO, which is stable) demands all three.
+    /// </summary>
+    private static int RequiredReachabilitySuccesses(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.FixedWireless or AccessTechnology.Cellular or AccessTechnology.Unknown => 2,
+        _ => 3
+    };
+
+    /// <summary>Rapid ping burst used for reachability verification.</summary>
+    private Task<PingProbeResult> ProbeReachabilityAsync(string address, ProbeMode mode, CancellationToken ct) =>
+        _localProbe.PingAsync(new ProbeTarget(address, mode),
+            count: ReachabilityPingCount, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
+
     private async Task VerifyReachabilityAsync(CancellationToken ct)
     {
         State.Step = TracerStep.VerifyingReachability;
@@ -1072,23 +1097,17 @@ public class UpstreamTracerService
 
         if (allTargets.Count == 0) return;
 
-        State.CurrentActivity = $"Pinging {allTargets.Count} candidate(s) to verify reachability...";
+        // One gate for the whole run: every probe crosses the same access medium, so a WISP's
+        // air-link loss hits the transit-router pings just as it hits the access-hop pings.
+        var minSuccesses = RequiredReachabilitySuccesses(State.AccessTechnology);
+        State.CurrentActivity = $"Pinging {allTargets.Count} candidate(s) to verify reachability ({minSuccesses}/{ReachabilityPingCount} required)...";
 
-        var tasks = allTargets.Select(async t =>
-        {
-            var result = await _localProbe.PingAsync(
-                new ProbeTarget(t.Address, t.Mode),
-                count: 2,
-                perPingTimeout: TimeSpan.FromSeconds(2),
-                ct: ct);
-            return (t, result);
-        });
-
-        var results = await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(allTargets.Select(async t =>
+            (t, Result: await ProbeReachabilityAsync(t.Address, t.Mode, ct))));
         var unreachable = 0;
         foreach (var (t, result) in results)
         {
-            if (result.Success)
+            if (result.Received >= minSuccesses)
             {
                 t.ApplyRtt(result.RttAvgMs);
             }
@@ -1096,13 +1115,64 @@ public class UpstreamTracerService
             {
                 t.MarkUnreachable();
                 unreachable++;
-                _logger.LogDebug("Ping check failed for {Address} - marked unreachable", t.Address);
+                _logger.LogDebug("Ping check {Recv}/{Sent} for {Address} - below {Min} required, marked unreachable",
+                    result.Received, result.Sent, t.Address, minSuccesses);
             }
         }
+
+        // Item A: if Level 3 (AS3356) is on the path but no AS3356 router cleared the gate, inject
+        // 4.2.2.2 as a transit witness so ISP Health still has Lumen transit data.
+        await InjectTransitWitnessesAsync(minSuccesses, ct);
 
         State.CurrentActivity = unreachable > 0
             ? $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and were excluded."
             : $"All {allTargets.Count} target(s) responded to ping.";
+    }
+
+    // Item A: anycast DNS witnesses for transit ASNs whose routers commonly ICMP-deprioritize or
+    // hide behind L2-transparent infra. Used only when the ASN is on the path but no router clears
+    // the reachability gate. The endpoint is anycast (nearest edge), hence the "transit witness"
+    // label. Extend this table to add witnesses for other transit ASNs (e.g. AS7018 AT&T).
+    private static readonly (int Asn, string Address, string Name, string Label)[] TransitWitnesses =
+    {
+        (3356, "4.2.2.2", "Level 3", "Level 3 DNS (transit witness)")
+    };
+
+    private async Task InjectTransitWitnessesAsync(int minSuccesses, CancellationToken ct)
+    {
+        foreach (var (asn, address, name, label) in TransitWitnesses)
+        {
+            // Only when the ASN is actually on the traced path.
+            if (!_mergedHops.Any(h => h.Asn?.Asn == asn)) continue;
+            // Skip if any real router in this ASN already cleared the gate, or the witness exists.
+            if (State.TransitAsns.Any(t => t.AsnNumber == asn && t.Enabled && !t.Unreachable)) continue;
+            if (State.TransitAsns.Any(t => string.Equals(t.HopAddress, address, StringComparison.OrdinalIgnoreCase))) continue;
+
+            // The witness must itself clear the gate before we enable it.
+            var result = await ProbeReachabilityAsync(address, ProbeMode.Icmp, ct);
+            var reachable = result.Received >= minSuccesses;
+            if (!reachable)
+            {
+                _logger.LogDebug("Transit witness {Address} (AS{Asn}) only {Recv}/{Sent} - not injecting",
+                    address, asn, result.Received, result.Sent);
+                continue;
+            }
+
+            State.TransitAsns.Add(new TransitAsnCandidate
+            {
+                AsnNumber = asn,
+                AsnName = name,
+                Label = label,
+                Method = DiscoveryMethod.DirectRouter,
+                TargetId = $"transit-witness-as{asn}-{NormalizeMacForId(address)}",
+                HopAddress = address,
+                RespondedTo = ProbeMode.Icmp,
+                VerifiedRttMs = result.RttAvgMs,
+                Enabled = true
+            });
+            _logger.LogInformation("Injected transit witness {Address} (AS{Asn} {Name}) - no reachable {Name} router",
+                address, asn, name, name);
+        }
     }
 
 
@@ -1234,6 +1304,7 @@ public class UpstreamTracerService
 
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
+            _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
             await UpsertTargetAsync(db, hop, wanInterface, ct);
         }
         foreach (var hop in State.AccessHops.Where(h => !h.Enabled))
@@ -1248,6 +1319,8 @@ public class UpstreamTracerService
         }
         foreach (var transit in State.TransitAsns.Where(t => t.Enabled))
         {
+            _logger.LogDebug("Commit transit: id={TargetId} label='{Label}' addr={Address} method={Method}",
+                transit.TargetId, transit.Label, transit.HopAddress ?? transit.PathProxyTarget, transit.Method);
             await UpsertTransitTargetAsync(db, transit, wanInterface, ct);
         }
         foreach (var transit in State.TransitAsns.Where(t => !t.Enabled))

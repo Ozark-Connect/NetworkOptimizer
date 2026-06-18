@@ -19,6 +19,10 @@ public class IspHealthScorer
     // they would double-count and tank the Transit/ISP dimensions. Set per Score() call.
     private IReadOnlyList<OutageEvent> _outages = System.Array.Empty<OutageEvent>();
 
+    // The access profile for the current report, set per Score() call. Carries the per-tech jitter
+    // band (Item E) used to grade ISP and transit jitter against the access medium's inherent floor.
+    private AccessProfile? _profile;
+
     private bool InOutage(DateTime time) => _outages.Any(o => time >= o.Start && time < o.End);
 
     public IspHealthScorer(IspHealthOptions options, ILogger? logger = null)
@@ -30,6 +34,7 @@ public class IspHealthScorer
     public IspHealthReport Score(IspHealthInputs inputs, AccessProfile profile)
     {
         _outages = inputs.Outages;
+        _profile = profile;
         if (inputs.LoadExclusionWindows.Count > 0)
         {
             foreach (var (exStart, exEnd) in inputs.LoadExclusionWindows)
@@ -66,7 +71,7 @@ public class IspHealthScorer
         // absolves a hop it is proven downstream of), so a divergent clean transit can't
         // clear a congested hop it never traverses. Hops further out on the same ISP also
         // get a soft intra-ASN reach ceiling. Access layer idle latency still uses FirstHopSeries.
-        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown);
+        var ispHopGrades = GradeIspHops(inputs.IspAsnSeries, inputs.TransitAsnSeries, transitAsns, inputs.DestinationSeries, inputs.CongestionEvents, jitterFloor, inputs.HopOrderKnown, accessMedianRtt, inputs.InternetMedianDeltaMs);
         // Collapse the per-hop grades to one entry per ASN for the Networks on Your Path card.
         var ispAsns = AggregateIspAsns(ispHopGrades, inputs.CongestionEvents, _options.JitterAssimilationMinDeltaMs);
         var transitDimension = BuildAsnDimension("Transit Health", _options.TransitWeight, transitAsns);
@@ -622,8 +627,23 @@ public class IspHealthScorer
             // couple ms out is two sites a real distance apart - nominal, not a fault -
             // so it tops out short of perfect rather than getting dinged hard.
             reachDelta = Math.Max(0, medianRtt.Value - intraAsnFloorRttMs.Value);
-            reachCeiling = (int)Math.Round(ScoreCurve.Interpolate(reachDelta.Value,
-                (0, 100), (1, 93), (2, 85), (4, 70), (8, 50), (16, 35)));
+            var cIntra = ScoreCurve.Interpolate(reachDelta.Value,
+                (0, 100), (1, 93), (2, 85), (4, 70), (8, 50), (16, 35));
+
+            // Item D: lift-only blend toward the internet-relative ceiling. Keeps the intra-ASN
+            // distance truth as the floor, but absolves a hop that's modest relative to where the
+            // internet actually sits, so a geographically large access network isn't punished for
+            // normal in-region distance. Never lowers; partial so genuine distance always shows.
+            var ceiling = cIntra;
+            if (accessBaselineRtt.HasValue && internetMedianDeltaMs is > 0)
+            {
+                var netDelta = Math.Max(0, medianRtt.Value - accessBaselineRtt.Value);
+                var ratio = netDelta / Math.Max(internetMedianDeltaMs.Value, 2.0);
+                var cNet = ScoreCurve.Interpolate(ratio,
+                    (0.5, 100), (1.0, 93), (1.5, 90), (2.0, 85), (3.0, 65), (5.0, 40));
+                ceiling = cIntra + _options.AccessReachInternetBlendAlpha * Math.Max(0, cNet - cIntra);
+            }
+            reachCeiling = (int)Math.Round(ceiling);
         }
         else if (accessBaselineRtt.HasValue && medianRtt.HasValue)
         {
@@ -780,6 +800,17 @@ public class IspHealthScorer
     /// </summary>
     private double ScoreJitterVsFloor(double jitterMs, double? floorMs)
     {
+        // Item E: when the access technology defines a jitter band, grade straight off it so the
+        // medium's inherent jitter (e.g. DOCSIS ~3 ms) reads as normal. The floor is the per-tech
+        // ideal - not the measured path floor - so a single quiet sample can't drag the 100-anchor
+        // below what the medium really does. Applies to ISP and transit alike (every probe crosses
+        // the access medium). Techs with no band (neutral / PPPoE / Other) keep the floor curve.
+        if (_profile is { JitterIdealMs: { } ideal, JitterTypicalMs: { } typical, JitterPoorMs: { } poor })
+        {
+            return ScoreCurve.Interpolate(jitterMs,
+                (ideal, 100), (typical, 90), (poor, 25), (2.0 * poor, 0));
+        }
+
         var f = Math.Clamp(floorMs ?? 0.4, _options.JitterFloorMinMs, _options.JitterFloorMaxMs);
         return ScoreCurve.Interpolate(jitterMs,
             (f, 100), (1.25 * f, 96), (1.5 * f, 91), (2.0 * f, 70), (5.0, 22), (12.0, 0));
@@ -804,7 +835,9 @@ public class IspHealthScorer
         List<AsnSeries> destinationSeries,
         List<CongestionEvent> congestionEvents,
         double? jitterFloorMs,
-        bool hopOrderKnown)
+        bool hopOrderKnown,
+        double? accessBaselineRtt,
+        double? internetMedianDeltaMs)
     {
         // Transit witnesses: each transit ASN's ancestor IPs + its effective jitter.
         var transitJitterByAsn = transitAsns
@@ -867,7 +900,7 @@ public class IspHealthScorer
                 if (witnesses.Count > 0)
                     effective = measured.HasValue ? Math.Min(measured.Value, witnesses.Min()) : witnesses.Min();
 
-                var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt: null, internetMedianDeltaMs: null,
+                var grade = GradeAsn(hop, congestionEvents, jitterFloorMs, accessBaselineRtt, internetMedianDeltaMs,
                     intraAsnFloorRttMs: intraFloor, jitterOverrideMs: effective);
                 // Log the graded effective (post sub-0.05 ms assimilation snap in GradeAsn),
                 // not the raw witness min, so the log matches what the hop is actually scored on.

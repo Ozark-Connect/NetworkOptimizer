@@ -1,0 +1,140 @@
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Monitoring
+@inject FlakyTargetService FlakyTargets
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+
+@* Issue #849: flaky-target advisory. Hidden entirely when there are no candidates. Uses the
+   standard collapsible-card convention (card-header-collapsible + issue-type-chevron + expand-wrapper). *@
+@if (_flaky.Count > 0)
+{
+    <div class="card flaky-card">
+        <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+            <h2 class="card-title"><span class="flaky-warn">&#9888;</span> Flaky monitoring targets (@_flaky.Count)</h2>
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
+        <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+            <div class="expand-content">
+                <div class="card-body">
+                    <p class="section-description">
+                        These targets show packet loss well above their peers over recent monitoring,
+                        usually ICMP deprioritization rather than a real problem. Disabling one keeps it
+                        out of ISP Health scoring; you can re-enable it anytime in Latency Targets below.
+                    </p>
+                    <div class="flaky-toolbar">
+                        <button class="btn btn-sm btn-primary" @onclick="DisableAllAsync" disabled="@_busy"
+                                data-tooltip="Disable every flagged target">Disable all</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table flaky-table">
+                            <thead>
+                                <tr>
+                                    <th>Target</th>
+                                    <th class="hide-mobile">Type</th>
+                                    <th>Loss vs peers</th>
+                                    <th class="col-actions"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var f in _flaky)
+                                {
+                                    <tr>
+                                        <td><span class="host-truncate">@f.Name</span></td>
+                                        <td class="hide-mobile">@TypeLabel(f.Type)</td>
+                                        <td class="flaky-evidence">
+                                            @($"{f.LossPct:0.0}% loss")<span class="hide-mobile"> vs @($"{f.BaselinePct:0.0}% peer median")</span>
+                                        </td>
+                                        <td class="col-actions">
+                                            <button class="btn btn-sm btn-primary" @onclick="() => DisableAsync(f)" disabled="@_busy">Disable</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .flaky-card { border-left: 3px solid var(--warning-color); }
+    .flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
+    .flaky-evidence { color: var(--warning-color); }
+    /* Scoped to this card only - don't touch the global .section-description. */
+    .flaky-card .section-description { margin-bottom: 0.75rem; }
+    /* margin-right matches the data-table cell right padding so "Disable all" lines up exactly
+       with the per-row Disable buttons (cell padding is 1rem on desktop, 0.4rem on mobile). */
+    .flaky-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; margin-right: 1rem; }
+
+    @@media (max-width: 768px) {
+        /* Scoped override of the global .data-table min-width:500px so this table fits the phone
+           (Type + peer-median already hidden, name truncated) instead of forcing horizontal scroll. */
+        .data-table.flaky-table { min-width: 0; }
+        .flaky-toolbar { margin-right: 0.4rem; }
+    }
+</style>
+
+@code {
+    [Parameter] public EventCallback OnTargetsChanged { get; set; }
+    [Parameter] public bool ForceExpand { get; set; }
+
+    private IReadOnlyList<FlakyTargetService.FlakyTarget> _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>();
+    private bool _collapsed; // expanded by default when candidates exist
+    private bool _busy;
+
+    protected override void OnParametersSet()
+    {
+        if (ForceExpand && _collapsed) _collapsed = false;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _flaky = await FlakyTargets.DetectAsync(); }
+        catch { _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>(); }
+    }
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    private async Task DisableAsync(FlakyTargetService.FlakyTarget target)
+    {
+        _busy = true;
+        try
+        {
+            await SetEnabledFalseAsync(new[] { target.Id });
+            _flaky = _flaky.Where(f => f.Id != target.Id).ToList();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DisableAllAsync()
+    {
+        if (_flaky.Count == 0) return;
+        _busy = true;
+        try
+        {
+            await SetEnabledFalseAsync(_flaky.Select(f => f.Id).ToList());
+            _flaky = System.Array.Empty<FlakyTargetService.FlakyTarget>();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetEnabledFalseAsync(IReadOnlyCollection<int> ids)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var rows = await db.MonitoringTargets.Where(t => ids.Contains(t.Id)).ToListAsync();
+        foreach (var row in rows) row.Enabled = false;
+        await db.SaveChangesAsync();
+    }
+
+    private static string TypeLabel(MonitoringTargetType type) => type switch
+    {
+        MonitoringTargetType.AccessIsp => "ISP",
+        MonitoringTargetType.Transit => "Transit",
+        MonitoringTargetType.InternetService => "Internet",
+        _ => type.ToString()
+    };
+}
