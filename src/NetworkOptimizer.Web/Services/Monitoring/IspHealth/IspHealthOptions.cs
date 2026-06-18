@@ -265,6 +265,15 @@ public class IspHealthOptions
     public double JitterAssimilationMinDeltaMs { get; set; } = 0.05;
 
     /// <summary>
+    /// Item D - how strongly the internet-relative reach ceiling absolves an ISP access hop's
+    /// intra-ASN distance penalty. finalCeiling = C_intra + alpha * max(0, C_net - C_intra), so it
+    /// only ever lifts (never lowers) and partially (alpha &lt; 1) - genuine distance/glass always
+    /// leaves a mark, but a hop that's modest relative to where the internet actually sits isn't
+    /// hammered for normal in-region distance on a geographically large access network.
+    /// </summary>
+    public double AccessReachInternetBlendAlpha { get; set; } = 0.40;
+
+    /// <summary>
     /// Average WAN load at which packet loss reaches its worst on shared-medium access
     /// (DOCSIS, PON, fixed wireless). The load-calibrated loss ceiling reaches the
     /// connection's loaded-loss band at this utilization and holds there above it, rather
@@ -298,7 +307,15 @@ public sealed record AccessProfile(
     double LoadedLossUpHighPct,
     double LoadedDeltaExcellentMs,
     double LoadedDeltaAcceptableMs,
-    bool IsNeutral = false);
+    bool IsNeutral = false,
+    // Per-tech jitter band (P95 jitter, ms). When set, jitter is scored straight off the band -
+    // (ideal,100) (typical,90) (poor,25) (2*poor,0) - so a medium's inherent jitter (e.g. DOCSIS's
+    // ~3 ms request-grant) reads as normal instead of being graded against a sub-ms path floor.
+    // Null (neutral / PPPoE / Other) keeps the measured-path-floor jitter curve. Applies path-wide
+    // to ISP and transit jitter, since every probe crosses the access medium.
+    double? JitterIdealMs = null,
+    double? JitterTypicalMs = null,
+    double? JitterPoorMs = null);
 
 /// <summary>
 /// Static catalog of access technology profiles. Returns null for
@@ -315,56 +332,64 @@ public static class IspHealthProfiles
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
-            LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0),
+            LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
+            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
 
         AccessTechnology.XgsPon => new AccessProfile("XGS-PON",
             IdleRttIdealMs: 1.5, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
-            LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0),
+            LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
+            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
 
         AccessTechnology.Docsis => new AccessProfile("DOCSIS",
             IdleRttIdealMs: 7.0, IdleRttNormalLowMs: 9.0, IdleRttNormalHighMs: 12.0, IdleRttPoorMs: 25.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.2,
             LoadedLossDownLowPct: 3.0, LoadedLossDownHighPct: 5.0,
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
-            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0),
+            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0,
+            JitterIdealMs: 1.75, JitterTypicalMs: 3.0, JitterPoorMs: 6.0),
 
         AccessTechnology.Satellite => new AccessProfile("Satellite (LEO)",
             IdleRttIdealMs: 23.0, IdleRttNormalLowMs: 30.0, IdleRttNormalHighMs: 45.0, IdleRttPoorMs: 80.0,
             IdleLossIdealPct: 0.2, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,
-            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 25.0),
+            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 25.0,
+            JitterIdealMs: 5.0, JitterTypicalMs: 6.5, JitterPoorMs: 15.0),
 
         AccessTechnology.DirectEthernet => new AccessProfile("Active Ethernet",
             IdleRttIdealMs: 0.5, IdleRttNormalLowMs: 1.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
-            LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0),
+            LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
+            JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
 
         AccessTechnology.FixedWireless => new AccessProfile("Fixed Wireless",
             IdleRttIdealMs: 5.0, IdleRttNormalLowMs: 8.0, IdleRttNormalHighMs: 15.0, IdleRttPoorMs: 35.0,
             IdleLossIdealPct: 0.3, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
             LoadedLossUpLowPct: 1.0, LoadedLossUpHighPct: 2.0,
-            LoadedDeltaExcellentMs: 10.0, LoadedDeltaAcceptableMs: 20.0),
+            LoadedDeltaExcellentMs: 10.0, LoadedDeltaAcceptableMs: 20.0,
+            JitterIdealMs: 2.5, JitterTypicalMs: 4.0, JitterPoorMs: 12.0),
 
         AccessTechnology.Cellular => new AccessProfile("Cellular",
             IdleRttIdealMs: 20.0, IdleRttNormalLowMs: 25.0, IdleRttNormalHighMs: 50.0, IdleRttPoorMs: 90.0,
             IdleLossIdealPct: 0.3, IdleLossAcceptablePct: 0.5,
             LoadedLossDownLowPct: 2.0, LoadedLossDownHighPct: 4.0,
             LoadedLossUpLowPct: 2.0, LoadedLossUpHighPct: 4.0,
-            LoadedDeltaExcellentMs: 20.0, LoadedDeltaAcceptableMs: 50.0),
+            LoadedDeltaExcellentMs: 20.0, LoadedDeltaAcceptableMs: 50.0,
+            JitterIdealMs: 4.0, JitterTypicalMs: 6.0, JitterPoorMs: 20.0),
 
         AccessTechnology.Dsl => new AccessProfile("DSL",
             IdleRttIdealMs: 6.0, IdleRttNormalLowMs: 10.0, IdleRttNormalHighMs: 25.0, IdleRttPoorMs: 50.0,
             IdleLossIdealPct: 0.05, IdleLossAcceptablePct: 0.2,
             LoadedLossDownLowPct: 3.0, LoadedLossDownHighPct: 5.0,
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
-            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0),
+            LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0,
+            JitterIdealMs: 1.0, JitterTypicalMs: 2.0, JitterPoorMs: 5.0),
 
         AccessTechnology.PppoE => NeutralProfile("PPPoE"),
         AccessTechnology.Other => NeutralProfile("Other"),
