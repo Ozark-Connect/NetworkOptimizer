@@ -15635,11 +15635,11 @@ a.isp-health-hero-speed:hover {
     transform: translateY(-2px);
 }
 
-.isp-asn-card-revealed {
-    animation: ispAsnReveal 0.25s ease-out both;
+.isp-hop-revealed {
+    animation: ispHopReveal 0.25s ease-out both;
 }
 
-@@keyframes ispAsnReveal {
+@@keyframes ispHopReveal {
     from { opacity: 0; transform: translateY(-6px); }
     to { opacity: 1; transform: translateY(0); }
 }
@@ -15670,8 +15670,9 @@ a.isp-health-hero-speed:hover {
 
 .isp-network-toggle-chevron {
     display: inline-block;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     line-height: 1;
+    color: var(--text-muted);
     transition: transform 0.25s ease;
 }
 

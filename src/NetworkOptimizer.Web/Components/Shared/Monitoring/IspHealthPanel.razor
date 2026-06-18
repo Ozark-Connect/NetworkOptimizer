@@ -195,14 +195,18 @@ else
                 <div class="card-body">
                     @if (dimension == r.IspAsnDimension)
                     {
-                        @if (r.IspTargets.Count == 0)
+                        var ispTargets = r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
+                        var hiddenIspHopCount = ispTargets.Count - NetworkPreviewCount;
+                        var visibleIspTargets = _showAllIspHops ? ispTargets : ispTargets.Take(NetworkPreviewCount).ToList();
+                        @if (ispTargets.Count == 0)
                         {
                             <p class="page-description">No ISP hop data in the window.</p>
                         }
                         <div class="isp-hop-list">
-                            @foreach (var target in r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue))
+                            @for (var i = 0; i < visibleIspTargets.Count; i++)
                             {
-                                <div class="isp-hop">
+                                var target = visibleIspTargets[i];
+                                <div class="isp-hop @(i >= NetworkPreviewCount ? "isp-hop-revealed" : "")" @key="target">
                                     <div class="isp-hop-row">
                                         <div class="isp-hop-main">
                                             <div class="isp-hop-name">
@@ -239,6 +243,14 @@ else
                                 </div>
                             }
                         </div>
+                        @if (hiddenIspHopCount > 0)
+                        {
+                            <button type="button" class="isp-network-toggle" aria-expanded="@_showAllIspHops"
+                                    @onclick="() => _showAllIspHops = !_showAllIspHops">
+                                <span>@(_showAllIspHops ? "Show less" : $"Show {hiddenIspHopCount} more")</span>
+                                <span class="isp-network-toggle-chevron @(_showAllIspHops ? "expanded" : "")">▼</span>
+                            </button>
+                        }
                     }
                     else
                     {
@@ -283,20 +295,16 @@ else
 
     @if (r.TransitAsns.Count > 0 || r.IspAsns.Count > 0)
     {
-        var pathAsns = r.IspAsns.Concat(r.TransitAsns).ToList();
-        var hiddenNetworkCount = pathAsns.Count - NetworkPreviewCount;
-        var visibleAsns = _showAllNetworks ? pathAsns : pathAsns.Take(NetworkPreviewCount).ToList();
         <div class="card isp-health-card">
             <div class="card-header"><h2 class="card-title">Networks on Your Path</h2></div>
             <div class="card-body">
                 <div class="isp-asn-grid">
-                    @for (var i = 0; i < visibleAsns.Count; i++)
+                    @foreach (var asn in r.IspAsns.Concat(r.TransitAsns))
                     {
-                        var asn = visibleAsns[i];
                         var isIspAsn = r.IspAsns.Contains(asn);
                         var showRange = isIspAsn && asn.MinRttMs.HasValue && asn.MaxRttMs.HasValue
                             && asn.MaxRttMs.Value - asn.MinRttMs.Value > 0.05;
-                        <div class="isp-asn-card @(i >= NetworkPreviewCount ? "isp-asn-card-revealed" : "")" @key="asn">
+                        <div class="isp-asn-card">
                             <div class="isp-asn-card-header">
                                 <div>
                                     <div class="isp-asn-name">@(string.IsNullOrEmpty(asn.AsnName) ? $"AS{asn.AsnNumber}" : asn.AsnName)</div>
@@ -339,14 +347,6 @@ else
                         </div>
                     }
                 </div>
-                @if (hiddenNetworkCount > 0)
-                {
-                    <button type="button" class="isp-network-toggle" aria-expanded="@_showAllNetworks"
-                            @onclick="() => _showAllNetworks = !_showAllNetworks">
-                        <span>@(_showAllNetworks ? "Show less" : $"Show {hiddenNetworkCount} more")</span>
-                        <span class="isp-network-toggle-chevron @(_showAllNetworks ? "expanded" : "")">▾</span>
-                    </button>
-                }
             </div>
         </div>
     }
@@ -443,7 +443,7 @@ else
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
-    private bool _showAllNetworks;
+    private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
 
     protected override async Task OnInitializedAsync()
