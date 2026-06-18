@@ -46,7 +46,7 @@ public static class DashboardCards
         OntStats => "ONT Stats",
         SpeedTests => "Speed Tests",
         WiFiOptimizer => "Wi-Fi Optimizer",
-        RecentAlerts => "Recent Audit Issues",
+        RecentAlerts => "Recent Security Findings",
         DeviceStatus => "Device Status",
         LiveView => "Live View",
         _ => cardId
@@ -77,7 +77,7 @@ public static class DashboardStatItems
         TotalDevices => "Total Devices",
         SecurityScore => "Security Score",
         SqmStatus => "Adaptive SQM",
-        ActiveAlerts => "Active Alerts",
+        ActiveAlerts => "Security Findings",
         ThreatEvents => "Threat Events",
         WiFiHealth => "Wi-Fi Health",
         _ => statId

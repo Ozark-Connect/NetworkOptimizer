@@ -370,7 +370,7 @@
                 <div class="stat-value">
                     @if (_loading) { <span class="spinner-sm"></span> } else { @alertCount }
                 </div>
-                <div class="stat-label">Active Alerts</div>
+                <div class="stat-label">Security Findings</div>
             </div>
         </a>
     };
@@ -654,7 +654,7 @@
     {
         <div class="card clickable-card" id="recent-alerts" @onclick="@(() => NavigationManager.NavigateTo("/audit"))">
             <div class="card-header">
-                <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Recent Audit Issues</h2></a>
+                <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Recent Security Findings</h2></a>
                 <a href="/audit" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
