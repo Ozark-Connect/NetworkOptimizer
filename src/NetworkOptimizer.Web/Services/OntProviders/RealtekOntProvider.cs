@@ -193,22 +193,20 @@ public sealed class RealtekOntProvider : IOntProvider
         });
 
         var response = await client.PostAsync(loginUrl, content, ct);
-        if (!response.IsSuccessStatusCode)
-            return false;
 
-        // Redirects are auto-followed: a successful login lands on the device home (/),
-        // a failed one bounces back to the login page. Treat landing on the login page
-        // (by final URL, page title, or a re-rendered login form) as failure so a real
-        // auth error surfaces as "Login failed" rather than a later malformed-response error.
-        var finalPath = response.RequestMessage?.RequestUri?.AbsolutePath ?? "";
-        var body = await response.Content.ReadAsStringAsync(ct);
+        if (response.StatusCode == HttpStatusCode.Redirect ||
+            response.StatusCode == HttpStatusCode.MovedPermanently ||
+            response.StatusCode == HttpStatusCode.OK)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (body.Contains("login.asp", StringComparison.OrdinalIgnoreCase) &&
+                body.Contains("error", StringComparison.OrdinalIgnoreCase))
+                return false;
 
-        var landedOnLogin =
-            finalPath.Contains("login.asp", StringComparison.OrdinalIgnoreCase) ||
-            body.Contains("<title>Login</title>", StringComparison.OrdinalIgnoreCase) ||
-            body.Contains("formLogin", StringComparison.OrdinalIgnoreCase);
+            return true;
+        }
 
-        return !landedOnLogin;
+        return false;
     }
 
     private OntStats ParseStatusPon(string html, OntPollContext context)
