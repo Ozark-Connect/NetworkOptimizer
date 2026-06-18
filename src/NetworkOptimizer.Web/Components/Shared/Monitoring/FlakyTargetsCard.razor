@@ -62,12 +62,17 @@
     .flaky-card { border-left: 3px solid var(--warning-color); }
     .flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
     .flaky-evidence { color: var(--warning-color); }
-    .flaky-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+    /* Scoped to this card only - don't touch the global .section-description. */
+    .flaky-card .section-description { margin-bottom: 0.75rem; }
+    /* margin-right matches the data-table cell right padding so "Disable all" lines up exactly
+       with the per-row Disable buttons (cell padding is 1rem on desktop, 0.4rem on mobile). */
+    .flaky-toolbar { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; margin-right: 1rem; }
 
     @@media (max-width: 768px) {
         /* Scoped override of the global .data-table min-width:500px so this table fits the phone
            (Type + peer-median already hidden, name truncated) instead of forcing horizontal scroll. */
         .data-table.flaky-table { min-width: 0; }
+        .flaky-toolbar { margin-right: 0.4rem; }
     }
 </style>
 
