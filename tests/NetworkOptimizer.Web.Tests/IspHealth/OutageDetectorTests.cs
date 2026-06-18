@@ -153,6 +153,72 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Brief_clear_during_staggered_recovery_does_not_split_one_outage()
+    {
+        // Two trigger targets, both dark across the outage but with a 1-minute healthy blip in
+        // the middle (staggered recovery / probe jitter clears the dark-fraction gate for one
+        // bucket). That must read as ONE outage, not two - the short gap is coalesced.
+        var clearStart = OutStart.AddMinutes(5);
+        var clearEnd = clearStart.AddMinutes(1);
+        List<LatencySample> WithBlip() => Series(0, (OutStart, clearStart, 100), (clearEnd, OutEnd, 100));
+        var internet1 = WithBlip();
+        var internet2 = WithBlip();
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
+
+        events.Should().ContainSingle();
+        events[0].Start.Should().Be(OutStart);
+        events[0].End.Should().Be(OutEnd);
+    }
+
+    [Fact]
+    public void Gap_longer_than_the_tolerance_stays_two_separate_outages()
+    {
+        // A long healthy stretch between two dark spans is a genuine recovery then a second
+        // outage - well beyond OutageMaxGapMinutes, so the two must NOT be coalesced.
+        var firstEnd = OutStart.AddMinutes(3);
+        var secondStart = OutStart.AddMinutes(12); // 9-minute clear gap, > OutageMaxGapMinutes
+        var secondEnd = secondStart.AddMinutes(3);
+        List<LatencySample> TwoSpans() => Series(0, (OutStart, firstEnd, 100), (secondStart, secondEnd, 100));
+        var internet1 = TwoSpans();
+        var internet2 = TwoSpans();
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
+
+        events.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Hop_with_no_data_during_the_outage_is_not_shown_as_reachable()
+    {
+        // A target added after the outage has no samples in the outage window. It must NOT
+        // render as a hop that "stayed reachable" through the outage, nor be picked as the
+        // last-reachable hop that attributes the break - it simply wasn't being measured.
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var olt = Series(0); // measured throughout, stayed reachable
+        // Added after the outage: data only AFTER the outage window, none during it.
+        var lateTarget = TestSeries.Flat(OutEnd.AddMinutes(1), TimeSpan.FromMinutes(5), rttMs: 20, jitterMs: 0.5, lossPct: 0);
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, olt),
+            new OutageDetector.Hop("Late CDN", 1, lateTarget),
+            new OutageDetector.Hop("Cloudflare", 2, internet1),
+            new OutageDetector.Hop("Google", 2, internet2),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        // The no-data hop is absent from the shape entirely.
+        events[0].Tiers.Should().NotContain(t => t.Name == "Late CDN");
+        // The break is attributed to the OLT, not the deeper no-data hop.
+        events[0].Scope.Should().Be(OutageScope.Upstream);
+        events[0].LastReachableHop.Should().Be("AT&T nokia-olt");
+    }
+
+    [Fact]
     public void Hop_that_recovers_early_is_not_dragged_to_the_end_by_a_late_blip()
     {
         // The validated AT&T shape: the OLT goes dark at onset, recovers early, then twitches

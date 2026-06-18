@@ -198,6 +198,15 @@ public class IspHealthOptions
     public int OutageMinDurationMinutes { get; set; } = 2;
 
     /// <summary>
+    /// Two outage runs separated by a healthy gap no longer than this are coalesced into one
+    /// event. One real outage briefly clears the dark-fraction gate during staggered onset or
+    /// inside-out recovery (targets dark/heal at slightly different minutes); without this it
+    /// would fragment into several adjacent events. The sealed gap counts as downtime, so keep
+    /// it short - the over-count is bounded by this value per seam.
+    /// </summary>
+    public int OutageMaxGapMinutes { get; set; } = 3;
+
+    /// <summary>
     /// Recovery-time tolerance for collapsing per-target access ISP rows in the outage waterfall:
     /// access hops that recovered within this many seconds of each other share a signature and
     /// merge to one row; ones outside it stay separate (the inside-out heal).
