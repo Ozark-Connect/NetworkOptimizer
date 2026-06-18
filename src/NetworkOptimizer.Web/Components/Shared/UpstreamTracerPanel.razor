@@ -179,9 +179,8 @@
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
-                                                       value="@hop.Label"
-                                                       disabled="@hop.Unreachable"
-                                                       @onchange="e => hop.Label = (string)e.Value!" />
+                                                       @bind="hop.Label" @bind:event="oninput"
+                                                       disabled="@hop.Unreachable" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
                                             <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
@@ -222,9 +221,8 @@
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
-                                                       value="@asn.Label"
-                                                       disabled="@asn.Unreachable"
-                                                       @onchange="e => asn.Label = (string)e.Value!" />
+                                                       @bind="asn.Label" @bind:event="oninput"
+                                                       disabled="@asn.Unreachable" />
                                             </td>
                                             <td><code>@asn.HopAddress</code></td>
                                             <td><code>AS@(asn.AsnNumber)</code> <span class="text-muted">@asn.AsnName</span></td>
@@ -262,8 +260,7 @@
                                             </td>
                                             <td>
                                                 <input type="text" class="form-control form-control-sm"
-                                                       value="@host.Label"
-                                                       @onchange="e => host.Label = (string)e.Value!" />
+                                                       @bind="host.Label" @bind:event="oninput" />
                                             </td>
                                             <td><code>@host.PathProxyTarget</code></td>
                                             <td><code>AS@(host.AsnNumber)</code> <span class="text-muted">@host.AsnName</span></td>
