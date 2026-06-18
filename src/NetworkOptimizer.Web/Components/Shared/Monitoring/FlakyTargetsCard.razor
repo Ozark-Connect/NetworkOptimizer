@@ -11,8 +11,8 @@
     <div class="card flaky-card">
         <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
             <h2 class="card-title"><span class="flaky-warn">&#9888;</span> Flaky monitoring targets (@_flaky.Count)</h2>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <button class="btn btn-sm btn-outline-primary" @onclick="DisableAllAsync" disabled="@_busy"
+            <div class="card-header-right">
+                <button class="btn btn-sm btn-primary" @onclick="DisableAllAsync" disabled="@_busy"
                         @onclick:stopPropagation="true" data-tooltip="Disable every flagged target">Disable all</button>
                 <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
             </div>
@@ -30,20 +30,22 @@
                             <thead>
                                 <tr>
                                     <th>Target</th>
-                                    <th>Type</th>
+                                    <th class="hide-mobile">Type</th>
                                     <th>Loss vs peers</th>
-                                    <th></th>
+                                    <th class="col-actions"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var f in _flaky)
                                 {
                                     <tr>
-                                        <td>@f.Name</td>
-                                        <td>@TypeLabel(f.Type)</td>
-                                        <td class="flaky-evidence">@f.Evidence</td>
-                                        <td class="flaky-action">
-                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => DisableAsync(f)" disabled="@_busy">Disable</button>
+                                        <td><span class="host-truncate">@f.Name</span></td>
+                                        <td class="hide-mobile">@TypeLabel(f.Type)</td>
+                                        <td class="flaky-evidence">
+                                            @($"{f.LossPct:0.0}% loss")<span class="hide-mobile"> vs @($"{f.BaselinePct:0.0}% peer median")</span>
+                                        </td>
+                                        <td class="col-actions">
+                                            <button class="btn btn-sm btn-primary" @onclick="() => DisableAsync(f)" disabled="@_busy">Disable</button>
                                         </td>
                                     </tr>
                                 }
@@ -60,7 +62,6 @@
     .flaky-card { border-left: 3px solid var(--warning-color); }
     .flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
     .flaky-evidence { color: var(--warning-color); }
-    .flaky-action { text-align: right; white-space: nowrap; }
 </style>
 
 @code {
