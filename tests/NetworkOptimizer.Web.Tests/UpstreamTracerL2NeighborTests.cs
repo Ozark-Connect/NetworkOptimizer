@@ -93,6 +93,58 @@ public class UpstreamTracerL2NeighborTests
         UpstreamTracerService.SelectWanNeighbor("").Should().BeNull();
     }
 
+    [Fact]
+    public void Rejects_unifi_wan_sla_probe_targets_as_the_neighbor()
+    {
+        // UniFi pings 1.1.1.1 / 8.8.8.8 for WAN SLA, leaving neighbor entries that look
+        // like a public on-link next hop. They are DNS resolvers, not the first-mile device.
+        const string output = """
+            1.1.1.1 lladdr aa:bb:cc:dd:ee:06 REACHABLE
+            8.8.8.8 lladdr aa:bb:cc:dd:ee:06 REACHABLE
+            203.0.113.1 lladdr aa:bb:cc:dd:ee:06 STALE
+            """;
+
+        UpstreamTracerService.SelectWanNeighbor(output)!.Value.Ip.Should().Be("203.0.113.1");
+    }
+
+    [Fact]
+    public void Returns_null_when_only_sla_probe_targets_are_present()
+    {
+        const string output = """
+            1.1.1.1 lladdr aa:bb:cc:dd:ee:06 REACHABLE
+            8.8.8.8 lladdr aa:bb:cc:dd:ee:06 REACHABLE
+            """;
+
+        UpstreamTracerService.SelectWanNeighbor(output).Should().BeNull();
+    }
+
+    [Fact]
+    public void Prefers_the_on_link_wan_subnet_gateway_over_another_public_neighbor()
+    {
+        // The real ISP-side gateway shares the WAN subnet; an unrelated public neighbor
+        // (e.g. a stray SLA-style entry) does not and must not win.
+        const string output = """
+            203.0.113.1 lladdr aa:bb:cc:dd:ee:06 REACHABLE
+            198.51.100.9 lladdr aa:bb:cc:dd:ee:07 REACHABLE
+            """;
+
+        UpstreamTracerService.SelectWanNeighbor(output, "203.0.113.5/24")!.Value.Ip
+            .Should().Be("203.0.113.1");
+    }
+
+    [Fact]
+    public void Subnet_preference_beats_freshness_and_class()
+    {
+        // On-link CGNAT gateway should still win over a fresher, public off-subnet neighbor.
+        const string output = """
+            100.64.0.1 lladdr aa:bb:cc:dd:ee:06 STALE
+            198.51.100.9 lladdr aa:bb:cc:dd:ee:07 REACHABLE
+            """;
+
+        UpstreamTracerService.SelectWanNeighbor(output, "100.64.0.5/22")!.Value.Ip
+            .Should().Be("100.64.0.1");
+    }
+
     [Theory]
     [InlineData("192.168.1.254", false)]
     [InlineData("10.0.0.1", false)]

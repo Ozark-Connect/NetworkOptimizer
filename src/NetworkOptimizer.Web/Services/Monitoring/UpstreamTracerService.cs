@@ -477,14 +477,23 @@ public class UpstreamTracerService
         {
             candidates.Add(_wanUplinkIfName);
         }
-        if (candidates.Count == 0 && !string.IsNullOrEmpty(State.WanIpAddress))
+
+        // Pull the WAN address line once: it yields the owning interface (a fallback
+        // candidate) and the WAN IP's prefix, which lets us recognize the real ISP-side
+        // gateway as the on-link neighbor rather than a public WAN SLA probe target.
+        string? wanCidr = null;
+        if (!string.IsNullOrEmpty(State.WanIpAddress))
         {
             var addrCmd = $"ip -o -4 addr show | grep -F ' {State.WanIpAddress}/' | head -1";
             var (addrOk, addrOut) = await _gatewaySsh.RunCommandAsync(addrCmd, TimeSpan.FromSeconds(5), ct);
             if (addrOk && !string.IsNullOrWhiteSpace(addrOut))
             {
-                var m = Regex.Match(addrOut, @"^\s*\d+:\s+(?<iface>\S+)\s+inet\s+", RegexOptions.Multiline);
-                if (m.Success) candidates.Add(m.Groups["iface"].Value);
+                var m = Regex.Match(addrOut, @"^\s*\d+:\s+(?<iface>\S+)\s+inet\s+(?<cidr>\S+)", RegexOptions.Multiline);
+                if (m.Success)
+                {
+                    if (candidates.Count == 0) candidates.Add(m.Groups["iface"].Value);
+                    wanCidr = m.Groups["cidr"].Value;
+                }
             }
         }
 
@@ -499,7 +508,7 @@ public class UpstreamTracerService
             var (ok, output) = await _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(5), ct);
             if (!ok || string.IsNullOrWhiteSpace(output)) continue;
 
-            var selected = SelectWanNeighbor(output);
+            var selected = SelectWanNeighbor(output, wanCidr);
             if (selected != null)
             {
                 neighborIp = selected.Value.Ip;
@@ -564,12 +573,18 @@ public class UpstreamTracerService
     /// bridged in front of the gateway (an ISP modem/router in passthrough) lists both
     /// its LAN-side RFC1918 address and the carrier-side address under the same MAC;
     /// the LAN-side entry often sorts first, and taking the first lladdr line mislabeled
-    /// a private CPE IP as an ISP hop. Preference order: address class
-    /// (public &gt; CGNAT &gt; private) then freshness (REACHABLE/DELAY/PROBE over STALE).
+    /// a private CPE IP as an ISP hop. Preference order: in the WAN subnet (the real
+    /// ISP-side gateway is by definition on-link with our WAN IP) &gt; address class
+    /// (public &gt; CGNAT &gt; private) &gt; freshness (REACHABLE/DELAY/PROBE over STALE).
     /// FAILED and INCOMPLETE entries carry no lladdr and never match. IPv6 link-local
-    /// entries are skipped.
+    /// entries are skipped, as are UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8):
+    /// the gateway keeps neighbor entries for those, but they are public DNS resolvers,
+    /// not the first-mile device.
     /// </summary>
-    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput)
+    /// <param name="ipNeighOutput">Raw `ip neigh show dev &lt;wan&gt;` output.</param>
+    /// <param name="wanCidr">The gateway's WAN address in CIDR form (e.g. "203.0.113.5/24")
+    /// used to recognize the on-link ISP gateway. Null/empty falls back to class+freshness.</param>
+    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput, string? wanCidr = null)
     {
         if (string.IsNullOrWhiteSpace(ipNeighOutput)) return null;
 
@@ -582,6 +597,11 @@ public class UpstreamTracerService
             if (!System.Net.IPAddress.TryParse(ipText, out var ip)) continue;
             if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
 
+            // UniFi's default WAN SLA probe targets keep a neighbor entry on the WAN
+            // interface but are public DNS resolvers, never the L2 next hop.
+            if (NetworkUtilities.WanSlaProbeIps.Contains(ipText)) continue;
+
+            var subnetScore = !string.IsNullOrEmpty(wanCidr) && NetworkUtilities.IsIpInSubnet(ip, wanCidr) ? 1 : 0;
             var classScore = NetworkUtilities.ClassifyPublicAddress(ip) switch
             {
                 PublicAddressClass.PublicIPv4 => 3,
@@ -590,7 +610,7 @@ public class UpstreamTracerService
                 _ => 0
             };
             var freshScore = m.Groups[3].Value.Contains("STALE", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
-            var score = classScore * 10 + freshScore;
+            var score = subnetScore * 100 + classScore * 10 + freshScore;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -1384,6 +1404,18 @@ public class UpstreamTracerService
 
     private static async Task UpsertTargetAsync(NetworkOptimizerDbContext db, AccessHopCandidate hop, string wanInterface, CancellationToken ct)
     {
+        // UniFi's WAN SLA probe targets (1.1.1.1 / 8.8.8.8) are public DNS resolvers, not
+        // ISP first-mile infrastructure. They never belong as an Access ISP target; drop any
+        // that slipped in before and never create one.
+        if (NetworkUtilities.WanSlaProbeIps.Contains(hop.Address))
+        {
+            var stale = await db.MonitoringTargets
+                .Where(t => t.TargetType == MonitoringTargetType.AccessIsp && t.Address == hop.Address)
+                .ToListAsync(ct);
+            if (stale.Count > 0) db.MonitoringTargets.RemoveRange(stale);
+            return;
+        }
+
         var existing = await db.MonitoringTargets.FirstOrDefaultAsync(t => t.TargetId == hop.TargetId, ct);
         existing ??= await db.MonitoringTargets.FirstOrDefaultAsync(t => t.Address == hop.Address, ct);
         if (existing == null)
