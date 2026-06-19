@@ -224,6 +224,40 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Unverifiable_hop_inherits_confirmed_from_a_same_asn_sibling_in_the_same_window()
+    {
+        // Two hops on AS 500 elevated in the same window: one has a downstream witness (Confirmed),
+        // the other is a dead-end (would be Unverifiable) - it inherits Confirmed from the sibling.
+        var hopNumbers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["10.0.0.1"] = 1,
+            ["10.0.5.1"] = 4,
+            ["10.0.5.2"] = 4,
+            ["10.0.6.1"] = 5
+        };
+        var series = new List<AsnSeries>
+        {
+            Hop(100, "10.0.0.1", Flat()),
+            Hop(500, "10.0.5.1", Elevated(), "10.0.0.1"),                 // AS500 hop with a witness beyond it
+            Hop(500, "10.0.5.2", Elevated(), "10.0.0.1"),                 // AS500 dead-end hop (no descendant)
+            Hop(600, "10.0.6.1", Elevated(), "10.0.0.1", "10.0.5.1")      // downstream of 10.0.5.1, confirms it
+        };
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { "10.0.0.1" }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = hopNumbers,
+            Load = new List<(DateTime, double?)>(),
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        var deadEnd = events.Single(e => e.BottleneckHopIp == "10.0.5.2");
+        deadEnd.Disposition.Should().Be(CongestionDisposition.Confirmed);
+        deadEnd.ConfirmedBySibling.Should().BeTrue();
+    }
+
+    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise

@@ -15372,6 +15372,16 @@ tr.stats-row-filtered {
     justify-content: center;
 }
 
+.isp-popover-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+
+.isp-filter-raised {
+    z-index: 50;
+}
+
 .isp-health-updated {
     position: absolute;
     top: 0.6rem;
@@ -15969,6 +15979,7 @@ a.isp-health-hero-speed:hover {
     }
     .isp-event-text {
         grid-column: 1 / -1;
+        padding-top: 0.25rem;
     }
     .isp-event-item::before {
         left: calc(-0.75rem - 7.5px);
@@ -15986,7 +15997,7 @@ a.isp-health-hero-speed:hover {
 }
 
 .isp-health-chart-card {
-    overflow: visible;
+    overflow-y: visible;
 }
 
 .isp-chart-reset-btn {

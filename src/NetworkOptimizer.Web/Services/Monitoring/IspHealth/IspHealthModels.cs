@@ -237,6 +237,11 @@ public class CongestionEvent
     /// </summary>
     public int CleanParallelPaths { get; set; }
 
+    /// <summary>True when this hop's congestion was confirmed indirectly by a sibling hop on the
+    /// same ASN congesting in the same window, rather than by its own downstream propagation
+    /// (used for a dead-end hop whose confirmed sibling proves the network is really degrading).</summary>
+    public bool ConfirmedBySibling { get; set; }
+
     /// <summary>Localizer confidence 0-100; lowest for <see cref="CongestionDisposition.Unverifiable"/> / <see cref="CongestionScope.Unlocalized"/>.</summary>
     public int Confidence { get; set; } = 50;
 

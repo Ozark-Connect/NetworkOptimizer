@@ -689,7 +689,10 @@ public class IspHealthScorer
                 && e.AsnNumbers.Contains(series.AsnNumber)
                 && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => roleTargetSet.Contains(t))))
             .ToList();
-        var eventHours = asnEvents.Sum(e => e.Duration.TotalHours);
+        // Union of the event windows, not the sum - two hops of the same ASN degrading in the
+        // same window (e.g. parallel backbone links, or a dead-end hop confirmed by its sibling)
+        // are one incident and must not double-count the congestion hours.
+        var eventHours = UnionHours(asnEvents);
         var congestionScore = (int)Math.Round(Math.Max(0, 100 - _options.CongestionPenaltyPerHour * eventHours));
 
         int? overall = null;
@@ -924,6 +927,22 @@ public class IspHealthScorer
     /// </summary>
     private static bool RoutesThrough(List<string> witnessAncestors, List<string> hopIps) =>
         hopIps.Any(ip => witnessAncestors.Contains(ip, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>Total hours covered by the union of the events' time windows (overlaps counted once).</summary>
+    private static double UnionHours(IReadOnlyList<CongestionEvent> events)
+    {
+        double total = 0;
+        DateTime curStart = default, curEnd = default;
+        var open = false;
+        foreach (var e in events.OrderBy(e => e.Start))
+        {
+            if (!open) { curStart = e.Start; curEnd = e.End; open = true; }
+            else if (e.Start > curEnd) { total += (curEnd - curStart).TotalHours; curStart = e.Start; curEnd = e.End; }
+            else if (e.End > curEnd) curEnd = e.End;
+        }
+        if (open) total += (curEnd - curStart).TotalHours;
+        return total;
+    }
 
     /// <summary>
     /// Collapses per-hop ISP grades to one entry per ASN for the Networks on Your Path

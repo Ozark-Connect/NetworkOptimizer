@@ -100,6 +100,23 @@ public static class CongestionLocalizer
                 result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident));
         }
 
+        // An Unverifiable hop (dead-end, nothing monitored beyond it) inherits Confirmed from a
+        // confirmed sibling on the SAME ASN overlapping in time: the same network degrading in the
+        // same window is almost certainly the same incident, so the dead-end twin is real too.
+        var confirmedEvents = result.Where(e => e.Disposition == CongestionDisposition.Confirmed).ToList();
+        foreach (var evt in result)
+        {
+            if (evt.Disposition != CongestionDisposition.Unverifiable) continue;
+            var sibling = confirmedEvents.FirstOrDefault(c =>
+                c.AsnNumbers.Any(a => a > 0 && evt.AsnNumbers.Contains(a))
+                && Overlaps(c.Start, c.End, evt.Start, evt.End));
+            if (sibling == null) continue;
+            evt.Disposition = CongestionDisposition.Confirmed;
+            evt.ConfirmedBySibling = true;
+            evt.Confidence = 70;
+            evt.AttributionReason = "Confirmed by a sibling hop on the same network congesting in the same window; no monitored hop sits beyond this one to verify it directly.";
+        }
+
         return result.OrderBy(e => e.Start).ToList();
     }
 
