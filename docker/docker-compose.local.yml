@@ -80,3 +80,7 @@ services:
 
   # For monitoring, run InfluxDB 2.x separately (see docker/influxdb/docker-compose.yml)
   # and finish setup via the Monitoring page wizard.
+
+# networks:
+#   network-optimizer:
+#     driver: bridge
