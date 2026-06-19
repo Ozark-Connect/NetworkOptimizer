@@ -15628,13 +15628,12 @@ a.isp-health-hero-speed:hover {
     transform: translateY(-2px);
 }
 
-.isp-hop-revealed {
-    animation: ispHopReveal 0.25s ease-out both;
+.isp-hop-list-overflow {
+    margin-top: 0;
 }
 
-@keyframes ispHopReveal {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
+.isp-hop-list-overflow .isp-hop:first-child {
+    border-top: 1px solid var(--border-color);
 }
 
 .isp-network-toggle {
