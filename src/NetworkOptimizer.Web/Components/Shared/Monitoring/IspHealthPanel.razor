@@ -523,13 +523,15 @@ else
                 ? $"{evt.AsnNames.Count} networks at once (could not be localized)"
                 : (string.IsNullOrEmpty(evt.BottleneckLabel) ? string.Join(", ", evt.AsnNames) : evt.BottleneckLabel);
             var span = FormatDuration(evt.Duration);
-            var mag = $"{evt.BaselineRttMs:0.#} ms baseline, {evt.PeakRttMs:0.#} ms peak";
+            // Show both signals - congestion is detected on latency AND jitter together (or a
+            // jitter-driven p90 burst), so reporting only RTT reads as latency-only.
+            var mag = $"latency {evt.BaselineRttMs:0.#} to {evt.PeakRttMs:0.#} ms, jitter {evt.BaselineJitterMs:0.#} to {evt.PeakJitterMs:0.#} ms";
             var load = evt.LoadCoincident ? " under heavy WAN load" : "";
-            // One shape for every line: "{duration} of elevated latency on {hop}{load} ({mag}).
-            // {one plain sentence}." The badge always reads "Congestion"; the disposition shows
-            // through colour (confirmed prominent, the rest muted) and that closing sentence, so
-            // the feed stays readable and still agrees with the cards (which badge only confirmed).
-            var lead = $"{span} of elevated latency on {where}{load} ({mag}).";
+            // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
+            // ({mag}). {one plain sentence}." The badge always reads "Congestion"; the disposition
+            // shows through colour (confirmed prominent, the rest muted) and that closing sentence,
+            // so the feed stays readable and still agrees with the cards (which badge only confirmed).
+            var lead = $"{span} of elevated latency and jitter on {where}{load} ({mag}).";
             var (badge, badgeClass, text) = evt.Disposition switch
             {
                 CongestionDisposition.SelfInflicted => ("Congestion", "isp-event-badge-info",
