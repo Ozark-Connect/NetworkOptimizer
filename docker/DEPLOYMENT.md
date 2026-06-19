@@ -1200,6 +1200,12 @@ See the [official InfluxDB 2.x install docs](https://docs.influxdata.com/influxd
 4. In Network Optimizer, go to **Monitoring** and follow the setup wizard
 5. Paste your all-access token - the wizard provisions two buckets (`network_monitoring` at 90-day retention, `network_monitoring_longterm` at 365-day) and mints a least-privilege scoped token for ongoing use. Your all-access token is never stored.
 
+### Custom Dashboards (Optional)
+
+Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your own Grafana (or any InfluxDB client) at the same instance and build whatever dashboards you want. Add the instance to Grafana as a Flux data source and query the `network_monitoring` bucket - browse the measurements there for interface counters, device health, latency, SFP optics, Wi-Fi clients, and modem / ONT signal. `network_monitoring_longterm` holds the long-retention copy.
+
+The schema is stable: measurement and field names only ever get added, never renamed or removed (Network Optimizer's own charts depend on them), so anything you build keeps working across upgrades.
+
 ## Next Steps
 
 After deployment:

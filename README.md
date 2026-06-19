@@ -41,7 +41,7 @@ Track signal quality on your cable modem, fiber ONT, and cellular modems over ti
 
 ## New: Self-Hosted Network Monitoring
 
-Full time-series network monitoring that runs entirely on your hardware. SNMP polling feeds InfluxDB for interface counters, device health (CPU, memory, temperature, uptime), latency probes, SFP optical levels, and WiFi client stats. Everything is stored locally with configurable retention, and a setup wizard handles InfluxDB bucket and token provisioning so you're not hand-editing config files.
+Full time-series network monitoring that runs entirely on your hardware. SNMP polling feeds InfluxDB for interface counters, device health (CPU, memory, temperature, uptime), latency probes, SFP optical levels, and WiFi client stats. Everything is stored locally with configurable retention, and a setup wizard handles InfluxDB bucket and token provisioning so you're not hand-editing config files. And since it's plain InfluxDB under the hood, you can bring your own Grafana for custom dashboards if you want to go further.
 
 The Live View gives you two real-time topology maps. The 3D map is a Three.js visualization with bi-directional particle-flow traffic for all LAN traffic (not just WAN-bound traffic like in UniFi Network), WASD camera navigation, and double-click on any client to jump to their performance dashboard. The 2D map is a hierarchical flow diagram that's easier to read at a glance, showing the same live throughput rates, device health badges, and client connections on a canvas you can pan and zoom. Both support historic playback: scrub backward through your monitoring data to see what your network looked like at any point, with full playback controls and adjustable speed.
 
