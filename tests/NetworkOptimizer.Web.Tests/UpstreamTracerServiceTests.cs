@@ -915,8 +915,19 @@ public class ComputeExcludedTier1AsnsTests
     }
 
     [Fact]
-    public void Tier1Asns_constant_includes_major_carriers()
+    public void Tier1Asns_constant_includes_major_carriers_and_live_siblings()
     {
-        UpstreamTracerService.Tier1Asns.Should().Contain(new[] { 3356, 174, 7018, 2914, 1299, 6461 });
+        // Core tier-1s, plus the corrected AS1239 (now Cogent) and active AT&T/Lumen
+        // sibling ASNs that show up in US traces.
+        UpstreamTracerService.Tier1Asns.Should().Contain(
+            new[] { 3356, 174, 7018, 2914, 1299, 6461, 1239, 7132, 3561 });
+    }
+
+    [Fact]
+    public void Tier1Asns_excludes_hurricane_electric()
+    {
+        // AS6939 is not settlement-free on IPv4, so it carries no reliable core-peering
+        // signal and stays out of the adjacency set.
+        UpstreamTracerService.Tier1Asns.Should().NotContain(6939);
     }
 }
