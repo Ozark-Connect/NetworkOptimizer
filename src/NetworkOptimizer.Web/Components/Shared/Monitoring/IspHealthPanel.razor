@@ -519,11 +519,26 @@ else
         var entries = new List<TimelineEntry>();
         foreach (var evt in r.CongestionEvents)
         {
-            var scope = evt.IsShared
-                ? $"shared across {evt.AsnNames.Count} networks (likely a shared upstream or return path)"
-                : string.Join(", ", evt.AsnNames);
-            entries.Add(new TimelineEntry(evt.Start, "Congestion", "isp-event-badge-warning",
-                $"{FormatDuration(evt.Duration)} of elevated latency and jitter on {scope}: {evt.BaselineRttMs:0.#} ms baseline to {evt.PeakRttMs:0.#} ms peak"));
+            var where = evt.IsShared
+                ? $"shared across {evt.AsnNames.Count} networks (could not be localized)"
+                : (string.IsNullOrEmpty(evt.BottleneckLabel) ? string.Join(", ", evt.AsnNames) : evt.BottleneckLabel);
+            var span = FormatDuration(evt.Duration);
+            var magnitude = $"{evt.BaselineRttMs:0.#} ms baseline to {evt.PeakRttMs:0.#} ms peak";
+            var load = evt.LoadCoincident ? " while your WAN was under heavy load" : "";
+            // The badge reflects what the localizer concluded, so the feed agrees with the
+            // per-network cards: only Confirmed events carry a congestion badge there.
+            var (badge, badgeClass, text) = evt.Disposition switch
+            {
+                CongestionDisposition.SelfInflicted => ("Bufferbloat", "isp-event-badge-info",
+                    $"{span} of self-inflicted latency at {where} while your WAN was saturated - local bufferbloat, not external congestion: {magnitude}"),
+                CongestionDisposition.ControlPlaneNoise => ("Likely noise", "isp-event-badge-info",
+                    $"{span} of elevated latency at {where} that did not reach hops downstream - control-plane (ICMP) deprioritization, not a forwarding bottleneck: {magnitude}"),
+                CongestionDisposition.Unverifiable => ("Unverifiable", "isp-event-badge-info",
+                    $"{span} of elevated latency on {where}{load}, but no monitored hop sits downstream to confirm forwarding congestion: {magnitude}"),
+                _ => ("Congestion", "isp-event-badge-warning",
+                    $"{span} of elevated latency and jitter on {where}{load}: {magnitude}")
+            };
+            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text));
         }
         foreach (var shift in r.PathShifts)
         {
