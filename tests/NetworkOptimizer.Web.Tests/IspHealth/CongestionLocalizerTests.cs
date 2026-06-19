@@ -100,6 +100,7 @@ public class CongestionLocalizerTests
         e.AsnNumbers.Should().Equal(100);          // the backhaul ASN, not transit 200
         e.LoadCoincident.Should().BeTrue();
         e.Suppressed.Should().BeFalse();
+        e.CleanParallelPaths.Should().BeGreaterThan(0);   // off-path hops stayed clean -> hop-isolated, not access-wide
     }
 
     [Fact]

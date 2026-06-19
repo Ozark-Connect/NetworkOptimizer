@@ -520,26 +520,28 @@ else
         foreach (var evt in r.CongestionEvents)
         {
             var where = evt.IsShared
-                ? $"shared across {evt.AsnNames.Count} networks (could not be localized)"
+                ? $"{evt.AsnNames.Count} networks at once (could not be localized)"
                 : (string.IsNullOrEmpty(evt.BottleneckLabel) ? string.Join(", ", evt.AsnNames) : evt.BottleneckLabel);
             var span = FormatDuration(evt.Duration);
-            var magnitude = $"{evt.BaselineRttMs:0.#} ms baseline to {evt.PeakRttMs:0.#} ms peak";
-            var load = evt.LoadCoincident ? " while your WAN was under heavy load" : "";
-            // The badge reflects what the localizer concluded, so the feed agrees with the
-            // per-network cards: only Confirmed events carry a congestion badge there.
-            // Badge always reads "Congestion"; the disposition shows through colour (confirmed
-            // is prominent, the rest muted) and the text, so the feed stays readable while still
-            // agreeing with the per-network cards, which only badge confirmed events.
+            var mag = $"{evt.BaselineRttMs:0.#} ms baseline, {evt.PeakRttMs:0.#} ms peak";
+            var load = evt.LoadCoincident ? " under heavy WAN load" : "";
+            // One shape for every line: "{duration} of elevated latency on {hop}{load} ({mag}).
+            // {one plain sentence}." The badge always reads "Congestion"; the disposition shows
+            // through colour (confirmed prominent, the rest muted) and that closing sentence, so
+            // the feed stays readable and still agrees with the cards (which badge only confirmed).
+            var lead = $"{span} of elevated latency on {where}{load} ({mag}).";
             var (badge, badgeClass, text) = evt.Disposition switch
             {
                 CongestionDisposition.SelfInflicted => ("Congestion", "isp-event-badge-info",
-                    $"{span} at {where} while your WAN was saturated - self-inflicted bufferbloat from your own load, not the ISP: {magnitude}"),
+                    $"{lead} Self-inflicted bufferbloat from your own load, not the ISP."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
-                    $"{span} of elevated latency at {where} that did not reach hops downstream - likely router ICMP handling, not a forwarding bottleneck: {magnitude}"),
+                    $"{lead} It did not reach downstream hops, so this is likely router ICMP handling, not a forwarding bottleneck."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
-                    $"{span} of elevated latency on {where}{load} - unconfirmed: no monitored hop sits downstream to verify it: {magnitude}"),
+                    $"{lead} Unconfirmed, because no monitored hop sits downstream to verify it."),
+                _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-warning",
+                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it is this hop's own capacity, not your access link."),
                 _ => ("Congestion", "isp-event-badge-warning",
-                    $"{span} of elevated latency and jitter on {where}{load}: {magnitude}")
+                    $"{lead} It propagates to hops downstream, so it is a real bottleneck here.")
             };
             entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text));
         }

@@ -229,6 +229,14 @@ public class CongestionEvent
     /// <summary>True when the event overlapped heavy local WAN load (input to the self-inflicted gate).</summary>
     public bool LoadCoincident { get; set; }
 
+    /// <summary>
+    /// How many other monitored paths (different routes/networks, and the access hops ahead of
+    /// the bottleneck) stayed clean during this event. A non-zero count under load is the proof
+    /// the elevation is this hop's own capacity, not access-layer bufferbloat - which would lift
+    /// every path that shares your access link.
+    /// </summary>
+    public int CleanParallelPaths { get; set; }
+
     /// <summary>Localizer confidence 0-100; lowest for <see cref="CongestionDisposition.Unverifiable"/> / <see cref="CongestionScope.Unlocalized"/>.</summary>
     public int Confidence { get; set; } = 50;
 

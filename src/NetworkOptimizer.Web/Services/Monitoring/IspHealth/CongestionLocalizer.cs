@@ -169,6 +169,14 @@ public static class CongestionLocalizer
 
         var isAccessEgress = topology.AccessEgressHopIps.Contains(bottleneckIp);
 
+        // Anchored paths that do NOT cross this bottleneck and stayed clean through the window.
+        // A non-zero count under load proves the elevation is this hop's own capacity, not
+        // access-layer bufferbloat (which would lift every path that shares your access link).
+        var cleanParallelPaths = allSeries.Count(s => HasTrace(s, topology)
+            && !s.HopIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
+            && !s.AncestorIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
+            && !isElevated(s, window.Start, window.End));
+
         CongestionDisposition disposition;
         string reason;
         if (isAccessEgress && loadCoincident && !cleanControlExists)
@@ -181,7 +189,9 @@ public static class CongestionLocalizer
             disposition = CongestionDisposition.Confirmed;
             reason = "Elevation propagates to monitored hops downstream of this bottleneck.";
             if (loadCoincident)
-                reason += " It coincided with heavy WAN load (load-induced), but localizes to a specific hop rather than your access egress.";
+                reason += cleanParallelPaths > 0
+                    ? $" It coincided with heavy WAN load, but {cleanParallelPaths} other monitored paths stayed clean under the same load, so it is this hop's own capacity, not your access egress."
+                    : " It coincided with heavy WAN load (load-induced), but localizes to a specific hop rather than your access egress.";
         }
         else if (hasDescendant)
         {
@@ -212,6 +222,7 @@ public static class CongestionLocalizer
         evt.BottleneckHopIp = bottleneckIp;
         evt.BottleneckLabel = label;
         evt.LoadCoincident = loadCoincident;
+        evt.CleanParallelPaths = cleanParallelPaths;
         evt.Confidence = confidence;
         evt.AttributionReason = reason;
         return evt;
