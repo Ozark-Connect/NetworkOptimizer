@@ -134,16 +134,6 @@ public class IspHealthOptions
     public double CongestionBurstDeltaFactor { get; set; } = 1.5;
 
     /// <summary>
-    /// Minimum sustained duration in minutes for a BURST-ONLY congestion event (one carried purely
-    /// by p90 spikes, with no bucket ever crossing the sustained-median threshold). Higher than the
-    /// general <see cref="CongestionMinDurationMinutes"/>: on an ultra-stable hop a brief run of p90
-    /// blips is ordinary jitter, while genuine bursty congestion persists for hours, so a longer
-    /// floor keeps the real events and drops the noise. Runs with any sustained-median bucket keep
-    /// the shorter general minimum.
-    /// </summary>
-    public int CongestionBurstMinDurationMinutes { get; set; } = 60;
-
-    /// <summary>
     /// Score points deducted from an ASN's congestion factor per hour of congestion
     /// events. At 20 a 30-min event costs 10, a 1 h event 20, a 2.5 h event zeros the
     /// factor; combined with the congestion weight this is a real, visible downgrade.
