@@ -15368,6 +15368,10 @@ tr.stats-row-filtered {
     background: var(--bg-tertiary);
 }
 
+.isp-health-toolbar .custom-range-btn {
+    justify-content: center;
+}
+
 .isp-health-updated {
     position: absolute;
     top: 0.6rem;
@@ -15746,16 +15750,18 @@ a.isp-health-hero-speed:hover {
 .isp-event-item {
     position: relative;
     display: grid;
-    grid-template-columns: 6rem 6.5rem 1fr;
+    grid-template-columns: 6rem 5.5rem 1fr;
+    justify-items: start;
     align-items: baseline;
-    gap: 0.6rem;
+    column-gap: 0.6rem;
+    row-gap: 0.3rem;
 }
 
 .isp-event-item::before {
     content: "";
     position: absolute;
     left: calc(-1rem - 7.5px);
-    top: 0.25rem;
+    top: 0.325rem;
     width: 9px;
     height: 9px;
     border-radius: 50%;
@@ -15957,6 +15963,13 @@ a.isp-health-hero-speed:hover {
     .isp-event-timeline {
         padding-left: 0.75rem;
     }
+    .isp-event-item {
+        grid-template-columns: auto auto;
+        row-gap: 0.15rem;
+    }
+    .isp-event-text {
+        grid-column: 1 / -1;
+    }
     .isp-event-item::before {
         left: calc(-0.75rem - 7.5px);
     }
@@ -15970,6 +15983,10 @@ a.isp-health-hero-speed:hover {
 
 .isp-chart-wrap {
     position: relative;
+}
+
+.isp-health-chart-card {
+    overflow: visible;
 }
 
 .isp-chart-reset-btn {

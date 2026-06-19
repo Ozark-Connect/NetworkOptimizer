@@ -22,7 +22,7 @@ function buildOpts() {
             height: 280,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', autoScaleYaxis: true, allowMouseWheelZoom: false },
             parentHeightOffset: 0,
             animations: { enabled: false },
             events: {

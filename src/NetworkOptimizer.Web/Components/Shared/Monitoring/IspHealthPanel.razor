@@ -456,7 +456,7 @@ else
         </div>
     </div>
 
-    <div class="card isp-health-card">
+    <div class="card isp-health-card isp-health-chart-card">
         <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
         <div class="card-body">
             <div id="isp-health-asn-chart"></div>
@@ -499,6 +499,7 @@ else
     };
     private const int DefaultPresetHours = 48;
     private const int MaxRangeHours = 720;   // 30-day / 1-month hard cap
+    private const int MinRangeHours = 4;     // smallest custom window
     private int _selectedPreset = DefaultPresetHours;
     private bool _isCustom;
     private bool _showCustomPopover;
@@ -590,7 +591,16 @@ else
         catch { _chartMounted = false; }
     }
 
-    private void ToggleCustomPopover() => _showCustomPopover = !_showCustomPopover;
+    private void ToggleCustomPopover()
+    {
+        _showCustomPopover = !_showCustomPopover;
+        if (_showCustomPopover)
+        {
+            // Seed both pickers from the active window so they reflect the current filter.
+            _customTo = (_windowEnd ?? DateTime.UtcNow).ToLocalTime();
+            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-DefaultPresetHours)).ToLocalTime();
+        }
+    }
 
     private async Task SelectPresetAsync(int hours)
     {
@@ -613,6 +623,8 @@ else
         var startUtc = _customFrom.ToUniversalTime();
         var endUtc = _customTo.ToUniversalTime();
         if (endUtc <= startUtc) return;
+        if (endUtc - startUtc < TimeSpan.FromHours(MinRangeHours))
+            startUtc = endUtc.AddHours(-MinRangeHours);   // enforce the minimum window
         if (endUtc - startUtc > TimeSpan.FromHours(MaxRangeHours))
             startUtc = endUtc.AddHours(-MaxRangeHours);   // clamp to the 1-month cap
         _isCustom = true;
@@ -703,7 +715,7 @@ else
     private static string EventTimeLabel(DateTime utc)
     {
         var local = utc.ToLocalTime();
-        return local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("MMM d, HH:mm");
+        return local.Date == DateTime.Now.Date ? $"Today {local:HH:mm}" : local.ToString("MMM d, HH:mm");
     }
 
     private static string OutageScopeLabel(OutageEvent o) =>
@@ -731,8 +743,15 @@ else
     private static string OutageHopTooltip(OutageTierState t) =>
         t.WentDark ? $"Went dark; peak loss {t.PeakLossPct:0}%." : "Stayed reachable through the outage.";
 
-    private static string WindowLabel(IspHealthReport r) =>
-        $"{(r.WindowEnd - r.WindowStart).TotalHours:0} h";
+    private static string WindowLabel(IspHealthReport r)
+    {
+        var span = r.WindowEnd - r.WindowStart;
+        if (span.TotalMinutes < 60)
+            return $"{span.TotalMinutes:0} min";
+        if (span.TotalHours < 72)
+            return $"{span.TotalHours:0.#} hr";
+        return $"{span.TotalDays:0.#} {(Math.Abs(span.TotalDays - 1) < 0.05 ? "day" : "days")}";
+    }
 
     private static string? FactorInvestigateUrl(string factorName) => factorName switch
     {
