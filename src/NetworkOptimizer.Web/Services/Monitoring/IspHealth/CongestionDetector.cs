@@ -60,6 +60,7 @@ public static class CongestionDetector
 
         var events = new List<CongestionEvent>();
         var run = new List<Bucket>();
+        var runHasSustained = false;
         var gap = 0;
         foreach (var bucket in buckets)
         {
@@ -85,6 +86,7 @@ public static class CongestionDetector
             if (elevated)
             {
                 run.Add(bucket);
+                if (sustainedElevated) runHasSustained = true;
                 gap = 0;
             }
             else if (run.Count > 0 && gap == 0)
@@ -93,22 +95,26 @@ public static class CongestionDetector
             }
             else if (run.Count > 0)
             {
-                FlushRun(run, series, baselineRtt.Value, baselineJitter ?? 0, bucketSize, options, events);
+                FlushRun(run, runHasSustained, series, baselineRtt.Value, baselineJitter ?? 0, bucketSize, options, events);
                 run.Clear();
+                runHasSustained = false;
                 gap = 0;
             }
         }
-        FlushRun(run, series, baselineRtt.Value, baselineJitter ?? 0, bucketSize, options, events);
+        FlushRun(run, runHasSustained, series, baselineRtt.Value, baselineJitter ?? 0, bucketSize, options, events);
         return events;
     }
 
-    private static void FlushRun(List<Bucket> run, AsnSeries series, double baselineRtt, double baselineJitter,
+    private static void FlushRun(List<Bucket> run, bool hasSustained, AsnSeries series, double baselineRtt, double baselineJitter,
         TimeSpan bucketSize, IspHealthOptions options, List<CongestionEvent> events)
     {
         if (run.Count == 0) return;
         var start = run[0].Start;
         var end = run[^1].Start + bucketSize;
-        if ((end - start).TotalMinutes < options.CongestionMinDurationMinutes) return;
+        // A burst-only run (no sustained-median bucket) must persist longer to count: a brief run
+        // of p90 blips on a stable hop is ordinary jitter, while real bursty congestion lasts hours.
+        var minMinutes = hasSustained ? options.CongestionMinDurationMinutes : options.CongestionBurstMinDurationMinutes;
+        if ((end - start).TotalMinutes < minMinutes) return;
 
         events.Add(new CongestionEvent
         {
