@@ -85,4 +85,4 @@ services:
         max-file: "3"
 
 # Production config - host network mode, localhost only (behind Caddy)
-# For local dev with InfluxDB/Grafana, use docker-compose.local.yml
+# For local dev with InfluxDB, use docker-compose.local.yml

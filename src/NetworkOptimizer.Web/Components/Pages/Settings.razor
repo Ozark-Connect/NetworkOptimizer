@@ -1490,101 +1490,6 @@
         </div>
     </div>
 
-    @* InfluxDB Configuration - hidden until time-series metrics are implemented
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">InfluxDB Configuration</h2>
-            <span class="status-badge status-@influxStatus.ToLower()">@influxStatus</span>
-        </div>
-        <div class="card-body">
-            <div class="form-group">
-                <label class="form-label">InfluxDB URL</label>
-                <input type="text" class="form-control" @bind="influxUrl" placeholder="http://influxdb:8086" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Organization</label>
-                <input type="text" class="form-control" @bind="influxOrg" placeholder="network-optimizer" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Bucket</label>
-                <input type="text" class="form-control" @bind="influxBucket" placeholder="network_optimizer" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Auth Token</label>
-                <input type="text" class="form-control" @bind="influxToken" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Retention Period</label>
-                <select class="form-control" @bind="influxRetention">
-                    <option value="7d">7 Days</option>
-                    <option value="30d">30 Days</option>
-                    <option value="90d">90 Days</option>
-                    <option value="1y">1 Year</option>
-                    <option value="inf">Infinite</option>
-                </select>
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="TestInfluxConnection">
-                    @if (testingInflux)
-                    {
-                        <span class="spinner"></span>
-                        <span>Testing...</span>
-                    }
-                    else
-                    {
-                        <span>Test Connection</span>
-                    }
-                </button>
-                <button class="btn btn-success" @onclick="SaveInfluxSettings" disabled="@(influxStatus != "Connected")">
-                    Save Settings
-                </button>
-            </div>
-
-            @if (!string.IsNullOrEmpty(influxMessage))
-            {
-                <div class="alert alert-@influxMessageClass">
-                    @influxMessage
-                </div>
-            }
-        </div>
-    </div>
-
-    <!-- Grafana Dashboard -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Grafana Dashboards</h2>
-        </div>
-        <div class="card-body">
-            <div class="grafana-info">
-                <p>Access pre-built Grafana dashboards for detailed metrics visualization.</p>
-                <div class="dashboard-links">
-                    <a href="http://localhost:3000/d/network-overview" target="_blank" class="dashboard-link">
-                        <span class="link-icon">📊</span>
-                        <span>Network Overview</span>
-                    </a>
-                    <a href="http://localhost:3000/d/sqm-performance" target="_blank" class="dashboard-link">
-                        <span class="link-icon">⚡</span>
-                        <span>Adaptive SQM Performance</span>
-                    </a>
-                    <a href="http://localhost:3000/d/switch-deep-dive" target="_blank" class="dashboard-link">
-                        <span class="link-icon">🔌</span>
-                        <span>Switch Deep-Dive</span>
-                    </a>
-                    <a href="http://localhost:3000/d/ap-performance" target="_blank" class="dashboard-link">
-                        <span class="link-icon">📡</span>
-                        <span>AP Performance</span>
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-    *@
-
     @* License Information - hidden for now
     <div class="card">
         <div class="card-header">
@@ -2304,7 +2209,7 @@
                 the easiest path is the setup helper on the
                 <a href="/monitoring">Monitoring</a> page; it'll detect what's available,
                 install InfluxDB if needed, and provision the buckets and an API token for
-                you. If you already run InfluxDB (e.g. for Grafana), point this at it; the
+                you. If you already run InfluxDB 2.x, point this at it; the
                 bucket names below are NO-specific so they can't collide with other data.
             </p>
 

@@ -3,11 +3,11 @@ using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Writes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.Storage.Services;
 
-namespace NetworkOptimizer.Web.Services;
+namespace NetworkOptimizer.Storage.Services;
 
 /// <summary>
 /// Owns the lifecycle of the InfluxDB client used by the monitoring subsystem. The client

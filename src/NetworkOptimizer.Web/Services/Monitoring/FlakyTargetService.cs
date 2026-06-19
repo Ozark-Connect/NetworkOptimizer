@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services.Monitoring;
 

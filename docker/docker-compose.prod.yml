@@ -29,11 +29,7 @@ services:
       # Logging (Trace, Debug, Information, Warning, Error, Critical)
       - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
       - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
-      # Point to existing InfluxDB if desired (optional)
-      # - INFLUXDB_URL=http://localhost:8086
-      # - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
-      # - INFLUXDB_ORG=${INFLUXDB_ORG:-network-optimizer}
-      # - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-network_optimizer}
+      # Monitoring InfluxDB is configured in-app via the Monitoring page wizard, not env vars.
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
       interval: 30s
