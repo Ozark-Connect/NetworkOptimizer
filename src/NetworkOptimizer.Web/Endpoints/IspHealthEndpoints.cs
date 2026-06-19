@@ -20,10 +20,11 @@ public static class IspHealthEndpoints
             // the 48 h cache; absent, it serves the cached 48 h report.
             var (series, report) = await ispHealth.GetAsnChartDataAsync(from, to, ct);
 
-            // Bound the chart payload regardless of window: bucket each series toward a target
-            // point count, so a 30-day view sends ~ChartTargetPoints points per line instead of
-            // tens of thousands. Detectors still run on the full-resolution samples; display only.
-            const int ChartTargetPoints = 500;
+            // Cap the chart payload only for long windows: bucket toward a target point count,
+            // but never finer than per-minute. Anything <= ~50 h stays at the prior per-minute
+            // density (48 h ~ 2880 points/line); a 30-day view coarsens to ~3000 instead of ~21k.
+            // Detectors still run on the full-resolution samples; this is display only.
+            const int ChartTargetPoints = 3000;
             var spanTicks = from.HasValue && to.HasValue ? (to.Value - from.Value).Ticks
                 : report != null ? (report.WindowEnd - report.WindowStart).Ticks
                 : TimeSpan.TicksPerDay * 2;

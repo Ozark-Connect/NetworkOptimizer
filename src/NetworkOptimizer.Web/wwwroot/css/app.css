@@ -15745,10 +15745,10 @@ a.isp-health-hero-speed:hover {
 
 .isp-event-item {
     position: relative;
-    display: flex;
+    display: grid;
+    grid-template-columns: 6rem 6.5rem 1fr;
     align-items: baseline;
     gap: 0.6rem;
-    flex-wrap: wrap;
 }
 
 .isp-event-item::before {

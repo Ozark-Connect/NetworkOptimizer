@@ -143,10 +143,10 @@ public class IspHealthService
     /// briefly cached so the chart's follow-up fetch for the same window skips the heavy query.
     /// </summary>
     public async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeForWindowAsync(
-        DateTime windowStart, DateTime windowEnd, CancellationToken ct = default)
+        DateTime windowStart, DateTime windowEnd, bool forceRefresh = false, CancellationToken ct = default)
     {
         var cached = _customCache;
-        if (cached != null && cached.Start == windowStart && cached.End == windowEnd
+        if (!forceRefresh && cached != null && cached.Start == windowStart && cached.End == windowEnd
             && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
             return (cached.Report, cached.ChartClusters);
 
@@ -529,7 +529,7 @@ public class IspHealthService
     {
         if (from.HasValue && to.HasValue)
         {
-            var (windowReport, windowClusters) = await ComputeForWindowAsync(from.Value, to.Value, ct);
+            var (windowReport, windowClusters) = await ComputeForWindowAsync(from.Value, to.Value, ct: ct);
             return (windowClusters, windowReport);
         }
         // Return the exact clusters the report's events were detected on, so chart
@@ -545,9 +545,9 @@ public class IspHealthService
     /// Report for an explicit window (the ISP Health tab's date/time filter). Bypasses the 48 h
     /// cache and never publishes status, so the dashboard tile and default view stay on 48 h.
     /// </summary>
-    public async Task<IspHealthReport?> GetReportForWindowAsync(DateTime windowStart, DateTime windowEnd, CancellationToken ct = default)
+    public async Task<IspHealthReport?> GetReportForWindowAsync(DateTime windowStart, DateTime windowEnd, bool forceRefresh = false, CancellationToken ct = default)
     {
-        var (report, _) = await ComputeForWindowAsync(windowStart, windowEnd, ct);
+        var (report, _) = await ComputeForWindowAsync(windowStart, windowEnd, forceRefresh, ct);
         return report;
     }
 
