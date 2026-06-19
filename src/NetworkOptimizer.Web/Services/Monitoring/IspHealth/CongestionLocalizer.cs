@@ -55,8 +55,13 @@ public static class CongestionLocalizer
             .ToList();
         if (candidates.Count == 0) return new List<CongestionEvent>();
 
+        // A hop counts as elevated if it fired its own event OR shows in-window RTT excursions
+        // above its baseline. The softer test matters for propagation: a downstream hop inherits
+        // a real bottleneck's delay as spikes that are often too sparse to fire a sustained event,
+        // and without it the localizer would wrongly absolve a genuine bottleneck as noise.
         bool IsElevated(AsnSeries s, DateTime start, DateTime end) =>
-            eventsBySeries.TryGetValue(s, out var evs) && evs.Any(e => Overlaps(e.Start, e.End, start, end));
+            (eventsBySeries.TryGetValue(s, out var evs) && evs.Any(e => Overlaps(e.Start, e.End, start, end)))
+            || ElevatedInWindow(s, start, end, options);
 
         var anchored = allSeries.Where(s => HasTrace(s, topology)).ToList();
 
@@ -271,6 +276,31 @@ public static class CongestionLocalizer
         if (inWindow.Count == 0) return false; // unknown load -> never claim self-inflicted
         var high = inWindow.Count(l => l.Utilization!.Value >= options.CongestionLoadHighFraction);
         return (double)high / inWindow.Count >= options.CongestionLoadCoincidenceFraction;
+    }
+
+    /// <summary>
+    /// A softer "elevated in this window" test than firing a full congestion event: true when a
+    /// meaningful fraction of in-window RTT samples exceed the hop's own baseline p90 by the
+    /// congestion RTT floor. A real bottleneck's added delay reaches downstream hops as excursions
+    /// that may be too sparse to fire their own sustained event; using this for the propagation
+    /// and clean-control checks stops the localizer from absolving a genuine bottleneck as
+    /// control-plane noise just because nothing downstream fired. Clean off-path hops sit near zero.
+    /// </summary>
+    internal static bool ElevatedInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
+    {
+        var inWindow = series.Samples
+            .Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue)
+            .Select(x => x.RttAvgMs!.Value).ToList();
+        var baseline = series.Samples
+            .Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue)
+            .Select(x => x.RttAvgMs!.Value).ToList();
+        if (inWindow.Count == 0 || baseline.Count == 0) return false;
+
+        var baselineP90 = SeriesStats.Percentile(baseline, 0.90);
+        if (!baselineP90.HasValue) return false;
+        var threshold = baselineP90.Value + options.CongestionRttMinDeltaMs;
+        var excursionFraction = inWindow.Count(v => v > threshold) / (double)inWindow.Count;
+        return excursionFraction >= options.CongestionPropagationExcursionFraction;
     }
 
     private static int DeepestHopNum(AsnSeries series, CongestionTopology topology) => series.HopIps

@@ -200,6 +200,29 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Bottleneck_is_confirmed_when_a_downstream_hop_is_elevated_but_did_not_fire_its_own_event()
+    {
+        // The downstream transit inherits the bottleneck's delay as a short spike - real, but too
+        // brief to fire its own sustained event. Propagation must still see it via the softer
+        // in-window excursion test, not absolve the real bottleneck as control-plane noise.
+        var shortSpike = Flat(8).WithSegment(HumpStart, HumpStart.AddMinutes(10), rttMs: 33, jitterMs: 6);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, Elevated(), Bng, Border),            // bottleneck: fires its own event
+            Hop(200, Transit, shortSpike, Bng, Border, Backhaul),   // downstream: elevated, does NOT fire
+            Hop(300, DeadEnd, Flat(), Bng, Border),
+            Dest(DestControl, Flat(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise

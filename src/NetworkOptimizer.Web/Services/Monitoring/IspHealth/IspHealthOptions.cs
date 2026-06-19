@@ -171,6 +171,16 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionLoadCoincidenceFraction { get; set; } = 0.5;
 
+    /// <summary>
+    /// Fraction of a hop's in-window RTT samples that must exceed its own baseline p90 (by the
+    /// congestion RTT floor) for the localizer to count it as elevated when testing propagation.
+    /// A real bottleneck's delay reaches downstream hops as excursions that are often too sparse
+    /// to fire their own sustained congestion event; without this softer test the localizer would
+    /// wrongly absolve a genuine bottleneck as control-plane noise because nothing downstream
+    /// "fired". Clean off-path hops sit near zero, so a low bar separates them cleanly.
+    /// </summary>
+    public double CongestionPropagationExcursionFraction { get; set; } = 0.05;
+
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 

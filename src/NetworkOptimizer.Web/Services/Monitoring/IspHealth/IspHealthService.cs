@@ -371,6 +371,11 @@ public class IspHealthService
             HasTraceMap = hopOrderKnown
         };
         var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
+        foreach (var ce in congestionEvents)
+            _logger.LogDebug(
+                "ISP Health congestion: {Disposition} at {Hop} ({Label}) conf={Confidence} load={Load} - {Reason}",
+                ce.Disposition, ce.BottleneckHopIp ?? "?",
+                ce.BottleneckLabel ?? string.Join(",", ce.AsnNames), ce.Confidence, ce.LoadCoincident, ce.AttributionReason);
 
         // Internet/CDN targets join step detection because routing shifts in a transit
         // network show up on every path that crosses it (per the real shift examples)

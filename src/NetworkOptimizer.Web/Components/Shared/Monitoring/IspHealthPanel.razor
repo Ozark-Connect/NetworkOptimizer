@@ -527,14 +527,17 @@ else
             var load = evt.LoadCoincident ? " while your WAN was under heavy load" : "";
             // The badge reflects what the localizer concluded, so the feed agrees with the
             // per-network cards: only Confirmed events carry a congestion badge there.
+            // Badge always reads "Congestion"; the disposition shows through colour (confirmed
+            // is prominent, the rest muted) and the text, so the feed stays readable while still
+            // agreeing with the per-network cards, which only badge confirmed events.
             var (badge, badgeClass, text) = evt.Disposition switch
             {
-                CongestionDisposition.SelfInflicted => ("Bufferbloat", "isp-event-badge-info",
-                    $"{span} of self-inflicted latency at {where} while your WAN was saturated - local bufferbloat, not external congestion: {magnitude}"),
-                CongestionDisposition.ControlPlaneNoise => ("Likely noise", "isp-event-badge-info",
-                    $"{span} of elevated latency at {where} that did not reach hops downstream - control-plane (ICMP) deprioritization, not a forwarding bottleneck: {magnitude}"),
-                CongestionDisposition.Unverifiable => ("Unverifiable", "isp-event-badge-info",
-                    $"{span} of elevated latency on {where}{load}, but no monitored hop sits downstream to confirm forwarding congestion: {magnitude}"),
+                CongestionDisposition.SelfInflicted => ("Congestion", "isp-event-badge-info",
+                    $"{span} at {where} while your WAN was saturated - self-inflicted bufferbloat from your own load, not the ISP: {magnitude}"),
+                CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
+                    $"{span} of elevated latency at {where} that did not reach hops downstream - likely router ICMP handling, not a forwarding bottleneck: {magnitude}"),
+                CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
+                    $"{span} of elevated latency on {where}{load} - unconfirmed: no monitored hop sits downstream to verify it: {magnitude}"),
                 _ => ("Congestion", "isp-event-badge-warning",
                     $"{span} of elevated latency and jitter on {where}{load}: {magnitude}")
             };
