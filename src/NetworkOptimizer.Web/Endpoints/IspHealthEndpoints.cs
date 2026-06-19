@@ -20,13 +20,22 @@ public static class IspHealthEndpoints
             // the 48 h cache; absent, it serves the cached 48 h report.
             var (series, report) = await ispHealth.GetAsnChartDataAsync(from, to, ct);
 
+            // Bound the chart payload regardless of window: bucket each series toward a target
+            // point count, so a 30-day view sends ~ChartTargetPoints points per line instead of
+            // tens of thousands. Detectors still run on the full-resolution samples; display only.
+            const int ChartTargetPoints = 500;
+            var spanTicks = from.HasValue && to.HasValue ? (to.Value - from.Value).Ticks
+                : report != null ? (report.WindowEnd - report.WindowStart).Ticks
+                : TimeSpan.TicksPerDay * 2;
+            var bucketTicks = Math.Max(TimeSpan.TicksPerMinute, spanTicks / ChartTargetPoints);
+
             var asnBuckets = series.Select(s => new
             {
                 asn = s.AsnNumber,
                 name = string.IsNullOrEmpty(s.AsnName) ? $"AS{s.AsnNumber}" : s.AsnName,
                 buckets = s.Samples
                     .Where(p => p.RttAvgMs.HasValue)
-                    .GroupBy(p => new DateTime(p.Time.Ticks - p.Time.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc))
+                    .GroupBy(p => new DateTime(p.Time.Ticks - p.Time.Ticks % bucketTicks, DateTimeKind.Utc))
                     .ToDictionary(g => g.Key, g => Math.Round(g.Average(p => p.RttAvgMs!.Value), 2))
             }).ToList();
 

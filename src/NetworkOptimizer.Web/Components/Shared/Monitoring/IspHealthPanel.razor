@@ -39,11 +39,11 @@
                 </div>
             </div>
         </div>
-        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@(_refreshing || !IsLiveWindow)"
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@(_refreshing || _windowComputing || !IsLiveWindow)"
                 data-tooltip="@(IsLiveWindow ? "Recompute ISP Health now from the latest monitoring data" : "Refresh applies to the live 48-hour view; pick 48h to re-enable it")" data-tooltip-hover-only>
-            @if (_refreshing)
+            @if (_refreshing || _windowComputing)
             {
-                <span class="spinner-sm"></span> <span>Refreshing</span>
+                <span class="spinner-sm"></span> <span>@(_refreshing ? "Refreshing" : "Loading")</span>
             }
             else
             {
@@ -447,7 +447,7 @@ else
                     {
                         <div class="isp-event-item">
                             <span class="isp-event-badge @entry.BadgeClass">@entry.Badge</span>
-                            <span class="isp-event-time">@entry.Time.ToLocalTime().ToString("HH:mm")</span>
+                            <span class="isp-event-time">@EventTimeLabel(entry.Time)</span>
                             <span class="isp-event-text">@entry.Text</span>
                         </div>
                     }
@@ -682,11 +682,19 @@ else
             entries.Add(new TimelineEntry(shift.Time, "Path shift", "isp-event-badge-info",
                 $"RTT stepped {direction} {Math.Abs(shift.DeltaMs):0.#} ms on {where} ({shift.BeforeMedianMs:0.#} to {shift.AfterMedianMs:0.#} ms){correlated}. BGP or transport fabric change."));
         }
-        return entries.OrderByDescending(e => e.Time);
+        return entries.OrderBy(e => e.Time);
     }
 
     private static string FormatDuration(TimeSpan d) =>
         d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h" : $"{d.TotalMinutes:0} min";
+
+    // Event time in local time, prefixed with the date when it is not today so events in a
+    // multi-day (7d/30d/custom) window are unambiguous.
+    private static string EventTimeLabel(DateTime utc)
+    {
+        var local = utc.ToLocalTime();
+        return local.Date == DateTime.Now.Date ? local.ToString("HH:mm") : local.ToString("MMM d, HH:mm");
+    }
 
     private static string OutageScopeLabel(OutageEvent o) =>
         o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)

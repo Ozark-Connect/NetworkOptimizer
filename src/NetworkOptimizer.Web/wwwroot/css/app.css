@@ -15359,7 +15359,13 @@ tr.stats-row-filtered {
 .isp-health-toolbar {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 0.75rem;
     margin-bottom: 0.75rem;
+}
+
+.isp-health-toolbar .time-range-selector {
+    background: var(--bg-tertiary);
 }
 
 .isp-health-updated {
