@@ -131,7 +131,7 @@ public class IspHealthService
         // the readiness status the dashboard tile reads.
         var windowEnd = DateTime.UtcNow;
         var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
-        var outcome = await ComputeCoreAsync(windowStart, windowEnd, ct);
+        var outcome = await ComputeCoreAsync(windowStart, windowEnd, null, ct);
         _status = outcome.Status;
         return (outcome.Report, outcome.ChartClusters);
     }
@@ -150,13 +150,48 @@ public class IspHealthService
             && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
             return (cached.Report, cached.ChartClusters);
 
-        var outcome = await ComputeCoreAsync(windowStart, windowEnd, ct);
+        // A window longer than the canonical re-covers the recent period at a coarser aggregate,
+        // which can inflate bucket-p90 burst detection into congestion events the authoritative
+        // fine-resolution 48 h view never sees. Gate the recent (canonical-covered) portion against
+        // the canonical report so those artifacts drop, while older history keeps its own detection.
+        // Only when the canonical computed successfully (non-null); otherwise no gating (never drop
+        // events against a missing reference). GetReportAsync is cache-served, so this is cheap.
+        IReadOnlyList<CongestionEvent>? referenceEvents = null;
+        if ((windowEnd - windowStart).TotalHours > _options.ScoreWindowHours + 0.5
+            && DateTime.UtcNow - windowEnd < TimeSpan.FromHours(1))
+        {
+            referenceEvents = (await GetReportAsync(ct: ct))?.CongestionEvents;
+        }
+
+        var outcome = await ComputeCoreAsync(windowStart, windowEnd, referenceEvents, ct);
         if (outcome.Report != null)
             _customCache = new CustomWindowSnapshot(windowStart, windowEnd, outcome.Report, outcome.ChartClusters, DateTime.UtcNow);
         return (outcome.Report, outcome.ChartClusters);
     }
 
-    private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd, CancellationToken ct)
+    /// <summary>
+    /// Drops congestion events in the canonical-covered recent window (the trailing
+    /// <see cref="IspHealthOptions.ScoreWindowHours"/>) that the fine-resolution canonical report
+    /// did not also find - coarse-aggregate burst artifacts a long viewing window invents. An event
+    /// older than that window has no canonical counterpart to check against, so it is kept. A match
+    /// is a time overlap plus a shared bottleneck hop or ASN (loose, so a real event the canonical
+    /// localized to a slightly different hop is never dropped).
+    /// </summary>
+    private List<CongestionEvent> GateAgainstCanonical(
+        List<CongestionEvent> events, IReadOnlyList<CongestionEvent> canonical, DateTime windowEnd)
+    {
+        var recentStart = windowEnd.AddHours(-_options.ScoreWindowHours);
+        return events.Where(e =>
+            e.Start < recentStart
+            || canonical.Any(r =>
+                r.Start < e.End && e.Start < r.End
+                && ((e.BottleneckHopIp != null && r.BottleneckHopIp == e.BottleneckHopIp)
+                    || r.AsnNumbers.Any(a => a != 0 && e.AsnNumbers.Contains(a)))))
+            .ToList();
+    }
+
+    private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd,
+        IReadOnlyList<CongestionEvent>? referenceEvents, CancellationToken ct)
     {
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
             return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
@@ -394,6 +429,8 @@ public class IspHealthService
             HasTraceMap = hopOrderKnown
         };
         var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
+        if (referenceEvents != null)
+            congestionEvents = GateAgainstCanonical(congestionEvents, referenceEvents, windowEnd);
         foreach (var ce in congestionEvents)
             _logger.LogDebug(
                 "ISP Health congestion: {Disposition} at {Hop} ({Label}) conf={Confidence} load={Load} - {Reason}",

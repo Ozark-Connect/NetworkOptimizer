@@ -690,7 +690,7 @@ else
                 CongestionDisposition.SelfInflicted => ("Congestion", "isp-event-badge-info",
                     $"{lead} Self-inflicted bufferbloat from your own load, not the ISP."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
-                    $"{lead} It did not reach the hops beyond it, so this is likely router ICMP handling, not a forwarding bottleneck."),
+                    $"{lead} Its next hop stayed clean, so these are this hop's own delayed ping replies (ICMP handling), not a forwarding bottleneck - any wobble on farther hops under the same load is separate, not carried through here."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
                     $"{lead}"),
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-warning",
