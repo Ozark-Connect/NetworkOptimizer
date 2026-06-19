@@ -314,7 +314,63 @@ public class IspHealthService
             })
             .ToList();
 
-        var congestionEvents = CongestionDetector.Detect(allClusters, _options);
+        // Per-target (hop-granularity) series for the congestion localizer: clustering would
+        // lump a clean middle hop with a hot one and re-merge an off-path ASN, so detection and
+        // localization run at the individual hop. Destinations come in as witnesses only.
+        AsnSeries PerTargetSeries(MonitoringTarget t, Dictionary<string, List<LatencySample>> series, bool isDestination) => new()
+        {
+            AsnNumber = t.AsnNumber ?? 0,
+            AsnName = t.Name,
+            TargetIds = { t.TargetId },
+            Samples = series[t.TargetId],
+            HopIps = { t.Address },
+            AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : new List<string>(),
+            IsDestination = isDestination
+        };
+        var localizerSeries = new List<AsnSeries>();
+        localizerSeries.AddRange(ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t => PerTargetSeries(t, ispSeries, false)));
+        localizerSeries.AddRange(transitTargets
+            .Where(t => t.AsnNumber is > 0 && transitSeries.ContainsKey(t.TargetId))
+            .Select(t => PerTargetSeries(t, transitSeries, false)));
+        localizerSeries.AddRange(internetTargetSeries);
+
+        // Hop distance per IP (from the saved trace map), the nearest public access hop(s),
+        // and WAN utilization over time - the localizer's topology and load context.
+        var hopNumberByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in targets)
+        {
+            if (string.IsNullOrEmpty(t.Address) || !hopNumberByTargetId.TryGetValue(t.TargetId, out var hop)) continue;
+            if (!hopNumberByIp.TryGetValue(t.Address, out var existing) || hop < existing)
+                hopNumberByIp[t.Address] = hop;
+        }
+        var accessEgressIps = ispTargets
+            .Where(t => !string.IsNullOrEmpty(t.Address) && !NetworkUtilities.IsPrivateIpAddress(t.Address)
+                && hopNumberByTargetId.ContainsKey(t.TargetId))
+            .GroupBy(t => hopNumberByTargetId[t.TargetId])
+            .OrderBy(g => g.Key)
+            .FirstOrDefault()?.Select(t => t.Address)
+            ?? Enumerable.Empty<string>();
+        var loadByTime = wanRates.Select(r =>
+        {
+            double? util = null;
+            if (expectedDown is > 0 || expectedUp is > 0)
+            {
+                var d = expectedDown is > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / (expectedDown.Value * 1_000_000) : 0;
+                var u = expectedUp is > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / (expectedUp.Value * 1_000_000) : 0;
+                util = Math.Max(d, u);
+            }
+            return (r.Time, Utilization: util);
+        }).ToList();
+        var congestionTopology = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(accessEgressIps, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = hopNumberByIp,
+            Load = loadByTime,
+            HasTraceMap = hopOrderKnown
+        };
+        var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
 
         // Internet/CDN targets join step detection because routing shifts in a transit
         // network show up on every path that crosses it (per the real shift examples)
@@ -824,7 +880,13 @@ public class IspHealthService
                     AsnNumber = group.Key,
                     AsnName = chartName,
                     TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
-                    Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                    Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                    // Hop IPs and proven-upstream ancestors so the congestion localizer can
+                    // place this cluster on the trace map and walk the bottleneck.
+                    HopIps = clusterTargets.Select(t => t.Address).ToList(),
+                    AncestorIps = clusterTargets
+                        .SelectMany(t => ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                 });
 
                 // The graded series keeps the ASN name for the Networks on Your Path card.
@@ -888,7 +950,11 @@ public class IspHealthService
                         AsnNumber = group.Key,
                         AsnName = others.Count == 1 ? others[0].Name : $"{asnName} (other hops)",
                         TargetIds = others.Select(t => t.TargetId).ToList(),
-                        Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                        Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                        HopIps = others.Select(t => t.Address).ToList(),
+                        AncestorIps = others
+                            .SelectMany(t => ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
+                            .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                     });
                 }
             }

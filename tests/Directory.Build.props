@@ -3,4 +3,11 @@
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)FluentAssertionsLicense.cs" Link="FluentAssertionsLicense.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Mirrors the root Directory.Build.props (which this file shadows, not merges):
+         suppress GHSA-2m69-gcr7-jv3q on the transitive native SQLite pulled by test
+         projects. We are not in the affected code path; fix ships in EF 10.0.11.
+         See https://github.com/dotnet/efcore/issues/38257 - remove when we move to 10.0.11. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
 </Project>

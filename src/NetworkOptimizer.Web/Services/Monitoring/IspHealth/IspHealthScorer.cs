@@ -5,8 +5,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// <summary>
 /// Pure scoring engine for ISP Health. Takes pre-assembled inputs (latency series,
 /// throughput, detected events) plus an access technology profile and produces the
-/// full report. No I/O; fully unit-testable. Formulas and anchor points are
-/// documented in research/isp-health-spec.md (local-only) and must stay in sync.
+/// full report. No I/O; fully unit-testable. Formulas and anchor points are tuned
+/// against real incident data.
 /// </summary>
 public class IspHealthScorer
 {
@@ -681,8 +681,12 @@ public class IspHealthScorer
         // tests) fall back to ASN matching.
         var roleTargets = series.RoleTargetIds.Count > 0 ? series.RoleTargetIds : series.TargetIds;
         var roleTargetSet = new HashSet<string>(roleTargets);
+        // Only confirmed congestion penalizes a network. Self-inflicted bufferbloat,
+        // absolved control-plane (ICMP) noise, and unverifiable dead-end elevations are
+        // surfaced in the report but never ding the ASN's grade.
         var asnEvents = congestionEvents
-            .Where(e => e.AsnNumbers.Contains(series.AsnNumber)
+            .Where(e => e.Disposition == CongestionDisposition.Confirmed
+                && e.AsnNumbers.Contains(series.AsnNumber)
                 && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => roleTargetSet.Contains(t))))
             .ToList();
         var eventHours = asnEvents.Sum(e => e.Duration.TotalHours);
@@ -935,7 +939,8 @@ public class IspHealthScorer
             var targetIds = hops.SelectMany(h => h.TargetIds).Distinct().ToList();
             var targetSet = new HashSet<string>(targetIds);
             var asnEvents = congestionEvents
-                .Where(e => e.AsnNumbers.Contains(group.Key)
+                .Where(e => e.Disposition == CongestionDisposition.Confirmed
+                    && e.AsnNumbers.Contains(group.Key)
                     && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => targetSet.Contains(t))))
                 .ToList();
             var means = hops.Select(h => h.MeanRttMs).Where(m => m.HasValue).Select(m => m!.Value).ToList();
@@ -1096,7 +1101,7 @@ public class IspHealthScorer
             var recommendation = inputs.SmartQueuesEnabled
                 ? "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers."
                 : "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
-            if (inputs.CongestionEvents.Count >= _options.SqmRecurringCongestionEvents)
+            if (inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
                 recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
             }

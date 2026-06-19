@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// because multi-path congestion usually indicates a shared upstream or return-path
 /// bottleneck rather than independent problems in every transit network.
 /// Thresholds live in <see cref="IspHealthOptions"/>; defaults are provisional until
-/// validated against real incident data (see research/isp-health-spec.md Appendix B).
+/// validated against real incident data.
 /// </summary>
 public static class CongestionDetector
 {
@@ -67,7 +67,11 @@ public static class CongestionDetector
                 && bucket.RttMs.Value > rttThreshold
                 && jitterThreshold.HasValue
                 && bucket.JitterMs.HasValue
-                && bucket.JitterMs.Value > jitterThreshold.Value;
+                && bucket.JitterMs.Value > jitterThreshold.Value
+                // Absolute floor on the jitter rise, so an ultra-stable far hop (baseline
+                // jitter near zero) does not trip the multiplicative gate on a fraction of a
+                // millisecond of shared return-path wobble.
+                && bucket.JitterMs.Value - baselineJitter!.Value >= options.CongestionJitterMinDeltaMs;
             // Burst shape only: p90 elevated while the median stays near baseline.
             // A flat fully-elevated bucket with no jitter is a route detour, not
             // congestion; that shape belongs to the step detector
