@@ -697,10 +697,13 @@ public class ComputeNearTransitAsnsTests
     private const int UpstreamB = 64520;
     private const int Lumen = 3356;
     private const int Cogent = 174;
+    private const int Arelion = 1299;
+    private const int Indatel = 30517;
     private const int Cloudflare = 13335;
 
     private static IReadOnlySet<int> AccessSet => new HashSet<int> { Access };
     private static IReadOnlySet<int> NoDest => new HashSet<int>();
+    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Cogent, Arelion };
 
     private static Dictionary<string, int> Map(params (string Ip, int Asn)[] e)
         => e.ToDictionary(x => x.Ip, x => x.Asn, StringComparer.OrdinalIgnoreCase);
@@ -710,7 +713,7 @@ public class ComputeNearTransitAsnsTests
     {
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen));
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest);
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest, Tier1);
         near.Should().Contain(Lumen);
     }
 
@@ -720,7 +723,7 @@ public class ComputeNearTransitAsnsTests
         // access -> UpstreamA -> Lumen: Lumen is 2nd-degree, still in window.
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", UpstreamA), ("192.0.2.3", Lumen));
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest);
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
         near.Should().BeEquivalentTo(new[] { UpstreamA, Lumen });
     }
 
@@ -731,7 +734,7 @@ public class ComputeNearTransitAsnsTests
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", UpstreamA),
                       ("192.0.2.3", UpstreamB), ("192.0.2.4", Lumen));
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, AccessSet, NoDest);
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, AccessSet, NoDest, Tier1);
         near.Should().BeEquivalentTo(new[] { UpstreamA, UpstreamB });
         near.Should().NotContain(Lumen);
     }
@@ -747,7 +750,7 @@ public class ComputeNearTransitAsnsTests
             {
                 new[] { "192.0.2.1", "192.0.2.2" },
                 new[] { "198.51.100.1", "198.51.100.2" }
-            }, map, AccessSet, NoDest);
+            }, map, AccessSet, NoDest, Tier1);
         near.Should().BeEquivalentTo(new[] { Lumen, UpstreamA });
     }
 
@@ -765,7 +768,7 @@ public class ComputeNearTransitAsnsTests
             {
                 new[] { "198.51.100.1" },
                 new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" }
-            }, map, AccessSet, NoDest);
+            }, map, AccessSet, NoDest, Tier1);
         near.Should().Contain(Lumen);
         near.Should().Contain(UpstreamA);
     }
@@ -773,14 +776,15 @@ public class ComputeNearTransitAsnsTests
     [Fact]
     public void Destination_asn_does_not_consume_a_degree_slot()
     {
-        // access -> Lumen -> Cloudflare(dest) -> Cogent: with dest skipped, the real
-        // 2nd-degree transit (Cogent) still fits in the window.
+        // access -> UpstreamA -> Cloudflare(dest) -> UpstreamB: with dest skipped, the
+        // real 2nd-degree transit (UpstreamB) still fits in the window. Non-tier-1 hops
+        // so the tier-1 horizon stop doesn't interfere with what this test isolates.
         var dest = new HashSet<int> { Cloudflare };
-        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen),
-                      ("192.0.2.3", Cloudflare), ("192.0.2.4", Cogent));
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", UpstreamA),
+                      ("192.0.2.3", Cloudflare), ("192.0.2.4", UpstreamB));
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, AccessSet, dest);
-        near.Should().BeEquivalentTo(new[] { Lumen, Cogent });
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, AccessSet, dest, Tier1);
+        near.Should().BeEquivalentTo(new[] { UpstreamA, UpstreamB });
     }
 
     [Fact]
@@ -788,7 +792,7 @@ public class ComputeNearTransitAsnsTests
     {
         var map = Map(("192.0.2.1", Access), ("192.0.2.3", Lumen)); // .2 has no ASN (gap)
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest);
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
         near.Should().Contain(Lumen);
     }
 
@@ -797,7 +801,7 @@ public class ComputeNearTransitAsnsTests
     {
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", Access));
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest);
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest, Tier1);
         near.Should().BeEmpty();
     }
 
@@ -805,8 +809,44 @@ public class ComputeNearTransitAsnsTests
     public void No_traces_yields_nothing()
     {
         var near = UpstreamTracerService.ComputeNearTransitAsns(
-            Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), AccessSet, NoDest);
+            Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), AccessSet, NoDest, Tier1);
         near.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Asn_reached_through_a_tier1_is_not_near_transit()
+    {
+        // access -> Arelion(tier-1) -> INDATEL: the endpoint sits beyond a tier-1, so it
+        // is not adjacent to the ISP and must not be near-transit (the AT&T-via-Arelion
+        // case). The tier-1 itself is the first upstream and stays.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Arelion), ("192.0.2.3", Indatel));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Arelion);
+        near.Should().NotContain(Indatel);
+    }
+
+    [Fact]
+    public void Endpoint_one_hop_off_the_access_isp_is_near_transit()
+    {
+        // access -> INDATEL directly: no tier-1 in between, so it stays near-transit
+        // (the directly-adjacent case). Same endpoint ASN as above, opposite verdict.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Indatel));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Indatel);
+    }
+
+    [Fact]
+    public void Walk_stops_at_the_first_tier1()
+    {
+        // access -> Lumen(tier-1) -> Cogent(tier-1): only the first tier-1 is near-transit;
+        // a second tier-1 reached through it is core peering, not our transit.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen), ("192.0.2.3", Cogent));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Lumen);
+        near.Should().NotContain(Cogent);
     }
 }
 

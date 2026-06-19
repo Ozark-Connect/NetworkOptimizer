@@ -945,7 +945,7 @@ public class UpstreamTracerService
 
         _nearTransitAsns.Clear();
         _nearTransitAsns.UnionWith(
-            ComputeNearTransitAsns(traceSequences, asnByIp, accessAsnNumbers, destinationAsns));
+            ComputeNearTransitAsns(traceSequences, asnByIp, accessAsnNumbers, destinationAsns, Tier1Asns));
 
         _excludedTier1Asns.Clear();
         _excludedTier1Asns.UnionWith(
@@ -1685,15 +1685,21 @@ public class UpstreamTracerService
     /// Near-transit ASNs: every ASN that appears as the 1st or 2nd distinct non-access,
     /// non-destination ASN on at least one trace - the access ISP's direct upstream or
     /// its upstream's upstream, unioned across traces. A transit-probe ASN (Lumen, AT&amp;T,
-    /// INDATEL) counts as our ISP's transit only when it lands in this window; a tier-1
-    /// reached 3+ ASN transitions out on every trace is the probe destination's own
-    /// network, not our transit. Each trace is the responding hop addresses in hop order.
+    /// INDATEL) counts as our ISP's transit only when it lands in this window.
+    ///
+    /// The walk stops at the first tier-1: your transit horizon ends there. An ASN reached
+    /// only by transiting a tier-1 (e.g. access → Arelion → INDATEL) is beyond your ISP's
+    /// transit, not adjacent to it, so it is not near-transit. The tier-1 itself is included
+    /// (it is the first upstream); the same INDATEL endpoint sitting one hop off the access
+    /// ISP (access → INDATEL) stays near-transit because no tier-1 intervenes. Each trace is
+    /// the responding hop addresses in hop order.
     /// </summary>
     internal static HashSet<int> ComputeNearTransitAsns(
         IEnumerable<IReadOnlyList<string>> traceAddressSequences,
         IReadOnlyDictionary<string, int> asnByIp,
         IReadOnlySet<int> accessAsns,
-        IReadOnlySet<int> destinationAsns)
+        IReadOnlySet<int> destinationAsns,
+        IReadOnlySet<int> tier1Asns)
     {
         var near = new HashSet<int>();
         foreach (var trace in traceAddressSequences)
@@ -1706,6 +1712,9 @@ public class UpstreamTracerService
                 if (degreesSeen.Add(asn))
                 {
                     near.Add(asn);
+                    // Transit horizon ends at the first tier-1: include it, then stop so
+                    // nothing reached only by transiting it counts as near-transit.
+                    if (tier1Asns.Contains(asn)) break;
                     if (degreesSeen.Count >= 2) break;
                 }
             }
