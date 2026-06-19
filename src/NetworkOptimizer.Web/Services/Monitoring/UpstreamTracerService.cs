@@ -939,6 +939,13 @@ public class UpstreamTracerService
             }
         }
 
+        _logger.LogDebug("Tracer near-transit DIAG: access=[{Access}] probeAsns=[{Probe}] dest=[{Dest}] nearTransit=[{Near}]",
+            string.Join(",", accessAsnNumbers), string.Join(",", transitProbeAsns),
+            string.Join(",", destinationAsns), string.Join(",", _nearTransitAsns));
+        _logger.LogDebug("Tracer merged-hop ASN order DIAG: {Seq}",
+            string.Join(" ", _mergedHops.Where(h => h.Asn != null)
+                .Select(h => $"h{h.HopNumber}:AS{h.Asn!.Asn}({h.Address})")));
+
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
                         && !accessAsnNumbers.Contains(h.Asn.Asn)
@@ -1160,6 +1167,8 @@ public class UpstreamTracerService
     {
         foreach (var (asn, address, name, label) in TransitWitnesses)
         {
+            _logger.LogDebug("Transit witness DIAG {Address} AS{Asn}: nearTransit={Near} mergedHasAsn={Merged}",
+                address, asn, _nearTransitAsns.Contains(asn), _mergedHops.Any(h => h.Asn?.Asn == asn));
             // Only when the ASN is genuinely near-transit (the access ISP's upstream
             // or its upstream's upstream). Mere presence on the path isn't enough -
             // tracing the Lumen probe drags AS3356 onto the path even when Lumen is
