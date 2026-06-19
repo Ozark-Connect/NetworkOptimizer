@@ -1202,7 +1202,7 @@ See the [official InfluxDB 2.x install docs](https://docs.influxdata.com/influxd
 
 ### Custom Dashboards (Optional)
 
-Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your own Grafana (or any InfluxDB client) at the same instance and build whatever dashboards you want. Add the instance to Grafana as a Flux data source and query the `network_monitoring` bucket - browse the measurements there for interface counters, device health, latency, SFP optics, Wi-Fi clients, and modem / ONT signal. `network_monitoring_longterm` holds the long-retention copy.
+Your monitoring data sits in plain InfluxDB 2.x buckets, so you can point your own Grafana (or any InfluxDB client) at the same instance and build whatever dashboards you want. Add the instance to Grafana as a Flux data source and query the `network_monitoring` and `network_monitoring_longterm` buckets - browse the measurements there for interface counters, device health, latency, SFP optics, Wi-Fi clients, and modem / ONT signal.
 
 The schema is stable: measurement and field names only ever get added, never renamed or removed (Network Optimizer's own charts depend on them), so anything you build keeps working across upgrades.
 
