@@ -195,50 +195,72 @@ else
                 <div class="card-body">
                     @if (dimension == r.IspAsnDimension)
                     {
-                        @if (r.IspTargets.Count == 0)
+                        var ispTargets = r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
+                        var hiddenIspHopCount = ispTargets.Count - NetworkPreviewCount;
+                        RenderFragment<IspTargetHealth> hopRow = target =>
+                            @<div class="isp-hop">
+                                <div class="isp-hop-row">
+                                    <div class="isp-hop-main">
+                                        <div class="isp-hop-name">
+                                            @target.Name
+                                            @if (target.IsGradedHop)
+                                            {
+                                                <span class="isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
+                                            }
+                                        </div>
+                                        <div class="isp-factor-bar-track">
+                                            <div class="isp-factor-bar @BarClass(target.OverallScore)" style="width: @(target.OverallScore ?? 0)%"></div>
+                                        </div>
+                                    </div>
+                                    <span class="isp-factor-score @ScoreTextClass(target.OverallScore)">@(target.OverallScore?.ToString() ?? "--")</span>
+                                </div>
+                                <div class="isp-hop-stats">
+                                    <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.RttMs)</span>
+                                    <span class="isp-target-stat">
+                                        <span class="isp-target-stat-label">P95 Jitter</span>
+                                        <span class="isp-target-stat-value">
+                                            @FormatJitter(target.P95JitterMs)
+                                            @if (target.JitterAssimilated)
+                                            {
+                                                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
+                                            }
+                                        </span>
+                                    </span>
+                                    <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
+                                    @if (target.ReachDeltaMs is > 0.15)
+                                    {
+                                        <span class="isp-target-stat"><span class="isp-target-stat-label">Beyond nearest</span>+@FormatMs(target.ReachDeltaMs)</span>
+                                    }
+                                </div>
+                            </div>;
+                        @if (ispTargets.Count == 0)
                         {
                             <p class="page-description">No ISP hop data in the window.</p>
                         }
                         <div class="isp-hop-list">
-                            @foreach (var target in r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue))
+                            @foreach (var target in ispTargets.Take(NetworkPreviewCount))
                             {
-                                <div class="isp-hop">
-                                    <div class="isp-hop-row">
-                                        <div class="isp-hop-main">
-                                            <div class="isp-hop-name">
-                                                @target.Name
-                                                @if (target.IsGradedHop)
-                                                {
-                                                    <span class="isp-target-graded" data-tooltip="The lowest-RTT ISP hop; access-layer idle latency is measured from it">Lowest RTT</span>
-                                                }
-                                            </div>
-                                            <div class="isp-factor-bar-track">
-                                                <div class="isp-factor-bar @BarClass(target.OverallScore)" style="width: @(target.OverallScore ?? 0)%"></div>
-                                            </div>
-                                        </div>
-                                        <span class="isp-factor-score @ScoreTextClass(target.OverallScore)">@(target.OverallScore?.ToString() ?? "--")</span>
-                                    </div>
-                                    <div class="isp-hop-stats">
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">RTT</span>@FormatRtt(target.RttMs)</span>
-                                        <span class="isp-target-stat">
-                                            <span class="isp-target-stat-label">P95 Jitter</span>
-                                            <span class="isp-target-stat-value">
-                                                @FormatJitter(target.P95JitterMs)
-                                                @if (target.JitterAssimilated)
-                                                {
-                                                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
-                                                }
-                                            </span>
-                                        </span>
-                                        <span class="isp-target-stat"><span class="isp-target-stat-label">Loss</span>@FormatLossPct(target.LossPct)</span>
-                                        @if (target.ReachDeltaMs is > 0.15)
+                                @hopRow(target)
+                            }
+                        </div>
+                        @if (hiddenIspHopCount > 0)
+                        {
+                            <div class="expand-wrapper @(_showAllIspHops ? "expanded" : "")">
+                                <div class="expand-content">
+                                    <div class="isp-hop-list isp-hop-list-overflow">
+                                        @foreach (var target in ispTargets.Skip(NetworkPreviewCount))
                                         {
-                                            <span class="isp-target-stat"><span class="isp-target-stat-label">Beyond nearest</span>+@FormatMs(target.ReachDeltaMs)</span>
+                                            @hopRow(target)
                                         }
                                     </div>
                                 </div>
-                            }
-                        </div>
+                            </div>
+                            <button type="button" class="isp-network-toggle" aria-expanded="@_showAllIspHops"
+                                    @onclick="() => _showAllIspHops = !_showAllIspHops">
+                                <span>@(_showAllIspHops ? "Show less" : $"Show {hiddenIspHopCount} more")</span>
+                                <span class="isp-network-toggle-chevron @(_showAllIspHops ? "expanded" : "")">▼</span>
+                            </button>
+                        }
                     }
                     else
                     {
@@ -425,10 +447,13 @@ else
 }
 
 @code {
+    private const int NetworkPreviewCount = 5;
+
     private IspHealthReport? _report;
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
+    private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
 
     protected override async Task OnInitializedAsync()
