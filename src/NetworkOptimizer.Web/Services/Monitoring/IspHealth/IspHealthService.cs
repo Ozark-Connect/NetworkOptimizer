@@ -34,7 +34,13 @@ public class IspHealthService
     // "+N ms hop" line labels must match the report's event labels). Single-reference
     // assignment makes the swap atomic; readers take one local copy.
     private sealed record Snapshot(IspHealthReport Report, List<AsnSeries> ChartClusters);
+    // Result of one core compute, before it is published (or not) to instance state.
+    private sealed record ComputeOutcome(IspHealthStatus Status, IspHealthReport? Report, List<AsnSeries> ChartClusters);
+    // Most-recent custom-window result, so the chart's follow-up fetch for the same window
+    // reuses it instead of re-running the heavy query. Never read by the canonical 48 h paths.
+    private sealed record CustomWindowSnapshot(DateTime Start, DateTime End, IspHealthReport Report, List<AsnSeries> ChartClusters, DateTime ComputedAt);
     private Snapshot? _cached;
+    private CustomWindowSnapshot? _customCache;
     private IspHealthStatus _status = IspHealthStatus.Computing;
     private volatile bool _computing;
 
@@ -121,11 +127,39 @@ public class IspHealthService
 
     private async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeAsync(CancellationToken ct)
     {
+        // Canonical/auto-computed path: always the trailing ScoreWindowHours (48 h). Publishes
+        // the readiness status the dashboard tile reads.
+        var windowEnd = DateTime.UtcNow;
+        var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
+        var outcome = await ComputeCoreAsync(windowStart, windowEnd, ct);
+        _status = outcome.Status;
+        return (outcome.Report, outcome.ChartClusters);
+    }
+
+    /// <summary>
+    /// Report for the ISP Health tab's date/time filter over an arbitrary window. Never touches
+    /// the cached 48 h report, the readiness status, or the dashboard tile - the default and
+    /// auto-computed paths stay on the trailing 48 h window. The most recent custom window is
+    /// briefly cached so the chart's follow-up fetch for the same window skips the heavy query.
+    /// </summary>
+    public async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeForWindowAsync(
+        DateTime windowStart, DateTime windowEnd, CancellationToken ct = default)
+    {
+        var cached = _customCache;
+        if (cached != null && cached.Start == windowStart && cached.End == windowEnd
+            && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
+            return (cached.Report, cached.ChartClusters);
+
+        var outcome = await ComputeCoreAsync(windowStart, windowEnd, ct);
+        if (outcome.Report != null)
+            _customCache = new CustomWindowSnapshot(windowStart, windowEnd, outcome.Report, outcome.ChartClusters, DateTime.UtcNow);
+        return (outcome.Report, outcome.ChartClusters);
+    }
+
+    private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd, CancellationToken ct)
+    {
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
-        {
-            _status = IspHealthStatus.NotConfigured;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
         AccessTechnology technology;
         List<MonitoringTarget> targets;
@@ -142,10 +176,7 @@ public class IspHealthService
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
             if (settings == null || !settings.Enabled)
-            {
-                _status = IspHealthStatus.NotConfigured;
-                return (null, new List<AsnSeries>());
-            }
+                return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
             // Access technology lives per-WAN in WanDiscoveryContexts (the wizard's
             // store, which replaced the global MonitoringSettings column); prefer the
@@ -192,23 +223,18 @@ public class IspHealthService
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
         var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit).ToList();
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
-        {
-            _status = IspHealthStatus.NeedsDiscovery;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.NeedsDiscovery, null, new List<AsnSeries>());
 
         var profile = IspHealthProfiles.GetProfile(technology);
         if (profile == null)
-        {
-            _status = IspHealthStatus.NeedsTechnology;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.NeedsTechnology, null, new List<AsnSeries>());
 
-        var windowEnd = DateTime.UtcNow;
-        var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
-        // Fine-grained join window so short load bursts (speed tests, downloads)
-        // classify as loaded instead of diluting into minute-level means
-        var aggregate = TimeSpan.FromSeconds(_options.LoadWindowSeconds);
+        // Fine-grained join window so short load bursts (speed tests, downloads) classify as
+        // loaded instead of diluting into minute-level means. Longer (filter-selected) windows
+        // coarsen it to keep the point count bounded; the canonical 48 h window lands on exactly
+        // LoadWindowSeconds, so the auto-computed report is unchanged.
+        var aggregate = TimeSpan.FromSeconds(Math.Max(
+            _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
 
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
@@ -235,10 +261,7 @@ public class IspHealthService
             .DefaultIfEmpty(windowEnd)
             .Min();
         if ((windowEnd - earliestSample).TotalHours < _options.MinDataHours)
-        {
-            _status = IspHealthStatus.InsufficientData;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.InsufficientData, null, new List<AsnSeries>());
 
         var (firstHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
         // Public access hops only - the loaded-latency worst-hop scan must not include a
@@ -490,18 +513,25 @@ public class IspHealthService
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
-        _status = IspHealthStatus.Ready;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
-        return (report, chartClusters);
+        return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
     /// <summary>
-    /// Per-ASN RTT series for the tab chart (ISP + transit, 24 h, per-minute means)
-    /// plus the cached report's events for chart annotations.
+    /// Per-ASN RTT series for the tab chart (ISP + transit) plus the report's events for chart
+    /// annotations. With no window it serves the cached 48 h report; with an explicit window
+    /// (the tab's date/time filter) it computes that window off-cache, so the chart follows the
+    /// filter without disturbing the canonical 48 h view.
     /// </summary>
-    public async Task<(List<AsnSeries> Series, IspHealthReport? Report)> GetAsnChartDataAsync(CancellationToken ct = default)
+    public async Task<(List<AsnSeries> Series, IspHealthReport? Report)> GetAsnChartDataAsync(
+        DateTime? from = null, DateTime? to = null, CancellationToken ct = default)
     {
+        if (from.HasValue && to.HasValue)
+        {
+            var (windowReport, windowClusters) = await ComputeForWindowAsync(from.Value, to.Value, ct);
+            return (windowClusters, windowReport);
+        }
         // Return the exact clusters the report's events were detected on, so chart
         // line labels and the event labels are guaranteed to agree (re-clustering
         // independently would round the "+N ms hop" names differently). Read the
@@ -509,6 +539,16 @@ public class IspHealthService
         await GetReportAsync(ct: ct);
         var snap = _cached;
         return (snap?.ChartClusters ?? new List<AsnSeries>(), snap?.Report);
+    }
+
+    /// <summary>
+    /// Report for an explicit window (the ISP Health tab's date/time filter). Bypasses the 48 h
+    /// cache and never publishes status, so the dashboard tile and default view stay on 48 h.
+    /// </summary>
+    public async Task<IspHealthReport?> GetReportForWindowAsync(DateTime windowStart, DateTime windowEnd, CancellationToken ct = default)
+    {
+        var (report, _) = await ComputeForWindowAsync(windowStart, windowEnd, ct);
+        return report;
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)

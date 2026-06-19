@@ -5,6 +5,54 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
+@* Date/time filter (left) + Refresh. Default 48 h is the live/cached view and the only state
+   where Refresh is enabled; any other selection recomputes off-cache and locks Refresh. Always
+   rendered (once past initial load) so a custom window with no data can still be switched back. *@
+@if (!_loading)
+{
+    <div class="isp-health-toolbar">
+        <div class="time-range-selector" style="position: relative;">
+            @foreach (var p in FilterPresets)
+            {
+                <button class="time-btn @(!_isCustom && _selectedPreset == p.Hours ? "active" : "")"
+                        @onclick="() => SelectPresetAsync(p.Hours)" disabled="@_windowComputing">@p.Label</button>
+            }
+            <button class="time-btn custom-range-btn @(_isCustom ? "active" : "")" @onclick="ToggleCustomPopover"
+                    data-tooltip="Custom date range (max 1 month)" data-tooltip-hover-only>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+            </button>
+            <div class="custom-range-popover @(_showCustomPopover ? "open" : "")">
+                <div class="custom-range-form">
+                    <div class="custom-range-title">Custom Range</div>
+                    <div class="custom-range-field">
+                        <label>From</label>
+                        <input type="datetime-local" data-input="from" class="custom-range-input" @bind="_customFrom" />
+                    </div>
+                    <div class="custom-range-field">
+                        <label>To</label>
+                        <input type="datetime-local" data-input="to" class="custom-range-input" @bind="_customTo" />
+                    </div>
+                    <div class="custom-range-actions">
+                        <button class="btn btn-sm btn-secondary" @onclick="() => _showCustomPopover = false">Cancel</button>
+                        <button class="btn btn-sm btn-primary" @onclick="ApplyCustomAsync">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@(_refreshing || !IsLiveWindow)"
+                data-tooltip="@(IsLiveWindow ? "Recompute ISP Health now from the latest monitoring data" : "Refresh applies to the live 48-hour view; pick 48h to re-enable it")" data-tooltip-hover-only>
+            @if (_refreshing)
+            {
+                <span class="spinner-sm"></span> <span>Refreshing</span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+}
+
 @if (_loading)
 {
     <div class="loading-container">
@@ -85,19 +133,6 @@ else
             </div>
         </div>
     }
-    <div class="isp-health-toolbar">
-        <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@_refreshing"
-                data-tooltip="Recompute ISP Health now from the latest monitoring data" data-tooltip-hover-only>
-            @if (_refreshing)
-            {
-                <span class="spinner-sm"></span> <span>Refreshing</span>
-            }
-            else
-            {
-                <span>Refresh</span>
-            }
-        </button>
-    </div>
     <div class="isp-health-hero card">
         <span class="isp-health-updated">Last updated: @TimeFormatHelper.FormatRelativeTimeShort(r.ComputedAt)</span>
         <div class="card-body isp-health-hero-body">
@@ -456,6 +491,25 @@ else
     private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
 
+    // Date/time filter. Never persisted: OnInitializedAsync always starts on 48 h, so leaving
+    // and returning to the tab (and every auto-computed path) resets to the live window.
+    private static readonly (string Label, int Hours)[] FilterPresets =
+    {
+        ("24h", 24), ("48h", 48), ("7d", 168), ("14d", 336), ("30d", 720)
+    };
+    private const int DefaultPresetHours = 48;
+    private const int MaxRangeHours = 720;   // 30-day / 1-month hard cap
+    private int _selectedPreset = DefaultPresetHours;
+    private bool _isCustom;
+    private bool _showCustomPopover;
+    private bool _windowComputing;
+    private DateTime? _windowStart;
+    private DateTime? _windowEnd;
+    private DateTime _customFrom = DateTime.Now.AddDays(-2);
+    private DateTime _customTo = DateTime.Now;
+
+    private bool IsLiveWindow => !_isCustom && _selectedPreset == DefaultPresetHours;
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -501,15 +555,88 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_report == null || _chartMounted) return;
+        if (_report == null)
+        {
+            // The content (and the chart element) is gone; drop the chart so it re-mounts
+            // cleanly when a report shows again (e.g. switching back to 48 h from an empty window).
+            if (_chartMounted)
+            {
+                _chartMounted = false;
+                try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount?.();"); }
+                catch { /* nothing mounted */ }
+            }
+            return;
+        }
+        if (_chartMounted) return;
         _chartMounted = true;
+        var fromArg = _windowStart.HasValue ? $"'{_windowStart.Value:o}'" : "null";
+        var toArg = _windowEnd.HasValue ? $"'{_windowEnd.Value:o}'" : "null";
         try
         {
             await JS.InvokeVoidAsync("eval",
                 $"(async () => {{ const m = await import('{VersionedJs("/js/isp-health-charts.js")}'); " +
-                "window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart'); })();");
+                $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}); }})();");
         }
         catch { _chartMounted = false; }
+    }
+
+    private void ToggleCustomPopover() => _showCustomPopover = !_showCustomPopover;
+
+    private async Task SelectPresetAsync(int hours)
+    {
+        _showCustomPopover = false;
+        _isCustom = false;
+        _selectedPreset = hours;
+        if (hours == DefaultPresetHours)
+            await LoadWindowAsync(null, null);   // back to the live/cached 48 h report
+        else
+        {
+            var end = DateTime.UtcNow;
+            await LoadWindowAsync(end.AddHours(-hours), end);
+        }
+    }
+
+    private async Task ApplyCustomAsync()
+    {
+        _showCustomPopover = false;
+        // datetime-local binds local wall-clock (Kind=Unspecified); treat it as local -> UTC.
+        var startUtc = _customFrom.ToUniversalTime();
+        var endUtc = _customTo.ToUniversalTime();
+        if (endUtc <= startUtc) return;
+        if (endUtc - startUtc > TimeSpan.FromHours(MaxRangeHours))
+            startUtc = endUtc.AddHours(-MaxRangeHours);   // clamp to the 1-month cap
+        _isCustom = true;
+        _selectedPreset = -1;
+        await LoadWindowAsync(startUtc, endUtc);
+    }
+
+    private async Task LoadWindowAsync(DateTime? fromUtc, DateTime? toUtc)
+    {
+        _windowComputing = true;
+        _windowStart = fromUtc;
+        _windowEnd = toUtc;
+        StateHasChanged();
+        try
+        {
+            // Default (null window) serves the cached 48 h report; an explicit window computes
+            // off-cache and never disturbs it. Stale report stays on screen until the swap.
+            _report = fromUtc.HasValue && toUtc.HasValue
+                ? await IspHealth.GetReportForWindowAsync(fromUtc.Value, toUtc.Value)
+                : await IspHealth.GetReportAsync();
+        }
+        catch { _report = null; }
+        finally { _windowComputing = false; }
+
+        if (_report != null) await ChartSetWindowAsync(fromUtc, toUtc);
+    }
+
+    private async Task ChartSetWindowAsync(DateTime? fromUtc, DateTime? toUtc)
+    {
+        if (!_chartMounted) return;
+        var fromArg = fromUtc.HasValue ? $"'{fromUtc.Value:o}'" : "null";
+        var toArg = toUtc.HasValue ? $"'{toUtc.Value:o}'" : "null";
+        try { await JS.InvokeVoidAsync("eval", $"window.__ispHealthCharts?.setWindow?.({fromArg}, {toArg});"); }
+        catch { /* chart not mounted yet */ }
     }
 
     private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text);
@@ -537,13 +664,13 @@ else
                 CongestionDisposition.SelfInflicted => ("Congestion", "isp-event-badge-info",
                     $"{lead} Self-inflicted bufferbloat from your own load, not the ISP."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
-                    $"{lead} It did not reach downstream hops, so this is likely router ICMP handling, not a forwarding bottleneck."),
+                    $"{lead} It did not reach the hops beyond it, so this is likely router ICMP handling, not a forwarding bottleneck."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
-                    $"{lead} Unconfirmed, because no monitored hop sits downstream to verify it."),
+                    $"{lead} Unconfirmed, because no monitored hop sits beyond it to verify it."),
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-warning",
                     $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it is this hop's own capacity, not your access link."),
                 _ => ("Congestion", "isp-event-badge-warning",
-                    $"{lead} It propagates to hops downstream, so it is a real bottleneck here.")
+                    $"{lead} It propagates to the hops beyond it, so it is a real bottleneck here.")
             };
             entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text));
         }

@@ -11,10 +11,14 @@ public static class IspHealthEndpoints
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/monitoring/isp-health/asn-series", async (
+            DateTime? from,
+            DateTime? to,
             IspHealthService ispHealth,
             CancellationToken ct) =>
         {
-            var (series, report) = await ispHealth.GetAsnChartDataAsync(ct);
+            // from/to (the tab's date/time filter) make the chart follow a custom window off
+            // the 48 h cache; absent, it serves the cached 48 h report.
+            var (series, report) = await ispHealth.GetAsnChartDataAsync(from, to, ct);
 
             var asnBuckets = series.Select(s => new
             {
