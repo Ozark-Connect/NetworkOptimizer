@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -52,9 +51,14 @@ public class SshProbeExecutor : IProbeExecutor
             var traceOut0 = (traceHelp.Output + traceHelp.Error).ToLowerInvariant();
             if (traceHelp.ExitCode == 127 || traceOut0.Contains("not found"))
             {
-                _logger.LogDebug("traceroute not found on {Vantage}, attempting install", Vantage.Id);
+                _logger.LogDebug("traceroute not found on {Vantage}, attempting apt-get update + install", Vantage.Id);
+                // Refresh the package index first - a console with stale/empty apt lists can't
+                // resolve the package otherwise. update runs unconditionally before install (;),
+                // and the whole thing stays non-fatal (|| true) so a device without apt just
+                // falls through to the capability re-probe below.
                 await _ssh.ExecuteCommandAsync(_connection,
-                    "apt-get install -y traceroute 2>/dev/null || true", TimeSpan.FromSeconds(30), ct);
+                    "apt-get update 2>/dev/null; apt-get install -y traceroute 2>/dev/null || true",
+                    TimeSpan.FromSeconds(60), ct);
                 traceHelp = await _ssh.ExecuteCommandAsync(_connection, "traceroute -h 2>&1 || true", TimeSpan.FromSeconds(5), ct);
             }
 

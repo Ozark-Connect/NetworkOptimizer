@@ -687,3 +687,314 @@ public class UpstreamCommitTests : IDisposable
             LastVerified = DateTime.UtcNow
         };
 }
+
+public class ComputeNearTransitAsnsTests
+{
+    // Generic private-use access ASN (not a real ISP); public tier-1 ASNs are real
+    // because the logic keys on them.
+    private const int Access = 64500;
+    private const int UpstreamA = 64510;
+    private const int UpstreamB = 64520;
+    private const int Lumen = 3356;
+    private const int Cogent = 174;
+    private const int Arelion = 1299;
+    private const int Indatel = 30517;
+    private const int Cloudflare = 13335;
+
+    private static IReadOnlySet<int> AccessSet => new HashSet<int> { Access };
+    private static IReadOnlySet<int> NoDest => new HashSet<int>();
+    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Cogent, Arelion };
+
+    private static Dictionary<string, int> Map(params (string Ip, int Asn)[] e)
+        => e.ToDictionary(x => x.Ip, x => x.Asn, StringComparer.OrdinalIgnoreCase);
+
+    [Fact]
+    public void Direct_upstream_is_near_transit()
+    {
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Lumen);
+    }
+
+    [Fact]
+    public void Upstreams_upstream_is_near_transit()
+    {
+        // access -> UpstreamA -> Lumen: Lumen is 2nd-degree, still in window.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", UpstreamA), ("192.0.2.3", Lumen));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().BeEquivalentTo(new[] { UpstreamA, Lumen });
+    }
+
+    [Fact]
+    public void Third_degree_asn_is_not_near_transit()
+    {
+        // access -> UpstreamA -> UpstreamB -> Lumen: Lumen is 3rd-degree, dropped.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", UpstreamA),
+                      ("192.0.2.3", UpstreamB), ("192.0.2.4", Lumen));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().BeEquivalentTo(new[] { UpstreamA, UpstreamB });
+        near.Should().NotContain(Lumen);
+    }
+
+    [Fact]
+    public void Every_direct_upstream_of_a_multihomed_isp_is_captured()
+    {
+        // Different traces exit via different upstreams; the per-trace union keeps all.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen),
+                      ("198.51.100.1", Access), ("198.51.100.2", UpstreamA));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[]
+            {
+                new[] { "192.0.2.1", "192.0.2.2" },
+                new[] { "198.51.100.1", "198.51.100.2" }
+            }, map, AccessSet, NoDest, Tier1);
+        near.Should().BeEquivalentTo(new[] { Lumen, UpstreamA });
+    }
+
+    [Fact]
+    public void Per_trace_window_does_not_let_one_trace_crowd_out_another_upstream()
+    {
+        // Regression: a short trace reaching UpstreamA at hop 1 plus a long trace
+        // reaching Lumen only at hop 4. A merged-pool "first two ASNs by hop number"
+        // filled both slots on the low hops and dropped Lumen; per-trace keeps both.
+        var map = Map(("198.51.100.1", UpstreamA),
+                      ("192.0.2.1", Access), ("192.0.2.2", Access),
+                      ("192.0.2.3", Access), ("192.0.2.4", Lumen));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[]
+            {
+                new[] { "198.51.100.1" },
+                new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" }
+            }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Lumen);
+        near.Should().Contain(UpstreamA);
+    }
+
+    [Fact]
+    public void Destination_asn_does_not_consume_a_degree_slot()
+    {
+        // access -> UpstreamA -> Cloudflare(dest) -> UpstreamB: with dest skipped, the
+        // real 2nd-degree transit (UpstreamB) still fits in the window. Non-tier-1 hops
+        // so the tier-1 horizon stop doesn't interfere with what this test isolates.
+        var dest = new HashSet<int> { Cloudflare };
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", UpstreamA),
+                      ("192.0.2.3", Cloudflare), ("192.0.2.4", UpstreamB));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, AccessSet, dest, Tier1);
+        near.Should().BeEquivalentTo(new[] { UpstreamA, UpstreamB });
+    }
+
+    [Fact]
+    public void Unresolved_hops_are_skipped()
+    {
+        var map = Map(("192.0.2.1", Access), ("192.0.2.3", Lumen)); // .2 has no ASN (gap)
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Lumen);
+    }
+
+    [Fact]
+    public void Access_only_path_yields_nothing()
+    {
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Access));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void No_traces_yields_nothing()
+    {
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), AccessSet, NoDest, Tier1);
+        near.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Asn_reached_through_a_tier1_is_not_near_transit()
+    {
+        // access -> Arelion(tier-1) -> INDATEL: the endpoint sits beyond a tier-1, so it
+        // is not adjacent to the ISP and must not be near-transit (the AT&T-via-Arelion
+        // case). The tier-1 itself is the first upstream and stays.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Arelion), ("192.0.2.3", Indatel));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Arelion);
+        near.Should().NotContain(Indatel);
+    }
+
+    [Fact]
+    public void Endpoint_one_hop_off_the_access_isp_is_near_transit()
+    {
+        // access -> INDATEL directly: no tier-1 in between, so it stays near-transit
+        // (the directly-adjacent case). Same endpoint ASN as above, opposite verdict.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Indatel));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Indatel);
+    }
+
+    [Fact]
+    public void Walk_stops_at_the_first_tier1()
+    {
+        // access -> Lumen(tier-1) -> Cogent(tier-1): only the first tier-1 is near-transit;
+        // a second tier-1 reached through it is core peering, not our transit.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen), ("192.0.2.3", Cogent));
+        var near = UpstreamTracerService.ComputeNearTransitAsns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, AccessSet, NoDest, Tier1);
+        near.Should().Contain(Lumen);
+        near.Should().NotContain(Cogent);
+    }
+}
+
+public class ComputeExcludedTier1AsnsTests
+{
+    private const int Access = 64500;
+    private const int Regional = 64510;
+    private const int Lumen = 3356;
+    private const int Cogent = 174;
+    private const int Gtt = 3257;
+    private const int Att = 7018;
+
+    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Cogent, Gtt, Att };
+    private static IReadOnlySet<int> AccessSet => new HashSet<int> { Access };
+
+    private static Dictionary<string, int> Map(params (string Ip, int Asn)[] e)
+        => e.ToDictionary(x => x.Ip, x => x.Asn, StringComparer.OrdinalIgnoreCase);
+
+    [Fact]
+    public void Tier1_above_non_tier1_is_kept()
+    {
+        // access(non-T1) -> Lumen(T1): grounded, not excluded.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1, AccessSet);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Tier1_directly_above_another_tier1_is_excluded()
+    {
+        // access -> Cogent(T1) -> Lumen(T1): Lumen is core peering, excluded. Cogent
+        // sits above access (non-T1) so it stays.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Cogent), ("192.0.2.3", Lumen));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, Tier1, AccessSet);
+        excluded.Should().BeEquivalentTo(new[] { Lumen });
+    }
+
+    [Fact]
+    public void Kept_when_grounded_on_any_trace()
+    {
+        // One trace shows Lumen above Cogent; another shows Lumen directly above access.
+        // A single grounded sighting keeps it.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Cogent), ("192.0.2.3", Lumen),
+                      ("198.51.100.1", Access), ("198.51.100.2", Lumen));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[]
+            {
+                new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" },
+                new[] { "198.51.100.1", "198.51.100.2" }
+            }, map, Tier1, AccessSet);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Excluded_only_when_tier1_downstream_on_every_trace()
+    {
+        // Lumen sits above a tier-1 (Cogent, then GTT) on both traces -> excluded.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Cogent), ("192.0.2.3", Lumen),
+                      ("198.51.100.1", Access), ("198.51.100.2", Gtt), ("198.51.100.3", Lumen));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[]
+            {
+                new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" },
+                new[] { "198.51.100.1", "198.51.100.2", "198.51.100.3" }
+            }, map, Tier1, AccessSet);
+        excluded.Should().BeEquivalentTo(new[] { Lumen });
+    }
+
+    [Fact]
+    public void Tier1_as_first_resolved_hop_is_grounded()
+    {
+        // Unresolved gateway hop then Lumen: downstream is us, so Lumen is grounded.
+        var map = Map(("192.0.2.2", Lumen)); // first hop has no ASN
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "10.0.0.1", "192.0.2.2" } }, map, Tier1, AccessSet);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Consecutive_same_asn_hops_are_collapsed()
+    {
+        // access -> Lumen -> Lumen -> Cogent: Cogent's true downstream is Lumen(T1),
+        // so Cogent is excluded; Lumen is grounded by access and kept.
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen),
+                      ("192.0.2.3", Lumen), ("192.0.2.4", Cogent));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, Tier1, AccessSet);
+        excluded.Should().BeEquivalentTo(new[] { Cogent });
+    }
+
+    [Fact]
+    public void Non_tier1_asns_are_never_excluded()
+    {
+        var map = Map(("192.0.2.1", Access), ("192.0.2.2", Regional));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1, AccessSet);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void No_traces_yields_nothing()
+    {
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), Tier1, AccessSet);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void First_tier1_above_a_tier1_access_isp_is_kept()
+    {
+        // AT&T fiber customer: access ASN is itself tier-1 (AS7018), and Lumen sits
+        // directly above it. Lumen is AT&T's upstream/peer - the thing to monitor - not
+        // core peering, so the access ASN grounds it even though it's a tier-1.
+        var access = new HashSet<int> { Att };
+        var map = Map(("192.0.2.1", Att), ("192.0.2.2", Lumen));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1, access);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Second_tier1_above_a_tier1_access_isp_is_excluded()
+    {
+        // access=AT&T(T1) -> Lumen(T1) -> Cogent(T1): Lumen is grounded by the access
+        // ISP and kept; Cogent sits above a non-access tier-1 (Lumen) and is excluded.
+        var access = new HashSet<int> { Att };
+        var map = Map(("192.0.2.1", Att), ("192.0.2.2", Lumen), ("192.0.2.3", Cogent));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, Tier1, access);
+        excluded.Should().BeEquivalentTo(new[] { Cogent });
+    }
+
+    [Fact]
+    public void Tier1Asns_constant_includes_major_carriers_and_live_siblings()
+    {
+        // Core tier-1s, plus the corrected AS1239 (now Cogent) and active AT&T/Lumen
+        // sibling ASNs that show up in US traces.
+        UpstreamTracerService.Tier1Asns.Should().Contain(
+            new[] { 3356, 174, 7018, 2914, 1299, 6461, 1239, 7132, 3561 });
+    }
+
+    [Fact]
+    public void Tier1Asns_excludes_hurricane_electric()
+    {
+        // AS6939 is not settlement-free on IPv4, so it carries no reliable core-peering
+        // signal and stays out of the adjacency set.
+        UpstreamTracerService.Tier1Asns.Should().NotContain(6939);
+    }
+}

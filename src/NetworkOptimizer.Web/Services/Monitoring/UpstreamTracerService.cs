@@ -642,13 +642,18 @@ public class UpstreamTracerService
     private List<AttributedHop> _mergedHops = new();
     private List<AttributedHop> _accessHopsResolved = new();
 
-    // The first 2 distinct non-access ASNs walked off the merged path: the access
-    // ISP's direct upstream and that upstream's upstream. A transit-probe ASN (Lumen,
-    // AT&T, INDATEL) only counts as *our* ISP's transit when it lands in this window -
+    // The 1st/2nd-degree non-access ASNs off each trace (union): the access ISP's
+    // direct upstream and that upstream's upstream. A transit-probe ASN (Lumen, AT&T,
+    // INDATEL) only counts as *our* ISP's transit when it lands in this window -
     // probing toward a Lumen/AT&T anycast IP otherwise drags that tier-1 onto the path
     // as the destination's own network even when it isn't an upstream at all. Set in
     // TraceTransitAsnsAsync, read again when injecting transit witnesses.
     private readonly HashSet<int> _nearTransitAsns = new();
+
+    // Tier-1 ASNs excluded as transit because they only ever appear directly above
+    // another tier-1 on the path (core peering, not our access ISP's transit). Set in
+    // TraceTransitAsnsAsync, read again when injecting transit witnesses.
+    private readonly HashSet<int> _excludedTier1Asns = new();
 
     // Raw per-trace hop sequences from the last discovery sweep. Kept so commit can
     // persist SAME-PATH hop ordering to UpstreamDiscoveries: the merged pool (_mergedHops)
@@ -921,23 +926,30 @@ public class UpstreamTracerService
             if (probeAsn != null) transitProbeAsns.Add(probeAsn.Asn);
         }
 
-        // The first 2 distinct non-access ASNs off the path: the access ISP's
-        // direct upstream, and that upstream's upstream. A transit-probe ASN counts
-        // as our ISP's transit only when it falls in this window - a tier-1 reached
-        // 3+ ASN transitions out (e.g. access → upstream → Cogent → Lumen) is the
-        // probe destination's own network, not our transit. Persisted to a field so
-        // the transit-witness injection (a later step) applies the same gate.
-        _nearTransitAsns.Clear();
-        var seenTransitAsns = new HashSet<int>();
+        // Per-trace ordered address sequences (responding hops only) feed both the
+        // near-transit window and the tier-1 adjacency check. We work per trace rather
+        // than over the merged pool: the merged pool orders hops by number across
+        // heterogeneous traces, so a multi-homed access ISP's other upstreams (or a
+        // near probe endpoint) can occupy the global "first two" slots at a lower hop
+        // number and crowd out a genuine direct upstream.
+        var asnByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var h in _mergedHops)
-        {
-            if (h.Asn == null || accessAsnNumbers.Contains(h.Asn.Asn)) continue;
-            if (seenTransitAsns.Add(h.Asn.Asn))
-            {
-                _nearTransitAsns.Add(h.Asn.Asn);
-                if (seenTransitAsns.Count >= 2) break;
-            }
-        }
+            if (h.Asn != null) asnByIp.TryAdd(h.Address, h.Asn.Asn);
+        var traceSequences = _lastTraces
+            .Select(t => (IReadOnlyList<string>)t.Hops
+                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address))
+                .OrderBy(hp => hp.HopNumber)
+                .Select(hp => hp.Address!)
+                .ToList())
+            .ToList();
+
+        _nearTransitAsns.Clear();
+        _nearTransitAsns.UnionWith(
+            ComputeNearTransitAsns(traceSequences, asnByIp, accessAsnNumbers, destinationAsns, Tier1Asns));
+
+        _excludedTier1Asns.Clear();
+        _excludedTier1Asns.UnionWith(
+            ComputeExcludedTier1Asns(traceSequences, asnByIp, Tier1Asns, accessAsnNumbers));
 
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
@@ -945,6 +957,7 @@ public class UpstreamTracerService
                         && !destinationAsns.Contains(h.Asn.Asn)
                         && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
                         && !transitProbeAddresses.Contains(h.Address)
+                        && !_excludedTier1Asns.Contains(h.Asn.Asn)
                         && (!transitProbeAsns.Contains(h.Asn.Asn)
                             || _nearTransitAsns.Contains(h.Asn.Asn)))
             .GroupBy(h => h.Asn!.Asn)
@@ -1165,6 +1178,8 @@ public class UpstreamTracerService
             // tracing the Lumen probe drags AS3356 onto the path even when Lumen is
             // just the destination's own network, not our ISP's transit.
             if (!_nearTransitAsns.Contains(asn)) continue;
+            // And not when this tier-1 only ever sits above another tier-1 (core peering).
+            if (_excludedTier1Asns.Contains(asn)) continue;
             // Skip if any real router in this ASN already cleared the gate, or the witness exists.
             if (State.TransitAsns.Any(t => t.AsnNumber == asn && t.Enabled && !t.Unreachable)) continue;
             if (State.TransitAsns.Any(t => string.Equals(t.HopAddress, address, StringComparison.OrdinalIgnoreCase))) continue;
@@ -1638,6 +1653,114 @@ public class UpstreamTracerService
     /// </summary>
     internal static string CleanAsnName(string? name) =>
         NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(name);
+
+    // Tier-1 (settlement-free) networks, with the sibling ASNs that show up in real
+    // US traces. Two tier-1s adjacent on a path is core peering, not our access ISP's
+    // transit, so a tier-1 sitting directly above another tier-1 is excluded as a
+    // candidate. Stable set - revisit only on major carrier M&A. Last reviewed 2026-06.
+    //
+    // Hurricane Electric (AS6939) is deliberately NOT included: it isn't settlement-free
+    // on IPv4 (buys paid transit; Cogent won't peer), so its presence beneath a tier-1
+    // carries no reliable "core peering" signal. A tier-1 reached via HE still surfaces
+    // as a candidate and can simply be unchecked in the discovery review list.
+    internal static readonly HashSet<int> Tier1Asns = new()
+    {
+        3356, 209, 3549, 3561,            // Lumen / Level 3 / CenturyLink / Global Crossing / Savvis
+        7018, 2386, 7132, 6389, 2686,     // AT&T (incl. legacy SBC / BellSouth ASNs seen in US traces)
+        701, 702, 703,     // Verizon (UUNET)
+        2914,              // NTT (GIN)
+        174, 1239,         // Cogent (1239 = ex-SprintLink, sold to Cogent 2023)
+        1299,              // Arelion (ex-Telia)
+        3257,              // GTT (backbone now EXA Infrastructure; ASN still registered GTT)
+        6453,              // Tata
+        6461,              // Zayo
+        6762,              // Telecom Italia Sparkle
+        3491,              // PCCW Global
+        5511,              // Orange
+        12956,             // Telxius (Telefonica)
+        3320,              // Deutsche Telekom
+    };
+
+    /// <summary>
+    /// Near-transit ASNs: every ASN that appears as the 1st or 2nd distinct non-access,
+    /// non-destination ASN on at least one trace - the access ISP's direct upstream or
+    /// its upstream's upstream, unioned across traces. A transit-probe ASN (Lumen, AT&amp;T,
+    /// INDATEL) counts as our ISP's transit only when it lands in this window.
+    ///
+    /// The walk stops at the first tier-1: your transit horizon ends there. An ASN reached
+    /// only by transiting a tier-1 (e.g. access → Arelion → INDATEL) is beyond your ISP's
+    /// transit, not adjacent to it, so it is not near-transit. The tier-1 itself is included
+    /// (it is the first upstream); the same INDATEL endpoint sitting one hop off the access
+    /// ISP (access → INDATEL) stays near-transit because no tier-1 intervenes. Each trace is
+    /// the responding hop addresses in hop order.
+    /// </summary>
+    internal static HashSet<int> ComputeNearTransitAsns(
+        IEnumerable<IReadOnlyList<string>> traceAddressSequences,
+        IReadOnlyDictionary<string, int> asnByIp,
+        IReadOnlySet<int> accessAsns,
+        IReadOnlySet<int> destinationAsns,
+        IReadOnlySet<int> tier1Asns)
+    {
+        var near = new HashSet<int>();
+        foreach (var trace in traceAddressSequences)
+        {
+            var degreesSeen = new HashSet<int>();
+            foreach (var address in trace)
+            {
+                if (!asnByIp.TryGetValue(address, out var asn)) continue;
+                if (accessAsns.Contains(asn) || destinationAsns.Contains(asn)) continue;
+                if (degreesSeen.Add(asn))
+                {
+                    near.Add(asn);
+                    // Transit horizon ends at the first tier-1: include it, then stop so
+                    // nothing reached only by transiting it counts as near-transit.
+                    if (tier1Asns.Contains(asn)) break;
+                    if (degreesSeen.Count >= 2) break;
+                }
+            }
+        }
+        return near;
+    }
+
+    /// <summary>
+    /// Tier-1 ASNs to exclude as transit because they only ever appear directly above
+    /// another tier-1 on the path - core peering in the internet core, not our access
+    /// ISP's transit. A tier-1 is kept when at least one trace shows it "grounded": the
+    /// ASN immediately downstream (access side, lower TTL) is the access ISP itself, a
+    /// non-tier-1 (a regional transit it feeds), or nothing (the tier-1 is the first
+    /// resolved hop, so downstream is us). The access ISP is grounding even when it is
+    /// itself a tier-1 (e.g. an AT&amp;T or Verizon fiber customer): the first tier-1 above
+    /// the access edge is that ISP's upstream/peer and must stay, only tier-1s sitting
+    /// above *another, non-access* tier-1 are core peering. Consecutive same-ASN hops
+    /// are collapsed.
+    /// </summary>
+    internal static HashSet<int> ComputeExcludedTier1Asns(
+        IEnumerable<IReadOnlyList<string>> traceAddressSequences,
+        IReadOnlyDictionary<string, int> asnByIp,
+        IReadOnlySet<int> tier1Asns,
+        IReadOnlySet<int> accessAsns)
+    {
+        var seen = new HashSet<int>();
+        var grounded = new HashSet<int>();
+        foreach (var trace in traceAddressSequences)
+        {
+            int? prevAsn = null;
+            foreach (var address in trace)
+            {
+                if (!asnByIp.TryGetValue(address, out var asn)) continue;
+                if (asn == prevAsn) continue;
+                if (tier1Asns.Contains(asn))
+                {
+                    seen.Add(asn);
+                    if (prevAsn == null || accessAsns.Contains(prevAsn.Value) || !tier1Asns.Contains(prevAsn.Value))
+                        grounded.Add(asn);
+                }
+                prevAsn = asn;
+            }
+        }
+        seen.ExceptWith(grounded);
+        return seen;
+    }
 
     /// <summary>
     /// Generate a display label from a PTR hostname for transit targets.

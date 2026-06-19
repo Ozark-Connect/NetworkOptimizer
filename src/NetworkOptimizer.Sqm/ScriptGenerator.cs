@@ -100,6 +100,14 @@ public class ScriptGenerator
         sb.AppendLine("    apt-get install -y speedtest");
         sb.AppendLine("fi");
         sb.AppendLine();
+        // Refresh the package index once if either base dependency is missing, so a
+        // console with stale/empty apt lists can still resolve bc/jq. The Ookla block
+        // above gets its index refresh from the packagecloud script; these don't.
+        sb.AppendLine("# Refresh package lists once if a base dependency is missing");
+        sb.AppendLine("if ! which bc > /dev/null 2>&1 || ! which jq > /dev/null 2>&1; then");
+        sb.AppendLine("    apt-get update");
+        sb.AppendLine("fi");
+        sb.AppendLine();
         sb.AppendLine("# Install bc if not present");
         sb.AppendLine("if ! which bc > /dev/null 2>&1; then");
         sb.AppendLine("    echo \"Installing bc...\" >> $LOG_FILE");
