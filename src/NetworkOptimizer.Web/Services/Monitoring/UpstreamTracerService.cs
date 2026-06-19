@@ -949,7 +949,7 @@ public class UpstreamTracerService
 
         _excludedTier1Asns.Clear();
         _excludedTier1Asns.UnionWith(
-            ComputeExcludedTier1Asns(traceSequences, asnByIp, Tier1Asns));
+            ComputeExcludedTier1Asns(traceSequences, asnByIp, Tier1Asns, accessAsnNumbers));
 
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
@@ -1716,15 +1716,20 @@ public class UpstreamTracerService
     /// <summary>
     /// Tier-1 ASNs to exclude as transit because they only ever appear directly above
     /// another tier-1 on the path - core peering in the internet core, not our access
-    /// ISP's transit. A tier-1 is kept when at least one trace shows a non-tier-1 ASN
-    /// immediately downstream (access side, lower TTL) of it: the access ISP itself, or
-    /// a regional transit it feeds. Consecutive same-ASN hops are collapsed; a tier-1
-    /// that is the first resolved ASN on a trace counts as grounded (downstream is us).
+    /// ISP's transit. A tier-1 is kept when at least one trace shows it "grounded": the
+    /// ASN immediately downstream (access side, lower TTL) is the access ISP itself, a
+    /// non-tier-1 (a regional transit it feeds), or nothing (the tier-1 is the first
+    /// resolved hop, so downstream is us). The access ISP is grounding even when it is
+    /// itself a tier-1 (e.g. an AT&amp;T or Verizon fiber customer): the first tier-1 above
+    /// the access edge is that ISP's upstream/peer and must stay, only tier-1s sitting
+    /// above *another, non-access* tier-1 are core peering. Consecutive same-ASN hops
+    /// are collapsed.
     /// </summary>
     internal static HashSet<int> ComputeExcludedTier1Asns(
         IEnumerable<IReadOnlyList<string>> traceAddressSequences,
         IReadOnlyDictionary<string, int> asnByIp,
-        IReadOnlySet<int> tier1Asns)
+        IReadOnlySet<int> tier1Asns,
+        IReadOnlySet<int> accessAsns)
     {
         var seen = new HashSet<int>();
         var grounded = new HashSet<int>();
@@ -1738,7 +1743,7 @@ public class UpstreamTracerService
                 if (tier1Asns.Contains(asn))
                 {
                     seen.Add(asn);
-                    if (prevAsn == null || !tier1Asns.Contains(prevAsn.Value))
+                    if (prevAsn == null || accessAsns.Contains(prevAsn.Value) || !tier1Asns.Contains(prevAsn.Value))
                         grounded.Add(asn);
                 }
                 prevAsn = asn;

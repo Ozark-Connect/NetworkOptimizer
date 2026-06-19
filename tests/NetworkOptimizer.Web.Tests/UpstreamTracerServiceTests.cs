@@ -817,8 +817,10 @@ public class ComputeExcludedTier1AsnsTests
     private const int Lumen = 3356;
     private const int Cogent = 174;
     private const int Gtt = 3257;
+    private const int Att = 7018;
 
-    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Cogent, Gtt };
+    private static IReadOnlySet<int> Tier1 => new HashSet<int> { Lumen, Cogent, Gtt, Att };
+    private static IReadOnlySet<int> AccessSet => new HashSet<int> { Access };
 
     private static Dictionary<string, int> Map(params (string Ip, int Asn)[] e)
         => e.ToDictionary(x => x.Ip, x => x.Asn, StringComparer.OrdinalIgnoreCase);
@@ -829,7 +831,7 @@ public class ComputeExcludedTier1AsnsTests
         // access(non-T1) -> Lumen(T1): grounded, not excluded.
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen));
         var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1);
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1, AccessSet);
         excluded.Should().BeEmpty();
     }
 
@@ -840,7 +842,7 @@ public class ComputeExcludedTier1AsnsTests
         // sits above access (non-T1) so it stays.
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", Cogent), ("192.0.2.3", Lumen));
         var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, Tier1);
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, Tier1, AccessSet);
         excluded.Should().BeEquivalentTo(new[] { Lumen });
     }
 
@@ -856,7 +858,7 @@ public class ComputeExcludedTier1AsnsTests
             {
                 new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" },
                 new[] { "198.51.100.1", "198.51.100.2" }
-            }, map, Tier1);
+            }, map, Tier1, AccessSet);
         excluded.Should().BeEmpty();
     }
 
@@ -871,7 +873,7 @@ public class ComputeExcludedTier1AsnsTests
             {
                 new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" },
                 new[] { "198.51.100.1", "198.51.100.2", "198.51.100.3" }
-            }, map, Tier1);
+            }, map, Tier1, AccessSet);
         excluded.Should().BeEquivalentTo(new[] { Lumen });
     }
 
@@ -881,7 +883,7 @@ public class ComputeExcludedTier1AsnsTests
         // Unresolved gateway hop then Lumen: downstream is us, so Lumen is grounded.
         var map = Map(("192.0.2.2", Lumen)); // first hop has no ASN
         var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
-            new[] { new[] { "10.0.0.1", "192.0.2.2" } }, map, Tier1);
+            new[] { new[] { "10.0.0.1", "192.0.2.2" } }, map, Tier1, AccessSet);
         excluded.Should().BeEmpty();
     }
 
@@ -893,7 +895,7 @@ public class ComputeExcludedTier1AsnsTests
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", Lumen),
                       ("192.0.2.3", Lumen), ("192.0.2.4", Cogent));
         var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, Tier1);
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4" } }, map, Tier1, AccessSet);
         excluded.Should().BeEquivalentTo(new[] { Cogent });
     }
 
@@ -902,7 +904,7 @@ public class ComputeExcludedTier1AsnsTests
     {
         var map = Map(("192.0.2.1", Access), ("192.0.2.2", Regional));
         var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
-            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1);
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1, AccessSet);
         excluded.Should().BeEmpty();
     }
 
@@ -910,8 +912,33 @@ public class ComputeExcludedTier1AsnsTests
     public void No_traces_yields_nothing()
     {
         var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
-            Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), Tier1);
+            Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), Tier1, AccessSet);
         excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void First_tier1_above_a_tier1_access_isp_is_kept()
+    {
+        // AT&T fiber customer: access ASN is itself tier-1 (AS7018), and Lumen sits
+        // directly above it. Lumen is AT&T's upstream/peer - the thing to monitor - not
+        // core peering, so the access ASN grounds it even though it's a tier-1.
+        var access = new HashSet<int> { Att };
+        var map = Map(("192.0.2.1", Att), ("192.0.2.2", Lumen));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2" } }, map, Tier1, access);
+        excluded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Second_tier1_above_a_tier1_access_isp_is_excluded()
+    {
+        // access=AT&T(T1) -> Lumen(T1) -> Cogent(T1): Lumen is grounded by the access
+        // ISP and kept; Cogent sits above a non-access tier-1 (Lumen) and is excluded.
+        var access = new HashSet<int> { Att };
+        var map = Map(("192.0.2.1", Att), ("192.0.2.2", Lumen), ("192.0.2.3", Cogent));
+        var excluded = UpstreamTracerService.ComputeExcludedTier1Asns(
+            new[] { new[] { "192.0.2.1", "192.0.2.2", "192.0.2.3" } }, map, Tier1, access);
+        excluded.Should().BeEquivalentTo(new[] { Cogent });
     }
 
     [Fact]
