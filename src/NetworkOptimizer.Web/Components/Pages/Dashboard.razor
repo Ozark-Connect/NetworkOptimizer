@@ -619,7 +619,18 @@
                             @foreach (var test in _recentSpeedTests)
                             {
                                 <div class="speed-test-row">
-                                    <span class="speed-test-device">@(test.DeviceName ?? "Unknown")</span>
+                                    @if (!string.IsNullOrEmpty(test.DeviceName))
+                                    {
+                                        <span class="speed-test-device">@test.DeviceName</span>
+                                    }
+                                    else if (!string.IsNullOrEmpty(test.DeviceHost))
+                                    {
+                                        <span class="speed-test-device"><code>@test.DeviceHost</code></span>
+                                    }
+                                    else
+                                    {
+                                        <span class="speed-test-device">Unknown</span>
+                                    }
                                     <span class="speed-test-speeds">
                                         <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
                                         <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
