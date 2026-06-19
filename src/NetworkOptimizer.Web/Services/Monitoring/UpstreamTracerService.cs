@@ -642,6 +642,14 @@ public class UpstreamTracerService
     private List<AttributedHop> _mergedHops = new();
     private List<AttributedHop> _accessHopsResolved = new();
 
+    // The first 2 distinct non-access ASNs walked off the merged path: the access
+    // ISP's direct upstream and that upstream's upstream. A transit-probe ASN (Lumen,
+    // AT&T, INDATEL) only counts as *our* ISP's transit when it lands in this window -
+    // probing toward a Lumen/AT&T anycast IP otherwise drags that tier-1 onto the path
+    // as the destination's own network even when it isn't an upstream at all. Set in
+    // TraceTransitAsnsAsync, read again when injecting transit witnesses.
+    private readonly HashSet<int> _nearTransitAsns = new();
+
     // Raw per-trace hop sequences from the last discovery sweep. Kept so commit can
     // persist SAME-PATH hop ordering to UpstreamDiscoveries: the merged pool (_mergedHops)
     // dedupes hop IPs across ~22 anycast traces, so its hop numbers are not on a common
@@ -894,30 +902,40 @@ public class UpstreamTracerService
         // routers surface - the endpoint IP itself is far away and not useful
         // as a monitoring target. Exception: EndpointIsTransitHop means the
         // endpoint itself is the transit router (small networks with one hop),
-        // but only if its ASN is near the access network (within 2 ASN
-        // transitions: access → transit, or access → upstream → transit).
+        // so it stays eligible as a target - the near-transit ASN gate below
+        // decides whether it's actually our ISP's transit.
         var transitProbeAddresses = new HashSet<string>(
             CdnRotation.Where(e => e.IsTransitProbe && !e.EndpointIsTransitHop).Select(e => e.Address),
             StringComparer.OrdinalIgnoreCase);
 
-        // For EndpointIsTransitHop probes, build the set of ASNs that are
-        // within 2 ASN transitions of the access network. If the endpoint's
-        // ASN isn't in this set, it's not really our ISP's transit.
-        var endpointTransitHopAddresses = new HashSet<string>(
-            CdnRotation.Where(e => e.EndpointIsTransitHop).Select(e => e.Address),
-            StringComparer.OrdinalIgnoreCase);
-        var nearTransitAsns = new HashSet<int>();
-        if (endpointTransitHopAddresses.Count > 0)
+        // Resolve the ASN of every transit probe (Lumen AS3356, AT&T AS7018,
+        // INDATEL AS30517). Tracing toward one of these anycast IPs always enters
+        // that ASN near the destination edge - so on its own, a probe ASN's
+        // presence on the path proves nothing about whether it's *our* ISP's
+        // upstream. We only keep it when it also lands in the near-transit window.
+        var transitProbeAsns = new HashSet<int>();
+        foreach (var endpoint in CdnRotation)
         {
-            var seen = new HashSet<int>();
-            foreach (var h in _mergedHops)
+            if (!endpoint.IsTransitProbe) continue;
+            var probeAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
+            if (probeAsn != null) transitProbeAsns.Add(probeAsn.Asn);
+        }
+
+        // The first 2 distinct non-access ASNs off the path: the access ISP's
+        // direct upstream, and that upstream's upstream. A transit-probe ASN counts
+        // as our ISP's transit only when it falls in this window - a tier-1 reached
+        // 3+ ASN transitions out (e.g. access → upstream → Cogent → Lumen) is the
+        // probe destination's own network, not our transit. Persisted to a field so
+        // the transit-witness injection (a later step) applies the same gate.
+        _nearTransitAsns.Clear();
+        var seenTransitAsns = new HashSet<int>();
+        foreach (var h in _mergedHops)
+        {
+            if (h.Asn == null || accessAsnNumbers.Contains(h.Asn.Asn)) continue;
+            if (seenTransitAsns.Add(h.Asn.Asn))
             {
-                if (h.Asn == null || accessAsnNumbers.Contains(h.Asn.Asn)) continue;
-                if (seen.Add(h.Asn.Asn))
-                {
-                    nearTransitAsns.Add(h.Asn.Asn);
-                    if (seen.Count >= 2) break;
-                }
+                _nearTransitAsns.Add(h.Asn.Asn);
+                if (seenTransitAsns.Count >= 2) break;
             }
         }
 
@@ -927,8 +945,8 @@ public class UpstreamTracerService
                         && !destinationAsns.Contains(h.Asn.Asn)
                         && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
                         && !transitProbeAddresses.Contains(h.Address)
-                        && (!endpointTransitHopAddresses.Contains(h.Address)
-                            || nearTransitAsns.Contains(h.Asn.Asn)))
+                        && (!transitProbeAsns.Contains(h.Asn.Asn)
+                            || _nearTransitAsns.Contains(h.Asn.Asn)))
             .GroupBy(h => h.Asn!.Asn)
             .ToList();
 
@@ -1142,8 +1160,11 @@ public class UpstreamTracerService
     {
         foreach (var (asn, address, name, label) in TransitWitnesses)
         {
-            // Only when the ASN is actually on the traced path.
-            if (!_mergedHops.Any(h => h.Asn?.Asn == asn)) continue;
+            // Only when the ASN is genuinely near-transit (the access ISP's upstream
+            // or its upstream's upstream). Mere presence on the path isn't enough -
+            // tracing the Lumen probe drags AS3356 onto the path even when Lumen is
+            // just the destination's own network, not our ISP's transit.
+            if (!_nearTransitAsns.Contains(asn)) continue;
             // Skip if any real router in this ASN already cleared the gate, or the witness exists.
             if (State.TransitAsns.Any(t => t.AsnNumber == asn && t.Enabled && !t.Unreachable)) continue;
             if (State.TransitAsns.Any(t => string.Equals(t.HopAddress, address, StringComparison.OrdinalIgnoreCase))) continue;
