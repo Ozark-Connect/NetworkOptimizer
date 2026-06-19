@@ -921,21 +921,38 @@ public class UpstreamTracerService
             if (probeAsn != null) transitProbeAsns.Add(probeAsn.Asn);
         }
 
-        // The first 2 distinct non-access ASNs off the path: the access ISP's
-        // direct upstream, and that upstream's upstream. A transit-probe ASN counts
-        // as our ISP's transit only when it falls in this window - a tier-1 reached
-        // 3+ ASN transitions out (e.g. access → upstream → Cogent → Lumen) is the
-        // probe destination's own network, not our transit. Persisted to a field so
-        // the transit-witness injection (a later step) applies the same gate.
+        // Near-transit = any ASN that appears as the 1st or 2nd distinct non-access
+        // ASN on at least one individual trace: the access ISP's direct upstream, or
+        // that upstream's upstream. A transit-probe ASN counts as our ISP's transit
+        // only when it lands in this window - a tier-1 reached 3+ ASN transitions out
+        // on every trace (e.g. access → upstream → Cogent → Lumen) is the probe
+        // destination's own network, not our transit.
+        //
+        // Computed PER TRACE, not over the merged pool: the merged pool orders hops
+        // by number across heterogeneous traces, so a multi-homed access ISP's other
+        // upstreams (or a near probe endpoint) can occupy the global "first two" slots
+        // at a lower hop number and crowd out a genuine direct upstream. Per-trace
+        // degree counting captures every direct upstream independently. Destination
+        // ASNs are skipped so a CDN endpoint can't consume a degree slot. Persisted to
+        // a field so the transit-witness injection (a later step) applies the same gate.
         _nearTransitAsns.Clear();
-        var seenTransitAsns = new HashSet<int>();
+        var asnByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var h in _mergedHops)
+            if (h.Asn != null) asnByIp.TryAdd(h.Address, h.Asn.Asn);
+        foreach (var trace in _lastTraces)
         {
-            if (h.Asn == null || accessAsnNumbers.Contains(h.Asn.Asn)) continue;
-            if (seenTransitAsns.Add(h.Asn.Asn))
+            var degreesSeen = new HashSet<int>();
+            foreach (var hop in trace.Hops
+                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address))
+                .OrderBy(hp => hp.HopNumber))
             {
-                _nearTransitAsns.Add(h.Asn.Asn);
-                if (seenTransitAsns.Count >= 2) break;
+                if (!asnByIp.TryGetValue(hop.Address!, out var hopAsn)) continue;
+                if (accessAsnNumbers.Contains(hopAsn) || destinationAsns.Contains(hopAsn)) continue;
+                if (degreesSeen.Add(hopAsn))
+                {
+                    _nearTransitAsns.Add(hopAsn);
+                    if (degreesSeen.Count >= 2) break;
+                }
             }
         }
 
