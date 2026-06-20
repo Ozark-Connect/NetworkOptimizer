@@ -22,7 +22,7 @@ public static class PortStatsEndpoints
     // Switch SNMP ifTables expose logical interfaces - link aggregations, VLAN SVIs, and
     // stack / tunnel / VPN / user-defined ports - alongside the real physical ports. They are
     // noise in the port stats table. Real ports ("Port 1", "SFP+ 1") and renamed ports never
-    // match these patterns, and VLAN sub-interfaces ("eth0.150") keep their dotted form. This
+    // match these patterns, and VLAN sub-interfaces ("eth0.100") keep their dotted form. This
     // is a reader-side display filter only; nothing is removed from InfluxDB or the live cache.
     private static readonly Regex JunkSwitchInterface = new(
         @"^(Port-Channel\d+|Logical-int \d+|User Defined Port \d+|stack-port|tunnel\d+|OpenVPN|\d+)$",
