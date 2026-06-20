@@ -40,5 +40,12 @@ public class InterfaceNameMap
 
     public int? SpeedMbps { get; set; }
 
+    /// <summary>
+    /// True when the UniFi PortTable reports an SFP module in this port, false for
+    /// RJ45 copper, null when the media type is unknown (e.g. gateway interfaces
+    /// with no matching PortTable entry).
+    /// </summary>
+    public bool? IsSfp { get; set; }
+
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 }

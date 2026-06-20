@@ -901,6 +901,13 @@ public class NetworkInfo
     public bool Enabled { get; set; }
     public int? VlanId { get; set; }
     public string? IpSubnet { get; set; }
+
+    /// <summary>VPN type when this network is a VPN client ("wireguard-client", "openvpn-client").</summary>
+    public string? VpnType { get; set; }
+
+    /// <summary>WireGuard client id; maps to the Linux interface "wgclt{id}".</summary>
+    public int? WireguardId { get; set; }
+
     public bool IsDhcpEnabled { get; set; }
     public string? DhcpRange { get; set; }
     public string? Gateway { get; set; }

@@ -1657,6 +1657,7 @@ IspHealthEndpoints.Map(app);
 MonitoringInvestigateEndpoints.Map(app);
 FlakyTargetEndpoints.Map(app);
 DeviceHealthChartEndpoints.Map(app);
+PortStatsEndpoints.Map(app);
 SfpChartEndpoints.Map(app);
 CellularChartEndpoints.Map(app);
 CmChartEndpoints.Map(app);

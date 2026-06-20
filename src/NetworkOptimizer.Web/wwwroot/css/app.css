@@ -14299,7 +14299,7 @@ a.affected-client:hover {
     gap: 0.5rem;
     flex-wrap: wrap;
     justify-content: center;
-    padding-bottom: 1rem;
+    padding-bottom: 0.5rem;
 }
 
 .wan-filter-badge {
@@ -16312,3 +16312,109 @@ body.kiosk-mode .header-actions {
 body.kiosk-mode .status-indicators {
     display: none;
 }
+
+.port-stats-table .data-table th,
+.port-stats-table .data-table td {
+    white-space: nowrap;
+}
+
+.port-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+.port-stats-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+.port-stats-scroll-top > div {
+    height: 1px;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar {
+    height: 10px;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+.port-label {
+    color: var(--text-primary);
+}
+
+.port-client-link,
+.port-client-link:visited {
+    color: var(--info-color);
+}
+
+.port-client-link:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+    .port-stats-1dev .data-table thead th:first-child,
+    .port-stats-1dev .data-table td[data-stat-id] {
+        display: none;
+    }
+}
+
+.port-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-secondary);
+    user-select: none;
+    cursor: default;
+}
+
+.port-icon.port-icon-down {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.port-speed-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.port-speed-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.port-speed-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    background-color: currentColor;
+}
+
+.port-speed-10m { color: #6b7280; }
+.port-speed-100m { color: #8b5cf6; }
+.port-speed-1g { color: #3b82f6; }
+.port-speed-2_5g { color: #06b6d4; }
+.port-speed-5g { color: #14b8a6; }
+.port-speed-10g { color: #10b981; }
+.port-speed-20g { color: #22c55e; }
+.port-speed-25g { color: #84cc16; }
+.port-speed-40g { color: #eab308; }
+.port-speed-50g { color: #f97316; }
+.port-speed-100g { color: #ef4444; }

@@ -5,7 +5,6 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
-using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -50,10 +49,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private DateTime _deviceCacheTime = DateTime.MinValue;
     private static readonly TimeSpan DeviceCacheDuration = TimeSpan.FromSeconds(30);
 
-    // Network cache (5 minute TTL - networks change rarely)
+    // Network cache (1 minute TTL - keeps Live View interface labels fresh)
     private List<NetworkInfo>? _cachedNetworks;
     private DateTime _networkCacheTime = DateTime.MinValue;
-    private static readonly TimeSpan NetworkCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan NetworkCacheDuration = TimeSpan.FromMinutes(1);
 
     // Lazy initialization for async config loading
     private Task? _initializationTask;
@@ -854,6 +853,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             Enabled = n.Enabled,
             VlanId = n.Vlan,
             IpSubnet = n.IpSubnet,
+            VpnType = n.VpnType,
+            WireguardId = n.WireguardId,
             IsDhcpEnabled = n.DhcpdEnabled,
             DhcpRange = n.DhcpdEnabled ? $"{n.DhcpdStart} - {n.DhcpdStop}" : null,
             Gateway = n.DhcpdGateway,

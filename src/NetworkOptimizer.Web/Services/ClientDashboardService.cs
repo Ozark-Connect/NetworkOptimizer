@@ -86,7 +86,8 @@ public class ClientDashboardService
 
                 // Verify the IP still matches - if another device took this IP
                 // (DHCP reassignment), the MAC lookup returns the wrong device.
-                if (client != null && client.Ip != clientIp)
+                // Match on BestIp so fixed/reservation devices (empty live ip) still match.
+                if (client != null && client.BestIp != clientIp)
                 {
                     _logger.LogTrace("Identify {Ip}: IP mismatch (device now at {NewIp}), invalidating cache", clientIp, client.Ip);
                     client = null;
@@ -105,7 +106,7 @@ public class ClientDashboardService
             {
                 _logger.LogTrace("Identify {Ip}: slow path via stat/sta (all clients)", clientIp);
                 var clients = await _connectionService.Client.GetClientsAsync();
-                client = clients?.FirstOrDefault(c => c.Ip == clientIp);
+                client = clients?.FirstOrDefault(c => c.BestIp == clientIp);
             }
 
             if (client != null)

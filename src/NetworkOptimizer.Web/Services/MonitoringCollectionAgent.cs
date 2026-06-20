@@ -853,6 +853,13 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
+        // Network config (cached ~5 min) feeds the WireGuard / OpenVPN / honeypot /
+        // bridge interface labels resolved below. Best-effort: a fetch failure just
+        // means those families fall back to their raw ifname.
+        IReadOnlyList<NetworkInfo> networkConfigs = Array.Empty<NetworkInfo>();
+        try { networkConfigs = await _connectionService.GetNetworksAsync(ct); }
+        catch (Exception ex) { _logger.LogDebug(ex, "networkconf fetch for interface labels failed"); }
+
         var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
 
@@ -917,10 +924,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     NoteSnmpFailure(NormalizeMac(device.Mac));
                     continue;
                 }
+                var deviceIfNames = new List<string>();
                 foreach (var iface in interfaces)
                 {
                     var ifName = string.IsNullOrEmpty(iface.Name) ? iface.Description : iface.Name;
                     if (string.IsNullOrEmpty(ifName)) continue;
+                    deviceIfNames.Add(ifName);
                     var key = (NormalizeMac(device.Mac), ifName);
 
                     // Map SNMP ifIndex to UniFi PortTable.PortIdx. Two strategies:
@@ -928,10 +937,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     //  - Gateways: ifIndex != PortIdx; PortTable.IfName joins to SNMP
                     //    iface.Name (Linux name like "eth4"). Direct numeric match
                     //    first, fall back to ifname match.
-                    int? portNumber = null;
+                    // The matched port supplies BOTH the port number and the UniFi
+                    // friendly name, so gateways (which only resolve via the IfName
+                    // fallback) get a friendly name too, not just switches.
+                    SwitchPort? portMatch = null;
                     if (device.PortTable != null)
                     {
-                        SwitchPort? portMatch = null;
                         if (iface.Index > 0)
                             portMatch = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
                         if (portMatch == null && !string.IsNullOrEmpty(ifName))
@@ -941,9 +952,27 @@ public class MonitoringCollectionAgent : BackgroundService
                                 && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
                                 && p.PortIdx > 0);
                         }
-                        if (portMatch != null && portMatch.PortIdx > 0)
-                            portNumber = portMatch.PortIdx;
                     }
+                    int? portNumber = portMatch is { PortIdx: > 0 } ? portMatch.PortIdx : null;
+                    var friendlyName = string.IsNullOrEmpty(portMatch?.Name) ? null : portMatch.Name;
+                    var isSfp = portMatch?.SfpFound;
+
+                    // Link speed: "lower of the two wins". SNMP is fresh and correct on
+                    // switches, but a gateway inflates copper ports to their 10G capability
+                    // (ifHighSpeed/ifSpeed both report the max, not the negotiated rate).
+                    // Negotiated speed can never exceed SNMP's reported value, so when
+                    // UniFi's PortTable reports a lower negotiated speed we take it.
+                    int? snmpSpeedMbps = iface.HighSpeed > 0
+                        ? (int)iface.HighSpeed
+                        : (iface.Speed > 0 ? (int)(iface.Speed / 1_000_000) : (int?)null);
+                    int? unifiSpeedMbps = portMatch is { Speed: > 0 } ? portMatch.Speed : (int?)null;
+                    int? linkSpeedMbps = (snmpSpeedMbps, unifiSpeedMbps) switch
+                    {
+                        (null, null) => null,
+                        (null, var u) => u,
+                        (var s, null) => s,
+                        var (s, u) => Math.Min(s.Value, u.Value),
+                    };
 
                     if (!existingMaps.TryGetValue(key, out var mapping))
                     {
@@ -953,9 +982,10 @@ public class MonitoringCollectionAgent : BackgroundService
                             IfName = ifName,
                             IfIndex = iface.Index,
                             IfAlias = iface.Description,
-                            SpeedMbps = (int?)(iface.HighSpeed > 0 ? iface.HighSpeed : iface.Speed / 1_000_000),
-                            FriendlyName = LookupUniFiPortName(device, iface),
+                            SpeedMbps = linkSpeedMbps,
+                            FriendlyName = friendlyName,
                             PortNumber = portNumber,
+                            IsSfp = isSfp,
                             LastUpdated = DateTime.UtcNow
                         };
                         db.InterfaceNameMaps.Add(mapping);
@@ -968,14 +998,25 @@ public class MonitoringCollectionAgent : BackgroundService
                     {
                         mapping.IfIndex = iface.Index;
                         mapping.IfAlias = iface.Description;
-                        if (iface.HighSpeed > 0) mapping.SpeedMbps = (int)iface.HighSpeed;
-                        else if (iface.Speed > 0) mapping.SpeedMbps = (int)(iface.Speed / 1_000_000);
-                        var unifiName = LookupUniFiPortName(device, iface);
-                        if (!string.IsNullOrEmpty(unifiName)) mapping.FriendlyName = unifiName;
+                        if (linkSpeedMbps.HasValue) mapping.SpeedMbps = linkSpeedMbps;
+                        if (!string.IsNullOrEmpty(friendlyName)) mapping.FriendlyName = friendlyName;
                         if (portNumber.HasValue) mapping.PortNumber = portNumber;
+                        if (isSfp.HasValue) mapping.IsSfp = isSfp;
                         mapping.LastUpdated = DateTime.UtcNow;
                     }
                 }
+
+                // Resolve friendly interface labels (WANn - carrier, WireGuard, SQM,
+                // honeypot, ...) from the device config + networkconf and cache them for
+                // the Live View port table.
+                //
+                // FUTURE TIME SERIES TOUCH POINT: this is where per-interface identity
+                // (label, WAN group, carrier, media) and status (oper_status) would also
+                // be written to InfluxDB so the port table can play back historical
+                // identity/status, not just the current snapshot. Resolved here, agent-
+                // side, precisely so that move is a localized addition.
+                _liveStats.RecordInterfaceLabels(NormalizeMac(device.Mac),
+                    InterfaceLabelResolver.BuildLabels(device, networkConfigs, deviceIfNames));
             }
             catch (Exception ex)
             {
@@ -1030,6 +1071,32 @@ public class MonitoringCollectionAgent : BackgroundService
         var wifiCount = clients.Count(c => !c.IsWired);
         var wiredCount = clients.Count(c => c.IsWired);
         _logger.LogDebug("WiFi tier: {Total} clients ({Wifi} wifi, {Wired} wired)", clients.Length, wifiCount, wiredCount);
+
+        // Map each switch/gateway port that has exactly one wired client to that client,
+        // for the Live View port stats "Client" column. Ports with multiple MACs
+        // (uplinks/trunks) are skipped so we never label them with an arbitrary client.
+        var wiredByPort = new Dictionary<(string, int), List<UniFiClientResponse>>();
+        foreach (var c in clients)
+        {
+            if (!c.IsWired || string.IsNullOrEmpty(c.Mac) || string.IsNullOrEmpty(c.SwMac)
+                || c.SwPort is not int swp || swp <= 0) continue;
+            var key = (NormalizeMac(c.SwMac), swp);
+            if (!wiredByPort.TryGetValue(key, out var list)) { list = new(); wiredByPort[key] = list; }
+            list.Add(c);
+        }
+        var portClients = new Dictionary<(string DeviceMac, int Port), MonitoringLiveStats.PortClient>();
+        foreach (var (key, list) in wiredByPort)
+        {
+            if (list.Count != 1) continue;
+            var pc = list[0];
+            var pcName = !string.IsNullOrWhiteSpace(pc.Name) ? pc.Name
+                : !string.IsNullOrWhiteSpace(pc.Hostname) ? pc.Hostname : pc.Mac;
+            // BestIp falls back ip -> last_ip -> fixed_ip, so fixed/reservation devices
+            // (no live DHCP lease) still resolve, matching the UniFi client table.
+            portClients[key] = new MonitoringLiveStats.PortClient(pc.Mac, pc.BestIp ?? string.Empty, pcName);
+        }
+        _liveStats.RecordPortClients(portClients);
+
         long tickOffset = 0; // nanosecond offset per client to avoid InfluxDB dedup
         foreach (var c in clients)
         {
@@ -1552,6 +1619,32 @@ public class MonitoringCollectionAgent : BackgroundService
             bcastPktsOut: iface.OutBroadcastPkts > 0 ? iface.OutBroadcastPkts : null,
             timestamp: now);
 
+        // Mirror the full per-port snapshot into the live cache so the Live View port
+        // stats table can serve live mode from memory instead of querying InfluxDB.
+        _liveStats.RecordPortStats(new MonitoringInfluxClient.PortStatsPoint
+        {
+            DeviceMac = mac,
+            IfName = ifName,
+            PortId = iface.PortId ?? "",
+            OperStatus = iface.OperStatus,
+            SpeedBps = speedBps > 0 ? speedBps : (long?)null,
+            RateInBps = rateInBps,
+            RateOutBps = rateOutBps,
+            BytesIn = iface.InOctets,
+            BytesOut = iface.OutOctets,
+            UcastPktsIn = iface.InUcastPkts,
+            UcastPktsOut = iface.OutUcastPkts,
+            McastPktsIn = iface.InMulticastPkts,
+            McastPktsOut = iface.OutMulticastPkts,
+            BcastPktsIn = iface.InBroadcastPkts,
+            BcastPktsOut = iface.OutBroadcastPkts,
+            ErrorsIn = iface.InErrors,
+            ErrorsOut = iface.OutErrors,
+            DiscardsIn = iface.InDiscards,
+            DiscardsOut = iface.OutDiscards,
+            Time = now,
+        });
+
         // SNMP per-interface rates feed the port-keyed cache. Match SNMP ifName to
         // UniFi PortTable.Name (both Linux names like "eth4") then write keyed by
         // PortTable.PortIdx (the UniFi-side port number the post-process looks up).
@@ -1785,19 +1878,6 @@ public class MonitoringCollectionAgent : BackgroundService
         NetworkOptimizer.Core.Enums.DeviceType.AccessPoint => "ap",
         _ => "unknown"
     };
-
-    private static string? LookupUniFiPortName(UniFiDeviceResponse device, InterfaceMetrics iface)
-    {
-        // PortTable entries on switches/gateways have user-defined per-port names. Match by
-        // port index (UniFi's "port_idx") to the SNMP ifIndex when possible. For the MVP we
-        // fall back to the SNMP description / name; the topology-driven match comes later.
-        if (device.PortTable != null)
-        {
-            var match = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
-            if (match != null && !string.IsNullOrEmpty(match.Name)) return match.Name;
-        }
-        return null;
-    }
 
     private void CollectSfpForDevice(
         UniFiDeviceResponse device,

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -174,6 +175,99 @@ public class MonitoringLiveStats
     {
         if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
         return _portRates.TryGetValue((Normalize(deviceMac), ifName), out var v) ? v : null;
+    }
+
+    // Full per-port snapshot (status, speed, packets, errors, discards + rates) for
+    // the Live View port stats table, letting live mode skip an InfluxDB round-trip.
+    // Independent of _portRates above (which the 3D map leaf rates depend on) - this
+    // is purely additive and read only by the port stats endpoint's live path.
+    private readonly ConcurrentDictionary<(string DeviceMac, string IfName), MonitoringInfluxClient.PortStatsPoint> _portStats = new();
+
+    public void RecordPortStats(MonitoringInfluxClient.PortStatsPoint point)
+    {
+        if (string.IsNullOrEmpty(point.DeviceMac) || string.IsNullOrEmpty(point.IfName)) return;
+        var key = (Normalize(point.DeviceMac), point.IfName);
+        // Carry forward any field the latest sample didn't carry (rates are only
+        // computed when a delta is available), so a partial cycle never blanks a column.
+        _portStats[key] = _portStats.TryGetValue(key, out var prior)
+            ? new MonitoringInfluxClient.PortStatsPoint
+            {
+                DeviceMac = point.DeviceMac,
+                IfName = point.IfName,
+                PortId = string.IsNullOrEmpty(point.PortId) ? prior.PortId : point.PortId,
+                OperStatus = point.OperStatus ?? prior.OperStatus,
+                SpeedBps = point.SpeedBps ?? prior.SpeedBps,
+                RateInBps = point.RateInBps ?? prior.RateInBps,
+                RateOutBps = point.RateOutBps ?? prior.RateOutBps,
+                BytesIn = point.BytesIn ?? prior.BytesIn,
+                BytesOut = point.BytesOut ?? prior.BytesOut,
+                UcastPktsIn = point.UcastPktsIn ?? prior.UcastPktsIn,
+                UcastPktsOut = point.UcastPktsOut ?? prior.UcastPktsOut,
+                McastPktsIn = point.McastPktsIn ?? prior.McastPktsIn,
+                McastPktsOut = point.McastPktsOut ?? prior.McastPktsOut,
+                BcastPktsIn = point.BcastPktsIn ?? prior.BcastPktsIn,
+                BcastPktsOut = point.BcastPktsOut ?? prior.BcastPktsOut,
+                ErrorsIn = point.ErrorsIn ?? prior.ErrorsIn,
+                ErrorsOut = point.ErrorsOut ?? prior.ErrorsOut,
+                DiscardsIn = point.DiscardsIn ?? prior.DiscardsIn,
+                DiscardsOut = point.DiscardsOut ?? prior.DiscardsOut,
+                Time = point.Time,
+            }
+            : point;
+    }
+
+    // Agent-resolved interface display labels (ifname -> friendly label) per device,
+    // e.g. "gre1" -> "WAN3 - AT&T Wireless (5G)". Resolved live by the polling agent
+    // from UniFi config so this can become persisted time series later; for now it is
+    // an in-memory snapshot read by the port stats endpoint. Purely additive.
+    private readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, string>> _interfaceLabels = new();
+
+    /// <summary>Replaces the resolved ifname→label map for a device.</summary>
+    public void RecordInterfaceLabels(string deviceMac, IReadOnlyDictionary<string, string> labels)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || labels == null) return;
+        _interfaceLabels[Normalize(deviceMac)] = labels;
+    }
+
+    /// <summary>Resolved label for a device interface, or null when none is known.</summary>
+    public string? GetInterfaceLabel(string deviceMac, string ifName)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        return _interfaceLabels.TryGetValue(Normalize(deviceMac), out var map)
+            && map.TryGetValue(ifName, out var label) ? label : null;
+    }
+
+    /// <summary>The single wired client on a switch/gateway port (for the port stats table).</summary>
+    public readonly record struct PortClient(string Mac, string Ip, string Name);
+
+    // Wired client per (device mac, port number), for ports with exactly one client.
+    // Refreshed by the WiFi/client tier; swapped atomically. Additive - nothing else
+    // reads this, so it can't regress existing consumers.
+    private volatile IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> _portClients =
+        new Dictionary<(string, int), PortClient>();
+
+    /// <summary>Replaces the whole (device, port) → wired-client map.</summary>
+    public void RecordPortClients(IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> map)
+    {
+        if (map != null) _portClients = map;
+    }
+
+    /// <summary>The wired client on a device port, or null when none / ambiguous.</summary>
+    public PortClient? GetPortClient(string deviceMac, int port)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return null;
+        return _portClients.TryGetValue((Normalize(deviceMac), port), out var c) ? c : null;
+    }
+
+    /// <summary>Latest cached per-port snapshot, optionally filtered to specific device MACs.</summary>
+    public IReadOnlyList<MonitoringInfluxClient.PortStatsPoint> GetPortStatsSnapshot(IReadOnlyCollection<string>? deviceMacs)
+    {
+        if (deviceMacs != null && deviceMacs.Count > 0)
+        {
+            var set = deviceMacs.Select(Normalize).ToHashSet();
+            return _portStats.Values.Where(p => set.Contains(Normalize(p.DeviceMac))).ToList();
+        }
+        return _portStats.Values.ToList();
     }
 
     /// <summary>Latest probe result for a specific monitoring target ID.</summary>
@@ -420,6 +514,11 @@ public class MonitoringLiveStats
         {
             if (kvp.Value.LastUpdate < cutoff)
                 _portRates.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in _portStats)
+        {
+            if (kvp.Value.Time < cutoff)
+                _portStats.TryRemove(kvp.Key, out _);
         }
     }
 

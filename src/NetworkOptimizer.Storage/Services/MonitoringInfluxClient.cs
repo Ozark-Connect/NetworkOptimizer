@@ -813,6 +813,133 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Point-in-time snapshot of every interface_counters field for one or more
+    /// devices. Returns the most recent point per (device, interface) within a
+    /// short window around <paramref name="at"/> (or the latest available when
+    /// <paramref name="at"/> is null). Used by the Live View port stats table,
+    /// which reads the value at the current map scrubber position.
+    /// </summary>
+    /// <param name="deviceMacs">Devices to include; null or empty returns all polled devices.</param>
+    /// <param name="at">Historic playback instant, or null for the latest sample.</param>
+    public async Task<IReadOnlyList<PortStatsPoint>> QueryPortStatsAsync(
+        IReadOnlyList<string>? deviceMacs,
+        DateTime? at,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<PortStatsPoint>();
+
+        string rangeClause;
+        if (at.HasValue)
+        {
+            // Mirror the historic snapshot window used elsewhere on the Live tab so
+            // the table lines up with the map and WAN chart at the same scrub point.
+            var center = at.Value.ToUniversalTime();
+            rangeClause = $"range(start: {ToFluxInstant(center.AddSeconds(-90))}, stop: {ToFluxInstant(center.AddSeconds(30))})";
+        }
+        else
+        {
+            // Wide enough to catch the newest sample on the slowest SNMP tier;
+            // last() collapses it to the single most recent point per interface.
+            rangeClause = "range(start: -120s)";
+        }
+
+        var macFilter = "";
+        if (deviceMacs != null && deviceMacs.Count > 0)
+        {
+            var macs = deviceMacs.Select(NormalizeMac).Distinct().ToList();
+            macFilter = "\n  |> filter(fn: (r) => " +
+                string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}""")) + ")";
+        }
+
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> {rangeClause}
+  |> filter(fn: (r) => r._measurement == ""interface_counters""){macFilter}
+  |> last()
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var raw = new List<PortStatsPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            raw.Add(new PortStatsPoint
+            {
+                DeviceMac = record.GetValueByKey("device_mac") as string ?? "",
+                IfName = record.GetValueByKey("if_name") as string ?? "",
+                PortId = record.GetValueByKey("port_id") as string ?? "",
+                OperStatus = AsIntOrNull(record.GetValueByKey("oper_status")),
+                SpeedBps = AsLongOrNull(record.GetValueByKey("speed_bps")),
+                RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
+                RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps")),
+                BytesIn = AsLongOrNull(record.GetValueByKey("bytes_in")),
+                BytesOut = AsLongOrNull(record.GetValueByKey("bytes_out")),
+                UcastPktsIn = AsLongOrNull(record.GetValueByKey("ucast_pkts_in")),
+                UcastPktsOut = AsLongOrNull(record.GetValueByKey("ucast_pkts_out")),
+                McastPktsIn = AsLongOrNull(record.GetValueByKey("mcast_pkts_in")),
+                McastPktsOut = AsLongOrNull(record.GetValueByKey("mcast_pkts_out")),
+                BcastPktsIn = AsLongOrNull(record.GetValueByKey("bcast_pkts_in")),
+                BcastPktsOut = AsLongOrNull(record.GetValueByKey("bcast_pkts_out")),
+                ErrorsIn = AsLongOrNull(record.GetValueByKey("errors_in")),
+                ErrorsOut = AsLongOrNull(record.GetValueByKey("errors_out")),
+                DiscardsIn = AsLongOrNull(record.GetValueByKey("discards_in")),
+                DiscardsOut = AsLongOrNull(record.GetValueByKey("discards_out")),
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+
+        // Different fields can land on different timestamps - rate_in/out are only
+        // written when a rate is computable, so a fresh point may carry oper_status
+        // and packet counters while the rates sit on an earlier point. pivot-by-time
+        // then splits one interface into several partial rows. Collapse to a single
+        // row per (device, interface), coalescing each field from the most recent
+        // sample that carries it.
+        return raw
+            .GroupBy(p => (p.DeviceMac, p.IfName), TupleMacIfComparer)
+            .Select(g =>
+            {
+                var ordered = g.OrderByDescending(p => p.Time).ToList();
+                long? FirstLong(Func<PortStatsPoint, long?> sel) => ordered.Select(sel).FirstOrDefault(v => v.HasValue);
+                double? FirstDouble(Func<PortStatsPoint, double?> sel) => ordered.Select(sel).FirstOrDefault(v => v.HasValue);
+                return new PortStatsPoint
+                {
+                    DeviceMac = g.Key.DeviceMac,
+                    IfName = g.Key.IfName,
+                    PortId = ordered.Select(p => p.PortId).FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "",
+                    OperStatus = ordered.Select(p => p.OperStatus).FirstOrDefault(v => v.HasValue),
+                    SpeedBps = FirstLong(p => p.SpeedBps),
+                    RateInBps = FirstDouble(p => p.RateInBps),
+                    RateOutBps = FirstDouble(p => p.RateOutBps),
+                    BytesIn = FirstLong(p => p.BytesIn),
+                    BytesOut = FirstLong(p => p.BytesOut),
+                    UcastPktsIn = FirstLong(p => p.UcastPktsIn),
+                    UcastPktsOut = FirstLong(p => p.UcastPktsOut),
+                    McastPktsIn = FirstLong(p => p.McastPktsIn),
+                    McastPktsOut = FirstLong(p => p.McastPktsOut),
+                    BcastPktsIn = FirstLong(p => p.BcastPktsIn),
+                    BcastPktsOut = FirstLong(p => p.BcastPktsOut),
+                    ErrorsIn = FirstLong(p => p.ErrorsIn),
+                    ErrorsOut = FirstLong(p => p.ErrorsOut),
+                    DiscardsIn = FirstLong(p => p.DiscardsIn),
+                    DiscardsOut = FirstLong(p => p.DiscardsOut),
+                    Time = ordered[0].Time,
+                };
+            })
+            .ToList();
+    }
+
+    private static readonly IEqualityComparer<(string DeviceMac, string IfName)> TupleMacIfComparer =
+        new MacIfTupleComparer();
+
+    private sealed class MacIfTupleComparer : IEqualityComparer<(string DeviceMac, string IfName)>
+    {
+        public bool Equals((string DeviceMac, string IfName) x, (string DeviceMac, string IfName) y) =>
+            string.Equals(x.DeviceMac, y.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.IfName, y.IfName, StringComparison.Ordinal);
+
+        public int GetHashCode((string DeviceMac, string IfName) obj) =>
+            HashCode.Combine(obj.DeviceMac.ToLowerInvariant(), obj.IfName);
+    }
+
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
         IReadOnlyList<string> wanIfNames,
@@ -1919,6 +2046,35 @@ from(bucket: ""{_longtermBucket}"")
         public required string IfName { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+    }
+
+    /// <summary>
+    /// Full set of interface_counters fields for a single port at one instant.
+    /// Packet-counter fields (ucast/mcast/bcast) are nullable so the table renders
+    /// gracefully on data written before those fields were collected.
+    /// </summary>
+    public record PortStatsPoint
+    {
+        public required DateTime Time { get; init; }
+        public required string DeviceMac { get; init; }
+        public required string IfName { get; init; }
+        public string PortId { get; init; } = "";
+        public int? OperStatus { get; init; }
+        public long? SpeedBps { get; init; }
+        public double? RateInBps { get; init; }
+        public double? RateOutBps { get; init; }
+        public long? BytesIn { get; init; }
+        public long? BytesOut { get; init; }
+        public long? UcastPktsIn { get; init; }
+        public long? UcastPktsOut { get; init; }
+        public long? McastPktsIn { get; init; }
+        public long? McastPktsOut { get; init; }
+        public long? BcastPktsIn { get; init; }
+        public long? BcastPktsOut { get; init; }
+        public long? ErrorsIn { get; init; }
+        public long? ErrorsOut { get; init; }
+        public long? DiscardsIn { get; init; }
+        public long? DiscardsOut { get; init; }
     }
 
     public record DeviceHealthPoint

@@ -335,7 +335,12 @@ public class UniFiNetworkConfig
 
     // VPN configuration
     [JsonPropertyName("vpn_type")]
-    public string? VpnType { get; set; } // "pptp", "l2tp", "openvpn", "wireguard"
+    public string? VpnType { get; set; } // "pptp", "l2tp", "openvpn", "wireguard", "wireguard-client", "openvpn-client"
+
+    /// <summary>WireGuard client id; maps directly to the Linux interface "wgclt{id}".</summary>
+    [JsonPropertyName("wireguard_id")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? WireguardId { get; set; }
 
     [JsonPropertyName("radiusprofile_id")]
     public string? RadiusprofileId { get; set; }

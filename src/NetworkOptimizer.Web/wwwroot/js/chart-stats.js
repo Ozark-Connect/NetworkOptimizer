@@ -24,7 +24,7 @@ export function computeStats(values) {
 
 export function renderStatsTable(el, container, opts) {
     if (!el) return;
-    const { nameHeader = 'Name', rows, columns, filter } = opts;
+    const { nameHeader = 'Name', rows, columns, filter, title = 'Statistics' } = opts;
 
     if (!rows || rows.length === 0) { el.innerHTML = ''; return; }
 
@@ -49,15 +49,23 @@ export function renderStatsTable(el, container, opts) {
     const scrollLeft = prev ? prev.scrollLeft : 0;
 
     const headers = columns.map((col, i) => {
+        // Columns can opt out of sorting (e.g. cells holding HTML, not a sortable value).
+        if (col.sortable === false) {
+            return `<th${col.cls ? ` class="${col.cls}"` : ''}>${col.header}</th>`;
+        }
         const active = i === sortCol;
         const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
-        return `<th data-sort-col="${i}"${active ? ' class="stats-sort-active"' : ''}>${col.header}${arrow}</th>`;
+        const classes = [active ? 'stats-sort-active' : '', col.cls || ''].filter(Boolean).join(' ');
+        return `<th data-sort-col="${i}"${classes ? ` class="${classes}"` : ''}>${col.header}${arrow}</th>`;
     }).join('');
 
     const rowsHtml = sorted.map(r => {
         const filtered = r.visible === false;
         const cls = filtered ? ' class="stats-row-filtered"' : '';
-        const cells = r.values.map((v, i) => `<td>${filtered ? '-' : columns[i].format(v)}</td>`).join('');
+        const cells = r.values.map((v, i) => {
+            const colCls = columns[i].cls ? ` class="${columns[i].cls}"` : '';
+            return `<td${colCls}>${filtered ? '-' : columns[i].format(v)}</td>`;
+        }).join('');
         return `<tr${cls}>
             <td data-stat-id="${r.id}"><span class="stat-filter-badge"><span class="wan-badge-dot" style="background-color:${r.color}"></span>${escapeHtml(r.label)}</span></td>
             ${cells}
@@ -65,7 +73,7 @@ export function renderStatsTable(el, container, opts) {
     }).join('');
 
     el.innerHTML = `<div class="chart-card" style="margin-top:1rem">
-        <div class="chart-header"><h3 class="chart-title">Statistics</h3></div>
+        ${title ? `<div class="chart-header"><h3 class="chart-title">${title}</h3></div>` : ''}
         <div class="table-responsive">
         <table class="data-table" style="font-size:0.8125rem">
             <thead><tr>

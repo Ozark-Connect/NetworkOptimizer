@@ -282,6 +282,20 @@ else
             @GatewayStatCards
             <div style="margin-top: 1rem;">@Map2dCard</div>
         }
+
+        <!-- Port stats playback table: per-port interface counters at the current scrubber position -->
+        <div class="card" id="port-stats-card" style="display: none; margin-top: 1rem;">
+            <div class="card-header">
+                <h2 class="card-title">Port Statistics</h2>
+                <div class="time-range-selector" id="port-stats-tabs"></div>
+            </div>
+            <div class="card-body">
+                <div class="health-filter-badges wan-filter-badges" id="port-stats-filter-badges"></div>
+                <div class="port-stats-scroll-top" id="port-stats-scroll-top" style="display: none;"><div></div></div>
+                <div class="port-stats-table" id="port-stats-table"></div>
+                <div class="port-speed-legend" id="port-stats-legend"></div>
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: ISP Health ──────────────── *@
@@ -1227,6 +1241,7 @@ else
     private bool _mapMounted = false;
     private bool _map2dMounted = false;
     private bool _wanLiveChartMounted = false;
+    private bool _portStatsMounted = false;
     private bool _latencyChartsMounted;
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
@@ -1801,11 +1816,23 @@ else
     [JSInvokable]
     public void OnMapPlayStateChanged(bool paused, string mode)
     {
-        if (!_wanLiveChartMounted) return;
-        if (paused)
-            _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.pause();");
-        else if (mode == "live")
-            _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.resume();");
+        // Drive each live consumer independently so one being unmounted doesn't starve
+        // the other. Historic playback (at any speed) flows through OnMapTimeChanged;
+        // this only gates live auto-refresh on pause/resume.
+        if (_wanLiveChartMounted)
+        {
+            if (paused)
+                _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.pause();");
+            else if (mode == "live")
+                _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.resume();");
+        }
+        if (_portStatsMounted)
+        {
+            if (paused)
+                _ = JS.InvokeVoidAsync("eval", "window.__portStatsTable?.pause();");
+            else if (mode == "live")
+                _ = JS.InvokeVoidAsync("eval", "window.__portStatsTable?.resume();");
+        }
     }
 
     [JSInvokable]
@@ -1815,6 +1842,13 @@ else
         if (_wanLiveChartMounted)
         {
             try { await JS.InvokeVoidAsync("eval", $"window.__wanLiveChart?.seekTime({(isoTimestamp != null ? $"'{isoTimestamp}'" : "null")});"); }
+            catch { }
+        }
+
+        // Sync the port stats table to the same timeline position
+        if (_portStatsMounted)
+        {
+            try { await JS.InvokeVoidAsync("eval", $"window.__portStatsTable?.seekTime({(isoTimestamp != null ? $"'{isoTimestamp}'" : "null")});"); }
             catch { }
         }
 
@@ -2538,6 +2572,24 @@ else
             catch { }
         }
 
+        // Port stats playback table - Live tab only
+        if (_activeTab == "live" && _monitoringReady && !_portStatsMounted)
+        {
+            _portStatsMounted = true;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/port-stats-table.js")}'); window.__portStatsTableModule = m; m.mount(document.getElementById('port-stats-card')); }})();");
+            }
+            catch (Exception ex) { _portStatsMounted = false; Logger.LogDebug(ex, "Port stats table mount failed; will retry on next render"); }
+        }
+        else if (_activeTab != "live" && _portStatsMounted)
+        {
+            _portStatsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__portStatsTable?.unmount();"); }
+            catch { }
+        }
+
         // Latency charts - Performance tab only
         if (_activeTab == "performance" && _monitoringReady && !_latencyChartsMounted)
         {
@@ -2746,6 +2798,11 @@ else
         if (_wanLiveChartMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_portStatsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__portStatsTable?.unmount();").AsTask(); }
             catch { }
         }
         if (_mapMounted)
