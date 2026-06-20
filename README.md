@@ -33,7 +33,7 @@ Coming Soon: Multi-WAN support for both Monitoring and ISP Health. The per-WAN s
 
 Track signal quality on your cable modem, fiber ONT, and cellular modems over time - the same InfluxDB time-series charting as the rest of your network monitoring data. Instead of logging into each device's admin page to spot-check levels, everything is polled automatically and charted with the same time range controls, filter badges, and dashboard panels as your LAN and WAN metrics.
 
-**Cable Modem (DOCSIS)** - Downstream/upstream power levels, SNR, and FEC error rates (correctable and uncorrectable) with per-channel charting. Supports Netgear CM (CM600, CM1000, CM1200), ARRIS Surfboard (SB8200, SB6183, S33/S34), Motorola (MB8611, MB8600, MB7621), and Xfinitiy / Cox (XB8 / XB10 and CGM4981).
+**Cable Modem (DOCSIS)** - Downstream/upstream power levels, SNR, and FEC error rates (correctable and uncorrectable) with per-channel charting. Supports Netgear CM (CM600, CM700, CM1000, CM1200), ARRIS Surfboard (SB8200, SB6183, S33/S34), Motorola (MB8611, MB8600, MB7621), and Xfinitiy / Cox (XB8 / XB10 and CGM4981).
 
 **Fiber ONT** - RX/TX optical power, temperature, voltage, and bias current for external and SFP ONTs. Supports AT&T residential gateways (BGW320, BGW210), Quantum Q1000K, Realtek-based GPON sticks (ODI DFP-34X-2C2, V-SOL V2801F, T&W TWCGPON657), and 8311 community firmware sticks (WAS-110, PRX126, Nokia G-010S-P). SFP-based ONT monitoring (modules plugged into your gateway that expose DDM optical data) is part of the Network Monitoring feature below.
 

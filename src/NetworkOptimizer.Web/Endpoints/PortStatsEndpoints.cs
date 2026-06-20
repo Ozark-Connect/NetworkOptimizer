@@ -19,6 +19,15 @@ public static class PortStatsEndpoints
     // interface name followed by a dotted numeric VLAN id.
     private static readonly Regex SubInterface = new(@"^(?<base>.+)\.(?<vlan>\d+)$", RegexOptions.Compiled);
 
+    // Switch SNMP ifTables expose logical interfaces - link aggregations, VLAN SVIs, and
+    // stack / tunnel / VPN / user-defined ports - alongside the real physical ports. They are
+    // noise in the port stats table. Real ports ("Port 1", "SFP+ 1") and renamed ports never
+    // match these patterns, and VLAN sub-interfaces ("eth0.100") keep their dotted form. This
+    // is a reader-side display filter only; nothing is removed from InfluxDB or the live cache.
+    private static readonly Regex JunkSwitchInterface = new(
+        @"^(Port-Channel\d+|Logical-int \d+|User Defined Port \d+|stack-port|tunnel\d+|OpenVPN|\d+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/monitoring/port-stats", async (
@@ -82,12 +91,16 @@ public static class PortStatsEndpoints
                 {
                     var mac = Norm(g.Key);
                     targetByMac.TryGetValue(mac, out var target);
+                    var type = NormalizeType(target?.AutoLabel);
                     return new
                     {
                         mac = g.Key,
                         name = !string.IsNullOrWhiteSpace(target?.Name) ? target!.Name : g.Key,
-                        type = NormalizeType(target?.AutoLabel),
+                        type,
+                        // Switches only: drop logical-interface noise before the friendly-name
+                        // resolution below. Physical and renamed ports pass through untouched.
                         ports = g
+                            .Where(p => type != "switch" || !IsJunkSwitchInterface(p.IfName))
                             .Select(p =>
                             {
                                 mapByKey.TryGetValue((mac, p.IfName), out var nm);
@@ -151,6 +164,11 @@ public static class PortStatsEndpoints
 
     private static string Norm(string mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
+
+    // True when a switch interface is logical noise that should not appear in the port stats
+    // table (see JunkSwitchInterface). Callers gate this on device type == "switch".
+    private static bool IsJunkSwitchInterface(string? ifName) =>
+        !string.IsNullOrEmpty(ifName) && JunkSwitchInterface.IsMatch(ifName);
 
     private static string NormalizeType(string? autoLabel) => (autoLabel ?? "").ToLowerInvariant() switch
     {
