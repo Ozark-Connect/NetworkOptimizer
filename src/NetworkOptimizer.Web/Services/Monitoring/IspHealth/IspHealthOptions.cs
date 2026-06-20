@@ -5,8 +5,7 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// <summary>
 /// All ISP Health tunables in one place: score weights, load classification
 /// thresholds, congestion and step-change detector parameters, and the SQM
-/// recommendation rule. The authoritative reference for these values is
-/// research/isp-health-spec.md (local-only); keep both in sync when tuning.
+/// recommendation rule. Defaults are provisional and tuned against real incident data.
 /// </summary>
 public class IspHealthOptions
 {
@@ -146,6 +145,41 @@ public class IspHealthOptions
 
     /// <summary>Minimum time overlap (fraction of the shorter event) for events to be considered simultaneous.</summary>
     public double SharedEventOverlapFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// Absolute floor in ms a bucket's jitter delta must clear, on top of the
+    /// <see cref="CongestionJitterFactor"/> ratio gate, to count as elevated. An
+    /// ultra-stable far hop with a near-zero baseline (e.g. a 0.26 ms transit hop) trips
+    /// the multiplicative gate on a fraction of a millisecond of shared return-path wobble;
+    /// this stops that. Sustained genuine congestion clears it easily.
+    /// </summary>
+    public double CongestionJitterMinDeltaMs { get; set; } = 0.8;
+
+    /// <summary>
+    /// WAN utilization (fraction of the expected plan speed, worst direction) at or above
+    /// which a congestion bucket is treated as coinciding with heavy local load. The
+    /// self-inflicted classifier uses this to tell access-egress bufferbloat (your own
+    /// traffic saturating your access link) from external path congestion. Requires known
+    /// expected speeds; without them load-coincidence is left undetermined and the event is
+    /// reported, never suppressed.
+    /// </summary>
+    public double CongestionLoadHighFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// Fraction of an event's buckets that must coincide with heavy WAN load before the
+    /// event is considered load-driven (the input to self-inflicted classification).
+    /// </summary>
+    public double CongestionLoadCoincidenceFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// Fraction of a hop's in-window RTT samples that must exceed its own baseline p90 (by the
+    /// congestion RTT floor) for the localizer to count it as elevated when testing propagation.
+    /// A real bottleneck's delay reaches downstream hops as excursions that are often too sparse
+    /// to fire their own sustained congestion event; without this softer test the localizer would
+    /// wrongly absolve a genuine bottleneck as control-plane noise because nothing downstream
+    /// "fired". Clean off-path hops sit near zero, so a low bar separates them cleanly.
+    /// </summary>
+    public double CongestionPropagationExcursionFraction { get; set; } = 0.05;
 
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;

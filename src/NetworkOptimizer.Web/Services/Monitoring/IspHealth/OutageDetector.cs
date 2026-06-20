@@ -23,7 +23,7 @@ public static class OutageDetector
     /// per-target <paramref name="Name"/> (the PTR hostname); the detector disambiguates when one
     /// ASN owns several rows. Null AsnLabel (internet endpoints) falls back to <paramref name="Name"/>.
     /// </summary>
-    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series, bool Groupable = false, string? AsnLabel = null);
+    public sealed record Hop(string Name, int Depth, IReadOnlyList<LatencySample> Series, bool Groupable = false, string? AsnLabel = null, bool IsGateway = false);
 
     /// <param name="triggerTargets">The internet/destination loss series whose near-total loss defines an outage.</param>
     /// <param name="hops">Every monitored hop, ordered by distance (Depth ascending = nearest first), for the shape.</param>
@@ -163,12 +163,20 @@ public static class OutageDetector
         // The break sits just beyond the deepest hop that stayed reachable through the
         // outage. If even the nearest hop was dark for most of it, the whole WAN dropped.
         // Attribution runs on the per-hop (ungrouped) states so it can name the precise hop.
-        var states = tiers.Select(t => t.State).ToList();
-        var nearest = states.OrderBy(s => s.Depth).FirstOrDefault();
-        var lastReachable = states.Where(s => !onBrokenPath[s.Depth]).OrderByDescending(s => s.Depth).FirstOrDefault();
-        var scope = nearest == null || onBrokenPath[nearest.Depth] || lastReachable == null
-            ? OutageScope.FullWan
-            : OutageScope.Upstream;
+        // The LAN gateway is excluded from WAN break attribution (FullWan/Upstream) and only decides
+        // the Local override: when the gateway itself stayed dark through the outage, the agent could
+        // not reach its own gateway - a LAN/switch/gateway outage, not the ISP's WAN. With no gateway
+        // hop, wanStates == all states and the FullWan/Upstream logic is byte-for-byte unchanged.
+        var gwTier = tiers.FirstOrDefault(t => t.Hop.IsGateway);
+        var gatewayDark = gwTier.Hop != null && onBrokenPath.TryGetValue(gwTier.State.Depth, out var gwd) && gwd;
+        var wanStates = tiers.Where(t => !t.Hop.IsGateway).Select(t => t.State).ToList();
+        var nearest = wanStates.OrderBy(s => s.Depth).FirstOrDefault();
+        var lastReachable = wanStates.Where(s => !onBrokenPath[s.Depth]).OrderByDescending(s => s.Depth).FirstOrDefault();
+        var scope = gatewayDark
+            ? OutageScope.Local
+            : nearest == null || onBrokenPath[nearest.Depth] || lastReachable == null
+                ? OutageScope.FullWan
+                : OutageScope.Upstream;
 
         // Bucket edges are minute-aligned; report the real onset and recovery instants from
         // the pooled trigger stream so the window carries seconds. Fall back to the bucket

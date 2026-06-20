@@ -2,6 +2,16 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="6.*" PrivateAssets="all" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- SQLitePCLRaw.lib.e_sqlite3 2.1.11 (pulled transitively by Microsoft.Data.Sqlite /
+         EF Core Sqlite 10.0.7) is flagged for GHSA-2m69-gcr7-jv3q, a vulnerability in the
+         bundled native SQLite. We are not in the affected code path: the app opens only its
+         own EF-managed database, never foreign .db files or untrusted SQL. The EF team's
+         sanctioned interim is to suppress this advisory (they cannot bump the managed bundle
+         to v3 in a patch - it's a breaking change); the real fix ships in EF 10.0.11.
+         See https://github.com/dotnet/efcore/issues/38257 - REMOVE this when we move to 10.0.11. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
   <PropertyGroup>
     <!-- MinVer derives version from git tags (e.g., v0.7.3 -> 0.7.3) -->
     <MinVerTagPrefix>v</MinVerTagPrefix>

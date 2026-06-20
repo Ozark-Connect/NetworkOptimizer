@@ -12,6 +12,8 @@ let pollTimer = null;
 let fetchController = null;
 let resetBtn = null;
 let isZoomed = false;
+// null = default 48 h cached view; { from, to } ISO strings = a filter-selected window.
+let win = null;
 
 function buildOpts() {
     return {
@@ -20,7 +22,7 @@ function buildOpts() {
             height: 280,
             background: 'transparent',
             toolbar: { show: false },
-            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', allowMouseWheelZoom: false },
+            zoom: { enabled: !matchMedia('(pointer:coarse)').matches, type: 'x', autoScaleYaxis: true, allowMouseWheelZoom: false },
             parentHeightOffset: 0,
             animations: { enabled: false },
             events: {
@@ -121,8 +123,9 @@ async function loadAndUpdate() {
     fetchController?.abort();
     fetchController = new AbortController();
     try {
-        const resp = await fetch('/api/monitoring/isp-health/asn-series',
-            { credentials: 'same-origin', signal: fetchController.signal });
+        let url = '/api/monitoring/isp-health/asn-series';
+        if (win) url += `?from=${encodeURIComponent(win.from)}&to=${encodeURIComponent(win.to)}`;
+        const resp = await fetch(url, { credentials: 'same-origin', signal: fetchController.signal });
         if (!resp.ok) return;
         const json = await resp.json();
 
@@ -140,9 +143,10 @@ async function loadAndUpdate() {
     }
 }
 
-export async function mount(elId) {
+export async function mount(elId, fromISO = null, toISO = null) {
     const el = document.getElementById(elId);
     if (!el) return;
+    win = (fromISO && toISO) ? { from: fromISO, to: toISO } : null;
 
     resetBtn = document.createElement('button');
     resetBtn.type = 'button';
@@ -163,10 +167,20 @@ export async function reload() {
     await loadAndUpdate();
 }
 
+// Follow a filter-selected window (or null, null for the default 48 h view). Clears any
+// drag-zoom and reloads, so the chart resets and refetches on every filter change.
+export async function setWindow(fromISO, toISO) {
+    win = (fromISO && toISO) ? { from: fromISO, to: toISO } : null;
+    if (chart) chart.updateOptions({ xaxis: { min: undefined, max: undefined } }, false, false);
+    setZoomed(false);
+    await loadAndUpdate();
+}
+
 export function unmount() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     fetchController?.abort();
     if (resetBtn) { resetBtn.remove(); resetBtn = null; }
     isZoomed = false;
+    win = null;
     if (chart) { chart.destroy(); chart = null; }
 }

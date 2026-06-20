@@ -34,7 +34,13 @@ public class IspHealthService
     // "+N ms hop" line labels must match the report's event labels). Single-reference
     // assignment makes the swap atomic; readers take one local copy.
     private sealed record Snapshot(IspHealthReport Report, List<AsnSeries> ChartClusters);
+    // Result of one core compute, before it is published (or not) to instance state.
+    private sealed record ComputeOutcome(IspHealthStatus Status, IspHealthReport? Report, List<AsnSeries> ChartClusters);
+    // Most-recent custom-window result, so the chart's follow-up fetch for the same window
+    // reuses it instead of re-running the heavy query. Never read by the canonical 48 h paths.
+    private sealed record CustomWindowSnapshot(DateTime Start, DateTime End, IspHealthReport Report, List<AsnSeries> ChartClusters, DateTime ComputedAt);
     private Snapshot? _cached;
+    private CustomWindowSnapshot? _customCache;
     private IspHealthStatus _status = IspHealthStatus.Computing;
     private volatile bool _computing;
 
@@ -121,14 +127,80 @@ public class IspHealthService
 
     private async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeAsync(CancellationToken ct)
     {
-        if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
+        // Canonical/auto-computed path: always the trailing ScoreWindowHours (48 h). Publishes
+        // the readiness status the dashboard tile reads.
+        var windowEnd = DateTime.UtcNow;
+        var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
+        var outcome = await ComputeCoreAsync(windowStart, windowEnd, null, ct);
+        _status = outcome.Status;
+        return (outcome.Report, outcome.ChartClusters);
+    }
+
+    /// <summary>
+    /// Report for the ISP Health tab's date/time filter over an arbitrary window. Never touches
+    /// the cached 48 h report, the readiness status, or the dashboard tile - the default and
+    /// auto-computed paths stay on the trailing 48 h window. The most recent custom window is
+    /// briefly cached so the chart's follow-up fetch for the same window skips the heavy query.
+    /// </summary>
+    public async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeForWindowAsync(
+        DateTime windowStart, DateTime windowEnd, bool forceRefresh = false, CancellationToken ct = default)
+    {
+        var cached = _customCache;
+        if (!forceRefresh && cached != null && cached.Start == windowStart && cached.End == windowEnd
+            && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
+            return (cached.Report, cached.ChartClusters);
+
+        // A window longer than the canonical re-covers the recent period at a coarser aggregate,
+        // which can inflate bucket-p90 burst detection into congestion events the authoritative
+        // fine-resolution 48 h view never sees. Gate the recent (canonical-covered) portion against
+        // the canonical report so those artifacts drop, while older history keeps its own detection.
+        // Only when the canonical computed successfully (non-null); otherwise no gating (never drop
+        // events against a missing reference). GetReportAsync is cache-served, so this is cheap.
+        IReadOnlyList<CongestionEvent>? referenceEvents = null;
+        if ((windowEnd - windowStart).TotalHours > _options.ScoreWindowHours + 0.5
+            && DateTime.UtcNow - windowEnd < TimeSpan.FromHours(1))
         {
-            _status = IspHealthStatus.NotConfigured;
-            return (null, new List<AsnSeries>());
+            referenceEvents = (await GetReportAsync(ct: ct))?.CongestionEvents;
         }
+
+        var outcome = await ComputeCoreAsync(windowStart, windowEnd, referenceEvents, ct);
+        if (outcome.Report != null)
+            _customCache = new CustomWindowSnapshot(windowStart, windowEnd, outcome.Report, outcome.ChartClusters, DateTime.UtcNow);
+        return (outcome.Report, outcome.ChartClusters);
+    }
+
+    /// <summary>
+    /// Drops congestion events in the canonical-covered recent window (the trailing
+    /// <see cref="IspHealthOptions.ScoreWindowHours"/>) that the fine-resolution canonical report
+    /// did not also find - coarse-aggregate burst artifacts a long viewing window invents. An event
+    /// older than that window has no canonical counterpart to check against, so it is kept. A match
+    /// is a time overlap plus a shared bottleneck hop or ASN (loose, so a real event the canonical
+    /// localized to a slightly different hop is never dropped).
+    /// </summary>
+    private List<CongestionEvent> GateAgainstCanonical(
+        List<CongestionEvent> events, IReadOnlyList<CongestionEvent> canonical, DateTime windowEnd)
+    {
+        var recentStart = windowEnd.AddHours(-_options.ScoreWindowHours);
+        return events.Where(e =>
+            e.Start < recentStart
+            || canonical.Any(r =>
+                r.Start < e.End && e.Start < r.End
+                && ((e.BottleneckHopIp != null && r.BottleneckHopIp == e.BottleneckHopIp)
+                    || r.AsnNumbers.Any(a => a != 0 && e.AsnNumbers.Contains(a)))))
+            .ToList();
+    }
+
+    private async Task<ComputeOutcome> ComputeCoreAsync(DateTime windowStart, DateTime windowEnd,
+        IReadOnlyList<CongestionEvent>? referenceEvents, CancellationToken ct)
+    {
+        if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
+            return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
         AccessTechnology technology;
         List<MonitoringTarget> targets;
+        // Enabled fabric (UniFi device) targets, used only to find the LAN gateway's monitoring
+        // target for outage scoping (gateway-unreachable => LAN/gateway outage, not WAN).
+        List<MonitoringTarget> fabricTargets;
         // TargetId -> the monitored hop IPs proven upstream of it (its ancestors), from
         // Upstream Discovery's traces. ISP Health uses these to confirm one hop routes
         // through another before its jitter absolves the other. No live traceroute here.
@@ -142,10 +214,7 @@ public class IspHealthService
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
             if (settings == null || !settings.Enabled)
-            {
-                _status = IspHealthStatus.NotConfigured;
-                return (null, new List<AsnSeries>());
-            }
+                return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
             // Access technology lives per-WAN in WanDiscoveryContexts (the wizard's
             // store, which replaced the global MonitoringSettings column); prefer the
@@ -160,6 +229,10 @@ public class IspHealthService
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit
                     || t.TargetType == MonitoringTargetType.InternetService))
+                .ToListAsync(ct);
+
+            fabricTargets = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled && t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)
                 .ToListAsync(ct);
 
             // TODO (multi-WAN): discoveries are read across ALL WANs, not scoped to the WAN
@@ -192,31 +265,38 @@ public class IspHealthService
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
         var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit).ToList();
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
-        {
-            _status = IspHealthStatus.NeedsDiscovery;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.NeedsDiscovery, null, new List<AsnSeries>());
 
         var profile = IspHealthProfiles.GetProfile(technology);
         if (profile == null)
-        {
-            _status = IspHealthStatus.NeedsTechnology;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.NeedsTechnology, null, new List<AsnSeries>());
 
-        var windowEnd = DateTime.UtcNow;
-        var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
-        // Fine-grained join window so short load bursts (speed tests, downloads)
-        // classify as loaded instead of diluting into minute-level means
-        var aggregate = TimeSpan.FromSeconds(_options.LoadWindowSeconds);
+        // First gateway from the cached UniFi device list (shadow-mode multi-gateway isn't handled
+        // yet - first gateway is fine), matched to its fabric monitoring target by MAC so we can pull
+        // its loss for outage scoping. Null when no gateway is monitored - outage scoping then stays
+        // unchanged (no Local scope possible).
+        static string MacKey(string? m) => new string((m ?? "").Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+        var gatewayDevice = (await _connectionService.GetDiscoveredDevicesAsync(ct)).FirstOrDefault(d => d.Type.IsGateway());
+        var gatewayTarget = gatewayDevice == null ? null
+            : fabricTargets.FirstOrDefault(t => MacKey(t.DeviceMac) == MacKey(gatewayDevice.Mac));
+
+        // Fine-grained join window so short load bursts (speed tests, downloads) classify as
+        // loaded instead of diluting into minute-level means. Longer (filter-selected) windows
+        // coarsen it to keep the point count bounded; the canonical 48 h window lands on exactly
+        // LoadWindowSeconds, so the auto-computed report is unchanged.
+        var aggregate = TimeSpan.FromSeconds(Math.Max(
+            _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
 
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, windowStart, windowEnd, aggregate, ct);
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
-        var speedTestsTask = LoadWanSpeedTestsAsync(windowEnd, ct);
-        await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask);
+        var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
+        var gatewaySeriesTask = gatewayTarget == null
+            ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
+            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, windowStart, windowEnd, aggregate, ct);
+        await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
 
         var ispSeries = ToSamples(await ispSeriesTask);
         var transitSeries = ToSamples(await transitSeriesTask);
@@ -224,6 +304,8 @@ public class IspHealthService
         var wanRates = await ratesTask;
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
+        var gatewaySamples = (await gatewaySeriesTask)
+            .Select(p => new LatencySample(p.Time, p.RttAvgMs, p.RttMaxMs, p.JitterMs, p.LossPercent)).ToList();
 
         // New installs: grade once a few hours of latency data exist, not before.
         // Enabled targets only - a disabled target's stale history must not satisfy the
@@ -235,10 +317,7 @@ public class IspHealthService
             .DefaultIfEmpty(windowEnd)
             .Min();
         if ((windowEnd - earliestSample).TotalHours < _options.MinDataHours)
-        {
-            _status = IspHealthStatus.InsufficientData;
-            return (null, new List<AsnSeries>());
-        }
+            return new ComputeOutcome(IspHealthStatus.InsufficientData, null, new List<AsnSeries>());
 
         var (firstHop, firstHopTargetId) = PickFirstCleanHop(ispTargets, ispSeries);
         // Public access hops only - the loaded-latency worst-hop scan must not include a
@@ -314,7 +393,70 @@ public class IspHealthService
             })
             .ToList();
 
-        var congestionEvents = CongestionDetector.Detect(allClusters, _options);
+        // Per-target (hop-granularity) series for the congestion localizer: clustering would
+        // lump a clean middle hop with a hot one and re-merge an off-path ASN, so detection and
+        // localization run at the individual hop. Destinations come in as witnesses only.
+        AsnSeries PerTargetSeries(MonitoringTarget t, Dictionary<string, List<LatencySample>> series, bool isDestination) => new()
+        {
+            AsnNumber = t.AsnNumber ?? 0,
+            AsnName = t.Name,
+            TargetIds = { t.TargetId },
+            Samples = series[t.TargetId],
+            HopIps = { t.Address },
+            AncestorIps = ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : new List<string>(),
+            IsDestination = isDestination
+        };
+        var localizerSeries = new List<AsnSeries>();
+        localizerSeries.AddRange(ispTargets
+            .Where(t => ispSeries.ContainsKey(t.TargetId))
+            .Select(t => PerTargetSeries(t, ispSeries, false)));
+        localizerSeries.AddRange(transitTargets
+            .Where(t => t.AsnNumber is > 0 && transitSeries.ContainsKey(t.TargetId))
+            .Select(t => PerTargetSeries(t, transitSeries, false)));
+        localizerSeries.AddRange(internetTargetSeries);
+
+        // Hop distance per IP (from the saved trace map), the nearest public access hop(s),
+        // and WAN utilization over time - the localizer's topology and load context.
+        var hopNumberByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in targets)
+        {
+            if (string.IsNullOrEmpty(t.Address) || !hopNumberByTargetId.TryGetValue(t.TargetId, out var hop)) continue;
+            if (!hopNumberByIp.TryGetValue(t.Address, out var existing) || hop < existing)
+                hopNumberByIp[t.Address] = hop;
+        }
+        var accessEgressIps = ispTargets
+            .Where(t => !string.IsNullOrEmpty(t.Address) && !NetworkUtilities.IsPrivateIpAddress(t.Address)
+                && hopNumberByTargetId.ContainsKey(t.TargetId))
+            .GroupBy(t => hopNumberByTargetId[t.TargetId])
+            .OrderBy(g => g.Key)
+            .FirstOrDefault()?.Select(t => t.Address)
+            ?? Enumerable.Empty<string>();
+        var loadByTime = wanRates.Select(r =>
+        {
+            double? util = null;
+            if (expectedDown is > 0 || expectedUp is > 0)
+            {
+                var d = expectedDown is > 0 && r.DownloadBps.HasValue ? r.DownloadBps.Value / (expectedDown.Value * 1_000_000) : 0;
+                var u = expectedUp is > 0 && r.UploadBps.HasValue ? r.UploadBps.Value / (expectedUp.Value * 1_000_000) : 0;
+                util = Math.Max(d, u);
+            }
+            return (r.Time, Utilization: util);
+        }).ToList();
+        var congestionTopology = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(accessEgressIps, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = hopNumberByIp,
+            Load = loadByTime,
+            HasTraceMap = hopOrderKnown
+        };
+        var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
+        if (referenceEvents != null)
+            congestionEvents = GateAgainstCanonical(congestionEvents, referenceEvents, windowEnd);
+        foreach (var ce in congestionEvents)
+            _logger.LogDebug(
+                "ISP Health congestion: {Disposition} at {Hop} ({Label}) conf={Confidence} load={Load} - {Reason}",
+                ce.Disposition, ce.BottleneckHopIp ?? "?",
+                ce.BottleneckLabel ?? string.Join(",", ce.AsnNames), ce.Confidence, ce.LoadCoincident, ce.AttributionReason);
 
         // Internet/CDN targets join step detection because routing shifts in a transit
         // network show up on every path that crosses it (per the real shift examples)
@@ -381,7 +523,7 @@ public class IspHealthService
             }, Groupable: true, AsnLabel: AsnNameCleanup.Clean(t.AsnName) ?? accessAsnName))
             .Concat(transitChart.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)TransitLabel(s))))
             .Concat(displayInternet.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)null)));
-        var outageHops = outageSources
+        var orderedWanHops = outageSources
             .Select(x => new
             {
                 x.Groupable,
@@ -392,7 +534,17 @@ public class IspHealthService
                 Rtt = MedianRtt(x.Series)
             })
             .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
-            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series, x.Groupable, x.AsnLabel))
+            .ToList();
+        // The LAN gateway is the nearest hop (Depth 0) when monitored; WAN hops shift one deeper.
+        // Its loss lets the detector tell a LAN/gateway outage from a WAN outage. Absent => unchanged.
+        var gatewayHop = gatewaySamples.Count > 0
+            ? new OutageDetector.Hop(gatewayDevice?.Name is { Length: > 0 } gn ? gn : "Gateway",
+                0, gatewaySamples, Groupable: false, AsnLabel: null, IsGateway: true)
+            : null;
+        var baseDepth = gatewayHop != null ? 1 : 0;
+        var outageHops = (gatewayHop != null ? new[] { gatewayHop } : Array.Empty<OutageDetector.Hop>())
+            .Concat(orderedWanHops.Select((x, i) =>
+                new OutageDetector.Hop(x.Name, baseDepth + i, x.Series, x.Groupable, x.AsnLabel)))
             .ToList();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
 
@@ -429,18 +581,25 @@ public class IspHealthService
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
-        _status = IspHealthStatus.Ready;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
-        return (report, chartClusters);
+        return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
     /// <summary>
-    /// Per-ASN RTT series for the tab chart (ISP + transit, 24 h, per-minute means)
-    /// plus the cached report's events for chart annotations.
+    /// Per-ASN RTT series for the tab chart (ISP + transit) plus the report's events for chart
+    /// annotations. With no window it serves the cached 48 h report; with an explicit window
+    /// (the tab's date/time filter) it computes that window off-cache, so the chart follows the
+    /// filter without disturbing the canonical 48 h view.
     /// </summary>
-    public async Task<(List<AsnSeries> Series, IspHealthReport? Report)> GetAsnChartDataAsync(CancellationToken ct = default)
+    public async Task<(List<AsnSeries> Series, IspHealthReport? Report)> GetAsnChartDataAsync(
+        DateTime? from = null, DateTime? to = null, CancellationToken ct = default)
     {
+        if (from.HasValue && to.HasValue)
+        {
+            var (windowReport, windowClusters) = await ComputeForWindowAsync(from.Value, to.Value, ct: ct);
+            return (windowClusters, windowReport);
+        }
         // Return the exact clusters the report's events were detected on, so chart
         // line labels and the event labels are guaranteed to agree (re-clustering
         // independently would round the "+N ms hop" names differently). Read the
@@ -448,6 +607,16 @@ public class IspHealthService
         await GetReportAsync(ct: ct);
         var snap = _cached;
         return (snap?.ChartClusters ?? new List<AsnSeries>(), snap?.Report);
+    }
+
+    /// <summary>
+    /// Report for an explicit window (the ISP Health tab's date/time filter). Bypasses the 48 h
+    /// cache and never publishes status, so the dashboard tile and default view stay on 48 h.
+    /// </summary>
+    public async Task<IspHealthReport?> GetReportForWindowAsync(DateTime windowStart, DateTime windowEnd, bool forceRefresh = false, CancellationToken ct = default)
+    {
+        var (report, _) = await ComputeForWindowAsync(windowStart, windowEnd, forceRefresh, ct);
+        return report;
     }
 
     private async Task<List<ThroughputSample>> QueryWanRatesAsync(DateTime from, DateTime to, TimeSpan aggregate, CancellationToken ct)
@@ -601,15 +770,21 @@ public class IspHealthService
     /// WAN tests (OpenSpeedTest from a browser via an external server) are excluded
     /// because the client's own link contaminates the measurement.
     /// </summary>
-    private async Task<List<SpeedTestSample>> LoadWanSpeedTestsAsync(DateTime windowEnd, CancellationToken ct)
+    private async Task<List<SpeedTestSample>> LoadWanSpeedTestsAsync(DateTime windowStart, DateTime windowEnd, CancellationToken ct)
     {
         try
         {
-            var since = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
+            // Reach back the WIDER of the selected window or the fallback floor: a long window
+            // (e.g. 30 d) finds its best demonstrated capacity across the whole window, while a
+            // short window keeps the SpeedTestFallbackDays floor so a sparse run of tests still
+            // yields a recent capacity number. Bounded above by windowEnd for historical windows.
+            var fallbackStart = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
+            var since = windowStart < fallbackStart ? windowStart : fallbackStart;
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
             var results = await db.Iperf3Results.AsNoTracking()
                 .Where(r => r.Success
                     && r.TestTime >= since
+                    && r.TestTime <= windowEnd
                     && (r.Direction == SpeedTestDirection.CloudflareWan
                         || r.Direction == SpeedTestDirection.CloudflareWanGateway
                         || r.Direction == SpeedTestDirection.UwnWan
@@ -824,7 +999,13 @@ public class IspHealthService
                     AsnNumber = group.Key,
                     AsnName = chartName,
                     TargetIds = clusterTargets.Select(t => t.TargetId).ToList(),
-                    Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                    Samples = clusterTargets.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                    // Hop IPs and proven-upstream ancestors so the congestion localizer can
+                    // place this cluster on the trace map and walk the bottleneck.
+                    HopIps = clusterTargets.Select(t => t.Address).ToList(),
+                    AncestorIps = clusterTargets
+                        .SelectMany(t => ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                 });
 
                 // The graded series keeps the ASN name for the Networks on Your Path card.
@@ -888,7 +1069,11 @@ public class IspHealthService
                         AsnNumber = group.Key,
                         AsnName = others.Count == 1 ? others[0].Name : $"{asnName} (other hops)",
                         TargetIds = others.Select(t => t.TargetId).ToList(),
-                        Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList()
+                        Samples = others.SelectMany(t => seriesByTarget[t.TargetId]).OrderBy(s => s.Time).ToList(),
+                        HopIps = others.Select(t => t.Address).ToList(),
+                        AncestorIps = others
+                            .SelectMany(t => ancestorIpsByTargetId.TryGetValue(t.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
+                            .Distinct(StringComparer.OrdinalIgnoreCase).ToList()
                     });
                 }
             }

@@ -5,8 +5,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// <summary>
 /// Pure scoring engine for ISP Health. Takes pre-assembled inputs (latency series,
 /// throughput, detected events) plus an access technology profile and produces the
-/// full report. No I/O; fully unit-testable. Formulas and anchor points are
-/// documented in research/isp-health-spec.md (local-only) and must stay in sync.
+/// full report. No I/O; fully unit-testable. Formulas and anchor points are tuned
+/// against real incident data.
 /// </summary>
 public class IspHealthScorer
 {
@@ -81,10 +81,19 @@ public class IspHealthScorer
         // An outage is scored once, here at the top level, on a duration curve - so a long
         // outage actually drives the score down instead of being diluted to a couple of
         // points inside one factor. Scored by total downtime alone, shape-independent.
-        var outageMinutes = inputs.Outages.Sum(o => o.Duration.TotalMinutes);
+        // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
+        // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
+        // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
+        var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
+        var outageMinutes = wanOutages.Sum(o => o.Duration.TotalMinutes);
         if (outageMinutes > 0)
         {
             var penalty = OutageScorePenalty(outageMinutes);
+            // Attribute the total (curve-based) penalty across the WAN outages by duration share so
+            // each outage row can show its own "-N points". Rounded shares may differ from the curve
+            // total by <=1 pt - cosmetic; the actual score deduction uses the curve total below.
+            foreach (var o in wanOutages)
+                o.ScorePenaltyPoints = (int)Math.Round(penalty * (o.Duration.TotalMinutes / outageMinutes));
             _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} min downtime ({Before} -> {After})",
                 penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0", CultureInfo.InvariantCulture),
                 overall, (int)Math.Max(0, Math.Round(overall - penalty)));
@@ -681,11 +690,18 @@ public class IspHealthScorer
         // tests) fall back to ASN matching.
         var roleTargets = series.RoleTargetIds.Count > 0 ? series.RoleTargetIds : series.TargetIds;
         var roleTargetSet = new HashSet<string>(roleTargets);
+        // Only confirmed congestion penalizes a network. Self-inflicted bufferbloat,
+        // absolved control-plane (ICMP) noise, and unverifiable dead-end elevations are
+        // surfaced in the report but never ding the ASN's grade.
         var asnEvents = congestionEvents
-            .Where(e => e.AsnNumbers.Contains(series.AsnNumber)
+            .Where(e => e.Disposition == CongestionDisposition.Confirmed
+                && e.AsnNumbers.Contains(series.AsnNumber)
                 && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => roleTargetSet.Contains(t))))
             .ToList();
-        var eventHours = asnEvents.Sum(e => e.Duration.TotalHours);
+        // Union of the event windows, not the sum - two hops of the same ASN degrading in the
+        // same window (e.g. parallel backbone links, or a dead-end hop confirmed by its sibling)
+        // are one incident and must not double-count the congestion hours.
+        var eventHours = UnionHours(asnEvents);
         var congestionScore = (int)Math.Round(Math.Max(0, 100 - _options.CongestionPenaltyPerHour * eventHours));
 
         int? overall = null;
@@ -921,6 +937,22 @@ public class IspHealthScorer
     private static bool RoutesThrough(List<string> witnessAncestors, List<string> hopIps) =>
         hopIps.Any(ip => witnessAncestors.Contains(ip, StringComparer.OrdinalIgnoreCase));
 
+    /// <summary>Total hours covered by the union of the events' time windows (overlaps counted once).</summary>
+    private static double UnionHours(IReadOnlyList<CongestionEvent> events)
+    {
+        double total = 0;
+        DateTime curStart = default, curEnd = default;
+        var open = false;
+        foreach (var e in events.OrderBy(e => e.Start))
+        {
+            if (!open) { curStart = e.Start; curEnd = e.End; open = true; }
+            else if (e.Start > curEnd) { total += (curEnd - curStart).TotalHours; curStart = e.Start; curEnd = e.End; }
+            else if (e.End > curEnd) curEnd = e.End;
+        }
+        if (open) total += (curEnd - curStart).TotalHours;
+        return total;
+    }
+
     /// <summary>
     /// Collapses per-hop ISP grades to one entry per ASN for the Networks on Your Path
     /// card: mean RTT and jitter across the hops, averaged grade, and the union of the
@@ -935,7 +967,8 @@ public class IspHealthScorer
             var targetIds = hops.SelectMany(h => h.TargetIds).Distinct().ToList();
             var targetSet = new HashSet<string>(targetIds);
             var asnEvents = congestionEvents
-                .Where(e => e.AsnNumbers.Contains(group.Key)
+                .Where(e => e.Disposition == CongestionDisposition.Confirmed
+                    && e.AsnNumbers.Contains(group.Key)
                     && (e.TargetIds.Count == 0 || e.TargetIds.Any(t => targetSet.Contains(t))))
                 .ToList();
             var means = hops.Select(h => h.MeanRttMs).Where(m => m.HasValue).Select(m => m!.Value).ToList();
@@ -1052,28 +1085,39 @@ public class IspHealthScorer
     {
         var issues = new List<IspHealthIssue>();
 
-        if (inputs.Outages.Count > 0)
+        // Local (LAN/gateway) outages are surfaced in the waterfall but are not internet outages and
+        // don't affect the score, so they never appear in this ISP-impact issue.
+        var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
+        if (wanOutages.Count > 0)
         {
-            var totalDown = TimeSpan.FromMinutes(inputs.Outages.Sum(o => o.Duration.TotalMinutes));
-            var upstream = inputs.Outages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
-            var where = inputs.Outages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0
-                ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so this was an ISP-side fault, not your network."
+            var multiple = wanOutages.Count > 1;
+            var totalDown = TimeSpan.FromMinutes(wanOutages.Sum(o => o.Duration.TotalMinutes));
+            var upstream = wanOutages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var allUpstream = wanOutages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
+            var where = allUpstream
+                ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so {(multiple ? "these were" : "this was")} an ISP-side fault, not your network."
                 : " At least one event took the whole WAN dark, including the first ISP hop.";
-            var count = inputs.Outages.Count == 1
-                ? $"An internet outage of {FormatOutageDuration(inputs.Outages[0].Duration)}"
-                : $"{inputs.Outages.Count} internet outages totaling {FormatOutageDuration(totalDown)}";
+            var count = multiple
+                ? $"{wanOutages.Count} internet outages totaling {FormatOutageDuration(totalDown)}"
+                : $"An internet outage of {FormatOutageDuration(wanOutages[0].Duration)}";
             // Be transparent about the score hit: the outage penalty is applied at the top level
-            // and isn't tied to any one factor, so spell it out here or it's invisible.
+            // and isn't tied to any one factor, so spell it out here or it's invisible. Matches the
+            // actual penalty (both exclude Local outages).
             var penalty = (int)Math.Round(OutageScorePenalty(totalDown.TotalMinutes));
             var impact = penalty > 0
-                ? $" {(inputs.Outages.Count == 1 ? "It" : "Together they")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
+                ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
                 : string.Empty;
+            var realPhrase = multiple
+                ? "so these are real outages, not monitoring gaps"
+                : "so this is a real outage, not a monitoring gap";
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
-                Title = inputs.Outages.Count == 1 ? "Internet outage in the window" : "Internet outages in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing (so this is a real outage, not a monitoring gap).{where}{impact}",
-                Recommendation = "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents.",
+                Title = multiple ? "Internet outages in the window" : "Internet outage in the window",
+                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}",
+                Recommendation = allUpstream
+                    ? "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents."
+                    : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
                 LinkUrl = "#isp-outages",
                 LinkText = "The recovery shape is shown on the timeline below."
             });
@@ -1096,7 +1140,7 @@ public class IspHealthScorer
             var recommendation = inputs.SmartQueuesEnabled
                 ? "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers."
                 : "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
-            if (inputs.CongestionEvents.Count >= _options.SqmRecurringCongestionEvents)
+            if (inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
                 recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
             }

@@ -152,9 +152,46 @@ public class IspHealthIssue
 }
 
 /// <summary>
-/// A sustained latency and jitter elevation. Events spanning multiple ASNs at the
-/// same time are merged into a single shared event, since simultaneous multi-path
-/// congestion usually indicates a shared upstream or return-path bottleneck.
+/// How precisely a congestion event was localized, most specific first. The localizer
+/// reports the highest tier the trace map and clean controls affirmatively support and
+/// stops there, recording in <see cref="CongestionEvent.AttributionReason"/> why it could
+/// not go deeper - it never collapses to <see cref="Unlocalized"/> just because the exact
+/// hop was ambiguous, and never asserts <see cref="Hop"/> without the proof.
+/// </summary>
+public enum CongestionScope
+{
+    /// <summary>Pinned to a single bottleneck hop: the deepest hop all affected traced targets route through, with clean off-path controls.</summary>
+    Hop,
+    /// <summary>Isolated to the link between the last clean hop and the first elevated hop, but the far end is not a single hop.</summary>
+    Segment,
+    /// <summary>Attributed to one ASN's network (its hops elevated, its upstream clean) but not a single hop.</summary>
+    Asn,
+    /// <summary>Narrowed to the set of affected paths/corridors, but the bottleneck link could not be isolated.</summary>
+    Corridor,
+    /// <summary>Could not be localized; a shared elevation across networks. Lowest confidence.</summary>
+    Unlocalized
+}
+
+/// <summary>What the localizer concluded a congestion candidate actually is, after the
+/// downstream-propagation and load-correlation gates.</summary>
+public enum CongestionDisposition
+{
+    /// <summary>Real congestion: the elevation is the deepest hop and/or propagated to proven-downstream traced targets.</summary>
+    Confirmed,
+    /// <summary>Self-inflicted access-egress bufferbloat: bottleneck at the local access egress while heavy local WAN load coincided. Not external congestion.</summary>
+    SelfInflicted,
+    /// <summary>Near-hop elevation that did NOT propagate to proven-downstream targets - ICMP/control-plane deprioritization, not a forwarding bottleneck. The transit farther-cluster absolve, applied to detection.</summary>
+    ControlPlaneNoise,
+    /// <summary>Elevated, but no traced downstream target exists to confirm or refute it (e.g. a dead-end transit hop). Reported at low confidence, never asserted.</summary>
+    Unverifiable
+}
+
+/// <summary>
+/// A sustained latency and jitter elevation. After detection each event is run through the
+/// localizer, which attributes it to a bottleneck (<see cref="Scope"/>) and decides what it
+/// is (<see cref="Disposition"/>): real congestion, self-inflicted bufferbloat, absolved
+/// control-plane noise, or unverifiable. Co-temporal per-ASN candidates are merged only when
+/// they share a bottleneck on the trace map, not merely because they overlap in time.
 /// </summary>
 public class CongestionEvent
 {
@@ -176,6 +213,43 @@ public class CongestionEvent
     public double PeakRttMs { get; init; }
     public double BaselineJitterMs { get; init; }
     public double PeakJitterMs { get; init; }
+
+    /// <summary>The specificity tier the localizer could defend for this event.</summary>
+    public CongestionScope Scope { get; set; } = CongestionScope.Unlocalized;
+
+    /// <summary>What the localizer concluded this elevation actually is.</summary>
+    public CongestionDisposition Disposition { get; set; } = CongestionDisposition.Confirmed;
+
+    /// <summary>IP of the attributed bottleneck hop, when <see cref="Scope"/> is <see cref="CongestionScope.Hop"/>.</summary>
+    public string? BottleneckHopIp { get; set; }
+
+    /// <summary>Human-readable bottleneck label (hop name, segment, ASN, or corridor) for the report.</summary>
+    public string? BottleneckLabel { get; set; }
+
+    /// <summary>True when the event overlapped heavy local WAN load (input to the self-inflicted gate).</summary>
+    public bool LoadCoincident { get; set; }
+
+    /// <summary>
+    /// How many other monitored paths (different routes/networks, and the access hops ahead of
+    /// the bottleneck) stayed clean during this event. A non-zero count under load is the proof
+    /// the elevation is this hop's own capacity, not access-layer bufferbloat - which would lift
+    /// every path that shares your access link.
+    /// </summary>
+    public int CleanParallelPaths { get; set; }
+
+    /// <summary>True when this hop's congestion was confirmed indirectly by a sibling hop on the
+    /// same ASN congesting in the same window, rather than by its own downstream propagation
+    /// (used for a dead-end hop whose confirmed sibling proves the network is really degrading).</summary>
+    public bool ConfirmedBySibling { get; set; }
+
+    /// <summary>Localizer confidence 0-100; lowest for <see cref="CongestionDisposition.Unverifiable"/> / <see cref="CongestionScope.Unlocalized"/>.</summary>
+    public int Confidence { get; set; } = 50;
+
+    /// <summary>Why the localizer stopped at this tier or reached this disposition - doubles as a coverage to-do (e.g. "no downstream probe past this hop").</summary>
+    public string? AttributionReason { get; set; }
+
+    /// <summary>True when this event must not penalize the score: self-inflicted bufferbloat or absolved control-plane noise.</summary>
+    public bool Suppressed => Disposition is CongestionDisposition.SelfInflicted or CongestionDisposition.ControlPlaneNoise;
 
     public bool IsShared => AsnNumbers.Count > 1;
     public TimeSpan Duration => End - Start;
@@ -211,7 +285,11 @@ public enum OutageScope
     FullWan,
 
     /// <summary>The access hop stayed reachable while transit and the internet went dark - the break sat upstream of it.</summary>
-    Upstream
+    Upstream,
+
+    /// <summary>The LAN gateway itself was unreachable through the outage - a local LAN/switch/gateway
+    /// outage, not the ISP's WAN. Surfaced but not score-affecting (the ISP isn't at fault).</summary>
+    Local
 }
 
 /// <summary>
@@ -238,6 +316,13 @@ public class OutageEvent
 
     /// <summary>Per-tier loss and recovery, nearest first, for the outage-shape display.</summary>
     public List<OutageTierState> Tiers { get; init; } = new();
+
+    /// <summary>
+    /// Points this outage contributed to the ISP Health penalty - its duration share of the
+    /// total (curve-based) outage penalty. 0 for Local (LAN/gateway) outages, which are never
+    /// scored. Set by the scorer so each outage row can show its own "-N points".
+    /// </summary>
+    public int ScorePenaltyPoints { get; set; }
 }
 
 /// <summary>One network tier's behavior during an outage, for the recovery-shape display.</summary>
