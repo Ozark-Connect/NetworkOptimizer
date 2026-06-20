@@ -316,6 +316,13 @@ public class OutageEvent
 
     /// <summary>Per-tier loss and recovery, nearest first, for the outage-shape display.</summary>
     public List<OutageTierState> Tiers { get; init; } = new();
+
+    /// <summary>
+    /// Points this outage contributed to the ISP Health penalty - its duration share of the
+    /// total (curve-based) outage penalty. 0 for Local (LAN/gateway) outages, which are never
+    /// scored. Set by the scorer so each outage row can show its own "-N points".
+    /// </summary>
+    public int ScorePenaltyPoints { get; set; }
 }
 
 /// <summary>One network tier's behavior during an outage, for the recovery-shape display.</summary>

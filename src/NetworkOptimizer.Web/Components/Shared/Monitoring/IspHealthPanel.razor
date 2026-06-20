@@ -724,12 +724,21 @@ else
         return local.Date == DateTime.Now.Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
     }
 
-    private static string OutageScopeLabel(OutageEvent o) => o.Scope switch
+    private static string OutageScopeLabel(OutageEvent o)
     {
-        OutageScope.Local => "LAN / Gateway outage",
-        OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
-        _ => "Whole-WAN outage"
-    };
+        var label = o.Scope switch
+        {
+            OutageScope.Local => "LAN / Gateway outage",
+            OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
+            _ => "Whole-WAN outage"
+        };
+        var score = o.Scope == OutageScope.Local
+            ? " (not scored)"
+            : o.ScorePenaltyPoints > 0
+                ? $" (-{o.ScorePenaltyPoints} {(o.ScorePenaltyPoints == 1 ? "point" : "points")})"
+                : string.Empty;
+        return label + score;
+    }
 
     // Share of the outage window this hop spent dark (red), for the recovery-waterfall bar.
     // Capped at 95% so a sliver of the blue "up" track always shows on even the longest bars -

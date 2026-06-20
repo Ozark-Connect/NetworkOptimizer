@@ -84,10 +84,16 @@ public class IspHealthScorer
         // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
         // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
         // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
-        var outageMinutes = inputs.Outages.Where(o => o.Scope != OutageScope.Local).Sum(o => o.Duration.TotalMinutes);
+        var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
+        var outageMinutes = wanOutages.Sum(o => o.Duration.TotalMinutes);
         if (outageMinutes > 0)
         {
             var penalty = OutageScorePenalty(outageMinutes);
+            // Attribute the total (curve-based) penalty across the WAN outages by duration share so
+            // each outage row can show its own "-N points". Rounded shares may differ from the curve
+            // total by <=1 pt - cosmetic; the actual score deduction uses the curve total below.
+            foreach (var o in wanOutages)
+                o.ScorePenaltyPoints = (int)Math.Round(penalty * (o.Duration.TotalMinutes / outageMinutes));
             _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} min downtime ({Before} -> {After})",
                 penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0", CultureInfo.InvariantCulture),
                 overall, (int)Math.Max(0, Math.Round(overall - penalty)));
