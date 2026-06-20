@@ -16313,6 +16313,11 @@ body.kiosk-mode .status-indicators {
     display: none;
 }
 
+.port-stats-table .data-table th,
+.port-stats-table .data-table td {
+    white-space: nowrap;
+}
+
 .port-cell {
     display: inline-flex;
     align-items: center;

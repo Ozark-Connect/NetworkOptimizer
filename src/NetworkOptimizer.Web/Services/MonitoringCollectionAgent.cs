@@ -928,10 +928,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     //  - Gateways: ifIndex != PortIdx; PortTable.IfName joins to SNMP
                     //    iface.Name (Linux name like "eth4"). Direct numeric match
                     //    first, fall back to ifname match.
-                    int? portNumber = null;
+                    // The matched port supplies BOTH the port number and the UniFi
+                    // friendly name, so gateways (which only resolve via the IfName
+                    // fallback) get a friendly name too, not just switches.
+                    SwitchPort? portMatch = null;
                     if (device.PortTable != null)
                     {
-                        SwitchPort? portMatch = null;
                         if (iface.Index > 0)
                             portMatch = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
                         if (portMatch == null && !string.IsNullOrEmpty(ifName))
@@ -941,9 +943,27 @@ public class MonitoringCollectionAgent : BackgroundService
                                 && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase)
                                 && p.PortIdx > 0);
                         }
-                        if (portMatch != null && portMatch.PortIdx > 0)
-                            portNumber = portMatch.PortIdx;
                     }
+                    int? portNumber = portMatch is { PortIdx: > 0 } ? portMatch.PortIdx : null;
+                    var friendlyName = string.IsNullOrEmpty(portMatch?.Name) ? null : portMatch.Name;
+                    var isSfp = portMatch?.SfpFound;
+
+                    // Link speed: "lower of the two wins". SNMP is fresh and correct on
+                    // switches, but a gateway inflates copper ports to their 10G capability
+                    // (ifHighSpeed/ifSpeed both report the max, not the negotiated rate).
+                    // Negotiated speed can never exceed SNMP's reported value, so when
+                    // UniFi's PortTable reports a lower negotiated speed we take it.
+                    int? snmpSpeedMbps = iface.HighSpeed > 0
+                        ? (int)iface.HighSpeed
+                        : (iface.Speed > 0 ? (int)(iface.Speed / 1_000_000) : (int?)null);
+                    int? unifiSpeedMbps = portMatch is { Speed: > 0 } ? portMatch.Speed : (int?)null;
+                    int? linkSpeedMbps = (snmpSpeedMbps, unifiSpeedMbps) switch
+                    {
+                        (null, null) => null,
+                        (null, var u) => u,
+                        (var s, null) => s,
+                        var (s, u) => Math.Min(s.Value, u.Value),
+                    };
 
                     if (!existingMaps.TryGetValue(key, out var mapping))
                     {
@@ -953,9 +973,10 @@ public class MonitoringCollectionAgent : BackgroundService
                             IfName = ifName,
                             IfIndex = iface.Index,
                             IfAlias = iface.Description,
-                            SpeedMbps = (int?)(iface.HighSpeed > 0 ? iface.HighSpeed : iface.Speed / 1_000_000),
-                            FriendlyName = LookupUniFiPortName(device, iface),
+                            SpeedMbps = linkSpeedMbps,
+                            FriendlyName = friendlyName,
                             PortNumber = portNumber,
+                            IsSfp = isSfp,
                             LastUpdated = DateTime.UtcNow
                         };
                         db.InterfaceNameMaps.Add(mapping);
@@ -968,11 +989,10 @@ public class MonitoringCollectionAgent : BackgroundService
                     {
                         mapping.IfIndex = iface.Index;
                         mapping.IfAlias = iface.Description;
-                        if (iface.HighSpeed > 0) mapping.SpeedMbps = (int)iface.HighSpeed;
-                        else if (iface.Speed > 0) mapping.SpeedMbps = (int)(iface.Speed / 1_000_000);
-                        var unifiName = LookupUniFiPortName(device, iface);
-                        if (!string.IsNullOrEmpty(unifiName)) mapping.FriendlyName = unifiName;
+                        if (linkSpeedMbps.HasValue) mapping.SpeedMbps = linkSpeedMbps;
+                        if (!string.IsNullOrEmpty(friendlyName)) mapping.FriendlyName = friendlyName;
                         if (portNumber.HasValue) mapping.PortNumber = portNumber;
+                        if (isSfp.HasValue) mapping.IsSfp = isSfp;
                         mapping.LastUpdated = DateTime.UtcNow;
                     }
                 }
@@ -1785,19 +1805,6 @@ public class MonitoringCollectionAgent : BackgroundService
         NetworkOptimizer.Core.Enums.DeviceType.AccessPoint => "ap",
         _ => "unknown"
     };
-
-    private static string? LookupUniFiPortName(UniFiDeviceResponse device, InterfaceMetrics iface)
-    {
-        // PortTable entries on switches/gateways have user-defined per-port names. Match by
-        // port index (UniFi's "port_idx") to the SNMP ifIndex when possible. For the MVP we
-        // fall back to the SNMP description / name; the topology-driven match comes later.
-        if (device.PortTable != null)
-        {
-            var match = device.PortTable.FirstOrDefault(p => p.PortIdx == iface.Index);
-            if (match != null && !string.IsNullOrEmpty(match.Name)) return match.Name;
-        }
-        return null;
-    }
 
     private void CollectSfpForDevice(
         UniFiDeviceResponse device,

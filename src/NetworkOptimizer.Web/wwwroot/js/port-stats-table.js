@@ -51,21 +51,19 @@ let fetchController = null;
 let seekDebounce = null;
 let io = null;
 let isVisibleInViewport = true;
+let visInitialized = false;
 
-function speedClass(speedBps) {
-    if (speedBps == null) return '';
-    const m = speedBps / 1e6;
+function speedClassMbps(mbps) {
+    if (mbps == null || mbps <= 0) return '';
     let cls = SPEED_STEPS[0][1];
-    for (const [mbps, c] of SPEED_STEPS) if (m >= mbps * 0.9) cls = c;
+    for (const [step, c] of SPEED_STEPS) if (mbps >= step * 0.9) cls = c;
     return 'port-speed-' + cls;
 }
 
-function fmtLinkSpeed(bps) {
-    if (bps == null) return '';
-    const m = bps / 1e6;
-    if (m >= 1000) { const g = m / 1000; return `${g % 1 === 0 ? g.toFixed(0) : g.toFixed(1)} Gbps`; }
-    if (m >= 1) return `${m.toFixed(0)} Mbps`;
-    return `${Math.round(bps / 1e3)} Kbps`;
+function fmtLinkSpeed(mbps) {
+    if (mbps == null || mbps <= 0) return '';
+    if (mbps >= 1000) { const g = mbps / 1000; return `${g % 1 === 0 ? g.toFixed(0) : g.toFixed(1)} Gbps`; }
+    return `${mbps.toFixed(0)} Mbps`;
 }
 
 function fmtRate(bps) {
@@ -78,10 +76,12 @@ function fmtRate(bps) {
 
 const fmtCount = v => v == null ? '-' : Number(v).toLocaleString();
 
-function isSfp(p) {
-    const n = `${p.ifName || ''} ${p.portId || ''}`.toLowerCase();
-    if (n.includes('sfp')) return true;
-    return (p.speedBps || 0) >= 10e9;  // 10G+ uplinks are typically SFP+
+// UniFi PortTable.SfpFound is authoritative; fall back to a name heuristic only
+// when the correlation hasn't populated isSfp (e.g. virtual interfaces).
+function portIsSfp(p) {
+    if (p.isSfp === true) return true;
+    if (p.isSfp === false) return false;
+    return `${p.ifName || ''} ${p.portId || ''}`.toLowerCase().includes('sfp');
 }
 
 const RJ45_SVG = '<svg width="20" height="15" viewBox="0 0 20 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
@@ -89,23 +89,30 @@ const RJ45_SVG = '<svg width="20" height="15" viewBox="0 0 20 15" fill="none" st
     '<path d="M7.5 10 v2.5 h5 V10"/>' +
     '<path d="M6 4 v3 M8 4 v3 M10 4 v3 M12 4 v3 M14 4 v3"/></svg>';
 
-const SFP_SVG = '<svg width="22" height="15" viewBox="0 0 22 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">' +
-    '<rect x="7" y="3" width="12" height="9" rx="1.5"/>' +
-    '<path d="M7 5 C3 5 3 10 7 10"/>' +
-    '<path d="M11 3 V12"/>' +
-    '<path d="M14 7.5 H17.5"/></svg>';
+const SFP_SVG = '<svg width="22" height="15" viewBox="0 0 22 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
+    '<rect x="3" y="2.5" width="16" height="9" rx="1.5"/>' +
+    '<path d="M8.5 11.5 v-2.5 h5 v2.5"/></svg>';
 
 function portIcon(p) {
-    const cls = speedClass(p.speedBps);
+    const cls = speedClassMbps(p.linkSpeedMbps);
     const down = p.operStatus != null && p.operStatus !== 1;
-    const inner = isSfp(p) ? SFP_SVG : RJ45_SVG;
-    const tip = p.speedBps ? fmtLinkSpeed(p.speedBps) : (down ? 'Down' : '');
+    const inner = portIsSfp(p) ? SFP_SVG : RJ45_SVG;
+    const tip = p.linkSpeedMbps ? fmtLinkSpeed(p.linkSpeedMbps) : (down ? 'Down' : '');
     return `<span class="port-icon ${cls}${down ? ' port-icon-down' : ''}"${tip ? ` data-tooltip="${escapeHtml(tip)}"` : ''}>${inner}</span>`;
 }
 
 function portCell(p) {
-    const label = p.ifName || (p.portId ? `Port ${p.portId}` : '');
+    // UniFi friendly name (mapped from the Linux ifName) when we have one, with the
+    // port number prefixed as "[N] Name"; otherwise the raw interface name.
+    const name = p.friendlyName || p.ifName || (p.portId ? `Port ${p.portId}` : '');
+    const label = (p.portNumber != null) ? `[${p.portNumber}] ${name}` : name;
     return `<span class="port-cell">${portIcon(p)}<span class="port-label">${escapeHtml(label)}</span></span>`;
+}
+
+function mediaText(isSfp) {
+    if (isSfp === true) return 'SFP';
+    if (isSfp === false) return 'RJ45';
+    return '-';
 }
 
 function statusBadge(operStatus) {
@@ -116,6 +123,7 @@ function statusBadge(operStatus) {
 
 const COLUMNS = [
     { header: 'Port', format: v => v.html },
+    { header: 'Media', format: mediaText, cls: 'hide-mobile' },
     { header: 'Status', format: statusBadge },
     { header: 'Rate In', format: fmtRate },
     { header: 'Rate Out', format: fmtRate },
@@ -137,12 +145,15 @@ function buildRows() {
         const vis = visibility[d.mac] !== false;
         for (const p of (d.ports || [])) {
             rows.push({
-                id: `${d.mac}|${p.ifName || p.portId}`,
+                // Row id is the device mac so the name-column click filter (and pills)
+                // toggle the whole device; multiple port rows share the same id.
+                id: d.mac,
                 label: d.name || d.mac,
                 color: hashColor(d.mac),
                 visible: vis,
                 values: [
                     { html: portCell(p) },
+                    p.isSfp,
                     p.operStatus,
                     p.rateInBps, p.rateOutBps,
                     p.ucastPktsIn, p.ucastPktsOut,
@@ -160,7 +171,7 @@ function buildRows() {
 function rebuildMeta(devices) {
     deviceMeta = devices.map(d => {
         const name = (d.name && d.name !== d.mac) ? d.name : (nameOverrides[d.mac] || d.name || d.mac);
-        return { mac: d.mac, name, color: hashColor(d.mac) };
+        return { mac: d.mac, name, color: hashColor(d.mac), isAp: (d.type || '').toLowerCase() === 'ap' };
     });
 }
 
@@ -191,16 +202,26 @@ function renderBadges() {
                 else visibility[mac] = visibility[mac] === false;
             }
             renderBadges();
-            renderTableNow();
+            renderTableNow(false);
         });
     }
 }
 
-function renderTableNow() {
+function renderTableNow(showAll) {
     if (!tableEl) return;
     const rows = buildRows();
     if (rows.length === 0) { tableEl.innerHTML = ''; return; }
-    renderTable(tableEl, container, { nameHeader: 'Device', title: '', rows, columns: COLUMNS });
+    renderTable(tableEl, container, {
+        nameHeader: 'Device', title: '', rows, columns: COLUMNS, showAllRows: showAll,
+        // Clicking a device name in the table filters that device, mirroring the pills.
+        filter: {
+            meta: () => deviceMeta,
+            key: 'mac',
+            visibility: () => visibility,
+            resetVisibility: () => { visibility = {}; },
+            onChanged: () => { renderBadges(); renderTableNow(true); },
+        },
+    });
 }
 
 function renderLegend() {
@@ -234,6 +255,11 @@ async function loadAndRender() {
     if (!data) return;
     lastDevices = data.devices || [];
     rebuildMeta(lastDevices);
+    // Default to APs deselected on first load; user toggles persist afterwards.
+    if (!visInitialized && deviceMeta.length) {
+        deviceMeta.forEach(d => { if (d.isAp) visibility[d.mac] = false; });
+        visInitialized = true;
+    }
     if (pendingSelect) {
         const match = deviceMeta.find(d => d.mac.toLowerCase() === pendingSelect.toLowerCase());
         if (match) deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac);

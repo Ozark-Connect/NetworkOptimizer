@@ -859,10 +859,10 @@ from(bucket: ""{_bucket}"")
   |> last()
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
-        var results = new List<PortStatsPoint>();
+        var raw = new List<PortStatsPoint>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
-            results.Add(new PortStatsPoint
+            raw.Add(new PortStatsPoint
             {
                 DeviceMac = record.GetValueByKey("device_mac") as string ?? "",
                 IfName = record.GetValueByKey("if_name") as string ?? "",
@@ -886,7 +886,58 @@ from(bucket: ""{_bucket}"")
                 Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
             });
         }
-        return results;
+
+        // Different fields can land on different timestamps - rate_in/out are only
+        // written when a rate is computable, so a fresh point may carry oper_status
+        // and packet counters while the rates sit on an earlier point. pivot-by-time
+        // then splits one interface into several partial rows. Collapse to a single
+        // row per (device, interface), coalescing each field from the most recent
+        // sample that carries it.
+        return raw
+            .GroupBy(p => (p.DeviceMac, p.IfName), TupleMacIfComparer)
+            .Select(g =>
+            {
+                var ordered = g.OrderByDescending(p => p.Time).ToList();
+                long? FirstLong(Func<PortStatsPoint, long?> sel) => ordered.Select(sel).FirstOrDefault(v => v.HasValue);
+                double? FirstDouble(Func<PortStatsPoint, double?> sel) => ordered.Select(sel).FirstOrDefault(v => v.HasValue);
+                return new PortStatsPoint
+                {
+                    DeviceMac = g.Key.DeviceMac,
+                    IfName = g.Key.IfName,
+                    PortId = ordered.Select(p => p.PortId).FirstOrDefault(s => !string.IsNullOrEmpty(s)) ?? "",
+                    OperStatus = ordered.Select(p => p.OperStatus).FirstOrDefault(v => v.HasValue),
+                    SpeedBps = FirstLong(p => p.SpeedBps),
+                    RateInBps = FirstDouble(p => p.RateInBps),
+                    RateOutBps = FirstDouble(p => p.RateOutBps),
+                    BytesIn = FirstLong(p => p.BytesIn),
+                    BytesOut = FirstLong(p => p.BytesOut),
+                    UcastPktsIn = FirstLong(p => p.UcastPktsIn),
+                    UcastPktsOut = FirstLong(p => p.UcastPktsOut),
+                    McastPktsIn = FirstLong(p => p.McastPktsIn),
+                    McastPktsOut = FirstLong(p => p.McastPktsOut),
+                    BcastPktsIn = FirstLong(p => p.BcastPktsIn),
+                    BcastPktsOut = FirstLong(p => p.BcastPktsOut),
+                    ErrorsIn = FirstLong(p => p.ErrorsIn),
+                    ErrorsOut = FirstLong(p => p.ErrorsOut),
+                    DiscardsIn = FirstLong(p => p.DiscardsIn),
+                    DiscardsOut = FirstLong(p => p.DiscardsOut),
+                    Time = ordered[0].Time,
+                };
+            })
+            .ToList();
+    }
+
+    private static readonly IEqualityComparer<(string DeviceMac, string IfName)> TupleMacIfComparer =
+        new MacIfTupleComparer();
+
+    private sealed class MacIfTupleComparer : IEqualityComparer<(string DeviceMac, string IfName)>
+    {
+        public bool Equals((string DeviceMac, string IfName) x, (string DeviceMac, string IfName) y) =>
+            string.Equals(x.DeviceMac, y.DeviceMac, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.IfName, y.IfName, StringComparison.Ordinal);
+
+        public int GetHashCode((string DeviceMac, string IfName) obj) =>
+            HashCode.Combine(obj.DeviceMac.ToLowerInvariant(), obj.IfName);
     }
 
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
