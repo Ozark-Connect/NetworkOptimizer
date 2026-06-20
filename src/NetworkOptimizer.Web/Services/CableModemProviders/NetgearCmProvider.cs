@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -8,9 +9,20 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
-/// Cable modem provider for Netgear DOCSIS modems (CM1000, CM1100, CM1200, etc.).
-/// Scrapes the DocsisStatus.asp page via HTTP Basic Auth and parses
+/// Cable modem provider for Netgear DOCSIS modems (CM600, CM700, CM1000, CM1200, etc.).
+/// Scrapes the DocsisStatus status page via HTTP Basic Auth and parses
 /// downstream/upstream channel tables using HtmlAgilityPack.
+///
+/// Netgear is inconsistent about the page extension: most models serve
+/// <c>DocsisStatus.asp</c> (e.g. CM600, CM1000) while some serve <c>DocsisStatus.htm</c>
+/// (e.g. CM700) and return 401/404 for the .asp path. Model number does not reliably
+/// predict which (CM600 and CM700 are both DOCSIS 3.0 yet differ), so the provider tries
+/// the configured/default path and transparently falls back to the alternate extension.
+///
+/// The two pages also differ in how channel data is delivered: the .asp page renders the
+/// downstream/upstream tables server-side, while the .htm page ships empty tables and a
+/// JavaScript tagValueList that the browser expands client-side. The parser handles both -
+/// the server-rendered tables first, then the tagValueList for any table left empty.
 /// </summary>
 public sealed class NetgearCmProvider : ICableModemProvider
 {
@@ -34,7 +46,25 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private static readonly Regex RetailSessionRx =
         new("name=[\"']?RetailSessionId[\"']?\\s+value=[\"']?([0-9A-Za-z]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // CM700 (and similar) serve DocsisStatus.htm with empty channel tables that the browser
+    // fills client-side from a JavaScript tagValueList: a leading channel count followed by
+    // pipe-delimited per-channel fields. Capture the live single-quoted assignment for each
+    // table (the placeholder/example assignment in the function is double-quoted and inside a
+    // /* */ comment, so the single-quote match skips it).
+    private static readonly Regex DsTagValueListRx =
+        new(@"InitDsTableTagValue\s*\(\s*\)\s*\{.*?var\s+tagValueList\s*=\s*'([^']*)'",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex UsTagValueListRx =
+        new(@"InitUsTableTagValue\s*\(\s*\)\s*\{.*?var\s+tagValueList\s*=\s*'([^']*)'",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+
     private readonly ILogger<NetgearCmProvider> _logger;
+
+    /// <summary>
+    /// Remembers the status-page path that last succeeded per CmConfiguration.Id so later
+    /// polls skip the dead extension instead of 401/404-ing on it every interval.
+    /// </summary>
+    private readonly ConcurrentDictionary<int, string> _pathCache = new();
 
     public NetgearCmProvider(ILogger<NetgearCmProvider> logger)
     {
@@ -52,13 +82,11 @@ public sealed class NetgearCmProvider : ICableModemProvider
             return null;
         }
 
-        var url = BuildUrl(context);
-
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
         {
             try
             {
-                var html = await FetchPageAsync(url, context.Username, context.Password, cancellationToken);
+                var html = await FetchWithFallbackAsync(context, cancellationToken);
                 if (html == null)
                 {
                     _logger.LogWarning(
@@ -107,27 +135,22 @@ public sealed class NetgearCmProvider : ICableModemProvider
         if (string.IsNullOrWhiteSpace(context.Host))
             return (false, "Host is empty");
 
-        var url = BuildUrl(context);
-
         try
         {
-            var html = await FetchPageAsync(url, context.Username, context.Password, cancellationToken);
+            var html = await FetchWithFallbackAsync(context, cancellationToken);
             if (html == null)
                 return (false, "No response from cable modem");
 
-            var doc = new HtmlDocument();
-            doc.LoadHtml(html);
+            // Parse through the full pipeline so both the server-rendered table format
+            // (.asp) and the JavaScript tagValueList format (.htm, e.g. CM700) are counted.
+            var stats = ParseDocsisStatus(html, context);
+            var dsCount = stats.DownstreamChannels.Count;
+            var usCount = stats.UpstreamChannels.Count;
 
-            var dsTable = doc.DocumentNode.SelectSingleNode("//table[@id='dsTable']");
-            var usTable = doc.DocumentNode.SelectSingleNode("//table[@id='usTable']");
+            if (dsCount == 0 && usCount == 0)
+                return (false, "Connected but no DOCSIS channels found. Check the status page path.");
 
-            if (dsTable == null && usTable == null)
-                return (false, "Connected but DOCSIS status tables not found. Check the status page path.");
-
-            var dsRows = dsTable?.SelectNodes(".//tr[position()>1]")?.Count ?? 0;
-            var usRows = usTable?.SelectNodes(".//tr[position()>1]")?.Count ?? 0;
-
-            return (true, $"Connected - {dsRows} downstream, {usRows} upstream channels detected");
+            return (true, $"Connected - {dsCount} downstream, {usCount} upstream channels detected");
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
@@ -139,16 +162,91 @@ public sealed class NetgearCmProvider : ICableModemProvider
         }
     }
 
-    private string BuildUrl(CmPollContext context)
+    private static string BuildUrl(CmPollContext context, string path)
     {
-        var path = string.IsNullOrWhiteSpace(context.StatusPagePath)
-            ? DefaultStatusPath
-            : context.StatusPagePath;
-
         var port = context.Port > 0 ? context.Port : 80;
         var portSuffix = port == 80 ? "" : $":{port}";
 
         return $"http://{context.Host}{portSuffix}{path}";
+    }
+
+    /// <summary>
+    /// Fetch the DOCSIS status page, transparently falling back between the two known
+    /// Netgear page extensions. Tries the configured/default path first, then the alternate
+    /// extension if the first returns 401 or 404, and remembers whichever worked per config
+    /// so later polls go straight to it. Other failures propagate to the retry loop.
+    /// </summary>
+    private async Task<string?> FetchWithFallbackAsync(
+        CmPollContext context,
+        CancellationToken cancellationToken)
+    {
+        var candidates = ResolvePathCandidates(context);
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var url = BuildUrl(context, candidates[i]);
+            try
+            {
+                var html = await FetchPageAsync(url, context.Username, context.Password, cancellationToken);
+                if (context.Id > 0)
+                    _pathCache[context.Id] = candidates[i];
+                return html;
+            }
+            catch (HttpRequestException ex) when (
+                i < candidates.Count - 1
+                && ex.StatusCode is System.Net.HttpStatusCode.Unauthorized
+                                 or System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogDebug(
+                    "Netgear CM {Name}: {Path} returned {Status}; trying alternate page extension",
+                    context.Name, candidates[i], (int)ex.StatusCode);
+            }
+        }
+
+        // Unreachable: the loop returns on the first success, and the last candidate's
+        // exception is not caught here (the when-guard requires a remaining candidate) so it
+        // propagates to PollAsync/TestConnectionAsync.
+        return null;
+    }
+
+    /// <summary>
+    /// Build the ordered list of status-page paths to try: the configured (or default) path
+    /// first, then the alternate Netgear extension (.asp ↔ .htm) when the path is a
+    /// DocsisStatus page. A path recorded as working for this config is moved to the front.
+    /// </summary>
+    private List<string> ResolvePathCandidates(CmPollContext context)
+    {
+        var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
+            ? DefaultStatusPath
+            : context.StatusPagePath;
+
+        var candidates = new List<string> { configured };
+        var alternate = AlternateNetgearPath(configured);
+        if (alternate != null)
+            candidates.Add(alternate);
+
+        if (context.Id > 0
+            && _pathCache.TryGetValue(context.Id, out var lastGood)
+            && candidates.Remove(lastGood))
+        {
+            candidates.Insert(0, lastGood);
+        }
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// Returns the other Netgear DOCSIS status-page extension for a given path, or null if
+    /// the path is not a recognized DocsisStatus page. CM600/CM1000 use <c>.asp</c>; CM700
+    /// uses <c>.htm</c>, and model number does not reliably predict which.
+    /// </summary>
+    private static string? AlternateNetgearPath(string path)
+    {
+        if (path.EndsWith("DocsisStatus.asp", StringComparison.OrdinalIgnoreCase))
+            return string.Concat(path.AsSpan(0, path.Length - 4), ".htm");
+        if (path.EndsWith("DocsisStatus.htm", StringComparison.OrdinalIgnoreCase))
+            return string.Concat(path.AsSpan(0, path.Length - 4), ".asp");
+        return null;
     }
 
     private async Task<string?> FetchPageAsync(
@@ -273,7 +371,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
         return (int)postResponse.StatusCode < 400;
     }
 
-    private CableModemStats ParseDocsisStatus(string html, CmPollContext context)
+    internal static CableModemStats ParseDocsisStatus(string html, CmPollContext context)
     {
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
@@ -358,7 +456,94 @@ public sealed class NetgearCmProvider : ICableModemProvider
             }
         }
 
+        // Models that build the tables client-side (e.g. CM700 on DocsisStatus.htm) leave the
+        // server-rendered tables empty, so fall back to the JavaScript tagValueList data.
+        ParseTagValueTables(html, stats);
+
         return stats;
+    }
+
+    /// <summary>
+    /// Parse channel data from the JavaScript tagValueList assignments used by models that
+    /// render the DOCSIS tables client-side (e.g. CM700). Only runs for tables the
+    /// HtmlAgilityPack pass left empty, so it never overrides server-rendered data.
+    /// </summary>
+    private static void ParseTagValueTables(string html, CableModemStats stats)
+    {
+        if (stats.DownstreamChannels.Count == 0)
+        {
+            var match = DsTagValueListRx.Match(html);
+            if (match.Success)
+            {
+                // Per channel: Channel, Lock Status, Modulation, Channel ID, Frequency, Power,
+                // SNR, and (on firmware that reports them) Correctables, UnCorrectables.
+                foreach (var f in ChunkTagValues(match.Groups[1].Value))
+                {
+                    stats.DownstreamChannels.Add(new DsChannel
+                    {
+                        LockStatus = f[1],
+                        Modulation = f[2],
+                        ChannelId = ParseInt(f[3]),
+                        Frequency = ParseFrequency(f[4]),
+                        Power = ParseDouble(f[5]),
+                        Snr = ParseDouble(f[6]),
+                        Correctables = f.Count > 7 ? ParseLong(f[7]) : 0,
+                        Uncorrectables = f.Count > 8 ? ParseLong(f[8]) : 0,
+                    });
+                }
+            }
+        }
+
+        if (stats.UpstreamChannels.Count == 0)
+        {
+            var match = UsTagValueListRx.Match(html);
+            if (match.Success)
+            {
+                // Per channel: Channel, Lock Status, US Channel Type, Channel ID, Symbol Rate,
+                // Frequency, Power.
+                foreach (var f in ChunkTagValues(match.Groups[1].Value))
+                {
+                    stats.UpstreamChannels.Add(new UsChannel
+                    {
+                        LockStatus = f[1],
+                        ChannelType = f[2],
+                        ChannelId = ParseInt(f[3]),
+                        SymbolRate = ParseSymbolRate(f[4]),
+                        Frequency = ParseFrequency(f[5]),
+                        Power = ParseDouble(f[6]),
+                    });
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Split a Netgear tagValueList - a leading channel count followed by pipe-delimited
+    /// per-channel fields - into one field list per channel. A trailing pipe leaves an empty
+    /// token that is ignored. Returns nothing if the count is missing/invalid or the fields
+    /// don't divide into per-channel groups of at least the seven shared columns.
+    /// </summary>
+    private static IEnumerable<List<string>> ChunkTagValues(string tagValueList)
+    {
+        var tokens = tagValueList.Split('|');
+        if (tokens.Length < 2 || !int.TryParse(tokens[0].Trim(), out var count) || count <= 0)
+            yield break;
+
+        var fields = tokens.Skip(1).ToList();
+        while (fields.Count > 0 && string.IsNullOrEmpty(fields[^1]))
+            fields.RemoveAt(fields.Count - 1);
+
+        var perChannel = fields.Count / count;
+        if (perChannel < 7)
+            yield break;
+
+        for (int c = 0; c < count; c++)
+        {
+            var start = c * perChannel;
+            if (start + perChannel > fields.Count)
+                yield break;
+            yield return fields.GetRange(start, perChannel);
+        }
     }
 
     /// <summary>
