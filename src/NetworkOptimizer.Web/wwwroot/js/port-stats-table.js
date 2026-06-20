@@ -153,13 +153,12 @@ function portCell(p) {
     return `<span class="port-cell">${portIcon(p)}<span class="port-label"${tip}>${escapeHtml(name)}</span></span>`;
 }
 
-// The single wired client on this port, linked to its Client Dashboard by IP.
+// The single wired client on this port, linked to its Client Performance dashboard.
 function clientCell(p) {
     const label = p.connectedName || p.connectedMac || p.connectedIp;
     if (!label) return '';
     if (p.connectedIp) {
-        const mac = p.connectedMac ? ` data-tooltip="${escapeHtml(p.connectedMac)}"` : '';
-        return `<a class="port-client-link" href="/client-dashboard?ip=${encodeURIComponent(p.connectedIp)}"${mac}>${escapeHtml(label)}</a>`;
+        return `<a class="port-client-link" href="/client-dashboard?ip=${encodeURIComponent(p.connectedIp)}" data-tooltip="Open the Client Performance dashboard" data-tooltip-hover-only>${escapeHtml(label)}</a>`;
     }
     return escapeHtml(label);
 }
