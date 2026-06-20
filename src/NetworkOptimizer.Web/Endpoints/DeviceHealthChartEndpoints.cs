@@ -38,13 +38,41 @@ public static class DeviceHealthChartEndpoints
                 .ToListAsync(ct);
 
             if (targets.Count == 0)
-                return Results.Ok(new { devices = Array.Empty<object>() });
+                return Results.Ok(new { devices = Array.Empty<object>(), customFields = Array.Empty<object>() });
+
+            var deviceMacs = targets
+                .Where(t => !string.IsNullOrEmpty(t.DeviceMac))
+                .Select(t => t.DeviceMac!)
+                .ToList();
+
+            var customOidConfigs = await db.CustomOidConfigurations
+                .Where(c => c.Enabled && c.Scope == Storage.Models.CustomOidScope.DeviceLevel
+                    && deviceMacs.Contains(c.DeviceMac))
+                .ToListAsync(ct);
+
+            var customFieldDefs = customOidConfigs
+                .GroupBy(c => c.FieldName)
+                .Select(g => new { fieldName = g.Key, description = g.First().Description ?? g.Key })
+                .ToList();
+
+            var customFieldNames = customFieldDefs.Select(f => f.fieldName).ToList();
 
             var result = new List<object>();
             foreach (var t in targets)
             {
                 if (string.IsNullOrEmpty(t.DeviceMac)) continue;
                 var points = await influx.QueryDeviceHealthAsync(t.DeviceMac, queryFrom, queryTo, ct: ct);
+
+                Dictionary<string, List<(DateTime Time, double Value)>>? customData = null;
+                var deviceCustomFields = customOidConfigs
+                    .Where(c => c.DeviceMac == t.DeviceMac)
+                    .Select(c => c.FieldName)
+                    .Distinct()
+                    .ToList();
+                if (deviceCustomFields.Count > 0)
+                    customData = await influx.QueryCustomOidFieldsAsync(
+                        t.DeviceMac, deviceCustomFields, queryFrom, queryTo, ct: ct);
+
                 result.Add(new
                 {
                     name = t.Name,
@@ -55,11 +83,14 @@ public static class DeviceHealthChartEndpoints
                         cpu = p.CpuPercent,
                         mem = p.MemoryUsedPercent,
                         temp = p.TemperatureC
-                    })
+                    }),
+                    custom = customData?.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => kvp.Value.Select(v => new { time = v.Time.ToString("o"), value = v.Value }))
                 });
             }
 
-            return Results.Ok(new { devices = result });
+            return Results.Ok(new { devices = result, customFields = customFieldDefs });
         });
     }
 }

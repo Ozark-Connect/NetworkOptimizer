@@ -899,6 +899,49 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Query custom OID field values from device_health for a specific device.
+    /// Returns a time series per field name.
+    /// </summary>
+    public async Task<Dictionary<string, List<(DateTime Time, double Value)>>> QueryCustomOidFieldsAsync(
+        string deviceMac,
+        IReadOnlyList<string> fieldNames,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || fieldNames.Count == 0)
+            return new Dictionary<string, List<(DateTime, double)>>();
+
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var mac = NormalizeMac(deviceMac);
+        var fieldFilter = string.Join(" or ", fieldNames.Select(f => $"r._field == \"{f}\""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => {fieldFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var result = new Dictionary<string, List<(DateTime, double)>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var field = record.GetValueByKey("_field")?.ToString();
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (field == null || value == null) continue;
+            if (!result.TryGetValue(field, out var list))
+            {
+                list = new List<(DateTime, double)>();
+                result[field] = list;
+            }
+            list.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), value.Value));
+        }
+        foreach (var list in result.Values) list.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return result;
+    }
+
     /// <summary>Raw device health query - no aggregation, pairs fields in C#.</summary>
     public async Task<IReadOnlyList<DeviceHealthPoint>> QueryDeviceHealthRawAsync(
         string deviceMac, DateTime from, DateTime to, CancellationToken ct = default)
