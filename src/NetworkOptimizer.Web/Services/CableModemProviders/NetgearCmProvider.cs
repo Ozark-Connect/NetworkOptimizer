@@ -173,8 +173,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// <summary>
     /// Fetch the DOCSIS status page, transparently falling back between the two known
     /// Netgear page extensions. Tries the configured/default path first, then the alternate
-    /// extension if the first returns 401 or 404, and remembers whichever worked per config
-    /// so later polls go straight to it. Other failures propagate to the retry loop.
+    /// extension if the first request fails with ANY HTTP status error or transport error,
+    /// and remembers whichever worked per config so later polls go straight to it. If the
+    /// alternate also fails, the last error propagates to the retry loop - so a genuine
+    /// auth failure (both extensions reject the credentials) still surfaces.
     /// </summary>
     private async Task<string?> FetchWithFallbackAsync(
         CmPollContext context,
@@ -192,14 +194,17 @@ public sealed class NetgearCmProvider : ICableModemProvider
                     _pathCache[context.Id] = candidates[i];
                 return html;
             }
-            catch (HttpRequestException ex) when (
-                i < candidates.Count - 1
-                && ex.StatusCode is System.Net.HttpStatusCode.Unauthorized
-                                 or System.Net.HttpStatusCode.NotFound)
+            catch (HttpRequestException ex) when (i < candidates.Count - 1)
             {
+                // Fall back on any HTTP status error (401/403/404/5xx) or transport error
+                // (connection reset/closed, where StatusCode is null). Netgear firmware
+                // signals an unavailable .asp path inconsistently - the reporter's CM700
+                // returned 401, while other models simply close the connection - so we don't
+                // gate the fallback on a specific code.
                 _logger.LogDebug(
-                    "Netgear CM {Name}: {Path} returned {Status}; trying alternate page extension",
-                    context.Name, candidates[i], (int)ex.StatusCode);
+                    "Netgear CM {Name}: {Path} failed ({Reason}); trying alternate page extension",
+                    context.Name, candidates[i],
+                    ex.StatusCode is { } status ? $"HTTP {(int)status}" : ex.Message);
             }
         }
 
