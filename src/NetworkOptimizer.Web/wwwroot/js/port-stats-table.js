@@ -37,6 +37,7 @@ let container = null;
 let badgesEl = null;
 let tableEl = null;
 let legendEl = null;
+let topScrollEl = null;     // mirror horizontal scrollbar above the table
 let opts = {};
 
 let deviceMeta = [];        // [{ mac, name, color }]
@@ -141,7 +142,8 @@ function portCell(p) {
     // (mapped from the Linux ifName), or the raw name as fallback. The label tooltip
     // shows the raw interface name when we have it.
     const name = p.friendlyName || p.ifName || (p.portId ? `Port ${p.portId}` : '');
-    const tip = p.ifName ? ` data-tooltip="${escapeHtml(p.ifName)}"` : '';
+    // Tooltip only when the shown label isn't already the raw interface name.
+    const tip = (p.ifName && p.ifName !== name) ? ` data-tooltip="${escapeHtml(p.ifName)}"` : '';
     return `<span class="port-cell">${portIcon(p)}<span class="port-label"${tip}>${escapeHtml(name)}</span></span>`;
 }
 
@@ -271,7 +273,7 @@ function renderBadges() {
 function renderTableNow(showAll) {
     if (!tableEl) return;
     const rows = buildRows();
-    if (rows.length === 0) { tableEl.innerHTML = ''; return; }
+    if (rows.length === 0) { tableEl.innerHTML = ''; syncTopScrollbar(); return; }
     renderTable(tableEl, container, {
         nameHeader: 'Device', title: '', rows, columns: COLUMNS, showAllRows: showAll,
         // Clicking a device name in the table filters that device, mirroring the pills.
@@ -285,6 +287,26 @@ function renderTableNow(showAll) {
             onChanged: () => { savePrefs(); renderBadges(); renderTableNow(false); },
         },
     });
+    syncTopScrollbar();
+}
+
+// Mirror the table's horizontal scroll into a scrollbar above it, so a wide table
+// can be panned without scrolling down to the native bar. The .table-responsive is
+// re-created on every render, so re-measure and (re)wire its listener each time.
+function syncTopScrollbar() {
+    if (!topScrollEl) return;
+    const resp = tableEl && tableEl.querySelector('.table-responsive');
+    const inner = topScrollEl.firstElementChild;
+    if (!resp || !inner) { topScrollEl.style.display = 'none'; return; }
+    const overflow = resp.scrollWidth > resp.clientWidth + 1;
+    topScrollEl.style.display = overflow ? '' : 'none';
+    if (!overflow) return;
+    inner.style.width = resp.scrollWidth + 'px';
+    topScrollEl.scrollLeft = resp.scrollLeft;
+    if (!resp._topSync) {
+        resp._topSync = true;
+        resp.addEventListener('scroll', () => { if (topScrollEl) topScrollEl.scrollLeft = resp.scrollLeft; });
+    }
 }
 
 function renderLegend() {
@@ -392,7 +414,7 @@ const api = {
         clearTimeout(seekDebounce);
         if (fetchController) fetchController.abort();
         if (window.__portStatsTable === api) window.__portStatsTable = null;
-        container = badgesEl = tableEl = tabsEl = null;
+        container = badgesEl = tableEl = tabsEl = topScrollEl = null;
         lastDevices = [];
         deviceMeta = [];
         visibility = {};
@@ -408,6 +430,14 @@ export function mount(el, mountOpts = {}) {
     tableEl = container.querySelector('#port-stats-table');
     tabsEl = container.querySelector('#port-stats-tabs');
     legendEl = container.querySelector('#port-stats-legend');
+    topScrollEl = container.querySelector('#port-stats-scroll-top');
+    if (topScrollEl && !topScrollEl._sync) {
+        topScrollEl._sync = true;
+        topScrollEl.addEventListener('scroll', () => {
+            const resp = tableEl && tableEl.querySelector('.table-responsive');
+            if (resp) resp.scrollLeft = topScrollEl.scrollLeft;
+        });
+    }
     renderLegend();
     if (Array.isArray(mountOpts.deviceMeta)) {
         for (const d of mountOpts.deviceMeta) if (d && d.mac && d.name) nameOverrides[d.mac] = d.name;

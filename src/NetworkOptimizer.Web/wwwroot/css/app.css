@@ -16325,6 +16325,33 @@ body.kiosk-mode .status-indicators {
     white-space: nowrap;
 }
 
+.port-stats-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+.port-stats-scroll-top > div {
+    height: 1px;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar {
+    height: 10px;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+.port-stats-scroll-top::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
 .port-label {
     color: var(--text-primary);
 }

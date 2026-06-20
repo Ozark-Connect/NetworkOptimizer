@@ -66,7 +66,7 @@ public static class InterfaceLabelResolver
         var ovpnNames = networks
             .Where(n => n.VpnType?.Contains("openvpn", StringComparison.OrdinalIgnoreCase) ?? false)
             .Select(n => n.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-        var ovpnLabel = ovpnNames.Count == 1 ? ovpnNames[0]!.Trim() : "OpenVPN";
+        var ovpnLabel = ovpnNames.Count == 1 ? $"{ovpnNames[0]!.Trim()} (OpenVPN)" : "OpenVPN";
 
         // VLAN id → corporate/LAN network name (for honeypot/bridge interfaces).
         string? NetworkNameForVlan(int vlan)
