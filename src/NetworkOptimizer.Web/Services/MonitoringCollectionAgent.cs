@@ -1091,7 +1091,9 @@ public class MonitoringCollectionAgent : BackgroundService
             var pc = list[0];
             var pcName = !string.IsNullOrWhiteSpace(pc.Name) ? pc.Name
                 : !string.IsNullOrWhiteSpace(pc.Hostname) ? pc.Hostname : pc.Mac;
-            portClients[key] = new MonitoringLiveStats.PortClient(pc.Mac, pc.Ip ?? string.Empty, pcName);
+            // BestIp falls back ip -> last_ip -> fixed_ip, so fixed/reservation devices
+            // (no live DHCP lease) still resolve, matching the UniFi client table.
+            portClients[key] = new MonitoringLiveStats.PortClient(pc.Mac, pc.BestIp ?? string.Empty, pcName);
         }
         _liveStats.RecordPortClients(portClients);
 
