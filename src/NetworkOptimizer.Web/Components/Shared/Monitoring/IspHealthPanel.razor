@@ -697,7 +697,7 @@ else
             var (badge, badgeClass, text) = evt.Disposition switch
             {
                 CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-info",
-                    $"{lead} Everything slows together under load, so the limit is your access link, not one hop - bufferbloat or a congested shared-access network."),
+                    $"{lead} Everything slowed together under load, so the limit was your access link, not one hop - bufferbloat or a congested shared-access network."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
                     $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
@@ -705,7 +705,7 @@ else
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-warning",
                     $"{lead}"),
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-warning",
-                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it is this hop's own capacity, not your access link."),
+                    $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access link."),
                 _ => ("Congestion", "isp-event-badge-warning",
                     $"{lead}")
             };

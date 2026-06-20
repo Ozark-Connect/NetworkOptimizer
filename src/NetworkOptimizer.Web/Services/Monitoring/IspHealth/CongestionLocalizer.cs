@@ -219,7 +219,7 @@ public static class CongestionLocalizer
             // hop. Surfaced as "Loaded Latency" (not Congestion), not scored (Suppressed). We assert
             // location + correlation only; the mechanism (CPE buffer, OLT, policing) is unknowable here.
             disposition = CongestionDisposition.SelfInflicted;
-            reason = "Every monitored path rose together under load, so the limit is your access link, not a single hop - consistent with bufferbloat or a congested shared-access network.";
+            reason = "Every monitored path rose together under load, so the limit was your access link, not a single hop - consistent with bufferbloat or a congested shared-access network.";
         }
         else if (propagated)
         {
@@ -227,7 +227,7 @@ public static class CongestionLocalizer
             reason = "Elevation propagates to monitored hops downstream of this bottleneck.";
             if (loadCoincident)
                 reason += cleanParallelPaths > 0
-                    ? $" It coincided with heavy WAN load, but {cleanParallelPaths} other monitored paths stayed clean under the same load, so it is this hop's own capacity, not your access egress."
+                    ? $" It coincided with heavy WAN load, but {cleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access egress."
                     : " It coincided with heavy WAN load (load-induced), but localizes to a specific hop rather than your access egress.";
         }
         else if (hasDescendant)
