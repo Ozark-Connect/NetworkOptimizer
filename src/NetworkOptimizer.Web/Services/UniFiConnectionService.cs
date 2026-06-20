@@ -49,7 +49,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private DateTime _deviceCacheTime = DateTime.MinValue;
     private static readonly TimeSpan DeviceCacheDuration = TimeSpan.FromSeconds(30);
 
-    // Network cache (5 minute TTL - networks change rarely)
+    // Network cache (1 minute TTL - keeps Live View interface labels fresh)
     private List<NetworkInfo>? _cachedNetworks;
     private DateTime _networkCacheTime = DateTime.MinValue;
     private static readonly TimeSpan NetworkCacheDuration = TimeSpan.FromMinutes(1);
