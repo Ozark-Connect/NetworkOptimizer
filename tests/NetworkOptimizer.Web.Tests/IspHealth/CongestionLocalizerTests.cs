@@ -258,6 +258,46 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void A_target_with_no_data_during_the_event_is_not_counted_as_a_clean_parallel_path()
+    {
+        // A confirmed bottleneck under load, with two parallel paths that don't cross it: one with
+        // data spanning the event (genuinely clean), and one whose samples start only AFTER the event
+        // (a newer target added later, or a monitoring gap). Only the path with data may count clean.
+        var hopNumbers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["10.0.0.1"] = 1,
+            ["10.0.5.1"] = 4,
+            ["10.0.6.1"] = 5,
+            ["10.0.7.1"] = 4,
+            ["10.0.8.1"] = 4
+        };
+        var afterOnly = TestSeries.Flat(HumpEnd.AddHours(1), TimeSpan.FromHours(6), 5, 0.5);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, "10.0.0.1", Flat()),                              // access egress, clean
+            Hop(500, "10.0.5.1", Elevated(), "10.0.0.1"),             // bottleneck (elevated under load)
+            Hop(600, "10.0.6.1", Elevated(), "10.0.0.1", "10.0.5.1"), // downstream witness -> Confirmed
+            Hop(700, "10.0.7.1", Flat(), "10.0.0.1"),                 // clean parallel, has data in the window
+            Hop(800, "10.0.8.1", afterOnly, "10.0.0.1")               // newer parallel, no data during the event
+        };
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { "10.0.0.1" }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = hopNumbers,
+            Load = HighLoad(),
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        var evt = events.Single(e => e.BottleneckHopIp == "10.0.5.1");
+        evt.Disposition.Should().Be(CongestionDisposition.Confirmed);
+        // Access hop + 10.0.7.1 (both clean, with data in the window) count; 10.0.8.1 (no data during
+        // the event) does not - it would be 3 without the data-presence guard.
+        evt.CleanParallelPaths.Should().Be(2);
+    }
+
+    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise

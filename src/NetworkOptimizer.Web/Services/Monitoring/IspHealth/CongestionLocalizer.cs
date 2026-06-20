@@ -90,7 +90,9 @@ public static class CongestionLocalizer
             var loadCoincident = LoadCoincident(window.Start, window.End, topology, options);
             // A clean anchored series anywhere means the elevation is NOT line-wide, which rules
             // out access-egress self-infliction (that bloats everything that crosses the egress).
-            var cleanControlExists = anchored.Any(s => !IsElevated(s, window.Start, window.End));
+            // Must have data in the window - a no-data series (newer target / gap) isn't "clean".
+            var cleanControlExists = anchored.Any(s =>
+                HasDataInWindow(s, window.Start, window.End) && !IsElevated(s, window.Start, window.End));
 
             foreach (var (bnIp, members) in byBottleneck)
                 result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
@@ -189,7 +191,10 @@ public static class CongestionLocalizer
         // Anchored paths that do NOT cross this bottleneck and stayed clean through the window.
         // A non-zero count under load proves the elevation is this hop's own capacity, not
         // access-layer bufferbloat (which would lift every path that shares your access link).
+        // Require samples IN the window: a series with no data then (a newer target added after a
+        // past event, or a monitoring gap) is unknown, not clean, and must not pad this evidence.
         var cleanParallelPaths = allSeries.Count(s => HasTrace(s, topology)
+            && HasDataInWindow(s, window.Start, window.End)
             && !s.HopIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
             && !s.AncestorIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
             && !isElevated(s, window.Start, window.End));
@@ -338,6 +343,12 @@ public static class CongestionLocalizer
 
     private static bool HasTrace(AsnSeries series, CongestionTopology topology) =>
         series.AncestorIps.Count > 0 || series.HopIps.Any(topology.HopNumberByIp.ContainsKey);
+
+    /// <summary>True when the series has at least one RTT sample inside the window. A series with no
+    /// data then (a newer target added after a past event, or a monitoring gap) reads as unknown,
+    /// never as "clean" - so absence of data can't pad the clean-control or clean-parallel evidence.</summary>
+    private static bool HasDataInWindow(AsnSeries series, DateTime start, DateTime end) =>
+        series.Samples.Any(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue);
 
     private static List<List<(AsnSeries Series, CongestionEvent Evt)>> ClusterByTime(
         List<(AsnSeries Series, CongestionEvent Evt)> candidates)
