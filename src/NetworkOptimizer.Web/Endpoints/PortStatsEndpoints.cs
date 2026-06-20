@@ -98,11 +98,19 @@ public static class PortStatsEndpoints
                                 var sub = SubInterface.Match(p.IfName);
                                 if (sub.Success)
                                     mapByKey.TryGetValue((mac, sub.Groups["base"].Value), out parent);
+                                var portNumber = nm?.PortNumber ?? parent?.PortNumber;
+                                // Single wired client on this physical port (links to the
+                                // Client Dashboard). Keyed on the port's OWN number so a
+                                // VLAN sub-interface doesn't borrow the parent's client.
+                                var client = nm?.PortNumber is int pnum ? liveStats.GetPortClient(mac, pnum) : null;
                                 return new
                                 {
                                     ifName = p.IfName,
                                     portId = p.PortId,
-                                    portNumber = nm?.PortNumber ?? parent?.PortNumber,
+                                    portNumber,
+                                    connectedMac = client?.Mac,
+                                    connectedIp = client?.Ip,
+                                    connectedName = client?.Name,
                                     // Agent-resolved WAN/carrier label wins (e.g. gre1 ->
                                     // "WAN3 - AT&T Wireless"); otherwise the port_table /
                                     // sub-interface friendly name.

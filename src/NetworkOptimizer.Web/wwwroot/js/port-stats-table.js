@@ -153,8 +153,20 @@ function portCell(p) {
     return `<span class="port-cell">${portIcon(p)}<span class="port-label"${tip}>${escapeHtml(name)}</span></span>`;
 }
 
+// The single wired client on this port, linked to its Client Dashboard by IP.
+function clientCell(p) {
+    const label = p.connectedName || p.connectedMac || p.connectedIp;
+    if (!label) return '';
+    if (p.connectedIp) {
+        const mac = p.connectedMac ? ` data-tooltip="${escapeHtml(p.connectedMac)}"` : '';
+        return `<a class="port-client-link" href="/client-dashboard?ip=${encodeURIComponent(p.connectedIp)}"${mac}>${escapeHtml(label)}</a>`;
+    }
+    return escapeHtml(label);
+}
+
 const COLUMNS = [
     { header: 'Port', format: v => v.html },
+    { header: 'Client', format: v => v.html },
     { header: 'Rate In', format: fmtRate },
     { header: 'Rate Out', format: fmtRate },
     { header: 'Unicast In', format: fmtCount },
@@ -221,6 +233,7 @@ function buildRows() {
                 visible: vis,
                 values: [
                     { html: portCell(p) },
+                    { html: clientCell(p) },
                     p.rateInBps, p.rateOutBps,
                     p.ucastPktsIn, p.ucastPktsOut,
                     p.mcastPktsIn, p.mcastPktsOut,

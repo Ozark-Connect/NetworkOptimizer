@@ -1071,6 +1071,30 @@ public class MonitoringCollectionAgent : BackgroundService
         var wifiCount = clients.Count(c => !c.IsWired);
         var wiredCount = clients.Count(c => c.IsWired);
         _logger.LogDebug("WiFi tier: {Total} clients ({Wifi} wifi, {Wired} wired)", clients.Length, wifiCount, wiredCount);
+
+        // Map each switch/gateway port that has exactly one wired client to that client,
+        // for the Live View port stats "Client" column. Ports with multiple MACs
+        // (uplinks/trunks) are skipped so we never label them with an arbitrary client.
+        var wiredByPort = new Dictionary<(string, int), List<UniFiClientResponse>>();
+        foreach (var c in clients)
+        {
+            if (!c.IsWired || string.IsNullOrEmpty(c.Mac) || string.IsNullOrEmpty(c.SwMac)
+                || c.SwPort is not int swp || swp <= 0) continue;
+            var key = (NormalizeMac(c.SwMac), swp);
+            if (!wiredByPort.TryGetValue(key, out var list)) { list = new(); wiredByPort[key] = list; }
+            list.Add(c);
+        }
+        var portClients = new Dictionary<(string DeviceMac, int Port), MonitoringLiveStats.PortClient>();
+        foreach (var (key, list) in wiredByPort)
+        {
+            if (list.Count != 1) continue;
+            var pc = list[0];
+            var pcName = !string.IsNullOrWhiteSpace(pc.Name) ? pc.Name
+                : !string.IsNullOrWhiteSpace(pc.Hostname) ? pc.Hostname : pc.Mac;
+            portClients[key] = new MonitoringLiveStats.PortClient(pc.Mac, pc.Ip ?? string.Empty, pcName);
+        }
+        _liveStats.RecordPortClients(portClients);
+
         long tickOffset = 0; // nanosecond offset per client to avoid InfluxDB dedup
         foreach (var c in clients)
         {

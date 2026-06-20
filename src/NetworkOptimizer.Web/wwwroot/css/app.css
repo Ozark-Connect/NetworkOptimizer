@@ -16356,6 +16356,14 @@ body.kiosk-mode .status-indicators {
     color: var(--text-primary);
 }
 
+.port-client-link {
+    color: var(--info-color);
+}
+
+.port-client-link:hover {
+    text-decoration: underline;
+}
+
 @media (max-width: 768px) {
     .port-stats-1dev .data-table thead th:first-child,
     .port-stats-1dev .data-table td[data-stat-id] {

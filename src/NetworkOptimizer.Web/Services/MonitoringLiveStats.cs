@@ -237,6 +237,28 @@ public class MonitoringLiveStats
             && map.TryGetValue(ifName, out var label) ? label : null;
     }
 
+    /// <summary>The single wired client on a switch/gateway port (for the port stats table).</summary>
+    public readonly record struct PortClient(string Mac, string Ip, string Name);
+
+    // Wired client per (device mac, port number), for ports with exactly one client.
+    // Refreshed by the WiFi/client tier; swapped atomically. Additive - nothing else
+    // reads this, so it can't regress existing consumers.
+    private volatile IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> _portClients =
+        new Dictionary<(string, int), PortClient>();
+
+    /// <summary>Replaces the whole (device, port) → wired-client map.</summary>
+    public void RecordPortClients(IReadOnlyDictionary<(string DeviceMac, int Port), PortClient> map)
+    {
+        if (map != null) _portClients = map;
+    }
+
+    /// <summary>The wired client on a device port, or null when none / ambiguous.</summary>
+    public PortClient? GetPortClient(string deviceMac, int port)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return null;
+        return _portClients.TryGetValue((Normalize(deviceMac), port), out var c) ? c : null;
+    }
+
     /// <summary>Latest cached per-port snapshot, optionally filtered to specific device MACs.</summary>
     public IReadOnlyList<MonitoringInfluxClient.PortStatsPoint> GetPortStatsSnapshot(IReadOnlyCollection<string>? deviceMacs)
     {
