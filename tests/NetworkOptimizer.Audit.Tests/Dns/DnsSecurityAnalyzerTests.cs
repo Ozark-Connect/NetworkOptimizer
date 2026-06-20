@@ -5798,20 +5798,20 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var networks = CreateDhcpNetworks(
             ("net1", "Main Network", "192.168.1.0/24"),
             ("net2", "IoT", "192.168.2.0/24"),
-            ("net3", "Management", "192.168.150.0/24"),
-            ("net4", "Security", "192.168.17.0/24"));
+            ("net3", "Management", "192.0.2.0/24"),
+            ("net4", "Security", "198.51.100.0/24"));
 
         // Blanket "block all internet" rules on Management and Security (no port = all ports, including 53)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block 192.168.150.0/24 Internet Access"",
+                ""name"": ""Block 192.0.2.0/24 Internet Access"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net3""] },
                 ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
             },
             {
-                ""name"": ""Block 192.168.17.0/24 Internet Access"",
+                ""name"": ""Block 198.51.100.0/24 Internet Access"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net4""] },
@@ -5861,19 +5861,19 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var networks = CreateDhcpNetworks(
             ("net1", "Main Network", "192.168.1.0/24"),
             ("net2", "IoT", "192.168.2.0/24"),
-            ("net3", "Management", "192.168.150.0/24"),
-            ("net4", "Security", "192.168.17.0/24"));
+            ("net3", "Management", "192.0.2.0/24"),
+            ("net4", "Security", "198.51.100.0/24"));
 
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block 192.168.150.0/24 Internet Access"",
+                ""name"": ""Block 192.0.2.0/24 Internet Access"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net3""] },
                 ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
             },
             {
-                ""name"": ""Block 192.168.17.0/24 Internet Access"",
+                ""name"": ""Block 198.51.100.0/24 Internet Access"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net4""] },
@@ -5883,8 +5883,8 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         // DNAT redirects only Management + Security; Main + IoT DNAT rules are disabled (absent)
         var natRules = CreateDnatNatRules(
-            ("net3", "192.168.150.1"),
-            ("net4", "192.168.17.1"));
+            ("net3", "192.0.2.1"),
+            ("net4", "198.51.100.1"));
 
         var settings = JsonDocument.Parse(@"[
             {
@@ -5921,19 +5921,19 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var networks = CreateDhcpNetworks(
             ("net1", "Main Network", "192.168.1.0/24"),
             ("net2", "IoT", "192.168.2.0/24"),
-            ("net3", "Management", "192.168.150.0/24"),
-            ("net4", "Security", "192.168.17.0/24"));
+            ("net3", "Management", "192.0.2.0/24"),
+            ("net4", "Security", "198.51.100.0/24"));
 
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block 192.168.150.0/24 Internet Access"",
+                ""name"": ""Block 192.0.2.0/24 Internet Access"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net3""] },
                 ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
             },
             {
-                ""name"": ""Block 192.168.17.0/24 Internet Access"",
+                ""name"": ""Block 198.51.100.0/24 Internet Access"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net4""] },
