@@ -818,6 +818,60 @@ public class DnsSecurityAnalyzer
             .ToList();
     }
 
+    /// <summary>
+    /// Categorize a set of uncovered network names into DMZ, Guest-with-third-party-DNS, and regular
+    /// buckets, dropping any network the user intentionally excluded from coverage checks. Shared by the
+    /// DNAT partial-coverage finding and the no-protection finding so carve-out handling stays consistent.
+    /// </summary>
+    private static (List<string> Dmz, List<string> GuestThirdParty, List<string> Regular) CategorizeUncoveredNetworks(
+        IEnumerable<string> uncoveredNetworkNames,
+        List<NetworkInfo>? networks,
+        DnsSecurityResult result,
+        Services.FirewallZoneLookup? zoneLookup)
+    {
+        var networksByName = networks?
+            .Where(n => !string.IsNullOrEmpty(n.Name))
+            .ToDictionary(n => n.Name, n => n, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, NetworkInfo>(StringComparer.OrdinalIgnoreCase);
+        var excluded = new HashSet<string>(result.ExcludedFromCoverageNetworks, StringComparer.OrdinalIgnoreCase);
+
+        var dmz = new List<string>();
+        var guestThirdParty = new List<string>();
+        var regular = new List<string>();
+
+        foreach (var networkName in uncoveredNetworkNames)
+        {
+            // Intentionally excluded from coverage checks - never report as uncovered/exposed
+            if (excluded.Contains(networkName))
+                continue;
+
+            if (networksByName.TryGetValue(networkName, out var network))
+            {
+                // Check if this is a DMZ network (by firewall zone)
+                var isDmz = zoneLookup?.IsDmzZone(network.FirewallZoneId) ?? false;
+
+                // Check if this is a Guest network with 3rd party LAN DNS
+                // Guest networks are identified by IsUniFiGuestNetwork or Purpose == Guest
+                var isGuest = network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest;
+                var hasThirdPartyLanDns = result.HasThirdPartyDns && result.IsSiteWideThirdPartyDns;
+
+                if (isDmz)
+                    dmz.Add(networkName);
+                else if (isGuest && hasThirdPartyLanDns)
+                    guestThirdParty.Add(networkName);
+                else
+                    regular.Add(networkName);
+            }
+            else
+            {
+                // Network not found in lookup - treat as regular
+                regular.Add(networkName);
+            }
+        }
+
+        return (dmz, guestThirdParty, regular);
+    }
+
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
     {
         // Pair IPs with their PTR results and sort by dns1 first, dns2 second
@@ -1031,26 +1085,62 @@ public class DnsSecurityAnalyzer
             && result.DnatRedirectTargetIsValid
             && result.DnatDestinationFilterIsValid;
 
-        // Partial DNAT coverage is better than nothing - don't double-penalize
-        // The partial coverage issue (6 pts) is more actionable than the generic no-block issue (12 pts)
-        var hasPartialDnatCoverage = result.HasDnatDnsRules
-            && !result.DnatProvidesFullCoverage
-            && hasDnsControlSolution
-            && result.DnatRedirectTargetIsValid
-            && result.DnatDestinationFilterIsValid;
-
-        if (!result.HasDns53BlockRule && !dnatIsValidAlternative && !hasPartialDnatCoverage)
+        // Issue: networks with NO DNS leak protection (catch-all exposure).
+        // Fires only when neither a dedicated DNS-53 blocking strategy nor DNAT rules are in play - the
+        // strategy-specific findings own those cases and report their own gaps (belt-and-suspenders).
+        // Exposure is computed from ABSOLUTE block coverage: a blanket "block all internet" rule counts as
+        // a port-53 block, so a network is exposed only when it has neither a port-53 block nor a DNAT
+        // redirect. Without this, blanket isolation rules set HasDns53BlockRule=true and silently
+        // suppressed the no-block finding while no strategy reported the genuinely exposed networks - so
+        // removing all DNS protection paradoxically improved the score.
+        if (!result.HasDns53BlockStrategy && !result.HasDnatDnsRules)
         {
-            result.Issues.Add(new AuditIssue
+            // A network is exposed when it has neither a port-53 block nor a DNAT redirect. Compute from the
+            // full network list, not Dns53UncoveredNetworks - that set is only populated when a block rule
+            // exists, so it's empty in the "nothing blocks anything" case even though every network leaks.
+            var exposedNetworks = new List<string>();
+            bool shouldFire;
+            if (networks != null && networks.Count > 0)
             {
-                Type = IssueTypes.DnsNo53Block,
-                Severity = AuditSeverity.Critical,
-                DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
-                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic.",
-                RuleId = "DNS-LEAK-001",
-                ScoreImpact = 12
-            });
+                var protectedNetworks = new HashSet<string>(result.Dns53CoveredNetworks, StringComparer.OrdinalIgnoreCase);
+                protectedNetworks.UnionWith(result.DnatCoveredNetworks);
+                var uncovered = networks
+                    .Select(n => n.Name)
+                    .Where(name => !string.IsNullOrEmpty(name) && !protectedNetworks.Contains(name));
+                (_, _, exposedNetworks) = CategorizeUncoveredNetworks(uncovered, networks, result, zoneLookup);
+                shouldFire = exposedNetworks.Any();
+            }
+            else
+            {
+                // No network list to enumerate - fall back to the absolute signal: if nothing blocks port 53
+                // anywhere, every network can leak.
+                shouldFire = !result.HasDns53BlockRule;
+            }
+
+            if (shouldFire)
+            {
+                // Name the exposed networks when a partial block exists; otherwise nothing is blocked
+                // anywhere and the generic wording applies.
+                var message = exposedNetworks.Any() && result.HasDns53BlockRule
+                    ? $"Networks with no DNS leak protection: {string.Join(", ", exposedNetworks)}. These networks have no firewall port 53 block and no DNAT redirect, so devices on them can bypass network DNS settings and leak queries to untrusted servers."
+                    : "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.";
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsNo53Block,
+                    Severity = AuditSeverity.Critical,
+                    DeviceName = result.GatewayName,
+                    Message = message,
+                    RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic.",
+                    RuleId = "DNS-LEAK-001",
+                    ScoreImpact = 12,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "exposed_networks", exposedNetworks },
+                        { "block_covered_networks", result.Dns53CoveredNetworks }
+                    }
+                });
+            }
         }
 
         // Issue: DNS53 firewall blocking *strategy* provides partial coverage (some networks not covered).
@@ -1122,48 +1212,9 @@ public class DnsSecurityAnalyzer
         // Special handling for DMZ and Guest networks - they get Info issues instead of Recommended/Critical
         if (result.HasDnatDnsRules && !result.DnatProvidesFullCoverage && result.DnatUncoveredNetworks.Any())
         {
-            // Build lookup of network name -> NetworkInfo for zone identification
-            var networksByName = networks?
-                .Where(n => !string.IsNullOrEmpty(n.Name))
-                .ToDictionary(n => n.Name, n => n, StringComparer.OrdinalIgnoreCase)
-                ?? new Dictionary<string, NetworkInfo>(StringComparer.OrdinalIgnoreCase);
-
             // Separate DMZ and Guest networks with 3rd party LAN DNS from regular uncovered networks
-            var dmzNetworks = new List<string>();
-            var guestNetworksWithThirdPartyDns = new List<string>();
-            var regularUncoveredNetworks = new List<string>();
-
-            foreach (var networkName in result.DnatUncoveredNetworks)
-            {
-                if (networksByName.TryGetValue(networkName, out var network))
-                {
-                    // Check if this is a DMZ network (by firewall zone)
-                    var isDmz = zoneLookup?.IsDmzZone(network.FirewallZoneId) ?? false;
-
-                    // Check if this is a Guest network with 3rd party LAN DNS
-                    // Guest networks are identified by IsUniFiGuestNetwork or Purpose == Guest
-                    var isGuest = network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest;
-                    var hasThirdPartyLanDns = result.HasThirdPartyDns && result.IsSiteWideThirdPartyDns;
-
-                    if (isDmz)
-                    {
-                        dmzNetworks.Add(networkName);
-                    }
-                    else if (isGuest && hasThirdPartyLanDns)
-                    {
-                        guestNetworksWithThirdPartyDns.Add(networkName);
-                    }
-                    else
-                    {
-                        regularUncoveredNetworks.Add(networkName);
-                    }
-                }
-                else
-                {
-                    // Network not found in lookup - treat as regular
-                    regularUncoveredNetworks.Add(networkName);
-                }
-            }
+            var (dmzNetworks, guestNetworksWithThirdPartyDns, regularUncoveredNetworks) =
+                CategorizeUncoveredNetworks(result.DnatUncoveredNetworks, networks, result, zoneLookup);
 
             // Create Info issue for DMZ networks that need firewall rules for internal DNS
             if (dmzNetworks.Any())
@@ -2565,6 +2616,7 @@ public class DnsSecurityAnalyzer
         result.DnatCoveredNetworks.AddRange(coverageResult.CoveredNetworkNames);
         result.DnatUncoveredNetworks.AddRange(coverageResult.UncoveredNetworkNames);
         result.DnatSingleIpRules.AddRange(coverageResult.SingleIpRules);
+        result.ExcludedFromCoverageNetworks.AddRange(coverageResult.ExcludedNetworkNames);
         foreach (var kvp in coverageResult.RuleCoverage)
             result.DnatRuleCoverage[kvp.Key] = kvp.Value;
 
@@ -2978,6 +3030,11 @@ public class DnsSecurityResult
     public List<string> DnatSingleIpRules { get; } = new();
     /// <summary>Maps each contributing DNAT DNS rule name to the network names it covers</summary>
     public Dictionary<string, List<string>> DnatRuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Networks the user intentionally excluded from DNS coverage checks (Audit Settings → excluded VLANs).
+    /// These are carved out of all DNS coverage findings so an excluded VLAN never reads as exposed.
+    /// </summary>
+    public List<string> ExcludedFromCoverageNetworks { get; } = new();
 
     // DNAT Redirect Destination Validation
     public bool DnatRedirectTargetIsValid { get; set; } = true;
