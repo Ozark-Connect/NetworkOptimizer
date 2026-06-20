@@ -178,6 +178,7 @@ public static class MonitoringChartEndpoints
                 "AccessIsp" => MonitoringTargetType.AccessIsp,
                 "Transit" => MonitoringTargetType.Transit,
                 "InternetService" => MonitoringTargetType.InternetService,
+                "Custom" => MonitoringTargetType.Custom,
                 _ => MonitoringTargetType.Fabric
             };
             DateTime queryFrom, queryTo;

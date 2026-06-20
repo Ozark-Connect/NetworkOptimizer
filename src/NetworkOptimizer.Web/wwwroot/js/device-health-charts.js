@@ -29,6 +29,8 @@ const RANGE_MS = { 0: 15*60000, 1: 3600000, 6: 6*3600000, 24: 86400000, 168: 7*8
 let tempChart = null;
 let cpuChart = null;
 let memChart = null;
+let customCharts = {};
+let customFieldDefs = [];
 let pollTimer = null;
 let currentRangeHours = 1;
 let windowOffset = 0;
@@ -145,13 +147,16 @@ function renderBadges(container) {
 function updateVisibility() {
     deviceMeta.forEach(d => {
         const vis = visibility[d.mac] !== false;
-        for (const chart of [tempChart, cpuChart, memChart]) {
+        const allCharts = [tempChart, cpuChart, memChart, ...Object.values(customCharts)];
+        for (const chart of allCharts) {
             if (!chart) continue;
             if (vis) chart.showSeries(d.name);
             else chart.hideSeries(d.name);
         }
     });
 }
+
+const fmtCustom = v => v != null ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2)) : '-';
 
 async function loadAndUpdate() {
     const data = await fetchData();
@@ -169,13 +174,64 @@ async function loadAndUpdate() {
     if (tempChart) tempChart.updateSeries(makeSeries('temp'), false);
     if (cpuChart) cpuChart.updateSeries(makeSeries('cpu'), false);
     if (memChart) memChart.updateSeries(makeSeries('mem'), false);
+
+    const newDefs = data.customFields || [];
+    const container = document.getElementById(containerId);
+    if (container) await syncCustomCharts(container, data.devices, newDefs);
+
     updateVisibility();
     lastData = data;
-    const container = document.getElementById(containerId);
     if (container) {
         renderBadges(container);
         renderStatsTable(container);
     }
+}
+
+async function syncCustomCharts(container, devices, defs) {
+    const customContainer = container.querySelector('.health-custom-charts');
+    if (!customContainer) return;
+
+    const currentKeys = new Set(Object.keys(customCharts));
+    const newKeys = new Set(defs.map(d => d.fieldName));
+
+    for (const key of currentKeys) {
+        if (!newKeys.has(key)) {
+            customCharts[key].destroy();
+            delete customCharts[key];
+        }
+    }
+
+    for (const def of defs) {
+        const series = devices.map(d => ({
+            name: d.name,
+            color: hashColor(d.name),
+            data: (d.custom?.[def.fieldName] || []).map(p => ({
+                x: new Date(p.time).getTime(), y: p.value
+            })),
+        }));
+
+        if (customCharts[def.fieldName]) {
+            customCharts[def.fieldName].updateSeries(series, false);
+        } else {
+            let chartDiv = customContainer.querySelector(`[data-custom-field="${def.fieldName}"]`);
+            if (!chartDiv) {
+                const card = document.createElement('div');
+                card.className = 'chart-card';
+                card.style.marginTop = '1rem';
+                card.innerHTML = `<div class="chart-header"><h3 class="chart-title">${escapeHtml(def.description)}</h3></div><div data-custom-field="${escapeHtml(def.fieldName)}"></div>`;
+                customContainer.appendChild(card);
+                chartDiv = card.querySelector(`[data-custom-field]`);
+            }
+            const chart = new ApexCharts(chartDiv, {
+                ...baseOpts(200, def.description, fmtCustom),
+                series, colors: PALETTE,
+            });
+            await chart.render();
+            customCharts[def.fieldName] = chart;
+        }
+    }
+
+    customFieldDefs = defs;
 }
 
 const fmtTemp = v => v != null ? v.toFixed(1) : '-';
@@ -185,14 +241,31 @@ function renderStatsTable(container, showAll) {
     const el = container.querySelector('.health-stats-table');
     if (!el || !lastData?.devices?.length) { if (el) el.innerHTML = ''; return; }
 
+    const customCols = [];
+    for (const def of customFieldDefs) {
+        customCols.push(
+            { header: `${def.description} Mean`, format: fmtCustom },
+            { header: `${def.description} Min`, format: fmtCustom },
+            { header: `${def.description} Max`, format: fmtCustom },
+        );
+    }
+
     const rows = lastData.devices.map(d => {
         const pts = d.data || [];
         const temp = computeStats(pts.map(p => p.temp).filter(v => v != null));
         const cpu = computeStats(pts.map(p => p.cpu).filter(v => v != null));
         const mem = computeStats(pts.map(p => p.mem).filter(v => v != null));
+        const baseValues = [temp?.mean, temp?.min, temp?.max, cpu?.mean, cpu?.min, cpu?.max, mem?.mean, mem?.min, mem?.max];
+
+        for (const def of customFieldDefs) {
+            const vals = (d.custom?.[def.fieldName] || []).map(p => p.value).filter(v => v != null);
+            const stats = computeStats(vals);
+            baseValues.push(stats?.mean, stats?.min, stats?.max);
+        }
+
         return { id: d.mac, label: d.name, color: hashColor(d.name),
             visible: deviceMeta.some(dm => dm.mac === d.mac) && visibility[d.mac] !== false,
-            values: [temp?.mean, temp?.min, temp?.max, cpu?.mean, cpu?.min, cpu?.max, mem?.mean, mem?.min, mem?.max] };
+            values: baseValues };
     });
 
     renderTable(el, container, {
@@ -201,6 +274,7 @@ function renderStatsTable(container, showAll) {
             { header: 'Temp Mean', format: fmtTemp }, { header: 'Temp Min', format: fmtTemp }, { header: 'Temp Max', format: fmtTemp },
             { header: 'CPU Mean', format: fmtPct }, { header: 'CPU Min', format: fmtPct }, { header: 'CPU Max', format: fmtPct },
             { header: 'Mem Mean', format: fmtPct }, { header: 'Mem Min', format: fmtPct }, { header: 'Mem Max', format: fmtPct },
+            ...customCols,
         ],
         filter: { meta: () => deviceMeta, key: 'mac', visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
@@ -441,6 +515,9 @@ export function unmount() {
     if (tempChart) { tempChart.destroy(); tempChart = null; }
     if (cpuChart) { cpuChart.destroy(); cpuChart = null; }
     if (memChart) { memChart.destroy(); memChart = null; }
+    for (const chart of Object.values(customCharts)) chart.destroy();
+    customCharts = {};
+    customFieldDefs = [];
     containerId = null;
     deviceMeta = [];
     visibility = {};

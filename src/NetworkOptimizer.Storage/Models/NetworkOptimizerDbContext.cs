@@ -60,6 +60,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<CmConfiguration> CmConfigurations { get; set; }
     public DbSet<OntConfiguration> OntConfigurations { get; set; }
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
+    public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -454,6 +455,14 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("WanSteerTrafficClasses");
             entity.HasIndex(e => e.SortOrder);
+        });
+
+        // CustomOidConfiguration configuration
+        modelBuilder.Entity<CustomOidConfiguration>(entity =>
+        {
+            entity.ToTable("CustomOidConfigurations");
+            entity.HasIndex(e => e.DeviceMac);
+            entity.HasIndex(e => new { e.DeviceMac, e.Oid }).IsUnique();
         });
     }
 }

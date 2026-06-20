@@ -1,5 +1,15 @@
+@using System.Net
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Monitoring
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Endpoints
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Services
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject UniFiConnectionService ConnectionService
+@inject ICredentialProtectionService CredentialProtection
+@inject ILoggerFactory LoggerFactory
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -35,13 +45,15 @@
                                     <th>Device</th>
                                     <th>SNMP</th>
                                     <th>Polling status</th>
-                                    <th>Last polled</th>
+                                    <th class="hide-mobile">Last polled</th>
+                                    <th style="width: 2.5rem;"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var d in Devices.OrderBy(d => d.DeviceType).ThenBy(d => d.Name))
                                 {
-                                    <tr>
+                                    var isExpanded = _expandedDeviceMac == d.Mac;
+                                    <tr class="@(isExpanded ? "snmp-row-expanded" : "")" @onclick="() => ToggleDevice(d.Mac)" style="cursor: pointer;">
                                         <td>
                                             <span class="snmp-device-name">@d.Name</span>
                                             <span class="status-badge status-neutral snmp-device-type">@d.DeviceType.ToDisplayName()</span>
@@ -63,7 +75,7 @@
                                                 @StatusLabel(d.PollState)
                                             </span>
                                         </td>
-                                        <td>
+                                        <td class="hide-mobile">
                                             @if (d.LastPolledUtc.HasValue)
                                             {
                                                 <span>@RelativeTime(d.LastPolledUtc.Value)</span>
@@ -73,7 +85,128 @@
                                                 <span class="text-muted">never</span>
                                             }
                                         </td>
+                                        <td style="text-align: right;">
+                                            <span class="issue-type-chevron snmp-row-chevron">@(isExpanded ? "▲" : "▼")</span>
+                                        </td>
                                     </tr>
+                                    @if (isExpanded)
+                                    {
+                                        <tr class="snmp-detail-row">
+                                            <td colspan="5">
+                                                <div class="snmp-detail-panel">
+                                                    <div class="snmp-detail-section">
+                                                        <div class="snmp-detail-header">
+                                                            <h4>Custom OID Polling</h4>
+                                                            @if (!_showAddForm)
+                                                            {
+                                                                <button class="btn btn-sm btn-primary" @onclick:stopPropagation="true" @onclick="ShowAddForm">Add OID</button>
+                                                            }
+                                                        </div>
+
+                                                        @if (_customOids.Count > 0)
+                                                        {
+                                                            <div class="table-responsive">
+                                                                <table class="data-table snmp-oid-table">
+                                                                    <thead>
+                                                                        <tr>
+                                                                            <th>OID</th>
+                                                                            <th>Field Name</th>
+                                                                            <th class="hide-mobile">Type</th>
+                                                                            <th class="hide-mobile">Scope</th>
+                                                                            <th style="width: 5rem;"></th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var oid in _customOids)
+                                                                        {
+                                                                            <tr>
+                                                                                <td><code class="snmp-oid-code">@oid.Oid</code></td>
+                                                                                <td>@oid.FieldName</td>
+                                                                                <td class="hide-mobile">@oid.ValueType</td>
+                                                                                <td class="hide-mobile">@(oid.Scope == CustomOidScope.DeviceLevel ? "Device" : "Interface")</td>
+                                                                                <td style="text-align: right;">
+                                                                                    <button class="btn btn-sm btn-danger" @onclick:stopPropagation="true" @onclick="() => DeleteOid(oid.Id)">
+                                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                                                    </button>
+                                                                                </td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        }
+                                                        else if (!_showAddForm)
+                                                        {
+                                                            <p class="text-muted" style="margin: 0.5rem 0;">No custom OIDs configured. Add one to start polling additional SNMP data.</p>
+                                                        }
+
+                                                        @if (_showAddForm)
+                                                        {
+                                                            <div class="snmp-add-oid-form" @onclick:stopPropagation="true">
+                                                                <div class="snmp-form-row">
+                                                                    <div class="snmp-form-field snmp-form-field-oid">
+                                                                        <label>OID</label>
+                                                                        <div class="snmp-oid-input-group">
+                                                                            <input type="text" @bind="_editOid" placeholder="1.3.6.1.4.1.41112..." />
+                                                                            <button class="btn btn-sm btn-secondary" @onclick="TestOid" disabled="@_testingOid">
+                                                                                @(_testingOid ? "..." : "Test")
+                                                                            </button>
+                                                                        </div>
+                                                                        @if (_testResult != null)
+                                                                        {
+                                                                            <div class="snmp-test-result @(_testResult.Success ? "snmp-test-success" : "snmp-test-error")">
+                                                                                @if (_testResult.Success)
+                                                                                {
+                                                                                    <span>Value: <code>@_testResult.Value</code></span>
+                                                                                }
+                                                                                else
+                                                                                {
+                                                                                    <span>@_testResult.ErrorMessage</span>
+                                                                                }
+                                                                            </div>
+                                                                        }
+                                                                    </div>
+                                                                    <div class="snmp-form-field">
+                                                                        <label>Field Name</label>
+                                                                        <input type="text" @bind="_editFieldName" placeholder="InfluxDB field name, e.g. fan_speed_rpm" />
+                                                                    </div>
+                                                                </div>
+                                                                <div class="snmp-form-row">
+                                                                    <div class="snmp-form-field">
+                                                                        <label>Value Type</label>
+                                                                        <select @bind="_editValueType">
+                                                                            <option value="@CustomOidValueType.Integer">Integer</option>
+                                                                            <option value="@CustomOidValueType.Float">Float</option>
+                                                                            <option value="@CustomOidValueType.String">String</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="snmp-form-field">
+                                                                        <label>Scope</label>
+                                                                        <select @bind="_editScope">
+                                                                            <option value="@CustomOidScope.DeviceLevel">Device (scalar)</option>
+                                                                            <option value="@CustomOidScope.InterfaceLevel">Interface (per-port)</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="snmp-form-field">
+                                                                        <label>Description</label>
+                                                                        <input type="text" @bind="_editDescription" placeholder="Optional description" />
+                                                                    </div>
+                                                                </div>
+                                                                <div class="snmp-form-actions">
+                                                                    <button class="btn btn-sm btn-primary" @onclick="SaveOid" disabled="@_saving">Save</button>
+                                                                    <button class="btn btn-sm btn-secondary" @onclick="CancelAdd">Cancel</button>
+                                                                    @if (!string.IsNullOrEmpty(_saveError))
+                                                                    {
+                                                                        <span class="snmp-save-error">@_saveError</span>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -90,6 +223,22 @@
     public IReadOnlyList<SnmpDeviceStatus> Devices { get; set; } = Array.Empty<SnmpDeviceStatus>();
 
     private bool _collapsed = true;
+    private string? _expandedDeviceMac;
+    private List<CustomOidDto> _customOids = new();
+
+    // Add/edit form state
+    private bool _showAddForm;
+    private string _editOid = string.Empty;
+    private string _editFieldName = string.Empty;
+    private CustomOidValueType _editValueType = CustomOidValueType.Integer;
+    private CustomOidScope _editScope = CustomOidScope.DeviceLevel;
+    private string _editDescription = string.Empty;
+    private bool _saving;
+    private string? _saveError;
+
+    // Test OID state
+    private bool _testingOid;
+    private TestOidResult? _testResult;
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
@@ -98,6 +247,185 @@
     {
         _collapsed = false;
         StateHasChanged();
+    }
+
+    private async Task ToggleDevice(string mac)
+    {
+        if (_expandedDeviceMac == mac)
+        {
+            _expandedDeviceMac = null;
+            _showAddForm = false;
+            _testResult = null;
+        }
+        else
+        {
+            _expandedDeviceMac = mac;
+            _showAddForm = false;
+            _testResult = null;
+            await LoadCustomOids(mac);
+        }
+    }
+
+    private async Task LoadCustomOids(string mac)
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _customOids = await db.CustomOidConfigurations
+                .Where(c => c.DeviceMac == mac)
+                .OrderBy(c => c.FieldName)
+                .Select(c => new CustomOidDto
+                {
+                    Id = c.Id,
+                    Oid = c.Oid,
+                    FieldName = c.FieldName,
+                    ValueType = c.ValueType,
+                    Scope = c.Scope,
+                    Enabled = c.Enabled,
+                    Description = c.Description
+                })
+                .ToListAsync();
+        }
+        catch
+        {
+            _customOids = new();
+        }
+    }
+
+    private void ShowAddForm()
+    {
+        _showAddForm = true;
+        _editOid = string.Empty;
+        _editFieldName = string.Empty;
+        _editValueType = CustomOidValueType.Integer;
+        _editScope = CustomOidScope.DeviceLevel;
+        _editDescription = string.Empty;
+        _saveError = null;
+        _testResult = null;
+    }
+
+    private void CancelAdd()
+    {
+        _showAddForm = false;
+        _saveError = null;
+        _testResult = null;
+    }
+
+    private async Task TestOid()
+    {
+        if (string.IsNullOrWhiteSpace(_editOid) || _expandedDeviceMac == null) return;
+        _testingOid = true;
+        _testResult = null;
+        StateHasChanged();
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
+            if (settings == null)
+            {
+                _testResult = new TestOidResult { ErrorMessage = "Monitoring not configured." };
+                return;
+            }
+
+            var poller = SnmpEndpoints.BuildPollerFromSettings(settings, CredentialProtection, LoggerFactory);
+            if (poller == null)
+            {
+                _testResult = new TestOidResult { ErrorMessage = "SNMP credentials not configured." };
+                return;
+            }
+
+            var deviceIp = await SnmpEndpoints.ResolveDeviceIpAsync(_expandedDeviceMac, ConnectionService);
+            if (deviceIp == null || !IPAddress.TryParse(deviceIp, out var ip))
+            {
+                _testResult = new TestOidResult { ErrorMessage = "Could not resolve device IP." };
+                return;
+            }
+
+            var value = await poller.GetAsync<string>(ip, _editOid.Trim());
+            _testResult = value != null
+                ? new TestOidResult { Success = true, Value = value }
+                : new TestOidResult { ErrorMessage = "No response (OID may not exist on this device)." };
+        }
+        catch (Exception ex)
+        {
+            _testResult = new TestOidResult { ErrorMessage = $"SNMP error: {ex.Message}" };
+        }
+        finally
+        {
+            _testingOid = false;
+        }
+    }
+
+    private record TestOidResult
+    {
+        public bool Success { get; init; }
+        public string? Value { get; init; }
+        public string? ErrorMessage { get; init; }
+    }
+
+    private async Task SaveOid()
+    {
+        if (string.IsNullOrWhiteSpace(_editOid) || string.IsNullOrWhiteSpace(_editFieldName) || _expandedDeviceMac == null)
+        {
+            _saveError = "OID and Field Name are required.";
+            return;
+        }
+
+        _saving = true;
+        _saveError = null;
+        StateHasChanged();
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var now = DateTime.UtcNow;
+            db.CustomOidConfigurations.Add(new CustomOidConfiguration
+            {
+                DeviceMac = _expandedDeviceMac,
+                Oid = _editOid.Trim(),
+                FieldName = _editFieldName.Trim(),
+                ValueType = _editValueType,
+                Scope = _editScope,
+                Enabled = true,
+                Description = string.IsNullOrWhiteSpace(_editDescription) ? null : _editDescription.Trim(),
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            await db.SaveChangesAsync();
+
+            _showAddForm = false;
+            await LoadCustomOids(_expandedDeviceMac);
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.InnerException?.Message ?? ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteOid(int id)
+    {
+        if (_expandedDeviceMac == null) return;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var entry = await db.CustomOidConfigurations.FindAsync(id);
+            if (entry != null)
+            {
+                db.CustomOidConfigurations.Remove(entry);
+                await db.SaveChangesAsync();
+            }
+            await LoadCustomOids(_expandedDeviceMac);
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.InnerException?.Message ?? ex.Message;
+        }
     }
 
     private string SummaryLabel()

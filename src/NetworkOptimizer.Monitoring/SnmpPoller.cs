@@ -328,10 +328,45 @@ public class SnmpPoller : ISnmpPoller
                 outOctets32 = await BulkWalkAsync(ip, UniFiOids.IfOutOctets);
             }
 
+            // Fast tier: packet counters (unicast, multicast, broadcast)
+            var hcInUcast = await BulkWalkAsync(ip, UniFiOids.IfHCInUcastPkts);
+            var hcOutUcast = await BulkWalkAsync(ip, UniFiOids.IfHCOutUcastPkts);
+            var hcInMcast = await BulkWalkAsync(ip, UniFiOids.IfHCInMulticastPkts);
+            var hcOutMcast = await BulkWalkAsync(ip, UniFiOids.IfHCOutMulticastPkts);
+            var hcInBcast = await BulkWalkAsync(ip, UniFiOids.IfHCInBroadcastPkts);
+            var hcOutBcast = await BulkWalkAsync(ip, UniFiOids.IfHCOutBroadcastPkts);
+
+            bool needPktFallback = hcInUcast.Count == 0;
+            List<Variable>? inUcast32 = null, outUcast32 = null;
+            List<Variable>? inMcast32 = null, outMcast32 = null;
+            List<Variable>? inBcast32 = null, outBcast32 = null;
+            if (needPktFallback)
+            {
+                inUcast32 = await BulkWalkAsync(ip, UniFiOids.IfInUcastPkts);
+                outUcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutUcastPkts);
+                inMcast32 = await BulkWalkAsync(ip, UniFiOids.IfInMulticastPkts);
+                outMcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutMulticastPkts);
+                inBcast32 = await BulkWalkAsync(ip, UniFiOids.IfInBroadcastPkts);
+                outBcast32 = await BulkWalkAsync(ip, UniFiOids.IfOutBroadcastPkts);
+            }
+
             var hcInOctetsByIdx = IndexByIfIndex(hcInOctets, UniFiOids.IfHCInOctets);
             var hcOutOctetsByIdx = IndexByIfIndex(hcOutOctets, UniFiOids.IfHCOutOctets);
             var inOctets32ByIdx = needFallback ? IndexByIfIndex(inOctets32!, UniFiOids.IfInOctets) : null;
             var outOctets32ByIdx = needFallback ? IndexByIfIndex(outOctets32!, UniFiOids.IfOutOctets) : null;
+
+            var hcInUcastByIdx = IndexByIfIndex(hcInUcast, UniFiOids.IfHCInUcastPkts);
+            var hcOutUcastByIdx = IndexByIfIndex(hcOutUcast, UniFiOids.IfHCOutUcastPkts);
+            var hcInMcastByIdx = IndexByIfIndex(hcInMcast, UniFiOids.IfHCInMulticastPkts);
+            var hcOutMcastByIdx = IndexByIfIndex(hcOutMcast, UniFiOids.IfHCOutMulticastPkts);
+            var hcInBcastByIdx = IndexByIfIndex(hcInBcast, UniFiOids.IfHCInBroadcastPkts);
+            var hcOutBcastByIdx = IndexByIfIndex(hcOutBcast, UniFiOids.IfHCOutBroadcastPkts);
+            var inUcast32ByIdx = needPktFallback ? IndexByIfIndex(inUcast32!, UniFiOids.IfInUcastPkts) : null;
+            var outUcast32ByIdx = needPktFallback ? IndexByIfIndex(outUcast32!, UniFiOids.IfOutUcastPkts) : null;
+            var inMcast32ByIdx = needPktFallback ? IndexByIfIndex(inMcast32!, UniFiOids.IfInMulticastPkts) : null;
+            var outMcast32ByIdx = needPktFallback ? IndexByIfIndex(outMcast32!, UniFiOids.IfOutMulticastPkts) : null;
+            var inBcast32ByIdx = needPktFallback ? IndexByIfIndex(inBcast32!, UniFiOids.IfInBroadcastPkts) : null;
+            var outBcast32ByIdx = needPktFallback ? IndexByIfIndex(outBcast32!, UniFiOids.IfOutBroadcastPkts) : null;
 
             // Build interface metrics: fresh counters + cached oper/error + cached metadata
             foreach (var (idx, descr) in meta.DescrByIdx)
@@ -362,6 +397,12 @@ public class SnmpPoller : ISnmpPoller
                     LastChange = ParseLong(meta.LastChangeByIdx, idx),
                     InOctets = useHC ? ParseLong(hcInOctetsByIdx, idx) : ParseLong(inOctets32ByIdx ?? hcInOctetsByIdx, idx),
                     OutOctets = useHC ? ParseLong(hcOutOctetsByIdx, idx) : ParseLong(outOctets32ByIdx ?? hcOutOctetsByIdx, idx),
+                    InUcastPkts = needPktFallback ? ParseLong(inUcast32ByIdx!, idx) : ParseLong(hcInUcastByIdx, idx),
+                    OutUcastPkts = needPktFallback ? ParseLong(outUcast32ByIdx!, idx) : ParseLong(hcOutUcastByIdx, idx),
+                    InMulticastPkts = needPktFallback ? ParseLong(inMcast32ByIdx!, idx) : ParseLong(hcInMcastByIdx, idx),
+                    OutMulticastPkts = needPktFallback ? ParseLong(outMcast32ByIdx!, idx) : ParseLong(hcOutMcastByIdx, idx),
+                    InBroadcastPkts = needPktFallback ? ParseLong(inBcast32ByIdx!, idx) : ParseLong(hcInBcastByIdx, idx),
+                    OutBroadcastPkts = needPktFallback ? ParseLong(outBcast32ByIdx!, idx) : ParseLong(hcOutBcastByIdx, idx),
                     InDiscards = ParseLong(cache.InDiscardsByIdx, idx),
                     InErrors = ParseLong(cache.InErrorsByIdx, idx),
                     OutDiscards = ParseLong(cache.OutDiscardsByIdx, idx),

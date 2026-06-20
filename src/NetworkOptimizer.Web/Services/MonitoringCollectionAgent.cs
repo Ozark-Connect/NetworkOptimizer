@@ -58,6 +58,11 @@ public class MonitoringCollectionAgent : BackgroundService
     // Last successful SNMP poll per device (normalized MAC -> UTC). Drives the
     // "last polled" column and "not yet polled" state on the Setup dashboard.
     private readonly ConcurrentDictionary<string, DateTime> _snmpLastPolled = new();
+
+    // Custom OID config cache. Refreshed every medium-tier cycle.
+    private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
+    private DateTime _customOidsLoadedAt = DateTime.MinValue;
+    private static readonly TimeSpan CustomOidsCacheTtl = TimeSpan.FromSeconds(30);
     private const int SnmpFailureThreshold = 5;
     private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromMinutes(5);
     private readonly SemaphoreSlim _snmpGate = new(8);
@@ -672,6 +677,7 @@ public class MonitoringCollectionAgent : BackgroundService
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
 
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
+        var customOids = await LoadCustomOidsAsync(ct);
         var snmpHealthHits = new ConcurrentDictionary<string, bool>();
         var deviceTasks = devices.Select(async device =>
         {
@@ -712,6 +718,9 @@ public class MonitoringCollectionAgent : BackgroundService
                     timestamp: DateTime.UtcNow);
 
                 _liveStats.RecordHealth(device.Mac, cpu, memPct, temp, uptime, DateTime.UtcNow);
+
+                if (customOids.TryGetValue(NormalizeMac(device.Mac), out var deviceCustomOids))
+                    await PollCustomOidsAsync(poller, device.Mac, DescribeDeviceType(device.DeviceType), ip, deviceCustomOids, ct);
 
                 await _deviceHealthAlertEvaluator.EvaluateAsync(
                     device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
@@ -1535,6 +1544,12 @@ public class MonitoringCollectionAgent : BackgroundService
             discardsIn: iface.InDiscards,
             discardsOut: iface.OutDiscards,
             hcCounters: hcCounters,
+            ucastPktsIn: iface.InUcastPkts > 0 ? iface.InUcastPkts : null,
+            ucastPktsOut: iface.OutUcastPkts > 0 ? iface.OutUcastPkts : null,
+            mcastPktsIn: iface.InMulticastPkts > 0 ? iface.InMulticastPkts : null,
+            mcastPktsOut: iface.OutMulticastPkts > 0 ? iface.OutMulticastPkts : null,
+            bcastPktsIn: iface.InBroadcastPkts > 0 ? iface.InBroadcastPkts : null,
+            bcastPktsOut: iface.OutBroadcastPkts > 0 ? iface.OutBroadcastPkts : null,
             timestamp: now);
 
         // SNMP per-interface rates feed the port-keyed cache. Match SNMP ifName to
@@ -1988,6 +2003,109 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private static string NormalizeMac(string mac) =>
         string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
+
+    private async Task<Dictionary<string, List<CustomOidConfiguration>>> LoadCustomOidsAsync(CancellationToken ct)
+    {
+        if (DateTime.UtcNow - _customOidsLoadedAt < CustomOidsCacheTtl)
+            return _customOidsByDevice;
+
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var all = await db.CustomOidConfigurations
+                .Where(c => c.Enabled)
+                .ToListAsync(ct);
+            _customOidsByDevice = all
+                .GroupBy(c => NormalizeMac(c.DeviceMac))
+                .ToDictionary(g => g.Key, g => g.ToList());
+            _customOidsLoadedAt = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load custom OID configurations");
+        }
+        return _customOidsByDevice;
+    }
+
+    private async Task PollCustomOidsAsync(
+        SnmpPoller poller,
+        string deviceMac,
+        string deviceType,
+        IPAddress ip,
+        List<CustomOidConfiguration> configs,
+        CancellationToken ct)
+    {
+        var deviceFields = new Dictionary<string, object>();
+        var interfaceFields = new Dictionary<string, Dictionary<string, object>>();
+
+        // Resolve ifIndex → ifName for interface-level OIDs using the DB name map
+        Dictionary<string, string>? ifNameByIdx = null;
+
+        foreach (var cfg in configs)
+        {
+            try
+            {
+                if (cfg.Scope == CustomOidScope.DeviceLevel)
+                {
+                    var value = await poller.GetAsync<string>(ip, cfg.Oid);
+                    if (value != null)
+                        deviceFields[cfg.FieldName] = ParseCustomValue(value, cfg.ValueType);
+                }
+                else
+                {
+                    if (ifNameByIdx == null)
+                    {
+                        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                        var mac = NormalizeMac(deviceMac);
+                        ifNameByIdx = await db.InterfaceNameMaps
+                            .Where(m => m.DeviceMac == mac && m.IfIndex != null)
+                            .ToDictionaryAsync(m => m.IfIndex!.Value.ToString(), m => m.IfName, ct);
+                    }
+
+                    var walked = await poller.BulkWalkAsync(ip, cfg.Oid);
+                    foreach (var v in walked)
+                    {
+                        var oid = v.Id.ToString();
+                        var prefix = cfg.Oid + ".";
+                        if (!oid.StartsWith(prefix)) continue;
+                        var ifIdx = oid.Substring(prefix.Length);
+                        var ifName = ifNameByIdx.TryGetValue(ifIdx, out var name) ? name : ifIdx;
+                        if (!interfaceFields.TryGetValue(ifName, out var fields))
+                        {
+                            fields = new Dictionary<string, object>();
+                            interfaceFields[ifName] = fields;
+                        }
+                        fields[cfg.FieldName] = ParseCustomValue(v.Data.ToString(), cfg.ValueType);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Custom OID poll failed: {Mac} OID={Oid}", deviceMac, cfg.Oid);
+            }
+        }
+
+        var now = DateTime.UtcNow;
+
+        if (deviceFields.Count > 0)
+        {
+            _ = _influx.WriteCustomFieldsAsync(
+                "device_health", deviceMac, deviceFields, deviceType, null, null, now);
+        }
+
+        foreach (var (ifName, fields) in interfaceFields)
+        {
+            _ = _influx.WriteCustomFieldsAsync(
+                "interface_counters", deviceMac, fields, null, ifName, null, now);
+        }
+    }
+
+    private static object ParseCustomValue(string raw, CustomOidValueType valueType) => valueType switch
+    {
+        CustomOidValueType.Integer => long.TryParse(raw, out var l) ? l : (object)raw,
+        CustomOidValueType.Float => double.TryParse(raw, out var d) ? d : (object)raw,
+        _ => raw
+    };
 
     private readonly record struct PortByteSnapshot(DateTime Timestamp, long TxBytes, long RxBytes);
 }

@@ -265,6 +265,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
         long discardsIn,
         long discardsOut,
         bool hcCounters,
+        long? ucastPktsIn,
+        long? ucastPktsOut,
+        long? mcastPktsIn,
+        long? mcastPktsOut,
+        long? bcastPktsIn,
+        long? bcastPktsOut,
         DateTime timestamp)
     {
         if (!IsConfigured) return Task.CompletedTask;
@@ -286,6 +292,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (rateInBps.HasValue) point = point.Field("rate_in_bps", rateInBps.Value);
         if (rateOutBps.HasValue) point = point.Field("rate_out_bps", rateOutBps.Value);
         if (speedBps.HasValue) point = point.Field("speed_bps", speedBps.Value);
+        if (ucastPktsIn is > 0) point = point.Field("ucast_pkts_in", ucastPktsIn.Value);
+        if (ucastPktsOut is > 0) point = point.Field("ucast_pkts_out", ucastPktsOut.Value);
+        if (mcastPktsIn is > 0) point = point.Field("mcast_pkts_in", mcastPktsIn.Value);
+        if (mcastPktsOut is > 0) point = point.Field("mcast_pkts_out", mcastPktsOut.Value);
+        if (bcastPktsIn is > 0) point = point.Field("bcast_pkts_in", bcastPktsIn.Value);
+        if (bcastPktsOut is > 0) point = point.Field("bcast_pkts_out", bcastPktsOut.Value);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -314,6 +326,51 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (memoryUsedPercent.HasValue) point = point.Field("memory_used_percent", memoryUsedPercent.Value);
         if (temperatureC.HasValue) point = point.Field("temperature_c", temperatureC.Value);
         if (uptimeSeconds.HasValue) point = point.Field("uptime_seconds", uptimeSeconds.Value);
+
+        Enqueue(point, longterm: false);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Write custom OID values as additional fields on an existing measurement.
+    /// Tag set must match the standard write for the same measurement so the
+    /// fields land on the same InfluxDB series.
+    /// </summary>
+    public Task WriteCustomFieldsAsync(
+        string measurement,
+        string deviceMac,
+        Dictionary<string, object> customFields,
+        string? deviceType,
+        string? ifName,
+        string? portId,
+        DateTime timestamp)
+    {
+        if (!IsConfigured || customFields.Count == 0) return Task.CompletedTask;
+
+        var point = PointData.Measurement(measurement)
+            .Tag("device_mac", NormalizeMac(deviceMac))
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (!string.IsNullOrEmpty(deviceType))
+            point = point.Tag("device_type", deviceType.ToLowerInvariant());
+        if (!string.IsNullOrEmpty(ifName))
+            point = point.Tag("if_name", ifName);
+        if (!string.IsNullOrEmpty(portId))
+            point = point.Tag("port_id", portId);
+        if (measurement == "interface_counters")
+            point = point.Tag("direction", "unknown");
+
+        foreach (var (name, value) in customFields)
+        {
+            point = value switch
+            {
+                long l => point.Field(name, l),
+                double d => point.Field(name, d),
+                string s => point.Field(name, s),
+                int i => point.Field(name, (long)i),
+                _ => point.Field(name, value.ToString() ?? "")
+            };
+        }
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;
@@ -840,6 +897,49 @@ from(bucket: ""{_bucket}"")
         }
         results.Sort((a, b) => a.Time.CompareTo(b.Time));
         return results;
+    }
+
+    /// <summary>
+    /// Query custom OID field values from device_health for a specific device.
+    /// Returns a time series per field name.
+    /// </summary>
+    public async Task<Dictionary<string, List<(DateTime Time, double Value)>>> QueryCustomOidFieldsAsync(
+        string deviceMac,
+        IReadOnlyList<string> fieldNames,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured || fieldNames.Count == 0)
+            return new Dictionary<string, List<(DateTime, double)>>();
+
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var mac = NormalizeMac(deviceMac);
+        var fieldFilter = string.Join(" or ", fieldNames.Select(f => $"r._field == \"{f}\""));
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""device_health"")
+  |> filter(fn: (r) => r.device_mac == ""{mac}"")
+  |> filter(fn: (r) => {fieldFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
+        var result = new Dictionary<string, List<(DateTime, double)>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var field = record.GetValueByKey("_field")?.ToString();
+            var value = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (field == null || value == null) continue;
+            if (!result.TryGetValue(field, out var list))
+            {
+                list = new List<(DateTime, double)>();
+                result[field] = list;
+            }
+            list.Add((ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow), value.Value));
+        }
+        foreach (var list in result.Values) list.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return result;
     }
 
     /// <summary>Raw device health query - no aggregation, pairs fields in C#.</summary>
