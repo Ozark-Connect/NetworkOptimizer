@@ -1116,8 +1116,51 @@ public class DnsSecurityAnalyzer
                 var uncovered = networks
                     .Select(n => n.Name)
                     .Where(name => !string.IsNullOrEmpty(name) && !protectedNetworks.Contains(name));
-                (_, _, exposedNetworks) = CategorizeUncoveredNetworks(uncovered, networks, result, zoneLookup);
+                var (dmzExposed, guestExposed, regularExposed) = CategorizeUncoveredNetworks(uncovered, networks, result, zoneLookup);
+                exposedNetworks = regularExposed;
                 shouldFire = exposedNetworks.Any();
+
+                // Parity with the DNAT partial-coverage path: carved-out DMZ / guest-on-third-party-DNS
+                // networks get a courtesy Informational note rather than being silently dropped. Deduped by
+                // type so we don't double up with the third-party-DNS consistency check (which runs earlier
+                // and emits the same finding types when third-party DNS is configured).
+                if (dmzExposed.Any() && !result.Issues.Any(i => i.Type == IssueTypes.DnsDmzNetworkInfo))
+                {
+                    result.Issues.Add(new AuditIssue
+                    {
+                        Type = IssueTypes.DnsDmzNetworkInfo,
+                        Severity = AuditSeverity.Informational,
+                        DeviceName = result.GatewayName,
+                        Message = $"DMZ network(s) ({string.Join(", ", dmzExposed)}) have no DNS leak protection (no firewall port 53 block or DNAT redirect). This is expected for DMZ networks.",
+                        RecommendedAction = "If internal DNS resolution or filtering is desired for DMZ networks, create firewall rules to allow DNS traffic from DMZ to your internal DNS server or gateway.",
+                        RuleId = "DNS-DMZ-001",
+                        ScoreImpact = 0,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "dmz_networks", dmzExposed },
+                            { "network_type", "dmz" }
+                        }
+                    });
+                }
+                if (guestExposed.Any() && !result.Issues.Any(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo))
+                {
+                    result.Issues.Add(new AuditIssue
+                    {
+                        Type = IssueTypes.DnsGuestThirdPartyInfo,
+                        Severity = AuditSeverity.Informational,
+                        DeviceName = result.GatewayName,
+                        Message = $"Guest network(s) ({string.Join(", ", guestExposed)}) using third-party LAN DNS have no DNS leak protection (no firewall port 53 block or DNAT redirect).",
+                        RecommendedAction = "If internal DNS resolution or filtering is desired for Guest networks using third-party DNS, create firewall rules to allow DNS traffic from the Guest network to your internal DNS server.",
+                        RuleId = "DNS-GUEST-001",
+                        ScoreImpact = 0,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "guest_networks", guestExposed },
+                            { "network_type", "guest" },
+                            { "third_party_dns", result.ThirdPartyDnsProviderName ?? "unknown" }
+                        }
+                    });
+                }
             }
             else
             {

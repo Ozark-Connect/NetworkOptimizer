@@ -6068,6 +6068,45 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_CatchAll_DmzNetworkUncovered_GetsInfoParity()
+    {
+        // Parity with the DNAT path: in the no-strategy, no-DNAT exposure path, a carved-out DMZ network
+        // gets a courtesy Informational note instead of being silently dropped, while a regular network is
+        // flagged as exposed.
+        var dmzZoneId = "zone-dmz-001";
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = dmzZoneId, ZoneKey = "dmz", Name = "DMZ" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, Subnet = "192.168.1.0/24", DhcpEnabled = true, Gateway = "192.168.1.1", DnsServers = new List<string> { "192.168.1.1" }, FirewallZoneId = "zone-internal-001" },
+            new NetworkInfo { Id = "net2", Name = "DMZ Servers", VlanId = 100, Subnet = "192.168.100.0/24", DhcpEnabled = true, Gateway = "192.168.100.1", DnsServers = new List<string> { "192.168.100.1" }, FirewallZoneId = dmzZoneId }
+        };
+
+        // No firewall, no NAT, no third-party DNS (so the consistency check doesn't emit the DMZ note)
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null, firewallRules: null, switches: null, networks: networks,
+            deviceData: null, customDnsManagementPort: null, natRulesData: null,
+            dnatExcludedVlanIds: null, externalZoneId: null, zoneLookup: zoneLookup);
+
+        result.HasThirdPartyDns.Should().BeFalse();
+
+        // Regular network drives the exposure finding
+        result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsNo53Block);
+
+        // DMZ network gets the courtesy Info note (parity with the DNAT path), not a Critical exposure
+        var dmzIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDmzNetworkInfo).Subject;
+        dmzIssue.Severity.Should().Be(AuditSeverity.Informational);
+        dmzIssue.ScoreImpact.Should().Be(0);
+        dmzIssue.Message.Should().Contain("DMZ Servers");
+        dmzIssue.Message.Should().Contain("expected for DMZ");
+    }
+
+    [Fact]
     public async Task Analyze_DnatWithIpRange_MatchesMultipleThirdPartyDnsServers()
     {
         // Arrange - Two third-party DNS servers (Pi-hole style redundancy)
