@@ -16356,7 +16356,8 @@ body.kiosk-mode .status-indicators {
     color: var(--text-primary);
 }
 
-.port-client-link {
+.port-client-link,
+.port-client-link:visited {
     color: var(--info-color);
 }
 
