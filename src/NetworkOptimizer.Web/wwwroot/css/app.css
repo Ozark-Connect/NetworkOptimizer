@@ -14299,7 +14299,7 @@ a.affected-client:hover {
     gap: 0.5rem;
     flex-wrap: wrap;
     justify-content: center;
-    padding-bottom: 1rem;
+    padding-bottom: 0.5rem;
 }
 
 .wan-filter-badge {
