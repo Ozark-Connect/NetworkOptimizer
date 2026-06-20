@@ -5,7 +5,6 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
-using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -53,7 +52,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     // Network cache (5 minute TTL - networks change rarely)
     private List<NetworkInfo>? _cachedNetworks;
     private DateTime _networkCacheTime = DateTime.MinValue;
-    private static readonly TimeSpan NetworkCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan NetworkCacheDuration = TimeSpan.FromMinutes(1);
 
     // Lazy initialization for async config loading
     private Task? _initializationTask;
