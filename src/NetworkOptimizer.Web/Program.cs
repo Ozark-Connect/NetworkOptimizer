@@ -1661,6 +1661,7 @@ SfpChartEndpoints.Map(app);
 CellularChartEndpoints.Map(app);
 CmChartEndpoints.Map(app);
 OntChartEndpoints.Map(app);
+SnmpEndpoints.Map(app);
 
 app.Run();
 
