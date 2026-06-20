@@ -1079,28 +1079,39 @@ public class IspHealthScorer
     {
         var issues = new List<IspHealthIssue>();
 
-        if (inputs.Outages.Count > 0)
+        // Local (LAN/gateway) outages are surfaced in the waterfall but are not internet outages and
+        // don't affect the score, so they never appear in this ISP-impact issue.
+        var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
+        if (wanOutages.Count > 0)
         {
-            var totalDown = TimeSpan.FromMinutes(inputs.Outages.Sum(o => o.Duration.TotalMinutes));
-            var upstream = inputs.Outages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
-            var where = inputs.Outages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0
-                ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so this was an ISP-side fault, not your network."
+            var multiple = wanOutages.Count > 1;
+            var totalDown = TimeSpan.FromMinutes(wanOutages.Sum(o => o.Duration.TotalMinutes));
+            var upstream = wanOutages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var allUpstream = wanOutages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
+            var where = allUpstream
+                ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so {(multiple ? "these were" : "this was")} an ISP-side fault, not your network."
                 : " At least one event took the whole WAN dark, including the first ISP hop.";
-            var count = inputs.Outages.Count == 1
-                ? $"An internet outage of {FormatOutageDuration(inputs.Outages[0].Duration)}"
-                : $"{inputs.Outages.Count} internet outages totaling {FormatOutageDuration(totalDown)}";
+            var count = multiple
+                ? $"{wanOutages.Count} internet outages totaling {FormatOutageDuration(totalDown)}"
+                : $"An internet outage of {FormatOutageDuration(wanOutages[0].Duration)}";
             // Be transparent about the score hit: the outage penalty is applied at the top level
-            // and isn't tied to any one factor, so spell it out here or it's invisible.
+            // and isn't tied to any one factor, so spell it out here or it's invisible. Matches the
+            // actual penalty (both exclude Local outages).
             var penalty = (int)Math.Round(OutageScorePenalty(totalDown.TotalMinutes));
             var impact = penalty > 0
-                ? $" {(inputs.Outages.Count == 1 ? "It" : "Together they")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
+                ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
                 : string.Empty;
+            var realPhrase = multiple
+                ? "so these are real outages, not monitoring gaps"
+                : "so this is a real outage, not a monitoring gap";
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
-                Title = inputs.Outages.Count == 1 ? "Internet outage in the window" : "Internet outages in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing (so this is a real outage, not a monitoring gap).{where}{impact}",
-                Recommendation = "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents.",
+                Title = multiple ? "Internet outages in the window" : "Internet outage in the window",
+                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}",
+                Recommendation = allUpstream
+                    ? "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents."
+                    : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
                 LinkUrl = "#isp-outages",
                 LinkText = "The recovery shape is shown on the timeline below."
             });
