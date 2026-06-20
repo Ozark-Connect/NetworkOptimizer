@@ -113,15 +113,16 @@ function connectorGlyph(p) {
     const head = '<svg width="28" height="26" viewBox="0 0 28 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">';
     const num = (cy) => `<text x="14" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${String(n).length > 1 ? 9 : 11}" font-weight="700" fill="currentColor" stroke="none">${n}</text>`;
     if (sfp) {
-        // SFP/SFP+ cage: wide and short (~1.8:1), vertically centred, bottom key notch.
-        const body = '<rect x="3" y="7.5" width="22" height="12" rx="1.5"/><path d="M11 19.5 v-2.5 h6 v2.5"/>';
+        // SFP/SFP+ cage: wider and shorter than the RJ45, vertically centred, bottom key notch.
+        const body = '<rect x="3" y="7" width="22" height="13" rx="1.5"/><path d="M11 20 v-2.5 h6 v2.5"/>';
         return head + body + (n != null ? num(13.5) : '') + '</svg>';
     }
-    // RJ45 8P8C jack: tall, nearly square, with the bottom locking-tab slot.
-    const body = '<rect x="5" y="2.5" width="18" height="16" rx="1.5"/><path d="M10.5 18.5 v4.5 h7 V18.5"/>';
+    // RJ45 8P8C jack: wider than tall (between the female receptacle and the plug),
+    // with the bottom locking-tab slot.
+    const body = '<rect x="3.5" y="3" width="21" height="15" rx="1.5"/><path d="M10.5 18 v4 h7 V18"/>';
     const detail = n != null
         ? num(10.5)
-        : '<path d="M8 6 v5.5 M11 6 v5.5 M14 6 v5.5 M17 6 v5.5 M20 6 v5.5"/>';  // RJ45 pins
+        : '<path d="M8 6 v6 M11.5 6 v6 M15 6 v6 M18.5 6 v6 M22 6 v6"/>';  // RJ45 pins
     return head + body + detail + '</svg>';
 }
 

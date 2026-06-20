@@ -16323,8 +16323,6 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     gap: 0.4rem;
     white-space: nowrap;
-    user-select: none;
-    cursor: default;
 }
 
 .port-label {
@@ -16335,6 +16333,8 @@ body.kiosk-mode .status-indicators {
     display: inline-flex;
     align-items: center;
     color: var(--text-secondary);
+    user-select: none;
+    cursor: default;
 }
 
 .port-icon.port-icon-down {
