@@ -45,13 +45,21 @@ public static class InterfaceLabelResolver
 
         var wanMap = BuildWanLabels(device);
 
-        // WireGuard clients: wgclt{wireguard_id} → configured tunnel name.
+        // WireGuard clients: wgclt{wireguard_id} → "{configured tunnel name} (WG VPN)".
         var wgMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var n in networks)
             if (n.WireguardId is int wid
                 && !string.IsNullOrWhiteSpace(n.Name)
                 && (n.VpnType?.Contains("wireguard", StringComparison.OrdinalIgnoreCase) ?? false))
-                wgMap[$"wgclt{wid}"] = n.Name.Trim();
+                wgMap[$"wgclt{wid}"] = $"{n.Name.Trim()} (WG VPN)";
+
+        // Custom UniFi port names keyed by Linux ifname, for VLAN sub-interface and SQM
+        // base labels on non-WAN ports.
+        var portNameByIfName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (device.PortTable != null)
+            foreach (var p in device.PortTable)
+                if (!string.IsNullOrWhiteSpace(p.IfName) && !string.IsNullOrWhiteSpace(p.Name))
+                    portNameByIfName[p.IfName!] = p.Name.Trim();
 
         // OpenVPN client interface naming is firmware-specific; if there's exactly one
         // configured OpenVPN client, use its name, otherwise a generic label.
@@ -68,10 +76,12 @@ public static class InterfaceLabelResolver
             return n?.Name?.Trim();
         }
 
-        // Resolves the label of a base interface for SQM (ifb) parent lookups.
+        // Resolves the label of a base interface (for SQM and VLAN sub-interface
+        // labels): WAN label, then WireGuard, then the custom UniFi port name, then raw.
         string BaseLabel(string ifName) =>
             wanMap.TryGetValue(ifName, out var w) ? w
             : wgMap.TryGetValue(ifName, out var g) ? g
+            : portNameByIfName.TryGetValue(ifName, out var pn) ? pn
             : ifName;
 
         foreach (var ifName in ifNames)
@@ -79,25 +89,18 @@ public static class InterfaceLabelResolver
             if (string.IsNullOrWhiteSpace(ifName)) continue;
             var lower = ifName.ToLowerInvariant();
 
-            // A VLAN sub-interface inherits from its base: a WAN base gives the WAN
-            // label plus the tag (eth0.100 → "WAN1 - Fiber ISP (100)"); otherwise name
-            // it after the network on that VLAN (eth0.100 → "Management (100)"), the
-            // same VLAN→network resolution used for honeypot interfaces.
+            // A VLAN sub-interface is "{base port label} ({network name})", e.g.
+            // "Office Backhaul (Management)" or "WAN1 - Fiber ISP (Guest)". The tag is
+            // the network on that VLAN, falling back to the raw VLAN number when the
+            // VLAN has no named network (e.g. a carrier-proprietary tag).
             var sub = SubInterface.Match(ifName);
             if (sub.Success)
             {
                 var subVlan = sub.Groups[2].Value;
-                if (wanMap.TryGetValue(sub.Groups[1].Value, out var baseWan))
-                {
-                    result[ifName] = $"{baseWan} ({subVlan})";
-                    continue;
-                }
-                if (int.TryParse(subVlan, out var subVlanId)
-                    && NetworkNameForVlan(subVlanId) is { } subNet)
-                {
-                    result[ifName] = $"{subNet} ({subVlan})";
-                    continue;
-                }
+                var tag = int.TryParse(subVlan, out var subVlanId)
+                    && NetworkNameForVlan(subVlanId) is { } subNet ? subNet : subVlan;
+                result[ifName] = $"{BaseLabel(sub.Groups[1].Value)} ({tag})";
+                continue;
             }
 
             if (wanMap.TryGetValue(ifName, out var wan)) { result[ifName] = wan; continue; }
@@ -110,7 +113,7 @@ public static class InterfaceLabelResolver
                 // by the table when down).
                 var parent = ifName[3..];
                 if (parent.Length > 0 && !parent.All(char.IsDigit))
-                    result[ifName] = $"SQM ({BaseLabel(parent)})";
+                    result[ifName] = $"{BaseLabel(parent)} SQM";
             }
             else if (lower.StartsWith("honeypot"))
             {

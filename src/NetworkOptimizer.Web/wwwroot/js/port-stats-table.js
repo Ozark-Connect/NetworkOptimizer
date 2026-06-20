@@ -49,8 +49,6 @@ let currentAt = null;       // ISO timestamp for historic playback, null = live
 let pollTimer = null;
 let fetchController = null;
 let seekDebounce = null;
-let io = null;
-let isVisibleInViewport = true;
 let paused = false;        // timeline paused on the live edge (distinct from historic scrub)
 let tabsEl = null;
 let activeTab = 'infra';   // 'infra' = gateways + switches, 'aps' = access points
@@ -331,20 +329,12 @@ function startPoll() {
     stopPoll();
     if (currentAt) return;            // historic playback: no polling
     if (paused) return;               // timeline paused on the live edge
-    if (!isVisibleInViewport) return;
+    // Poll whenever live on the tab (live reads the in-memory cache, so this is
+    // cheap). No viewport gating - a display:none card while the cache is cold must
+    // keep polling so it recovers once data arrives, instead of dead-loading.
     pollTimer = setInterval(loadAndRender, LIVE_POLL_MS);
 }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
-
-function setupObserver() {
-    if (!('IntersectionObserver' in window) || !container) { isVisibleInViewport = true; return; }
-    io = new IntersectionObserver((entries) => {
-        isVisibleInViewport = entries.some(e => e.isIntersecting);
-        if (isVisibleInViewport && !currentAt && !paused) startPoll();
-        else stopPoll();
-    }, { threshold: 0 });
-    io.observe(container);
-}
 
 const api = {
     seekTime(isoTimestamp) {
@@ -397,7 +387,6 @@ const api = {
         stopPoll();
         clearTimeout(seekDebounce);
         if (fetchController) fetchController.abort();
-        if (io) { io.disconnect(); io = null; }
         if (window.__portStatsTable === api) window.__portStatsTable = null;
         container = badgesEl = tableEl = tabsEl = null;
         lastDevices = [];
@@ -420,9 +409,7 @@ export function mount(el, mountOpts = {}) {
         for (const d of mountOpts.deviceMeta) if (d && d.mac && d.name) nameOverrides[d.mac] = d.name;
     }
     currentAt = null;
-    isVisibleInViewport = true;
     window.__portStatsTable = api;
-    setupObserver();
     loadAndRender();
     startPoll();
 }
