@@ -1008,7 +1008,13 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 // Resolve friendly interface labels (WANn - carrier, WireGuard, SQM,
                 // honeypot, ...) from the device config + networkconf and cache them for
-                // the Live View port table. Agent-side so it can become time series later.
+                // the Live View port table.
+                //
+                // FUTURE TIME SERIES TOUCH POINT: this is where per-interface identity
+                // (label, WAN group, carrier, media) and status (oper_status) would also
+                // be written to InfluxDB so the port table can play back historical
+                // identity/status, not just the current snapshot. Resolved here, agent-
+                // side, precisely so that move is a localized addition.
                 _liveStats.RecordInterfaceLabels(NormalizeMac(device.Mac),
                     InterfaceLabelResolver.BuildLabels(device, networkConfigs, deviceIfNames));
             }

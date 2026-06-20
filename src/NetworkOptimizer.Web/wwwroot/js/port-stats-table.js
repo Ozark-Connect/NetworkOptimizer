@@ -193,11 +193,17 @@ function renderTabs() {
     }
 }
 
+// Down, unnamed tunnel/shaping root interfaces (gre0, ifb1, ip6gre0) are noise -
+// hide them. Named or up ones (e.g. gre1 = a WAN, ifbeth0 = SQM) still show.
+const NOISE_IF = /^(gre|ifb|ip6gre)\d+$/i;
+
 function buildRows() {
     const rows = [];
     for (const d of tabDevices()) {
         const vis = visibility[d.mac] !== false;
         for (const p of (d.ports || [])) {
+            const down = p.operStatus !== 1;
+            if (down && !p.friendlyName && NOISE_IF.test(p.ifName || '')) continue;
             rows.push({
                 // Row id is the device mac so the name-column click filter (and pills)
                 // toggle the whole device; multiple port rows share the same id.
