@@ -1619,6 +1619,20 @@ public class MonitoringCollectionAgent : BackgroundService
             bcastPktsOut: iface.OutBroadcastPkts > 0 ? iface.OutBroadcastPkts : null,
             timestamp: now);
 
+        // Live port-state resilience for gateways: when UniFi's last poll says the port is
+        // down or disabled, mark the live port down - UNLESS the SNMP frame counters moved
+        // this poll, which proves it is passing traffic and UniFi's state is stale. Scoped to
+        // the in-memory live cache; the InfluxDB write above keeps the raw SNMP ifOperStatus.
+        int liveOperStatus = iface.OperStatus;
+        if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway && !(rateInBps > 0) && !(rateOutBps > 0))
+        {
+            var uniPort = device.PortTable?.FirstOrDefault(p =>
+                !string.IsNullOrEmpty(p.IfName)
+                && string.Equals(p.IfName, ifName, StringComparison.OrdinalIgnoreCase));
+            if (uniPort != null && (!uniPort.Up || !uniPort.Enable))
+                liveOperStatus = 2; // ifOperStatus down
+        }
+
         // Mirror the full per-port snapshot into the live cache so the Live View port
         // stats table can serve live mode from memory instead of querying InfluxDB.
         _liveStats.RecordPortStats(new MonitoringInfluxClient.PortStatsPoint
@@ -1626,7 +1640,7 @@ public class MonitoringCollectionAgent : BackgroundService
             DeviceMac = mac,
             IfName = ifName,
             PortId = iface.PortId ?? "",
-            OperStatus = iface.OperStatus,
+            OperStatus = liveOperStatus,
             SpeedBps = speedBps > 0 ? speedBps : (long?)null,
             RateInBps = rateInBps,
             RateOutBps = rateOutBps,
