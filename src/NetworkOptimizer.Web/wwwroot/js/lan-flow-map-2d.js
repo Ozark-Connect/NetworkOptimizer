@@ -824,6 +824,14 @@ class LanFlowMap2D {
         const hit=this._nodeAt(e.clientX-rect.left,e.clientY-rect.top);
         if(!hit)return;
         const d=hit.d;
+        // Switches and gateways scroll to the port stats table and isolate that device.
+        if(d.kind===NK.Switch||d.kind===NK.Gateway){
+            if(d.mac&&window.__portStatsTable){
+                window.__portStatsTable.selectDevice(d.mac);
+                document.getElementById('port-stats-card')?.scrollIntoView({behavior:'smooth',block:'start'});
+            }
+            return;
+        }
         if(d.kind!==NK.WifiClient&&d.kind!==NK.WiredClient)return;
         if(!d.ip)return;
         // Wi-Fi clients land on the Signal tab; wired clients go to the default tab.

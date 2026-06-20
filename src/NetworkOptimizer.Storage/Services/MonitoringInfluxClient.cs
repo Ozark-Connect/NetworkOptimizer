@@ -813,6 +813,82 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Point-in-time snapshot of every interface_counters field for one or more
+    /// devices. Returns the most recent point per (device, interface) within a
+    /// short window around <paramref name="at"/> (or the latest available when
+    /// <paramref name="at"/> is null). Used by the Live View port stats table,
+    /// which reads the value at the current map scrubber position.
+    /// </summary>
+    /// <param name="deviceMacs">Devices to include; null or empty returns all polled devices.</param>
+    /// <param name="at">Historic playback instant, or null for the latest sample.</param>
+    public async Task<IReadOnlyList<PortStatsPoint>> QueryPortStatsAsync(
+        IReadOnlyList<string>? deviceMacs,
+        DateTime? at,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) return Array.Empty<PortStatsPoint>();
+
+        string rangeClause;
+        if (at.HasValue)
+        {
+            // Mirror the historic snapshot window used elsewhere on the Live tab so
+            // the table lines up with the map and WAN chart at the same scrub point.
+            var center = at.Value.ToUniversalTime();
+            rangeClause = $"range(start: {ToFluxInstant(center.AddSeconds(-90))}, stop: {ToFluxInstant(center.AddSeconds(30))})";
+        }
+        else
+        {
+            // Wide enough to catch the newest sample on the slowest SNMP tier;
+            // last() collapses it to the single most recent point per interface.
+            rangeClause = "range(start: -120s)";
+        }
+
+        var macFilter = "";
+        if (deviceMacs != null && deviceMacs.Count > 0)
+        {
+            var macs = deviceMacs.Select(NormalizeMac).Distinct().ToList();
+            macFilter = "\n  |> filter(fn: (r) => " +
+                string.Join(" or ", macs.Select(m => $@"r.device_mac == ""{m}""")) + ")";
+        }
+
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> {rangeClause}
+  |> filter(fn: (r) => r._measurement == ""interface_counters""){macFilter}
+  |> last()
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new List<PortStatsPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            results.Add(new PortStatsPoint
+            {
+                DeviceMac = record.GetValueByKey("device_mac") as string ?? "",
+                IfName = record.GetValueByKey("if_name") as string ?? "",
+                PortId = record.GetValueByKey("port_id") as string ?? "",
+                OperStatus = AsIntOrNull(record.GetValueByKey("oper_status")),
+                SpeedBps = AsLongOrNull(record.GetValueByKey("speed_bps")),
+                RateInBps = AsDoubleOrNull(record.GetValueByKey("rate_in_bps")),
+                RateOutBps = AsDoubleOrNull(record.GetValueByKey("rate_out_bps")),
+                BytesIn = AsLongOrNull(record.GetValueByKey("bytes_in")),
+                BytesOut = AsLongOrNull(record.GetValueByKey("bytes_out")),
+                UcastPktsIn = AsLongOrNull(record.GetValueByKey("ucast_pkts_in")),
+                UcastPktsOut = AsLongOrNull(record.GetValueByKey("ucast_pkts_out")),
+                McastPktsIn = AsLongOrNull(record.GetValueByKey("mcast_pkts_in")),
+                McastPktsOut = AsLongOrNull(record.GetValueByKey("mcast_pkts_out")),
+                BcastPktsIn = AsLongOrNull(record.GetValueByKey("bcast_pkts_in")),
+                BcastPktsOut = AsLongOrNull(record.GetValueByKey("bcast_pkts_out")),
+                ErrorsIn = AsLongOrNull(record.GetValueByKey("errors_in")),
+                ErrorsOut = AsLongOrNull(record.GetValueByKey("errors_out")),
+                DiscardsIn = AsLongOrNull(record.GetValueByKey("discards_in")),
+                DiscardsOut = AsLongOrNull(record.GetValueByKey("discards_out")),
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+            });
+        }
+        return results;
+    }
+
     public async Task<IReadOnlyList<WanRatePoint>> QueryGatewayWanRatesAsync(
         string deviceMac,
         IReadOnlyList<string> wanIfNames,
@@ -1919,6 +1995,35 @@ from(bucket: ""{_longtermBucket}"")
         public required string IfName { get; init; }
         public double? RateInBps { get; init; }
         public double? RateOutBps { get; init; }
+    }
+
+    /// <summary>
+    /// Full set of interface_counters fields for a single port at one instant.
+    /// Packet-counter fields (ucast/mcast/bcast) are nullable so the table renders
+    /// gracefully on data written before those fields were collected.
+    /// </summary>
+    public record PortStatsPoint
+    {
+        public required DateTime Time { get; init; }
+        public required string DeviceMac { get; init; }
+        public required string IfName { get; init; }
+        public string PortId { get; init; } = "";
+        public int? OperStatus { get; init; }
+        public long? SpeedBps { get; init; }
+        public double? RateInBps { get; init; }
+        public double? RateOutBps { get; init; }
+        public long? BytesIn { get; init; }
+        public long? BytesOut { get; init; }
+        public long? UcastPktsIn { get; init; }
+        public long? UcastPktsOut { get; init; }
+        public long? McastPktsIn { get; init; }
+        public long? McastPktsOut { get; init; }
+        public long? BcastPktsIn { get; init; }
+        public long? BcastPktsOut { get; init; }
+        public long? ErrorsIn { get; init; }
+        public long? ErrorsOut { get; init; }
+        public long? DiscardsIn { get; init; }
+        public long? DiscardsOut { get; init; }
     }
 
     public record DeviceHealthPoint

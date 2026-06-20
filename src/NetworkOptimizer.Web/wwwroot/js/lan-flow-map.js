@@ -2898,6 +2898,14 @@ export class LanFlowMap {
         while (g && !(g.userData?.node)) g = g.parent;
         if (!g) return;
         const node = g.userData.node;
+        // Switches and gateways scroll to the port stats table and isolate that device.
+        if (node.kind === NODE_KIND.Switch || node.kind === NODE_KIND.Gateway) {
+            if (node.mac && window.__portStatsTable) {
+                window.__portStatsTable.selectDevice(node.mac);
+                document.getElementById('port-stats-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            return;
+        }
         if (node.kind !== NODE_KIND.WifiClient && node.kind !== NODE_KIND.WiredClient) return;
         const ip = node.ip;
         if (!ip) return;
