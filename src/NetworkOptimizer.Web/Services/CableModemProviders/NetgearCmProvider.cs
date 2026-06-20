@@ -61,10 +61,11 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private readonly ILogger<NetgearCmProvider> _logger;
 
     /// <summary>
-    /// Remembers the status-page path that last succeeded per CmConfiguration.Id so later
-    /// polls skip the dead extension instead of 401/404-ing on it every interval.
+    /// Remembers the (status-page path, send-credentials) combination that last succeeded per
+    /// CmConfiguration.Id so later polls go straight to it instead of re-probing the dead
+    /// extension or wrong auth mode every interval.
     /// </summary>
-    private readonly ConcurrentDictionary<int, string> _pathCache = new();
+    private readonly ConcurrentDictionary<int, (string Path, bool UseCreds)> _attemptCache = new();
 
     public NetgearCmProvider(ILogger<NetgearCmProvider> logger)
     {
@@ -171,73 +172,91 @@ public sealed class NetgearCmProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Fetch the DOCSIS status page, transparently falling back between the two known
-    /// Netgear page extensions. Tries the configured/default path first, then the alternate
-    /// extension if the first request fails with ANY HTTP status error or transport error,
-    /// and remembers whichever worked per config so later polls go straight to it. If the
-    /// alternate also fails, the last error propagates to the retry loop - so a genuine
-    /// auth failure (both extensions reject the credentials) still surfaces.
+    /// Fetch the DOCSIS status page, transparently falling back across both Netgear page
+    /// extensions AND whether credentials are sent. Tries the configured/default path with
+    /// credentials first (modems like the CM600 gate the page behind HTTP Basic), then the
+    /// alternate extension, then the same paths WITHOUT credentials - some modems (e.g. CM700)
+    /// serve the page openly and 401 a request that presents unexpected credentials. Any HTTP
+    /// status error or transport error advances to the next attempt; the last attempt's error
+    /// propagates, so a genuine auth failure (every attempt rejected) still surfaces. The
+    /// winning combination is cached per config so later polls go straight to it.
     /// </summary>
     private async Task<string?> FetchWithFallbackAsync(
         CmPollContext context,
         CancellationToken cancellationToken)
     {
-        var candidates = ResolvePathCandidates(context);
+        var attempts = ResolveAttempts(context);
 
-        for (int i = 0; i < candidates.Count; i++)
+        for (int i = 0; i < attempts.Count; i++)
         {
-            var url = BuildUrl(context, candidates[i]);
+            var (path, useCreds) = attempts[i];
+            var url = BuildUrl(context, path);
+            var user = useCreds ? context.Username : null;
+            var pass = useCreds ? context.Password : null;
             try
             {
-                var html = await FetchPageAsync(url, context.Username, context.Password, cancellationToken);
+                var html = await FetchPageAsync(url, user, pass, cancellationToken);
                 if (context.Id > 0)
-                    _pathCache[context.Id] = candidates[i];
+                    _attemptCache[context.Id] = (path, useCreds);
                 return html;
             }
-            catch (HttpRequestException ex) when (i < candidates.Count - 1)
+            catch (HttpRequestException ex) when (i < attempts.Count - 1)
             {
-                // Fall back on any HTTP status error (401/403/404/5xx) or transport error
+                // Advance on any HTTP status error (401/403/404/5xx) or transport error
                 // (connection reset/closed, where StatusCode is null). Netgear firmware
-                // signals an unavailable .asp path inconsistently - the reporter's CM700
-                // returned 401, while other models simply close the connection - so we don't
-                // gate the fallback on a specific code.
+                // signals an unavailable path or unwanted credentials inconsistently - the
+                // CM700 returned 401, other models close the connection - so we don't gate on
+                // a specific code.
                 _logger.LogDebug(
-                    "Netgear CM {Name}: {Path} failed ({Reason}); trying alternate page extension",
-                    context.Name, candidates[i],
+                    "Netgear CM {Name}: {Path} (creds={UseCreds}) failed ({Reason}); trying next attempt",
+                    context.Name, path, useCreds,
                     ex.StatusCode is { } status ? $"HTTP {(int)status}" : ex.Message);
             }
         }
 
-        // Unreachable: the loop returns on the first success, and the last candidate's
-        // exception is not caught here (the when-guard requires a remaining candidate) so it
-        // propagates to PollAsync/TestConnectionAsync.
+        // Unreachable: the loop returns on the first success, and the last attempt's exception
+        // is not caught here (the when-guard requires a remaining attempt) so it propagates to
+        // PollAsync/TestConnectionAsync.
         return null;
     }
 
     /// <summary>
-    /// Build the ordered list of status-page paths to try: the configured (or default) path
-    /// first, then the alternate Netgear extension (.asp ↔ .htm) when the path is a
-    /// DocsisStatus page. A path recorded as working for this config is moved to the front.
+    /// Build the ordered list of (path, send-credentials) attempts: the configured/default
+    /// path and the alternate Netgear extension (.asp ↔ .htm), each tried with credentials
+    /// first (when configured) and then without. The attempt recorded as working for this
+    /// config is moved to the front.
     /// </summary>
-    private List<string> ResolvePathCandidates(CmPollContext context)
+    private List<(string Path, bool UseCreds)> ResolveAttempts(CmPollContext context)
     {
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
             ? DefaultStatusPath
             : context.StatusPagePath;
 
-        var candidates = new List<string> { configured };
+        var paths = new List<string> { configured };
         var alternate = AlternateNetgearPath(configured);
         if (alternate != null)
-            candidates.Add(alternate);
+            paths.Add(alternate);
 
-        if (context.Id > 0
-            && _pathCache.TryGetValue(context.Id, out var lastGood)
-            && candidates.Remove(lastGood))
+        var hasCreds = !string.IsNullOrEmpty(context.Username) && !string.IsNullOrEmpty(context.Password);
+
+        var attempts = new List<(string Path, bool UseCreds)>();
+        // Credentialed attempts first - required by modems that gate the page behind Basic auth.
+        if (hasCreds)
+            attempts.AddRange(paths.Select(p => (p, true)));
+        // Then anonymous attempts - for modems that serve openly and reject unexpected creds.
+        attempts.AddRange(paths.Select(p => (p, false)));
+
+        if (context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var lastGood))
         {
-            candidates.Insert(0, lastGood);
+            var idx = attempts.FindIndex(a => a.Path == lastGood.Path && a.UseCreds == lastGood.UseCreds);
+            if (idx > 0)
+            {
+                attempts.RemoveAt(idx);
+                attempts.Insert(0, lastGood);
+            }
         }
 
-        return candidates;
+        return attempts;
     }
 
     /// <summary>
