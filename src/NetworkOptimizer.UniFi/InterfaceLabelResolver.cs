@@ -78,7 +78,7 @@ public static class InterfaceLabelResolver
 
         // Recursively resolves a friendly label, or null when we can't confidently name
         // the interface. SQM (ifb*) is checked before the VLAN sub-interface rule so
-        // "ifbeth6.228" resolves as "<eth6.228 label> SQM", not as a sub-interface.
+        // "ifbeth0.100" resolves as "<eth0.100 label> SQM", not as a sub-interface.
         string? Resolve(string ifName)
         {
             if (string.IsNullOrWhiteSpace(ifName)) return null;
@@ -89,7 +89,7 @@ public static class InterfaceLabelResolver
 
             if (lower.StartsWith("ifb"))
             {
-                // SQM shaping attached to a parent (ifbeth6.228 → eth6.228); the bare
+                // SQM shaping attached to a parent (ifbeth0.100 → eth0.100); the bare
                 // ifb0/ifb1 root devices are left unresolved (and hidden when down).
                 var parent = ifName[3..];
                 if (parent.Length == 0 || parent.All(char.IsDigit)) return null;
