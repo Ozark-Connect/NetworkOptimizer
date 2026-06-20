@@ -103,7 +103,11 @@ public static class PortStatsEndpoints
                                     ifName = p.IfName,
                                     portId = p.PortId,
                                     portNumber = nm?.PortNumber ?? parent?.PortNumber,
-                                    friendlyName = ResolveFriendly(mac, p.IfName),
+                                    // Agent-resolved WAN/carrier label wins (e.g. gre1 ->
+                                    // "WAN3 - AT&T Wireless"); otherwise the port_table /
+                                    // sub-interface friendly name.
+                                    friendlyName = liveStats.GetInterfaceLabel(mac, p.IfName)
+                                        ?? ResolveFriendly(mac, p.IfName),
                                     isSfp = nm?.IsSfp ?? parent?.IsSfp,
                                     linkSpeedMbps = nm?.SpeedMbps,
                                     operStatus = p.OperStatus,

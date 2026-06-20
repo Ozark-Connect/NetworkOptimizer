@@ -853,6 +853,13 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
+        // Resolve WAN/carrier interface labels (e.g. gre1 -> "WAN3 - AT&T Wireless (5G)")
+        // from the UniFi device config and cache them for the Live View port table.
+        // Done agent-side so this can become persisted time series in a later build.
+        foreach (var device in devices)
+            _liveStats.RecordInterfaceLabels(NormalizeMac(device.Mac),
+                InterfaceLabelResolver.BuildWanLabels(device));
+
         var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
 

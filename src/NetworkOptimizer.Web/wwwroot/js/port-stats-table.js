@@ -117,14 +117,14 @@ function connectorGlyph(p) {
         // SFP/SFP+ cage: wider than the RJ45 and tall enough to seat the port number,
         // vertically centred, with the bottom key notch.
         const body = '<rect x="2.5" y="5" width="23" height="16" rx="1.5"/><path d="M11 21 v-2.5 h6 v2.5"/>';
-        return head + body + (n != null ? num(13) : '') + '</svg>';
+        return head + body + (n != null ? num(12) : '') + '</svg>';
     }
     // RJ45 8P8C jack: wider than tall (between the female receptacle and the plug),
-    // with the bottom locking-tab slot.
-    const body = '<rect x="3.5" y="3" width="21" height="15" rx="1.5"/><path d="M10.5 18 v4 h7 V18"/>';
+    // with the latch-tab slot on top (how UniFi mounts them).
+    const body = '<rect x="3.5" y="6" width="21" height="15" rx="1.5"/><path d="M10.5 6 v-4 h7 V6"/>';
     const detail = n != null
-        ? num(10.5)
-        : '<path d="M8 6 v6 M11 6 v6 M14 6 v6 M17 6 v6 M20 6 v6"/>';  // RJ45 pins, centred on x=14
+        ? num(13.5)
+        : '<path d="M8 9 v4.5 M11 9 v4.5 M14 9 v4.5 M17 9 v4.5 M20 9 v4.5"/>';  // RJ45 pins, centred on x=14
     return head + body + detail + '</svg>';
 }
 

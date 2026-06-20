@@ -216,6 +216,27 @@ public class MonitoringLiveStats
             : point;
     }
 
+    // Agent-resolved interface display labels (ifname -> friendly label) per device,
+    // e.g. "gre1" -> "WAN3 - AT&T Wireless (5G)". Resolved live by the polling agent
+    // from UniFi config so this can become persisted time series later; for now it is
+    // an in-memory snapshot read by the port stats endpoint. Purely additive.
+    private readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, string>> _interfaceLabels = new();
+
+    /// <summary>Replaces the resolved ifname→label map for a device.</summary>
+    public void RecordInterfaceLabels(string deviceMac, IReadOnlyDictionary<string, string> labels)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || labels == null) return;
+        _interfaceLabels[Normalize(deviceMac)] = labels;
+    }
+
+    /// <summary>Resolved label for a device interface, or null when none is known.</summary>
+    public string? GetInterfaceLabel(string deviceMac, string ifName)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || string.IsNullOrEmpty(ifName)) return null;
+        return _interfaceLabels.TryGetValue(Normalize(deviceMac), out var map)
+            && map.TryGetValue(ifName, out var label) ? label : null;
+    }
+
     /// <summary>Latest cached per-port snapshot, optionally filtered to specific device MACs.</summary>
     public IReadOnlyList<MonitoringInfluxClient.PortStatsPoint> GetPortStatsSnapshot(IReadOnlyCollection<string>? deviceMacs)
     {
