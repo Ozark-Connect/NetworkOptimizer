@@ -54,6 +54,25 @@ let isVisibleInViewport = true;
 let tabsEl = null;
 let activeTab = 'infra';   // 'infra' = gateways + switches, 'aps' = access points
 
+const STORE_TAB = 'portStats.activeTab';
+const STORE_VIS = 'portStats.visibility';
+
+function savePrefs() {
+    try {
+        localStorage.setItem(STORE_TAB, activeTab);
+        localStorage.setItem(STORE_VIS, JSON.stringify(visibility));
+    } catch { /* localStorage unavailable */ }
+}
+
+function loadPrefs() {
+    try {
+        const t = localStorage.getItem(STORE_TAB);
+        if (t === 'infra' || t === 'aps') activeTab = t;
+        const v = JSON.parse(localStorage.getItem(STORE_VIS) || '{}');
+        if (v && typeof v === 'object') visibility = v;
+    } catch { /* localStorage unavailable */ }
+}
+
 function speedClassMbps(mbps) {
     if (mbps == null || mbps <= 0) return '';
     let cls = SPEED_STEPS[0][1];
@@ -90,26 +109,29 @@ function portIsSfp(p) {
 // numberless virtual interfaces keep the detailed RJ45 pins / SFP cage.
 function connectorGlyph(p) {
     const sfp = portIsSfp(p);
-    const head = '<svg width="28" height="20" viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">';
-    const body = sfp
-        ? '<rect x="4" y="3" width="20" height="11" rx="1.5"/><path d="M11 14 v-2.5 h6 v2.5"/>'
-        : '<rect x="4" y="2.5" width="20" height="11" rx="1.5"/><path d="M11 13.5 v3.5 h6 V13.5"/>';
-    let detail;
-    if (p.portNumber != null) {
-        const fs = String(p.portNumber).length > 1 ? 8 : 10;
-        detail = `<text x="14" y="${sfp ? 9 : 8.5}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="700" fill="currentColor" stroke="none">${p.portNumber}</text>`;
-    } else if (!sfp) {
-        detail = '<path d="M8 5 v4 M11 5 v4 M14 5 v4 M17 5 v4 M20 5 v4"/>';  // RJ45 pins
-    } else {
-        detail = '';  // bare SFP cage
+    const n = p.portNumber;
+    const head = '<svg width="28" height="26" viewBox="0 0 28 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">';
+    const num = (cy) => `<text x="14" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${String(n).length > 1 ? 9 : 11}" font-weight="700" fill="currentColor" stroke="none">${n}</text>`;
+    if (sfp) {
+        // SFP/SFP+ cage: wide and short (~1.8:1), vertically centred, bottom key notch.
+        const body = '<rect x="3" y="7.5" width="22" height="12" rx="1.5"/><path d="M11 19.5 v-2.5 h6 v2.5"/>';
+        return head + body + (n != null ? num(13.5) : '') + '</svg>';
     }
+    // RJ45 8P8C jack: tall, nearly square, with the bottom locking-tab slot.
+    const body = '<rect x="5" y="2.5" width="18" height="16" rx="1.5"/><path d="M10.5 18.5 v4.5 h7 V18.5"/>';
+    const detail = n != null
+        ? num(10.5)
+        : '<path d="M8 6 v5.5 M11 6 v5.5 M14 6 v5.5 M17 6 v5.5 M20 6 v5.5"/>';  // RJ45 pins
     return head + body + detail + '</svg>';
 }
 
 function portIcon(p) {
     const cls = speedClassMbps(p.linkSpeedMbps);
     const down = p.operStatus != null && p.operStatus !== 1;
-    const tip = p.linkSpeedMbps ? fmtLinkSpeed(p.linkSpeedMbps) : (down ? 'Down' : '');
+    // The glyph colour already conveys link state, so the tooltip carries the
+    // detail: "Status - Speed" (e.g. "Up - 1 Gbps", or just "Down").
+    const status = p.operStatus == null ? '' : (down ? 'Down' : 'Up');
+    const tip = [status, fmtLinkSpeed(p.linkSpeedMbps)].filter(Boolean).join(' - ');
     return `<span class="port-icon ${cls}${down ? ' port-icon-down' : ''}"${tip ? ` data-tooltip="${escapeHtml(tip)}"` : ''}>${connectorGlyph(p)}</span>`;
 }
 
@@ -120,22 +142,8 @@ function portCell(p) {
     return `<span class="port-cell">${portIcon(p)}<span class="port-label">${escapeHtml(name)}</span></span>`;
 }
 
-function mediaText(isSfp) {
-    if (isSfp === true) return 'SFP';
-    if (isSfp === false) return 'RJ45';
-    return '-';
-}
-
-function statusBadge(operStatus) {
-    if (operStatus == null) return '-';
-    const up = operStatus === 1;
-    return `<span class="port-status ${up ? 'port-status-up' : 'port-status-down'}">${up ? 'Up' : 'Down'}</span>`;
-}
-
 const COLUMNS = [
     { header: 'Port', format: v => v.html },
-    { header: 'Media', format: mediaText, cls: 'hide-mobile' },
-    { header: 'Status', format: statusBadge },
     { header: 'Rate In', format: fmtRate },
     { header: 'Rate Out', format: fmtRate },
     { header: 'Unicast In', format: fmtCount, cls: 'hide-mobile' },
@@ -173,6 +181,7 @@ function renderTabs() {
             const btn = e.target.closest('button[data-tab]');
             if (!btn || btn.dataset.tab === activeTab) return;
             activeTab = btn.dataset.tab;
+            savePrefs();
             rebuildMeta(tabDevices());
             renderTabs();
             renderBadges();
@@ -195,8 +204,6 @@ function buildRows() {
                 visible: vis,
                 values: [
                     { html: portCell(p) },
-                    p.isSfp,
-                    p.operStatus,
                     p.rateInBps, p.rateOutBps,
                     p.ucastPktsIn, p.ucastPktsOut,
                     p.mcastPktsIn, p.mcastPktsOut,
@@ -243,6 +250,7 @@ function renderBadges() {
                 else if (allVis) deviceMeta.forEach(d => visibility[d.mac] = d.mac === mac);
                 else visibility[mac] = visibility[mac] === false;
             }
+            savePrefs();
             renderBadges();
             renderTableNow(false);
         });
@@ -261,7 +269,7 @@ function renderTableNow(showAll) {
             key: 'mac',
             visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
-            onChanged: () => { renderBadges(); renderTableNow(true); },
+            onChanged: () => { savePrefs(); renderBadges(); renderTableNow(true); },
         },
     });
 }
@@ -299,7 +307,7 @@ async function loadAndRender() {
     rebuildMeta(tabDevices());
     if (pendingSelect) {
         const match = deviceMeta.find(d => d.mac.toLowerCase() === pendingSelect.toLowerCase());
-        if (match) deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac);
+        if (match) { deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac); savePrefs(); }
         pendingSelect = null;
     }
     updateCardVisibility();
@@ -353,6 +361,7 @@ const api = {
             pendingSelect = mac;
             loadAndRender();
         }
+        savePrefs();
         if (typeof opts.onDeviceSelected === 'function') opts.onDeviceSelected(mac);
     },
     updateDeviceMeta(meta) {
@@ -378,6 +387,7 @@ export function mount(el, mountOpts = {}) {
     container = typeof el === 'string' ? document.getElementById(el) : el;
     if (!container) return;
     opts = mountOpts;
+    loadPrefs();
     badgesEl = container.querySelector('#port-stats-filter-badges') || container.querySelector('.health-filter-badges');
     tableEl = container.querySelector('#port-stats-table');
     tabsEl = container.querySelector('#port-stats-tabs');

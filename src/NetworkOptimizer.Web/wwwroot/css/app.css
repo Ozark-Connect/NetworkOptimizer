@@ -16323,6 +16323,8 @@ body.kiosk-mode .status-indicators {
     align-items: center;
     gap: 0.4rem;
     white-space: nowrap;
+    user-select: none;
+    cursor: default;
 }
 
 .port-label {
@@ -16338,24 +16340,6 @@ body.kiosk-mode .status-indicators {
 .port-icon.port-icon-down {
     color: var(--text-muted);
     opacity: 0.5;
-}
-
-.port-status {
-    display: inline-block;
-    padding: 0.1rem 0.45rem;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 600;
-}
-
-.port-status-up {
-    color: var(--success-color);
-    background-color: rgba(36, 188, 112, 0.15);
-}
-
-.port-status-down {
-    color: var(--danger-color);
-    background-color: rgba(238, 99, 104, 0.15);
 }
 
 .port-speed-legend {
