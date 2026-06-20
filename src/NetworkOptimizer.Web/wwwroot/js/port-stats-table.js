@@ -38,6 +38,7 @@ let badgesEl = null;
 let tableEl = null;
 let legendEl = null;
 let topScrollEl = null;     // mirror horizontal scrollbar above the table
+let scrollSyncing = null;   // re-entrancy guard for the two scrollbars ('top'|'resp')
 let opts = {};
 
 let deviceMeta = [];        // [{ mac, name, color }]
@@ -305,7 +306,12 @@ function syncTopScrollbar() {
     topScrollEl.scrollLeft = resp.scrollLeft;
     if (!resp._topSync) {
         resp._topSync = true;
-        resp.addEventListener('scroll', () => { if (topScrollEl) topScrollEl.scrollLeft = resp.scrollLeft; });
+        resp.addEventListener('scroll', () => {
+            if (scrollSyncing === 'top' || !topScrollEl) return;   // don't fight the mirror
+            scrollSyncing = 'resp';
+            topScrollEl.scrollLeft = resp.scrollLeft;
+            requestAnimationFrame(() => { scrollSyncing = null; });
+        });
     }
 }
 
@@ -434,8 +440,12 @@ export function mount(el, mountOpts = {}) {
     if (topScrollEl && !topScrollEl._sync) {
         topScrollEl._sync = true;
         topScrollEl.addEventListener('scroll', () => {
+            if (scrollSyncing === 'resp') return;   // don't fight an in-progress table scroll
             const resp = tableEl && tableEl.querySelector('.table-responsive');
-            if (resp) resp.scrollLeft = topScrollEl.scrollLeft;
+            if (!resp) return;
+            scrollSyncing = 'top';
+            resp.scrollLeft = topScrollEl.scrollLeft;
+            requestAnimationFrame(() => { scrollSyncing = null; });
         });
     }
     renderLegend();
