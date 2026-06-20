@@ -39,6 +39,11 @@ let tableEl = null;
 let legendEl = null;
 let topScrollEl = null;     // mirror horizontal scrollbar above the table
 let scrollSyncing = null;   // re-entrancy guard for the two scrollbars ('top'|'resp')
+
+// Touch-primary devices scroll the table natively, and the mirror's scroll sync
+// interferes with momentum scrolling, so the top scrollbar is desktop-only.
+const IS_TOUCH = typeof window !== 'undefined'
+    && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 let opts = {};
 
 let deviceMeta = [];        // [{ mac, name, color }]
@@ -296,6 +301,7 @@ function renderTableNow(showAll) {
 // re-created on every render, so re-measure and (re)wire its listener each time.
 function syncTopScrollbar() {
     if (!topScrollEl) return;
+    if (IS_TOUCH) { topScrollEl.style.display = 'none'; return; }   // native touch scroll only
     const resp = tableEl && tableEl.querySelector('.table-responsive');
     const inner = topScrollEl.firstElementChild;
     if (!resp || !inner) { topScrollEl.style.display = 'none'; return; }
@@ -437,7 +443,7 @@ export function mount(el, mountOpts = {}) {
     tabsEl = container.querySelector('#port-stats-tabs');
     legendEl = container.querySelector('#port-stats-legend');
     topScrollEl = container.querySelector('#port-stats-scroll-top');
-    if (topScrollEl && !topScrollEl._sync) {
+    if (topScrollEl && !IS_TOUCH && !topScrollEl._sync) {
         topScrollEl._sync = true;
         topScrollEl.addEventListener('scroll', () => {
             if (scrollSyncing === 'resp') return;   // don't fight an in-progress table scroll
