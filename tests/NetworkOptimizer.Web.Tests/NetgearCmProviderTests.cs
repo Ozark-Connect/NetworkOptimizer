@@ -120,6 +120,49 @@ public class NetgearCmProviderTests
         stats.DownstreamChannels.Should().Contain(c => c.Frequency == 387000000);
     }
 
+    // Mixed lock states (as the real CM700 capture has 3 "Not Locked" upstream channels with
+    // 0.0 power): the aggregates written to InfluxDB must count and average only locked
+    // channels, so unlocked 0-value channels don't drag the averages down.
+    private const string Cm700MixedLockHtml = """
+        <html><head><script>
+        function InitUsTableTagValue()
+        {
+            var tagValueList = '2|1|Locked|ATDMA|17|5120|16400000 Hz|45.0|2|Not Locked|N/A|Unknown|0|0 Hz|0.0|';
+        }
+        function InitDsTableTagValue()
+        {
+            var tagValueList = '2|1|Locked|QAM 256|1|387000000 Hz|5.0|40.0|10|2|2|Not Locked|Unknown|0|0 Hz|0.0|0.0|0|0|';
+        }
+        </script></head><body>
+        <table id="dsTable"><tr><td><span class="thead">Channel</span></td></tr></table>
+        <table id="usTable"><tr><td><span class="thead">Channel</span></td></tr></table>
+        </body></html>
+        """;
+
+    [Fact]
+    public void ParseDocsisStatus_AggregatesOnlyLockedChannels()
+    {
+        var stats = NetgearCmProvider.ParseDocsisStatus(Cm700MixedLockHtml, Context);
+
+        // Both channels are parsed and cached, but only the locked ones count toward the
+        // metrics written to InfluxDB.
+        stats.DownstreamChannels.Should().HaveCount(2);
+        stats.UpstreamChannels.Should().HaveCount(2);
+
+        stats.LockedDsChannels.Should().Be(1);
+        stats.LockedUsChannels.Should().Be(1);
+
+        // Averages exclude the unlocked 0.0-value channels rather than being pulled toward 0.
+        stats.DownstreamPowerAvgDbmv.Should().Be(5.0);
+        stats.DownstreamSnrAvgDb.Should().Be(40.0);
+        stats.UpstreamPowerAvgDbmv.Should().Be(45.0);
+
+        // FEC counters sum across the downstream channels.
+        stats.TotalCorrectables.Should().Be(10);
+        stats.TotalUncorrectables.Should().Be(2);
+        stats.ChannelsWithUncorrectables.Should().Be(1);
+    }
+
     [Fact]
     public void ParseDocsisStatus_StillParsesServerRenderedTables()
     {

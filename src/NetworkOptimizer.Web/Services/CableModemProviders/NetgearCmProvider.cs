@@ -542,7 +542,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
             var start = c * perChannel;
             if (start + perChannel > fields.Count)
                 yield break;
-            yield return fields.GetRange(start, perChannel);
+            // Trim each field to mirror the server-rendered path (InnerText.Trim()). Lock
+            // status is matched exactly, so stray whitespace would otherwise zero out every
+            // locked count and null the power/SNR averages.
+            yield return fields.GetRange(start, perChannel).Select(f => f.Trim()).ToList();
         }
     }
 
