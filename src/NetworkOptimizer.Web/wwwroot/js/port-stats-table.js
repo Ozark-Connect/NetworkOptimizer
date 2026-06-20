@@ -51,6 +51,7 @@ let fetchController = null;
 let seekDebounce = null;
 let io = null;
 let isVisibleInViewport = true;
+let paused = false;        // timeline paused on the live edge (distinct from historic scrub)
 let tabsEl = null;
 let activeTab = 'infra';   // 'infra' = gateways + switches, 'aps' = access points
 
@@ -113,16 +114,17 @@ function connectorGlyph(p) {
     const head = '<svg width="28" height="26" viewBox="0 0 28 26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">';
     const num = (cy) => `<text x="14" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${String(n).length > 1 ? 9 : 11}" font-weight="700" fill="currentColor" stroke="none">${n}</text>`;
     if (sfp) {
-        // SFP/SFP+ cage: wider and shorter than the RJ45, vertically centred, bottom key notch.
-        const body = '<rect x="3" y="7" width="22" height="13" rx="1.5"/><path d="M11 20 v-2.5 h6 v2.5"/>';
-        return head + body + (n != null ? num(13.5) : '') + '</svg>';
+        // SFP/SFP+ cage: wider than the RJ45 and tall enough to seat the port number,
+        // vertically centred, with the bottom key notch.
+        const body = '<rect x="2.5" y="5" width="23" height="16" rx="1.5"/><path d="M11 21 v-2.5 h6 v2.5"/>';
+        return head + body + (n != null ? num(13) : '') + '</svg>';
     }
     // RJ45 8P8C jack: wider than tall (between the female receptacle and the plug),
     // with the bottom locking-tab slot.
     const body = '<rect x="3.5" y="3" width="21" height="15" rx="1.5"/><path d="M10.5 18 v4 h7 V18"/>';
     const detail = n != null
         ? num(10.5)
-        : '<path d="M8 6 v6 M11.5 6 v6 M15 6 v6 M18.5 6 v6 M22 6 v6"/>';  // RJ45 pins
+        : '<path d="M8 6 v6 M11 6 v6 M14 6 v6 M17 6 v6 M20 6 v6"/>';  // RJ45 pins, centred on x=14
     return head + body + detail + '</svg>';
 }
 
@@ -320,6 +322,7 @@ async function loadAndRender() {
 function startPoll() {
     stopPoll();
     if (currentAt) return;            // historic playback: no polling
+    if (paused) return;               // timeline paused on the live edge
     if (!isVisibleInViewport) return;
     pollTimer = setInterval(loadAndRender, LIVE_POLL_MS);
 }
@@ -329,7 +332,7 @@ function setupObserver() {
     if (!('IntersectionObserver' in window) || !container) { isVisibleInViewport = true; return; }
     io = new IntersectionObserver((entries) => {
         isVisibleInViewport = entries.some(e => e.isIntersecting);
-        if (isVisibleInViewport && !currentAt) startPoll();
+        if (isVisibleInViewport && !currentAt && !paused) startPoll();
         else stopPoll();
     }, { threshold: 0 });
     io.observe(container);
@@ -343,9 +346,20 @@ const api = {
             clearTimeout(seekDebounce);
             seekDebounce = setTimeout(loadAndRender, 200);
         } else {
+            // Back at the live edge: refresh + resume polling unless paused.
             loadAndRender();
             startPoll();
         }
+    },
+    // Timeline paused/resumed on the live edge (mirrors the WAN live chart). Historic
+    // scrubbing is handled by seekTime; pause only gates live auto-refresh.
+    pause() {
+        paused = true;
+        stopPoll();
+    },
+    resume() {
+        paused = false;
+        if (!currentAt) { loadAndRender(); startPoll(); }
     },
     selectDevice(mac) {
         if (!mac) return;

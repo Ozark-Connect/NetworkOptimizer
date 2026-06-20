@@ -264,6 +264,22 @@ public class UniFiDeviceResponse
     public bool? FlowControlEnabled { get; set; }
 
     /// <summary>
+    /// Per-WAN geo/ISP info keyed by WAN network group ("WAN", "WAN2", "WAN3").
+    /// Each entry carries the resolved ISP name (e.g. "AT&amp;T Wireless"). Geo-IP
+    /// derived, so it is the fallback carrier source behind <see cref="Mbb"/>.
+    /// </summary>
+    [JsonPropertyName("last_geo_info")]
+    public Dictionary<string, WanGeoInfo>? LastGeoInfo { get; set; }
+
+    /// <summary>
+    /// Mobile-broadband (cellular) state, present on gateways/modems with an
+    /// integrated or attached cellular radio. The SIM's networkoperator/spn is the
+    /// preferred carrier source for a cellular WAN.
+    /// </summary>
+    [JsonPropertyName("mbb")]
+    public MbbInfo? Mbb { get; set; }
+
+    /// <summary>
     /// Captures additional JSON properties not mapped to typed properties.
     /// Used to extract WAN interface objects (wan, wan1, wan2, etc.) which are dynamic keys.
     /// </summary>
@@ -389,6 +405,52 @@ public class GatewayWanInterface
     /// Whether this is a cellular WAN interface (5G, LTE)
     /// </summary>
     public bool IsCellular => Type is "wireless_5g" or "lte" or "wireless_lte";
+}
+
+/// <summary>Geo/ISP info for a WAN (last_geo_info entry, and the mbb SIM geo_info).</summary>
+public class WanGeoInfo
+{
+    [JsonPropertyName("isp_name")]
+    public string? IspName { get; set; }
+
+    [JsonPropertyName("isp")]
+    public string? Isp { get; set; }
+
+    /// <summary>Either field, whichever the source populated.</summary>
+    public string? AnyName => string.IsNullOrWhiteSpace(IspName) ? Isp : IspName;
+}
+
+/// <summary>Mobile-broadband state with one entry per SIM slot.</summary>
+public class MbbInfo
+{
+    [JsonPropertyName("mode")]
+    public string? Mode { get; set; }
+
+    [JsonPropertyName("sim")]
+    public List<MbbSim>? Sim { get; set; }
+}
+
+/// <summary>A single cellular SIM slot's carrier identity.</summary>
+public class MbbSim
+{
+    [JsonPropertyName("active")]
+    public bool? Active { get; set; }
+
+    /// <summary>Live serving-network operator (preferred over the SIM's SPN when roaming).</summary>
+    [JsonPropertyName("networkoperator")]
+    public string? NetworkOperator { get; set; }
+
+    /// <summary>Service Provider Name from the SIM card.</summary>
+    [JsonPropertyName("spn")]
+    public string? Spn { get; set; }
+
+    [JsonPropertyName("geo_info")]
+    public WanGeoInfo? GeoInfo { get; set; }
+
+    /// <summary>Best carrier name for this SIM: serving operator, then SPN, then geo ISP.</summary>
+    public string? CarrierName =>
+        new[] { NetworkOperator, Spn, GeoInfo?.AnyName }
+            .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s));
 }
 
 public class EthernetPort

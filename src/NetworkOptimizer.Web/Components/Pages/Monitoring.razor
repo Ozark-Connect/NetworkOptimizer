@@ -1815,11 +1815,23 @@ else
     [JSInvokable]
     public void OnMapPlayStateChanged(bool paused, string mode)
     {
-        if (!_wanLiveChartMounted) return;
-        if (paused)
-            _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.pause();");
-        else if (mode == "live")
-            _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.resume();");
+        // Drive each live consumer independently so one being unmounted doesn't starve
+        // the other. Historic playback (at any speed) flows through OnMapTimeChanged;
+        // this only gates live auto-refresh on pause/resume.
+        if (_wanLiveChartMounted)
+        {
+            if (paused)
+                _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.pause();");
+            else if (mode == "live")
+                _ = JS.InvokeVoidAsync("eval", "window.__wanLiveChart?.resume();");
+        }
+        if (_portStatsMounted)
+        {
+            if (paused)
+                _ = JS.InvokeVoidAsync("eval", "window.__portStatsTable?.pause();");
+            else if (mode == "live")
+                _ = JS.InvokeVoidAsync("eval", "window.__portStatsTable?.resume();");
+        }
     }
 
     [JSInvokable]
