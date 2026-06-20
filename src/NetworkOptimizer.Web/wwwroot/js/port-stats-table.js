@@ -137,10 +137,12 @@ function portIcon(p) {
 }
 
 function portCell(p) {
-    // Port number rides on the connector glyph; the label is just the UniFi
-    // friendly name (mapped from the Linux ifName), or the raw name as fallback.
+    // Port number rides on the connector glyph; the label is the UniFi friendly name
+    // (mapped from the Linux ifName), or the raw name as fallback. The label tooltip
+    // shows the raw interface name when we have it.
     const name = p.friendlyName || p.ifName || (p.portId ? `Port ${p.portId}` : '');
-    return `<span class="port-cell">${portIcon(p)}<span class="port-label">${escapeHtml(name)}</span></span>`;
+    const tip = p.ifName ? ` data-tooltip="${escapeHtml(p.ifName)}"` : '';
+    return `<span class="port-cell">${portIcon(p)}<span class="port-label"${tip}>${escapeHtml(name)}</span></span>`;
 }
 
 const COLUMNS = [
@@ -278,7 +280,9 @@ function renderTableNow(showAll) {
             key: 'mac',
             visibility: () => visibility,
             resetVisibility: () => { visibility = {}; },
-            onChanged: () => { savePrefs(); renderBadges(); renderTableNow(true); },
+            // Hide filtered devices entirely (showAllRows=false), not grey them out,
+            // matching the pill behaviour; re-enable via the pills.
+            onChanged: () => { savePrefs(); renderBadges(); renderTableNow(false); },
         },
     });
 }

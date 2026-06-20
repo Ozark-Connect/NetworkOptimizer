@@ -76,63 +76,63 @@ public static class InterfaceLabelResolver
             return n?.Name?.Trim();
         }
 
-        // Resolves the label of a base interface (for SQM and VLAN sub-interface
-        // labels): WAN label, then WireGuard, then the custom UniFi port name, then raw.
-        string BaseLabel(string ifName) =>
-            wanMap.TryGetValue(ifName, out var w) ? w
-            : wgMap.TryGetValue(ifName, out var g) ? g
-            : portNameByIfName.TryGetValue(ifName, out var pn) ? pn
-            : ifName;
-
-        foreach (var ifName in ifNames)
+        // Recursively resolves a friendly label, or null when we can't confidently name
+        // the interface. SQM (ifb*) is checked before the VLAN sub-interface rule so
+        // "ifbeth6.228" resolves as "<eth6.228 label> SQM", not as a sub-interface.
+        string? Resolve(string ifName)
         {
-            if (string.IsNullOrWhiteSpace(ifName)) continue;
+            if (string.IsNullOrWhiteSpace(ifName)) return null;
             var lower = ifName.ToLowerInvariant();
 
-            // A VLAN sub-interface is "{base port label} ({network name})", e.g.
-            // "Office Backhaul (Management)" or "WAN1 - Fiber ISP (Guest)". The tag is
-            // the network on that VLAN, falling back to the raw VLAN number when the
-            // VLAN has no named network (e.g. a carrier-proprietary tag).
-            var sub = SubInterface.Match(ifName);
-            if (sub.Success)
-            {
-                var subVlan = sub.Groups[2].Value;
-                var tag = int.TryParse(subVlan, out var subVlanId)
-                    && NetworkNameForVlan(subVlanId) is { } subNet ? subNet : subVlan;
-                result[ifName] = $"{BaseLabel(sub.Groups[1].Value)} ({tag})";
-                continue;
-            }
-
-            if (wanMap.TryGetValue(ifName, out var wan)) { result[ifName] = wan; continue; }
-            if (wgMap.TryGetValue(ifName, out var wg)) { result[ifName] = wg; continue; }
+            if (wanMap.TryGetValue(ifName, out var w)) return w;
+            if (wgMap.TryGetValue(ifName, out var g)) return g;
 
             if (lower.StartsWith("ifb"))
             {
-                // Only per-parent shaping interfaces (ifbeth0.100 → eth0.100) get an SQM
-                // label; the bare ifb0/ifb1 root devices are left unresolved (and hidden
-                // by the table when down).
+                // SQM shaping attached to a parent (ifbeth6.228 → eth6.228); the bare
+                // ifb0/ifb1 root devices are left unresolved (and hidden when down).
                 var parent = ifName[3..];
-                if (parent.Length > 0 && !parent.All(char.IsDigit))
-                    result[ifName] = $"{BaseLabel(parent)} SQM";
+                if (parent.Length == 0 || parent.All(char.IsDigit)) return null;
+                return $"{BaseOf(parent)} SQM";
             }
-            else if (lower.StartsWith("honeypot"))
+
+            // VLAN sub-interface: "{base port label} ({network name})", e.g.
+            // "Office Backhaul (Management)" or "WAN1 - Fiber ISP (Guest)"; the tag falls
+            // back to the raw VLAN number when the VLAN has no named network.
+            var sub = SubInterface.Match(ifName);
+            if (sub.Success)
+            {
+                var vlan = sub.Groups[2].Value;
+                var tag = int.TryParse(vlan, out var v) && NetworkNameForVlan(v) is { } net ? net : vlan;
+                return $"{BaseOf(sub.Groups[1].Value)} ({tag})";
+            }
+
+            if (lower.StartsWith("honeypot"))
             {
                 var vlan = TrailingVlanId(ifName);
                 var net = vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
-                result[ifName] = net != null ? $"Honeypot ({net})"
+                return net != null ? $"Honeypot ({net})"
                     : vlan is > 0 ? $"Honeypot (VLAN {vlan})" : "Honeypot";
             }
-            else if (lower.StartsWith("br"))
+            if (lower.StartsWith("br"))
             {
                 var vlan = TrailingVlanId(ifName);
-                var net = vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
-                if (net != null) result[ifName] = net;
+                return vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
             }
-            else if (lower.StartsWith("tun") || lower.StartsWith("ovpn") || lower.StartsWith("vtun"))
-            {
-                result[ifName] = ovpnLabel;
-            }
+            if (lower.StartsWith("tun") || lower.StartsWith("ovpn") || lower.StartsWith("vtun"))
+                return ovpnLabel;
+
+            return null;
         }
+
+        // Base label for a SQM/VLAN parent: its own resolved label, then the custom
+        // UniFi port name, then the raw ifname.
+        string BaseOf(string ifName) =>
+            Resolve(ifName) ?? (portNameByIfName.TryGetValue(ifName, out var pn) ? pn : ifName);
+
+        foreach (var ifName in ifNames)
+            if (Resolve(ifName) is { } label)
+                result[ifName] = label;
 
         return result;
     }
