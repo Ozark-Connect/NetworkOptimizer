@@ -138,6 +138,15 @@ public class DnsSecurityAnalyzer
             await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort, zoneLookup, customDnsManagementUrl);
         }
 
+        // Capture networks the user excluded from coverage checks up front, independent of NAT data, so the
+        // carve-out applies to every DNS coverage finding even when no NAT rules are supplied.
+        if (dnatExcludedVlanIds != null && dnatExcludedVlanIds.Count > 0 && networks != null)
+        {
+            var excludedVlanSet = dnatExcludedVlanIds.ToHashSet();
+            result.ExcludedFromCoverageNetworks.AddRange(
+                networks.Where(n => excludedVlanSet.Contains(n.VlanId) && !string.IsNullOrEmpty(n.Name)).Select(n => n.Name));
+        }
+
         // Analyze DNAT DNS rules (alternative to firewall blocking)
         if (natRulesData.HasValue && networks?.Any() == true)
         {
@@ -539,14 +548,20 @@ public class DnsSecurityAnalyzer
                 if (targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
                 {
                     result.HasDns53BlockRule = true;
+                    // A rule that specifically targets port 53 (a normal-mode port list, not a blanket
+                    // all-ports block and not an inverted "all except" match) signals an intentional
+                    // DNS-53 blocking strategy. A blanket "block all internet" rule still counts as block
+                    // coverage above, but must not be read as a DNS-53 strategy.
+                    if (!string.IsNullOrEmpty(rule.DestinationPort) && !rule.DestinationMatchOppositePorts)
+                        result.HasDns53BlockStrategy = true;
                     result.Dns53RuleName = name;
-                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
-                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
+                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone}, dedicatedPort={Dedicated})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any", !string.IsNullOrEmpty(rule.DestinationPort) && !rule.DestinationMatchOppositePorts);
 
                     // Track network coverage for this rule
                     if (networks != null)
                     {
-                        AddCoveredNetworks(networks, rule, result.Dns53CoveredNetworkIds);
+                        AddCoveredNetworks(networks, rule, result.Dns53CoveredNetworkIds, result.Dns53RuleCoverage, name);
                     }
                 }
 
@@ -560,7 +575,7 @@ public class DnsSecurityAnalyzer
                         name, protocol, matchOppositeProtocol, destZoneId ?? "any");
 
                     if (networks != null)
-                        AddCoveredNetworks(networks, rule, result.DotCoveredNetworkIds);
+                        AddCoveredNetworks(networks, rule, result.DotCoveredNetworkIds, result.DotRuleCoverage, name);
                 }
 
                 // Check for DNS over QUIC (port 853 UDP) blocking (RFC 9250)
@@ -572,7 +587,7 @@ public class DnsSecurityAnalyzer
                         name, protocol, matchOppositeProtocol, destZoneId ?? "any");
 
                     if (networks != null)
-                        AddCoveredNetworks(networks, rule, result.DoqCoveredNetworkIds);
+                        AddCoveredNetworks(networks, rule, result.DoqCoveredNetworkIds, result.DoqRuleCoverage, name);
                 }
             }
 
@@ -666,6 +681,9 @@ public class DnsSecurityAnalyzer
                     if (legacyAllProtocols || blocksUdp)
                     {
                         result.HasDns53BlockRule = true;
+                        // App-based DNS rules target the DNS app (port 53) specifically, so this is always
+                        // an intentional DNS-53 blocking strategy, not incidental blanket coverage.
+                        result.HasDns53BlockStrategy = true;
                         result.Dns53RuleName ??= name;
                         _logger.LogDebug("Found app-based DNS53 block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
                             name, string.Join(",", appIds!), protocol ?? "all");
@@ -673,7 +691,7 @@ public class DnsSecurityAnalyzer
                         // Track network coverage
                         if (networks != null)
                         {
-                            AddCoveredNetworks(networks, rule, result.Dns53CoveredNetworkIds);
+                            AddCoveredNetworks(networks, rule, result.Dns53CoveredNetworkIds, result.Dns53RuleCoverage, name);
                         }
                     }
                 }
@@ -689,7 +707,7 @@ public class DnsSecurityAnalyzer
                             name, string.Join(",", appIds!), protocol ?? "all");
 
                         if (networks != null)
-                            AddCoveredNetworks(networks, rule, result.DotCoveredNetworkIds);
+                            AddCoveredNetworks(networks, rule, result.DotCoveredNetworkIds, result.DotRuleCoverage, name);
                     }
                     if (legacyAllProtocols || blocksUdp)
                     {
@@ -699,7 +717,7 @@ public class DnsSecurityAnalyzer
                             name, string.Join(",", appIds!), protocol ?? "all");
 
                         if (networks != null)
-                            AddCoveredNetworks(networks, rule, result.DoqCoveredNetworkIds);
+                            AddCoveredNetworks(networks, rule, result.DoqCoveredNetworkIds, result.DoqRuleCoverage, name);
                     }
                 }
 
@@ -743,12 +761,28 @@ public class DnsSecurityAnalyzer
     private static void AddCoveredNetworks(
         List<NetworkInfo> networks,
         FirewallRule rule,
-        HashSet<string> coveredNetworkIds)
+        HashSet<string> coveredNetworkIds,
+        Dictionary<string, List<string>>? ruleCoverage = null,
+        string? ruleName = null)
     {
         foreach (var network in networks)
         {
-            if (rule.AppliesToSourceNetwork(network))
-                coveredNetworkIds.Add(network.Id);
+            if (!rule.AppliesToSourceNetwork(network))
+                continue;
+
+            coveredNetworkIds.Add(network.Id);
+
+            if (ruleCoverage != null)
+            {
+                var key = string.IsNullOrWhiteSpace(ruleName) ? "(unnamed rule)" : ruleName;
+                if (!ruleCoverage.TryGetValue(key, out var covered))
+                {
+                    covered = new List<string>();
+                    ruleCoverage[key] = covered;
+                }
+                if (!covered.Contains(network.Name))
+                    covered.Add(network.Name);
+            }
         }
     }
 
@@ -776,6 +810,75 @@ public class DnsSecurityAnalyzer
         }
 
         return fullCoverage;
+    }
+
+    /// <summary>
+    /// Convert a rule-name -> covered-network-names map into the CoveringRuleInfo list
+    /// attached to a partial-coverage finding. Returns null when no rules contributed,
+    /// so the UI only renders the detail when there's something to show.
+    /// </summary>
+    private static List<CoveringRuleInfo>? BuildCoveringRules(Dictionary<string, List<string>> ruleCoverage)
+    {
+        if (ruleCoverage.Count == 0)
+            return null;
+
+        return ruleCoverage
+            .Select(kvp => new CoveringRuleInfo { RuleName = kvp.Key, CoveredNetworks = kvp.Value })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Categorize a set of uncovered network names into DMZ, Guest-with-third-party-DNS, and regular
+    /// buckets, dropping any network the user intentionally excluded from coverage checks. Shared by the
+    /// DNAT partial-coverage finding and the no-protection finding so carve-out handling stays consistent.
+    /// </summary>
+    private static (List<string> Dmz, List<string> GuestThirdParty, List<string> Regular) CategorizeUncoveredNetworks(
+        IEnumerable<string> uncoveredNetworkNames,
+        List<NetworkInfo>? networks,
+        DnsSecurityResult result,
+        Services.FirewallZoneLookup? zoneLookup)
+    {
+        var networksByName = networks?
+            .Where(n => !string.IsNullOrEmpty(n.Name))
+            .ToDictionary(n => n.Name, n => n, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, NetworkInfo>(StringComparer.OrdinalIgnoreCase);
+        var excluded = new HashSet<string>(result.ExcludedFromCoverageNetworks, StringComparer.OrdinalIgnoreCase);
+
+        var dmz = new List<string>();
+        var guestThirdParty = new List<string>();
+        var regular = new List<string>();
+
+        foreach (var networkName in uncoveredNetworkNames)
+        {
+            // Intentionally excluded from coverage checks - never report as uncovered/exposed
+            if (excluded.Contains(networkName))
+                continue;
+
+            if (networksByName.TryGetValue(networkName, out var network))
+            {
+                // Check if this is a DMZ network (by firewall zone)
+                var isDmz = zoneLookup?.IsDmzZone(network.FirewallZoneId) ?? false;
+
+                // Check if this is a Guest network with 3rd party LAN DNS
+                // Guest networks are identified by IsUniFiGuestNetwork or Purpose == Guest
+                var isGuest = network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest;
+                var hasThirdPartyLanDns = result.HasThirdPartyDns && result.IsSiteWideThirdPartyDns;
+
+                if (isDmz)
+                    dmz.Add(networkName);
+                else if (isGuest && hasThirdPartyLanDns)
+                    guestThirdParty.Add(networkName);
+                else
+                    regular.Add(networkName);
+            }
+            else
+            {
+                // Network not found in lookup - treat as regular
+                regular.Add(networkName);
+            }
+        }
+
+        return (dmz, guestThirdParty, regular);
     }
 
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
@@ -991,51 +1094,168 @@ public class DnsSecurityAnalyzer
             && result.DnatRedirectTargetIsValid
             && result.DnatDestinationFilterIsValid;
 
-        // Partial DNAT coverage is better than nothing - don't double-penalize
-        // The partial coverage issue (6 pts) is more actionable than the generic no-block issue (12 pts)
-        var hasPartialDnatCoverage = result.HasDnatDnsRules
-            && !result.DnatProvidesFullCoverage
-            && hasDnsControlSolution
-            && result.DnatRedirectTargetIsValid
-            && result.DnatDestinationFilterIsValid;
-
-        if (!result.HasDns53BlockRule && !dnatIsValidAlternative && !hasPartialDnatCoverage)
+        // Issue: networks with NO DNS leak protection (catch-all exposure).
+        // Fires only when neither a dedicated DNS-53 blocking strategy nor DNAT rules are in play - the
+        // strategy-specific findings own those cases and report their own gaps (belt-and-suspenders).
+        // Exposure is computed from ABSOLUTE block coverage: a blanket "block all internet" rule counts as
+        // a port-53 block, so a network is exposed only when it has neither a port-53 block nor a DNAT
+        // redirect. Without this, blanket isolation rules set HasDns53BlockRule=true and silently
+        // suppressed the no-block finding while no strategy reported the genuinely exposed networks - so
+        // removing all DNS protection paradoxically improved the score.
+        if (!result.HasDns53BlockStrategy && !result.HasDnatDnsRules)
         {
-            result.Issues.Add(new AuditIssue
+            // A network is exposed when it has neither a port-53 block nor a DNAT redirect. Compute from the
+            // full network list, not Dns53UncoveredNetworks - that set is only populated when a block rule
+            // exists, so it's empty in the "nothing blocks anything" case even though every network leaks.
+            var exposedNetworks = new List<string>();
+            bool shouldFire;
+            if (networks != null && networks.Count > 0)
             {
-                Type = IssueTypes.DnsNo53Block,
-                Severity = AuditSeverity.Critical,
-                DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
-                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic.",
-                RuleId = "DNS-LEAK-001",
-                ScoreImpact = 12
-            });
+                var protectedNetworks = new HashSet<string>(result.Dns53CoveredNetworks, StringComparer.OrdinalIgnoreCase);
+                protectedNetworks.UnionWith(result.DnatCoveredNetworks);
+                var uncovered = networks
+                    .Select(n => n.Name)
+                    .Where(name => !string.IsNullOrEmpty(name) && !protectedNetworks.Contains(name));
+                var (dmzExposed, guestExposed, regularExposed) = CategorizeUncoveredNetworks(uncovered, networks, result, zoneLookup);
+                exposedNetworks = regularExposed;
+                shouldFire = exposedNetworks.Any();
+
+                // Parity with the DNAT partial-coverage path: carved-out DMZ / guest-on-third-party-DNS
+                // networks get a courtesy Informational note rather than being silently dropped. Deduped by
+                // type so we don't double up with the third-party-DNS consistency check (which runs earlier
+                // and emits the same finding types when third-party DNS is configured).
+                if (dmzExposed.Any() && !result.Issues.Any(i => i.Type == IssueTypes.DnsDmzNetworkInfo))
+                {
+                    result.Issues.Add(new AuditIssue
+                    {
+                        Type = IssueTypes.DnsDmzNetworkInfo,
+                        Severity = AuditSeverity.Informational,
+                        DeviceName = result.GatewayName,
+                        Message = $"DMZ network(s) ({string.Join(", ", dmzExposed)}) have no DNS leak protection (no firewall port 53 block or DNAT redirect). This is expected for DMZ networks.",
+                        RecommendedAction = "If internal DNS resolution or filtering is desired for DMZ networks, create firewall rules to allow DNS traffic from DMZ to your internal DNS server or gateway.",
+                        RuleId = "DNS-DMZ-001",
+                        ScoreImpact = 0,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "dmz_networks", dmzExposed },
+                            { "network_type", "dmz" }
+                        }
+                    });
+                }
+                if (guestExposed.Any() && !result.Issues.Any(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo))
+                {
+                    result.Issues.Add(new AuditIssue
+                    {
+                        Type = IssueTypes.DnsGuestThirdPartyInfo,
+                        Severity = AuditSeverity.Informational,
+                        DeviceName = result.GatewayName,
+                        Message = $"Guest network(s) ({string.Join(", ", guestExposed)}) using third-party LAN DNS have no DNS leak protection (no firewall port 53 block or DNAT redirect).",
+                        RecommendedAction = "If internal DNS resolution or filtering is desired for Guest networks using third-party DNS, create firewall rules to allow DNS traffic from the Guest network to your internal DNS server.",
+                        RuleId = "DNS-GUEST-001",
+                        ScoreImpact = 0,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "guest_networks", guestExposed },
+                            { "network_type", "guest" },
+                            { "third_party_dns", result.ThirdPartyDnsProviderName ?? "unknown" }
+                        }
+                    });
+                }
+            }
+            else
+            {
+                // No network list to enumerate - fall back to the absolute signal: if nothing blocks port 53
+                // anywhere, every network can leak.
+                shouldFire = !result.HasDns53BlockRule;
+            }
+
+            if (shouldFire)
+            {
+                // Scale severity to how much is exposed, consistent with the two partial-coverage findings
+                // (so the score moves monotonically with protection). When the whole network list is exposed
+                // - or unavailable - this is the "no DNS protection at all" case, which stays Critical.
+                var totalNetworks = networks?.Count ?? 0;
+                var coverageRatio = totalNetworks > 0 ? (double)(totalNetworks - exposedNetworks.Count) / totalNetworks : 0;
+                var severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
+                var scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+
+                // Name the exposed networks when a partial block exists; otherwise nothing is blocked
+                // anywhere and the generic wording applies.
+                var message = exposedNetworks.Any() && result.HasDns53BlockRule
+                    ? $"Networks with no DNS leak protection: {string.Join(", ", exposedNetworks)}. These networks have no firewall port 53 block and no DNAT redirect, so devices on them can bypass network DNS settings and leak queries to untrusted servers."
+                    : "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.";
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsNo53Block,
+                    Severity = severity,
+                    DeviceName = result.GatewayName,
+                    Message = message,
+                    RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic.",
+                    RuleId = "DNS-LEAK-001",
+                    ScoreImpact = scoreImpact,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "exposed_networks", exposedNetworks },
+                        { "block_covered_networks", result.Dns53CoveredNetworks },
+                        { "coverage_ratio", coverageRatio }
+                    }
+                });
+            }
         }
 
-        // Issue: DNS53 firewall rules provide partial coverage (some networks not covered)
-        // This happens when rules use source network restrictions with or without Match Opposite
-        if (result.HasDns53BlockRule && !result.Dns53ProvidesFullCoverage && result.Dns53UncoveredNetworks.Any() && !dnatIsValidAlternative)
+        // Issue: DNS53 firewall blocking *strategy* provides partial coverage (some networks not covered).
+        // Gated on HasDns53BlockStrategy (a dedicated port-53 rule), NOT raw block coverage: a blanket
+        // "block all internet" isolation rule provides block coverage for its networks but doesn't mean
+        // the user runs a DNS-53 blocking strategy, so it must not, on its own, trigger this enforcement.
+        // Reported independently of DNAT (belt-and-suspenders). DNAT only shapes severity here: a network
+        // the block misses but DNAT redirects can't leak, so it softens the finding rather than suppressing it.
+        if (result.HasDns53BlockStrategy && !result.Dns53ProvidesFullCoverage && result.Dns53UncoveredNetworks.Any())
         {
+            var dnatCoveredNetworks = new HashSet<string>(result.DnatCoveredNetworks, StringComparer.OrdinalIgnoreCase);
+            var exposedNetworks = result.Dns53UncoveredNetworks.Where(n => !dnatCoveredNetworks.Contains(n)).ToList();
+            var dnatBackstoppedNetworks = result.Dns53UncoveredNetworks.Where(n => dnatCoveredNetworks.Contains(n)).ToList();
+
             var totalNetworks = result.Dns53CoveredNetworks.Count + result.Dns53UncoveredNetworks.Count;
             var coverageRatio = totalNetworks > 0 ? (double)result.Dns53CoveredNetworks.Count / totalNetworks : 0;
-            // If 2/3 or more networks are covered, use Recommended severity; otherwise Critical
-            var severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
-            var scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+
+            AuditSeverity severity;
+            int scoreImpact;
+            string message;
+            if (exposedNetworks.Any())
+            {
+                // Networks with neither a port-53 block nor a DNAT redirect can leak DNS.
+                // If 2/3 or more networks are covered, use Recommended severity; otherwise Critical.
+                severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
+                scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+                message = $"DNS port 53 blocking rules provide partial network coverage. Uncovered networks: {string.Join(", ", exposedNetworks)}. Devices on these networks can bypass DNS settings.";
+                if (dnatBackstoppedNetworks.Any())
+                    message += $" ({string.Join(", ", dnatBackstoppedNetworks)} are not blocked but are covered by DNAT redirection.)";
+            }
+            else
+            {
+                // Every network the block misses is redirected by DNAT - not exposed, just a strategy gap.
+                severity = AuditSeverity.Informational;
+                scoreImpact = 0;
+                message = $"DNS port 53 blocking rules don't cover all networks ({string.Join(", ", dnatBackstoppedNetworks)} not blocked), but DNAT redirection covers them. This is just for your awareness.";
+            }
 
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.Dns53PartialCoverage,
                 Severity = severity,
                 DeviceName = result.GatewayName,
-                Message = $"DNS port 53 blocking rules provide partial network coverage. Uncovered networks: {string.Join(", ", result.Dns53UncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
+                Message = message,
                 RecommendedAction = "Update firewall rules to cover all networks, or create separate rules for uncovered networks, or configure DNAT rules as an alternative.",
                 RuleId = "DNS-LEAK-002",
                 ScoreImpact = scoreImpact,
+                CoveringRules = BuildCoveringRules(result.Dns53RuleCoverage),
                 Metadata = new Dictionary<string, object>
                 {
                     { "covered_networks", result.Dns53CoveredNetworks },
                     { "uncovered_networks", result.Dns53UncoveredNetworks },
+                    { "exposed_networks", exposedNetworks },
+                    { "dnat_backstopped_networks", dnatBackstoppedNetworks },
                     { "coverage_ratio", coverageRatio }
                 }
             });
@@ -1053,48 +1273,9 @@ public class DnsSecurityAnalyzer
         // Special handling for DMZ and Guest networks - they get Info issues instead of Recommended/Critical
         if (result.HasDnatDnsRules && !result.DnatProvidesFullCoverage && result.DnatUncoveredNetworks.Any())
         {
-            // Build lookup of network name -> NetworkInfo for zone identification
-            var networksByName = networks?
-                .Where(n => !string.IsNullOrEmpty(n.Name))
-                .ToDictionary(n => n.Name, n => n, StringComparer.OrdinalIgnoreCase)
-                ?? new Dictionary<string, NetworkInfo>(StringComparer.OrdinalIgnoreCase);
-
             // Separate DMZ and Guest networks with 3rd party LAN DNS from regular uncovered networks
-            var dmzNetworks = new List<string>();
-            var guestNetworksWithThirdPartyDns = new List<string>();
-            var regularUncoveredNetworks = new List<string>();
-
-            foreach (var networkName in result.DnatUncoveredNetworks)
-            {
-                if (networksByName.TryGetValue(networkName, out var network))
-                {
-                    // Check if this is a DMZ network (by firewall zone)
-                    var isDmz = zoneLookup?.IsDmzZone(network.FirewallZoneId) ?? false;
-
-                    // Check if this is a Guest network with 3rd party LAN DNS
-                    // Guest networks are identified by IsUniFiGuestNetwork or Purpose == Guest
-                    var isGuest = network.IsUniFiGuestNetwork || network.Purpose == NetworkPurpose.Guest;
-                    var hasThirdPartyLanDns = result.HasThirdPartyDns && result.IsSiteWideThirdPartyDns;
-
-                    if (isDmz)
-                    {
-                        dmzNetworks.Add(networkName);
-                    }
-                    else if (isGuest && hasThirdPartyLanDns)
-                    {
-                        guestNetworksWithThirdPartyDns.Add(networkName);
-                    }
-                    else
-                    {
-                        regularUncoveredNetworks.Add(networkName);
-                    }
-                }
-                else
-                {
-                    // Network not found in lookup - treat as regular
-                    regularUncoveredNetworks.Add(networkName);
-                }
-            }
+            var (dmzNetworks, guestNetworksWithThirdPartyDns, regularUncoveredNetworks) =
+                CategorizeUncoveredNetworks(result.DnatUncoveredNetworks, networks, result, zoneLookup);
 
             // Create Info issue for DMZ networks that need firewall rules for internal DNS
             if (dmzNetworks.Any())
@@ -1143,34 +1324,48 @@ public class DnsSecurityAnalyzer
                 var totalNetworks = result.DnatCoveredNetworks.Count + regularUncoveredNetworks.Count;
                 var coverageRatio = totalNetworks > 0 ? (double)result.DnatCoveredNetworks.Count / totalNetworks : 0;
 
-                // Determine severity based on whether DNS53 blocking is the primary protection
+                // Severity is shaped by absolute block coverage, evaluated PER NETWORK: a DNAT gap on a
+                // network that firewall port 53 blocking already covers can't leak (a strategy gap), but a
+                // gap on a network with neither DNAT nor a port-53 block is genuinely exposed. The global
+                // HasDns53BlockRule flag must not be used here - firewall blocking on Management/Security
+                // says nothing about whether the uncovered Main/IoT networks are protected.
+                var firewallBlockedNetworks = new HashSet<string>(result.Dns53CoveredNetworks, StringComparer.OrdinalIgnoreCase);
+                var exposedNetworks = regularUncoveredNetworks.Where(n => !firewallBlockedNetworks.Contains(n)).ToList();
+                var firewallBackstoppedNetworks = regularUncoveredNetworks.Where(n => firewallBlockedNetworks.Contains(n)).ToList();
+
                 AuditSeverity severity;
                 int scoreImpact;
                 string message;
                 string action;
 
-                if (result.HasDns53BlockRule && result.Dns53ProvidesFullCoverage)
+                if (!exposedNetworks.Any())
                 {
-                    // DNS53 blocking provides full coverage - DNAT partial coverage is just informational
+                    // Every DNAT gap is already blocked at port 53 by the firewall - not exposed, just a
+                    // strategy gap worth noting.
                     severity = AuditSeverity.Informational;
                     scoreImpact = 0;
-                    message = $"DNAT DNS rules don't cover all networks ({string.Join(", ", regularUncoveredNetworks)} not covered). Your firewall already blocks external DNS for all networks, so this is just for your awareness.";
+                    message = $"DNAT DNS rules don't cover all networks ({string.Join(", ", firewallBackstoppedNetworks)} not covered), but firewall port 53 blocking covers them. This is just for your awareness.";
                     action = "If you intend to use DNAT as primary DNS control, add rules for uncovered networks. Otherwise, this can be ignored.";
                 }
-                else if (result.HasDns53BlockRule)
+                else if (result.HasDns53BlockStrategy && !result.Dns53ProvidesFullCoverage)
                 {
-                    // DNS53 blocking exists but partial - DNAT partial is lower priority
-                    severity = AuditSeverity.Recommended;
-                    scoreImpact = 3;
-                    message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", regularUncoveredNetworks)}. Firewall port 53 blocking is also present.";
-                    action = "Consider whether you want to use firewall blocking or DNAT as your primary DNS control method, then ensure full coverage for your chosen approach";
+                    // A dedicated DNS-53 blocking strategy is also in play, and its partial-coverage finding
+                    // already scores these exposed networks. Report the DNAT gap for visibility
+                    // (belt-and-suspenders) but don't double-deduct - the exposure is scored once, there.
+                    severity = AuditSeverity.Informational;
+                    scoreImpact = 0;
+                    message = $"DNAT DNS rules don't cover {string.Join(", ", exposedNetworks)}. These networks are also flagged as exposed by your firewall DNS-53 coverage (scored there); this notes the DNAT gap.";
+                    action = "Add DNAT rules for these networks, or extend the firewall port 53 block to cover them.";
                 }
                 else
                 {
-                    // No DNS53 blocking - DNAT is primary protection, partial coverage is significant
+                    // Some networks have neither a DNAT redirect nor a port-53 block - genuinely exposed,
+                    // and DNAT is the only DNS-control strategy in play, so this finding owns the score.
                     severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
                     scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
-                    message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", regularUncoveredNetworks)}. Devices on these networks can bypass DNS settings.";
+                    message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", exposedNetworks)}. Devices on these networks can bypass DNS settings.";
+                    if (firewallBackstoppedNetworks.Any())
+                        message += $" ({string.Join(", ", firewallBackstoppedNetworks)} are not redirected but are covered by firewall port 53 blocking.)";
                     action = "Add DNAT rules for the remaining networks, create a firewall rule to block outbound UDP port 53, or exclude intentionally uncovered networks in Settings";
                 }
 
@@ -1183,10 +1378,13 @@ public class DnsSecurityAnalyzer
                     RecommendedAction = action,
                     RuleId = "DNS-DNAT-001",
                     ScoreImpact = scoreImpact,
+                    CoveringRules = BuildCoveringRules(result.DnatRuleCoverage),
                     Metadata = new Dictionary<string, object>
                     {
                         { "covered_networks", result.DnatCoveredNetworks.ToList() },
                         { "uncovered_networks", regularUncoveredNetworks },
+                        { "exposed_networks", exposedNetworks },
+                        { "firewall_backstopped_networks", firewallBackstoppedNetworks },
                         { "dmz_networks_excluded", dmzNetworks },
                         { "guest_networks_excluded", guestNetworksWithThirdPartyDns },
                         { "redirect_target", result.DnatRedirectTarget ?? "" },
@@ -1284,7 +1482,8 @@ public class DnsSecurityAnalyzer
                 Message = $"DNS-over-TLS (port 853) blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DotUncoveredNetworks)}",
                 RecommendedAction = "Extend DoT blocking rule to cover all networks, or create additional rules for uncovered networks.",
                 RuleId = "DNS-LEAK-002",
-                ScoreImpact = 4
+                ScoreImpact = 4,
+                CoveringRules = BuildCoveringRules(result.DotRuleCoverage)
             });
         }
 
@@ -1331,7 +1530,8 @@ public class DnsSecurityAnalyzer
                 Message = $"DNS over QUIC (DoQ) blocking has partial coverage. Uncovered networks: {string.Join(", ", result.DoqUncoveredNetworks)}",
                 RecommendedAction = "Extend DoQ blocking rule to cover all networks, or create additional rules for uncovered networks.",
                 RuleId = "DNS-LEAK-004",
-                ScoreImpact = 3
+                ScoreImpact = 3,
+                CoveringRules = BuildCoveringRules(result.DoqRuleCoverage)
             });
         }
 
@@ -2488,6 +2688,8 @@ public class DnsSecurityAnalyzer
         result.DnatCoveredNetworks.AddRange(coverageResult.CoveredNetworkNames);
         result.DnatUncoveredNetworks.AddRange(coverageResult.UncoveredNetworkNames);
         result.DnatSingleIpRules.AddRange(coverageResult.SingleIpRules);
+        foreach (var kvp in coverageResult.RuleCoverage)
+            result.DnatRuleCoverage[kvp.Key] = kvp.Value;
 
         if (coverageResult.HasDnatDnsRules)
         {
@@ -2798,7 +3000,20 @@ public class DnsSecurityResult
     public string? ExpectedDnsProvider { get; set; }
 
     // Firewall Rules
+    /// <summary>
+    /// Absolute block-coverage fact: at least one enabled firewall rule blocks external port 53 for
+    /// some network. Includes incidental coverage from blanket "block all internet" isolation rules.
+    /// Use this to reason about whether a network can actually leak DNS.
+    /// </summary>
     public bool HasDns53BlockRule { get; set; }
+    /// <summary>
+    /// Strategy detection: a *dedicated* DNS port-53 block rule exists (a rule that specifically targets
+    /// port 53), indicating the user intentionally runs DNS-53 firewall blocking. A blanket "block all
+    /// internet" rule sets HasDns53BlockRule (block coverage) but NOT this flag. Drives the application
+    /// and severity of the DNS-53 partial-coverage finding so incidental isolation rules don't fabricate
+    /// a blocking strategy that isn't there.
+    /// </summary>
+    public bool HasDns53BlockStrategy { get; set; }
     public string? Dns53RuleName { get; set; }
     public bool HasDotBlockRule { get; set; }
     public string? DotRuleName { get; set; }
@@ -2819,6 +3034,8 @@ public class DnsSecurityResult
     public List<string> Dns53CoveredNetworks { get; } = new();
     /// <summary>Network names not covered by any DNS53 blocking rule</summary>
     public List<string> Dns53UncoveredNetworks { get; } = new();
+    /// <summary>Maps each contributing DNS53 blocking rule name to the network names it covers</summary>
+    public Dictionary<string, List<string>> Dns53RuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>DoT (port 853/TCP) firewall rule network coverage</summary>
     public bool DotProvidesFullCoverage { get; set; }
@@ -2828,6 +3045,8 @@ public class DnsSecurityResult
     public List<string> DotCoveredNetworks { get; } = new();
     /// <summary>Network names not covered by any DoT blocking rule</summary>
     public List<string> DotUncoveredNetworks { get; } = new();
+    /// <summary>Maps each contributing DoT blocking rule name to the network names it covers</summary>
+    public Dictionary<string, List<string>> DotRuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>DoQ (port 853/UDP) firewall rule network coverage</summary>
     public bool DoqProvidesFullCoverage { get; set; }
@@ -2837,6 +3056,8 @@ public class DnsSecurityResult
     public List<string> DoqCoveredNetworks { get; } = new();
     /// <summary>Network names not covered by any DoQ blocking rule</summary>
     public List<string> DoqUncoveredNetworks { get; } = new();
+    /// <summary>Maps each contributing DoQ blocking rule name to the network names it covers</summary>
+    public Dictionary<string, List<string>> DoqRuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     // Device DNS Configuration
     public bool DeviceDnsPointsToGateway { get; set; } = true;
@@ -2878,6 +3099,13 @@ public class DnsSecurityResult
     public List<string> DnatCoveredNetworks { get; } = new();
     public List<string> DnatUncoveredNetworks { get; } = new();
     public List<string> DnatSingleIpRules { get; } = new();
+    /// <summary>Maps each contributing DNAT DNS rule name to the network names it covers</summary>
+    public Dictionary<string, List<string>> DnatRuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Networks the user intentionally excluded from DNS coverage checks (Audit Settings → excluded VLANs).
+    /// These are carved out of all DNS coverage findings so an excluded VLAN never reads as exposed.
+    /// </summary>
+    public List<string> ExcludedFromCoverageNetworks { get; } = new();
 
     // DNAT Redirect Destination Validation
     public bool DnatRedirectTargetIsValid { get; set; } = true;

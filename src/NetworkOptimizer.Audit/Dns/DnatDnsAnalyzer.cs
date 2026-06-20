@@ -61,6 +61,12 @@ public class DnatCoverageResult
     /// Parsed DNAT rules targeting DNS
     /// </summary>
     public List<DnatRuleInfo> Rules { get; } = new();
+
+    /// <summary>
+    /// Maps each contributing DNAT rule name (description, or a placeholder when unnamed)
+    /// to the network names it covers. Used to surface rule-level detail in partial-coverage findings.
+    /// </summary>
+    public Dictionary<string, List<string>> RuleCoverage { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -190,6 +196,26 @@ public class DnatDnsAnalyzer
 
         // Track covered networks
         var coveredNetworkIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var networkNameById = allNetworks.ToDictionary(n => n.Id, n => n.Name, StringComparer.OrdinalIgnoreCase);
+
+        // Record that a rule covers a given network, both in the global covered set and the
+        // per-rule map used to surface rule-level detail in partial-coverage findings.
+        void Cover(DnatRuleInfo rule, string networkId)
+        {
+            coveredNetworkIds.Add(networkId);
+
+            if (!networkNameById.TryGetValue(networkId, out var networkName))
+                return;
+
+            var key = !string.IsNullOrWhiteSpace(rule.Description) ? rule.Description! : "(unnamed DNAT rule)";
+            if (!result.RuleCoverage.TryGetValue(key, out var covered))
+            {
+                covered = new List<string>();
+                result.RuleCoverage[key] = covered;
+            }
+            if (!covered.Contains(networkName))
+                covered.Add(networkName);
+        }
 
         foreach (var rule in dnatDnsRules)
         {
@@ -206,14 +232,14 @@ public class DnatDnsAnalyzer
                             {
                                 if (!string.Equals(network.Id, rule.NetworkId, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    coveredNetworkIds.Add(network.Id);
+                                    Cover(rule, network.Id);
                                 }
                             }
                         }
                         else
                         {
                             // Normal: covers only the specified network
-                            coveredNetworkIds.Add(rule.NetworkId);
+                            Cover(rule, rule.NetworkId);
                         }
                     }
                     break;
@@ -222,7 +248,7 @@ public class DnatDnsAnalyzer
                     // in_interface scoping - full coverage for that network
                     if (!string.IsNullOrEmpty(rule.NetworkId))
                     {
-                        coveredNetworkIds.Add(rule.NetworkId);
+                        Cover(rule, rule.NetworkId);
                     }
                     break;
 
@@ -235,7 +261,7 @@ public class DnatDnsAnalyzer
                             if (!string.IsNullOrEmpty(network.Subnet) &&
                                 rule.SubnetCidrs.Any(cidr => CidrCoversSubnet(cidr, network.Subnet)))
                             {
-                                coveredNetworkIds.Add(network.Id);
+                                Cover(rule, network.Id);
                             }
                         }
                     }
@@ -245,7 +271,7 @@ public class DnatDnsAnalyzer
                     // Inverted source address covers all networks (excludes only specific IPs)
                     foreach (var network in allNetworks)
                     {
-                        coveredNetworkIds.Add(network.Id);
+                        Cover(rule, network.Id);
                     }
                     break;
 

@@ -219,6 +219,10 @@
                                         {
                                             <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
                                         }
+                                        @if (issue.CoveringRules?.Count > 0)
+                                        {
+                                            <span class="context-item"><strong>Rules:</strong> @FormatCoveringRules(issue.CoveringRules)</span>
+                                        }
                                     </div>
                                 }
                                 </div>
@@ -310,6 +314,10 @@
                                                 @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
                                                 {
                                                     <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
+                                                }
+                                                @if (issue.CoveringRules?.Count > 0)
+                                                {
+                                                    <span class="context-item"><strong>Rules:</strong> @FormatCoveringRules(issue.CoveringRules)</span>
                                                 }
                                             </div>
                                         }
@@ -407,6 +415,10 @@
                                                                 @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
                                                                 {
                                                                     <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
+                                                                }
+                                                                @if (issue.CoveringRules?.Count > 0)
+                                                                {
+                                                                    <span class="context-item"><strong>Rules:</strong> @FormatCoveringRules(issue.CoveringRules)</span>
                                                                 }
                                                                 <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
@@ -864,6 +876,14 @@
 </div>
 
 @code {
+    private static string FormatCoveringRules(IReadOnlyList<CoveringRuleInfo> rules)
+    {
+        return string.Join("; ", rules.Select(r =>
+            r.CoveredNetworks.Count > 0
+                ? $"{r.RuleName} (covers {string.Join(", ", r.CoveredNetworks)})"
+                : r.RuleName));
+    }
+
     private bool isRunning = false;
     private bool hasResults = false;
     private string currentStep = "";

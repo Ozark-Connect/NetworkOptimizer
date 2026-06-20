@@ -1556,7 +1556,9 @@ public class AuditService
                 AccessPoint = issue.AccessPoint,
                 WifiBand = issue.WifiBand,
                 // Settings link
-                ConfigurableSetting = configurableSetting
+                ConfigurableSetting = configurableSetting,
+                // Rule-level detail for partial-coverage findings
+                CoveringRules = issue.CoveringRules
             });
         }
 
@@ -2205,6 +2207,12 @@ public class AuditIssue
     /// If set, UI shows a link to configure this setting
     /// </summary>
     public string? ConfigurableSetting { get; set; }
+
+    /// <summary>
+    /// Firewall/DNAT rules contributing partial coverage for this finding (with covered networks).
+    /// Surfaced as a "Rules:" context line so users can see which rules drive the finding.
+    /// </summary>
+    public IReadOnlyList<AuditModels.CoveringRuleInfo>? CoveringRules { get; set; }
 }
 
 public class AuditSummary

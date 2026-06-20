@@ -110,4 +110,28 @@ public class AuditIssue
     /// Whether this issue is for a wireless client
     /// </summary>
     public bool IsWireless { get; init; }
+
+    /// <summary>
+    /// Firewall or DNAT rules that contribute the partial coverage behind this finding,
+    /// along with the networks each rule covers. Surfaced in the UI so users can see
+    /// exactly which rules drive a "partial coverage" DNS finding.
+    /// </summary>
+    public IReadOnlyList<CoveringRuleInfo>? CoveringRules { get; init; }
+}
+
+/// <summary>
+/// A single firewall or DNAT rule that provides partial coverage for a DNS finding,
+/// paired with the networks it covers.
+/// </summary>
+public class CoveringRuleInfo
+{
+    /// <summary>
+    /// Display name of the rule (firewall rule name or DNAT rule description).
+    /// </summary>
+    public required string RuleName { get; init; }
+
+    /// <summary>
+    /// Names of the networks this rule covers.
+    /// </summary>
+    public IReadOnlyList<string> CoveredNetworks { get; init; } = new List<string>();
 }

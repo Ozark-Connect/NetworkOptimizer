@@ -926,6 +926,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeTrue("a block-all rule with port_matching_type=ANY blocks all ports including 53");
+        result.HasDns53BlockStrategy.Should().BeFalse("a blanket block-all rule provides block coverage but is not a dedicated DNS-53 blocking strategy");
         result.Dns53RuleName.Should().Be("Block All Traffic");
     }
 
@@ -4440,7 +4441,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithDnatPartialCoverage_GeneratesBothIssues()
+    public async Task Analyze_WithDnatPartialCoverage_GeneratesDnatPartialNotNoBlock()
     {
         // Arrange - DNAT only covers one of two networks
         var networks = CreateDhcpNetworks(
@@ -4451,11 +4452,13 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
 
-        // Assert - Should have both DNS_NO_53_BLOCK and partial coverage issue
+        // Assert - DNAT is the DNS-control strategy in play, so the DNAT partial-coverage finding owns the
+        // exposed network (IoT). The generic no-block finding is not also raised (no double-penalty).
         result.HasDnatDnsRules.Should().BeTrue();
         result.DnatProvidesFullCoverage.Should().BeFalse();
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+        var dnatIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDnatPartialCoverage).Subject;
+        dnatIssue.Message.Should().Contain("IoT");
     }
 
     [Fact]
@@ -4523,8 +4526,9 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Assert - Should still have DNS_NO_DOH issue (DNAT doesn't replace DoH)
         result.DnatProvidesFullCoverage.Should().BeTrue();
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNoDoh);
-        // But should suppress DNS_NO_53_BLOCK since no DNS control solution
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+        // DNAT fully redirects DNS for every network, so nothing leaks - the no-block finding is
+        // suppressed. (DoH is a separate concern, flagged above.)
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
     }
 
     [Fact]
@@ -5467,9 +5471,9 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_DnatWrongDestination_WillNotSuppressDnsNo53Block()
+    public async Task Analyze_DnatWrongDestination_FlagsWrongDestinationNotNoBlock()
     {
-        // Arrange - DoH configured, DNAT has wrong destination - should NOT suppress DNS_NO_53_BLOCK
+        // Arrange - DoH configured, DNAT has wrong destination
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
@@ -5491,10 +5495,12 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
 
-        // Assert - DNAT is not a valid alternative due to wrong destination
+        // Assert - DNAT redirects all DNS (full coverage), just to the wrong server. That's a
+        // wrong-destination problem (its own finding), not an absence of DNS control, so the generic
+        // no-block finding is suppressed in favor of the specific one.
         result.DnatProvidesFullCoverage.Should().BeTrue(); // Coverage is full
         result.DnatRedirectTargetIsValid.Should().BeFalse(); // But destination is wrong
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block); // So DNS leak issue raised
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
     }
 
@@ -5536,7 +5542,13 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Dns53CoveredNetworks.Should().Contain("Guest");
         result.Dns53CoveredNetworks.Should().NotContain("IoT");
         result.Dns53UncoveredNetworks.Should().Contain("IoT");
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+        var partialIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+
+        // The finding surfaces the contributing rule and the networks it covers
+        partialIssue.CoveringRules.Should().ContainSingle();
+        var coveringRule = partialIssue.CoveringRules![0];
+        coveringRule.RuleName.Should().Be("Block DNS (Match Opposite)");
+        coveringRule.CoveredNetworks.Should().BeEquivalentTo(new[] { "LAN", "Guest" });
     }
 
     [Fact]
@@ -5570,7 +5582,12 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Dns53ProvidesFullCoverage.Should().BeFalse();
         result.Dns53CoveredNetworks.Should().Contain("LAN");
         result.Dns53UncoveredNetworks.Should().Contain("IoT");
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+        var partialIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+
+        // The finding names the rule that only covers LAN
+        partialIssue.CoveringRules.Should().ContainSingle();
+        partialIssue.CoveringRules![0].RuleName.Should().Be("Block DNS for LAN Only");
+        partialIssue.CoveringRules![0].CoveredNetworks.Should().BeEquivalentTo(new[] { "LAN" });
     }
 
     [Fact]
@@ -5721,9 +5738,11 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithDns53PartialCoverage_DnatFullCoverage_SuppressesPartialIssue()
+    public async Task Analyze_WithDns53PartialCoverage_DnatFullCoverage_ReportsInformationalNotExposed()
     {
-        // Arrange - DNS53 firewall rule covers only LAN, but DNAT covers all
+        // Arrange - dedicated DNS53 firewall rule covers only LAN, but DNAT covers all networks.
+        // Belt-and-suspenders: the DNS-53 strategy gap is still reported (not suppressed by DNAT), but
+        // because DNAT backstops IoT it is Informational, not an exposure.
         var networks = CreateDhcpNetworks(
             ("net1", "LAN", "192.168.1.0/24"),
             ("net2", "IoT", "192.168.2.0/24"));
@@ -5755,12 +5774,336 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, networks, null, null, natRules);
 
-        // Assert - DNAT provides full coverage, so no partial coverage issue
+        // Assert - DNS-53 strategy is partial; DNAT fully backstops it
         result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDns53BlockStrategy.Should().BeTrue(); // dedicated port-53 rule
         result.Dns53ProvidesFullCoverage.Should().BeFalse(); // Firewall alone is partial
         result.DnatProvidesFullCoverage.Should().BeTrue(); // But DNAT covers all
-        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage); // Suppressed by DNAT
+
+        // The strategy gap is reported, but Informational (IoT is DNAT-backstopped, not exposed)
+        var partialIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+        partialIssue.Severity.Should().Be(AuditSeverity.Informational);
+        partialIssue.ScoreImpact.Should().Be(0);
         result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block); // Firewall handles part of it
+    }
+
+    [Fact]
+    public async Task Analyze_BlanketInternetBlocksPlusPartialDnat_NoPhantomDns53Finding_ReportsDnatGap()
+    {
+        // Regression (issue #868 follow-up): DNS control is via DNAT redirection. Two "block all internet"
+        // isolation rules fully isolate Management and Security (incidentally blocking port 53). One DNAT
+        // rule is disabled, leaving IoT uncovered. The blanket isolation rules must NOT be read as a DNS-53
+        // blocking strategy and fabricate a Critical "partial DNS-53 coverage" finding listing the
+        // DNAT-controlled networks. The real gap (IoT lost its DNAT redirect) should surface instead.
+        var networks = CreateDhcpNetworks(
+            ("net1", "Main Network", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Management", "192.0.2.0/24"),
+            ("net4", "Security", "198.51.100.0/24"));
+
+        // Blanket "block all internet" rules on Management and Security (no port = all ports, including 53)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block 192.0.2.0/24 Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net3""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            },
+            {
+                ""name"": ""Block 198.51.100.0/24 Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net4""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            }
+        ]").RootElement;
+
+        // DNAT redirects Main, Management, Security - IoT's rule is "disabled" (absent)
+        var natRules = CreateDnatNatRules(
+            ("net1", "192.168.1.1"),
+            ("net3", "192.168.1.1"),
+            ("net4", "192.168.1.1"));
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""auto"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, networks, null, null, natRules);
+
+        // Assert - blanket blocks are block coverage, not a DNS-53 strategy
+        result.HasDns53BlockRule.Should().BeTrue("blanket internet blocks do block port 53");
+        result.HasDns53BlockStrategy.Should().BeFalse("blanket internet blocks are not a dedicated DNS-53 blocking strategy");
+
+        // No phantom DNS-53 partial-coverage finding (this is the bug)
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+
+        // The real gap surfaces: IoT lost its DNAT redirect. IoT isn't firewall-blocked either, so it's
+        // genuinely exposed - the finding must not falsely claim firewall blocking backstops it.
+        var dnatIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDnatPartialCoverage).Subject;
+        dnatIssue.Message.Should().Contain("IoT");
+        dnatIssue.Message.Should().Contain("bypass DNS settings");
+        dnatIssue.Message.Should().NotContain("covered by firewall");
+    }
+
+    [Fact]
+    public async Task Analyze_DnatGapOnNetworksWithoutFirewallBlock_FlagsExposedNotBackstopped()
+    {
+        // The reported case (issue #868): partial DNS-53 blockage from two internet-block rules covers
+        // Management + Security, but Main + IoT are covered by neither the firewall nor DNAT (their DNAT
+        // rules were disabled). The DNAT finding must flag Main + IoT as genuinely exposed, NOT claim that
+        // firewall port 53 blocking backstops them - that blocking only covers Management + Security.
+        var networks = CreateDhcpNetworks(
+            ("net1", "Main Network", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Management", "192.0.2.0/24"),
+            ("net4", "Security", "198.51.100.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block 192.0.2.0/24 Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net3""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            },
+            {
+                ""name"": ""Block 198.51.100.0/24 Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net4""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            }
+        ]").RootElement;
+
+        // DNAT redirects only Management + Security; Main + IoT DNAT rules are disabled (absent)
+        var natRules = CreateDnatNatRules(
+            ("net3", "192.0.2.1"),
+            ("net4", "198.51.100.1"));
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""auto"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, networks, null, null, natRules);
+
+        // No phantom DNS-53 strategy finding
+        result.HasDns53BlockStrategy.Should().BeFalse();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+
+        // DNAT gap reports Main + IoT as exposed, with no false firewall reassurance
+        var dnatIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDnatPartialCoverage).Subject;
+        dnatIssue.Message.Should().Contain("Main Network");
+        dnatIssue.Message.Should().Contain("IoT");
+        dnatIssue.Message.Should().Contain("bypass DNS settings");
+        dnatIssue.Message.Should().NotContain("covered by firewall");
+        dnatIssue.Severity.Should().Be(AuditSeverity.Critical); // 2 of 4 networks exposed
+    }
+
+    [Fact]
+    public async Task Analyze_BlanketBlocksPartial_NoDnat_FlagsExposedNetworks()
+    {
+        // Regression (issue #868): DNS control was via DNAT; the user disabled ALL DNAT rules, leaving two
+        // "block all internet" isolation rules covering Management + Security. Main + IoT then have no
+        // port-53 block and no DNAT redirect - genuinely exposed - but every strategy-specific finding
+        // stays silent (no dedicated DNS-53 strategy, no DNAT rules in play). The catch-all must flag them,
+        // so removing all DNS protection no longer paradoxically improves the score.
+        var networks = CreateDhcpNetworks(
+            ("net1", "Main Network", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Management", "192.0.2.0/24"),
+            ("net4", "Security", "198.51.100.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block 192.0.2.0/24 Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net3""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            },
+            {
+                ""name"": ""Block 198.51.100.0/24 Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net4""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            }
+        ]").RootElement;
+
+        // Act - no DNAT rules at all
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks);
+
+        // Blanket blocks are block coverage, not a strategy; no DNAT in play
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDns53BlockStrategy.Should().BeFalse();
+        result.HasDnatDnsRules.Should().BeFalse();
+
+        // No strategy-specific findings fire...
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+
+        // ...but the catch-all flags the genuinely exposed networks (and deducts score)
+        var exposure = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsNo53Block).Subject;
+        exposure.Severity.Should().Be(AuditSeverity.Critical);
+        exposure.ScoreImpact.Should().BeGreaterThan(0);
+        exposure.Message.Should().Contain("Main Network");
+        exposure.Message.Should().Contain("IoT");
+        exposure.Message.Should().NotContain("Management"); // blocked, not exposed
+        exposure.Message.Should().NotContain("Security");
+    }
+
+    [Fact]
+    public async Task Analyze_DedicatedBlockAndDnatBothPartial_ExposureScoredOnce()
+    {
+        // Belt-and-suspenders: a dedicated port-53 block strategy AND DNAT, both partial, with IoT + Cameras
+        // exposed under both. Both findings report (visibility), but the exposure is scored ONCE - the
+        // DNS-53 partial finding owns it (Critical); the DNAT finding reports the gap as Informational so
+        // the same exposed network isn't deducted twice.
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Cameras", "192.168.3.0/24"));
+
+        // Dedicated DNS-53 block (port 53 specified -> strategy), source = LAN only
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS for LAN"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net1""] },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // DNAT covers LAN only -> IoT, Cameras exposed under both mechanisms
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1"));
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks, null, null, natRules);
+
+        result.HasDns53BlockStrategy.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+
+        // DNS-53 partial owns the exposure score (Critical, deducts)
+        var dns53 = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+        dns53.Severity.Should().Be(AuditSeverity.Critical);
+        dns53.ScoreImpact.Should().BeGreaterThan(0);
+
+        // DNAT finding reports the same gap for visibility but does NOT double-deduct
+        var dnat = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDnatPartialCoverage).Subject;
+        dnat.Severity.Should().Be(AuditSeverity.Informational);
+        dnat.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Analyze_ExcludedVlan_NotFlaggedAsExposed_WithoutNatData()
+    {
+        // A VLAN the user explicitly excluded from coverage checks must not be reported as exposed, even
+        // when no NAT data is supplied (the exclusion is captured from the VLAN-id list directly).
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, Subnet = "192.168.1.0/24", DhcpEnabled = true, Gateway = "192.168.1.1" },
+            new NetworkInfo { Id = "net2", Name = "Lab", VlanId = 99, Subnet = "192.168.99.0/24", DhcpEnabled = true, Gateway = "192.168.99.1" }
+        };
+
+        // No firewall, no NAT; user excluded VLAN 99 (Lab) from coverage checks
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null, firewallRules: null, switches: null, networks: networks,
+            deviceData: null, customDnsManagementPort: null, natRulesData: null,
+            dnatExcludedVlanIds: new List<int> { 99 });
+
+        result.ExcludedFromCoverageNetworks.Should().Contain("Lab");
+
+        // The catch-all flags LAN (exposed) but carves out the excluded Lab VLAN
+        var exposure = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsNo53Block).Subject;
+        var exposed = (List<string>)exposure.Metadata!["exposed_networks"];
+        exposed.Should().Contain("LAN");
+        exposed.Should().NotContain("Lab");
+    }
+
+    [Fact]
+    public async Task Analyze_BlanketBlocksCoverAllNetworks_NoDnat_NoExposureFinding()
+    {
+        // Blanket internet blocks on every network: block coverage is complete (not a strategy), so nothing
+        // is exposed and the catch-all does not fire.
+        var networks = CreateDhcpNetworks(
+            ("net1", "Main Network", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Main Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net1""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            },
+            {
+                ""name"": ""Block IoT Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net2""] },
+                ""destination"": { ""port_matching_type"": ""ANY"", ""matching_target"": ""ANY"" }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks);
+
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDns53BlockStrategy.Should().BeFalse();
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_CatchAll_DmzNetworkUncovered_GetsInfoParity()
+    {
+        // Parity with the DNAT path: in the no-strategy, no-DNAT exposure path, a carved-out DMZ network
+        // gets a courtesy Informational note instead of being silently dropped, while a regular network is
+        // flagged as exposed.
+        var dmzZoneId = "zone-dmz-001";
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = dmzZoneId, ZoneKey = "dmz", Name = "DMZ" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, Subnet = "192.168.1.0/24", DhcpEnabled = true, Gateway = "192.168.1.1", DnsServers = new List<string> { "192.168.1.1" }, FirewallZoneId = "zone-internal-001" },
+            new NetworkInfo { Id = "net2", Name = "DMZ Servers", VlanId = 100, Subnet = "192.168.100.0/24", DhcpEnabled = true, Gateway = "192.168.100.1", DnsServers = new List<string> { "192.168.100.1" }, FirewallZoneId = dmzZoneId }
+        };
+
+        // No firewall, no NAT, no third-party DNS (so the consistency check doesn't emit the DMZ note)
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null, firewallRules: null, switches: null, networks: networks,
+            deviceData: null, customDnsManagementPort: null, natRulesData: null,
+            dnatExcludedVlanIds: null, externalZoneId: null, zoneLookup: zoneLookup);
+
+        result.HasThirdPartyDns.Should().BeFalse();
+
+        // Regular network drives the exposure finding
+        result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsNo53Block);
+
+        // DMZ network gets the courtesy Info note (parity with the DNAT path), not a Critical exposure
+        var dmzIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDmzNetworkInfo).Subject;
+        dmzIssue.Severity.Should().Be(AuditSeverity.Informational);
+        dmzIssue.ScoreImpact.Should().Be(0);
+        dmzIssue.Message.Should().Contain("DMZ Servers");
+        dmzIssue.Message.Should().Contain("expected for DMZ");
     }
 
     [Fact]
