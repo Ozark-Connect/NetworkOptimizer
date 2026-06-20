@@ -5536,7 +5536,13 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Dns53CoveredNetworks.Should().Contain("Guest");
         result.Dns53CoveredNetworks.Should().NotContain("IoT");
         result.Dns53UncoveredNetworks.Should().Contain("IoT");
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+        var partialIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+
+        // The finding surfaces the contributing rule and the networks it covers
+        partialIssue.CoveringRules.Should().ContainSingle();
+        var coveringRule = partialIssue.CoveringRules![0];
+        coveringRule.RuleName.Should().Be("Block DNS (Match Opposite)");
+        coveringRule.CoveredNetworks.Should().BeEquivalentTo(new[] { "LAN", "Guest" });
     }
 
     [Fact]
@@ -5570,7 +5576,12 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Dns53ProvidesFullCoverage.Should().BeFalse();
         result.Dns53CoveredNetworks.Should().Contain("LAN");
         result.Dns53UncoveredNetworks.Should().Contain("IoT");
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+        var partialIssue = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+
+        // The finding names the rule that only covers LAN
+        partialIssue.CoveringRules.Should().ContainSingle();
+        partialIssue.CoveringRules![0].RuleName.Should().Be("Block DNS for LAN Only");
+        partialIssue.CoveringRules![0].CoveredNetworks.Should().BeEquivalentTo(new[] { "LAN" });
     }
 
     [Fact]

@@ -167,6 +167,10 @@ public class DnatDnsAnalyzerTests
         Assert.Contains("net1", result.CoveredNetworkIds);
         Assert.Single(result.UncoveredNetworkIds);
         Assert.Contains("net2", result.UncoveredNetworkIds);
+
+        // Per-rule coverage maps the rule's description to the network names it covers
+        Assert.True(result.RuleCoverage.ContainsKey("Test DNAT"));
+        Assert.Equal(new[] { "LAN" }, result.RuleCoverage["Test DNAT"]);
     }
 
     [Fact]
