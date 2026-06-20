@@ -181,6 +181,22 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionPropagationExcursionFraction { get; set; } = 0.05;
 
+    /// <summary>
+    /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored
+    /// paths (with data) must have their in-window median rise above baseline for an access-egress
+    /// bottleneck under load to read as self-inflicted rather than a hop bottleneck. A robust majority
+    /// (not "any clean path") so a lone high-variance path reading clean against the absolute elevation
+    /// bar can't veto the call, while a genuinely mixed window (real clean controls) still blocks it.
+    /// </summary>
+    public double CongestionLineWideRiseFraction { get; set; } = 0.8;
+
+    /// <summary>
+    /// Minimum in-window median rise over baseline (ms) for a path to count toward the line-wide
+    /// self-infliction test. Small, so the near-constant bufferbloat offset still registers on
+    /// high-baseline hops where it sits under the absolute elevation floor.
+    /// </summary>
+    public double CongestionLineWideMinShiftMs { get; set; } = 0.5;
+
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 

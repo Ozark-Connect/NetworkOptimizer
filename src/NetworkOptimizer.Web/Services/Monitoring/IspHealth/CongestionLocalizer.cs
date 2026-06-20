@@ -88,15 +88,25 @@ public static class CongestionLocalizer
             }
 
             var loadCoincident = LoadCoincident(window.Start, window.End, topology, options);
-            // A clean anchored series anywhere means the elevation is NOT line-wide, which rules
-            // out access-egress self-infliction (that bloats everything that crosses the egress).
+            // A clean anchored series anywhere means the elevation is NOT line-wide. Kept for the
+            // Confirmed confidence below (NOT the self-infliction gate - see lineWideUnderLoad).
             // Must have data in the window - a no-data series (newer target / gap) isn't "clean".
             var cleanControlExists = anchored.Any(s =>
                 HasDataInWindow(s, window.Start, window.End) && !IsElevated(s, window.Start, window.End));
+            // Self-inflicted access bufferbloat adds a near-constant rise to (almost) every monitored
+            // path crossing the egress under load. The absolute elevation bar misses that on high-
+            // baseline / high-variance paths (their inflated p90 hides a ~1 ms drift), so one such path
+            // reading "clean" wrongly vetoes self-infliction. This robust median-shift test keys on
+            // "did everything drift up together": the fraction of anchored paths (with data) whose
+            // in-window median rose above baseline by a small margin. Only consulted for the egress hop.
+            var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
+            var lineWideUnderLoad = anchoredWithData.Count > 0
+                && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options))
+                    >= anchoredWithData.Count * options.CongestionLineWideRiseFraction;
 
             foreach (var (bnIp, members) in byBottleneck)
                 result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
-                    topology, options, loadCoincident, cleanControlExists, IsElevated));
+                    topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, IsElevated));
 
             if (unanchored.Count > 0)
                 result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident));
@@ -156,6 +166,7 @@ public static class CongestionLocalizer
         IspHealthOptions options,
         bool loadCoincident,
         bool cleanControlExists,
+        bool lineWideUnderLoad,
         Func<AsnSeries, DateTime, DateTime, bool> isElevated)
     {
         var hopNum = topology.HopNumberByIp.TryGetValue(bottleneckIp, out var hn) ? hn : int.MaxValue;
@@ -201,10 +212,14 @@ public static class CongestionLocalizer
 
         CongestionDisposition disposition;
         string reason;
-        if (isAccessEgress && loadCoincident && !cleanControlExists)
+        if (isAccessEgress && loadCoincident && lineWideUnderLoad)
         {
+            // Bottleneck is the access egress AND every monitored path drifted up together under load
+            // (line-wide). That's loaded latency where all your traffic converges, not a distinct ISP
+            // hop. Surfaced as "Loaded Latency" (not Congestion), not scored (Suppressed). We assert
+            // location + correlation only; the mechanism (CPE buffer, OLT, policing) is unknowable here.
             disposition = CongestionDisposition.SelfInflicted;
-            reason = "Bottleneck at your access egress while the WAN was saturated and every monitored path was affected - self-inflicted bufferbloat, not external congestion.";
+            reason = "Every monitored path rose together under load, so the limit is your access link, not a single hop - consistent with bufferbloat or a congested shared-access network.";
         }
         else if (propagated)
         {
@@ -349,6 +364,26 @@ public static class CongestionLocalizer
     /// never as "clean" - so absence of data can't pad the clean-control or clean-parallel evidence.</summary>
     private static bool HasDataInWindow(AsnSeries series, DateTime start, DateTime end) =>
         series.Samples.Any(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue);
+
+    /// <summary>
+    /// True when the series' in-window median rose above its out-of-window baseline median by at least
+    /// CongestionLineWideMinShiftMs. The robust per-path "drifted up under load" signal: unlike the
+    /// absolute elevation bar it isn't fooled by a high-variance path's inflated p90, so a constant
+    /// bufferbloat offset registers even on high-baseline hops. Used only for the line-wide test.
+    /// </summary>
+    private static bool RoseInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
+    {
+        var inWindow = series.Samples
+            .Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue)
+            .Select(x => x.RttAvgMs!.Value).ToList();
+        var baseline = series.Samples
+            .Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue)
+            .Select(x => x.RttAvgMs!.Value).ToList();
+        if (inWindow.Count == 0 || baseline.Count == 0) return false;
+        var bMed = SeriesStats.Median(baseline);
+        var eMed = SeriesStats.Median(inWindow);
+        return bMed.HasValue && eMed.HasValue && eMed.Value > bMed.Value + options.CongestionLineWideMinShiftMs;
+    }
 
     private static List<List<(AsnSeries Series, CongestionEvent Evt)>> ClusterByTime(
         List<(AsnSeries Series, CongestionEvent Evt)> candidates)

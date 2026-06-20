@@ -681,16 +681,25 @@ else
             var mag = $"latency {evt.BaselineRttMs:0.#} to {evt.PeakRttMs:0.#} ms, jitter {evt.BaselineJitterMs:0.#} to {evt.PeakJitterMs:0.#} ms";
             var load = evt.LoadCoincident ? " under heavy WAN load" : "";
             // One shape for every line: "{duration} of elevated latency and jitter on {hop}{load}
-            // ({mag}). {one plain sentence}." The badge always reads "Congestion"; the disposition
-            // shows through colour (confirmed prominent, the rest muted) and that closing sentence,
-            // so the feed stays readable and still agrees with the cards (which badge only confirmed).
-            var lead = $"{span} of elevated latency and jitter on {where}{load} ({mag}).";
+            // ({mag}). {one plain sentence}." The badge reads "Congestion" except for the line-wide
+            // self-inflicted case, which reads "Loaded Latency"; the disposition otherwise shows
+            // through colour (confirmed prominent, the rest muted) and that closing sentence, so the
+            // feed stays readable and still agrees with the cards (which badge only confirmed).
+            // A localized, propagated bottleneck names the hop AND the hops beyond it in the subject,
+            // which replaces the old trailing "it propagates ..." sentence. Sibling-confirmed,
+            // clean-parallel, and unlocalized events don't get it.
+            var beyond = evt.Disposition == CongestionDisposition.Confirmed
+                && !evt.ConfirmedBySibling
+                && !(evt.LoadCoincident && evt.CleanParallelPaths > 0)
+                && !evt.IsShared
+                ? " and the hops beyond" : "";
+            var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
             var (badge, badgeClass, text) = evt.Disposition switch
             {
-                CongestionDisposition.SelfInflicted => ("Congestion", "isp-event-badge-info",
-                    $"{lead} Self-inflicted bufferbloat from your own load, not the ISP."),
+                CongestionDisposition.SelfInflicted => ("Loaded Latency", "isp-event-badge-info",
+                    $"{lead} Everything slows together under load, so the limit is your access link, not one hop - bufferbloat or a congested shared-access network."),
                 CongestionDisposition.ControlPlaneNoise => ("Congestion", "isp-event-badge-info",
-                    $"{lead} Its next hop stayed clean, so these are this hop's own delayed ping replies (ICMP handling), not a forwarding bottleneck - any wobble on farther hops under the same load is separate, not carried through here."),
+                    $"{lead} Its next hop stayed clean, so this is the hop's own ICMP handling, not a forwarding bottleneck."),
                 CongestionDisposition.Unverifiable => ("Congestion", "isp-event-badge-info",
                     $"{lead}"),
                 _ when evt.ConfirmedBySibling => ("Congestion", "isp-event-badge-warning",
@@ -698,7 +707,7 @@ else
                 _ when evt.LoadCoincident && evt.CleanParallelPaths > 0 => ("Congestion", "isp-event-badge-warning",
                     $"{lead} {evt.CleanParallelPaths} other monitored paths stayed clean under the same load, so it is this hop's own capacity, not your access link."),
                 _ => ("Congestion", "isp-event-badge-warning",
-                    $"{lead} It propagates to the hops beyond it, so it is a real bottleneck here.")
+                    $"{lead}")
             };
             entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text));
         }

@@ -40,6 +40,10 @@ public class CongestionLocalizerTests
 
     private static List<LatencySample> Flat(double rtt = 5) => TestSeries.Flat(TestSeries.Start, Day, rtt, jitterMs: 0.5);
     private static List<LatencySample> Elevated(double rtt = 5) => Flat(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 25, jitterMs: 6);
+    // A ~1 ms drift in the window: under the absolute +2 ms elevation bar (reads "clean" / not elevated),
+    // but over the 0.5 ms median-shift margin (the line-wide test still sees it rose). Models a high-
+    // baseline path whose small bufferbloat offset hides under its own threshold.
+    private static List<LatencySample> SmallRise(double rtt = 5) => Flat(rtt).WithSegment(HumpStart, HumpEnd, rttMs: rtt + 1, jitterMs: 0.6);
 
     private static AsnSeries Hop(int asn, string ip, List<LatencySample> samples, params string[] ancestors) => new()
     {
@@ -152,6 +156,54 @@ public class CongestionLocalizerTests
         self.BottleneckHopIp.Should().Be(Bng);
         self.Suppressed.Should().BeTrue();
         events.Should().NotContain(e => e.Disposition == CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
+    public void Line_wide_rise_is_loaded_latency_even_when_a_high_baseline_path_reads_clean_on_the_absolute_bar()
+    {
+        // The Jun 5 fix: a high-baseline/high-variance path drifts up ~1 ms with everything else but
+        // stays under the absolute +2 ms elevation bar, so the old "any clean control" veto wrongly
+        // blocked self-infliction. The median-shift line-wide test still sees it rose, so the egress
+        // event is correctly Loaded Latency (SelfInflicted), not a hop bottleneck.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Elevated(), Bng, Border),
+            Dest(DestCorridor, Elevated(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, SmallRise(), Bng, Border)   // rose ~1 ms, under the bar -> "clean" to the old veto
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        var self = events.Single(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        self.BottleneckHopIp.Should().Be(Bng);
+        self.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Access_egress_elevated_under_load_but_not_line_wide_stays_confirmed()
+    {
+        // Egress + its own corridor elevated, but the transit, dead-end and destinations stayed flat -
+        // only ~40% of paths rose, so it is NOT line-wide. A real localized issue at the egress, not
+        // loaded latency: it must stay Confirmed (scored), never SelfInflicted.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Flat(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Flat(), Bng, Border),
+            Dest(DestCorridor, Flat(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Flat(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        events.Single(e => e.BottleneckHopIp == Bng).Disposition.Should().Be(CongestionDisposition.Confirmed);
     }
 
     [Fact]
