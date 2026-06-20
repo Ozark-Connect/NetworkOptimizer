@@ -89,10 +89,11 @@ const RJ45_SVG = '<svg width="20" height="15" viewBox="0 0 20 15" fill="none" st
     '<path d="M7.5 10 v2.5 h5 V10"/>' +
     '<path d="M6 4 v3 M8 4 v3 M10 4 v3 M12 4 v3 M14 4 v3"/></svg>';
 
-const SFP_SVG = '<svg width="22" height="15" viewBox="0 0 22 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
-    '<rect x="2" y="4" width="13" height="7" rx="1"/>' +
-    '<path d="M15 5.5 h4 a1 1 0 0 1 1 1 v2 a1 1 0 0 1 -1 1 h-4"/>' +
-    '<path d="M5 4 V2 M9 4 V2"/></svg>';
+const SFP_SVG = '<svg width="22" height="15" viewBox="0 0 22 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round">' +
+    '<rect x="7" y="3" width="12" height="9" rx="1.5"/>' +
+    '<path d="M7 5 C3 5 3 10 7 10"/>' +
+    '<path d="M11 3 V12"/>' +
+    '<path d="M14 7.5 H17.5"/></svg>';
 
 function portIcon(p) {
     const cls = speedClass(p.speedBps);
