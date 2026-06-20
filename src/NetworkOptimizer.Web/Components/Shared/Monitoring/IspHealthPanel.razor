@@ -410,10 +410,10 @@ else
                     {
                         <div class="isp-outage">
                             <div class="isp-outage-head">
-                                <span class="isp-event-badge isp-event-badge-danger">Outage</span>
+                                <span class="isp-event-badge isp-event-badge-danger" data-tooltip="@OutageScoreTooltip(outage)">Outage</span>
                                 <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
                                 <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
-                                <span class="isp-outage-scope">@OutageScopeLabel(outage)</span>
+                                <span class="isp-outage-scope" data-tooltip="@OutageScoreTooltip(outage)">@OutageScopeLabel(outage)</span>
                             </div>
                             @if (outage.Tiers.Any(t => t.WentDark))
                             {
@@ -724,21 +724,19 @@ else
         return local.Date == DateTime.Now.Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
     }
 
-    private static string OutageScopeLabel(OutageEvent o)
+    private static string OutageScopeLabel(OutageEvent o) => o.Scope switch
     {
-        var label = o.Scope switch
-        {
-            OutageScope.Local => "LAN / Gateway outage",
-            OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
-            _ => "Whole-WAN outage"
-        };
-        var score = o.Scope == OutageScope.Local
-            ? " (not scored)"
+        OutageScope.Local => "LAN / Gateway outage",
+        OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
+        _ => "Whole-WAN outage"
+    };
+
+    private static string OutageScoreTooltip(OutageEvent o) =>
+        o.Scope == OutageScope.Local
+            ? "Not scored; a LAN/gateway outage is your own network, not the ISP."
             : o.ScorePenaltyPoints > 0
-                ? $" (-{o.ScorePenaltyPoints} {(o.ScorePenaltyPoints == 1 ? "point" : "points")})"
-                : string.Empty;
-        return label + score;
-    }
+                ? $"Lowered your ISP Health score by {o.ScorePenaltyPoints} {(o.ScorePenaltyPoints == 1 ? "point" : "points")}."
+                : "No score impact.";
 
     // Share of the outage window this hop spent dark (red), for the recovery-waterfall bar.
     // Capped at 95% so a sliver of the blue "up" track always shows on even the longest bars -
