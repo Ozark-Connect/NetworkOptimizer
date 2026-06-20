@@ -101,6 +101,50 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Gateway_dark_reads_as_a_local_lan_outage()
+    {
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var gateway = Series(0, (OutStart, OutEnd, 100)); // the LAN gateway itself went dark
+        var olt = Series(0, (OutStart, OutEnd, 100));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Gateway", 0, gateway, IsGateway: true),
+            new OutageDetector.Hop("AT&T nokia-olt", 1, olt),
+            new OutageDetector.Hop("Cloudflare", 2, internet1),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Scope.Should().Be(OutageScope.Local);
+    }
+
+    [Fact]
+    public void Reachable_gateway_does_not_alter_wan_scope()
+    {
+        // Gateway stayed up while the access hop and everything beyond went dark - still a whole-WAN
+        // outage, never Local, and the gateway's presence must not flip FullWan to Upstream.
+        var internet1 = Series(0, (OutStart, OutEnd, 100));
+        var internet2 = Series(0, (OutStart, OutEnd, 100));
+        var gateway = Series(0); // reachable throughout
+        var olt = Series(0, (OutStart, OutEnd, 100));
+
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Gateway", 0, gateway, IsGateway: true),
+            new OutageDetector.Hop("AT&T nokia-olt", 1, olt),
+            new OutageDetector.Hop("Cloudflare", 2, internet1),
+        };
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), hops, Options);
+
+        events.Should().ContainSingle();
+        events[0].Scope.Should().Be(OutageScope.FullWan);
+    }
+
+    [Fact]
     public void Monitoring_gap_with_no_samples_is_not_an_outage()
     {
         // No samples at all during the span (the Monitoring Agent stopped collecting) -

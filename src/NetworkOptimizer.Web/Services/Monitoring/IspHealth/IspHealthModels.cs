@@ -285,7 +285,11 @@ public enum OutageScope
     FullWan,
 
     /// <summary>The access hop stayed reachable while transit and the internet went dark - the break sat upstream of it.</summary>
-    Upstream
+    Upstream,
+
+    /// <summary>The LAN gateway itself was unreachable through the outage - a local LAN/switch/gateway
+    /// outage, not the ISP's WAN. Surfaced but not score-affecting (the ISP isn't at fault).</summary>
+    Local
 }
 
 /// <summary>

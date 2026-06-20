@@ -81,7 +81,10 @@ public class IspHealthScorer
         // An outage is scored once, here at the top level, on a duration curve - so a long
         // outage actually drives the score down instead of being diluted to a couple of
         // points inside one factor. Scored by total downtime alone, shape-independent.
-        var outageMinutes = inputs.Outages.Sum(o => o.Duration.TotalMinutes);
+        // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
+        // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
+        // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
+        var outageMinutes = inputs.Outages.Where(o => o.Scope != OutageScope.Local).Sum(o => o.Duration.TotalMinutes);
         if (outageMinutes > 0)
         {
             var penalty = OutageScorePenalty(outageMinutes);

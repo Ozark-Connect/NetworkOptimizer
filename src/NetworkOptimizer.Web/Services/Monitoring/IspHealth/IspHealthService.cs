@@ -198,6 +198,9 @@ public class IspHealthService
 
         AccessTechnology technology;
         List<MonitoringTarget> targets;
+        // Enabled fabric (UniFi device) targets, used only to find the LAN gateway's monitoring
+        // target for outage scoping (gateway-unreachable => LAN/gateway outage, not WAN).
+        List<MonitoringTarget> fabricTargets;
         // TargetId -> the monitored hop IPs proven upstream of it (its ancestors), from
         // Upstream Discovery's traces. ISP Health uses these to confirm one hop routes
         // through another before its jitter absolves the other. No live traceroute here.
@@ -226,6 +229,10 @@ public class IspHealthService
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit
                     || t.TargetType == MonitoringTargetType.InternetService))
+                .ToListAsync(ct);
+
+            fabricTargets = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.Enabled && t.TargetType == MonitoringTargetType.Fabric && t.DeviceMac != null)
                 .ToListAsync(ct);
 
             // TODO (multi-WAN): discoveries are read across ALL WANs, not scoped to the WAN
@@ -264,6 +271,15 @@ public class IspHealthService
         if (profile == null)
             return new ComputeOutcome(IspHealthStatus.NeedsTechnology, null, new List<AsnSeries>());
 
+        // First gateway from the cached UniFi device list (shadow-mode multi-gateway isn't handled
+        // yet - first gateway is fine), matched to its fabric monitoring target by MAC so we can pull
+        // its loss for outage scoping. Null when no gateway is monitored - outage scoping then stays
+        // unchanged (no Local scope possible).
+        static string MacKey(string? m) => new string((m ?? "").Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+        var gatewayDevice = (await _connectionService.GetDiscoveredDevicesAsync(ct)).FirstOrDefault(d => d.Type.IsGateway());
+        var gatewayTarget = gatewayDevice == null ? null
+            : fabricTargets.FirstOrDefault(t => MacKey(t.DeviceMac) == MacKey(gatewayDevice.Mac));
+
         // Fine-grained join window so short load bursts (speed tests, downloads) classify as
         // loaded instead of diluting into minute-level means. Longer (filter-selected) windows
         // coarsen it to keep the point count bounded; the canonical 48 h window lands on exactly
@@ -276,8 +292,11 @@ public class IspHealthService
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, windowStart, windowEnd, aggregate, ct);
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
-        var speedTestsTask = LoadWanSpeedTestsAsync(windowEnd, ct);
-        await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask);
+        var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
+        var gatewaySeriesTask = gatewayTarget == null
+            ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
+            : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, windowStart, windowEnd, aggregate, ct);
+        await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
 
         var ispSeries = ToSamples(await ispSeriesTask);
         var transitSeries = ToSamples(await transitSeriesTask);
@@ -285,6 +304,8 @@ public class IspHealthService
         var wanRates = await ratesTask;
         var (expectedDown, expectedUp, expectedSource, smartQueuesEnabled) = await speedsTask;
         var wanSpeedTests = await speedTestsTask;
+        var gatewaySamples = (await gatewaySeriesTask)
+            .Select(p => new LatencySample(p.Time, p.RttAvgMs, p.RttMaxMs, p.JitterMs, p.LossPercent)).ToList();
 
         // New installs: grade once a few hours of latency data exist, not before.
         // Enabled targets only - a disabled target's stale history must not satisfy the
@@ -502,7 +523,7 @@ public class IspHealthService
             }, Groupable: true, AsnLabel: AsnNameCleanup.Clean(t.AsnName) ?? accessAsnName))
             .Concat(transitChart.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)TransitLabel(s))))
             .Concat(displayInternet.Select(s => (Series: s, Groupable: false, AsnLabel: (string?)null)));
-        var outageHops = outageSources
+        var orderedWanHops = outageSources
             .Select(x => new
             {
                 x.Groupable,
@@ -513,7 +534,17 @@ public class IspHealthService
                 Rtt = MedianRtt(x.Series)
             })
             .OrderBy(x => x.HopNumber).ThenBy(x => x.Rtt)
-            .Select((x, i) => new OutageDetector.Hop(x.Name, i, x.Series, x.Groupable, x.AsnLabel))
+            .ToList();
+        // The LAN gateway is the nearest hop (Depth 0) when monitored; WAN hops shift one deeper.
+        // Its loss lets the detector tell a LAN/gateway outage from a WAN outage. Absent => unchanged.
+        var gatewayHop = gatewaySamples.Count > 0
+            ? new OutageDetector.Hop(gatewayDevice?.Name is { Length: > 0 } gn ? gn : "Gateway",
+                0, gatewaySamples, Groupable: false, AsnLabel: null, IsGateway: true)
+            : null;
+        var baseDepth = gatewayHop != null ? 1 : 0;
+        var outageHops = (gatewayHop != null ? new[] { gatewayHop } : Array.Empty<OutageDetector.Hop>())
+            .Concat(orderedWanHops.Select((x, i) =>
+                new OutageDetector.Hop(x.Name, baseDepth + i, x.Series, x.Groupable, x.AsnLabel)))
             .ToList();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
 
@@ -739,15 +770,21 @@ public class IspHealthService
     /// WAN tests (OpenSpeedTest from a browser via an external server) are excluded
     /// because the client's own link contaminates the measurement.
     /// </summary>
-    private async Task<List<SpeedTestSample>> LoadWanSpeedTestsAsync(DateTime windowEnd, CancellationToken ct)
+    private async Task<List<SpeedTestSample>> LoadWanSpeedTestsAsync(DateTime windowStart, DateTime windowEnd, CancellationToken ct)
     {
         try
         {
-            var since = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
+            // Reach back the WIDER of the selected window or the fallback floor: a long window
+            // (e.g. 30 d) finds its best demonstrated capacity across the whole window, while a
+            // short window keeps the SpeedTestFallbackDays floor so a sparse run of tests still
+            // yields a recent capacity number. Bounded above by windowEnd for historical windows.
+            var fallbackStart = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
+            var since = windowStart < fallbackStart ? windowStart : fallbackStart;
             await using var db = await _dbFactory.CreateDbContextAsync(ct);
             var results = await db.Iperf3Results.AsNoTracking()
                 .Where(r => r.Success
                     && r.TestTime >= since
+                    && r.TestTime <= windowEnd
                     && (r.Direction == SpeedTestDirection.CloudflareWan
                         || r.Direction == SpeedTestDirection.CloudflareWanGateway
                         || r.Direction == SpeedTestDirection.UwnWan

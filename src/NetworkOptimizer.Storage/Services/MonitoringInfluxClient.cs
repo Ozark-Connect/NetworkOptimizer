@@ -1031,6 +1031,45 @@ from(bucket: ""{_bucket}"")
         return results;
     }
 
+    /// <summary>
+    /// Per-window rtt/jitter/loss detail for a single target by its id - used to pull just the LAN
+    /// gateway's loss for outage scoping without loading every fabric device's series.
+    /// </summary>
+    public async Task<List<LatencySeriesPoint>> QueryLatencyDetailByTargetIdAsync(
+        string targetId,
+        DateTime from,
+        DateTime to,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new List<LatencySeriesPoint>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => r.target_id == ""{targetId}"")
+  |> filter(fn: (r) => r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms"" or r._field == ""loss_percent"")
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var list = new List<LatencySeriesPoint>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            list.Add(new LatencySeriesPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
+                RttMaxMs = AsDoubleOrNull(record.GetValueByKey("rtt_max_ms")),
+                JitterMs = AsDoubleOrNull(record.GetValueByKey("jitter_ms")),
+                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
+            });
+        }
+        list.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return list;
+    }
+
     public record LatencySeriesPoint
     {
         public required DateTime Time { get; init; }
