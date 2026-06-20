@@ -157,16 +157,16 @@ const COLUMNS = [
     { header: 'Port', format: v => v.html },
     { header: 'Rate In', format: fmtRate },
     { header: 'Rate Out', format: fmtRate },
-    { header: 'Unicast In', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Unicast Out', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Multicast In', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Multicast Out', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Broadcast In', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Broadcast Out', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Errors In', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Errors Out', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Discards In', format: fmtCount, cls: 'hide-mobile' },
-    { header: 'Discards Out', format: fmtCount, cls: 'hide-mobile' },
+    { header: 'Unicast In', format: fmtCount },
+    { header: 'Unicast Out', format: fmtCount },
+    { header: 'Multicast In', format: fmtCount },
+    { header: 'Multicast Out', format: fmtCount },
+    { header: 'Broadcast In', format: fmtCount },
+    { header: 'Broadcast Out', format: fmtCount },
+    { header: 'Errors In', format: fmtCount },
+    { header: 'Errors Out', format: fmtCount },
+    { header: 'Discards In', format: fmtCount },
+    { header: 'Discards Out', format: fmtCount },
 ];
 
 function isApDevice(d) { return (d.type || '').toLowerCase() === 'ap'; }
@@ -279,6 +279,10 @@ function renderBadges() {
 function renderTableNow(showAll) {
     if (!tableEl) return;
     const rows = buildRows();
+    // When a single device is in view, the Device column is redundant - drop it on
+    // mobile (the CSS does the hiding; all other columns stay).
+    const visibleDevices = tabDevices().filter(d => visibility[d.mac] !== false).length;
+    tableEl.classList.toggle('port-stats-1dev', visibleDevices <= 1);
     if (rows.length === 0) { tableEl.innerHTML = ''; syncTopScrollbar(); return; }
     renderTable(tableEl, container, {
         nameHeader: 'Device', title: '', rows, columns: COLUMNS, showAllRows: showAll,
