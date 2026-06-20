@@ -99,7 +99,7 @@
                                                             <h4>Custom OID Polling</h4>
                                                             @if (!_showAddForm)
                                                             {
-                                                                <button class="btn btn-sm btn-outline-primary" @onclick:stopPropagation="true" @onclick="ShowAddForm">Add OID</button>
+                                                                <button class="btn btn-sm btn-primary" @onclick:stopPropagation="true" @onclick="ShowAddForm">Add OID</button>
                                                             }
                                                         </div>
 
@@ -168,7 +168,7 @@
                                                                     </div>
                                                                     <div class="snmp-form-field">
                                                                         <label>Field Name</label>
-                                                                        <input type="text" @bind="_editFieldName" placeholder="e.g. fan_speed_rpm" />
+                                                                        <input type="text" @bind="_editFieldName" placeholder="InfluxDB field name, e.g. fan_speed_rpm" />
                                                                     </div>
                                                                 </div>
                                                                 <div class="snmp-form-row">
