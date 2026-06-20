@@ -85,29 +85,39 @@ function portIsSfp(p) {
     return `${p.ifName || ''} ${p.portId || ''}`.toLowerCase().includes('sfp');
 }
 
-const RJ45_SVG = '<svg width="20" height="15" viewBox="0 0 20 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
-    '<rect x="3" y="2" width="14" height="8" rx="1"/>' +
-    '<path d="M7.5 10 v2.5 h5 V10"/>' +
-    '<path d="M6 4 v3 M8 4 v3 M10 4 v3 M12 4 v3 M14 4 v3"/></svg>';
-
-const SFP_SVG = '<svg width="22" height="15" viewBox="0 0 22 15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
-    '<rect x="3" y="2.5" width="16" height="9" rx="1.5"/>' +
-    '<path d="M8.5 11.5 v-2.5 h5 v2.5"/></svg>';
+// Connector glyph (RJ45 jack or SFP cage), speed-coloured. When the port has a
+// number it is rendered on the connector face like a labelled patch panel;
+// numberless virtual interfaces keep the detailed RJ45 pins / SFP cage.
+function connectorGlyph(p) {
+    const sfp = portIsSfp(p);
+    const head = '<svg width="28" height="20" viewBox="0 0 28 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">';
+    const body = sfp
+        ? '<rect x="4" y="3" width="20" height="11" rx="1.5"/><path d="M11 14 v-2.5 h6 v2.5"/>'
+        : '<rect x="4" y="2.5" width="20" height="11" rx="1.5"/><path d="M11 13.5 v3.5 h6 V13.5"/>';
+    let detail;
+    if (p.portNumber != null) {
+        const fs = String(p.portNumber).length > 1 ? 8 : 10;
+        detail = `<text x="14" y="${sfp ? 9 : 8.5}" text-anchor="middle" dominant-baseline="central" font-size="${fs}" font-weight="700" fill="currentColor" stroke="none">${p.portNumber}</text>`;
+    } else if (!sfp) {
+        detail = '<path d="M8 5 v4 M11 5 v4 M14 5 v4 M17 5 v4 M20 5 v4"/>';  // RJ45 pins
+    } else {
+        detail = '';  // bare SFP cage
+    }
+    return head + body + detail + '</svg>';
+}
 
 function portIcon(p) {
     const cls = speedClassMbps(p.linkSpeedMbps);
     const down = p.operStatus != null && p.operStatus !== 1;
-    const inner = portIsSfp(p) ? SFP_SVG : RJ45_SVG;
     const tip = p.linkSpeedMbps ? fmtLinkSpeed(p.linkSpeedMbps) : (down ? 'Down' : '');
-    return `<span class="port-icon ${cls}${down ? ' port-icon-down' : ''}"${tip ? ` data-tooltip="${escapeHtml(tip)}"` : ''}>${inner}</span>`;
+    return `<span class="port-icon ${cls}${down ? ' port-icon-down' : ''}"${tip ? ` data-tooltip="${escapeHtml(tip)}"` : ''}>${connectorGlyph(p)}</span>`;
 }
 
 function portCell(p) {
-    // UniFi friendly name (mapped from the Linux ifName) when we have one, with the
-    // port number prefixed as "[N] Name"; otherwise the raw interface name.
+    // Port number rides on the connector glyph; the label is just the UniFi
+    // friendly name (mapped from the Linux ifName), or the raw name as fallback.
     const name = p.friendlyName || p.ifName || (p.portId ? `Port ${p.portId}` : '');
-    const label = (p.portNumber != null) ? `[${p.portNumber}] ${name}` : name;
-    return `<span class="port-cell">${portIcon(p)}<span class="port-label">${escapeHtml(label)}</span></span>`;
+    return `<span class="port-cell">${portIcon(p)}<span class="port-label">${escapeHtml(name)}</span></span>`;
 }
 
 function mediaText(isSfp) {
@@ -156,7 +166,7 @@ function renderTabs() {
     if (!(hasAps && hasInfra)) { tabsEl.innerHTML = ''; return; }
     const tabs = [['infra', 'Gateways & Switches'], ['aps', 'APs']];
     tabsEl.innerHTML = tabs.map(([k, label]) =>
-        `<button class="tab-btn ${activeTab === k ? 'active' : ''}" data-tab="${k}">${label}</button>`).join('');
+        `<button class="time-btn ${activeTab === k ? 'active' : ''}" data-tab="${k}">${label}</button>`).join('');
     if (!tabsEl._delegated) {
         tabsEl._delegated = true;
         tabsEl.addEventListener('click', (e) => {
