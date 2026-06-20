@@ -79,14 +79,25 @@ public static class InterfaceLabelResolver
             if (string.IsNullOrWhiteSpace(ifName)) continue;
             var lower = ifName.ToLowerInvariant();
 
-            // A VLAN sub-interface of a WAN base inherits the WAN label plus its tag,
-            // e.g. eth0.100 → "WAN1 - Fiber ISP (100)". (The sub-if itself is not in
-            // the WAN object list, so check the base before the direct WAN lookup.)
+            // A VLAN sub-interface inherits from its base: a WAN base gives the WAN
+            // label plus the tag (eth0.100 → "WAN1 - Fiber ISP (100)"); otherwise name
+            // it after the network on that VLAN (eth0.100 → "Management (100)"), the
+            // same VLAN→network resolution used for honeypot interfaces.
             var sub = SubInterface.Match(ifName);
-            if (sub.Success && wanMap.TryGetValue(sub.Groups[1].Value, out var baseWan))
+            if (sub.Success)
             {
-                result[ifName] = $"{baseWan} ({sub.Groups[2].Value})";
-                continue;
+                var subVlan = sub.Groups[2].Value;
+                if (wanMap.TryGetValue(sub.Groups[1].Value, out var baseWan))
+                {
+                    result[ifName] = $"{baseWan} ({subVlan})";
+                    continue;
+                }
+                if (int.TryParse(subVlan, out var subVlanId)
+                    && NetworkNameForVlan(subVlanId) is { } subNet)
+                {
+                    result[ifName] = $"{subNet} ({subVlan})";
+                    continue;
+                }
             }
 
             if (wanMap.TryGetValue(ifName, out var wan)) { result[ifName] = wan; continue; }
@@ -159,9 +170,11 @@ public static class InterfaceLabelResolver
 
             if (wan.IsCellular)
             {
+                // No parens: a parenthesised tag doubles up when this label is later
+                // wrapped (e.g. "SQM (WAN3 - Carrier 5G)").
                 var tag = wan.Type is "lte" or "wireless_lte" ? "LTE" : "5G";
                 if (!label.Contains(tag, StringComparison.OrdinalIgnoreCase))
-                    label += $" ({tag})";
+                    label += $" {tag}";
             }
 
             foreach (var ifName in new[] { wan.Name, wan.IfName, wan.UplinkIfName })
