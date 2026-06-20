@@ -280,9 +280,11 @@ function renderTableNow(showAll) {
     if (!tableEl) return;
     const rows = buildRows();
     // When a single device is in view, the Device column is redundant - drop it on
-    // mobile (the CSS does the hiding; all other columns stay).
+    // mobile (the CSS does the hiding; all other columns stay). The flag goes on the
+    // container, not the table element, so the table's class stays exactly
+    // "port-stats-table" and keeps matching the [class$="-stats-table"] scrollbar style.
     const visibleDevices = tabDevices().filter(d => visibility[d.mac] !== false).length;
-    tableEl.classList.toggle('port-stats-1dev', visibleDevices <= 1);
+    if (container) container.classList.toggle('port-stats-1dev', visibleDevices <= 1);
     if (rows.length === 0) { tableEl.innerHTML = ''; syncTopScrollbar(); return; }
     renderTable(tableEl, container, {
         nameHeader: 'Device', title: '', rows, columns: COLUMNS, showAllRows: showAll,
