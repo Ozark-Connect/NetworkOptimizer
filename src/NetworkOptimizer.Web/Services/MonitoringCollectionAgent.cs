@@ -853,12 +853,12 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
-        // Resolve WAN/carrier interface labels (e.g. gre1 -> "WAN3 - AT&T Wireless (5G)")
-        // from the UniFi device config and cache them for the Live View port table.
-        // Done agent-side so this can become persisted time series in a later build.
-        foreach (var device in devices)
-            _liveStats.RecordInterfaceLabels(NormalizeMac(device.Mac),
-                InterfaceLabelResolver.BuildWanLabels(device));
+        // Network config (cached ~5 min) feeds the WireGuard / OpenVPN / honeypot /
+        // bridge interface labels resolved below. Best-effort: a fetch failure just
+        // means those families fall back to their raw ifname.
+        IReadOnlyList<NetworkInfo> networkConfigs = Array.Empty<NetworkInfo>();
+        try { networkConfigs = await _connectionService.GetNetworksAsync(ct); }
+        catch (Exception ex) { _logger.LogDebug(ex, "networkconf fetch for interface labels failed"); }
 
         var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
@@ -924,10 +924,12 @@ public class MonitoringCollectionAgent : BackgroundService
                     NoteSnmpFailure(NormalizeMac(device.Mac));
                     continue;
                 }
+                var deviceIfNames = new List<string>();
                 foreach (var iface in interfaces)
                 {
                     var ifName = string.IsNullOrEmpty(iface.Name) ? iface.Description : iface.Name;
                     if (string.IsNullOrEmpty(ifName)) continue;
+                    deviceIfNames.Add(ifName);
                     var key = (NormalizeMac(device.Mac), ifName);
 
                     // Map SNMP ifIndex to UniFi PortTable.PortIdx. Two strategies:
@@ -1003,6 +1005,12 @@ public class MonitoringCollectionAgent : BackgroundService
                         mapping.LastUpdated = DateTime.UtcNow;
                     }
                 }
+
+                // Resolve friendly interface labels (WANn - carrier, WireGuard, SQM,
+                // honeypot, ...) from the device config + networkconf and cache them for
+                // the Live View port table. Agent-side so it can become time series later.
+                _liveStats.RecordInterfaceLabels(NormalizeMac(device.Mac),
+                    InterfaceLabelResolver.BuildLabels(device, networkConfigs, deviceIfNames));
             }
             catch (Exception ex)
             {

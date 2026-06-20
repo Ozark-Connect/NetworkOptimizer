@@ -854,6 +854,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             Enabled = n.Enabled,
             VlanId = n.Vlan,
             IpSubnet = n.IpSubnet,
+            VpnType = n.VpnType,
+            WireguardId = n.WireguardId,
             IsDhcpEnabled = n.DhcpdEnabled,
             DhcpRange = n.DhcpdEnabled ? $"{n.DhcpdStart} - {n.DhcpdStop}" : null,
             Gateway = n.DhcpdGateway,

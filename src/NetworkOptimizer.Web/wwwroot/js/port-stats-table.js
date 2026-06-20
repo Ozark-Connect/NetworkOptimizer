@@ -124,7 +124,7 @@ function connectorGlyph(p) {
     const body = '<rect x="3.5" y="6" width="21" height="15" rx="1.5"/><path d="M10.5 6 v-4 h7 V6"/>';
     const detail = n != null
         ? num(13.5)
-        : '<path d="M8 9 v4.5 M11 9 v4.5 M14 9 v4.5 M17 9 v4.5 M20 9 v4.5"/>';  // RJ45 pins, centred on x=14
+        : '<path d="M8 14.5 v4.5 M11 14.5 v4.5 M14 14.5 v4.5 M17 14.5 v4.5 M20 14.5 v4.5"/>';  // RJ45 pins, bottom (opposite the top tab), centred on x=14
     return head + body + detail + '</svg>';
 }
 

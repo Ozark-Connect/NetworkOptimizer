@@ -15,7 +15,7 @@ namespace NetworkOptimizer.Web.Endpoints;
 /// </summary>
 public static class PortStatsEndpoints
 {
-    // Matches a VLAN sub-interface such as "eth6.228" or "switch0.99": a base
+    // Matches a VLAN sub-interface such as "eth0.100" or "switch0.99": a base
     // interface name followed by a dotted numeric VLAN id.
     private static readonly Regex SubInterface = new(@"^(?<base>.+)\.(?<vlan>\d+)$", RegexOptions.Compiled);
 
@@ -69,7 +69,7 @@ public static class PortStatsEndpoints
                 if (friendlyByMacIf.TryGetValue((mac, ifName), out var direct))
                     return direct;
                 // VLAN sub-interface: inherit the parent port's friendly name and tag
-                // it with the VLAN id, e.g. eth6.228 -> "Fiber ISP (228)".
+                // it with the VLAN id, e.g. eth0.100 -> "Fiber ISP (100)".
                 var sub = SubInterface.Match(ifName);
                 if (sub.Success && friendlyByMacIf.TryGetValue((mac, sub.Groups["base"].Value), out var parent))
                     return $"{parent} ({sub.Groups["vlan"].Value})";
@@ -93,7 +93,7 @@ public static class PortStatsEndpoints
                                 mapByKey.TryGetValue((mac, p.IfName), out var nm);
                                 // VLAN sub-interfaces sit on a physical port, so they inherit
                                 // the parent port's number and media when their own row has
-                                // none (eth6.228 takes eth6's port number and SFP flag).
+                                // none (eth0.100 takes eth0's port number and SFP flag).
                                 InterfaceNameMap? parent = null;
                                 var sub = SubInterface.Match(p.IfName);
                                 if (sub.Success)

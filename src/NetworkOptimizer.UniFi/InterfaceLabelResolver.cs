@@ -6,34 +6,137 @@ namespace NetworkOptimizer.UniFi;
 
 /// <summary>
 /// Resolves friendly display labels for a gateway's Linux interface names from the
-/// authoritative UniFi sources (the device's WAN objects, port table, last_geo_info
-/// and mbb cellular state). Runs agent-side so the resolved map can later be
-/// persisted as time series; for now the polling agent caches it in memory.
+/// authoritative UniFi sources (the device's WAN objects, port table, last_geo_info,
+/// mbb cellular state, and the network configuration). Runs agent-side so the
+/// resolved map can later be persisted as time series; for now the polling agent
+/// caches it in memory and the port stats endpoint reads it.
 ///
-/// Pass 1 covers WAN interfaces (incl. cellular GRE tunnels like "gre1"); WireGuard /
-/// OpenVPN / SQM (ifb) labels that need networkconf land in a later pass.
+/// Coverage: physical/WAN ports (incl. cellular GRE like "gre1"), WireGuard clients
+/// ("wgclt{wireguard_id}"), OpenVPN, SQM shaping ("ifb{parent}") and honeypot/bridge
+/// interfaces (by VLAN → network name).
 /// </summary>
 public static class InterfaceLabelResolver
 {
-    // UniFi's default, unnamed port labels ("Port 7", "SFP 1", "SFP+ 2"). When a WAN
-    // port still carries one of these we prefer the carrier name over it.
     private static readonly Regex DefaultPortName =
         new(@"^(port|sfp\+?|rj45)\s*\d+$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex TrailingVlan = new(@"(\d+)$", RegexOptions.Compiled);
+
+    // VLAN sub-interface: "<base>.<vlan>" (e.g. "eth0.100").
+    private static readonly Regex SubInterface = new(@"^(.+)\.(\d+)$", RegexOptions.Compiled);
 
     /// <summary>True for UniFi's generic placeholder port names ("Port 7", "SFP+ 1").</summary>
     public static bool IsDefaultPortName(string? name) =>
         !string.IsNullOrWhiteSpace(name) && DefaultPortName.IsMatch(name.Trim());
 
     /// <summary>
-    /// Builds a Linux-ifname → display-label map for the device's WAN interfaces.
-    /// Every interface that can carry a WAN (its name, ifname and uplink ifname) maps
-    /// to "WANn - {name}", where {name} is the custom UniFi port name when present,
-    /// otherwise the resolved carrier. Cellular WANs get a "(5G)"/"(LTE)" suffix.
+    /// Builds a Linux-ifname → display-label map for the given interface names, using
+    /// the device config and networkconf. Only interfaces we can confidently name are
+    /// included; callers fall back to the raw ifname for the rest.
     /// </summary>
-    public static Dictionary<string, string> BuildWanLabels(UniFiDeviceResponse device)
+    public static Dictionary<string, string> BuildLabels(
+        UniFiDeviceResponse device,
+        IReadOnlyList<NetworkInfo>? networks,
+        IEnumerable<string> ifNames)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (device == null) return result;
+        networks ??= Array.Empty<NetworkInfo>();
+
+        var wanMap = BuildWanLabels(device);
+
+        // WireGuard clients: wgclt{wireguard_id} → configured tunnel name.
+        var wgMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in networks)
+            if (n.WireguardId is int wid
+                && !string.IsNullOrWhiteSpace(n.Name)
+                && (n.VpnType?.Contains("wireguard", StringComparison.OrdinalIgnoreCase) ?? false))
+                wgMap[$"wgclt{wid}"] = n.Name.Trim();
+
+        // OpenVPN client interface naming is firmware-specific; if there's exactly one
+        // configured OpenVPN client, use its name, otherwise a generic label.
+        var ovpnNames = networks
+            .Where(n => n.VpnType?.Contains("openvpn", StringComparison.OrdinalIgnoreCase) ?? false)
+            .Select(n => n.Name).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        var ovpnLabel = ovpnNames.Count == 1 ? ovpnNames[0]!.Trim() : "OpenVPN";
+
+        // VLAN id → corporate/LAN network name (for honeypot/bridge interfaces).
+        string? NetworkNameForVlan(int vlan)
+        {
+            var n = networks.FirstOrDefault(x =>
+                !x.IsWan && (x.VlanId ?? 0) == vlan && !string.IsNullOrWhiteSpace(x.Name));
+            return n?.Name?.Trim();
+        }
+
+        // Resolves the label of a base interface for SQM (ifb) parent lookups.
+        string BaseLabel(string ifName) =>
+            wanMap.TryGetValue(ifName, out var w) ? w
+            : wgMap.TryGetValue(ifName, out var g) ? g
+            : ifName;
+
+        foreach (var ifName in ifNames)
+        {
+            if (string.IsNullOrWhiteSpace(ifName)) continue;
+            var lower = ifName.ToLowerInvariant();
+
+            // A VLAN sub-interface of a WAN base inherits the WAN label plus its tag,
+            // e.g. eth0.100 → "WAN1 - Fiber ISP (100)". (The sub-if itself is not in
+            // the WAN object list, so check the base before the direct WAN lookup.)
+            var sub = SubInterface.Match(ifName);
+            if (sub.Success && wanMap.TryGetValue(sub.Groups[1].Value, out var baseWan))
+            {
+                result[ifName] = $"{baseWan} ({sub.Groups[2].Value})";
+                continue;
+            }
+
+            if (wanMap.TryGetValue(ifName, out var wan)) { result[ifName] = wan; continue; }
+            if (wgMap.TryGetValue(ifName, out var wg)) { result[ifName] = wg; continue; }
+
+            if (lower.StartsWith("ifb"))
+            {
+                // Only per-parent shaping interfaces (ifbeth0.100 → eth0.100) get an SQM
+                // label; the bare ifb0/ifb1 root devices are left unresolved (and hidden
+                // by the table when down).
+                var parent = ifName[3..];
+                if (parent.Length > 0 && !parent.All(char.IsDigit))
+                    result[ifName] = $"SQM ({BaseLabel(parent)})";
+            }
+            else if (lower.StartsWith("honeypot"))
+            {
+                var vlan = TrailingVlanId(ifName);
+                var net = vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
+                result[ifName] = net != null ? $"Honeypot ({net})"
+                    : vlan is > 0 ? $"Honeypot (VLAN {vlan})" : "Honeypot";
+            }
+            else if (lower.StartsWith("br"))
+            {
+                var vlan = TrailingVlanId(ifName);
+                var net = vlan.HasValue ? NetworkNameForVlan(vlan.Value) : null;
+                if (net != null) result[ifName] = net;
+            }
+            else if (lower.StartsWith("tun") || lower.StartsWith("ovpn") || lower.StartsWith("vtun"))
+            {
+                result[ifName] = ovpnLabel;
+            }
+        }
+
+        return result;
+    }
+
+    private static int? TrailingVlanId(string ifName)
+    {
+        var m = TrailingVlan.Match(ifName);
+        return m.Success && int.TryParse(m.Groups[1].Value, out var v) ? v : null;
+    }
+
+    /// <summary>
+    /// Linux-ifname → "WANn - {name}" for the device's WAN interfaces, where {name} is
+    /// the custom UniFi port name when present, otherwise the resolved carrier; cellular
+    /// WANs get a "(5G)"/"(LTE)" suffix.
+    /// </summary>
+    private static Dictionary<string, string> BuildWanLabels(UniFiDeviceResponse device)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (device == null) return map;
 
         var portNameByIdx = new Dictionary<int, string>();
         if (device.PortTable != null)
@@ -43,10 +146,8 @@ public static class InterfaceLabelResolver
 
         foreach (var wan in device.GetWanInterfaces())
         {
-            // "wan"/"wan2" → "WAN1"/"WAN2" (canonical UniFi UI naming).
             var wanDisplay = NetworkFormatHelpers.FormatWanInterfaceName(wan.Key);
 
-            // Custom (non-default) UniFi port name wins; otherwise the carrier.
             string? custom = null;
             if (wan.PortIdx is int idx
                 && portNameByIdx.TryGetValue(idx, out var pn)
