@@ -2,7 +2,7 @@
 // at the current map scrubber position (or live), renders them via the shared
 // renderStatsTable(), and exposes selectDevice() so a map double-click can
 // isolate a single switch/gateway.
-import { renderStatsTable as renderTable } from './chart-stats.js?v=3';
+import { renderStatsTable as renderTable } from './chart-stats.js?v=4';
 
 const _esc = document.createElement('span');
 function escapeHtml(s) { _esc.textContent = s == null ? '' : String(s); return _esc.innerHTML; }
@@ -164,8 +164,8 @@ function clientCell(p) {
 }
 
 const COLUMNS = [
-    { header: 'Port', format: v => v.html },
-    { header: 'Client', format: v => v.html },
+    { header: 'Port', format: v => v.html, sortable: false },
+    { header: 'Client', format: v => v.html, sortable: false },
     { header: 'Rate In', format: fmtRate },
     { header: 'Rate Out', format: fmtRate },
     { header: 'Unicast In', format: fmtCount },

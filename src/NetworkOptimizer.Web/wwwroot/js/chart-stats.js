@@ -49,6 +49,10 @@ export function renderStatsTable(el, container, opts) {
     const scrollLeft = prev ? prev.scrollLeft : 0;
 
     const headers = columns.map((col, i) => {
+        // Columns can opt out of sorting (e.g. cells holding HTML, not a sortable value).
+        if (col.sortable === false) {
+            return `<th${col.cls ? ` class="${col.cls}"` : ''}>${col.header}</th>`;
+        }
         const active = i === sortCol;
         const arrow = active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
         const classes = [active ? 'stats-sort-active' : '', col.cls || ''].filter(Boolean).join(' ');
