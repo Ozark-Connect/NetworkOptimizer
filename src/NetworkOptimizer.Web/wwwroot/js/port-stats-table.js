@@ -51,7 +51,8 @@ let fetchController = null;
 let seekDebounce = null;
 let io = null;
 let isVisibleInViewport = true;
-let visInitialized = false;
+let tabsEl = null;
+let activeTab = 'infra';   // 'infra' = gateways + switches, 'aps' = access points
 
 function speedClassMbps(mbps) {
     if (mbps == null || mbps <= 0) return '';
@@ -139,9 +140,40 @@ const COLUMNS = [
     { header: 'Discards Out', format: fmtCount, cls: 'hide-mobile' },
 ];
 
+function isApDevice(d) { return (d.type || '').toLowerCase() === 'ap'; }
+
+// Devices shown under the current tab: APs on the "APs" tab, everything else
+// (gateways, switches, unknown) on the "Gateways & Switches" tab.
+function tabDevices() {
+    return lastDevices.filter(d => activeTab === 'aps' ? isApDevice(d) : !isApDevice(d));
+}
+
+function renderTabs() {
+    if (!tabsEl) return;
+    const hasAps = lastDevices.some(isApDevice);
+    const hasInfra = lastDevices.some(d => !isApDevice(d));
+    // Only worth splitting when both classes are present.
+    if (!(hasAps && hasInfra)) { tabsEl.innerHTML = ''; return; }
+    const tabs = [['infra', 'Gateways & Switches'], ['aps', 'APs']];
+    tabsEl.innerHTML = tabs.map(([k, label]) =>
+        `<button class="tab-btn ${activeTab === k ? 'active' : ''}" data-tab="${k}">${label}</button>`).join('');
+    if (!tabsEl._delegated) {
+        tabsEl._delegated = true;
+        tabsEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-tab]');
+            if (!btn || btn.dataset.tab === activeTab) return;
+            activeTab = btn.dataset.tab;
+            rebuildMeta(tabDevices());
+            renderTabs();
+            renderBadges();
+            renderTableNow();
+        });
+    }
+}
+
 function buildRows() {
     const rows = [];
-    for (const d of lastDevices) {
+    for (const d of tabDevices()) {
         const vis = visibility[d.mac] !== false;
         for (const p of (d.ports || [])) {
             rows.push({
@@ -171,7 +203,7 @@ function buildRows() {
 function rebuildMeta(devices) {
     deviceMeta = devices.map(d => {
         const name = (d.name && d.name !== d.mac) ? d.name : (nameOverrides[d.mac] || d.name || d.mac);
-        return { mac: d.mac, name, color: hashColor(d.mac), isAp: (d.type || '').toLowerCase() === 'ap' };
+        return { mac: d.mac, name, color: hashColor(d.mac) };
     });
 }
 
@@ -254,18 +286,14 @@ async function loadAndRender() {
     const data = await fetchData();
     if (!data) return;
     lastDevices = data.devices || [];
-    rebuildMeta(lastDevices);
-    // Default to APs deselected on first load; user toggles persist afterwards.
-    if (!visInitialized && deviceMeta.length) {
-        deviceMeta.forEach(d => { if (d.isAp) visibility[d.mac] = false; });
-        visInitialized = true;
-    }
+    rebuildMeta(tabDevices());
     if (pendingSelect) {
         const match = deviceMeta.find(d => d.mac.toLowerCase() === pendingSelect.toLowerCase());
         if (match) deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac);
         pendingSelect = null;
     }
     updateCardVisibility();
+    renderTabs();
     renderBadges();
     renderTableNow();
 }
@@ -302,6 +330,10 @@ const api = {
     },
     selectDevice(mac) {
         if (!mac) return;
+        // Map double-click only fires for switches/gateways, so land on that tab.
+        activeTab = 'infra';
+        rebuildMeta(tabDevices());
+        renderTabs();
         const match = deviceMeta.find(d => d.mac.toLowerCase() === mac.toLowerCase());
         if (match) {
             deviceMeta.forEach(d => visibility[d.mac] = d.mac === match.mac);
@@ -316,7 +348,7 @@ const api = {
     updateDeviceMeta(meta) {
         if (!Array.isArray(meta)) return;
         for (const d of meta) if (d && d.mac && d.name) nameOverrides[d.mac] = d.name;
-        rebuildMeta(lastDevices);
+        rebuildMeta(tabDevices());
         renderBadges();
     },
     unmount() {
@@ -325,7 +357,7 @@ const api = {
         if (fetchController) fetchController.abort();
         if (io) { io.disconnect(); io = null; }
         if (window.__portStatsTable === api) window.__portStatsTable = null;
-        container = badgesEl = tableEl = null;
+        container = badgesEl = tableEl = tabsEl = null;
         lastDevices = [];
         deviceMeta = [];
         visibility = {};
@@ -338,6 +370,7 @@ export function mount(el, mountOpts = {}) {
     opts = mountOpts;
     badgesEl = container.querySelector('#port-stats-filter-badges') || container.querySelector('.health-filter-badges');
     tableEl = container.querySelector('#port-stats-table');
+    tabsEl = container.querySelector('#port-stats-tabs');
     legendEl = container.querySelector('#port-stats-legend');
     renderLegend();
     if (Array.isArray(mountOpts.deviceMeta)) {

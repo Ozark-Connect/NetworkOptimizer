@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Web.Services;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -22,6 +23,7 @@ public static class PortStatsEndpoints
     {
         app.MapGet("/api/monitoring/port-stats", async (
             MonitoringInfluxClient influx,
+            MonitoringLiveStats liveStats,
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
             string? macs,
             DateTime? at,
@@ -30,11 +32,13 @@ public static class PortStatsEndpoints
             var requested = (macs ?? "")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .ToList();
+            var filterMacs = requested.Count > 0 ? requested : null;
 
-            var points = await influx.QueryPortStatsAsync(
-                requested.Count > 0 ? requested : null,
-                at?.ToUniversalTime(),
-                ct);
+            // Live mode is served from the in-memory cache (sub-ms, no InfluxDB load);
+            // only historic scrubbing (an explicit timestamp) hits InfluxDB.
+            IReadOnlyList<MonitoringInfluxClient.PortStatsPoint> points = at.HasValue
+                ? await influx.QueryPortStatsAsync(filterMacs, at.Value.ToUniversalTime(), ct)
+                : liveStats.GetPortStatsSnapshot(filterMacs);
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -87,13 +91,20 @@ public static class PortStatsEndpoints
                             .Select(p =>
                             {
                                 mapByKey.TryGetValue((mac, p.IfName), out var nm);
+                                // VLAN sub-interfaces sit on a physical port, so they inherit
+                                // the parent port's number and media when their own row has
+                                // none (eth6.228 takes eth6's port number and SFP flag).
+                                InterfaceNameMap? parent = null;
+                                var sub = SubInterface.Match(p.IfName);
+                                if (sub.Success)
+                                    mapByKey.TryGetValue((mac, sub.Groups["base"].Value), out parent);
                                 return new
                                 {
                                     ifName = p.IfName,
                                     portId = p.PortId,
-                                    portNumber = nm?.PortNumber,
+                                    portNumber = nm?.PortNumber ?? parent?.PortNumber,
                                     friendlyName = ResolveFriendly(mac, p.IfName),
-                                    isSfp = nm?.IsSfp,
+                                    isSfp = nm?.IsSfp ?? parent?.IsSfp,
                                     linkSpeedMbps = nm?.SpeedMbps,
                                     operStatus = p.OperStatus,
                                     rateInBps = p.RateInBps,

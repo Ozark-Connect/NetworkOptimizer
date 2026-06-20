@@ -1572,6 +1572,32 @@ public class MonitoringCollectionAgent : BackgroundService
             bcastPktsOut: iface.OutBroadcastPkts > 0 ? iface.OutBroadcastPkts : null,
             timestamp: now);
 
+        // Mirror the full per-port snapshot into the live cache so the Live View port
+        // stats table can serve live mode from memory instead of querying InfluxDB.
+        _liveStats.RecordPortStats(new MonitoringInfluxClient.PortStatsPoint
+        {
+            DeviceMac = mac,
+            IfName = ifName,
+            PortId = iface.PortId ?? "",
+            OperStatus = iface.OperStatus,
+            SpeedBps = speedBps > 0 ? speedBps : (long?)null,
+            RateInBps = rateInBps,
+            RateOutBps = rateOutBps,
+            BytesIn = iface.InOctets,
+            BytesOut = iface.OutOctets,
+            UcastPktsIn = iface.InUcastPkts,
+            UcastPktsOut = iface.OutUcastPkts,
+            McastPktsIn = iface.InMulticastPkts,
+            McastPktsOut = iface.OutMulticastPkts,
+            BcastPktsIn = iface.InBroadcastPkts,
+            BcastPktsOut = iface.OutBroadcastPkts,
+            ErrorsIn = iface.InErrors,
+            ErrorsOut = iface.OutErrors,
+            DiscardsIn = iface.InDiscards,
+            DiscardsOut = iface.OutDiscards,
+            Time = now,
+        });
+
         // SNMP per-interface rates feed the port-keyed cache. Match SNMP ifName to
         // UniFi PortTable.Name (both Linux names like "eth4") then write keyed by
         // PortTable.PortIdx (the UniFi-side port number the post-process looks up).
