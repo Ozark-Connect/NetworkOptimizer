@@ -5964,6 +5964,76 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_DedicatedBlockAndDnatBothPartial_ExposureScoredOnce()
+    {
+        // Belt-and-suspenders: a dedicated port-53 block strategy AND DNAT, both partial, with IoT + Cameras
+        // exposed under both. Both findings report (visibility), but the exposure is scored ONCE - the
+        // DNS-53 partial finding owns it (Critical); the DNAT finding reports the gap as Informational so
+        // the same exposed network isn't deducted twice.
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Cameras", "192.168.3.0/24"));
+
+        // Dedicated DNS-53 block (port 53 specified -> strategy), source = LAN only
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS for LAN"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": { ""matching_target"": ""NETWORK"", ""network_ids"": [""net1""] },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // DNAT covers LAN only -> IoT, Cameras exposed under both mechanisms
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1"));
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks, null, null, natRules);
+
+        result.HasDns53BlockStrategy.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+
+        // DNS-53 partial owns the exposure score (Critical, deducts)
+        var dns53 = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.Dns53PartialCoverage).Subject;
+        dns53.Severity.Should().Be(AuditSeverity.Critical);
+        dns53.ScoreImpact.Should().BeGreaterThan(0);
+
+        // DNAT finding reports the same gap for visibility but does NOT double-deduct
+        var dnat = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsDnatPartialCoverage).Subject;
+        dnat.Severity.Should().Be(AuditSeverity.Informational);
+        dnat.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Analyze_ExcludedVlan_NotFlaggedAsExposed_WithoutNatData()
+    {
+        // A VLAN the user explicitly excluded from coverage checks must not be reported as exposed, even
+        // when no NAT data is supplied (the exclusion is captured from the VLAN-id list directly).
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, Subnet = "192.168.1.0/24", DhcpEnabled = true, Gateway = "192.168.1.1" },
+            new NetworkInfo { Id = "net2", Name = "Lab", VlanId = 99, Subnet = "192.168.99.0/24", DhcpEnabled = true, Gateway = "192.168.99.1" }
+        };
+
+        // No firewall, no NAT; user excluded VLAN 99 (Lab) from coverage checks
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null, firewallRules: null, switches: null, networks: networks,
+            deviceData: null, customDnsManagementPort: null, natRulesData: null,
+            dnatExcludedVlanIds: new List<int> { 99 });
+
+        result.ExcludedFromCoverageNetworks.Should().Contain("Lab");
+
+        // The catch-all flags LAN (exposed) but carves out the excluded Lab VLAN
+        var exposure = result.Issues.Should().ContainSingle(i => i.Type == IssueTypes.DnsNo53Block).Subject;
+        var exposed = (List<string>)exposure.Metadata!["exposed_networks"];
+        exposed.Should().Contain("LAN");
+        exposed.Should().NotContain("Lab");
+    }
+
+    [Fact]
     public async Task Analyze_BlanketBlocksCoverAllNetworks_NoDnat_NoExposureFinding()
     {
         // Blanket internet blocks on every network: block coverage is complete (not a strategy), so nothing
