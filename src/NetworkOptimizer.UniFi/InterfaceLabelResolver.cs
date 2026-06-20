@@ -84,7 +84,6 @@ public static class InterfaceLabelResolver
             if (string.IsNullOrWhiteSpace(ifName)) return null;
             var lower = ifName.ToLowerInvariant();
 
-            if (wanMap.TryGetValue(ifName, out var w)) return w;
             if (wgMap.TryGetValue(ifName, out var g)) return g;
 
             if (lower.StartsWith("ifb"))
@@ -96,16 +95,21 @@ public static class InterfaceLabelResolver
                 return $"{BaseOf(parent)} SQM";
             }
 
-            // VLAN sub-interface: "{base port label} ({network name})", e.g.
-            // "Office Backhaul (Management)" or "WAN1 - Fiber ISP (Guest)"; the tag falls
-            // back to the raw VLAN number when the VLAN has no named network.
+            // VLAN sub-interface: "{base port label} ({network name | VLAN id})", e.g.
+            // "Office Backhaul (Management)" or "WAN1 - Fiber ISP (Guest)". Checked before
+            // the direct WAN lookup so a WAN tagged on the sub-interface itself still
+            // surfaces its VLAN id (e.g. "WAN1 - Fiber ISP (100)") instead of the bare
+            // WAN label.
             var sub = SubInterface.Match(ifName);
             if (sub.Success)
             {
                 var vlan = sub.Groups[2].Value;
                 var tag = int.TryParse(vlan, out var v) && NetworkNameForVlan(v) is { } net ? net : vlan;
-                return $"{BaseOf(sub.Groups[1].Value)} ({tag})";
+                var baseLabel = wanMap.TryGetValue(ifName, out var wsub) ? wsub : BaseOf(sub.Groups[1].Value);
+                return $"{baseLabel} ({tag})";
             }
+
+            if (wanMap.TryGetValue(ifName, out var w)) return w;
 
             if (lower.StartsWith("honeypot"))
             {
