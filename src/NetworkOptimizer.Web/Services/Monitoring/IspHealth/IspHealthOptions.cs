@@ -83,14 +83,15 @@ public class IspHealthOptions
     public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
-    /// SNMP interface rate samples are end-stamped and arrive after the ping probe that
-    /// saw the same load: a load onset shows up in latency about one counter interval
-    /// before it shows in the rate series. When classifying a latency/loss sample as idle
-    /// or loaded, the sample's timestamp is shifted forward by this amount so it aligns
-    /// with the (later) counter window that reflects the throughput it actually experienced.
-    /// Applied consistently to idle-baseline, loaded-latency, and loaded-loss classification.
+    /// Forward shift applied to a latency/loss sample's timestamp before matching it to a
+    /// WAN rate window, in case the SNMP rate series (end-stamped, derived from a counter
+    /// poll) lands a few seconds after the ping probe that saw the same load. Default 0:
+    /// the differing probe-burst and counter-poll cadences are both end-stamped, so their
+    /// late-bias largely cancels and the two series align without a shift. Raise it only if
+    /// load-onset latency spikes are landing in idle windows. Applied consistently to
+    /// idle-baseline, loaded-latency, and loaded-loss classification.
     /// </summary>
-    public int CounterLagOffsetSeconds { get; set; } = 4;
+    public int CounterLagOffsetSeconds { get; set; } = 0;
 
     /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.
