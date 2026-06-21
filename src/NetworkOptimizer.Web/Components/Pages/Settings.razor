@@ -1015,7 +1015,7 @@
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">Provider</label>
                             <select class="form-control" @bind="_editingCm.Provider">
-                                <option value="netgear">Netgear CM (HTTP)</option>
+                                <option value="netgear">Netgear / Nighthawk CM (HTTP)</option>
                                 <option value="arris-surfboard">ARRIS Surfboard (HTTP)</option>
                                 <option value="arris-surfboard-hnap">ARRIS Surfboard S33/S34 (HNAP)</option>
                                 <option value="motorola-hnap">Motorola MB8611, MB8600 (HNAP)</option>
@@ -4206,7 +4206,7 @@
 
     private static string GetCmProviderDisplayName(string provider) => provider switch
     {
-        "netgear" => "Netgear CM (HTTP)",
+        "netgear" => "Netgear / Nighthawk CM (HTTP)",
         "arris-surfboard" => "ARRIS Surfboard (HTTP)",
         "arris-surfboard-hnap" => "ARRIS Surfboard S33/S34 (HNAP)",
         "motorola-hnap" => "Motorola (HNAP)",

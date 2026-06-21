@@ -9,24 +9,32 @@ using NetworkOptimizer.Monitoring.Providers;
 namespace NetworkOptimizer.Web.Services.CableModemProviders;
 
 /// <summary>
-/// Cable modem provider for Netgear DOCSIS modems (CM600, CM700, CM1000, CM1200, etc.).
-/// Scrapes the DocsisStatus status page via HTTP Basic Auth and parses
-/// downstream/upstream channel tables using HtmlAgilityPack.
+/// Cable modem provider for Netgear DOCSIS modems. Scrapes the DocsisStatus status page and
+/// parses downstream/upstream channel tables. One provider auto-detects across the family so a
+/// user never has to know which page/auth their specific model uses. Confirmed against the
+/// CM600, CM1000 (.asp) and CM700, CM2050V (.htm); other models are reached by the same
+/// fallback without being individually verified.
 ///
-/// Netgear is inconsistent about the page extension: most models serve
-/// <c>DocsisStatus.asp</c> (e.g. CM600, CM1000) while some serve <c>DocsisStatus.htm</c>
-/// (e.g. CM700) and return 404 for the .asp path. Model number does not reliably
+/// Netgear is inconsistent about the page extension: some models serve
+/// <c>DocsisStatus.asp</c> (e.g. CM600, CM1000) while others serve <c>DocsisStatus.htm</c>
+/// (e.g. CM700, CM2050V) and return 404 for the .asp path. Model number does not reliably
 /// predict which (CM600 and CM700 are both DOCSIS 3.0 yet differ), so the provider tries
 /// the configured/default path and transparently falls back to the alternate extension.
 ///
-/// They also differ in how Basic auth is gated: the CM700 (server "NET-DK/1.0") only accepts
-/// the credentials once an anti-CSRF cookie it sets on the initial 401 is echoed back, so the
-/// first request primes the cookie jar and FetchPageAsync retries once to satisfy it.
+/// Auth also varies. Most models gate the page behind HTTP Basic auth (the CM700, server
+/// "NET-DK/1.0", additionally requires an anti-CSRF cookie it sets on the initial 401 to be
+/// echoed back - the first request primes the cookie jar and FetchPageAsync retries once to
+/// satisfy it). The CM2050V's .htm UI instead uses a form login: a GET to the root seeds an
+/// <c>XSRF_TOKEN</c> cookie, credentials are POSTed to <c>/goform/Login</c>, and the session is
+/// bound to the source IP. The fallback matrix tries Basic first (covers most models in one
+/// request) and form login last, remembering whichever works per config.
 ///
-/// The two pages also differ in how channel data is delivered: the .asp page renders the
+/// The pages also differ in how channel data is delivered: the .asp page renders the
 /// downstream/upstream tables server-side, while the .htm page ships empty tables and a
-/// JavaScript tagValueList that the browser expands client-side. The parser handles both -
-/// the server-rendered tables first, then the tagValueList for any table left empty.
+/// JavaScript tagValueList that the browser expands client-side. The parser handles both - the
+/// server-rendered tables first, then the tagValueList for any table left empty. The CM2050V's
+/// .htm page carries four such tables: SC-QAM + OFDM downstream and ATDMA + OFDMA upstream, each
+/// in its own Init function; all four are parsed.
 /// </summary>
 public sealed class NetgearCmProvider : ICableModemProvider
 {
@@ -34,9 +42,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
     public string ProviderKey => "netgear";
 
     /// <inheritdoc/>
-    public string DisplayName => "Netgear CM (HTTP)";
+    public string DisplayName => "Netgear / Nighthawk CM (HTTP)";
 
     private const string DefaultStatusPath = "/DocsisStatus.asp";
+    private const string LoginPath = "/goform/Login";
     private const int TimeoutSeconds = 15;
     private const int MaxRetries = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
@@ -61,14 +70,29 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private static readonly Regex UsTagValueListRx =
         new(@"InitUsTableTagValue\s*\(\s*\)\s*\{.*?var\s+tagValueList\s*=\s*'([^']*)'",
             RegexOptions.Singleline | RegexOptions.Compiled);
+    // The CM2050V's .htm page carries two extra tables for the OFDM downstream and OFDMA
+    // upstream channels, each in its own Init function. Anchoring on the distinct function
+    // names keeps these separate from the SC-QAM/ATDMA tables above.
+    private static readonly Regex DsOfdmTagValueListRx =
+        new(@"InitDsOfdmTableTagValue\s*\(\s*\)\s*\{.*?var\s+tagValueList\s*=\s*'([^']*)'",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex UsOfdmaTagValueListRx =
+        new(@"InitUsOfdmaTableTagValue\s*\(\s*\)\s*\{.*?var\s+tagValueList\s*=\s*'([^']*)'",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+
+    // The form-login page (.htm DOCSIS 3.1 models) bakes a per-load cache-buster id into its
+    // form action (e.g. action="/goform/Login?id=1248795675"); we reuse it when present.
+    private static readonly Regex LoginIdRx =
+        new(@"goform/Login\?id=(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly ILogger<NetgearCmProvider> _logger;
 
     /// <summary>
-    /// Remembers the status-page path (.asp or .htm) that last succeeded per CmConfiguration.Id
-    /// so later polls go straight to it instead of re-probing the dead extension every interval.
+    /// Remembers the (status-page path, form-login) combination that last succeeded per
+    /// CmConfiguration.Id so later polls go straight to it instead of re-probing the dead
+    /// extension or wrong auth style every interval.
     /// </summary>
-    private readonly ConcurrentDictionary<int, string> _attemptCache = new();
+    private readonly ConcurrentDictionary<int, (string Path, bool FormLogin)> _attemptCache = new();
 
     public NetgearCmProvider(ILogger<NetgearCmProvider> logger)
     {
@@ -181,12 +205,14 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
     /// <summary>
     /// Fetch the DOCSIS status page, transparently falling back across both Netgear page
-    /// extensions (.asp &lt;-&gt; .htm) since model number doesn't predict which a modem serves.
-    /// Credentials are sent when configured (Netgear gates the page behind HTTP Basic; the
-    /// CM700 additionally requires an anti-CSRF cookie, handled in FetchPageAsync). Any HTTP
-    /// status error or transport error advances to the next attempt; the last attempt's error
-    /// propagates, so a genuine auth failure (every attempt rejected) still surfaces. The
-    /// winning path is cached per config so later polls go straight to it.
+    /// extensions (.asp &lt;-&gt; .htm) AND auth styles (HTTP Basic, then a form login - POST to
+    /// /goform/Login - for models that bind the web session to the source IP, confirmed on the
+    /// CM2050V). Model number doesn't predict which combo a modem needs. A page is accepted only
+    /// when it actually looks like a status
+    /// page; a wrong combo that still returns HTTP 200 (e.g. a login/index page) advances to the
+    /// next attempt, as does any HTTP/transport error. The last attempt's error propagates, so a
+    /// genuine auth failure still surfaces. The winning combo is cached per config so later polls
+    /// go straight to it.
     /// </summary>
     private async Task<string?> FetchWithFallbackAsync(
         CmPollContext context,
@@ -194,56 +220,70 @@ public sealed class NetgearCmProvider : ICableModemProvider
         bool fullMatrix)
     {
         var attempts = ResolveAttempts(context, fullMatrix);
+        var hasCreds = !string.IsNullOrEmpty(context.Username) && !string.IsNullOrEmpty(context.Password);
 
         for (int i = 0; i < attempts.Count; i++)
         {
-            var (path, useCreds) = attempts[i];
+            var (path, formLogin) = attempts[i];
             var url = BuildUrl(context, path);
-            var user = useCreds ? context.Username : null;
-            var pass = useCreds ? context.Password : null;
+            var isLast = i == attempts.Count - 1;
             try
             {
-                var html = await FetchPageAsync(url, user, pass, cancellationToken);
-                if (context.Id > 0)
-                    _attemptCache[context.Id] = path;
-                return html;
+                var html = formLogin
+                    ? await FetchViaFormLoginAsync(url, context.Username, context.Password, cancellationToken)
+                    : await FetchPageAsync(url, hasCreds ? context.Username : null, hasCreds ? context.Password : null, cancellationToken);
+
+                // Accept only a real DocsisStatus page. A wrong extension or auth style can still
+                // return HTTP 200 with a login/index page (notably a Basic GET against a
+                // form-login model), which must not be cached as the winning combo.
+                if (IsStatusPage(html))
+                {
+                    if (context.Id > 0)
+                        _attemptCache[context.Id] = (path, formLogin);
+                    return html;
+                }
+
+                if (isLast)
+                    return html;
+
+                _logger.LogDebug(
+                    "Netgear CM {Name}: {Path} (form={Form}) returned a non-status page; trying next attempt",
+                    context.Name, path, formLogin);
             }
-            catch (HttpRequestException ex) when (i < attempts.Count - 1)
+            catch (HttpRequestException ex) when (!isLast)
             {
                 // Advance on any HTTP status error (404/403/5xx) or transport error (connection
                 // reset/closed, where StatusCode is null). Netgear firmware signals an
                 // unavailable path inconsistently - the wrong extension 404s on some models and
                 // closes the connection on others - so we don't gate on a specific code.
                 _logger.LogDebug(
-                    "Netgear CM {Name}: {Path} (creds={UseCreds}) failed ({Reason}); trying next attempt",
-                    context.Name, path, useCreds,
+                    "Netgear CM {Name}: {Path} (form={Form}) failed ({Reason}); trying next attempt",
+                    context.Name, path, formLogin,
                     ex.StatusCode is { } status ? $"HTTP {(int)status}" : ex.Message);
             }
         }
 
-        // Unreachable: the loop returns on the first success, and the last attempt's exception
-        // is not caught here (the when-guard requires a remaining attempt) so it propagates to
-        // PollAsync/TestConnectionAsync.
         return null;
     }
 
     /// <summary>
-    /// Build the ordered list of attempts: the configured/default path and the alternate Netgear
-    /// extension (.asp ↔ .htm), each carrying the configured credentials (or none, when the
-    /// config has no credentials). The path recorded as working for this config is moved to the
-    /// front.
+    /// Build the ordered list of (path, form-login) attempts: the configured/default path and the
+    /// alternate Netgear extension (.asp ↔ .htm) tried with HTTP Basic first (one request, covers
+    /// most models), then a form-login attempt on the .htm page for the newer models that need
+    /// it. Form login requires credentials to POST, so it's only added when the config has them.
+    /// The combo recorded as working for this config is moved to the front.
     /// </summary>
-    private List<(string Path, bool UseCreds)> ResolveAttempts(CmPollContext context, bool fullMatrix)
+    private List<(string Path, bool FormLogin)> ResolveAttempts(CmPollContext context, bool fullMatrix)
     {
         var hasCreds = !string.IsNullOrEmpty(context.Username) && !string.IsNullOrEmpty(context.Password);
 
-        // Fast path: a known-good path is cached and we're not forcing a re-probe. Return only
-        // that path so a transient blip self-recovers on the next poll retry instead of probing
-        // (and logging a 404 or connection error for) the wrong extension. The poll loop forces
-        // the full matrix on its final retry, so a path that has genuinely stopped working is
-        // still re-discovered.
-        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var cachedPath))
-            return new List<(string Path, bool UseCreds)> { (cachedPath, hasCreds) };
+        // Fast path: a known-good combo is cached and we're not forcing a re-probe. Return only
+        // that combo so a transient blip self-recovers on the next poll retry instead of probing
+        // (and logging a 404 or connection error for) the wrong extension/auth. The poll loop
+        // forces the full matrix on its final retry, so a combo that has genuinely stopped working
+        // is still re-discovered.
+        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var cached))
+            return new List<(string Path, bool FormLogin)> { cached };
 
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
             ? DefaultStatusPath
@@ -254,16 +294,21 @@ public sealed class NetgearCmProvider : ICableModemProvider
         if (alternate != null)
             paths.Add(alternate);
 
-        // Send credentials iff they're configured. Netgear CMs gate the DOCSIS status page
-        // behind HTTP Basic auth (the CM700 also wants an anti-CSRF cookie, primed in
-        // FetchPageAsync), so there's no "serves openly yet rejects creds" case to fall back to:
-        // a modem either needs the configured creds or has none. The page extension
-        // (.asp <-> .htm) is the only axis that actually varies, so it's the only one we probe.
-        var attempts = paths.Select(p => (Path: p, UseCreds: hasCreds)).ToList();
-
-        if (context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var lastGoodPath))
+        // Basic-auth attempts first (the CM700 also wants an anti-CSRF cookie, primed in
+        // FetchPageAsync). Then a single form-login attempt on the .htm page for models that gate
+        // it behind a /goform/Login session (confirmed on the CM2050V). Form login needs
+        // credentials to POST, so it's only added when the config has them.
+        var attempts = paths.Select(p => (Path: p, FormLogin: false)).ToList();
+        if (hasCreds)
         {
-            var idx = attempts.FindIndex(a => a.Path == lastGoodPath);
+            var htmPath = paths.FirstOrDefault(p => p.EndsWith("DocsisStatus.htm", StringComparison.OrdinalIgnoreCase));
+            if (htmPath != null)
+                attempts.Add((htmPath, true));
+        }
+
+        if (context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var lastGood))
+        {
+            var idx = attempts.FindIndex(a => a.Path == lastGood.Path && a.FormLogin == lastGood.FormLogin);
             if (idx > 0)
             {
                 var item = attempts[idx];
@@ -287,6 +332,87 @@ public sealed class NetgearCmProvider : ICableModemProvider
         if (path.EndsWith("DocsisStatus.htm", StringComparison.OrdinalIgnoreCase))
             return string.Concat(path.AsSpan(0, path.Length - 4), ".asp");
         return null;
+    }
+
+    /// <summary>
+    /// True when a fetched page is a DocsisStatus page - either the server-rendered ds/us tables
+    /// (.asp) or the client-side tagValueList Init functions (.htm) - rather than a login/index
+    /// page returned when the wrong extension or auth style is tried. Both forms contain the
+    /// "dsTable"/"usTable" token (as an element id, or inside InitDsTableTagValue/InitUsTableTagValue),
+    /// which a login page does not.
+    /// </summary>
+    private static bool IsStatusPage(string? html) =>
+        !string.IsNullOrEmpty(html)
+        && (html.Contains("dsTable", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("usTable", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Fetch the status page via the form login observed on the CM2050V's .htm UI: GET the root
+    /// to seed the <c>XSRF_TOKEN</c> cookie and reuse the form action's cache-buster id, POST the
+    /// credentials to <c>/goform/Login</c>, then GET the status page on the same cookie jar. The
+    /// modem binds the session to the source IP, so a single HttpClient/CookieContainer carries
+    /// it across the three requests.
+    /// </summary>
+    private async Task<string?> FetchViaFormLoginAsync(
+        string statusUrl,
+        string? username,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        var baseUrl = new Uri(statusUrl).GetLeftPart(UriPartial.Authority);
+
+        using var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
+            CookieContainer = new System.Net.CookieContainer(),
+            UseCookies = true,
+            AllowAutoRedirect = true,
+        };
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(TimeoutSeconds),
+        };
+
+        // Prime the XSRF_TOKEN cookie and reuse the form's cache-buster id. Non-fatal on failure -
+        // we fall back to a generated id and rely on the cookie the POST itself would set.
+        string? loginId = null;
+        try
+        {
+            using var loginPage = await client.GetAsync($"{baseUrl}/", cancellationToken);
+            if (loginPage.IsSuccessStatusCode)
+            {
+                var loginHtml = await loginPage.Content.ReadAsStringAsync(cancellationToken);
+                var idMatch = LoginIdRx.Match(loginHtml);
+                if (idMatch.Success)
+                    loginId = idMatch.Groups[1].Value;
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug(ex, "Netgear CM form login: could not pre-fetch login page at {BaseUrl}", baseUrl);
+        }
+
+        loginId ??= Random.Shared.Next(100_000_000, 999_999_999).ToString();
+
+        var loginContent = new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("loginName", username ?? "admin"),
+            new KeyValuePair<string, string>("loginPassword", password ?? ""),
+        });
+
+        using (var loginResponse = await client.PostAsync($"{baseUrl}{LoginPath}?id={loginId}", loginContent, cancellationToken))
+        {
+            // Surface transport/HTTP errors (4xx/5xx) so the caller advances to the next combo.
+            // Wrong credentials usually 200 back to the login page rather than erroring, so that
+            // case isn't decided here - the status GET below plus the caller's IsStatusPage check
+            // reject it.
+            loginResponse.EnsureSuccessStatusCode();
+        }
+
+        using var response = await client.GetAsync(statusUrl, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(content) ? null : content;
     }
 
     private async Task<string?> FetchPageAsync(
@@ -571,15 +697,58 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 }
             }
         }
+
+        // The CM2050V's .htm page carries two further tables - OFDM downstream and OFDMA upstream -
+        // in their own Init functions. These are separate channels, so they're always appended
+        // (a modem with these has its SC-QAM/ATDMA channels populated above already).
+        var dsOfdm = DsOfdmTagValueListRx.Match(html);
+        if (dsOfdm.Success)
+        {
+            // Per channel: Channel, Lock Status, Profile IDs, Channel ID, Frequency, Power, SNR/MER,
+            // Active Subcarrier Range, Unerrored, Correctable, Uncorrectable codewords. The OFDM
+            // codeword counts run to the billions and would swamp the SC-QAM correctable/
+            // uncorrectable totals, so they are intentionally left out of the aggregates.
+            foreach (var f in ChunkTagValues(dsOfdm.Groups[1].Value, minPerChannel: 7))
+            {
+                stats.DownstreamChannels.Add(new DsChannel
+                {
+                    LockStatus = f[1],
+                    Modulation = "OFDM",
+                    ChannelId = ParseInt(f[3]),
+                    Frequency = ParseFrequency(f[4]),
+                    Power = ParseDouble(f[5]),
+                    Snr = ParseDouble(f[6]),
+                });
+            }
+        }
+
+        var usOfdma = UsOfdmaTagValueListRx.Match(html);
+        if (usOfdma.Success)
+        {
+            // Per channel: Channel, Lock Status, Profile IDs, Channel ID, Frequency, Power. OFDMA
+            // has no fixed symbol rate.
+            foreach (var f in ChunkTagValues(usOfdma.Groups[1].Value, minPerChannel: 6))
+            {
+                stats.UpstreamChannels.Add(new UsChannel
+                {
+                    LockStatus = f[1],
+                    ChannelType = "OFDMA",
+                    ChannelId = ParseInt(f[3]),
+                    Frequency = ParseFrequency(f[4]),
+                    Power = ParseDouble(f[5]),
+                });
+            }
+        }
     }
 
     /// <summary>
     /// Split a Netgear tagValueList - a leading channel count followed by pipe-delimited
     /// per-channel fields - into one field list per channel. A trailing pipe leaves an empty
     /// token that is ignored. Returns nothing if the count is missing/invalid or the fields
-    /// don't divide into per-channel groups of at least the seven shared columns.
+    /// don't divide into per-channel groups of at least <paramref name="minPerChannel"/> columns
+    /// (7 for the SC-QAM/ATDMA tables, fewer for the OFDMA upstream table).
     /// </summary>
-    private static IEnumerable<List<string>> ChunkTagValues(string tagValueList)
+    private static IEnumerable<List<string>> ChunkTagValues(string tagValueList, int minPerChannel = 7)
     {
         var tokens = tagValueList.Split('|');
         if (tokens.Length < 2 || !int.TryParse(tokens[0].Trim(), out var count) || count <= 0)
@@ -590,7 +759,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
             fields.RemoveAt(fields.Count - 1);
 
         var perChannel = fields.Count / count;
-        if (perChannel < 7)
+        if (perChannel < minPerChannel)
             yield break;
 
         for (int c = 0; c < count; c++)
