@@ -90,10 +90,22 @@ public class IspHealthOptions
     /// separation. Both series are end-stamped so their cadence late-bias cancels; a positive
     /// shift only smears upstream load into up-loaded windows (fabricating up bufferbloat and
     /// inverting down-vs-up loss), while a negative shift drops real down signal. Raise only
-    /// if load-onset latency spikes start landing in idle windows. Applied consistently to
-    /// idle-baseline, loaded-latency, and loaded-loss classification.
+    /// if load-onset latency spikes start landing in idle windows. Applied to idle-baseline
+    /// and loaded-latency classification; loaded loss uses <see cref="LoadedLossOffsetSeconds"/>.
     /// </summary>
     public int CounterLagOffsetSeconds { get; set; } = 0;
+
+    /// <summary>
+    /// Counter-lag offset for loaded packet loss, separate from <see cref="CounterLagOffsetSeconds"/>
+    /// because loss needs a different shift than loaded latency. Loaded latency is elevated across
+    /// the whole load period, so 0 works; loss concentrates at the saturation tail / buffer overflow
+    /// and is end-stamped at probe-burst completion, so it lands a few seconds AFTER the WAN rate
+    /// window that defines the load. Default -5: observed on a GPON speed test where drops registered
+    /// ~5 s after the download phase ended, and confirmed by an offset sweep (the negative band
+    /// maximized down loaded loss and drove up loaded loss to 0). Negative shifts the loss sample
+    /// earlier so it bins into the load window that actually caused it.
+    /// </summary>
+    public int LoadedLossOffsetSeconds { get; set; } = -5;
 
     /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.

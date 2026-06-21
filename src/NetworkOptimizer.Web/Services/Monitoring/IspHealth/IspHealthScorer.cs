@@ -559,7 +559,7 @@ public class IspHealthScorer
         Dictionary<DateTime, LoadWindow> loadWindows,
         Func<LoadWindow, bool> directionSelector)
     {
-        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
+        var lagOffset = TimeSpan.FromSeconds(_options.LoadedLossOffsetSeconds);
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
                 && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
