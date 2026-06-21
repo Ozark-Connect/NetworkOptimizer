@@ -17,18 +17,18 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 /// <c>var tagValueList = 'count|field|field|...'</c> split on <c>|</c>, NOT as the
 /// server-rendered <c>dsTable</c>/<c>usTable</c> HTML tables the older modems emit.
 ///
+/// The page carries four channel tables, each in its own Init function:
+/// InitDsTableTagValue (SC-QAM downstream), InitDsOfdmTableTagValue (OFDM downstream),
+/// InitUsTableTagValue (ATDMA upstream), and InitUsOfdmaTableTagValue (OFDMA upstream).
+/// The login flow and all four field layouts are validated against a real CM2050V
+/// DocsisStatus.htm capture (34 downstream = 32 QAM + 2 OFDM, 5 upstream = 4 ATDMA +
+/// 1 OFDMA), cross-checked against the page's own column comments. See GitHub issue #820.
+///
 /// Auth varies within this family, so we try both modes (see
 /// <see cref="LoginAndFetchStatusAsync"/>): the CM2000/CM2050V use a form login
-/// (<c>POST /goform/Login</c> with <c>loginName</c>/<c>loginPassword</c>, IP-based
-/// session) - confirmed from a CM2050V HAR - while the CM1150V uses HTTP Basic Auth
-/// (per hdholm/ModemCheck). We attempt the form login first and fall back to Basic.
-///
-/// VALIDATION PENDING: the channel field order below is taken from the documented
-/// Netgear Nighthawk DocsisStatus format (hdholm/ModemCheck for downstream, standard
-/// Netgear upstream column order). The CM2050V HAR we have captured only the login +
-/// dashboard, not DocsisStatus.htm, so the parser and the exact login token flow still
-/// need to be verified against a real DocsisStatus.htm capture and covered by unit tests.
-/// See GitHub issue #820.
+/// (<c>POST /goform/Login</c> with <c>loginName</c>/<c>loginPassword</c>; the modem seeds
+/// an <c>XSRF_TOKEN</c> cookie on first GET and ties the session to the source IP) while
+/// the CM1150V uses HTTP Basic Auth. We attempt the form login first and fall back to Basic.
 /// </summary>
 public sealed class NetgearNighthawkCmProvider : ICableModemProvider
 {
@@ -51,15 +51,21 @@ public sealed class NetgearNighthawkCmProvider : ICableModemProvider
     private static readonly Regex LoginIdRx =
         new(@"goform/Login\?id=(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Pulls the inline `var tagValueList = '...'` string out of a named Init function on
-    // the DocsisStatus page (e.g. InitDsTableTagValue for downstream, InitUsTableTagValue
-    // for upstream). The captured group is the raw pipe-delimited list, leading count and all.
-    private static readonly Regex DownstreamTagListRx =
-        new(@"InitDsTableTagValue\b.*?var\s+tagValueList\s*=\s*'([^']*)'",
+    // Pulls the inline `var tagValueList = '...'` string out of a named Init function on the
+    // DocsisStatus page. The page has four channel tables, each with its own Init function:
+    // InitDsTableTagValue (SC-QAM downstream), InitDsOfdmTableTagValue (OFDM downstream),
+    // InitUsTableTagValue (ATDMA upstream), InitUsOfdmaTableTagValue (OFDMA upstream).
+    // Each function also contains a commented-out decoy assignment using DOUBLE quotes, so
+    // we anchor on the live SINGLE-quoted assignment only. The captured group is the raw
+    // pipe-delimited list, leading channel count and all.
+    private static Regex TagListRx(string initFunction) =>
+        new(initFunction + @"\b.*?var\s+tagValueList\s*=\s*'([^']*)'",
             RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
-    private static readonly Regex UpstreamTagListRx =
-        new(@"InitUsTableTagValue\b.*?var\s+tagValueList\s*=\s*'([^']*)'",
-            RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex ScQamDownstreamRx = TagListRx("InitDsTableTagValue");
+    private static readonly Regex OfdmDownstreamRx = TagListRx("InitDsOfdmTableTagValue");
+    private static readonly Regex AtdmaUpstreamRx = TagListRx("InitUsTableTagValue");
+    private static readonly Regex OfdmaUpstreamRx = TagListRx("InitUsOfdmaTableTagValue");
 
     private readonly ILogger<NetgearNighthawkCmProvider> _logger;
 
@@ -314,39 +320,45 @@ public sealed class NetgearNighthawkCmProvider : ICableModemProvider
             DeviceModel = "Netgear Nighthawk",
         };
 
-        ParseDownstream(html, stats);
-        ParseUpstream(html, stats);
+        ParseScQamDownstream(html, stats);
+        ParseOfdmDownstream(html, stats);
+        ParseAtdmaUpstream(html, stats);
+        ParseOfdmaUpstream(html, stats);
 
         return stats;
     }
 
+    // The four channel tables expose unused channels as fixed placeholder slots
+    // ("Not Locked|Unknown|0|0|...") with channel id 0 and frequency 0. The modem's own UI
+    // and other tooling count only real channels, so we skip placeholders by that signature.
+    private static bool IsPlaceholder(int channelId, long frequency) => channelId == 0 && frequency == 0;
+
     /// <summary>
-    /// Downstream field order per channel (from hdholm/ModemCheck for this firmware family):
+    /// SC-QAM downstream (InitDsTableTagValue). Field order per channel, confirmed against a
+    /// real CM2050V DocsisStatus.htm (the page's own comment documents the same layout):
     /// [0] channel number, [1] lock status, [2] modulation, [3] channel id, [4] frequency,
     /// [5] power (dBmV), [6] SNR (dB), [7] correctables, [8] uncorrectables.
     /// </summary>
-    private void ParseDownstream(string html, CableModemStats stats)
+    private void ParseScQamDownstream(string html, CableModemStats stats)
     {
-        var fields = ExtractTagValueFields(html, DownstreamTagListRx, out var count);
-        if (fields == null || count <= 0)
+        var (fields, perChannel, count) = ExtractChannels(html, ScQamDownstreamRx, 9, "SC-QAM downstream");
+        if (fields == null)
             return;
-
-        var perChannel = fields.Count / count;
-        if (perChannel < 6)
-        {
-            _logger.LogDebug("Netgear Nighthawk CM: unexpected downstream field width {Width} for {Count} channels", perChannel, count);
-            return;
-        }
 
         for (int c = 0; c < count; c++)
         {
             var b = c * perChannel;
+            var channelId = ParseInt(Field(fields, b + 3));
+            var frequency = ParseFrequency(Field(fields, b + 4));
+            if (IsPlaceholder(channelId, frequency))
+                continue;
+
             stats.DownstreamChannels.Add(new DsChannel
             {
-                ChannelId = ParseInt(Field(fields, b + 3)),
+                ChannelId = channelId,
                 LockStatus = Field(fields, b + 1),
                 Modulation = Field(fields, b + 2),
-                Frequency = ParseFrequency(Field(fields, b + 4)),
+                Frequency = frequency,
                 Power = ParseDouble(Field(fields, b + 5)),
                 Snr = ParseDouble(Field(fields, b + 6)),
                 Correctables = ParseLong(Field(fields, b + 7)),
@@ -356,37 +368,125 @@ public sealed class NetgearNighthawkCmProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Upstream field order per channel (standard Netgear DocsisStatus column order):
-    /// [0] channel number, [1] lock status, [2] channel type, [3] channel id,
-    /// [4] symbol rate, [5] frequency, [6] power (dBmV). VALIDATION PENDING - confirm
-    /// against a real CM2050V capture; OFDMA upstreams in particular may reorder fields.
+    /// OFDM downstream (InitDsOfdmTableTagValue). Field order per channel, confirmed against a
+    /// real CM2050V capture: [0] channel number, [1] lock status, [2] profile ids,
+    /// [3] channel id, [4] frequency, [5] power (dBmV), [6] SNR/MER (dB),
+    /// [7] active subcarrier range, [8] unerrored, [9] correctable, [10] uncorrectable codewords.
+    /// OFDM codeword counts run to the billions and would swamp the SC-QAM correctable/
+    /// uncorrectable totals, so (matching solentlabs/cable_modem_monitor) we deliberately do
+    /// not fold them into the aggregates.
     /// </summary>
-    private void ParseUpstream(string html, CableModemStats stats)
+    private void ParseOfdmDownstream(string html, CableModemStats stats)
     {
-        var fields = ExtractTagValueFields(html, UpstreamTagListRx, out var count);
-        if (fields == null || count <= 0)
+        var (fields, perChannel, count) = ExtractChannels(html, OfdmDownstreamRx, 11, "OFDM downstream");
+        if (fields == null)
             return;
-
-        var perChannel = fields.Count / count;
-        if (perChannel < 5)
-        {
-            _logger.LogDebug("Netgear Nighthawk CM: unexpected upstream field width {Width} for {Count} channels", perChannel, count);
-            return;
-        }
 
         for (int c = 0; c < count; c++)
         {
             var b = c * perChannel;
+            var channelId = ParseInt(Field(fields, b + 3));
+            var frequency = ParseFrequency(Field(fields, b + 4));
+            if (IsPlaceholder(channelId, frequency))
+                continue;
+
+            stats.DownstreamChannels.Add(new DsChannel
+            {
+                ChannelId = channelId,
+                LockStatus = Field(fields, b + 1),
+                Modulation = "OFDM",
+                Frequency = frequency,
+                Power = ParseDouble(Field(fields, b + 5)),
+                Snr = ParseDouble(Field(fields, b + 6)),
+            });
+        }
+    }
+
+    /// <summary>
+    /// ATDMA (SC-QAM) upstream (InitUsTableTagValue). Field order per channel, confirmed
+    /// against a real CM2050V capture (the page's own comment documents the same layout):
+    /// [0] channel number, [1] lock status, [2] channel type, [3] channel id,
+    /// [4] symbol rate, [5] frequency, [6] power (dBmV).
+    /// </summary>
+    private void ParseAtdmaUpstream(string html, CableModemStats stats)
+    {
+        var (fields, perChannel, count) = ExtractChannels(html, AtdmaUpstreamRx, 7, "ATDMA upstream");
+        if (fields == null)
+            return;
+
+        for (int c = 0; c < count; c++)
+        {
+            var b = c * perChannel;
+            var channelId = ParseInt(Field(fields, b + 3));
+            var frequency = ParseFrequency(Field(fields, b + 5));
+            if (IsPlaceholder(channelId, frequency))
+                continue;
+
             stats.UpstreamChannels.Add(new UsChannel
             {
-                ChannelId = ParseInt(Field(fields, b + 3)),
+                ChannelId = channelId,
                 LockStatus = Field(fields, b + 1),
                 ChannelType = Field(fields, b + 2),
                 SymbolRate = ParseSymbolRate(Field(fields, b + 4)),
-                Frequency = ParseFrequency(Field(fields, b + 5)),
+                Frequency = frequency,
                 Power = ParseDouble(Field(fields, b + 6)),
             });
         }
+    }
+
+    /// <summary>
+    /// OFDMA upstream (InitUsOfdmaTableTagValue). Field order per channel, confirmed against a
+    /// real CM2050V capture: [0] channel number, [1] lock status, [2] profile ids,
+    /// [3] channel id, [4] frequency, [5] power (dBmV). OFDMA has no fixed symbol rate.
+    /// </summary>
+    private void ParseOfdmaUpstream(string html, CableModemStats stats)
+    {
+        var (fields, perChannel, count) = ExtractChannels(html, OfdmaUpstreamRx, 6, "OFDMA upstream");
+        if (fields == null)
+            return;
+
+        for (int c = 0; c < count; c++)
+        {
+            var b = c * perChannel;
+            var channelId = ParseInt(Field(fields, b + 3));
+            var frequency = ParseFrequency(Field(fields, b + 4));
+            if (IsPlaceholder(channelId, frequency))
+                continue;
+
+            stats.UpstreamChannels.Add(new UsChannel
+            {
+                ChannelId = channelId,
+                LockStatus = Field(fields, b + 1),
+                ChannelType = "OFDMA",
+                Frequency = frequency,
+                Power = ParseDouble(Field(fields, b + 5)),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Locate a table's tagValueList, split it, and validate its width. Returns the flat field
+    /// list, the derived fields-per-channel, and the channel count. fields is null when the
+    /// table is absent or its width does not match (or exceed) the expected layout - we derive
+    /// the width from the leading count so trailing columns added by other firmware are tolerated.
+    /// </summary>
+    private (List<string>? fields, int perChannel, int count) ExtractChannels(
+        string html, Regex rx, int expectedWidth, string label)
+    {
+        var fields = ExtractTagValueFields(html, rx, out var count);
+        if (fields == null || count <= 0)
+            return (null, 0, 0);
+
+        var perChannel = fields.Count / count;
+        if (perChannel < expectedWidth)
+        {
+            _logger.LogDebug(
+                "Netgear Nighthawk CM: {Label} field width {Width} below expected {Expected} for {Count} channels",
+                label, perChannel, expectedWidth, count);
+            return (null, 0, 0);
+        }
+
+        return (fields, perChannel, count);
     }
 
     /// <summary>
