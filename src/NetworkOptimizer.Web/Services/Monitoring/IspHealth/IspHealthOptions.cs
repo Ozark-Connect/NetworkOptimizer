@@ -83,17 +83,24 @@ public class IspHealthOptions
     public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
-    /// Forward shift applied to a latency/loss sample's timestamp before matching it to a
-    /// WAN rate window, to compensate if the SNMP rate series (end-stamped, derived from a
-    /// counter poll) lags the ping probe that saw the same load. Default 0: an offset sweep
-    /// over -7..+7 s on real GPON data showed 0 maximizes the down/up loaded-latency
-    /// separation. Both series are end-stamped so their cadence late-bias cancels; a positive
-    /// shift only smears upstream load into up-loaded windows (fabricating up bufferbloat and
-    /// inverting down-vs-up loss), while a negative shift drops real down signal. Raise only
-    /// if load-onset latency spikes start landing in idle windows. Applied consistently to
-    /// idle-baseline, loaded-latency, and loaded-loss classification.
+    /// Seconds the loaded-window leading edge is extended backward when matching loaded latency
+    /// and loaded loss samples. A load event has a ramp (queue fills before throughput crosses the
+    /// loaded threshold) whose early latency/loss falls in transition windows that are neither idle
+    /// nor loaded and would otherwise be dropped. Dilating the leading edge reclaims it. Bucket-
+    /// quantized to <see cref="LoadWindowSeconds"/>, so ~5 s extends by one window.
     /// </summary>
-    public int CounterLagOffsetSeconds { get; set; } = 0;
+    public int LoadedLeadSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Seconds the loaded-window trailing edge is extended forward when matching loaded latency and
+    /// loaded loss samples. Loss especially concentrates at the saturation tail / buffer drain and is
+    /// end-stamped at probe-burst completion, so it lands a few seconds after the WAN rate window that
+    /// defines the load (observed ~5 s after a GPON speed test's download phase ended). Dilation
+    /// captures it without the leading-edge loss a fixed back-shift causes. Dilation never crosses into
+    /// an opposite-direction loaded run, so a speed test's download tail cannot bleed into its upload
+    /// phase. Bucket-quantized to <see cref="LoadWindowSeconds"/>.
+    /// </summary>
+    public int LoadedTailSeconds { get; set; } = 5;
 
     /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.
