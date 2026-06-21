@@ -87,7 +87,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
         {
             try
             {
-                var html = await FetchWithFallbackAsync(context, cancellationToken);
+                // Force the full path/credential matrix only on the final retry, so a cached
+                // combo's transient blip recovers via the earlier retries without probing
+                // (and logging) every other combo.
+                var html = await FetchWithFallbackAsync(context, cancellationToken, fullMatrix: attempt == MaxRetries);
                 if (html == null)
                 {
                     _logger.LogWarning(
@@ -138,7 +141,9 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
         try
         {
-            var html = await FetchWithFallbackAsync(context, cancellationToken);
+            // A manual test should probe everything to find a working combo, so force the
+            // full matrix regardless of any cached result.
+            var html = await FetchWithFallbackAsync(context, cancellationToken, fullMatrix: true);
             if (html == null)
                 return (false, "No response from cable modem");
 
@@ -183,9 +188,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// </summary>
     private async Task<string?> FetchWithFallbackAsync(
         CmPollContext context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool fullMatrix)
     {
-        var attempts = ResolveAttempts(context);
+        var attempts = ResolveAttempts(context, fullMatrix);
 
         for (int i = 0; i < attempts.Count; i++)
         {
@@ -226,8 +232,16 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// first (when configured) and then without. The attempt recorded as working for this
     /// config is moved to the front.
     /// </summary>
-    private List<(string Path, bool UseCreds)> ResolveAttempts(CmPollContext context)
+    private List<(string Path, bool UseCreds)> ResolveAttempts(CmPollContext context, bool fullMatrix)
     {
+        // Fast path: a known-good combo is cached and we're not forcing a re-probe. Return only
+        // that combo so a transient blip self-recovers on the next poll retry instead of probing
+        // (and logging a 401 or connection error for) every other path/credential combo. The
+        // poll loop forces the full matrix on its final retry, so a combo that has genuinely
+        // stopped working is still re-discovered.
+        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var cached))
+            return new List<(string Path, bool UseCreds)> { cached };
+
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
             ? DefaultStatusPath
             : context.StatusPagePath;
