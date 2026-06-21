@@ -102,6 +102,17 @@ function fmtRate(bps) {
 
 const fmtCount = v => v == null ? '-' : Number(v).toLocaleString();
 
+// Cumulative byte counter boiled down to the largest sensible unit. Decimal (1000-based)
+// KB/MB/GB to match the decimal Kbps/Mbps/Gbps of fmtRate above.
+function fmtBytes(bytes) {
+    if (bytes == null) return '-';
+    if (bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1);
+    const v = bytes / Math.pow(1000, i);
+    return `${i === 0 ? v.toFixed(0) : v.toFixed(2)} ${units[i]}`;
+}
+
 // UniFi PortTable.SfpFound is authoritative; fall back to a name heuristic only
 // when the correlation hasn't populated isSfp (e.g. virtual interfaces).
 function portIsSfp(p) {
@@ -168,6 +179,8 @@ const COLUMNS = [
     { header: 'Client', format: v => v.html, sortable: false },
     { header: 'Rate In', format: fmtRate },
     { header: 'Rate Out', format: fmtRate },
+    { header: 'Bytes In', format: fmtBytes },
+    { header: 'Bytes Out', format: fmtBytes },
     { header: 'Unicast In', format: fmtCount },
     { header: 'Unicast Out', format: fmtCount },
     { header: 'Multicast In', format: fmtCount },
@@ -234,6 +247,7 @@ function buildRows() {
                     { html: portCell(p) },
                     { html: clientCell(p) },
                     p.rateInBps, p.rateOutBps,
+                    p.bytesIn, p.bytesOut,
                     p.ucastPktsIn, p.ucastPktsOut,
                     p.mcastPktsIn, p.mcastPktsOut,
                     p.bcastPktsIn, p.bcastPktsOut,
