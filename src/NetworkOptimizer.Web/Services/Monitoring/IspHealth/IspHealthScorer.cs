@@ -152,8 +152,8 @@ public class IspHealthScorer
         double? down = null, up = null;
         if (loadWindows.Count > 0)
         {
-            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown);
-            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp);
+            down = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
+            up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
         }
 
         bool downFromSpeedTest = false, upFromSpeedTest = false;
@@ -192,9 +192,8 @@ public class IspHealthScorer
         var rtts = firstHop.Where(s => s.RttAvgMs.HasValue).ToList();
         if (rtts.Count == 0) return null;
 
-        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var idleRtts = rtts
-            .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w) && w.IsIdle)
+            .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time), out var w) && w.IsIdle)
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
         if (idleRtts.Count > 0) return SeriesStats.WinsorizedMean(idleRtts, _options.RttWinsorPercentile);
@@ -455,23 +454,22 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// <summary>
     /// Loaded-latency delta from ISP access hops only. Each access hop's loaded RTT
     /// samples are baseline-subtracted and pooled; the median of the pool (filtered
     /// > 0.5 ms) is the result. Pooling raw samples instead of per-target aggregates
-    /// is stable even with sparse loaded data (typical residential). Sample timestamps
-    /// are shifted forward by the counter lag offset so they align with the interface
-    /// counter window, which is end-stamped and arrives after the probe that saw the
-    /// same load (a load onset shows in latency about one counter interval before it
-    /// shows in the rate series).
+    /// is stable even with sparse loaded data (typical residential). Loaded windows are
+    /// dilated (see <see cref="DilateLoadedWindows"/>) so the ramp-in rise and drain tail of
+    /// an event - which fall in transition windows outside the strict rate threshold - are
+    /// captured rather than dropped.
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
         Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector)
+        Func<LoadWindow, bool> directionSelector,
+        Func<LoadWindow, bool> oppositeSelector)
     {
         const double noiseFloor = 0.5;
-        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
+        var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
 
         var accessCohort = inputs.AccessHopSeries.Count > 0
             ? inputs.AccessHopSeries
@@ -484,9 +482,7 @@ public class IspHealthScorer
             if (baseline == null) continue;
 
             var deltas = hop
-                .Where(s => s.RttAvgMs.HasValue
-                    && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
-                    && directionSelector(w))
+                .Where(s => s.RttAvgMs.HasValue && loaded.Contains(FloorToWindow(s.Time)))
                 .Select(s => s.RttAvgMs!.Value - baseline.Value);
 
             pooledDeltas.AddRange(deltas);
@@ -512,8 +508,8 @@ public class IspHealthScorer
             }, false);
         }
 
-        var downLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedDown);
-        var upLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedUp);
+        var downLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
+        var upLoss = LoadedMeanLoss(lossPool, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
 
         var scores = new List<double>();
         if (downLoss.HasValue) scores.Add(ScoreLossBand(downLoss.Value, profile.LoadedLossDownLowPct, profile.LoadedLossDownHighPct));
@@ -557,17 +553,77 @@ public class IspHealthScorer
     private double? LoadedMeanLoss(
         List<List<LatencySample>> lossPool,
         Dictionary<DateTime, LoadWindow> loadWindows,
-        Func<LoadWindow, bool> directionSelector)
+        Func<LoadWindow, bool> directionSelector,
+        Func<LoadWindow, bool> oppositeSelector)
     {
-        var lagOffset = TimeSpan.FromSeconds(_options.LoadedLossOffsetSeconds);
+        var loaded = DilateLoadedWindows(loadWindows, directionSelector, oppositeSelector);
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
-                && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
-                && directionSelector(w))
+                && loaded.Contains(FloorToWindow(s.Time)))
             .Select(s => s.LossPercent!.Value)
             .ToList();
         if (losses.Count < _options.MinLoadedSamples) return null;
         return losses.Average();
+    }
+
+    /// <summary>
+    /// Window keys that count as loaded in a direction for sample matching: the directly
+    /// loaded windows plus up to <see cref="IspHealthOptions.LoadedLeadSeconds"/> before and
+    /// <see cref="IspHealthOptions.LoadedTailSeconds"/> after each loaded run. The ramp fills
+    /// the queue before throughput crosses the loaded threshold and the drain (plus end-stamped
+    /// loss probes) trails it, so without dilation the edges of every event are dropped. Dilation
+    /// never crosses into a window loaded in the OPPOSITE direction, so a speed test's download
+    /// tail does not bleed into its upload phase. Idle classification is unaffected (this builds a
+    /// loaded set only), keeping the baseline a clean uncongested floor.
+    /// </summary>
+    private HashSet<DateTime> DilateLoadedWindows(
+        Dictionary<DateTime, LoadWindow> loadWindows,
+        Func<LoadWindow, bool> directionSelector,
+        Func<LoadWindow, bool> oppositeSelector)
+    {
+        var leadWindows = (int)Math.Ceiling((double)_options.LoadedLeadSeconds / _options.LoadWindowSeconds);
+        var tailWindows = (int)Math.Ceiling((double)_options.LoadedTailSeconds / _options.LoadWindowSeconds);
+
+        var loaded = new HashSet<DateTime>();
+        foreach (var (key, w) in loadWindows)
+        {
+            if (!directionSelector(w)) continue;
+            loaded.Add(key);
+            for (var i = 1; i <= leadWindows; i++)
+            {
+                var k = key.AddSeconds(-i * _options.LoadWindowSeconds);
+                if (loadWindows.TryGetValue(k, out var nw) && oppositeSelector(nw)) break;
+                loaded.Add(k);
+            }
+            for (var i = 1; i <= tailWindows; i++)
+            {
+                var k = key.AddSeconds(i * _options.LoadWindowSeconds);
+                if (loadWindows.TryGetValue(k, out var nw) && oppositeSelector(nw)) break;
+                loaded.Add(k);
+            }
+        }
+        return loaded;
+    }
+
+    /// <summary>
+    /// TEMP DIAGNOSTIC (dilation sweep): the passive loaded-latency and loaded-loss values
+    /// (down/up) for the current options, using the exact production classification. Lead/tail
+    /// of 0 reproduces the strict (offset-0) baseline. Remove together with the sweep in
+    /// IspHealthService.
+    /// </summary>
+    public (double? DownLatencyMs, double? UpLatencyMs, double? DownLossPct, double? UpLossPct, int LoadedWindows)
+        DiagnoseLoadedFactors(IspHealthInputs inputs)
+    {
+        var loadWindows = LoadClassifier.Classify(
+            inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps,
+            _options, inputs.LoadExclusionWindows, _logger);
+        if (loadWindows.Count == 0) return (null, null, null, null, 0);
+        var downLat = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
+        var upLat = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+        var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
+        var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
+        var loaded = loadWindows.Values.Count(w => w.IsLoadedDown || w.IsLoadedUp);
+        return (downLat, upLat, downLoss, upLoss, loaded);
     }
 
     /// <summary>
@@ -1244,8 +1300,8 @@ public class IspHealthScorer
         var loss = false;
         if (loadWindows.Count > 0)
         {
-            var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown);
-            var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp);
+            var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
+            var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
             loss = downLoss > profile.LoadedLossDownHighPct || upLoss > profile.LoadedLossUpHighPct;
         }
         return (latency, loss);
