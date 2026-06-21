@@ -402,8 +402,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
         using (var loginResponse = await client.PostAsync($"{baseUrl}{LoginPath}?id={loginId}", loginContent, cancellationToken))
         {
-            // A failed login still typically 200s back to the login page; the status GET below
-            // and the caller's IsStatusPage check decide success, so we don't gate on this status.
+            // Surface transport/HTTP errors (4xx/5xx) so the caller advances to the next combo.
+            // Wrong credentials usually 200 back to the login page rather than erroring, so that
+            // case isn't decided here - the status GET below plus the caller's IsStatusPage check
+            // reject it.
             loginResponse.EnsureSuccessStatusCode();
         }
 
