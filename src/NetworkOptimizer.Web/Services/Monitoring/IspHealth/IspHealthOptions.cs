@@ -84,11 +84,13 @@ public class IspHealthOptions
 
     /// <summary>
     /// Forward shift applied to a latency/loss sample's timestamp before matching it to a
-    /// WAN rate window, in case the SNMP rate series (end-stamped, derived from a counter
-    /// poll) lands a few seconds after the ping probe that saw the same load. Default 0:
-    /// the differing probe-burst and counter-poll cadences are both end-stamped, so their
-    /// late-bias largely cancels and the two series align without a shift. Raise it only if
-    /// load-onset latency spikes are landing in idle windows. Applied consistently to
+    /// WAN rate window, to compensate if the SNMP rate series (end-stamped, derived from a
+    /// counter poll) lags the ping probe that saw the same load. Default 0: an offset sweep
+    /// over -7..+7 s on real GPON data showed 0 maximizes the down/up loaded-latency
+    /// separation. Both series are end-stamped so their cadence late-bias cancels; a positive
+    /// shift only smears upstream load into up-loaded windows (fabricating up bufferbloat and
+    /// inverting down-vs-up loss), while a negative shift drops real down signal. Raise only
+    /// if load-onset latency spikes start landing in idle windows. Applied consistently to
     /// idle-baseline, loaded-latency, and loaded-loss classification.
     /// </summary>
     public int CounterLagOffsetSeconds { get; set; } = 0;
