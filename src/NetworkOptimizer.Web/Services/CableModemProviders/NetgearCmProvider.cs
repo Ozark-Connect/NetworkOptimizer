@@ -42,7 +42,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     public string ProviderKey => "netgear";
 
     /// <inheritdoc/>
-    public string DisplayName => "Netgear / Nighthawk (HTTP)";
+    public string DisplayName => "Netgear / Nighthawk CM (HTTP)";
 
     private const string DefaultStatusPath = "/DocsisStatus.asp";
     private const string LoginPath = "/goform/Login";
