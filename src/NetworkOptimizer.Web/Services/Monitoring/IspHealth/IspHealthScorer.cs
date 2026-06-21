@@ -422,10 +422,13 @@ public class IspHealthScorer
         }
 
         // A negative delta means latency did not rise under load (noise/faster); show
-        // it as +0 ms rather than a confusing "+-0.1".
-        var parts = new List<string>();
-        if (deltas.DownMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.DownMs.Value)} down");
-        if (deltas.UpMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.UpMs.Value)} up");
+        // it as +0 ms rather than a confusing "+-0.1". Always show both directions; a
+        // direction with no loaded samples reads "n/a" (distinct from a measured +0 ms).
+        var parts = new List<string>
+        {
+            deltas.DownMs.HasValue ? $"+{FormatLoadedDelta(deltas.DownMs.Value)} down" : "n/a down",
+            deltas.UpMs.HasValue ? $"+{FormatLoadedDelta(deltas.UpMs.Value)} up" : "n/a up"
+        };
         var valuedDirections = (deltas.DownMs.HasValue ? 1 : 0) + (deltas.UpMs.HasValue ? 1 : 0);
         var speedTestDirections = (deltas.DownMs.HasValue && deltas.DownFromSpeedTest ? 1 : 0)
             + (deltas.UpMs.HasValue && deltas.UpFromSpeedTest ? 1 : 0);
@@ -524,9 +527,13 @@ public class IspHealthScorer
             }, false);
         }
 
-        var parts = new List<string>();
-        if (downLoss.HasValue) parts.Add($"{FormatPct(downLoss.Value)} down");
-        if (upLoss.HasValue) parts.Add($"{FormatPct(upLoss.Value)} up");
+        // Always show both directions; a direction with no loaded samples reads "n/a"
+        // (distinct from a measured 0%).
+        var parts = new List<string>
+        {
+            downLoss.HasValue ? $"{FormatPct(downLoss.Value)} down" : "n/a down",
+            upLoss.HasValue ? $"{FormatPct(upLoss.Value)} up" : "n/a up"
+        };
 
         return (new IspScoreFactor
         {
