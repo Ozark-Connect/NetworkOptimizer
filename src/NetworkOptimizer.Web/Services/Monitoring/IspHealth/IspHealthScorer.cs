@@ -133,7 +133,10 @@ public class IspHealthScorer
     }
 
     /// <summary>Where the loaded latency evidence came from.</summary>
-    internal record LoadedDeltas(double? DownMs, double? UpMs, bool FromSpeedTests);
+    internal record LoadedDeltas(double? DownMs, double? UpMs, bool DownFromSpeedTest, bool UpFromSpeedTest)
+    {
+        public bool FromSpeedTests => DownFromSpeedTest || UpFromSpeedTest;
+    }
 
     /// <summary>
     /// Loaded latency deltas per direction. Passive evidence first: latency samples
@@ -153,7 +156,7 @@ public class IspHealthScorer
             up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp);
         }
 
-        var fromSpeedTests = false;
+        bool downFromSpeedTest = false, upFromSpeedTest = false;
         if (down == null || up == null)
         {
             var (tests, _) = SelectSpeedTests(inputs);
@@ -168,15 +171,15 @@ public class IspHealthScorer
             if (down == null && downDeltas.Count > 0)
             {
                 down = SeriesStats.Median(downDeltas);
-                fromSpeedTests = true;
+                downFromSpeedTest = true;
             }
             if (up == null && upDeltas.Count > 0)
             {
                 up = SeriesStats.Median(upDeltas);
-                fromSpeedTests = true;
+                upFromSpeedTest = true;
             }
         }
-        return new LoadedDeltas(down, up, fromSpeedTests);
+        return new LoadedDeltas(down, up, downFromSpeedTest, upFromSpeedTest);
     }
 
     /// <summary>
@@ -424,7 +427,12 @@ public class IspHealthScorer
         var parts = new List<string>();
         if (deltas.DownMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.DownMs.Value)} down");
         if (deltas.UpMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.UpMs.Value)} up");
-        var source = deltas.FromSpeedTests ? " Measured by WAN speed tests." : "";
+        var valuedDirections = (deltas.DownMs.HasValue ? 1 : 0) + (deltas.UpMs.HasValue ? 1 : 0);
+        var speedTestDirections = (deltas.DownMs.HasValue && deltas.DownFromSpeedTest ? 1 : 0)
+            + (deltas.UpMs.HasValue && deltas.UpFromSpeedTest ? 1 : 0);
+        var source = speedTestDirections == 0 ? ""
+            : speedTestDirections == valuedDirections ? " Measured by WAN speed tests."
+            : " Partially determined by WAN speed tests.";
 
         return (new IspScoreFactor
         {
