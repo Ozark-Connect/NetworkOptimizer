@@ -606,27 +606,6 @@ public class IspHealthScorer
     }
 
     /// <summary>
-    /// TEMP DIAGNOSTIC (dilation sweep): the passive loaded-latency and loaded-loss values
-    /// (down/up) for the current options, using the exact production classification. Lead/tail
-    /// of 0 reproduces the strict (offset-0) baseline. Remove together with the sweep in
-    /// IspHealthService.
-    /// </summary>
-    public (double? DownLatencyMs, double? UpLatencyMs, double? DownLossPct, double? UpLossPct, int LoadedWindows)
-        DiagnoseLoadedFactors(IspHealthInputs inputs)
-    {
-        var loadWindows = LoadClassifier.Classify(
-            inputs.WanRates, inputs.ExpectedDownloadMbps, inputs.ExpectedUploadMbps,
-            _options, inputs.LoadExclusionWindows, _logger);
-        if (loadWindows.Count == 0) return (null, null, null, null, 0);
-        var downLat = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-        var upLat = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
-        var downLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedDown, w => w.IsLoadedUp);
-        var upLoss = LoadedMeanLoss(inputs.LossPoolSeries, loadWindows, w => w.IsLoadedUp, w => w.IsLoadedDown);
-        var loaded = loadWindows.Values.Count(w => w.IsLoadedDown || w.IsLoadedUp);
-        return (downLat, upLat, downLoss, upLoss, loaded);
-    }
-
-    /// <summary>
     /// Grades one ASN (transit) or one ISP hop: a quality blend (stability, jitter,
     /// loss, congestion) capped by a reach ceiling. Jitter and stability come from
     /// <see cref="AsnSeries.JitterSourceSamples"/> when set (a transit ASN's farther

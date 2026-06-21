@@ -597,25 +597,6 @@ public class IspHealthService
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
-
-        // TEMP DIAGNOSTIC: loaded-window dilation sweep over identical inputs. lead/tail in
-        // seconds (0/5/10 -> 0/1/2 buckets); lead=tail=0 reproduces the strict offset-0 baseline
-        // so it lines up with the earlier offset sweep. Remove with IspHealthScorer.DiagnoseLoadedFactors.
-        var sweepHours = Math.Round((windowEnd - windowStart).TotalHours);
-        foreach (var lead in new[] { 0, 5, 10 })
-        {
-            foreach (var tail in new[] { 0, 5, 10 })
-            {
-                var d = new IspHealthScorer(new IspHealthOptions { LoadedLeadSeconds = lead, LoadedTailSeconds = tail }, _logger)
-                    .DiagnoseLoadedFactors(inputs);
-                _logger.LogDebug(
-                    "ISP Health dilation sweep [{Hours}h]: lead={Lead}s tail={Tail}s loadedWindows={Windows} | loaded latency down={DownLat} up={UpLat} ms | loaded loss down={DownLoss} up={UpLoss} %",
-                    sweepHours, lead, tail, d.LoadedWindows,
-                    d.DownLatencyMs?.ToString("F2") ?? "n/a", d.UpLatencyMs?.ToString("F2") ?? "n/a",
-                    d.DownLossPct?.ToString("F3") ?? "n/a", d.UpLossPct?.ToString("F3") ?? "n/a");
-            }
-        }
-
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
