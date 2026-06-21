@@ -189,8 +189,9 @@ public class IspHealthScorer
         var rtts = firstHop.Where(s => s.RttAvgMs.HasValue).ToList();
         if (rtts.Count == 0) return null;
 
+        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var idleRtts = rtts
-            .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time), out var w) && w.IsIdle)
+            .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w) && w.IsIdle)
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
         if (idleRtts.Count > 0) return SeriesStats.WinsorizedMean(idleRtts, _options.RttWinsorPercentile);
@@ -451,8 +452,10 @@ public class IspHealthScorer
     /// samples are baseline-subtracted and pooled; the median of the pool (filtered
     /// > 0.5 ms) is the result. Pooling raw samples instead of per-target aggregates
     /// is stable even with sparse loaded data (typical residential). Sample timestamps
-    /// are shifted back by the counter lag offset so they align with the interface
-    /// counter window that reflects actual throughput at probe time.
+    /// are shifted forward by the counter lag offset so they align with the interface
+    /// counter window, which is end-stamped and arrives after the probe that saw the
+    /// same load (a load onset shows in latency about one counter interval before it
+    /// shows in the rate series).
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
@@ -474,7 +477,7 @@ public class IspHealthScorer
 
             var deltas = hop
                 .Where(s => s.RttAvgMs.HasValue
-                    && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
+                    && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
                     && directionSelector(w))
                 .Select(s => s.RttAvgMs!.Value - baseline.Value);
 
@@ -551,7 +554,7 @@ public class IspHealthScorer
         var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
-                && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
+                && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
                 && directionSelector(w))
             .Select(s => s.LossPercent!.Value)
             .ToList();

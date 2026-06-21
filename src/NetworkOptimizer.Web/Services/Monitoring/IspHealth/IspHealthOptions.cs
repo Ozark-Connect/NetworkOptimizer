@@ -83,10 +83,12 @@ public class IspHealthOptions
     public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
-    /// SNMP interface counters lag behind real-time ping probes by several seconds.
-    /// When classifying a latency/loss sample as idle or loaded, the sample's timestamp
-    /// is shifted back by this amount so it aligns with the counter window that reflects
-    /// the actual throughput at the time the sample was taken.
+    /// SNMP interface rate samples are end-stamped and arrive after the ping probe that
+    /// saw the same load: a load onset shows up in latency about one counter interval
+    /// before it shows in the rate series. When classifying a latency/loss sample as idle
+    /// or loaded, the sample's timestamp is shifted forward by this amount so it aligns
+    /// with the (later) counter window that reflects the throughput it actually experienced.
+    /// Applied consistently to idle-baseline, loaded-latency, and loaded-loss classification.
     /// </summary>
     public int CounterLagOffsetSeconds { get; set; } = 4;
 
