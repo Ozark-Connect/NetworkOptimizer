@@ -83,12 +83,17 @@ public class IspHealthOptions
     public int LoadWindowSeconds { get; set; } = 7;
 
     /// <summary>
-    /// SNMP interface counters lag behind real-time ping probes by several seconds.
-    /// When classifying a latency/loss sample as idle or loaded, the sample's timestamp
-    /// is shifted back by this amount so it aligns with the counter window that reflects
-    /// the actual throughput at the time the sample was taken.
+    /// Forward shift applied to a latency/loss sample's timestamp before matching it to a
+    /// WAN rate window, to compensate if the SNMP rate series (end-stamped, derived from a
+    /// counter poll) lags the ping probe that saw the same load. Default 0: an offset sweep
+    /// over -7..+7 s on real GPON data showed 0 maximizes the down/up loaded-latency
+    /// separation. Both series are end-stamped so their cadence late-bias cancels; a positive
+    /// shift only smears upstream load into up-loaded windows (fabricating up bufferbloat and
+    /// inverting down-vs-up loss), while a negative shift drops real down signal. Raise only
+    /// if load-onset latency spikes start landing in idle windows. Applied consistently to
+    /// idle-baseline, loaded-latency, and loaded-loss classification.
     /// </summary>
-    public int CounterLagOffsetSeconds { get; set; } = 4;
+    public int CounterLagOffsetSeconds { get; set; } = 0;
 
     /// <summary>
     /// How long a computed report stays fresh before the ISP Health tab recomputes it.

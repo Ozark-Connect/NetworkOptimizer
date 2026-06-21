@@ -133,7 +133,10 @@ public class IspHealthScorer
     }
 
     /// <summary>Where the loaded latency evidence came from.</summary>
-    internal record LoadedDeltas(double? DownMs, double? UpMs, bool FromSpeedTests);
+    internal record LoadedDeltas(double? DownMs, double? UpMs, bool DownFromSpeedTest, bool UpFromSpeedTest)
+    {
+        public bool FromSpeedTests => DownFromSpeedTest || UpFromSpeedTest;
+    }
 
     /// <summary>
     /// Loaded latency deltas per direction. Passive evidence first: latency samples
@@ -153,7 +156,7 @@ public class IspHealthScorer
             up = LoadedLatencyDelta(inputs, loadWindows, w => w.IsLoadedUp);
         }
 
-        var fromSpeedTests = false;
+        bool downFromSpeedTest = false, upFromSpeedTest = false;
         if (down == null || up == null)
         {
             var (tests, _) = SelectSpeedTests(inputs);
@@ -168,15 +171,15 @@ public class IspHealthScorer
             if (down == null && downDeltas.Count > 0)
             {
                 down = SeriesStats.Median(downDeltas);
-                fromSpeedTests = true;
+                downFromSpeedTest = true;
             }
             if (up == null && upDeltas.Count > 0)
             {
                 up = SeriesStats.Median(upDeltas);
-                fromSpeedTests = true;
+                upFromSpeedTest = true;
             }
         }
-        return new LoadedDeltas(down, up, fromSpeedTests);
+        return new LoadedDeltas(down, up, downFromSpeedTest, upFromSpeedTest);
     }
 
     /// <summary>
@@ -189,8 +192,9 @@ public class IspHealthScorer
         var rtts = firstHop.Where(s => s.RttAvgMs.HasValue).ToList();
         if (rtts.Count == 0) return null;
 
+        var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var idleRtts = rtts
-            .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time), out var w) && w.IsIdle)
+            .Where(s => loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w) && w.IsIdle)
             .Select(s => s.RttAvgMs!.Value)
             .ToList();
         if (idleRtts.Count > 0) return SeriesStats.WinsorizedMean(idleRtts, _options.RttWinsorPercentile);
@@ -423,7 +427,12 @@ public class IspHealthScorer
         var parts = new List<string>();
         if (deltas.DownMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.DownMs.Value)} down");
         if (deltas.UpMs.HasValue) parts.Add($"+{FormatLoadedDelta(deltas.UpMs.Value)} up");
-        var source = deltas.FromSpeedTests ? " Measured by WAN speed tests." : "";
+        var valuedDirections = (deltas.DownMs.HasValue ? 1 : 0) + (deltas.UpMs.HasValue ? 1 : 0);
+        var speedTestDirections = (deltas.DownMs.HasValue && deltas.DownFromSpeedTest ? 1 : 0)
+            + (deltas.UpMs.HasValue && deltas.UpFromSpeedTest ? 1 : 0);
+        var source = speedTestDirections == 0 ? ""
+            : speedTestDirections == valuedDirections ? " Measured by WAN speed tests."
+            : " Partially determined by WAN speed tests.";
 
         return (new IspScoreFactor
         {
@@ -451,8 +460,10 @@ public class IspHealthScorer
     /// samples are baseline-subtracted and pooled; the median of the pool (filtered
     /// > 0.5 ms) is the result. Pooling raw samples instead of per-target aggregates
     /// is stable even with sparse loaded data (typical residential). Sample timestamps
-    /// are shifted back by the counter lag offset so they align with the interface
-    /// counter window that reflects actual throughput at probe time.
+    /// are shifted forward by the counter lag offset so they align with the interface
+    /// counter window, which is end-stamped and arrives after the probe that saw the
+    /// same load (a load onset shows in latency about one counter interval before it
+    /// shows in the rate series).
     /// </summary>
     private double? LoadedLatencyDelta(
         IspHealthInputs inputs,
@@ -474,7 +485,7 @@ public class IspHealthScorer
 
             var deltas = hop
                 .Where(s => s.RttAvgMs.HasValue
-                    && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
+                    && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
                     && directionSelector(w))
                 .Select(s => s.RttAvgMs!.Value - baseline.Value);
 
@@ -551,7 +562,7 @@ public class IspHealthScorer
         var lagOffset = TimeSpan.FromSeconds(_options.CounterLagOffsetSeconds);
         var losses = lossPool.SelectMany(series => series)
             .Where(s => s.LossPercent.HasValue && !InOutage(s.Time)
-                && loadWindows.TryGetValue(FloorToWindow(s.Time - lagOffset), out var w)
+                && loadWindows.TryGetValue(FloorToWindow(s.Time + lagOffset), out var w)
                 && directionSelector(w))
             .Select(s => s.LossPercent!.Value)
             .ToList();
