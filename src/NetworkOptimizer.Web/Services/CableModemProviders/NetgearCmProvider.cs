@@ -15,9 +15,13 @@ namespace NetworkOptimizer.Web.Services.CableModemProviders;
 ///
 /// Netgear is inconsistent about the page extension: most models serve
 /// <c>DocsisStatus.asp</c> (e.g. CM600, CM1000) while some serve <c>DocsisStatus.htm</c>
-/// (e.g. CM700) and return 401/404 for the .asp path. Model number does not reliably
+/// (e.g. CM700) and return 404 for the .asp path. Model number does not reliably
 /// predict which (CM600 and CM700 are both DOCSIS 3.0 yet differ), so the provider tries
 /// the configured/default path and transparently falls back to the alternate extension.
+///
+/// They also differ in how Basic auth is gated: the CM700 (server "NET-DK/1.0") only accepts
+/// the credentials once an anti-CSRF cookie it sets on the initial 401 is echoed back, so the
+/// first request primes the cookie jar and FetchPageAsync retries once to satisfy it.
 ///
 /// The two pages also differ in how channel data is delivered: the .asp page renders the
 /// downstream/upstream tables server-side, while the .htm page ships empty tables and a
@@ -61,11 +65,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private readonly ILogger<NetgearCmProvider> _logger;
 
     /// <summary>
-    /// Remembers the (status-page path, send-credentials) combination that last succeeded per
-    /// CmConfiguration.Id so later polls go straight to it instead of re-probing the dead
-    /// extension or wrong auth mode every interval.
+    /// Remembers the status-page path (.asp or .htm) that last succeeded per CmConfiguration.Id
+    /// so later polls go straight to it instead of re-probing the dead extension every interval.
     /// </summary>
-    private readonly ConcurrentDictionary<int, (string Path, bool UseCreds)> _attemptCache = new();
+    private readonly ConcurrentDictionary<int, string> _attemptCache = new();
 
     public NetgearCmProvider(ILogger<NetgearCmProvider> logger)
     {
@@ -178,13 +181,12 @@ public sealed class NetgearCmProvider : ICableModemProvider
 
     /// <summary>
     /// Fetch the DOCSIS status page, transparently falling back across both Netgear page
-    /// extensions AND whether credentials are sent. Tries the configured/default path with
-    /// credentials first (modems like the CM600 gate the page behind HTTP Basic), then the
-    /// alternate extension, then the same paths WITHOUT credentials - some modems (e.g. CM700)
-    /// serve the page openly and 401 a request that presents unexpected credentials. Any HTTP
+    /// extensions (.asp &lt;-&gt; .htm) since model number doesn't predict which a modem serves.
+    /// Credentials are sent when configured (Netgear gates the page behind HTTP Basic; the
+    /// CM700 additionally requires an anti-CSRF cookie, handled in FetchPageAsync). Any HTTP
     /// status error or transport error advances to the next attempt; the last attempt's error
     /// propagates, so a genuine auth failure (every attempt rejected) still surfaces. The
-    /// winning combination is cached per config so later polls go straight to it.
+    /// winning path is cached per config so later polls go straight to it.
     /// </summary>
     private async Task<string?> FetchWithFallbackAsync(
         CmPollContext context,
@@ -203,16 +205,15 @@ public sealed class NetgearCmProvider : ICableModemProvider
             {
                 var html = await FetchPageAsync(url, user, pass, cancellationToken);
                 if (context.Id > 0)
-                    _attemptCache[context.Id] = (path, useCreds);
+                    _attemptCache[context.Id] = path;
                 return html;
             }
             catch (HttpRequestException ex) when (i < attempts.Count - 1)
             {
-                // Advance on any HTTP status error (401/403/404/5xx) or transport error
-                // (connection reset/closed, where StatusCode is null). Netgear firmware
-                // signals an unavailable path or unwanted credentials inconsistently - the
-                // CM700 returned 401, other models close the connection - so we don't gate on
-                // a specific code.
+                // Advance on any HTTP status error (404/403/5xx) or transport error (connection
+                // reset/closed, where StatusCode is null). Netgear firmware signals an
+                // unavailable path inconsistently - the wrong extension 404s on some models and
+                // closes the connection on others - so we don't gate on a specific code.
                 _logger.LogDebug(
                     "Netgear CM {Name}: {Path} (creds={UseCreds}) failed ({Reason}); trying next attempt",
                     context.Name, path, useCreds,
@@ -227,20 +228,22 @@ public sealed class NetgearCmProvider : ICableModemProvider
     }
 
     /// <summary>
-    /// Build the ordered list of (path, send-credentials) attempts: the configured/default
-    /// path and the alternate Netgear extension (.asp ↔ .htm), each tried with credentials
-    /// first (when configured) and then without. The attempt recorded as working for this
-    /// config is moved to the front.
+    /// Build the ordered list of attempts: the configured/default path and the alternate Netgear
+    /// extension (.asp ↔ .htm), each carrying the configured credentials (or none, when the
+    /// config has no credentials). The path recorded as working for this config is moved to the
+    /// front.
     /// </summary>
     private List<(string Path, bool UseCreds)> ResolveAttempts(CmPollContext context, bool fullMatrix)
     {
-        // Fast path: a known-good combo is cached and we're not forcing a re-probe. Return only
-        // that combo so a transient blip self-recovers on the next poll retry instead of probing
-        // (and logging a 401 or connection error for) every other path/credential combo. The
-        // poll loop forces the full matrix on its final retry, so a combo that has genuinely
-        // stopped working is still re-discovered.
-        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var cached))
-            return new List<(string Path, bool UseCreds)> { cached };
+        var hasCreds = !string.IsNullOrEmpty(context.Username) && !string.IsNullOrEmpty(context.Password);
+
+        // Fast path: a known-good path is cached and we're not forcing a re-probe. Return only
+        // that path so a transient blip self-recovers on the next poll retry instead of probing
+        // (and logging a 404 or connection error for) the wrong extension. The poll loop forces
+        // the full matrix on its final retry, so a path that has genuinely stopped working is
+        // still re-discovered.
+        if (!fullMatrix && context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var cachedPath))
+            return new List<(string Path, bool UseCreds)> { (cachedPath, hasCreds) };
 
         var configured = string.IsNullOrWhiteSpace(context.StatusPagePath)
             ? DefaultStatusPath
@@ -251,22 +254,21 @@ public sealed class NetgearCmProvider : ICableModemProvider
         if (alternate != null)
             paths.Add(alternate);
 
-        var hasCreds = !string.IsNullOrEmpty(context.Username) && !string.IsNullOrEmpty(context.Password);
+        // Send credentials iff they're configured. Netgear CMs gate the DOCSIS status page
+        // behind HTTP Basic auth (the CM700 also wants an anti-CSRF cookie, primed in
+        // FetchPageAsync), so there's no "serves openly yet rejects creds" case to fall back to:
+        // a modem either needs the configured creds or has none. The page extension
+        // (.asp <-> .htm) is the only axis that actually varies, so it's the only one we probe.
+        var attempts = paths.Select(p => (Path: p, UseCreds: hasCreds)).ToList();
 
-        var attempts = new List<(string Path, bool UseCreds)>();
-        // Credentialed attempts first - required by modems that gate the page behind Basic auth.
-        if (hasCreds)
-            attempts.AddRange(paths.Select(p => (p, true)));
-        // Then anonymous attempts - for modems that serve openly and reject unexpected creds.
-        attempts.AddRange(paths.Select(p => (p, false)));
-
-        if (context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var lastGood))
+        if (context.Id > 0 && _attemptCache.TryGetValue(context.Id, out var lastGoodPath))
         {
-            var idx = attempts.FindIndex(a => a.Path == lastGood.Path && a.UseCreds == lastGood.UseCreds);
+            var idx = attempts.FindIndex(a => a.Path == lastGoodPath);
             if (idx > 0)
             {
+                var item = attempts[idx];
                 attempts.RemoveAt(idx);
-                attempts.Insert(0, lastGood);
+                attempts.Insert(0, item);
             }
         }
 
@@ -317,6 +319,22 @@ public sealed class NetgearCmProvider : ICableModemProvider
         }
 
         var response = await GetFollowingRedirectsAsync(client, url, cancellationToken);
+
+        // Some Netgear modems (e.g. CM700, server "NET-DK/1.0") gate the status page behind HTTP
+        // Basic auth AND an anti-CSRF cookie: the first request is answered with 401 plus
+        // Set-Cookie: XSRF_TOKEN=..., and the Basic credentials are only accepted once that
+        // cookie is echoed back. The first request primes the cookie jar (the CookieContainer
+        // stores the cookie even on a 401), so retry once - the replayed XSRF_TOKEN now rides
+        // along with the preemptive Basic header and the modem returns 200. Modems that don't
+        // need this (e.g. CM600, which 200s/302s on the first request) never enter the retry.
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+            && !string.IsNullOrEmpty(username)
+            && handler.CookieContainer.GetCookies(new Uri(url)).Count > 0)
+        {
+            response.Dispose();
+            response = await GetFollowingRedirectsAsync(client, url, cancellationToken);
+        }
+
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
