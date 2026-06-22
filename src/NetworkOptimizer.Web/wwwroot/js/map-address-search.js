@@ -166,7 +166,7 @@
                         // Soft viewbox bias around the user (a padded regional box) when zoomed
                         // in: it lifts a nearby match above a more "prominent" same-named place
                         // elsewhere, without hard-excluding far results or overriding an explicit
-                        // region in the query (e.g. "atlanta, ga" still resolves to Georgia).
+                        // region in the query (e.g. "paris, tx" still resolves to Texas).
                         var url = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT;
                         var box = localBox();
                         if (box) url += '&viewbox=' + boxParam(box);
