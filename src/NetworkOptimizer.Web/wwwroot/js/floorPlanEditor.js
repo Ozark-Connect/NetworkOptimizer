@@ -416,6 +416,11 @@ window.fpEditor = {
             var initSteps = (window.innerWidth <= 768) ? 0 : 3;
             self._scaleBar = SteppedScaleBar.create(m, initSteps);
 
+            // Collapsible address search (top-right) - jump the floor plan to a street address
+            if (window.MapAddressSearch) {
+                self._addrSearch = window.MapAddressSearch.add(m, { position: 'topright' });
+            }
+
             resolveReady();
         }
 

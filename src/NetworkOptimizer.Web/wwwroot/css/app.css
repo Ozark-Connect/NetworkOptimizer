@@ -14765,6 +14765,100 @@ tr.stats-row-filtered {
     outline: none;
     border-color: var(--primary-color);
 }
+
+.map-addr-search {
+    display: flex;
+    align-items: center;
+    background: rgba(16, 24, 32, 0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.map-addr-search-input {
+    width: 220px;
+    max-width: 56vw;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    padding: 0.42rem 0.6rem;
+    outline: none;
+    transition: width 0.2s ease, padding 0.2s ease, opacity 0.15s ease;
+}
+.map-addr-search-input::placeholder {
+    color: var(--text-muted);
+}
+.map-addr-search.is-collapsed .map-addr-search-input {
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    opacity: 0;
+}
+.map-addr-search.is-error .map-addr-search-input {
+    color: var(--danger-color);
+}
+.map-addr-search.is-error {
+    border-color: var(--danger-color);
+}
+.map-addr-search-toggle {
+    position: relative;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.map-addr-search-toggle:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+.map-addr-search.is-loading .map-addr-search-toggle svg {
+    opacity: 0;
+}
+.map-addr-search.is-loading .map-addr-search-toggle::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: map-addr-search-spin 0.7s linear infinite;
+}
+@keyframes map-addr-search-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+.map-addr-search-pin {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.map-addr-search-popup {
+    font-size: 0.82rem;
+    line-height: 1.35;
+    max-width: 220px;
+}
+@media (max-width: 768px) {
+    .map-addr-search-input {
+        width: 180px;
+        max-width: 60vw;
+    }
+}
+
 .lan-flow-map-chips {
     display: flex;
     flex-wrap: wrap;
