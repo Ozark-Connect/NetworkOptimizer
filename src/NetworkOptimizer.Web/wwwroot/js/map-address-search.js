@@ -6,11 +6,14 @@
     if (window.MapAddressSearch) return;
 
     var GEOCODE_URL = 'https://nominatim.openstreetmap.org/search';
-    var RESULT_LIMIT = 5;
-    // Only bias results toward the current map view once the user is zoomed into a
-    // region. Below this the default view is continent-wide (e.g. the US-wide zoom 4
-    // start), and biasing would drag a far-away user's search toward the wrong place.
+    var RESULT_LIMIT = 10;
+    // Only do location-aware searching once the user is zoomed into a region. Below this
+    // the default view is continent-wide (e.g. the US-wide zoom 4 start), and biasing would
+    // drag a far-away user's search toward the wrong place.
     var BIAS_MIN_ZOOM = 8;
+    // Minimum half-size (degrees) of the "near me" box for the local-first pass, so a deeply
+    // zoomed-in user still searches a regional area (~110 km) rather than the visible sliver.
+    var LOCAL_MIN_HALF_DEG = 1.0;
 
     function searchIconSvg() {
         return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"'
@@ -89,13 +92,39 @@
                         results.innerHTML = '';
                     }
 
-                    // Bias toward the current view only when zoomed into a region (see BIAS_MIN_ZOOM).
-                    function viewboxParam() {
-                        if (map.getZoom() < BIAS_MIN_ZOOM) return '';
+                    // A regional box around the current map center, used to constrain the
+                    // local-first pass. Returns null when zoomed out (see BIAS_MIN_ZOOM) so
+                    // a far-away user at the default view gets a plain global search.
+                    function localBox() {
+                        if (map.getZoom() < BIAS_MIN_ZOOM) return null;
+                        var c = map.getCenter();
                         var b = map.getBounds();
-                        var box = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()]
+                        var halfLat = Math.max(LOCAL_MIN_HALF_DEG, (b.getNorth() - b.getSouth()) / 2);
+                        var halfLng = Math.max(LOCAL_MIN_HALF_DEG, (b.getEast() - b.getWest()) / 2);
+                        return { c: c, west: c.lng - halfLng, east: c.lng + halfLng, north: c.lat + halfLat, south: c.lat - halfLat };
+                    }
+                    function boxParam(box) {
+                        return [box.west, box.north, box.east, box.south]
                             .map(function (n) { return n.toFixed(5); }).join(',');
-                        return '&viewbox=' + box; // soft bias - no &bounded=1, so far results still resolve
+                    }
+
+                    // Squared distance in degrees (longitude scaled by latitude) - good enough for ranking.
+                    function sortByProximity(list, center) {
+                        var cosLat = Math.cos(center.lat * Math.PI / 180);
+                        return list.slice().sort(function (a, b) {
+                            function d2(h) {
+                                var dy = parseFloat(h.lat) - center.lat;
+                                var dx = (parseFloat(h.lon) - center.lng) * cosLat;
+                                return dx * dx + dy * dy;
+                            }
+                            return d2(a) - d2(b);
+                        });
+                    }
+
+                    function geocode(url) {
+                        return fetch(url, { headers: { 'Accept': 'application/json' } })
+                            .then(function (r) { return r.ok ? r.json() : []; })
+                            .catch(function () { return []; });
                     }
 
                     function selectResult(hit) {
@@ -133,26 +162,36 @@
                         root.classList.add('is-open', 'is-error');
                     }
 
+                    function present(list, center) {
+                        root.classList.remove('is-loading');
+                        if (!list || !list.length) { showEmpty(); return; }
+                        if (center) list = sortByProximity(list, center);
+                        if (list.length === 1) { selectResult(list[0]); return; }
+                        renderResults(list);
+                    }
+
                     function doSearch() {
                         var q = (input.value || '').trim();
                         if (!q) { collapse(); return; }
                         root.classList.remove('is-error');
                         closeResults();
                         root.classList.add('is-loading');
-                        var url = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT
-                            + viewboxParam() + '&q=' + encodeURIComponent(q);
-                        fetch(url, { headers: { 'Accept': 'application/json' } })
-                            .then(function (r) { return r.ok ? r.json() : []; })
-                            .then(function (list) {
-                                root.classList.remove('is-loading');
-                                if (!list || !list.length) { showEmpty(); return; }
-                                if (list.length === 1) { selectResult(list[0]); return; }
-                                renderResults(list);
-                            })
-                            .catch(function () {
-                                root.classList.remove('is-loading');
-                                showEmpty();
-                            });
+
+                        var base = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT;
+                        var qParam = '&q=' + encodeURIComponent(q);
+                        var globalUrl = base + qParam;
+                        var box = localBox();
+
+                        if (!box) { geocode(globalUrl).then(function (list) { present(list, null); }); return; }
+
+                        // Local-first: hard-constrain to a box around the user, then fall back
+                        // to a global search if nothing matches nearby. Either way, rank by
+                        // proximity to the map center so the closest match leads.
+                        var localUrl = base + '&viewbox=' + boxParam(box) + '&bounded=1' + qParam;
+                        geocode(localUrl).then(function (list) {
+                            if (list && list.length) { present(list, box.c); return; }
+                            geocode(globalUrl).then(function (g) { present(g, box.c); });
+                        });
                     }
 
                     toggle.addEventListener('click', function () {
