@@ -27,7 +27,8 @@ public class ExposureValidatorTests
         string? fwd = "198.51.100.10",
         string? fwdPort = null,
         string? name = null,
-        string? proto = "tcp")
+        string? proto = "tcp",
+        bool? enabled = null)
     {
         return new UniFiPortForwardRule
         {
@@ -35,7 +36,8 @@ public class ExposureValidatorTests
             Fwd = fwd,
             FwdPort = fwdPort,
             Name = name,
-            Proto = proto
+            Proto = proto,
+            Enabled = enabled
         };
     }
 
@@ -171,6 +173,53 @@ public class ExposureValidatorTests
 
         Assert.Empty(report.ExposedServices);
         Assert.Equal(0, report.TotalExposedPorts);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_DisabledRule_ExcludedFromExposure()
+    {
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreatePortForwardRule("443", name: "Disabled Web Server", enabled: false)
+        };
+
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ThreatEvent>
+            {
+                CreateThreatEvent("192.0.2.10", 443),
+                CreateThreatEvent("192.0.2.11", 443)
+            });
+
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
+
+        Assert.Empty(report.ExposedServices);
+        Assert.Equal(0, report.TotalExposedPorts);
+        Assert.Equal(0, report.TotalThreatsTargetingExposed);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_EnabledRule_IncludedInExposure()
+    {
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreatePortForwardRule("443", name: "Web Server", enabled: true)
+        };
+
+        _mockRepo.Setup(r => r.GetEventsAsync(_from, _to, null, 443, null, 5000, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ThreatEvent>
+            {
+                CreateThreatEvent("192.0.2.10", 443)
+            });
+
+        _mockRepo.Setup(r => r.GetCountryDistributionAsync(_from, _to, It.IsAny<ThreatAction?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, int>());
+
+        var report = await _validator.ValidateAsync(rules, _mockRepo.Object, _from, _to);
+
+        Assert.Single(report.ExposedServices);
     }
 
     [Fact]
