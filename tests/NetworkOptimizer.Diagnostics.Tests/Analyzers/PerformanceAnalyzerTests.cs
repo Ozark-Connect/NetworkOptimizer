@@ -1852,6 +1852,76 @@ public class PerformanceAnalyzerTests
         result.Should().HaveCount(1);
     }
 
+    [Theory]
+    // UXG line is fixed in 5.1.17; UCG line in 5.1.19.
+    [InlineData("UXGA6AA", "5.1.17")] // UXG-Fiber at its fixed version
+    [InlineData("UXGB", "5.1.17")]    // UXG-Max at its fixed version
+    [InlineData("UDMA6A8", "5.1.19")] // UCG-Fiber at its fixed version
+    [InlineData("UCGMAX", "5.1.19")]  // UCG-Max at its fixed version
+    [InlineData("UDMA6A8", "5.2.0")]  // above the UCG fix
+    public void CheckSqmFirmwareRegression_FirmwareAtOrAboveFixedVersion_ReturnsEmpty(string model, string version)
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = model, DisplayableVersion = version }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("UXGA6AA", "5.1.16")] // UXG-Fiber just below its fix
+    [InlineData("UDMA6A8", "5.1.18")] // UCG-Fiber just below its fix (UXG would already be fixed here)
+    public void CheckSqmFirmwareRegression_FirmwareJustBelowFixedVersion_ReturnsIssue(string model, string version)
+    {
+        var devices = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = model, DisplayableVersion = version }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var result = _analyzer.CheckSqmFirmwareRegression(devices, networks);
+
+        result.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void CheckSqmFirmwareRegression_Firmware5118_FixedOnUxgButNotUcg()
+    {
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "wan1", Name = "WAN", Purpose = "wan", WanSmartqEnabled = true,
+                    WanProviderCapabilities = new WanProviderCapabilities { DownloadKilobitsPerSecond = 1_000_000 } }
+        };
+
+        var uxg = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:01", Name = "Gateway", Type = "ugw",
+                    Model = "UXGA6AA", DisplayableVersion = "5.1.18" }
+        };
+        var ucg = new List<UniFiDeviceResponse>
+        {
+            new() { Id = "gw1", Mac = "aa:bb:cc:00:00:02", Name = "Gateway", Type = "ugw",
+                    Model = "UDMA6A8", DisplayableVersion = "5.1.18" }
+        };
+
+        _analyzer.CheckSqmFirmwareRegression(uxg, networks).Should().BeEmpty();
+        _analyzer.CheckSqmFirmwareRegression(ucg, networks).Should().HaveCount(1);
+    }
+
     [Fact]
     public void CheckSqmFirmwareRegression_SqmDisabled_ReturnsEmpty()
     {

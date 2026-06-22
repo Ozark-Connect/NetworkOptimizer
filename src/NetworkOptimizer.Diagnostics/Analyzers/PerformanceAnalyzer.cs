@@ -425,17 +425,25 @@ public class PerformanceAnalyzer
         return issues;
     }
 
-    private static readonly HashSet<string> SqmFirmwareAffectedGateways = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "UCG-Fiber", "UXG-Fiber", "UCG-Max", "UXG-Max"
-    };
-
     private static readonly Version SqmLastGoodFirmware = new(5, 0, 10);
 
+    // Firmware version that fixes the SQM regression, keyed by gateway model. The UXG line
+    // ships fixes behind the UCG line, so it lands the fix a couple of point releases earlier
+    // in the affected window; the two lines eventually converge.
+    private static readonly Dictionary<string, Version> SqmFixedFirmwareByGateway = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["UXG-Fiber"] = new(5, 1, 17),
+        ["UXG-Max"] = new(5, 1, 17),
+        ["UCG-Fiber"] = new(5, 1, 19),
+        ["UCG-Max"] = new(5, 1, 19),
+    };
+
     /// <summary>
-    /// Check if SQM is enabled on a gateway with firmware newer than 5.0.10.
-    /// Firmware versions after 5.0.10 have a known SQM download throughput regression
-    /// on high-bandwidth connections (bottlenecked to ~800 Mbps or less).
+    /// Check if SQM is enabled on a gateway running firmware within the affected window.
+    /// Firmware versions after 5.0.10 introduced a SQM download throughput regression
+    /// on high-bandwidth connections (bottlenecked to ~800 Mbps or less). It was fixed in
+    /// 5.1.17 on UXG models and 5.1.19 on UCG models, so only firmware below the gateway's
+    /// fixed version (and above 5.0.10) is flagged.
     /// </summary>
     internal List<PerformanceIssue> CheckSqmFirmwareRegression(
         List<UniFiDeviceResponse> devices,
@@ -447,14 +455,14 @@ public class PerformanceAnalyzer
         if (gateway == null)
             return issues;
 
-        if (!SqmFirmwareAffectedGateways.Contains(gateway.FriendlyModelName))
+        if (!SqmFixedFirmwareByGateway.TryGetValue(gateway.FriendlyModelName, out var fixedFirmware))
             return issues;
 
         var firmwareStr = gateway.DisplayableVersion ?? gateway.Version;
         if (string.IsNullOrEmpty(firmwareStr) || !Version.TryParse(firmwareStr, out var firmware))
             return issues;
 
-        if (firmware <= SqmLastGoodFirmware)
+        if (firmware <= SqmLastGoodFirmware || firmware >= fixedFirmware)
             return issues;
 
         var sqmWans = networks.Where(n =>
@@ -472,9 +480,8 @@ public class PerformanceAnalyzer
         {
             Title = "SQM Performance Regression on Current Firmware",
             Description = $"Your {gateway.FriendlyModelName} is running firmware {firmwareStr} with SQM enabled on {wanNames}. " +
-                $"UniFi OS versions after 5.0.10 have a known SQM download throughput regression that can bottleneck speeds to 800 Mbps or less on faster connections.",
-            Recommendation = "UniFi OS 5.0.10 provides significantly better SQM download performance on high-speed connections. " +
-                "Rolling back firmware is non-trivial and may require a backup, factory reset, and restore.",
+                $"UniFi OS versions from after 5.0.10 through 5.1.15 have a known SQM download throughput regression that can bottleneck speeds to 800 Mbps or less on faster connections. UniFi OS {fixedFirmware} fixes it on this gateway.",
+            Recommendation = $"Upgrade to UniFi OS {fixedFirmware} or later, which restores full SQM download performance on high-speed connections.",
             Severity = PerformanceSeverity.Recommendation,
             Category = PerformanceCategory.Performance,
             DeviceName = gateway.Name
