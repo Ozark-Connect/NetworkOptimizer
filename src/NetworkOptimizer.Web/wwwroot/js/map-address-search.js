@@ -6,6 +6,11 @@
     if (window.MapAddressSearch) return;
 
     var GEOCODE_URL = 'https://nominatim.openstreetmap.org/search';
+    var RESULT_LIMIT = 5;
+    // Only bias results toward the current map view once the user is zoomed into a
+    // region. Below this the default view is continent-wide (e.g. the US-wide zoom 4
+    // start), and biasing would drag a far-away user's search toward the wrong place.
+    var BIAS_MIN_ZOOM = 8;
 
     function searchIconSvg() {
         return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"'
@@ -53,13 +58,17 @@
                 onAdd: function () {
                     var root = L.DomUtil.create('div', 'map-addr-search is-collapsed');
                     root.innerHTML =
-                        '<input class="map-addr-search-input" type="text" autocomplete="off" spellcheck="false"'
+                        '<div class="map-addr-search-bar">'
+                        + '<input class="map-addr-search-input" type="text" autocomplete="off" spellcheck="false"'
                         + ' placeholder="' + escapeHtml(placeholder) + '" aria-label="Search address or place" />'
                         + '<button class="map-addr-search-toggle" type="button" aria-label="Search address"'
-                        + ' title="Search address">' + searchIconSvg() + '</button>';
+                        + ' title="Search address">' + searchIconSvg() + '</button>'
+                        + '</div>'
+                        + '<div class="map-addr-search-results" role="listbox"></div>';
 
                     var input = root.querySelector('.map-addr-search-input');
                     var toggle = root.querySelector('.map-addr-search-toggle');
+                    var results = root.querySelector('.map-addr-search-results');
                     var marker = null;
 
                     // Keep clicks/scroll on the control from reaching the map underneath.
@@ -72,36 +81,77 @@
                     }
                     function collapse() {
                         root.classList.add('is-collapsed');
-                        root.classList.remove('is-error');
+                        root.classList.remove('is-error', 'is-open');
                         input.blur();
+                    }
+                    function closeResults() {
+                        root.classList.remove('is-open');
+                        results.innerHTML = '';
+                    }
+
+                    // Bias toward the current view only when zoomed into a region (see BIAS_MIN_ZOOM).
+                    function viewboxParam() {
+                        if (map.getZoom() < BIAS_MIN_ZOOM) return '';
+                        var b = map.getBounds();
+                        var box = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()]
+                            .map(function (n) { return n.toFixed(5); }).join(',');
+                        return '&viewbox=' + box; // soft bias - no &bounded=1, so far results still resolve
+                    }
+
+                    function selectResult(hit) {
+                        var lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
+                        if (isNaN(lat) || isNaN(lng)) return;
+                        closeResults();
+                        var z = Math.min(Math.max(map.getZoom(), targetZoom), map.getMaxZoom() || targetZoom);
+                        if (marker) map.removeLayer(marker);
+                        marker = L.marker([lat, lng], { icon: pinIcon(L) })
+                            .addTo(map)
+                            // autoPan:false so opening the popup doesn't shove the result off-center
+                            .bindPopup('<div class="map-addr-search-popup">' + escapeHtml(hit.display_name) + '</div>',
+                                { autoPan: false });
+                        marker.openPopup();
+                        // Center last so the popup auto-pan can't pull us off the result.
+                        map.setView([lat, lng], z, { animate: true });
+                        if (typeof opts.onResult === 'function') opts.onResult(lat, lng, hit.display_name);
+                    }
+
+                    function renderResults(list) {
+                        results.innerHTML = '';
+                        list.forEach(function (hit) {
+                            var row = document.createElement('div');
+                            row.className = 'map-addr-search-result';
+                            row.setAttribute('role', 'option');
+                            row.textContent = hit.display_name;
+                            row.addEventListener('click', function () { selectResult(hit); });
+                            results.appendChild(row);
+                        });
+                        root.classList.add('is-open');
+                    }
+
+                    function showEmpty() {
+                        results.innerHTML = '<div class="map-addr-search-empty">No matches found</div>';
+                        root.classList.add('is-open', 'is-error');
                     }
 
                     function doSearch() {
                         var q = (input.value || '').trim();
                         if (!q) { collapse(); return; }
                         root.classList.remove('is-error');
+                        closeResults();
                         root.classList.add('is-loading');
-                        var url = GEOCODE_URL + '?format=jsonv2&limit=1&q=' + encodeURIComponent(q);
+                        var url = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT
+                            + viewboxParam() + '&q=' + encodeURIComponent(q);
                         fetch(url, { headers: { 'Accept': 'application/json' } })
                             .then(function (r) { return r.ok ? r.json() : []; })
-                            .then(function (results) {
+                            .then(function (list) {
                                 root.classList.remove('is-loading');
-                                if (!results || !results.length) { root.classList.add('is-error'); return; }
-                                var hit = results[0];
-                                var lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
-                                if (isNaN(lat) || isNaN(lng)) { root.classList.add('is-error'); return; }
-                                var z = Math.min(Math.max(map.getZoom(), targetZoom), map.getMaxZoom() || targetZoom);
-                                map.setView([lat, lng], z, { animate: true });
-                                if (marker) map.removeLayer(marker);
-                                marker = L.marker([lat, lng], { icon: pinIcon(L) })
-                                    .addTo(map)
-                                    .bindPopup('<div class="map-addr-search-popup">' + escapeHtml(hit.display_name) + '</div>');
-                                marker.openPopup();
-                                if (typeof opts.onResult === 'function') opts.onResult(lat, lng, hit.display_name);
+                                if (!list || !list.length) { showEmpty(); return; }
+                                if (list.length === 1) { selectResult(list[0]); return; }
+                                renderResults(list);
                             })
                             .catch(function () {
                                 root.classList.remove('is-loading');
-                                root.classList.add('is-error');
+                                showEmpty();
                             });
                     }
 
@@ -112,9 +162,12 @@
                     });
                     input.addEventListener('keydown', function (e) {
                         if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
-                        else if (e.key === 'Escape') { e.preventDefault(); collapse(); }
+                        else if (e.key === 'Escape') { e.preventDefault(); closeResults(); collapse(); }
                     });
-                    input.addEventListener('input', function () { root.classList.remove('is-error'); });
+                    input.addEventListener('input', function () {
+                        root.classList.remove('is-error');
+                        if (root.classList.contains('is-open')) closeResults();
+                    });
 
                     // Collapse when the user starts interacting with the map, but only if the
                     // field is empty so we never discard a half-typed query.
