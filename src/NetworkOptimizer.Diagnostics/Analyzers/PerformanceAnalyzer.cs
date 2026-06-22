@@ -480,7 +480,7 @@ public class PerformanceAnalyzer
         {
             Title = "SQM Performance Regression on Current Firmware",
             Description = $"Your {gateway.FriendlyModelName} is running firmware {firmwareStr} with SQM enabled on {wanNames}. " +
-                $"UniFi OS versions from after 5.0.10 up to {fixedFirmware} have a known SQM download throughput regression that can bottleneck speeds to 800 Mbps or less on faster connections. UniFi OS {fixedFirmware} fixes it on this gateway.",
+                $"UniFi OS versions from after 5.0.10 through 5.1.15 have a known SQM download throughput regression that can bottleneck speeds to 800 Mbps or less on faster connections. UniFi OS {fixedFirmware} fixes it on this gateway.",
             Recommendation = $"Upgrade to UniFi OS {fixedFirmware} or later, which restores full SQM download performance on high-speed connections.",
             Severity = PerformanceSeverity.Recommendation,
             Category = PerformanceCategory.Performance,
