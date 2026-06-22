@@ -101,24 +101,11 @@
                         var b = map.getBounds();
                         var halfLat = Math.max(LOCAL_MIN_HALF_DEG, (b.getNorth() - b.getSouth()) / 2);
                         var halfLng = Math.max(LOCAL_MIN_HALF_DEG, (b.getEast() - b.getWest()) / 2);
-                        return { c: c, west: c.lng - halfLng, east: c.lng + halfLng, north: c.lat + halfLat, south: c.lat - halfLat };
+                        return { west: c.lng - halfLng, east: c.lng + halfLng, north: c.lat + halfLat, south: c.lat - halfLat };
                     }
                     function boxParam(box) {
                         return [box.west, box.north, box.east, box.south]
                             .map(function (n) { return n.toFixed(5); }).join(',');
-                    }
-
-                    // Squared distance in degrees (longitude scaled by latitude) - good enough for ranking.
-                    function sortByProximity(list, center) {
-                        var cosLat = Math.cos(center.lat * Math.PI / 180);
-                        return list.slice().sort(function (a, b) {
-                            function d2(h) {
-                                var dy = parseFloat(h.lat) - center.lat;
-                                var dx = (parseFloat(h.lon) - center.lng) * cosLat;
-                                return dx * dx + dy * dy;
-                            }
-                            return d2(a) - d2(b);
-                        });
                     }
 
                     function geocode(url) {
@@ -162,10 +149,9 @@
                         root.classList.add('is-open', 'is-error');
                     }
 
-                    function present(list, center) {
+                    function present(list) {
                         root.classList.remove('is-loading');
                         if (!list || !list.length) { showEmpty(); return; }
-                        if (center) list = sortByProximity(list, center);
                         if (list.length === 1) { selectResult(list[0]); return; }
                         renderResults(list);
                     }
@@ -177,21 +163,15 @@
                         closeResults();
                         root.classList.add('is-loading');
 
-                        var base = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT;
-                        var qParam = '&q=' + encodeURIComponent(q);
-                        var globalUrl = base + qParam;
+                        // Soft viewbox bias around the user (a padded regional box) when zoomed
+                        // in: it lifts a nearby match above a more "prominent" same-named place
+                        // elsewhere, without hard-excluding far results or overriding an explicit
+                        // region in the query (e.g. "atlanta, ga" still resolves to Georgia).
+                        var url = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT;
                         var box = localBox();
-
-                        if (!box) { geocode(globalUrl).then(function (list) { present(list, null); }); return; }
-
-                        // Local-first: hard-constrain to a box around the user, then fall back
-                        // to a global search if nothing matches nearby. Either way, rank by
-                        // proximity to the map center so the closest match leads.
-                        var localUrl = base + '&viewbox=' + boxParam(box) + '&bounded=1' + qParam;
-                        geocode(localUrl).then(function (list) {
-                            if (list && list.length) { present(list, box.c); return; }
-                            geocode(globalUrl).then(function (g) { present(g, box.c); });
-                        });
+                        if (box) url += '&viewbox=' + boxParam(box);
+                        url += '&q=' + encodeURIComponent(q);
+                        geocode(url).then(present);
                     }
 
                     toggle.addEventListener('click', function () {
