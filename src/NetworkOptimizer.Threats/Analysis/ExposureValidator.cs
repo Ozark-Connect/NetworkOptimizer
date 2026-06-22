@@ -50,6 +50,10 @@ public class ExposureValidator
 
         foreach (var rule in portForwardRules)
         {
+            // Disabled static rules aren't actually forwarding traffic, so they're not exposed.
+            // UPnP rules leave Enabled null and are inherently active.
+            if (rule.Enabled == false) continue;
+
             var ports = ParsePorts(rule.DstPort);
             foreach (var port in ports)
             {
