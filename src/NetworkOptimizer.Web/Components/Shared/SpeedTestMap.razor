@@ -806,6 +806,11 @@
                     if (typeof SteppedScaleBar !== 'undefined') {{
                         window._speedTestMaps['{mapId}'].scaleBar = SteppedScaleBar.create(map, 3);
                     }}
+
+                    // Collapsible address search (top-right)
+                    if (window.MapAddressSearch) {{
+                        window._speedTestMaps['{mapId}'].addrSearch = window.MapAddressSearch.add(map, {{ position: 'topright' }});
+                    }}
                 }})();
             ");
 
@@ -1192,8 +1197,8 @@
 
     private string BuildApPopup(ApMapMarker ap)
     {
-        var name = ap.Name?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown AP";
-        var model = ap.Model?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "";
+        var name = System.Net.WebUtility.HtmlEncode(ap.Name) ?? "Unknown AP";
+        var model = System.Net.WebUtility.HtmlEncode(ap.Model) ?? "";
         var statusClass = ap.IsOnline ? "ap-status-online" : "ap-status-offline";
         var statusText = ap.IsOnline ? "Online" : "Offline";
 
@@ -1223,7 +1228,7 @@
             foreach (var radio in ap.Radios)
             {
                 var radioCode = radio.RadioCode ?? "";
-                var bandDisplay = radio.Band?.Replace("'", "\\'") ?? "";
+                var bandDisplay = System.Net.WebUtility.HtmlEncode(radio.Band) ?? "";
                 html += "<div class='ap-popup-radio'>";
 
                 // Band badge (uses standard wifi-band-ng/na/6e CSS classes)
@@ -1564,9 +1569,9 @@
         var apName = apHop?.DeviceName;
         var apMac = apHop?.DeviceMac;
 
-        // Escape for JS string
-        deviceName = deviceName?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
-        apName = apName?.Replace("'", "\\'").Replace("\"", "&quot;");
+        // HTML-encode before rendering: hostnames are device-self-reported (DHCP/mDNS)
+        deviceName = System.Net.WebUtility.HtmlEncode(deviceName) ?? "Unknown";
+        apName = System.Net.WebUtility.HtmlEncode(apName);
 
         var html = $"<div class='map-popup'>";
 
