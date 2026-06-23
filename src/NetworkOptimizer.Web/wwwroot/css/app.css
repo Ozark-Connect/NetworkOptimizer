@@ -14958,6 +14958,15 @@ tr.stats-row-filtered {
     background: rgba(51, 56, 68, 0.9);
     color: var(--text-primary);
 }
+/* Disabled state at min/max zoom — muted, no hover lift */
+.fp-map-container .leaflet-control-zoom a.leaflet-disabled,
+.map-container .leaflet-control-zoom a.leaflet-disabled,
+.fp-map-container .leaflet-control-zoom a.leaflet-disabled:hover,
+.map-container .leaflet-control-zoom a.leaflet-disabled:hover {
+    background: rgba(26, 29, 35, 0.6);
+    color: var(--text-muted);
+    cursor: default;
+}
 /* Leaflet's .leaflet-touch .leaflet-bar adds a 2px outer border; its CSS is injected
    after app.css, so we need the extra .leaflet-touch class to win specificity. */
 .fp-map-container .leaflet-touch .leaflet-bar,
