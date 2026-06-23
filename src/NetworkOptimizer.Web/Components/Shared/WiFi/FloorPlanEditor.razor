@@ -8,6 +8,7 @@
 @using NetworkOptimizer.UniFi.Models
 @using Microsoft.JSInterop
 @using NetworkOptimizer.Core.Helpers
+@inject SystemSettingsService SystemSettings
 @inject FloorPlanService FloorPlanSvc
 @inject ApMapService ApMapSvc
 @inject PlannedApService PlannedApSvc
@@ -1823,7 +1824,8 @@
             }
         }
 
-        await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom);
+        var mapboxToken = await SystemSettings.GetAsync(SystemSettingKeys.MapboxApiKey) ?? "";
+        await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom, mapboxToken);
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
 

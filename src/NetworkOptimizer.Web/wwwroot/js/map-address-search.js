@@ -118,8 +118,8 @@
                     function zoomForResult(hit) {
                         var at = (hit.addresstype || '').toLowerCase();
                         if (at === 'shop')                                                               return 19;
-                        if (at === 'amenity')                                                            return 17;
-                        if (at === 'building')                                                           return 19;
+                        if (at === 'amenity' || at === 'tourism')                                        return 17;
+                        if (at === 'building')                                                           return 20;
                         if (at === 'aeroway')                                                            return 15;
                         if (at === 'park')                                                               return 15;
                         if (at === 'nature_reserve')                                                     return 10;

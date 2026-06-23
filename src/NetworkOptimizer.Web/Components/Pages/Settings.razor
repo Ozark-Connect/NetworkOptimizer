@@ -2309,7 +2309,51 @@
         </div>
     </div>
 
-    <!-- 13. Data Management -->
+    <!-- 13. Map / Satellite -->
+    <div class="card" id="map">
+        <div class="card-header">
+            <h2 class="card-title">Map / Satellite</h2>
+            <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "disconnected")">
+                @(!string.IsNullOrEmpty(_mapboxToken) ? "Configured" : "Not Configured")
+            </span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Enter a <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">Mapbox public token</a>
+                to enable satellite imagery on the Speed Test and Signal maps. The token is used client-side only and should be
+                scoped to your domain in the Mapbox dashboard.
+            </p>
+            <div class="form-group">
+                <label class="form-label">Mapbox Public Token</label>
+                <input type="password" class="form-control" @bind="_mapboxToken" placeholder="pk.eyJ..." autocomplete="off" />
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="SaveMapboxToken" disabled="@_savingMapboxToken">
+                    @if (_savingMapboxToken)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save Token</span>
+                    }
+                </button>
+                @if (!string.IsNullOrEmpty(_mapboxToken))
+                {
+                    <button class="btn btn-secondary" @onclick="ClearMapboxToken" disabled="@_savingMapboxToken">
+                        Clear Token
+                    </button>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(_mapboxTokenMessage))
+            {
+                <div class="alert alert-@_mapboxTokenMessageClass">@_mapboxTokenMessage</div>
+            }
+        </div>
+    </div>
+
+    <!-- 14. Data Management -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Data Management</h2>
@@ -2755,6 +2799,12 @@
     private string crowdsecMessage = "";
     private string crowdsecMessageClass = "";
 
+    // Map / Satellite settings
+    private string _mapboxToken = "";
+    private bool _savingMapboxToken = false;
+    private string _mapboxTokenMessage = "";
+    private string _mapboxTokenMessageClass = "";
+
     // UI / Display Settings - per-device, persisted in localStorage (not the DB)
     private bool _kioskMode = false;
 
@@ -2806,6 +2856,7 @@
         await LoadAlertChannels();
         await LoadThreatSettings();
         await LoadMonitoringSettings();
+        await LoadMapboxToken();
     }
 
     private async Task LoadIperf3Settings()
@@ -5487,6 +5538,58 @@
         finally
         {
             testingCrowdsec = false;
+        }
+    }
+
+    private async Task LoadMapboxToken()
+    {
+        _mapboxToken = await SystemSettings.GetAsync(SystemSettingKeys.MapboxApiKey) ?? "";
+    }
+
+    private async Task SaveMapboxToken()
+    {
+        _savingMapboxToken = true;
+        _mapboxTokenMessage = "";
+        StateHasChanged();
+        try
+        {
+            await SystemSettings.SetAsync(SystemSettingKeys.MapboxApiKey, string.IsNullOrWhiteSpace(_mapboxToken) ? null : _mapboxToken.Trim());
+            _mapboxTokenMessage = "Mapbox token saved. Reload any open maps to apply.";
+            _mapboxTokenMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _mapboxTokenMessage = $"Error saving token: {ex.Message}";
+            _mapboxTokenMessageClass = "danger";
+        }
+        finally
+        {
+            _savingMapboxToken = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearMapboxToken()
+    {
+        _savingMapboxToken = true;
+        _mapboxTokenMessage = "";
+        StateHasChanged();
+        try
+        {
+            await SystemSettings.SetAsync(SystemSettingKeys.MapboxApiKey, null);
+            _mapboxToken = "";
+            _mapboxTokenMessage = "Mapbox token cleared.";
+            _mapboxTokenMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _mapboxTokenMessage = $"Error clearing token: {ex.Message}";
+            _mapboxTokenMessageClass = "danger";
+        }
+        finally
+        {
+            _savingMapboxToken = false;
+            StateHasChanged();
         }
     }
 

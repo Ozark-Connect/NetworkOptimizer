@@ -56,4 +56,7 @@ public static class SystemSettingKeys
 
     // Monitoring Live View map order ("3d-first" or "2d-first")
     public const string MonitoringLiveMapOrder = "ui.monitoring_live_map_order";
+
+    // Map / Satellite settings
+    public const string MapboxApiKey = "map.mapbox_token";
 }
