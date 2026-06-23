@@ -117,6 +117,8 @@
                     // place_rank 8 but addresstype "city" — addresstype gives the right answer.
                     function zoomForResult(hit) {
                         var at = (hit.addresstype || '').toLowerCase();
+                        // Points of interest (schools, universities, parks, businesses, etc.)
+                        if (at === 'amenity' || at === 'building' || at === 'tourism' || at === 'shop') return 17;
                         // Specific address / street
                         if (at === 'house')                                                              return 20;
                         if (at === 'road' || at === 'path' || at === 'footway' || at === 'cycleway')    return 17;
