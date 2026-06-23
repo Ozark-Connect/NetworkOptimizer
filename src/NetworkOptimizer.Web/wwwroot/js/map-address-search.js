@@ -121,8 +121,9 @@
                         if (at === 'road' || at === 'path' || at === 'footway')                   return 17;
                         if (at === 'suburb' || at === 'neighbourhood' || at === 'quarter')        return 15;
                         if (at === 'city')                                                          return 13;
-                        if (at === 'town' || at === 'hamlet')                                      return 14;
+                        if (at === 'town')                                                          return 14;
                         if (at === 'village')                                                      return 16;
+                        if (at === 'hamlet')                                                       return 17;
                         if (at === 'county' || at === 'district')                                 return 11;
                         if (at === 'state' || at === 'region')                                    return 8;
                         if (at === 'country')                                                      return 5;
