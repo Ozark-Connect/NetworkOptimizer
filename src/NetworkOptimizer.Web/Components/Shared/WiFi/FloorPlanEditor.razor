@@ -3952,6 +3952,8 @@
             await TogglePlanApMode();
         else if (_selectedBuilding != null)
             await DeselectBuilding();
+        else if (_isFullscreen)
+            await ToggleFullscreen();
         StateHasChanged();
     }
 

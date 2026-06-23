@@ -21,6 +21,12 @@
             + '<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
     }
 
+    function clearIconSvg() {
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"'
+            + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+            + '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+    }
+
     function pinIcon(L) {
         return L.divIcon({
             className: 'map-addr-search-pin-wrap',
@@ -62,12 +68,15 @@
                         '<div class="map-addr-search-bar">'
                         + '<input class="map-addr-search-input" type="text" autocomplete="off" spellcheck="false"'
                         + ' placeholder="' + escapeHtml(placeholder) + '" aria-label="Search address or place" />'
+                        + '<button class="map-addr-search-clear" type="button" aria-label="Clear search"'
+                        + ' title="Clear" tabindex="-1">' + clearIconSvg() + '</button>'
                         + '<button class="map-addr-search-toggle" type="button" aria-label="Search address"'
                         + ' title="Search address">' + searchIconSvg() + '</button>'
                         + '</div>'
                         + '<div class="map-addr-search-results" role="listbox"></div>';
 
                     var input = root.querySelector('.map-addr-search-input');
+                    var clearBtn = root.querySelector('.map-addr-search-clear');
                     var toggle = root.querySelector('.map-addr-search-toggle');
                     var results = root.querySelector('.map-addr-search-results');
                     var marker = null;
@@ -88,6 +97,22 @@
                     function closeResults() {
                         root.classList.remove('is-open');
                         results.innerHTML = '';
+                    }
+                    // Remove the dropped result pin (and its popup) from the map, if any.
+                    function removeMarker() {
+                        if (marker) { map.removeLayer(marker); marker = null; }
+                    }
+                    // Show the clear (X) button only while the field holds text.
+                    function syncClear() {
+                        root.classList.toggle('is-dirty', !!(input.value || '').trim());
+                    }
+                    // Empty the field, drop the result pin, and reset to a fresh search.
+                    function clearInput() {
+                        input.value = '';
+                        syncClear();
+                        closeResults();
+                        removeMarker();
+                        root.classList.remove('is-error');
                     }
 
                     // A regional box around the current map center, used to constrain the
@@ -245,12 +270,32 @@
                         if ((input.value || '').trim()) doSearch();
                         else collapse();
                     });
+                    // Clear (X): empty the field but stay expanded and focused.
+                    clearBtn.addEventListener('click', function () {
+                        clearInput();
+                        input.focus();
+                    });
                     input.addEventListener('keydown', function (e) {
                         if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
-                        else if (e.key === 'Escape') { e.preventDefault(); closeResults(); collapse(); }
+                        else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Staged dismissal, one level per press: close the results
+                            // popup -> clear the text -> collapse the control.
+                            if (root.classList.contains('is-open')) {
+                                closeResults();
+                            } else if ((input.value || '').trim()) {
+                                clearInput();
+                            } else {
+                                collapse();
+                            }
+                        }
                     });
                     input.addEventListener('input', function () {
                         root.classList.remove('is-error');
+                        syncClear();
+                        // Deleting the query down to empty also dismisses the result pin.
+                        if (!(input.value || '').trim()) removeMarker();
                         if (root.classList.contains('is-open')) closeResults();
                     });
 

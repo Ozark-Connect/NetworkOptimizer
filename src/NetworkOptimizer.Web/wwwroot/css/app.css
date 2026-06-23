@@ -14824,6 +14824,26 @@ tr.stats-row-filtered {
     color: var(--text-primary);
     background: rgba(255, 255, 255, 0.06);
 }
+.map-addr-search-clear {
+    flex-shrink: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 34px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: color 0.15s ease;
+}
+.map-addr-search.is-dirty:not(.is-collapsed) .map-addr-search-clear {
+    display: flex;
+}
+.map-addr-search-clear:hover {
+    color: var(--text-primary);
+}
 .map-addr-search.is-loading .map-addr-search-toggle svg {
     opacity: 0;
 }
