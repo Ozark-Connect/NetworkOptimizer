@@ -117,16 +117,25 @@
                     // place_rank 8 but addresstype "city" — addresstype gives the right answer.
                     function zoomForResult(hit) {
                         var at = (hit.addresstype || '').toLowerCase();
-                        if (at === 'house')                                                        return 20;
-                        if (at === 'road' || at === 'path' || at === 'footway')                   return 17;
-                        if (at === 'suburb' || at === 'neighbourhood' || at === 'quarter')        return 15;
-                        if (at === 'city')                                                          return 13;
-                        if (at === 'town')                                                          return 14;
-                        if (at === 'village')                                                      return 16;
-                        if (at === 'hamlet')                                                       return 17;
-                        if (at === 'county' || at === 'district')                                 return 11;
-                        if (at === 'state' || at === 'region')                                    return 8;
-                        if (at === 'country')                                                      return 5;
+                        // Specific address / street
+                        if (at === 'house')                                                              return 20;
+                        if (at === 'road' || at === 'path' || at === 'footway' || at === 'cycleway')    return 17;
+                        // Sub-city areas
+                        if (at === 'suburb' || at === 'neighbourhood' || at === 'quarter')              return 15;
+                        // Settlements (largest to smallest)
+                        if (at === 'city' || at === 'municipality')                                     return 13;
+                        if (at === 'town')                                                               return 14;
+                        if (at === 'village')                                                            return 16;
+                        if (at === 'hamlet' || at === 'isolated_dwelling' || at === 'farm')             return 17;
+                        // Natural features — zoom out enough to see surroundings
+                        if (at === 'peak' || at === 'valley' || at === 'ridge')                        return 14;
+                        if (at === 'river' || at === 'stream' || at === 'water' || at === 'bay')       return 13;
+                        // Areas (parks, forests, lakes) — zoom like a county
+                        if (at === 'landuse' || at === 'natural' || at === 'leisure' || at === 'protected_area') return 11;
+                        // Admin boundaries
+                        if (at === 'county' || at === 'district')                                       return 11;
+                        if (at === 'state' || at === 'region')                                          return 8;
+                        if (at === 'country')                                                            return 5;
                         // Fallback for anything not matched above.
                         var rank = hit.place_rank || 0;
                         if (rank >= 30) return 20;
