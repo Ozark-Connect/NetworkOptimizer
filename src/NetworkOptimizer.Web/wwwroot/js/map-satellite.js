@@ -38,6 +38,54 @@
         });
     }
 
+    // One-time, per-browser acknowledgement that the built-in (Esri) imagery is
+    // non-commercial. Only relevant when no Mapbox token is set; once a server-side
+    // token is configured the confirm never shows, so per-browser scope is fine.
+    var ACK_KEY = 'networkOptimizerSatelliteNonCommercialAck';
+    function ackGiven() {
+        try { return localStorage.getItem(ACK_KEY) === '1'; } catch (e) { return false; }
+    }
+    function setAck() {
+        try { localStorage.setItem(ACK_KEY, '1'); } catch (e) { }
+    }
+
+    // Styled confirm shown the first time a user enables the free non-commercial
+    // imagery. Resolves true if they accept, false on cancel/backdrop/Escape.
+    function confirmNonCommercial() {
+        return new Promise(function (resolve) {
+            var backdrop = document.createElement('div');
+            backdrop.className = 'map-sat-confirm-backdrop';
+            backdrop.innerHTML =
+                '<div class="map-sat-confirm" role="dialog" aria-modal="true" aria-labelledby="map-sat-confirm-title">'
+                + '<h3 id="map-sat-confirm-title">Enable satellite imagery?</h3>'
+                + '<p>The built-in satellite imagery (Esri World Imagery) is free for <strong>personal,'
+                + ' non-commercial use only</strong>. If you use Network Optimizer commercially (an MSP,'
+                + ' installer, or any paid-service delivery), add a Mapbox token in Settings to use'
+                + ' commercially licensed imagery instead.</p>'
+                + '<div class="map-sat-confirm-actions">'
+                + '<button class="btn btn-secondary" data-act="cancel" type="button">Cancel</button>'
+                + '<button class="btn btn-primary" data-act="ok" type="button">I understand, continue</button>'
+                + '</div></div>';
+
+            function close(result) {
+                document.removeEventListener('keydown', onKey, true);
+                backdrop.remove();
+                resolve(result);
+            }
+            function onKey(e) {
+                if (e.key === 'Escape') { e.preventDefault(); close(false); }
+            }
+            backdrop.addEventListener('click', function (e) {
+                if (e.target === backdrop) { close(false); return; }
+                var act = e.target.getAttribute('data-act');
+                if (act === 'ok') close(true);
+                else if (act === 'cancel') close(false);
+            });
+            document.addEventListener('keydown', onKey, true);
+            document.body.appendChild(backdrop);
+        });
+    }
+
     window.MapSatelliteToggle = {
         /**
          * Adds a satellite toggle button to a Leaflet map (bottom-left, above the scale bar).
@@ -65,21 +113,32 @@
 
                     var satLayer = null;
                     var active = false;
+                    var token = mapboxToken || '';
+
+                    function enableSat() {
+                        if (!satLayer) satLayer = buildSatLayer(token);
+                        map.removeLayer(osmLayer);
+                        satLayer.addTo(map);
+                        satLayer.bringToBack();
+                        btn.classList.add('is-active');
+                        active = true;
+                    }
+                    function disableSat() {
+                        if (satLayer) map.removeLayer(satLayer);
+                        osmLayer.addTo(map);
+                        osmLayer.bringToBack();
+                        btn.classList.remove('is-active');
+                        active = false;
+                    }
 
                     btn.addEventListener('click', function () {
-                        active = !active;
-                        if (active) {
-                            if (!satLayer) satLayer = buildSatLayer(mapboxToken || '');
-                            map.removeLayer(osmLayer);
-                            satLayer.addTo(map);
-                            satLayer.bringToBack();
-                            btn.classList.add('is-active');
-                        } else {
-                            if (satLayer) map.removeLayer(satLayer);
-                            osmLayer.addTo(map);
-                            osmLayer.bringToBack();
-                            btn.classList.remove('is-active');
-                        }
+                        if (active) { disableSat(); return; }
+                        // Licensed (token) or already acknowledged: switch immediately.
+                        if (token || ackGiven()) { enableSat(); return; }
+                        // First time on the free non-commercial layer: confirm once.
+                        confirmNonCommercial().then(function (ok) {
+                            if (ok) { setAck(); enableSat(); }
+                        });
                     });
 
                     return root;

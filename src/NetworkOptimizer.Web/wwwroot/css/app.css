@@ -14939,6 +14939,42 @@ tr.stats-row-filtered {
     border-color: var(--primary-color);
     color: #fff;
 }
+/* One-time non-commercial confirm dialog for the free Esri satellite layer */
+.map-sat-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 1rem;
+}
+.map-sat-confirm {
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+    max-width: 420px;
+    width: 100%;
+    padding: 1.25rem 1.4rem;
+}
+.map-sat-confirm h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+}
+.map-sat-confirm p {
+    margin: 0 0 1.1rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.map-sat-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
 
 /* Leaflet zoom buttons on the Signal / floor plan and Speed Test maps —
    styled to match the 2D topology map */
