@@ -112,14 +112,25 @@
                             .catch(function () { return []; });
                     }
 
-                    // Nominatim place_rank: 30=house, 26=road, 22=neighbourhood,
-                    // 16-20=city/town/village, 12=county, 8=state, 4=country.
-                    function zoomForRank(rank) {
-                        if (rank >= 30) return 18;
-                        if (rank >= 26) return 16;
-                        if (rank >= 22) return 14;
-                        if (rank >= 16) return 12;
-                        if (rank >= 12) return 10;
+                    // addresstype drives zoom; place_rank covers types without a clean addresstype
+                    // (e.g. roads, interpolated house numbers). Berlin is a city-state with
+                    // place_rank 8 but addresstype "city" — addresstype gives the right answer.
+                    function zoomForResult(hit) {
+                        var at = (hit.addresstype || '').toLowerCase();
+                        if (at === 'house')                                                        return 20;
+                        if (at === 'road' || at === 'path' || at === 'footway')                   return 17;
+                        if (at === 'suburb' || at === 'neighbourhood' || at === 'quarter')        return 15;
+                        if (at === 'city' || at === 'town' || at === 'village' || at === 'hamlet') return 13;
+                        if (at === 'county' || at === 'district')                                 return 11;
+                        if (at === 'state' || at === 'region')                                    return 8;
+                        if (at === 'country')                                                      return 5;
+                        // Fallback for anything not matched above.
+                        var rank = hit.place_rank || 0;
+                        if (rank >= 30) return 20;
+                        if (rank >= 26) return 17;
+                        if (rank >= 22) return 15;
+                        if (rank >= 16) return 13;
+                        if (rank >= 12) return 11;
                         if (rank >= 8)  return 8;
                         return 5;
                     }
@@ -128,8 +139,7 @@
                         var lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
                         if (isNaN(lat) || isNaN(lng)) return;
                         closeResults();
-                        var resultZoom = zoomForRank(hit.place_rank || 0);
-                        var z = Math.min(Math.max(map.getZoom(), resultZoom), map.getMaxZoom() || resultZoom);
+                        var z = Math.min(zoomForResult(hit), map.getMaxZoom() || 24);
                         if (marker) map.removeLayer(marker);
                         marker = L.marker([lat, lng], { icon: pinIcon(L) })
                             .addTo(map)
