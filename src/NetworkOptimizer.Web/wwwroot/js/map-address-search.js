@@ -45,7 +45,6 @@
          * @param {Object} [opts]
          * @param {string} [opts.position='topright'] - Leaflet control corner
          * @param {string} [opts.placeholder='Search address or place...']
-         * @param {number} [opts.zoom=18] - minimum zoom to apply when centering on a result
          * @param {function(number, number, string)} [opts.onResult] - callback(lat, lng, displayName)
          * @returns {L.Control|null}
          */
@@ -54,7 +53,6 @@
             if (typeof L === 'undefined' || !map) return null;
 
             var placeholder = opts.placeholder || 'Search address or place...';
-            var targetZoom = opts.zoom || 18;
 
             var SearchControl = L.Control.extend({
                 options: { position: opts.position || 'topright' },
@@ -114,11 +112,24 @@
                             .catch(function () { return []; });
                     }
 
+                    // Nominatim place_rank: 30=house, 26=road, 22=neighbourhood,
+                    // 16-20=city/town/village, 12=county, 8=state, 4=country.
+                    function zoomForRank(rank) {
+                        if (rank >= 30) return 18;
+                        if (rank >= 26) return 16;
+                        if (rank >= 22) return 14;
+                        if (rank >= 16) return 12;
+                        if (rank >= 12) return 10;
+                        if (rank >= 8)  return 8;
+                        return 5;
+                    }
+
                     function selectResult(hit) {
                         var lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
                         if (isNaN(lat) || isNaN(lng)) return;
                         closeResults();
-                        var z = Math.min(Math.max(map.getZoom(), targetZoom), map.getMaxZoom() || targetZoom);
+                        var resultZoom = zoomForRank(hit.place_rank || 0);
+                        var z = Math.min(Math.max(map.getZoom(), resultZoom), map.getMaxZoom() || resultZoom);
                         if (marker) map.removeLayer(marker);
                         marker = L.marker([lat, lng], { icon: pinIcon(L) })
                             .addTo(map)
@@ -156,6 +167,21 @@
                         renderResults(list);
                     }
 
+                    // Grid-style addresses (e.g. "1234 N 5678 W") use a cardinal direction
+                    // between the house number and the street number. Nominatim often fails to
+                    // match these but succeeds when the cardinal is omitted ("1234 5678 W").
+                    var GRID_ADDR_RE = /^(\d+)\s+(?:North|South|East|West|N|S|E|W)\b\s+(.*)/i;
+
+                    function buildUrl(q, box) {
+                        var url = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT;
+                        if (box) url += '&viewbox=' + boxParam(box);
+                        return url + '&q=' + encodeURIComponent(q);
+                    }
+
+                    function hasHouseMatch(list) {
+                        return list.some(function (h) { return (h.place_rank || 0) >= 30; });
+                    }
+
                     function doSearch() {
                         var q = (input.value || '').trim();
                         if (!q) { collapse(); return; }
@@ -167,11 +193,23 @@
                         // in: it lifts a nearby match above a more "prominent" same-named place
                         // elsewhere, without hard-excluding far results or overriding an explicit
                         // region in the query (e.g. "paris, tx" still resolves to Texas).
-                        var url = GEOCODE_URL + '?format=jsonv2&addressdetails=1&limit=' + RESULT_LIMIT;
                         var box = localBox();
-                        if (box) url += '&viewbox=' + boxParam(box);
-                        url += '&q=' + encodeURIComponent(q);
-                        geocode(url).then(present);
+                        geocode(buildUrl(q, box)).then(function (list) {
+                            // If the first pass returned results but none are a specific house
+                            // match, and the query looks like a grid-style address with a cardinal
+                            // direction after the house number, retry without the cardinal.
+                            // e.g. "1234 N 5678 W" -> "1234 5678 W"
+                            if (list && list.length && !hasHouseMatch(list)) {
+                                var m = q.match(GRID_ADDR_RE);
+                                if (m) {
+                                    var fallback = (m[1] + ' ' + m[2]).trim();
+                                    return geocode(buildUrl(fallback, box)).then(function (fb) {
+                                        present(fb && fb.length ? fb : list);
+                                    });
+                                }
+                            }
+                            present(list);
+                        });
                     }
 
                     toggle.addEventListener('click', function () {
