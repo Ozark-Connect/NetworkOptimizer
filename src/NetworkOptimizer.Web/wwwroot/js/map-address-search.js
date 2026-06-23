@@ -120,7 +120,9 @@
                         if (at === 'house')                                                        return 20;
                         if (at === 'road' || at === 'path' || at === 'footway')                   return 17;
                         if (at === 'suburb' || at === 'neighbourhood' || at === 'quarter')        return 15;
-                        if (at === 'city' || at === 'town' || at === 'village' || at === 'hamlet') return 13;
+                        if (at === 'city')                                                          return 13;
+                        if (at === 'town' || at === 'hamlet')                                      return 14;
+                        if (at === 'village')                                                      return 16;
                         if (at === 'county' || at === 'district')                                 return 11;
                         if (at === 'state' || at === 'region')                                    return 8;
                         if (at === 'country')                                                      return 5;
