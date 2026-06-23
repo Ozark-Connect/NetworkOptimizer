@@ -398,6 +398,22 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
+            // TEMP: zoom level readout for calibrating address search zoom targets
+            (function () {
+                var ZoomReadout = L.Control.extend({
+                    options: { position: 'bottomleft' },
+                    onAdd: function (map) {
+                        var el = L.DomUtil.create('div');
+                        el.style.cssText = 'background:rgba(0,0,0,0.55);color:#fff;font:12px/1 monospace;padding:3px 6px;border-radius:3px;pointer-events:none';
+                        function update() { el.textContent = 'zoom ' + map.getZoom(); }
+                        map.on('zoomend', update);
+                        update();
+                        return el;
+                    }
+                });
+                m.addControl(new ZoomReadout());
+            })();
+
             // Immediately invalidate + abort on zoom/pan START so stale responses
             // can't render with wrong-viewport bounds
             m.on('zoomstart movestart', function () {
