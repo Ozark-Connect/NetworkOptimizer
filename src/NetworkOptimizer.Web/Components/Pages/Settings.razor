@@ -2312,20 +2312,29 @@
     <!-- 13. Map / Satellite -->
     <div class="card" id="map">
         <div class="card-header">
-            <h2 class="card-title">Map / Satellite</h2>
-            <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "disconnected")">
-                @(!string.IsNullOrEmpty(_mapboxToken) ? "Configured" : "Not Configured")
+            <h2 class="card-title">Satellite Imagery</h2>
+            <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "")">
+                @(!string.IsNullOrEmpty(_mapboxToken) ? "Mapbox (commercial)" : "Esri (non-commercial)")
             </span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                Enter a <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">Mapbox public token</a>
-                to enable satellite imagery on the Speed Test and Signal maps. The token is used client-side only and should be
-                scoped to your domain in the Mapbox dashboard.
+                The satellite toggle on the Speed Test and Signal maps works out of the box using
+                <a href="https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9" target="_blank" rel="noopener">Esri World Imagery</a>,
+                which needs no account or API key.
             </p>
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>Non-commercial use only.</strong> The built-in Esri imagery is free for personal,
+                non-commercial use. If you use this app commercially, do not rely on it - add a Mapbox token
+                below to switch the satellite layer to commercially licensed imagery.
+            </div>
             <div class="form-group">
-                <label class="form-label">Mapbox Public Token</label>
+                <label class="form-label">Mapbox Public Token <span class="form-help">(optional - for commercial use)</span></label>
                 <input type="password" class="form-control" @bind="_mapboxToken" placeholder="pk.eyJ..." autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <small class="form-help">
+                    Create a <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener">Mapbox public token</a>
+                    (scope it to your domain). Used client-side only. When set, the satellite layer uses Mapbox instead of Esri.
+                </small>
             </div>
             <div class="action-buttons">
                 <button class="btn btn-primary" @onclick="SaveMapboxToken" disabled="@_savingMapboxToken">
