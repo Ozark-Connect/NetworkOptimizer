@@ -14905,6 +14905,119 @@ tr.stats-row-filtered {
     }
 }
 
+/* Satellite tile toggle button (bottom-left, above scale bar) */
+.map-sat-ctrl {
+    position: relative;
+    /* Leaflet stacks bottom-left controls tight together; add a gap above the scale bar */
+    margin-bottom: 8px !important;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+}
+.map-sat-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: rgba(16, 24, 32, 0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.map-sat-btn:hover {
+    background: rgba(30, 40, 55, 0.92);
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+.map-sat-btn.is-active {
+    background: rgba(5, 89, 201, 0.35);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+/* One-time non-commercial confirm dialog for the free Esri satellite layer */
+.map-sat-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 1rem;
+}
+.map-sat-confirm {
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+    max-width: 420px;
+    width: 100%;
+    padding: 1.25rem 1.4rem;
+}
+.map-sat-confirm h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+}
+.map-sat-confirm p {
+    margin: 0 0 1.1rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+.map-sat-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+/* Leaflet zoom buttons on the Signal / floor plan and Speed Test maps —
+   styled to match the 2D topology map */
+.fp-map-container .leaflet-control-zoom a,
+.map-container .leaflet-control-zoom a {
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+    font-size: 16px;
+    background: rgba(26, 29, 35, 0.9);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px !important;
+}
+.fp-map-container .leaflet-control-zoom a:hover,
+.map-container .leaflet-control-zoom a:hover {
+    background: rgba(51, 56, 68, 0.9);
+    color: var(--text-primary);
+}
+/* Disabled state at min/max zoom — muted, no hover lift */
+.fp-map-container .leaflet-control-zoom a.leaflet-disabled,
+.map-container .leaflet-control-zoom a.leaflet-disabled,
+.fp-map-container .leaflet-control-zoom a.leaflet-disabled:hover,
+.map-container .leaflet-control-zoom a.leaflet-disabled:hover {
+    background: rgba(26, 29, 35, 0.6);
+    color: var(--text-muted);
+    cursor: default;
+}
+/* Leaflet's .leaflet-touch .leaflet-bar adds a 2px outer border; its CSS is injected
+   after app.css, so we need the extra .leaflet-touch class to win specificity. */
+.fp-map-container .leaflet-touch .leaflet-bar,
+.map-container .leaflet-touch .leaflet-bar,
+.fp-map-container .leaflet-bar,
+.map-container .leaflet-bar {
+    border: none;
+    box-shadow: none;
+}
+/* Gap between the stacked + and - buttons, matching the 2D map's 4px */
+.fp-map-container .leaflet-control-zoom-in,
+.map-container .leaflet-control-zoom-in {
+    margin-bottom: 4px;
+}
+
 .lan-flow-map-chips {
     display: flex;
     flex-wrap: wrap;

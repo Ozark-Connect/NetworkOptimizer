@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3SpeedTestService SpeedTestService
+@inject SystemSettingsService SystemSettings
 
 @if (HasAnyMapData)
 {
@@ -620,6 +621,8 @@
                 await Task.Delay(100);
             }
 
+            var _mapboxToken = await SystemSettings.GetAsync(SystemSettingKeys.MapboxApiKey) ?? "";
+
             // Initialize the map using inline JS
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
@@ -639,7 +642,7 @@
                         : 'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png';
                     const tileAttribution = isDemoMode ? '© CartoDB © OpenStreetMap' : '© OpenStreetMap';
                     const maxNative = isDemoMode ? 18 : 19;
-                    L.tileLayer(tileUrl, {{
+                    const osmLayer = L.tileLayer(tileUrl, {{
                         maxZoom: 22,
                         maxNativeZoom: maxNative,
                         attribution: tileAttribution
@@ -805,6 +808,11 @@
                     // Stepped distance scale bar
                     if (typeof SteppedScaleBar !== 'undefined') {{
                         window._speedTestMaps['{mapId}'].scaleBar = SteppedScaleBar.create(map, 3);
+                    }}
+
+                    // Satellite toggle (bottom-left, above scale bar — added after scale bar so it stacks on top)
+                    if (window.MapSatelliteToggle && !isDemoMode) {{
+                        window.MapSatelliteToggle.add(map, osmLayer, {System.Text.Json.JsonSerializer.Serialize(_mapboxToken)});
                     }}
 
                     // Collapsible address search (top-right)

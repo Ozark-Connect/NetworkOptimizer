@@ -219,7 +219,7 @@ window.fpEditor = {
 
     // ── Map Initialization ───────────────────────────────────────────
 
-    initMap: function (containerId, centerLat, centerLng, zoom) {
+    initMap: function (containerId, centerLat, centerLng, zoom, mapboxToken) {
         var self = this;
         this._txPowerOverrides = {};
         this._antennaModeOverrides = {};
@@ -269,7 +269,7 @@ window.fpEditor = {
             if (!container) { setTimeout(init, 100); return; }
 
             var m = L.map(containerId, { center: [centerLat, centerLng], zoom: zoom, zoomControl: true, maxZoom: 24, zoomSnap: 0.5, zoomDelta: zoom >= 21 ? 0.5 : 1 });
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 24, maxNativeZoom: 19, attribution: 'OpenStreetMap'
             }).addTo(m);
             self._map = m;
@@ -415,6 +415,11 @@ window.fpEditor = {
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
             var initSteps = (window.innerWidth <= 768) ? 0 : 3;
             self._scaleBar = SteppedScaleBar.create(m, initSteps);
+
+            // Satellite toggle (bottom-left) — added after the scale bar so it stacks above it
+            if (window.MapSatelliteToggle) {
+                window.MapSatelliteToggle.add(m, osmLayer, mapboxToken || '');
+            }
 
             // Collapsible address search (top-right) - jump the floor plan to a street address
             if (window.MapAddressSearch) {
