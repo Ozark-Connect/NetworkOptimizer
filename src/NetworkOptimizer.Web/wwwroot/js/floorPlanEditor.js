@@ -398,11 +398,6 @@ window.fpEditor = {
             m.on('zoomend', updateApScale);
             updateApScale();
 
-            // Satellite toggle (bottom-left, above scale bar — added after scale bar so it stacks on top)
-            if (window.MapSatelliteToggle) {
-                window.MapSatelliteToggle.add(m, osmLayer, mapboxToken || '');
-            }
-
             // Immediately invalidate + abort on zoom/pan START so stale responses
             // can't render with wrong-viewport bounds
             m.on('zoomstart movestart', function () {
@@ -420,6 +415,11 @@ window.fpEditor = {
             // Stepped distance scale bar (3 steps normal, 5 fullscreen, hidden on mobile non-fullscreen)
             var initSteps = (window.innerWidth <= 768) ? 0 : 3;
             self._scaleBar = SteppedScaleBar.create(m, initSteps);
+
+            // Satellite toggle (bottom-left) — added after the scale bar so it stacks above it
+            if (window.MapSatelliteToggle) {
+                window.MapSatelliteToggle.add(m, osmLayer, mapboxToken || '');
+            }
 
             // Collapsible address search (top-right) - jump the floor plan to a street address
             if (window.MapAddressSearch) {

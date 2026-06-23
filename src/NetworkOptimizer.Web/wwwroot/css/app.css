@@ -14908,6 +14908,11 @@ tr.stats-row-filtered {
 /* Satellite tile toggle button (bottom-left, above scale bar) */
 .map-sat-ctrl {
     position: relative;
+    /* Leaflet stacks bottom-left controls tight together; add a gap above the scale bar */
+    margin-bottom: 8px !important;
+    border: none;
+    background: transparent;
+    box-shadow: none;
 }
 .map-sat-btn {
     display: flex;
@@ -14955,8 +14960,10 @@ tr.stats-row-filtered {
     text-decoration: underline;
 }
 
-/* Leaflet zoom buttons on Signal / floor plan map — styled to match the 2D topology map */
-.fp-map-container .leaflet-control-zoom a {
+/* Leaflet zoom buttons on the Signal / floor plan and Speed Test maps —
+   styled to match the 2D topology map */
+.fp-map-container .leaflet-control-zoom a,
+.map-container .leaflet-control-zoom a {
     width: 32px;
     height: 32px;
     line-height: 32px;
@@ -14966,17 +14973,24 @@ tr.stats-row-filtered {
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px !important;
 }
-.fp-map-container .leaflet-control-zoom a:hover {
+.fp-map-container .leaflet-control-zoom a:hover,
+.map-container .leaflet-control-zoom a:hover {
     background: rgba(51, 56, 68, 0.9);
     color: var(--text-primary);
 }
-.fp-map-container .leaflet-bar {
+/* Leaflet's .leaflet-touch .leaflet-bar adds a 2px outer border; its CSS is injected
+   after app.css, so we need the extra .leaflet-touch class to win specificity. */
+.fp-map-container .leaflet-touch .leaflet-bar,
+.map-container .leaflet-touch .leaflet-bar,
+.fp-map-container .leaflet-bar,
+.map-container .leaflet-bar {
     border: none;
     box-shadow: none;
 }
-.fp-map-container .leaflet-bar a:first-child,
-.fp-map-container .leaflet-bar a:last-child {
-    border-radius: 6px !important;
+/* Gap between the stacked + and - buttons, matching the 2D map's 4px */
+.fp-map-container .leaflet-control-zoom-in,
+.map-container .leaflet-control-zoom-in {
+    margin-bottom: 4px;
 }
 
 .lan-flow-map-chips {

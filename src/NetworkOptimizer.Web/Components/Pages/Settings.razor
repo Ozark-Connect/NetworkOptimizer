@@ -2325,7 +2325,7 @@
             </p>
             <div class="form-group">
                 <label class="form-label">Mapbox Public Token</label>
-                <input type="password" class="form-control" @bind="_mapboxToken" placeholder="pk.eyJ..." autocomplete="off" />
+                <input type="password" class="form-control" @bind="_mapboxToken" placeholder="pk.eyJ..." autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
             <div class="action-buttons">
                 <button class="btn btn-primary" @onclick="SaveMapboxToken" disabled="@_savingMapboxToken">
