@@ -671,6 +671,12 @@ public class ChannelRecommendationService
                     var otherScore = ScoreAp(graph, trial, j, band);
                     if (otherScore / otherCurrent > MaxApScoreDegradation)
                     {
+                        _logger.LogDebug(
+                            "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} improves ({Abs:F3}/{Pct:P0}) but " +
+                            "degrades {Victim} {From:F3}->{To:F3} ({Ratio:F2}x > {Max:P0}), skipping",
+                            node.Name, candidateCh, absImprovement, pctImprovement,
+                            graph.Nodes[j].Name, otherCurrent, otherScore,
+                            otherScore / otherCurrent, MaxApScoreDegradation);
                         degradesOther = true;
                         break;
                     }
