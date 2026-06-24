@@ -457,16 +457,17 @@ else
     }
 
     <div class="card isp-health-card">
-        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@WindowLabel(r))</h2></div>
+        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2></div>
         <div class="card-body">
-            @if (r.CongestionEvents.Count == 0 && r.PathShifts.Count == 0)
+            @{ var timeline = EventTimeline(r).Where(InZoomWindow).ToList(); }
+            @if (timeline.Count == 0)
             {
-                <p class="page-description">No congestion events or path shifts detected in the window.</p>
+                <p class="page-description">@(IsZoomed ? "No congestion events or path shifts in this range. Reset the chart zoom to see the full window." : "No congestion events or path shifts detected in the window.")</p>
             }
             else
             {
                 <div class="isp-event-timeline">
-                    @foreach (var entry in EventTimeline(r))
+                    @foreach (var entry in timeline)
                     {
                         <div class="isp-event-item">
                             <span class="isp-event-badge @entry.BadgeClass">@entry.Badge</span>
@@ -529,6 +530,11 @@ else
     private bool _windowComputing;
     private DateTime? _windowStart;
     private DateTime? _windowEnd;
+    private DotNetObjectReference<IspHealthPanel>? _selfRef;
+    // Chart drag-zoom range (UTC) the events list is filtered to; null = show the whole window.
+    private DateTime? _zoomFrom;
+    private DateTime? _zoomTo;
+    private bool IsZoomed => _zoomFrom.HasValue && _zoomTo.HasValue;
     private DateTime _customFrom = DateTime.Now.AddDays(-2);
     private DateTime _customTo = DateTime.Now;
 
@@ -607,9 +613,12 @@ else
         var toArg = _windowEnd.HasValue ? $"'{_windowEnd.Value:o}'" : "null";
         try
         {
+            _selfRef ??= DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("eval",
                 $"(async () => {{ const m = await import('{VersionedJs("/js/isp-health-charts.js")}'); " +
                 $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}); }})();");
+            // Hand the chart a callback so its drag-zoom can filter the events list to the visible window.
+            await JS.InvokeVoidAsync("__ispHealthCharts.setDotNetRef", _selfRef);
         }
         catch { _chartMounted = false; }
     }
@@ -684,7 +693,28 @@ else
         catch { /* chart not mounted yet */ }
     }
 
-    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text);
+    /// <summary>
+    /// Called by the per-network RTT chart on drag-zoom (epoch ms, or null/null on reset/window
+    /// change) so the Path &amp; Congestion Events list filters to the visible range.
+    /// </summary>
+    [JSInvokable]
+    public Task OnChartZoom(double? minMs, double? maxMs)
+    {
+        _zoomFrom = minMs.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds((long)minMs.Value).UtcDateTime : null;
+        _zoomTo = maxMs.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds((long)maxMs.Value).UtcDateTime : null;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    // An event shows when its span overlaps the zoom window (instant events: when the instant is in it).
+    private bool InZoomWindow(TimelineEntry e) =>
+        !IsZoomed || ((e.End ?? e.Time) >= _zoomFrom!.Value && e.Time <= _zoomTo!.Value);
+
+    private string EventsWindowLabel(IspHealthReport r) =>
+        IsZoomed
+            ? $"zoomed: {_zoomFrom!.Value.ToLocalTime():MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime():MMM d, HH:mm}"
+            : WindowLabel(r);
+
+    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null);
 
     private static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
     {
@@ -728,7 +758,7 @@ else
                 _ => ("Congestion", "isp-event-badge-warning",
                     $"{lead}")
             };
-            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text));
+            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End));
         }
         foreach (var shift in r.PathShifts)
         {
@@ -874,5 +904,6 @@ else
             try { _ = JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount();"); }
             catch { }
         }
+        _selfRef?.Dispose();
     }
 }
