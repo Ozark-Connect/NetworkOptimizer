@@ -8099,6 +8099,8 @@ a.path-hop.hop-clickable:hover {
 /* Success State */
 .success-state {
     color: #22c55e;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
 }
 
 .success-state svg {
