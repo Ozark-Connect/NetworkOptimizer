@@ -66,13 +66,16 @@ public static class CongestionDetector
         bool StillElevated(Bucket b)
         {
             var f = options.CongestionSustainFraction;
+            // Continuation requires the congestion SIGNATURE to persist, not merely an elevated
+            // level: jitter still up, or p90 still spiking above the bucket's OWN median
+            // (intermittent bursts). A flat elevated plateau - raised median, baseline jitter,
+            // p90 about equal to the median - is a path/route shift (the step detector's job) and
+            // must not hold a congestion run open.
             var jitterOk = b.JitterMs.HasValue && baselineJitter.HasValue
                 && b.JitterMs.Value - baselineJitter.Value >= options.CongestionJitterMinDeltaMs * f;
-            var rttOk = b.RttMs.HasValue
-                && b.RttMs.Value > baselineRtt.Value + (rttThreshold - baselineRtt.Value) * f;
-            var burstOk = b.P90Ms.HasValue
-                && b.P90Ms.Value > baselineP90.Value + (burstThreshold - baselineP90.Value) * f;
-            return jitterOk || rttOk || burstOk;
+            var burstOk = b.P90Ms.HasValue && b.RttMs.HasValue
+                && b.P90Ms.Value - b.RttMs.Value >= (burstThreshold - baselineP90.Value) * f;
+            return jitterOk || burstOk;
         }
 
         var events = new List<CongestionEvent>();
