@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="NetworkOptimizer.Storage.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\NetworkOptimizer.Alerts\NetworkOptimizer.Alerts.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Threats\NetworkOptimizer.Threats.csproj" />

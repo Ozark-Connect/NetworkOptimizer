@@ -1234,28 +1234,7 @@ from(bucket: ""{_bucket}"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
-        var results = new Dictionary<string, List<LatencySeriesPoint>>();
-        await foreach (var record in QueryFluxAsync(flux, ct))
-        {
-            var targetId = record.GetValueByKey("target_id") as string;
-            if (string.IsNullOrEmpty(targetId)) continue;
-            if (!results.TryGetValue(targetId, out var list))
-            {
-                list = new List<LatencySeriesPoint>();
-                results[targetId] = list;
-            }
-            list.Add(new LatencySeriesPoint
-            {
-                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
-                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
-                RttMaxMs = AsDoubleOrNull(record.GetValueByKey("rtt_max_ms")),
-                JitterMs = AsDoubleOrNull(record.GetValueByKey("jitter_ms")),
-                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
-            });
-        }
-        foreach (var list in results.Values)
-            list.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return results;
+        return ParseLatencyDetailCsv(await QueryRawAsync(flux, ct));
     }
 
     /// <summary>
@@ -1281,18 +1260,9 @@ from(bucket: ""{_bucket}"")
   |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
   |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
-        var list = new List<LatencySeriesPoint>();
-        await foreach (var record in QueryFluxAsync(flux, ct))
-        {
-            list.Add(new LatencySeriesPoint
-            {
-                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
-                RttAvgMs = AsDoubleOrNull(record.GetValueByKey("rtt_avg_ms")),
-                RttMaxMs = AsDoubleOrNull(record.GetValueByKey("rtt_max_ms")),
-                JitterMs = AsDoubleOrNull(record.GetValueByKey("jitter_ms")),
-                LossPercent = AsDoubleOrNull(record.GetValueByKey("loss_percent"))
-            });
-        }
+        var byTarget = ParseLatencyDetailCsv(await QueryRawAsync(flux, ct));
+        // Single target filter, but flatten defensively in case the pivot emits more than one key.
+        var list = byTarget.Values.SelectMany(x => x).ToList();
         list.Sort((a, b) => a.Time.CompareTo(b.Time));
         return list;
     }
@@ -1835,6 +1805,154 @@ from(bucket: ""{_longtermBucket}"")
                 System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             ? parsed : null
     };
+
+    /// <summary>
+    /// Runs a Flux query and returns the raw annotated CSV. Used for the high-volume latency-detail
+    /// reads, where the client's buffered FluxRecord model (a Dictionary&lt;string,object&gt; with
+    /// boxed values per record) is the dominant cost; <see cref="ParseLatencyDetailCsv"/> stream-parses
+    /// this directly into points with no per-record allocation. Same error handling as QueryFluxAsync.
+    /// </summary>
+    // The annotated CSV dialect (datatype/group/default header rows) - same as the client's default
+    // query dialect, so QueryRawAsync returns the format ParseLatencyDetailCsv expects.
+    private static readonly InfluxDB.Client.Api.Domain.Dialect AnnotatedCsvDialect = new(
+        header: true,
+        delimiter: ",",
+        annotations: new List<InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum>
+        {
+            InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum.Group,
+            InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum.Datatype,
+            InfluxDB.Client.Api.Domain.Dialect.AnnotationsEnum.Default,
+        },
+        commentPrefix: "#",
+        dateTimeFormat: null);
+
+    private async Task<string> QueryRawAsync(string flux, CancellationToken ct)
+    {
+        if (_client == null || string.IsNullOrEmpty(_org)) return string.Empty;
+        try
+        {
+            return await _client.GetQueryApi().QueryRawAsync(flux, AnnotatedCsvDialect, _org, ct);
+        }
+        catch (Exception ex) when (
+            ex is InfluxDB.Client.Core.Exceptions.NotFoundException
+            or InfluxDB.Client.Core.Exceptions.BadRequestException
+            or InfluxDB.Client.Core.Exceptions.UnauthorizedException)
+        {
+            _logger.LogWarning("InfluxDB query failed ({Error}) — check Settings > Monitoring", ex.Message);
+            _ = PersistHealthAsync(false, ex.Message, CancellationToken.None);
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Parses the annotated-CSV result of a latency-detail pivot query (columns target_id, _time,
+    /// rtt_avg_ms, rtt_max_ms, jitter_ms, loss_percent) directly into per-target point lists. Span-
+    /// based: the only allocations are the per-target list, the distinct target_id keys, and the
+    /// points themselves - no FluxRecord, no boxing, no intermediate copy. Annotation rows (#...) are
+    /// skipped and the column header is re-read whenever Flux emits one (default annotated dialect),
+    /// so column order is never assumed. Tag/field values in this measurement never contain commas,
+    /// so a plain comma split is safe.
+    /// </summary>
+    internal static Dictionary<string, List<LatencySeriesPoint>> ParseLatencyDetailCsv(string csv)
+    {
+        var result = new Dictionary<string, List<LatencySeriesPoint>>();
+        if (string.IsNullOrEmpty(csv)) return result;
+
+        int iTime = -1, iTarget = -1, iRtt = -1, iRttMax = -1, iJitter = -1, iLoss = -1;
+        var expectHeader = true; // first non-# line is a header (annotated dialect re-arms this after each #-block)
+        string? lastKey = null;
+        List<LatencySeriesPoint>? lastList = null;
+
+        var span = csv.AsSpan();
+        int pos = 0;
+        while (pos < span.Length)
+        {
+            var nl = span.Slice(pos).IndexOf('\n');
+            var line = nl < 0 ? span.Slice(pos) : span.Slice(pos, nl);
+            pos = nl < 0 ? span.Length : pos + nl + 1;
+            if (line.Length > 0 && line[line.Length - 1] == '\r') line = line.Slice(0, line.Length - 1);
+            if (line.IsEmpty) continue;
+            if (line[0] == '#') { expectHeader = true; continue; }
+
+            if (expectHeader)
+            {
+                iTime = iTarget = iRtt = iRttMax = iJitter = iLoss = -1;
+                int col = 0, p = 0;
+                while (true)
+                {
+                    var comma = line.Slice(p).IndexOf(',');
+                    var cell = comma < 0 ? line.Slice(p) : line.Slice(p, comma);
+                    if (cell.SequenceEqual("_time")) iTime = col;
+                    else if (cell.SequenceEqual("target_id")) iTarget = col;
+                    else if (cell.SequenceEqual("rtt_avg_ms")) iRtt = col;
+                    else if (cell.SequenceEqual("rtt_max_ms")) iRttMax = col;
+                    else if (cell.SequenceEqual("jitter_ms")) iJitter = col;
+                    else if (cell.SequenceEqual("loss_percent")) iLoss = col;
+                    col++;
+                    if (comma < 0) break;
+                    p += comma + 1;
+                }
+                expectHeader = false;
+                continue;
+            }
+
+            if (iTime < 0 || iTarget < 0) continue;
+
+            ReadOnlySpan<char> tTime = default, tTarget = default, tRtt = default, tRttMax = default, tJitter = default, tLoss = default;
+            int c = 0, q = 0;
+            while (true)
+            {
+                var comma = line.Slice(q).IndexOf(',');
+                var cell = comma < 0 ? line.Slice(q) : line.Slice(q, comma);
+                if (c == iTime) tTime = cell;
+                else if (c == iTarget) tTarget = cell;
+                else if (c == iRtt) tRtt = cell;
+                else if (c == iRttMax) tRttMax = cell;
+                else if (c == iJitter) tJitter = cell;
+                else if (c == iLoss) tLoss = cell;
+                c++;
+                if (comma < 0) break;
+                q += comma + 1;
+            }
+
+            if (tTarget.IsEmpty || tTime.IsEmpty) continue;
+            if (!DateTime.TryParse(tTime, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var time))
+                continue;
+
+            // Rows are grouped by target, so reuse the key/list across a run rather than re-allocating.
+            List<LatencySeriesPoint>? list;
+            if (lastKey != null && tTarget.SequenceEqual(lastKey))
+            {
+                list = lastList;
+            }
+            else
+            {
+                var key = tTarget.ToString();
+                if (!result.TryGetValue(key, out list)) { list = new List<LatencySeriesPoint>(); result[key] = list; }
+                lastKey = key;
+                lastList = list;
+            }
+
+            list!.Add(new LatencySeriesPoint
+            {
+                Time = ToUtc(time),
+                RttAvgMs = ParseDoubleOrNull(tRtt),
+                RttMaxMs = ParseDoubleOrNull(tRttMax),
+                JitterMs = ParseDoubleOrNull(tJitter),
+                LossPercent = ParseDoubleOrNull(tLoss)
+            });
+        }
+
+        foreach (var list in result.Values)
+            list.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return result;
+    }
+
+    private static double? ParseDoubleOrNull(ReadOnlySpan<char> s) =>
+        s.IsEmpty ? null
+        : double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v
+        : null;
 
     private static int? AsIntOrNull(object? v) => v switch
     {
