@@ -26,15 +26,15 @@ public class ChannelRecommendationServiceTests
         int width = 80, int txPower = 20, bool hasDfs = false,
         bool isMeshChild = false, string? meshParentMac = null,
         RadioBand? meshUplinkBand = null, int? meshUplinkChannel = null) => new()
-    {
-        Mac = mac,
-        Name = name,
-        IsOnline = true,
-        IsMeshChild = isMeshChild,
-        MeshParentMac = meshParentMac,
-        MeshUplinkBand = meshUplinkBand,
-        MeshUplinkChannel = meshUplinkChannel,
-        Radios = new()
+        {
+            Mac = mac,
+            Name = name,
+            IsOnline = true,
+            IsMeshChild = isMeshChild,
+            MeshParentMac = meshParentMac,
+            MeshUplinkBand = meshUplinkBand,
+            MeshUplinkChannel = meshUplinkChannel,
+            Radios = new()
         {
             new RadioSnapshot
             {
@@ -46,7 +46,7 @@ public class ChannelRecommendationServiceTests
                 HasDfs = hasDfs
             }
         }
-    };
+        };
 
     // --- Graph Building ---
 
@@ -328,6 +328,76 @@ public class ChannelRecommendationServiceTests
 
         score2_4.Should().BeLessThan(score5);
         score5.Should().BeLessThan(score6);
+    }
+
+    // --- Directional interference (EIRP-aware) ---
+
+    // Two placed APs ~45 m apart, same channel, with the given TX powers. Returns the graph.
+    private InterferenceGraph BuildPlacedPair(int txPowerA, int txPowerB)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-A", RadioBand.Band5GHz, 36, txPower: txPowerA),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-B", RadioBand.Band5GHz, 36, txPower: txPowerB)
+        };
+        var propCtx = new ApPropagationContext
+        {
+            ApsByMac = new Dictionary<string, PropagationAp>
+            {
+                ["aa:bb:cc:dd:ee:01"] = new()
+                {
+                    Mac = "aa:bb:cc:dd:ee:01",
+                    Model = "U6-Pro",
+                    Latitude = 36.0000,
+                    Longitude = -94.0000,
+                    Floor = 1,
+                    TxPowerDbm = txPowerA,
+                    AntennaGainDbi = 3,
+                    MountType = "ceiling"
+                },
+                ["aa:bb:cc:dd:ee:02"] = new()
+                {
+                    Mac = "aa:bb:cc:dd:ee:02",
+                    Model = "U6-Pro",
+                    Latitude = 36.0004,
+                    Longitude = -94.0000,
+                    Floor = 1,
+                    TxPowerDbm = txPowerB,
+                    AntennaGainDbi = 3,
+                    MountType = "ceiling"
+                }
+            },
+            WallsByFloor = new Dictionary<int, List<PropagationWall>>(),
+            Buildings = null
+        };
+        return _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, propCtx, null, null);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_AsymmetricEirp_DirectionalWeightLowerForLowerPowerAggressor()
+    {
+        // AP-A full power (20 dBm), AP-B intentionally low (5 dBm).
+        var graph = BuildPlacedPair(txPowerA: 20, txPowerB: 5);
+
+        // Directional [aggressor, victim]: the low-power AP-B interferes with AP-A LESS than the
+        // full-power AP-A interferes with AP-B (B transmits weaker, so its signal at A is lower).
+        graph.DirectionalWeights[1, 0].Should().BeLessThan(graph.DirectionalWeights[0, 1]);
+
+        // The symmetric weight is the worst case of both directions - it equals the stronger one,
+        // so it does NOT credit B's low power (which is exactly why the degradation guard needs
+        // the directional weight instead).
+        graph.InternalWeights[0, 1].Should().Be(graph.InternalWeights[1, 0]);
+        graph.InternalWeights[0, 1].Should().BeApproximately(graph.DirectionalWeights[0, 1], 0.001);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_EqualEirp_DirectionalWeightsSymmetric()
+    {
+        // With equal TX power, the two directions are the same - confirms the asymmetry above is
+        // driven by EIRP, not by anything else.
+        var graph = BuildPlacedPair(txPowerA: 20, txPowerB: 20);
+
+        graph.DirectionalWeights[0, 1].Should().BeApproximately(graph.DirectionalWeights[1, 0], 0.001);
     }
 
     // --- Optimization ---
