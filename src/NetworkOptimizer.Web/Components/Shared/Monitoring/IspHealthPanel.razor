@@ -261,7 +261,7 @@ else
                                             @FormatJitter(target.P95JitterMs)
                                             @if (target.JitterAssimilated)
                                             {
-                                                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
+                                                <span class="tooltip-icon tooltip-icon-sm isp-jitter-tip" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
                                             }
                                         </span>
                                     </span>
@@ -376,7 +376,7 @@ else
                                         @FormatJitter(asn.P95JitterMs)
                                         @if (asn.JitterAssimilated)
                                         {
-                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
+                                            <span class="tooltip-icon tooltip-icon-sm isp-jitter-tip" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
                                         }
                                     </span>
                                 </div>
@@ -538,6 +538,9 @@ else
     // Set when reset-zoom expands the list (which sits above the chart); scrolls the chart back
     // into view after the next render so it doesn't get pushed off-screen.
     private bool _scrollChartAfterRender;
+    // Last report the absolved-jitter tooltips were refreshed against; a new report means their
+    // data-tooltip changed and the cached Tippy content needs rebuilding.
+    private IspHealthReport? _lastTooltipReport;
     private DateTime _customFrom = DateTime.Now.AddDays(-2);
     private DateTime _customTo = DateTime.Now;
 
@@ -615,6 +618,23 @@ else
                 catch { /* nothing mounted */ }
             }
             return;
+        }
+        // Absolved-jitter tooltip-icons cache their content when Tippy first builds them; on a window
+        // recompute Blazor swaps only their data-tooltip attribute (no node re-add, so the global
+        // observer never re-fires) and the value goes stale. When the report changes, push the current
+        // attribute into each icon's existing Tippy with setContent - scoped to these icons only, and
+        // it leaves all other tooltips and the shared init untouched.
+        if (!ReferenceEquals(_report, _lastTooltipReport))
+        {
+            _lastTooltipReport = _report;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    "document.querySelectorAll('.isp-jitter-tip').forEach(function(el){" +
+                    "if(el._tippy&&el.dataset.tooltip&&el._tippy.props.content!==el.dataset.tooltip)" +
+                    "el._tippy.setContent(el.dataset.tooltip);});");
+            }
+            catch { /* tooltip refresh is best-effort */ }
         }
         if (_chartMounted) return;
         _chartMounted = true;
