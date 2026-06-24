@@ -168,6 +168,17 @@ public class IspHealthOptions
     public double CongestionJitterMinDeltaMs { get; set; } = 0.8;
 
     /// <summary>
+    /// Hysteresis for congestion run continuation. Starting a run still requires the full entry
+    /// gate (RTT+jitter, or the burst shape); but once a run is active it stays alive while any
+    /// signal remains at least this fraction of the way from baseline to its entry threshold.
+    /// Without it a long event whose tail hovers just under the entry gate (the milder second half
+    /// of a real multi-hour event) flickers in and out and truncates to its peak. Entry is
+    /// unchanged, so this only extends events that already legitimately started - never creates new
+    /// ones.
+    /// </summary>
+    public double CongestionSustainFraction { get; set; } = 0.5;
+
+    /// <summary>
     /// WAN utilization (fraction of the expected plan speed, worst direction) at or above
     /// which a congestion bucket is treated as coinciding with heavy local load. The
     /// self-inflicted classifier uses this to tell access-egress bufferbloat (your own

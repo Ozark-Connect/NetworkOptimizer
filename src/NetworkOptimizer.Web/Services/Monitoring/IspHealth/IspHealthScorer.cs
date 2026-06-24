@@ -1228,7 +1228,7 @@ public class IspHealthScorer
                 ? $"{partialDisruptions.Count} partial-loss disruptions totaling {FormatBriefDuration(totalDown)}"
                 : $"A partial-loss disruption of {FormatBriefDuration(partialDisruptions[0].Duration)}";
             var breadth = $" Peak loss reached {worst.PeakLossPct:0}% across {worst.DegradedTargetCount} of {worst.PathTargetCount} path targets, so the loss was widespread rather than one bad target.";
-            var impact = $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")} (the loss also feeds the Packet Loss factor).";
+            var impact = $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}.";
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Info,

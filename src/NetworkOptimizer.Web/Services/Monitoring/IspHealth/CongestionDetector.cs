@@ -58,6 +58,23 @@ public static class CongestionDetector
         var burstSpread = Math.Max(baselineP90.Value - baselineRtt.Value, 0.5);
         var burstThreshold = baselineP90.Value + Math.Max(options.CongestionRttMinDeltaMs, options.CongestionBurstDeltaFactor * burstSpread);
 
+        // Continuation (hysteresis) gate: once a run is active it survives while any signal stays
+        // at least CongestionSustainFraction of the way from baseline to its entry threshold. This
+        // does NOT start a run (entry below still requires the full strict gate), so it only keeps
+        // a legitimately-started event alive through its milder tail and brief dips instead of
+        // truncating to the peak.
+        bool StillElevated(Bucket b)
+        {
+            var f = options.CongestionSustainFraction;
+            var jitterOk = b.JitterMs.HasValue && baselineJitter.HasValue
+                && b.JitterMs.Value - baselineJitter.Value >= options.CongestionJitterMinDeltaMs * f;
+            var rttOk = b.RttMs.HasValue
+                && b.RttMs.Value > baselineRtt.Value + (rttThreshold - baselineRtt.Value) * f;
+            var burstOk = b.P90Ms.HasValue
+                && b.P90Ms.Value > baselineP90.Value + (burstThreshold - baselineP90.Value) * f;
+            return jitterOk || rttOk || burstOk;
+        }
+
         var events = new List<CongestionEvent>();
         var run = new List<Bucket>();
         var gap = 0;
@@ -83,6 +100,11 @@ public static class CongestionDetector
             var elevated = sustainedElevated || burstElevated;
 
             if (elevated)
+            {
+                run.Add(bucket);
+                gap = 0;
+            }
+            else if (run.Count > 0 && StillElevated(bucket))
             {
                 run.Add(bucket);
                 gap = 0;
