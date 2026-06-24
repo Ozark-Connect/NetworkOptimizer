@@ -537,6 +537,14 @@ public class WiFiOptimizerService
     private List<ChannelScanResult>? _cachedScanResults;
     private string? _cachedScanResultsTimeKey;
 
+    // Rolling per-(AP, band) neighbor sighting history, so a channel's external load reflects the
+    // fullest recent scan rather than a single under-detecting one. A neighbor that isn't
+    // transmitting during one scan window would otherwise drop out and make its channel look
+    // spuriously clean, which flickers marginal channel-plan moves in and out. See NeighborSightingPool.
+    private readonly object _sightingHistoryLock = new();
+    private readonly Dictionary<string, List<(NeighborNetwork Neighbor, DateTimeOffset SeenAt)>> _neighborSightingHistory = new();
+    private static readonly TimeSpan NeighborSightingWindow = TimeSpan.FromMinutes(10);
+
     /// <summary>
     /// Get RF environment channel scan results from APs
     /// </summary>
@@ -577,10 +585,11 @@ public class WiFiOptimizerService
         {
             var provider = CreateProvider();
 
-            _cachedScanResults = await provider.GetChannelScanResultsAsync(
+            var fresh = await provider.GetChannelScanResultsAsync(
                 apMac: null,
                 startTime: startTime,
                 endTime: endTime);
+            _cachedScanResults = PoolNeighborSightings(fresh);
             _cachedScanResultsTimeKey = timeKey;
             return _cachedScanResults;
         }
@@ -588,6 +597,41 @@ public class WiFiOptimizerService
         {
             _logger.LogError(ex, "Failed to get channel scan results");
             return new List<ChannelScanResult>();
+        }
+    }
+
+    /// <summary>
+    /// Fold each fresh scan's neighbor list into a short rolling per-(AP, band) history and replace
+    /// it with the union of recent sightings, so a channel's external load reflects the fullest
+    /// recent scan rather than a single under-detecting snapshot. This stabilizes marginal
+    /// channel-plan moves that would otherwise flicker as consecutive scans detect slightly
+    /// different neighbor sets. See <see cref="NeighborSightingPool"/>.
+    /// </summary>
+    private List<ChannelScanResult> PoolNeighborSightings(List<ChannelScanResult> fresh)
+    {
+        var now = DateTimeOffset.UtcNow;
+        lock (_sightingHistoryLock)
+        {
+            foreach (var scan in fresh)
+            {
+                var key = $"{scan.ApMac.ToLowerInvariant()}|{scan.Band}";
+                if (!_neighborSightingHistory.TryGetValue(key, out var history))
+                {
+                    history = new List<(NeighborNetwork, DateTimeOffset)>();
+                    _neighborSightingHistory[key] = history;
+                }
+
+                foreach (var nb in scan.Neighbors)
+                {
+                    if (!string.IsNullOrEmpty(nb.Bssid))
+                        history.Add((nb, now));
+                }
+                history.RemoveAll(s => now - s.SeenAt > NeighborSightingWindow);
+
+                scan.Neighbors = NeighborSightingPool.Union(history, now, NeighborSightingWindow);
+            }
+
+            return fresh;
         }
     }
 
