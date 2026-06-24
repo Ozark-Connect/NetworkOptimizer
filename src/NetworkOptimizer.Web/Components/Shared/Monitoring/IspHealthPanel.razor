@@ -535,6 +535,9 @@ else
     private DateTime? _zoomFrom;
     private DateTime? _zoomTo;
     private bool IsZoomed => _zoomFrom.HasValue && _zoomTo.HasValue;
+    // Set when reset-zoom expands the list (which sits above the chart); scrolls the chart back
+    // into view after the next render so it doesn't get pushed off-screen.
+    private bool _scrollChartAfterRender;
     private DateTime _customFrom = DateTime.Now.AddDays(-2);
     private DateTime _customTo = DateTime.Now;
 
@@ -595,6 +598,12 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollChartAfterRender)
+        {
+            _scrollChartAfterRender = false;
+            try { await JS.InvokeVoidAsync("__ispHealthCharts.scrollChartIntoView"); }
+            catch { /* chart not mounted */ }
+        }
         if (_report == null)
         {
             // The content (and the chart element) is gone; drop the chart so it re-mounts
@@ -698,10 +707,12 @@ else
     /// change) so the Path &amp; Congestion Events list filters to the visible range.
     /// </summary>
     [JSInvokable]
-    public Task OnChartZoom(double? minMs, double? maxMs)
+    public Task OnChartZoom(double? minMs, double? maxMs, bool scrollToChart)
     {
         _zoomFrom = minMs.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds((long)minMs.Value).UtcDateTime : null;
         _zoomTo = maxMs.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds((long)maxMs.Value).UtcDateTime : null;
+        // On reset the list above the chart expands; keep the chart the user was on in view.
+        if (scrollToChart) _scrollChartAfterRender = true;
         return InvokeAsync(StateHasChanged);
     }
 
