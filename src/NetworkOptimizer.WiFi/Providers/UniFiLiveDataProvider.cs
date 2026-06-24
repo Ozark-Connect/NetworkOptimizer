@@ -260,7 +260,16 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         try
         {
             var data = await _client.GetApChannelChangeEventsAsync(start, end, apMac, cancellationToken);
-            return ParseChannelChangeEvents(data);
+            var events = ParseChannelChangeEvents(data);
+
+            // The controller's system-log query filters by clientDeviceMacs, which does not scope
+            // AP "changed channels" events to a single device - it can return every AP's channel
+            // changes. Filter by the AP MAC here so callers only see the requested AP's events
+            // (otherwise one AP's change is misattributed onto another AP's chart/timeline).
+            if (!string.IsNullOrEmpty(apMac))
+                events = events.Where(e => e.ApMac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            return events;
         }
         catch (Exception ex)
         {
