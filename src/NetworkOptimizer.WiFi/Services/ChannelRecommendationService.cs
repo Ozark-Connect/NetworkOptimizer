@@ -105,6 +105,14 @@ public class ChannelRecommendationService
     private const double MaxApScoreDegradation = 1.5;
 
     /// <summary>
+    /// Hard cap on how much a single per-AP fallback move may degrade another AP, regardless of
+    /// net benefit. A net-positive standalone move (the moving AP gains more than the total it
+    /// degrades others) is allowed past MaxApScoreDegradation, but never past this - so we never
+    /// wreck one AP to slightly help the site. 2.0 = the victim's score may at most double.
+    /// </summary>
+    private const double CatastrophicDegradation = 2.0;
+
+    /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
     /// (Clear Channel Assessment) threshold: below -82 dBm, radios don't defer
     /// transmission so the neighbor causes no real co-channel interference.
@@ -661,27 +669,42 @@ public class ChannelRecommendationService
                     pctImprovement < MinApImprovementPercent)
                     continue;
 
-                // Check no other AP gets degraded beyond threshold
-                bool degradesOther = false;
+                // A standalone move may degrade other APs, but only if it still improves the site
+                // overall (this AP's gain exceeds the total degradation it causes) and never pushes
+                // any single AP past the catastrophic cap.
+                bool reject = false;
+                double totalDegradation = 0;
                 for (int j = 0; j < n; j++)
                 {
                     if (j == i) continue;
                     var otherCurrent = currentApScores[j];
                     if (otherCurrent <= 0) continue;
                     var otherScore = ScoreAp(graph, trial, j, band);
-                    if (otherScore / otherCurrent > MaxApScoreDegradation)
+                    if (otherScore > otherCurrent) totalDegradation += otherScore - otherCurrent;
+
+                    if (otherScore / otherCurrent > CatastrophicDegradation)
                     {
                         _logger.LogDebug(
-                            "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} improves ({Abs:F3}/{Pct:P0}) but " +
-                            "degrades {Victim} {From:F3}->{To:F3} ({Ratio:F2}x > {Max:P0}), skipping",
-                            node.Name, candidateCh, absImprovement, pctImprovement,
-                            graph.Nodes[j].Name, otherCurrent, otherScore,
-                            otherScore / otherCurrent, MaxApScoreDegradation);
-                        degradesOther = true;
+                            "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} would wreck {Victim} " +
+                            "{From:F3}->{To:F3} ({Ratio:F2}x > {Cap:P0} cap), skipping",
+                            node.Name, candidateCh, graph.Nodes[j].Name, otherCurrent, otherScore,
+                            otherScore / otherCurrent, CatastrophicDegradation);
+                        reject = true;
                         break;
                     }
                 }
-                if (degradesOther) continue;
+                if (reject) continue;
+
+                // Net-benefit: the AP's own improvement must outweigh the total degradation it
+                // causes to others, otherwise the move makes the site no better.
+                if (absImprovement <= totalDegradation)
+                {
+                    _logger.LogDebug(
+                        "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} improves {Abs:F3} but degrades " +
+                        "others by {Deg:F3} total (not net-positive for the site), skipping",
+                        node.Name, candidateCh, absImprovement, totalDegradation);
+                    continue;
+                }
 
                 if (candidateScore < fallbackScore)
                 {
