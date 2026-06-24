@@ -110,11 +110,11 @@ public class ChannelRecommendationService
     /// others) is allowed even past MaxApScoreDegradation, but never if it leaves a victim above
     /// this score - so we never put one AP into genuinely bad shape to help the site. Absolute
     /// (not a multiple of the victim's base) because "bad" is an absolute condition: a high score
-    /// means heavy interference regardless of where the AP started. 5.0 ~ where an AP is clearly
-    /// suffering (a real AP at ~5.3 already gets flagged for improvement); a modest sacrifice like
-    /// pushing a neighbor 1.9 -> 2.9 stays well clear of it.
+    /// means heavy interference regardless of where the AP started. 4.0 ~ where an AP is clearly
+    /// suffering on the CCA-anchored scale (the worst real APs sit ~4); a modest sacrifice like
+    /// pushing a neighbor 1.2 -> 2.0 stays well clear of it.
     /// </summary>
-    private const double CatastrophicAbsoluteScore = 5.0;
+    private const double CatastrophicAbsoluteScore = 4.0;
 
     /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
