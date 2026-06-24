@@ -105,12 +105,16 @@ public class ChannelRecommendationService
     private const double MaxApScoreDegradation = 1.5;
 
     /// <summary>
-    /// Hard cap on how much a single per-AP fallback move may degrade another AP, regardless of
-    /// net benefit. A net-positive standalone move (the moving AP gains more than the total it
-    /// degrades others) is allowed past MaxApScoreDegradation, but never past this - so we never
-    /// wreck one AP to slightly help the site. 2.0 = the victim's score may at most double.
+    /// Absolute score a per-AP fallback move may never push another AP to, regardless of net
+    /// benefit. A net-positive standalone move (the moving AP gains more than the total it degrades
+    /// others) is allowed even past MaxApScoreDegradation, but never if it leaves a victim above
+    /// this score - so we never put one AP into genuinely bad shape to help the site. Absolute
+    /// (not a multiple of the victim's base) because "bad" is an absolute condition: a high score
+    /// means heavy interference regardless of where the AP started. 5.0 ~ where an AP is clearly
+    /// suffering (a real AP at ~5.3 already gets flagged for improvement); a modest sacrifice like
+    /// pushing a neighbor 1.9 -> 2.9 stays well clear of it.
     /// </summary>
-    private const double CatastrophicDegradation = 2.0;
+    private const double CatastrophicAbsoluteScore = 5.0;
 
     /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
@@ -682,13 +686,14 @@ public class ChannelRecommendationService
                     var otherScore = ScoreAp(graph, trial, j, band);
                     if (otherScore > otherCurrent) totalDegradation += otherScore - otherCurrent;
 
-                    if (otherScore / otherCurrent > CatastrophicDegradation)
+                    // Catastrophic: this move would push a victim into genuinely bad territory.
+                    if (otherScore > CatastrophicAbsoluteScore && otherScore > otherCurrent)
                     {
                         _logger.LogDebug(
-                            "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} would wreck {Victim} " +
-                            "{From:F3}->{To:F3} ({Ratio:F2}x > {Cap:P0} cap), skipping",
+                            "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} would push {Victim} " +
+                            "{From:F3}->{To:F3} above the {Cap:F1} ceiling, skipping",
                             node.Name, candidateCh, graph.Nodes[j].Name, otherCurrent, otherScore,
-                            otherScore / otherCurrent, CatastrophicDegradation);
+                            CatastrophicAbsoluteScore);
                         reject = true;
                         break;
                     }
@@ -717,7 +722,7 @@ public class ChannelRecommendationService
             {
                 _logger.LogDebug(
                     "[ChannelRec] Per-AP fallback: {ApName} ch{Current} (score {CurrentScore:F3}) → " +
-                    "ch{Best} (score {BestScore:F3}), no degradation to others",
+                    "ch{Best} (score {BestScore:F3}), net-positive for the site",
                     node.Name, node.CurrentChannel, scoreInFinal, fallbackChannel, fallbackScore);
                 rec.RecommendedChannel = fallbackChannel;
                 rec.RecommendedWidth = fallbackWidth;
