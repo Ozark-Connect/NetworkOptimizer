@@ -885,7 +885,9 @@ public class MonitoringCollectionAgent : BackgroundService
             CollectSfpForDevice(device, db, existingSfps, nowSfp);
         }
 
-        // SFP threshold evaluation: check DDM values against alert thresholds.
+        // SFP threshold evaluation: check DDM values against alert thresholds
+        // (per-category, user-configurable with built-in fallbacks).
+        var sfpThresholds = NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds.FromSettings(settings);
         foreach (var device in devices)
         {
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
@@ -903,7 +905,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 {
                     await _sfpAlertEvaluator.EvaluateAsync(
                         sfpMac, sfpPortName, device.Name, sfpCategory,
-                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, ct);
+                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, sfpThresholds, ct);
                 }
                 catch (Exception ex)
                 {

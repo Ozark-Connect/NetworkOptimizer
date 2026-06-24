@@ -612,6 +612,76 @@ else
                 }
             </div>
         </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">SFP Alert Thresholds</h2>
+            </div>
+            <div class="card-body">
+                <p class="page-description">
+                    Thresholds for the <a href="/alerts?tab=rules">SFP temperature and power</a> alerts, per transceiver type.
+                    Leave a field blank to use the built-in default. The type of each module is set on its row in the table above.
+                </p>
+
+                <h3 class="chart-title" style="margin-top: 0.5rem;">PON</h3>
+                <div class="threshold-fields">
+                    <div class="form-group">
+                        <label class="form-label">Temperature high (&deg;C)</label>
+                        <input type="number" class="form-control" min="40" max="120" step="1"
+                               placeholder="@PhPonTemp" @bind="_sfpPonTemp" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">RX power low (dBm)</label>
+                        <input type="number" class="form-control" min="-40" max="0" step="0.1"
+                               placeholder="@PhPonRx" @bind="_sfpPonRx" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">TX power high (dBm)</label>
+                        <input type="number" class="form-control" min="-10" max="20" step="0.1"
+                               placeholder="@PhPonTx" @bind="_sfpPonTx" />
+                    </div>
+                </div>
+
+                <h3 class="chart-title" style="margin-top: 1rem;">Active Ethernet</h3>
+                <div class="threshold-fields">
+                    <div class="form-group">
+                        <label class="form-label">Temperature high (&deg;C)</label>
+                        <input type="number" class="form-control" min="40" max="120" step="1"
+                               placeholder="@PhAeTemp" @bind="_sfpAeTemp" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">RX power low (dBm)</label>
+                        <input type="number" class="form-control" min="-40" max="0" step="0.1"
+                               placeholder="@PhAeRx" @bind="_sfpAeRx" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">TX power high (dBm)</label>
+                        <input type="number" class="form-control" min="-10" max="20" step="0.1"
+                               placeholder="@PhAeTx" @bind="_sfpAeTx" />
+                    </div>
+                </div>
+
+                <h3 class="chart-title" style="margin-top: 1rem;">Generic SFP+</h3>
+                <div class="threshold-fields">
+                    <div class="form-group">
+                        <label class="form-label">Temperature high (&deg;C)</label>
+                        <input type="number" class="form-control" min="40" max="120" step="1"
+                               placeholder="@PhGenericTemp" @bind="_sfpGenericTemp" />
+                    </div>
+                </div>
+                <p class="form-help">Generic SFP+ modules have no standard optical envelope, so only a temperature ceiling is checked.</p>
+
+                <div class="input-with-button" style="margin-top: 1rem;">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveSfpThresholdsAsync" disabled="@_savingSfpThresholds">
+                        @(_savingSfpThresholds ? "Saving..." : "Save thresholds")
+                    </button>
+                    @if (_sfpThresholdsSaved)
+                    {
+                        <span class="form-help signal-good" style="align-self: center;">Saved</span>
+                    }
+                </div>
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: CM Stats ──────────────── *@
@@ -1408,6 +1478,7 @@ else
         LoadInfluxStateFromSettings(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
+        LoadSfpThresholdInputs(settings);
         await LoadTargetsAsync();
 
         var cmConfigs = await CmMonitorService.GetConfigsAsync();
@@ -1537,6 +1608,66 @@ else
         finally
         {
             _savingTempThresholds = false;
+            StateHasChanged();
+        }
+    }
+
+    private static readonly NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds _sfpDefaults
+        = NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds.Defaults;
+
+    private double? _sfpPonTemp, _sfpPonRx, _sfpPonTx;
+    private double? _sfpAeTemp, _sfpAeRx, _sfpAeTx;
+    private double? _sfpGenericTemp;
+    private bool _savingSfpThresholds;
+    private bool _sfpThresholdsSaved;
+
+    private string PhPonTemp => _sfpDefaults.PonTempHighC.ToString("0");
+    private string PhPonRx => _sfpDefaults.PonRxPowerLowDbm.ToString("0.#");
+    private string PhPonTx => _sfpDefaults.PonTxPowerHighDbm.ToString("0.#");
+    private string PhAeTemp => _sfpDefaults.AeTempHighC.ToString("0");
+    private string PhAeRx => _sfpDefaults.AeRxPowerLowDbm.ToString("0.#");
+    private string PhAeTx => _sfpDefaults.AeTxPowerHighDbm.ToString("0.#");
+    private string PhGenericTemp => _sfpDefaults.SfpTempHighGenericC.ToString("0");
+
+    private void LoadSfpThresholdInputs(MonitoringSettings settings)
+    {
+        _sfpPonTemp = settings.PonTempHighC;
+        _sfpPonRx = settings.PonRxPowerLowDbm;
+        _sfpPonTx = settings.PonTxPowerHighDbm;
+        _sfpAeTemp = settings.AeTempHighC;
+        _sfpAeRx = settings.AeRxPowerLowDbm;
+        _sfpAeTx = settings.AeTxPowerHighDbm;
+        _sfpGenericTemp = settings.SfpTempHighGenericC;
+    }
+
+    private async Task SaveSfpThresholdsAsync()
+    {
+        _savingSfpThresholds = true;
+        _sfpThresholdsSaved = false;
+        StateHasChanged();
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
+                ?? new MonitoringSettings();
+            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
+            // Temperature must be positive; power thresholds may legitimately be
+            // negative (RX low) so a blank field (null) is the only "use default".
+            settings.PonTempHighC = NormalizeTempThreshold(_sfpPonTemp);
+            settings.PonRxPowerLowDbm = _sfpPonRx;
+            settings.PonTxPowerHighDbm = _sfpPonTx;
+            settings.AeTempHighC = NormalizeTempThreshold(_sfpAeTemp);
+            settings.AeRxPowerLowDbm = _sfpAeRx;
+            settings.AeTxPowerHighDbm = _sfpAeTx;
+            settings.SfpTempHighGenericC = NormalizeTempThreshold(_sfpGenericTemp);
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            LoadSfpThresholdInputs(settings);
+            _sfpThresholdsSaved = true;
+        }
+        finally
+        {
+            _savingSfpThresholds = false;
             StateHasChanged();
         }
     }
