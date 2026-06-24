@@ -236,7 +236,7 @@ public class LoadImbalanceRuleTests
         {
             CreateClient("aa:bb:cc:dd:ee:01", signal: -45),
             CreateClient("aa:bb:cc:dd:ee:01", signal: -45),
-            CreateClient("aa:bb:cc:dd:ee:01", signal: -75), // weak
+            CreateClient("aa:bb:cc:dd:ee:01", signal: -85), // weak for its band (< -78 on 5 GHz)
         };
         // Pad to match TotalClients
         for (int i = 0; i < 14; i++)

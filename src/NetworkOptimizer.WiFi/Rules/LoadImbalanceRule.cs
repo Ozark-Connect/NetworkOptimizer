@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Services;
 
@@ -24,11 +25,6 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
     /// Coefficient of variation threshold (percentage) above which to warn.
     /// </summary>
     private const double ImbalanceThreshold = 50;
-
-    /// <summary>
-    /// Signal strength (dBm) at or above which a client is considered well-connected.
-    /// </summary>
-    private const int StrongSignalThreshold = -65;
 
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
@@ -105,13 +101,18 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
                         .Where(c => c.ApMac.Equals(maxAp.Mac, StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
-                    var allStrongSignal = clientsOnMaxAp.Count > 0 &&
-                        clientsOnMaxAp.All(c => c.Signal.HasValue && c.Signal.Value >= StrongSignalThreshold);
+                    // Suppress only when every client on the busy AP is confirmed well-served: it
+                    // has a reported signal that is not weak FOR ITS BAND, using the same per-band
+                    // scale as the client list coloring (a 2.4 GHz client at -66 is fine, a 6 GHz
+                    // client at -66 is not). A missing signal (unverifiable) keeps the issue visible.
+                    var allClientsWellServed = clientsOnMaxAp.Count > 0 &&
+                        clientsOnMaxAp.All(c => c.Signal.HasValue &&
+                            !SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
 
-                    if (allStrongSignal)
+                    if (allClientsWellServed)
                     {
-                        // All clients on the busy AP have strong signal and the quiet AP is
-                        // far away - this is definitively a separate coverage zone, suppress entirely
+                        // Separate coverage zone and every client is well-served for its band -
+                        // this is definitively a separate zone, suppress entirely.
                         return null;
                     }
 
