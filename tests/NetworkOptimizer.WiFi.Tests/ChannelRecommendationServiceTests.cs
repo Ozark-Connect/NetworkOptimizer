@@ -261,8 +261,9 @@ public class ChannelRecommendationServiceTests
         var scoreWithHistory = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
 
         scoreWithHistory.Should().BeLessThan(scoreNoHistory);
-        // Penalty scaled by (1 - 0.85): the historic channel keeps only 15% of the cliff.
-        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(0.85, 0.05);
+        // History keeps only 15% of the cliff, so the gap is 0.85 of the full penalty. The floor
+        // now carries the band uncertainty multiplier (x2.0 on 5 GHz), so the base penalty is 2.0.
+        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(1.7, 0.05);
     }
 
     [Fact]

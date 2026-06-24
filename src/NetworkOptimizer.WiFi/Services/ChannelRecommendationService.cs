@@ -918,7 +918,12 @@ public class ChannelRecommendationService
         }
         if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
 
-        var basePenalty = Math.Max(triangulatedLoad * GetUnobservedMultiplier(band), minDirectLoad);
+        // Apply the band uncertainty multiplier to the best available estimate - the triangulated
+        // load OR the floor. A channel with zero observations falls back to the floor, and it must
+        // carry the SAME uncertainty premium as a partially-triangulated one. Otherwise a totally-
+        // blind channel would be penalized LESS than a barely-seen one, and the engine would too
+        // eagerly recommend moving onto a channel it has no scan data for.
+        var basePenalty = Math.Max(triangulatedLoad, minDirectLoad) * GetUnobservedMultiplier(band);
         return (1.0 - confidence) * basePenalty;
     }
 
