@@ -10207,6 +10207,9 @@ a.path-hop.hop-clickable:hover {
     cursor: pointer;
     transition: all 0.15s ease;
     position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .band-tab:hover {
