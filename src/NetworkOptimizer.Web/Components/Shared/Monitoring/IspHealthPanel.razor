@@ -441,6 +441,9 @@ else
                                     {
                                         <div class="isp-outage-hop">
                                             <span class="isp-outage-hop-name">@tier.Name</span>
+                                            <div class="isp-outage-hop-track">
+                                                <div class="isp-outage-hop-loss" style="width: @(tier.PeakLossPct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                            </div>
                                             <span class="isp-outage-hop-status">peak @tier.PeakLossPct.ToString("0")% loss</span>
                                         </div>
                                     }

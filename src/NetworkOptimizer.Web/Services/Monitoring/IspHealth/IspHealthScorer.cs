@@ -95,10 +95,14 @@ public class IspHealthScorer
         var outageMinutes = wanOutages.Sum(EffectiveMinutes);
         if (outageMinutes > 0)
         {
-            var penalty = OutageScorePenalty(outageMinutes);
-            // Attribute the total (curve-based) penalty across the WAN outages by effective-minute
-            // share so each row can show its own "-N points". Rounded shares may differ from the
-            // curve total by <=1 pt - cosmetic; the actual deduction uses the curve total below.
+            // Floor a flagged WAN event at one point: if we surfaced it on the timeline it should
+            // visibly register, not round to a silent zero (a brief/partial event can curve to a
+            // fraction of a point otherwise). The floor is on the total, so many tiny events still
+            // cost at least a point rather than each.
+            var penalty = Math.Max(1.0, OutageScorePenalty(outageMinutes));
+            // Attribute the total penalty across the WAN outages by effective-minute share so each
+            // row can show its own "-N points". Rounded shares may differ from the curve total by
+            // <=1 pt - cosmetic; the actual deduction uses the total below.
             foreach (var o in wanOutages)
                 o.ScorePenaltyPoints = (int)Math.Round(penalty * (EffectiveMinutes(o) / outageMinutes));
             _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} effective min downtime ({Before} -> {After})",
@@ -1224,9 +1228,7 @@ public class IspHealthScorer
                 ? $"{partialDisruptions.Count} partial-loss disruptions totaling {FormatBriefDuration(totalDown)}"
                 : $"A partial-loss disruption of {FormatBriefDuration(partialDisruptions[0].Duration)}";
             var breadth = $" Peak loss reached {worst.PeakLossPct:0}% across {worst.DegradedTargetCount} of {worst.PathTargetCount} path targets, so the loss was widespread rather than one bad target.";
-            var impact = penalty > 0
-                ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
-                : " Minimal direct score impact; the loss also feeds the Packet Loss factor.";
+            var impact = $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")} (the loss also feeds the Packet Loss factor).";
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Info,
