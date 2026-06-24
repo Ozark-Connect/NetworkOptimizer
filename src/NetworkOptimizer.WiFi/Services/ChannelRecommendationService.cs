@@ -218,6 +218,7 @@ public class ChannelRecommendationService
         {
             Nodes = new List<ApNode>(n),
             InternalWeights = new double[n, n],
+            DirectionalWeights = new double[n, n],
             ExternalLoad = new Dictionary<int, double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
             ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
@@ -269,10 +270,13 @@ public class ChannelRecommendationService
         {
             for (int j = i + 1; j < n; j++)
             {
-                var weight = ComputeInternalWeight(
+                var w = ComputeInternalWeight(
                     bandAps[i], bandAps[j], band, bandStr, propContext);
-                graph.InternalWeights[i, j] = weight;
-                graph.InternalWeights[j, i] = weight;
+                graph.InternalWeights[i, j] = w.Symmetric;
+                graph.InternalWeights[j, i] = w.Symmetric;
+                // Directional [aggressor, victim]: Forward is i's signal at j, Reverse is j's at i.
+                graph.DirectionalWeights[i, j] = w.Forward;
+                graph.DirectionalWeights[j, i] = w.Reverse;
             }
         }
 
@@ -582,7 +586,7 @@ public class ChannelRecommendationService
                                 if (!jChanged) continue;
                                 if (!jNode.ValidChannels.Contains(jNode.CurrentChannel)) continue;
 
-                                var contribution = graph.InternalWeights[i, j] *
+                                var contribution = graph.DirectionalWeights[j, i] *
                                     ChannelSpanHelper.ComputeOverlapFactor(band,
                                         finalAssignment[i].Channel, finalAssignment[i].Width,
                                         finalAssignment[j].Channel, finalAssignment[j].Width) *
@@ -796,7 +800,8 @@ public class ChannelRecommendationService
         double score = 0;
         var n = graph.Nodes.Count;
 
-        // Internal interference from all other APs
+        // Internal interference this AP SUFFERS from all other APs. Directional [j, apIndex]:
+        // how much j's signal reaches this AP - so a low-EIRP neighbor interferes with it less.
         for (int j = 0; j < n; j++)
         {
             if (j == apIndex) continue;
@@ -807,7 +812,7 @@ public class ChannelRecommendationService
                 assignment[apIndex].Channel, assignment[apIndex].Width,
                 assignment[j].Channel, assignment[j].Width);
 
-            score += graph.InternalWeights[apIndex, j] * overlapFactor * InternalCoChannelMultiplier;
+            score += graph.DirectionalWeights[j, apIndex] * overlapFactor * InternalCoChannelMultiplier;
         }
 
         // External interference
@@ -1049,7 +1054,8 @@ public class ChannelRecommendationService
             if (j == apIndex) continue;
             if (AreMeshPair(graph, apIndex, j)) continue;
 
-            var weight = graph.InternalWeights[apIndex, j];
+            // Directional: co-channel load this AP suffers from j (j's signal reaching apIndex).
+            var weight = graph.DirectionalWeights[j, apIndex];
             if (weight <= 0) continue;
 
             // Current internal co-channel load (weighted, not just count)
@@ -1094,7 +1100,12 @@ public class ChannelRecommendationService
         return Math.Max(internalScale, externalFloor);
     }
 
-    private double ComputeInternalWeight(
+    /// <summary>
+    /// Compute internal interference weights between two APs. Returns the symmetric worst-case
+    /// weight (for mutual contention), plus the two directional weights: Forward = ap1's signal
+    /// reaching ap2 (ap1 as aggressor at ap2), Reverse = ap2's signal reaching ap1.
+    /// </summary>
+    private (double Symmetric, double Forward, double Reverse) ComputeInternalWeight(
         AccessPointSnapshot ap1, AccessPointSnapshot ap2,
         RadioBand band, string bandStr,
         ApPropagationContext? propContext)
@@ -1139,15 +1150,19 @@ public class ChannelRecommendationService
                 ap1.Name, ap2.Name, signal1to2, signal2to1, worstSignal,
                 ChannelSpanHelper.SignalToInterferenceWeight(worstSignal));
 
-            return ChannelSpanHelper.SignalToInterferenceWeight(worstSignal);
+            return (
+                ChannelSpanHelper.SignalToInterferenceWeight(worstSignal),
+                ChannelSpanHelper.SignalToInterferenceWeight((int)signal1to2),
+                ChannelSpanHelper.SignalToInterferenceWeight((int)signal2to1));
         }
 
-        // One or both unplaced - use conservative default
+        // One or both unplaced - use conservative default (symmetric)
+        var defaultWeight = ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm);
         _logger.LogDebug(
             "[ChannelRec] Internal weight {AP1} <-> {AP2}: weight={Weight:F3} (default, unplaced)",
-            ap1.Name, ap2.Name, ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm));
+            ap1.Name, ap2.Name, defaultWeight);
 
-        return ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm);
+        return (defaultWeight, defaultWeight, defaultWeight);
     }
 
     private static PropagationAp ClonePropAp(PropagationAp source, RadioSnapshot radio)
@@ -1981,7 +1996,7 @@ public class ChannelRecommendationService
                     var overlap = ChannelSpanHelper.ComputeOverlapFactor(
                         band, ch, currentAssignment[i].Width,
                         testAssignment[j].Channel, testAssignment[j].Width);
-                    internalScore += graph.InternalWeights[i, j] * overlap * InternalCoChannelMultiplier;
+                    internalScore += graph.DirectionalWeights[j, i] * overlap * InternalCoChannelMultiplier;
                 }
 
                 var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
