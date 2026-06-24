@@ -81,6 +81,35 @@ public class CongestionLocalizerTests
     };
 
     [Fact]
+    public void Each_bottleneck_reports_its_own_duration_not_the_cluster_span()
+    {
+        // Two independent bottlenecks overlap in time: a near backhaul hop that clears in 45 min,
+        // and an off-corridor dead-end hop elevated for 3 h. They land in one time-cluster, but each
+        // event must report its OWN elevation span - the short one must not inherit the long one's.
+        var shortEnd = HumpStart.AddMinutes(45);
+        var longEnd = HumpStart.AddHours(3);
+        List<LatencySample> ElevatedUntil(DateTime end, double rtt) =>
+            Flat(rtt).WithSegment(HumpStart, end, rttMs: rtt + 25, jitterMs: 6);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, ElevatedUntil(shortEnd, 5), Bng, Border), // 45 min; next hop clean -> own bottleneck
+            Hop(200, Transit, Flat(8), Bng, Border, Backhaul),           // clean downstream witness
+            Hop(300, DeadEnd, ElevatedUntil(longEnd, 5), Bng, Border),   // 3 h; off-corridor dead-end -> own bottleneck
+            Dest(DestControl, Flat(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        var deadEnd = events.Single(e => e.BottleneckHopIp == DeadEnd);
+        backhaul.Duration.Should().BeLessThan(TimeSpan.FromHours(1));
+        deadEnd.Duration.Should().BeGreaterThan(TimeSpan.FromHours(2));
+    }
+
+    [Fact]
     public void Localizes_to_backhaul_hop_and_does_not_blame_downstream_transit()
     {
         var series = new List<AsnSeries>

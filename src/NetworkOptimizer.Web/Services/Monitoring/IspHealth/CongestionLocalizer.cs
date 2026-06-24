@@ -295,17 +295,21 @@ public static class CongestionLocalizer
             && idEvents.Any(e => Overlaps(e.Start, e.End, window.Start, window.End))
             ? new List<AsnSeries> { identity }
             : members;
-        var worst = metricSource
+        var sourceEvents = metricSource
             .SelectMany(m => eventsBySeries[m].Where(e => Overlaps(e.Start, e.End, window.Start, window.End)))
-            .OrderByDescending(e => e.PeakRttMs - e.BaselineRttMs)
-            .First();
+            .ToList();
+        var worst = sourceEvents.OrderByDescending(e => e.PeakRttMs - e.BaselineRttMs).First();
         // The penalized ASN/targets are the bottleneck hop when localized; downstream victims
         // are excluded. An unlocalized event has no single culprit, so it keeps the full set.
         var id = identity != null ? new List<AsnSeries> { identity } : members;
+        // This event spans its OWN bottleneck's elevation, not the full time-cluster window: a hop
+        // that cleared in 45 min must not inherit a co-occurring hop's multi-hour span just because
+        // they shared a cluster. The cluster window is still used for the correlation, propagation,
+        // and clean-control checks above; only the reported (and scored) duration is per-member.
         return new CongestionEvent
         {
-            Start = window.Start,
-            End = window.End,
+            Start = sourceEvents.Min(e => e.Start),
+            End = sourceEvents.Max(e => e.End),
             AsnNumbers = id.Select(m => m.AsnNumber).Distinct().ToList(),
             AsnNames = id.Select(m => m.AsnName ?? $"AS{m.AsnNumber}").Distinct().ToList(),
             TargetIds = id.SelectMany(m => m.TargetIds).Distinct().ToList(),
