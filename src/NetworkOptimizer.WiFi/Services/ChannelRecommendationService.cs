@@ -76,14 +76,18 @@ public class ChannelRecommendationService
     /// Prevents churn when the gain is negligible (e.g., 0.7 → 0.1 = 0.6 gain).
     /// Both this AND MinApImprovementPercent must be met.
     /// </summary>
-    private const double MinApAbsoluteImprovement = 1.0;
+    // Tuned to 0.6 (from 1.0): surfaces moderate real gains (e.g. a quieter co-channel) now that
+    // scoring is position-independent, so loosening cannot oscillate. Both gates AND'd.
+    private const double MinApAbsoluteImprovement = 0.6;
 
     /// <summary>
     /// Minimum percentage score improvement for an individual AP to justify a move.
     /// Prevents moving APs where the improvement is small relative to current score
     /// (e.g., 3.0 → 2.8 = 7%). Both this AND MinApAbsoluteImprovement must be met.
     /// </summary>
-    private const double MinApImprovementPercent = 0.30;
+    // Tuned to 0.15 (from 0.30): 30% missed genuinely-better channels whose gain was real but
+    // moderate (~15-25%). Both this AND MinApAbsoluteImprovement must be met.
+    private const double MinApImprovementPercent = 0.15;
 
     /// <summary>
     /// Penalty for channels with no historical data. Unknown channels carry more
@@ -1628,7 +1632,7 @@ public class ChannelRecommendationService
         return baseScore + penalty;
     }
 
-    private (( int Channel, int Width)[] Assignment, double Score) ExhaustiveSearch(
+    private ((int Channel, int Width)[] Assignment, double Score) ExhaustiveSearch(
         InterferenceGraph graph,
         RadioBand band,
         HashSet<int> pinnedIndices,
