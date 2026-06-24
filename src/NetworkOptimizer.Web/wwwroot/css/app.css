@@ -10986,27 +10986,60 @@ a.path-hop.hop-clickable:hover {
 
 /* How This Works expandable */
 .recommendation-explainer {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
     margin: 0 0.5rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--bg-tertiary);
 }
 .recommendation-explainer summary {
+    padding: 0.6rem 0.85rem;
     cursor: pointer;
+    font-weight: 500;
+    font-size: 0.8125rem;
     color: var(--text-secondary);
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
-.recommendation-explainer p {
-    margin: 0.5rem 0 0;
+.recommendation-explainer summary::-webkit-details-marker {
+    display: none;
+}
+.recommendation-explainer summary::before {
+    content: "▶";
+    font-size: 0.6rem;
+    transition: transform 0.2s ease;
+}
+.recommendation-explainer[open] summary::before {
+    transform: rotate(90deg);
+}
+.recommendation-explainer summary:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+}
+.recommendation-explainer:not([open]) summary:hover {
+    border-radius: var(--border-radius-lg);
+}
+.recommendation-explainer-content {
+    padding: 0 0.85rem 0.85rem 0.85rem;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.75rem;
     line-height: 1.5;
 }
-.recommendation-explainer ul {
-    margin: 0.5rem 0 0;
+.recommendation-explainer-content p {
+    margin: 0.6rem 0;
+}
+.recommendation-explainer-content ul {
+    margin: 0.6rem 0;
     padding-left: 1.1rem;
-    line-height: 1.5;
 }
-.recommendation-explainer li {
+.recommendation-explainer-content li {
     margin-bottom: 0.35rem;
 }
-.recommendation-explainer li strong {
+.recommendation-explainer-content li strong {
     color: var(--text-secondary);
 }
 
