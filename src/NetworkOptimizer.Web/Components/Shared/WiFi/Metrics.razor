@@ -497,6 +497,16 @@
             _loading = false;
             StateHasChanged();
         }
+
+        // ApexCharts keeps previously-rendered annotations and series when only the bound data
+        // object changes, so switching the AP filter would otherwise leave a prior AP's channel
+        // markers on the chart (e.g. Ch 11 from another AP). Force an explicit re-render to apply
+        // the rebuilt annotations/series. Refs are null on the very first load (nothing stale to
+        // clear), so the null-guards make this a no-op there.
+        await Task.Yield();
+        if (_chart24 != null) await _chart24.RenderAsync();
+        if (_chart5 != null) await _chart5.RenderAsync();
+        if (_chart6 != null) await _chart6.RenderAsync();
     }
 
     private void TransformDataForCharts()
