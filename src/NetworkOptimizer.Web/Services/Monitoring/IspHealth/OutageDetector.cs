@@ -84,6 +84,141 @@ public static class OutageDetector
         return events;
     }
 
+    /// <summary>
+    /// Detects brief partial-loss disruptions: short windows where many independent path targets
+    /// degrade together (loss >= <see cref="IspHealthOptions.OutagePartialLossPct"/>) without any
+    /// reaching the near-total dark threshold. Distinct from <see cref="Detect"/> (blackouts) - it
+    /// keys on coincident breadth across targets and ASNs, the signal that partial loss is a real
+    /// path event rather than one lossy probe target. The breadth gate uses a wider bucket than the
+    /// blackout pass because partial loss is route-specific: independent targets degrade at slightly
+    /// different instants, so they only land together over a longer window. Windows overlapping a
+    /// blackout in <paramref name="darkWindows"/> are skipped so the two passes don't double-count.
+    /// </summary>
+    /// <param name="pathHops">Every monitored non-gateway path hop (access/transit/internet), for breadth and shape.</param>
+    /// <param name="darkWindows">Blackout outage spans already found by <see cref="Detect"/>, to exclude.</param>
+    public static List<OutageEvent> DetectPartial(
+        IReadOnlyList<Hop> pathHops,
+        IReadOnlyList<(DateTime Start, DateTime End)> darkWindows,
+        IspHealthOptions options)
+    {
+        var pool = pathHops.Where(h => !h.IsGateway).ToList();
+        if (pool.Count == 0) return new List<OutageEvent>();
+
+        var windowSize = TimeSpan.FromSeconds(options.OutagePartialBucketSeconds);
+        var hopBuckets = pool.ToDictionary(h => h, h => BucketTargets(new[] { h.Series }, windowSize));
+        var partialPct = options.OutagePartialLossPct;
+
+        // A bucket qualifies when enough distinct targets across enough distinct ASNs degrade
+        // together: coincident loss across independent destinations is a path event, a lone lossy
+        // target is noise.
+        bool BucketQualifies(DateTime t)
+        {
+            var degraded = pool.Where(h => hopBuckets[h].TryGetValue(t, out var l) && l.Count > 0 && l[0] >= partialPct).ToList();
+            var asns = degraded.Select(h => h.AsnLabel ?? h.Name).Distinct().Count();
+            return degraded.Count >= options.OutagePartialMinTargets && asns >= options.OutagePartialMinAsns;
+        }
+
+        var qualifying = hopBuckets.Values.SelectMany(d => d.Keys).Distinct()
+            .Where(BucketQualifies)
+            .OrderBy(t => t).ToList();
+        if (qualifying.Count == 0) return new List<OutageEvent>();
+
+        // Contiguous runs (gap of one window ends a run), then coalesce across a short healthy gap.
+        var runs = new List<(DateTime Start, DateTime End)>();
+        for (var i = 0; i < qualifying.Count;)
+        {
+            var j = i;
+            while (j + 1 < qualifying.Count && qualifying[j + 1] - qualifying[j] <= windowSize) j++;
+            runs.Add((qualifying[i], qualifying[j] + windowSize));
+            i = j + 1;
+        }
+        var maxGap = TimeSpan.FromSeconds(options.OutageMaxGapSeconds);
+        var merged = new List<(DateTime Start, DateTime End)>();
+        foreach (var run in runs)
+        {
+            if (merged.Count > 0 && run.Start - merged[^1].End <= maxGap)
+                merged[^1] = (merged[^1].Start, run.End);
+            else merged.Add(run);
+        }
+
+        var events = new List<OutageEvent>();
+        var minDuration = TimeSpan.FromSeconds(options.OutagePartialMinDurationSeconds);
+        foreach (var (start, end) in merged)
+        {
+            if (end - start < minDuration) continue;
+            // A blackout also clears the partial threshold, so a window already flagged as a
+            // blackout would otherwise surface twice - skip any that overlaps one.
+            if (darkWindows.Any(w => start < w.End && w.Start < end)) continue;
+            events.Add(BuildPartialEvent(start, end, pool, hopBuckets, options));
+        }
+        return events;
+    }
+
+    private static OutageEvent BuildPartialEvent(
+        DateTime start, DateTime end,
+        List<Hop> pool,
+        Dictionary<Hop, Dictionary<DateTime, List<double>>> hopBuckets,
+        IspHealthOptions options)
+    {
+        var partialPct = options.OutagePartialLossPct;
+        var tiers = new List<OutageTierState>();
+        // Degraded duty cycle per hop, mirroring the blackout attribution but at the partial
+        // threshold: the break sits just beyond the deepest hop that stayed clean.
+        var degradedDepth = new Dictionary<int, bool>();
+        double eventPeak = 0;
+        foreach (var hop in pool.OrderBy(h => h.Depth))
+        {
+            double peak = 0;
+            int degradedBuckets = 0, totalBuckets = 0;
+            foreach (var (_, losses) in hopBuckets[hop].Where(kv => kv.Key >= start && kv.Key < end))
+            {
+                if (losses.Count == 0) continue;
+                totalBuckets++;
+                peak = Math.Max(peak, losses[0]);
+                if (losses[0] >= partialPct) degradedBuckets++;
+            }
+            if (totalBuckets == 0) continue;
+            degradedDepth[hop.Depth] = (double)degradedBuckets / totalBuckets >= 0.5;
+            if (degradedBuckets > 0)
+            {
+                eventPeak = Math.Max(eventPeak, peak);
+                tiers.Add(new OutageTierState
+                {
+                    Name = hop.AsnLabel ?? hop.Name,
+                    Depth = hop.Depth,
+                    PeakLossPct = peak,
+                    WentDark = false,
+                    RecoveredAt = null
+                });
+            }
+        }
+
+        var nearest = pool.Where(h => degradedDepth.ContainsKey(h.Depth)).OrderBy(h => h.Depth).FirstOrDefault();
+        var lastClean = pool.Where(h => degradedDepth.TryGetValue(h.Depth, out var d) && !d).OrderByDescending(h => h.Depth).FirstOrDefault();
+        var scope = nearest == null || degradedDepth[nearest.Depth] || lastClean == null
+            ? OutageScope.FullWan
+            : OutageScope.Upstream;
+
+        var poolSeries = pool.Select(h => (IReadOnlyList<LatencySample>)h.Series).ToList();
+        var onset = FirstDark(poolSeries, start, end, partialPct) ?? start;
+        var recovery = PreciseRecovery(poolSeries, start, end, partialPct) ?? end;
+        var reporting = pool.Count(h => hopBuckets[h].Any(kv => kv.Key >= start && kv.Key < end && kv.Value.Count > 0));
+
+        return new OutageEvent
+        {
+            Start = onset,
+            End = recovery,
+            IsPartial = true,
+            IsBrief = recovery - onset < TimeSpan.FromSeconds(options.OutageBriefMaxSeconds),
+            PeakLossPct = eventPeak,
+            DegradedTargetCount = tiers.Count,
+            PathTargetCount = reporting,
+            Scope = scope,
+            LastReachableHop = scope == OutageScope.Upstream ? (lastClean!.AsnLabel ?? lastClean.Name) : null,
+            Tiers = tiers.OrderBy(t => t.Depth).ToList()
+        };
+    }
+
     /// <summary>Per bucket, the list of each reporting target's mean loss in that bucket.</summary>
     private static Dictionary<DateTime, List<double>> BucketTargets(
         IReadOnlyList<IReadOnlyList<LatencySample>> targets, TimeSpan windowSize)
@@ -181,8 +316,8 @@ public static class OutageDetector
         // Bucket edges are minute-aligned; report the real onset and recovery instants from
         // the pooled trigger stream so the window carries seconds. Fall back to the bucket
         // edges if the precise edges can't be found (e.g. outage still ongoing at window end).
-        var onset = FirstDark(triggerTargets, start, end, options) ?? start;
-        var recovery = PreciseRecovery(triggerTargets, start, end, options) ?? end;
+        var onset = FirstDark(triggerTargets, start, end, options.OutageDarkLossPct) ?? start;
+        var recovery = PreciseRecovery(triggerTargets, start, end, options.OutageDarkLossPct) ?? end;
 
         return new OutageEvent
         {
@@ -280,13 +415,13 @@ public static class OutageDetector
     private static string HostnameTail(string name, string asn) =>
         name.StartsWith(asn + " ", StringComparison.OrdinalIgnoreCase) ? name[(asn.Length + 1)..] : name;
 
-    /// <summary>Actual timestamp of the first dark sample (loss at/above the dark threshold) in [start, end).</summary>
+    /// <summary>Actual timestamp of the first sample at/above the loss threshold in [start, end).</summary>
     private static DateTime? FirstDark(
         IReadOnlyList<IReadOnlyList<LatencySample>> targets,
-        DateTime start, DateTime end, IspHealthOptions options) =>
+        DateTime start, DateTime end, double threshold) =>
         targets.SelectMany(t => t)
             .Where(s => s.LossPercent.HasValue && s.Time >= start && s.Time < end
-                && s.LossPercent.Value >= options.OutageDarkLossPct)
+                && s.LossPercent.Value >= threshold)
             .OrderBy(s => s.Time)
             .Select(s => (DateTime?)s.Time)
             .FirstOrDefault();
@@ -312,9 +447,8 @@ public static class OutageDetector
     /// </summary>
     private static DateTime? PreciseRecovery(
         IReadOnlyList<IReadOnlyList<LatencySample>> targets,
-        DateTime start, DateTime end, IspHealthOptions options)
+        DateTime start, DateTime end, double dark)
     {
-        var dark = options.OutageDarkLossPct;
         DateTime? lastDark = targets.SelectMany(t => t)
             .Where(s => s.LossPercent.HasValue && s.Time >= start && s.Time < end
                 && s.LossPercent.Value >= dark)

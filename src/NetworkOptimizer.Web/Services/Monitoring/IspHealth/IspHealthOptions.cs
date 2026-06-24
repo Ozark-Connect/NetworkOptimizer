@@ -287,6 +287,47 @@ public class IspHealthOptions
     public int OutageMaxGapSeconds { get; set; } = 180;
 
     /// <summary>
+    /// Bucket size in seconds for the partial-loss (degradation) pass. Wider than the blackout
+    /// bucket because partial loss is route-specific: independent targets degrade at slightly
+    /// different instants across the event, so a 15 s bucket holds only a couple at once. A 30 s
+    /// window lets the coincident-but-staggered degradations land together for the breadth gate.
+    /// </summary>
+    public int OutagePartialBucketSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Loss (percent) at or above which a target counts as degraded for partial-loss detection.
+    /// Below the near-total <see cref="OutageDarkLossPct"/> - a partial-loss burst is the path
+    /// getting lossy, not unreachable.
+    /// </summary>
+    public double OutagePartialLossPct { get; set; } = 50.0;
+
+    /// <summary>
+    /// Minimum distinct path targets simultaneously degraded (within one partial bucket) for a
+    /// partial-loss disruption. Coincident loss across many independent destinations is a real
+    /// path event; one or two lossy targets are noise (ICMP rate-limiting, a single bad CDN node).
+    /// </summary>
+    public int OutagePartialMinTargets { get; set; } = 4;
+
+    /// <summary>
+    /// Minimum distinct ASNs/destinations spanned by the degraded targets, alongside
+    /// <see cref="OutagePartialMinTargets"/>. Guards against several targets behind one ASN all
+    /// degrading together (that ASN's own issue, not a path-wide event) tripping detection.
+    /// </summary>
+    public int OutagePartialMinAsns { get; set; } = 2;
+
+    /// <summary>Minimum sustained duration in seconds for a partial-loss disruption.</summary>
+    public int OutagePartialMinDurationSeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Scales a partial-loss disruption's severity-curve penalty relative to a full outage of the
+    /// same duration: the curve input is duration x (peak loss fraction) x this weight, so the ding
+    /// stays tiny (a 30 s / 80% event is about a point). Partial loss also still feeds the Packet
+    /// Loss factor (these events are deliberately not masked from it), so this is a small additional
+    /// nudge for visibility, with the minor overlap accepted by design.
+    /// </summary>
+    public double OutagePartialPenaltyWeight { get; set; } = 1.0;
+
+    /// <summary>
     /// Recovery-time tolerance for collapsing per-target access ISP rows in the outage waterfall:
     /// access hops that recovered within this many seconds of each other share a signature and
     /// merge to one row; ones outside it stay separate (the inside-out heal).

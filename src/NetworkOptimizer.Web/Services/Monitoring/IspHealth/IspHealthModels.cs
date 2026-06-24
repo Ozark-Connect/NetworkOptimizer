@@ -315,6 +315,23 @@ public class OutageEvent
     /// </summary>
     public bool IsBrief { get; init; }
 
+    /// <summary>
+    /// True when this is a partial-loss disruption (degradation): a coincident burst of elevated
+    /// loss across many path targets that never reached the near-total dark threshold, so nothing
+    /// went fully dark. Distinct from a blackout outage - reported by peak loss and breadth rather
+    /// than a dark/recovery waterfall, and its loss is NOT masked from the Packet Loss factor.
+    /// </summary>
+    public bool IsPartial { get; init; }
+
+    /// <summary>Worst per-target mean loss reached during the event, for the partial-loss summary.</summary>
+    public double PeakLossPct { get; init; }
+
+    /// <summary>Distinct path targets that degraded during the event (partial-loss breadth).</summary>
+    public int DegradedTargetCount { get; init; }
+
+    /// <summary>Total path targets reporting during the event, the denominator for the breadth summary.</summary>
+    public int PathTargetCount { get; init; }
+
     /// <summary>Whether even the access hop went dark, or it held while everything beyond it dropped.</summary>
     public OutageScope Scope { get; init; }
 

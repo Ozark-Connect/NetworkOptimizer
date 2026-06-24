@@ -403,17 +403,21 @@ else
     @if (r.Outages.Count > 0)
     {
         <div class="card isp-health-card" id="isp-outages">
-            <div class="card-header"><h2 class="card-title">@(r.Outages.Any(o => !o.IsBrief) ? "Internet Outages" : "Brief Internet Disruptions") (@WindowLabel(r))</h2></div>
+            <div class="card-header"><h2 class="card-title">@OutageSectionTitle(r) (@WindowLabel(r))</h2></div>
             <div class="card-body">
                 <div class="isp-outage-list">
                     @foreach (var outage in r.Outages)
                     {
                         <div class="isp-outage">
                             <div class="isp-outage-head">
-                                <span class="isp-event-badge @(outage.IsBrief ? "isp-event-badge-warning" : "isp-event-badge-danger")" data-tooltip="@OutageScoreTooltip(outage)">@(outage.IsBrief ? "Brief" : "Outage")</span>
+                                <span class="isp-event-badge @OutageBadgeClass(outage)" data-tooltip="@OutageScoreTooltip(outage)">@OutageBadgeText(outage)</span>
                                 <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
                                 <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
                                 <span class="isp-outage-scope" data-tooltip="@OutageScoreTooltip(outage)">@OutageScopeLabel(outage)</span>
+                                @if (outage.IsPartial)
+                                {
+                                    <span class="isp-outage-window">peak @outage.PeakLossPct.ToString("0")% &middot; @outage.DegradedTargetCount/@outage.PathTargetCount targets</span>
+                                }
                             </div>
                             @if (outage.Tiers.Any(t => t.WentDark))
                             {
@@ -426,6 +430,18 @@ else
                                                 <div class="isp-outage-hop-dark" style="width: @(OutageHopDarkPercent(outage, tier).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
                                             </div>
                                             <span class="isp-outage-hop-status @(tier.WentDark ? "" : "isp-outage-hop-up")">@OutageHopStatus(tier)</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else if (outage.IsPartial && outage.Tiers.Count > 0)
+                            {
+                                <div class="isp-outage-shape">
+                                    @foreach (var tier in outage.Tiers)
+                                    {
+                                        <div class="isp-outage-hop">
+                                            <span class="isp-outage-hop-name">@tier.Name</span>
+                                            <span class="isp-outage-hop-status">peak @tier.PeakLossPct.ToString("0")% loss</span>
                                         </div>
                                     }
                                 </div>
@@ -735,10 +751,24 @@ else
         return local.Date == DateTime.Now.Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
     }
 
+    private static string OutageBadgeClass(OutageEvent o) =>
+        o.IsPartial ? "isp-event-badge-info"
+        : o.IsBrief ? "isp-event-badge-warning"
+        : "isp-event-badge-danger";
+
+    private static string OutageBadgeText(OutageEvent o) =>
+        o.IsPartial ? "Partial loss" : o.IsBrief ? "Brief" : "Outage";
+
+    private static string OutageSectionTitle(IspHealthReport r) =>
+        r.Outages.Any(o => !o.IsPartial && !o.IsBrief) ? "Internet Outages"
+        : r.Outages.All(o => o.IsPartial) ? "Internet Disruptions"
+        : "Brief Internet Disruptions";
+
     private static string OutageScopeLabel(OutageEvent o) => o.Scope switch
     {
         OutageScope.Local => "LAN / Gateway outage",
         OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
+        _ when o.IsPartial => "Path-wide partial loss",
         _ => "Whole-WAN outage"
     };
 

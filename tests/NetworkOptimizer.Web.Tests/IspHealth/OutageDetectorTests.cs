@@ -35,6 +35,17 @@ public class OutageDetectorTests
         return s;
     }
 
+    /// <summary>A target sampled every 10 s, at <paramref name="loss"/> within [from, to) and clean otherwise.</summary>
+    private static List<LatencySample> LossSeries(DateTime from, DateTime to, double loss)
+    {
+        var s = new List<LatencySample>();
+        for (var t = TestSeries.Start; t < TestSeries.Start + Window; t += TimeSpan.FromSeconds(10))
+            s.Add(new LatencySample(t, 20, 20.5, 0.5, t >= from && t < to ? loss : 0));
+        return s;
+    }
+
+    private static readonly (DateTime Start, DateTime End)[] NoDarkWindows = System.Array.Empty<(DateTime, DateTime)>();
+
     [Fact]
     public void Detects_upstream_outage_and_attributes_break_beyond_olt()
     {
@@ -198,6 +209,91 @@ public class OutageDetectorTests
         events[0].IsBrief.Should().BeTrue();
         events[0].Duration.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(30));
         events[0].Duration.Should().BeLessThan(TimeSpan.FromMinutes(2));
+    }
+
+    [Fact]
+    public void Coincident_partial_loss_across_many_targets_and_asns_is_a_partial_disruption()
+    {
+        // ~40 s where four independent destinations across four ASNs degrade together at 60-80%
+        // loss - never the 95% dark threshold. That is a partial-loss disruption, not a blackout.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Cloudflare", 0, LossSeries(ds, de, 60), AsnLabel: "Cloudflare"),
+            new OutageDetector.Hop("Fastly", 1, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+            new OutageDetector.Hop("AS3356", 2, LossSeries(ds, de, 60), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS22773", 3, LossSeries(ds, de, 80), AsnLabel: "AS22773"),
+            new OutageDetector.Hop("CleanA", 4, LossSeries(ds, de, 0), AsnLabel: "CleanA"),
+            new OutageDetector.Hop("CleanB", 5, LossSeries(ds, de, 0), AsnLabel: "CleanB"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().ContainSingle();
+        events[0].IsPartial.Should().BeTrue();
+        events[0].IsBrief.Should().BeTrue();
+        events[0].PeakLossPct.Should().BeGreaterThanOrEqualTo(60);
+        events[0].DegradedTargetCount.Should().Be(4);
+        events[0].PathTargetCount.Should().Be(6);
+    }
+
+    [Fact]
+    public void A_single_lossy_target_is_not_a_partial_disruption()
+    {
+        var ds = OutStart;
+        var de = OutStart.AddMinutes(5);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Fastly", 0, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+            new OutageDetector.Hop("CleanA", 1, LossSeries(ds, de, 0), AsnLabel: "CleanA"),
+            new OutageDetector.Hop("CleanB", 2, LossSeries(ds, de, 0), AsnLabel: "CleanB"),
+            new OutageDetector.Hop("CleanC", 3, LossSeries(ds, de, 0), AsnLabel: "CleanC"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Many_degraded_targets_behind_one_asn_do_not_trip_partial_detection()
+    {
+        // Four lossy targets, but all one ASN - that ASN's own issue, not a path-wide event.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AS3356 a", 0, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS3356 b", 1, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS3356 c", 2, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS3356 d", 3, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("CleanA", 4, LossSeries(ds, de, 0), AsnLabel: "CleanA"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Partial_window_overlapping_a_blackout_is_excluded()
+    {
+        // A blackout also clears the partial threshold; the partial pass must not surface it again.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Cloudflare", 0, LossSeries(ds, de, 60), AsnLabel: "Cloudflare"),
+            new OutageDetector.Hop("Fastly", 1, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+            new OutageDetector.Hop("AS3356", 2, LossSeries(ds, de, 60), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS22773", 3, LossSeries(ds, de, 80), AsnLabel: "AS22773"),
+        };
+        var darkWindows = new[] { (OutStart.AddSeconds(-5), OutStart.AddSeconds(45)) };
+
+        var events = OutageDetector.DetectPartial(hops, darkWindows, Options);
+
+        events.Should().BeEmpty();
     }
 
     [Fact]

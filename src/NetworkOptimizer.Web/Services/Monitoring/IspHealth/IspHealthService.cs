@@ -563,6 +563,11 @@ public class IspHealthService
                 new OutageDetector.Hop(x.Name, baseDepth + i, x.Series, x.Groupable, x.AsnLabel)))
             .ToList();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
+        // Second pass: coincident partial-loss disruptions (the path getting lossy but not dark)
+        // across the full set of monitored hops, excluding windows already flagged as blackouts.
+        var partialDisruptions = OutageDetector.DetectPartial(
+            outageHops, outages.Select(o => (o.Start, o.End)).ToList(), _options);
+        outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
 
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
