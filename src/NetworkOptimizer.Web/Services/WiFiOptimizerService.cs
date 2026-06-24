@@ -554,8 +554,15 @@ public class WiFiOptimizerService
             return new List<ChannelScanResult>();
         }
 
-        // Create cache key based on time range
-        var timeKey = $"{startTime?.ToUnixTimeSeconds()}_{endTime?.ToUnixTimeSeconds()}";
+        // Create cache key based on the time range, bucketed to the minute. The recommendation
+        // engine requests startTime = now - lookback, which moves every second; keying on the
+        // exact second meant the key changed on every call and the cache never hit - every run
+        // re-fetched scans from the controller, and the overview card and channel-plan tab could
+        // land on different scan snapshots (showing different recommendations). Bucketing lets
+        // calls within the cache window reuse the same snapshot.
+        static long MinuteBucket(DateTimeOffset? t) =>
+            t.HasValue ? (long)Math.Round(t.Value.ToUnixTimeSeconds() / 60.0) : -1;
+        var timeKey = $"{MinuteBucket(startTime)}_{MinuteBucket(endTime)}";
         var cacheValid = !forceRefresh
             && _cachedScanResults != null
             && _cachedScanResultsTimeKey == timeKey
