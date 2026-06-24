@@ -7832,7 +7832,7 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     justify-content: center;
     gap: 3rem;
-    padding: 1rem 0;
+    padding: 0.5rem 0;
 }
 
 .band-item {
@@ -7854,7 +7854,7 @@ a.path-hop.hop-clickable:hover {
 
 .band-bar-container {
     width: 60px;
-    height: 120px;
+    height: 96px;
     background: var(--bg-tertiary);
     border-radius: 6px 6px 0 0;
     overflow: hidden;
@@ -7888,9 +7888,70 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     justify-content: center;
     gap: 2rem;
-    margin-top: 1rem;
-    padding-top: 1rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
     border-top: 1px solid var(--border-color);
+}
+
+/* Overview: Client Band Distribution + Channel Optimization stacked in one grid cell */
+.wifi-overview-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-width: 0;
+}
+
+.channel-rec-card .card-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.channel-rec-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.5rem 0;
+    text-align: center;
+}
+
+.channel-rec-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+}
+
+.channel-rec-status.optimal {
+    color: var(--success-color);
+}
+
+.channel-rec-count {
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent-color);
+}
+
+.channel-rec-bands {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.channel-rec-summary .btn-recommend {
+    width: 100%;
+    max-width: 260px;
+    height: 38px;
+}
+
+@media (max-width: 768px) {
+    .wifi-overview-stack {
+        gap: 16px;
+    }
 }
 
 .band-stat {
