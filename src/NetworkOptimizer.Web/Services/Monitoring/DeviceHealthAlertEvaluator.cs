@@ -10,6 +10,9 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// (~2.5-5 minutes at typical poll intervals) to avoid alerting on transient
 /// spikes. Memory is evaluated per-sample since sustained high memory is
 /// immediately actionable.
+///
+/// Temperature is evaluated for gateways and switches against a user-configurable
+/// high threshold (per device type, falling back to <see cref="DefaultDeviceTempHighC"/>).
 /// </summary>
 public class DeviceHealthAlertEvaluator
 {
@@ -18,6 +21,13 @@ public class DeviceHealthAlertEvaluator
     private const double CpuClearThresholdPercent = 55.0;
     private const double MemoryHighThresholdPercent = 95.0;
     private const double MemoryClearThresholdPercent = 85.0;
+
+    /// <summary>Default high-temperature alert threshold (Celsius) when the user hasn't set one.</summary>
+    public const double DefaultDeviceTempHighC = 85.0;
+
+    // Temperature must drop this far below the threshold before the alert re-arms,
+    // preventing flapping for devices hovering near their limit.
+    private const double TempClearMarginC = 5.0;
 
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<DeviceHealthAlertEvaluator> _logger;
@@ -32,15 +42,20 @@ public class DeviceHealthAlertEvaluator
     public async ValueTask EvaluateAsync(
         string deviceMac, string? deviceName, string deviceType,
         double? cpuPercent, double? memoryUsedPercent,
+        double? temperatureC = null, double? tempHighThresholdC = null,
         CancellationToken ct = default)
     {
-        if (!string.Equals(deviceType, "gateway", StringComparison.OrdinalIgnoreCase))
+        var isGateway = string.Equals(deviceType, "gateway", StringComparison.OrdinalIgnoreCase);
+        var isSwitch = string.Equals(deviceType, "switch", StringComparison.OrdinalIgnoreCase);
+
+        // CPU and memory alerting is gateway-only; temperature covers gateways and switches.
+        if (!isGateway && !isSwitch)
             return;
 
         var state = _states.GetOrAdd(deviceMac, _ => new DeviceHealthState());
         var label = deviceName ?? deviceMac;
 
-        if (cpuPercent.HasValue)
+        if (isGateway && cpuPercent.HasValue)
         {
             state.CpuWindow.Enqueue(cpuPercent.Value);
             while (state.CpuWindow.Count > CpuWindowSize) state.CpuWindow.Dequeue();
@@ -65,7 +80,7 @@ public class DeviceHealthAlertEvaluator
                         DeviceName = deviceName,
                         MetricValue = avg,
                         ThresholdValue = CpuHighThresholdPercent,
-                        SourceUrl = "/monitoring?tab=health",
+                        SourceUrl = "/monitoring?tab=devices",
                         Tags = ["device", "gateway", "cpu"],
                         Context = new Dictionary<string, string>
                         {
@@ -82,7 +97,7 @@ public class DeviceHealthAlertEvaluator
             }
         }
 
-        if (memoryUsedPercent.HasValue)
+        if (isGateway && memoryUsedPercent.HasValue)
         {
             if (!state.MemoryBreached && memoryUsedPercent.Value >= MemoryHighThresholdPercent)
             {
@@ -100,7 +115,7 @@ public class DeviceHealthAlertEvaluator
                     DeviceName = deviceName,
                     MetricValue = memoryUsedPercent.Value,
                     ThresholdValue = MemoryHighThresholdPercent,
-                    SourceUrl = "/monitoring?tab=health",
+                    SourceUrl = "/monitoring?tab=devices",
                     Tags = ["device", "gateway", "memory"],
                     Context = new Dictionary<string, string>
                     {
@@ -115,6 +130,44 @@ public class DeviceHealthAlertEvaluator
                 state.MemoryBreached = false;
             }
         }
+
+        if (temperatureC.HasValue)
+        {
+            var threshold = tempHighThresholdC ?? DefaultDeviceTempHighC;
+            var typeLabel = isGateway ? "Gateway" : "Switch";
+
+            if (!state.TempBreached && temperatureC.Value >= threshold)
+            {
+                state.TempBreached = true;
+                _logger.LogDebug("Device temperature threshold breached: {DeviceMac} temp={Temp:0.#}C threshold={Threshold:0.#}C",
+                    deviceMac, temperatureC.Value, threshold);
+
+                await _eventBus.PublishAsync(new AlertEvent
+                {
+                    EventType = "device.high_temperature",
+                    Source = "device",
+                    Severity = AlertSeverity.Warning,
+                    Title = $"{label} temperature high",
+                    Message = $"{typeLabel} {label} temperature at {temperatureC.Value:0.#} C, exceeding the {threshold:0.#} C threshold.",
+                    DeviceId = deviceMac,
+                    DeviceName = deviceName,
+                    MetricValue = temperatureC.Value,
+                    ThresholdValue = threshold,
+                    SourceUrl = "/monitoring?tab=devices",
+                    Tags = ["device", deviceType, "temperature"],
+                    Context = new Dictionary<string, string>
+                    {
+                        ["device_mac"] = deviceMac,
+                        ["device_type"] = deviceType,
+                        ["metric"] = "temperature_c"
+                    }
+                }, ct);
+            }
+            else if (state.TempBreached && temperatureC.Value <= threshold - TempClearMarginC)
+            {
+                state.TempBreached = false;
+            }
+        }
     }
 
     private class DeviceHealthState
@@ -122,5 +175,6 @@ public class DeviceHealthAlertEvaluator
         public Queue<double> CpuWindow { get; } = new();
         public bool CpuBreached;
         public bool MemoryBreached;
+        public bool TempBreached;
     }
 }

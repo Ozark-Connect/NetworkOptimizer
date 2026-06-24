@@ -102,6 +102,12 @@ public class MonitoringSettings
 
     public bool Flex25GLatencyMigrated { get; set; }
 
+    // User-configurable high-temperature alert thresholds (Celsius). Null means
+    // use the built-in default (DeviceHealthAlertEvaluator.DefaultDeviceTempHighC).
+    // Switches and gateways are configured independently.
+    public double? SwitchTempHighC { get; set; }
+    public double? GatewayTempHighC { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

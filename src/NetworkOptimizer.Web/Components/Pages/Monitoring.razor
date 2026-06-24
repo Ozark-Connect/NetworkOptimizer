@@ -491,6 +491,39 @@ else
                 </details>
             </div>
         </div>
+
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-header">
+                <h2 class="card-title">Temperature Alert Thresholds</h2>
+            </div>
+            <div class="card-body">
+                <p class="page-description">
+                    Raise a <a href="/alerts?tab=rules">Device: Temperature High</a> alert when a device runs above these limits.
+                    Leave blank to use the default of @DefaultTempPlaceholder&deg;C. Hot-running models (e.g. high-PoE switches) may need a higher value to avoid noise.
+                </p>
+                <div class="threshold-fields">
+                    <div class="form-group">
+                        <label class="form-label">Switch high temperature (&deg;C)</label>
+                        <input type="number" class="form-control" min="40" max="120" step="1"
+                               placeholder="@DefaultTempPlaceholder" @bind="_switchTempThresholdInput" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Gateway high temperature (&deg;C)</label>
+                        <input type="number" class="form-control" min="40" max="120" step="1"
+                               placeholder="@DefaultTempPlaceholder" @bind="_gatewayTempThresholdInput" />
+                    </div>
+                </div>
+                <div class="input-with-button" style="margin-top: 1rem;">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveTempThresholdsAsync" disabled="@_savingTempThresholds">
+                        @(_savingTempThresholds ? "Saving..." : "Save thresholds")
+                    </button>
+                    @if (_tempThresholdsSaved)
+                    {
+                        <span class="form-help signal-good" style="align-self: center;">Saved</span>
+                    }
+                </div>
+            </div>
+        </div>
     }
 
     @* ──────────────── Tab: SFP Stats ──────────────── *@
@@ -1373,6 +1406,8 @@ else
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
         LoadInfluxStateFromSettings(settings);
+        _switchTempThresholdInput = settings.SwitchTempHighC;
+        _gatewayTempThresholdInput = settings.GatewayTempHighC;
         await LoadTargetsAsync();
 
         var cmConfigs = await CmMonitorService.GetConfigsAsync();
@@ -1467,6 +1502,43 @@ else
         _influxReachable = health.Reachable;
         _influxError = health.Error;
         StateHasChanged();
+    }
+
+    private double? _switchTempThresholdInput;
+    private double? _gatewayTempThresholdInput;
+    private bool _savingTempThresholds;
+    private bool _tempThresholdsSaved;
+
+    private static string DefaultTempPlaceholder =>
+        NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator.DefaultDeviceTempHighC.ToString("0");
+
+    // Blank/zero/negative entries mean "use the built-in default" (stored as null).
+    private static double? NormalizeTempThreshold(double? value) => value is > 0 ? value : null;
+
+    private async Task SaveTempThresholdsAsync()
+    {
+        _savingTempThresholds = true;
+        _tempThresholdsSaved = false;
+        StateHasChanged();
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
+                ?? new MonitoringSettings();
+            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
+            settings.SwitchTempHighC = NormalizeTempThreshold(_switchTempThresholdInput);
+            settings.GatewayTempHighC = NormalizeTempThreshold(_gatewayTempThresholdInput);
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            _switchTempThresholdInput = settings.SwitchTempHighC;
+            _gatewayTempThresholdInput = settings.GatewayTempHighC;
+            _tempThresholdsSaved = true;
+        }
+        finally
+        {
+            _savingTempThresholds = false;
+            StateHasChanged();
+        }
     }
 
     private async Task SetMonitoringEnabled(bool enabled)
