@@ -224,6 +224,85 @@ public class ChannelRecommendationServiceTests
         score.Should().Be(0);
     }
 
+    // --- Unobserved-channel uncertainty (confidence-weighted) ---
+
+    // Builds a 2-AP graph where the sibling sits on a non-overlapping channel, so the
+    // subject AP (index 0) is the only contributor to the score - isolating its external
+    // + unobserved-uncertainty terms.
+    private InterferenceGraph BuildSubjectGraph(int siblingChannel = 100)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Subject", RadioBand.Band5GHz, 149),
+            CreateAp("aa:bb:cc:dd:ee:02", "Sibling", RadioBand.Band5GHz, siblingChannel)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        graph.DirectlyObservedChannels[0] = new HashSet<int> { 36 };
+        graph.ExternalLoad[0] = new Dictionary<int, double> { { 36, 1.0 }, { 149, 0.5 } };
+        return graph;
+    }
+
+    [Fact]
+    public void ScoreAssignment_HistoricOccupancy_SoftensUnobservedPenalty()
+    {
+        // ch149 is triangulated-only (not directly scanned), so it normally carries the full
+        // uncertainty penalty. But if the AP has measured historic occupancy of ch149, we have
+        // real data for it and the penalty should be mostly waived (confidence 0.85).
+        var graph = BuildSubjectGraph();
+        var assignment = new[] { (149, 80), (100, 80) };
+
+        graph.Nodes[0].HistoricalStress = null;
+        var scoreNoHistory = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double, double, double)>
+        {
+            { 149, (0, 0, 0) } // benign measured airtime - isolates the unobserved term
+        };
+        var scoreWithHistory = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        scoreWithHistory.Should().BeLessThan(scoreNoHistory);
+        // Penalty scaled by (1 - 0.85): the historic channel keeps only 15% of the cliff.
+        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(0.85, 0.05);
+    }
+
+    [Fact]
+    public void ScoreAssignment_UnobservedChannelNoEvidence_StillPenalized()
+    {
+        // Soundness guard: a channel with no direct scan, no historic occupancy, and no resident
+        // sibling must still be taxed, so genuinely-unknown channels can't win by looking empty.
+        var graph = BuildSubjectGraph();
+        graph.Nodes[0].HistoricalStress = null;
+
+        var onObserved = _service.ScoreAssignment(
+            graph, new[] { (36, 80), (100, 80) }, RadioBand.Band5GHz);
+        var onUnobserved = _service.ScoreAssignment(
+            graph, new[] { (149, 80), (100, 80) }, RadioBand.Band5GHz);
+
+        onUnobserved.Should().BeGreaterThan(onObserved);
+    }
+
+    [Fact]
+    public void ScoreAssignment_UnobservedPenalty_IndependentOfApCurrentChannel()
+    {
+        // Anti-oscillation invariant: a candidate channel must score the same whether the AP is
+        // currently resident on it or moving onto it. Confidence is drawn from stable signals
+        // (historic occupancy), not the AP's current position, so the score doesn't swing on moves.
+        var graph = BuildSubjectGraph();
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double, double, double)>
+        {
+            { 149, (0, 0, 0) }
+        };
+        var assignment = new[] { (149, 80), (100, 80) };
+
+        graph.Nodes[0].CurrentChannel = 36;  // ch149 is a candidate the AP is moving to
+        var asCandidate = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        graph.Nodes[0].CurrentChannel = 149; // AP is resident on ch149
+        var asResident = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        asCandidate.Should().BeApproximately(asResident, 0.001);
+    }
+
     // --- Optimization ---
 
     [Fact]

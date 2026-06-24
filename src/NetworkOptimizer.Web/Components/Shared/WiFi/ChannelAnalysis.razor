@@ -79,7 +79,7 @@
                 var bandData = GetBandData(band);
                 var hasRecForBand = _showRecommendations && _channelPlans.ContainsKey(band);
                 <button class="band-tab @GetBandClass(band) @(_selectedBand == band ? "active" : "") @(bandData.HasIssues ? "has-issues" : "")"
-                        @onclick="() => { _selectedBand = band; _selectedChannel = null; }">
+                        @onclick="() => { _selectedBand = band; _selectedChannel = null; _bandManuallySelected = true; }">
                     @band.ToDisplayString()
                     @if (_showRecommendations && hasRecForBand)
                     {
@@ -518,6 +518,8 @@
     private SiteHealthScore? _healthScore;
     private RadioBand _selectedBand = RadioBand.Band5GHz;
     private int? _selectedChannel;
+    // True once the user (or explicit navigation) picks a band, so auto-select won't override it.
+    private bool _bandManuallySelected;
 
     // Channel disclaimer
     private bool _channelDisclaimerDismissed;
@@ -557,9 +559,12 @@
 
         await LoadDataAsync();
 
-        // Apply initial filters from parent navigation
+        // Apply initial filters from parent navigation (explicit band is treated as a manual pick)
         if (InitialBand.HasValue)
+        {
             _selectedBand = InitialBand.Value;
+            _bandManuallySelected = true;
+        }
         if (InitialChannel.HasValue)
             _selectedChannel = InitialChannel.Value;
 
@@ -843,11 +848,36 @@
 
             _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
             _showRecommendations = _channelPlans.Count > 0;
+            AutoSelectBandWithRecommendations();
         }
         finally
         {
             _loadingRecommendations = false;
             StateHasChanged();
+        }
+    }
+
+    private bool BandHasChanges(RadioBand band) =>
+        _channelPlans.TryGetValue(band, out var plan) && plan.Recommendations.Any(r => r.IsChanged);
+
+    /// <summary>
+    /// After running the engine, land on a band that actually has recommendations instead of
+    /// the static default. Skips if the user explicitly picked a band, or if the current band
+    /// already has changes, so we never yank someone off a band they're deliberately viewing.
+    /// </summary>
+    private void AutoSelectBandWithRecommendations()
+    {
+        if (_bandManuallySelected) return;
+        if (BandHasChanges(_selectedBand)) return;
+
+        foreach (var band in _bands)
+        {
+            if (BandHasChanges(band))
+            {
+                _selectedBand = band;
+                _selectedChannel = null;
+                break;
+            }
         }
     }
 
