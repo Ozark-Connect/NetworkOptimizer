@@ -195,8 +195,10 @@ public enum CongestionDisposition
 /// </summary>
 public class CongestionEvent
 {
-    public DateTime Start { get; init; }
-    public DateTime End { get; init; }
+    // Settable (not init) so a long-window report can snap these to fine-resolution boundaries
+    // after detection - see IspHealthService.RefineCongestionBoundariesAsync.
+    public DateTime Start { get; set; }
+    public DateTime End { get; set; }
 
     /// <summary>ASNs affected. More than one means a shared upstream event.</summary>
     public List<int> AsnNumbers { get; init; } = new();

@@ -468,6 +468,10 @@ public class IspHealthService
         var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
         if (referenceEvents != null)
             congestionEvents = GateAgainstCanonical(congestionEvents, referenceEvents, windowEnd);
+        // On a long (coarse-aggregate) window, snap congestion boundaries back to fine resolution so
+        // a marginal event's 15-min bucket edges don't land off where the canonical view would place
+        // them. No-op at canonical resolution; reads run concurrently (see method).
+        await RefineCongestionBoundariesAsync(congestionEvents, aggregate, ct);
         foreach (var ce in congestionEvents)
             _logger.LogDebug(
                 "ISP Health congestion: {Disposition} at {Hop} ({Label}) conf={Confidence} load={Load} - {Reason}",
@@ -1120,6 +1124,52 @@ public class IspHealthService
             .SelectMany(c => ancestorIpsByTargetId.TryGetValue(c.Target.TargetId, out var anc) ? anc : Enumerable.Empty<string>())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         return nearIps.Overlaps(farAncestors);
+    }
+
+    /// <summary>
+    /// On a long viewing window the report is computed on a coarse aggregate (the point-count cap),
+    /// so a marginal congestion event's 15-min bucket boundaries can land a bucket off from where the
+    /// fine-resolution canonical view places them. For each event, re-query its target(s) at the
+    /// canonical fine aggregate over just the event's neighborhood, re-run detection, and snap
+    /// Start/End to the overlapping fine run. No-op at canonical resolution (aggregate already fine);
+    /// the per-event neighborhood reads fire concurrently so the added wall-clock is ~one small read.
+    /// </summary>
+    private async Task RefineCongestionBoundariesAsync(
+        List<CongestionEvent> events, TimeSpan aggregate, CancellationToken ct)
+    {
+        var fine = TimeSpan.FromSeconds(_options.LoadWindowSeconds);
+        if (events.Count == 0 || aggregate <= fine) return;
+
+        // Enough clean baseline on each side of a bounded event for fine re-detection to anchor.
+        var pad = TimeSpan.FromHours(2);
+
+        var refined = await Task.WhenAll(events.Select(async e =>
+        {
+            var runs = new List<(DateTime Start, DateTime End)>();
+            foreach (var tid in e.TargetIds)
+            {
+                var pts = await _influx.QueryLatencyDetailByTargetIdAsync(tid, e.Start - pad, e.End + pad, fine, ct);
+                if (pts.Count == 0) continue;
+                var series = new AsnSeries
+                {
+                    TargetIds = { tid },
+                    Samples = pts.Select(p => new LatencySample(p.Time, p.RttAvgMs, p.RttMaxMs, p.JitterMs, p.LossPercent)).ToList()
+                };
+                foreach (var r in CongestionDetector.DetectForSeries(series, _options))
+                    if (r.Start < e.End && e.Start < r.End) // overlaps the coarse event
+                        runs.Add((r.Start, r.End));
+            }
+            return (Event: e, Runs: runs);
+        }));
+
+        foreach (var (e, runs) in refined)
+        {
+            // No overlapping fine run (the fine pass didn't reproduce it) - keep the coarse boundaries
+            // rather than risk dropping or distorting a real event.
+            if (runs.Count == 0) continue;
+            e.Start = runs.Min(r => r.Start);
+            e.End = runs.Max(r => r.End);
+        }
     }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(
