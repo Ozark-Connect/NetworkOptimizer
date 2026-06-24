@@ -99,11 +99,22 @@ public static class ChannelSpanHelper
         a.Low <= b.High && b.Low <= a.High;
 
     /// <summary>
-    /// Convert signal strength to interference weight using the standard formula.
-    /// Maps -90 dBm → 0.1 (barely audible) through -50 dBm → 1.0 (very close).
+    /// CCA threshold (dBm). At or below this a radio does not detect a co-channel transmission and
+    /// won't defer, so it suffers no contention - the interference weight curve is anchored here.
+    /// </summary>
+    private const double CcaThresholdDbm = -82.0;
+
+    /// <summary>Signal (dBm) at or above which a co-channel interferer fully saturates (weight 1.0).</summary>
+    private const double SaturationDbm = -50.0;
+
+    /// <summary>
+    /// Convert a received signal strength to a co-channel interference weight in [0, 1], anchored at
+    /// the CCA threshold: a signal at or below CCA (-82 dBm) causes no contention (weight 0 - the
+    /// radio doesn't defer), ramping linearly to 1.0 at a saturating -50 dBm. Operates on the
+    /// received signal, which already accounts for band-specific propagation, so it is band-agnostic.
     /// </summary>
     public static double SignalToInterferenceWeight(int signalDbm) =>
-        Math.Clamp((signalDbm + 90) / 40.0, 0.1, 1.0);
+        Math.Clamp((signalDbm - CcaThresholdDbm) / (SaturationDbm - CcaThresholdDbm), 0.0, 1.0);
 
     /// <summary>
     /// Compute the channel overlap factor between two channel assignments.

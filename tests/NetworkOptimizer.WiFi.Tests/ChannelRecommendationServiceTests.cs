@@ -109,8 +109,8 @@ public class ChannelRecommendationServiceTests
 
         var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
 
-        // -65 dBm → weight 0.625
-        graph.InternalWeights[0, 1].Should().BeApproximately(0.625, 0.01);
+        // -65 dBm, CCA-anchored: (-65 + 82) / 32 = 0.531
+        graph.InternalWeights[0, 1].Should().BeApproximately(0.531, 0.01);
     }
 
     [Fact]
@@ -721,14 +721,14 @@ public class ChannelRecommendationServiceTests
 
         // AP-1 (index 0) should have triangulated external load on ch36
         graph.ExternalLoad[0].Should().ContainKey(36);
-        // Unplaced APs have internal weight 0.625. Neighbor at -55 dBm → weight 0.875.
+        // Unplaced APs have internal weight 0.531. Neighbor at -55 dBm → weight 0.844 (CCA-anchored).
         // Width matches AP (80=80), no width scaling.
-        // Triangulated weight = 0.875 * 0.625 = 0.547
-        graph.ExternalLoad[0][36].Should().BeApproximately(0.547, 0.05);
+        // Triangulated weight = 0.844 * 0.531 = 0.448
+        graph.ExternalLoad[0][36].Should().BeApproximately(0.448, 0.05);
 
         // AP-2 (index 1) should also have direct external load on ch36
         graph.ExternalLoad[1].Should().ContainKey(36);
-        graph.ExternalLoad[1][36].Should().BeApproximately(0.875, 0.05);
+        graph.ExternalLoad[1][36].Should().BeApproximately(0.844, 0.05);
     }
 
     [Fact]
@@ -758,8 +758,8 @@ public class ChannelRecommendationServiceTests
         var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
 
         graph.ExternalLoad[0].Should().ContainKey(36);
-        // -60 dBm → 0.75, -70 dBm → 0.5, sum = 1.25
-        graph.ExternalLoad[0][36].Should().BeApproximately(1.25, 0.05);
+        // -60 dBm → 0.6875, -70 dBm → 0.375, sum = 1.0625 (CCA-anchored)
+        graph.ExternalLoad[0][36].Should().BeApproximately(1.0625, 0.05);
     }
 
     [Fact]
@@ -834,9 +834,9 @@ public class ChannelRecommendationServiceTests
         // AP-3 (index 2) should have external load on ch100 from the best estimate
         graph.ExternalLoad[2].Should().ContainKey(100);
 
-        // The stronger sighting (-55 dBm → weight 0.875) × proximity 0.625 = 0.547
-        // beats the weaker sighting (-75 dBm → weight 0.375) × proximity 0.625 = 0.234
-        graph.ExternalLoad[2][100].Should().BeApproximately(0.547, 0.05);
+        // The stronger sighting (-55 dBm → weight 0.844) × proximity 0.531 = 0.448
+        // beats the weaker sighting (-75 dBm → weight 0.219) × proximity 0.531 = 0.116
+        graph.ExternalLoad[2][100].Should().BeApproximately(0.448, 0.05);
     }
 
     // --- Re-validation after per-AP filtering ---
