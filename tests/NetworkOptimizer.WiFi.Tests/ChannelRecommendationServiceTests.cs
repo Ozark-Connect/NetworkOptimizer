@@ -303,6 +303,33 @@ public class ChannelRecommendationServiceTests
         asCandidate.Should().BeApproximately(asResident, 0.001);
     }
 
+    [Fact]
+    public void ScoreAssignment_UnobservedPenalty_LowerForBandsWithBetterPropagation()
+    {
+        // Scan completeness tracks propagation: 2.4 GHz sees nearly every neighbor, so its
+        // unobserved channels are less uncertain than 6 GHz, which dies fastest through walls.
+        // The uncertainty multiplier must therefore order 2.4 < 5 < 6.
+        double UnobservedScore(RadioBand band, int observedCh, int unobservedCh)
+        {
+            var aps = new List<AccessPointSnapshot>
+            {
+                CreateAp("aa:bb:cc:dd:ee:01", "Subject", band, observedCh, width: 20)
+            };
+            var graph = _service.BuildInterferenceGraph(aps, band, null, null, null);
+            graph.DirectlyObservedChannels[0] = new HashSet<int> { observedCh };
+            graph.ExternalLoad[0] = new Dictionary<int, double> { { observedCh, 0.1 }, { unobservedCh, 1.0 } };
+            graph.Nodes[0].HistoricalStress = null;
+            return _service.ScoreAssignment(graph, new[] { (unobservedCh, 20) }, band);
+        }
+
+        var score2_4 = UnobservedScore(RadioBand.Band2_4GHz, 1, 11);
+        var score5 = UnobservedScore(RadioBand.Band5GHz, 36, 149);
+        var score6 = UnobservedScore(RadioBand.Band6GHz, 5, 213);
+
+        score2_4.Should().BeLessThan(score5);
+        score5.Should().BeLessThan(score6);
+    }
+
     // --- Optimization ---
 
     [Fact]

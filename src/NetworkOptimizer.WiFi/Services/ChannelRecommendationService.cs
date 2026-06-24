@@ -119,14 +119,26 @@ public class ChannelRecommendationService
     private const double MinTriangulatedWeight = 0.2;
 
     /// <summary>
-    /// Uncertainty multiplier for external load on channels with no direct neighbor
-    /// observations. Triangulation discovers some neighbors but not all - the observer
-    /// AP may miss neighbors visible from the target's location. This multiplier inflates
-    /// the triangulated estimate to account for missing neighbors. The full penalty only
-    /// applies to channels we have no other evidence for; channels we have historic
-    /// occupancy or a resident sibling AP for are scaled down via <see cref="ObservationConfidence"/>.
+    /// Uncertainty multipliers for external load on channels with no direct neighbor
+    /// observations, by band. Triangulation discovers some neighbors but not all - the observer
+    /// AP may miss neighbors visible from the target's location. The multiplier inflates the
+    /// triangulated estimate to account for missing neighbors (base + base * multiplier).
+    ///
+    /// It is band-dependent because scan completeness tracks propagation range:
+    /// - 2.4 GHz penetrates walls and travels far, so an observer hears nearly every neighbor
+    ///   the target would, and those neighbors genuinely reach the target. The picture is close
+    ///   to complete, so unobserved channels are barely uncertain (1.5).
+    /// - 5 GHz: the ~3x underestimate (2.0) calibrated in testing.
+    /// - 6 GHz dies fastest through walls, so observers miss the most near-target neighbors and
+    ///   uncertainty is highest (2.5). Tempered by 6 GHz being sparsely populated today.
+    ///
+    /// This is the right caution for a genuinely unknown channel; channels we DO have evidence
+    /// for are scaled down separately via <see cref="ObservationConfidence"/>, which is where
+    /// the softening belongs. 2.4/6 GHz values are physically motivated; only 5 GHz is calibrated.
     /// </summary>
-    private const double UnobservedChannelMultiplier = 1.5;
+    private const double UnobservedChannelMultiplier2_4GHz = 1.5;
+    private const double UnobservedChannelMultiplier5GHz = 2.0;
+    private const double UnobservedChannelMultiplier6GHz = 2.5;
 
     /// <summary>
     /// Observation confidence for a candidate channel this AP has measured historic occupancy
@@ -863,9 +875,21 @@ public class ChannelRecommendationService
         }
         if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
 
-        var basePenalty = Math.Max(triangulatedLoad * UnobservedChannelMultiplier, minDirectLoad);
+        var basePenalty = Math.Max(triangulatedLoad * GetUnobservedMultiplier(band), minDirectLoad);
         return (1.0 - confidence) * basePenalty;
     }
+
+    /// <summary>
+    /// Band-specific uncertainty multiplier for unobserved channels. Lower bands see a more
+    /// complete scan picture (better propagation), so their unobserved channels are less
+    /// uncertain. See the multiplier constants for rationale.
+    /// </summary>
+    private static double GetUnobservedMultiplier(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => UnobservedChannelMultiplier2_4GHz,
+        RadioBand.Band6GHz => UnobservedChannelMultiplier6GHz,
+        _ => UnobservedChannelMultiplier5GHz
+    };
 
     /// <summary>
     /// How confident we are in the external-load estimate for an AP's assigned channel span,
