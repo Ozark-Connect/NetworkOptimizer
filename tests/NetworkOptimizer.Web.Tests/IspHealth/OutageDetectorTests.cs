@@ -26,6 +26,15 @@ public class OutageDetectorTests
 
     private static IReadOnlyList<IReadOnlyList<LatencySample>> Triggers(params List<LatencySample>[] series) => series;
 
+    /// <summary>A target sampled every 5 s across the window, dark (100% loss) where the predicate holds.</summary>
+    private static List<LatencySample> Cadenced(Func<DateTime, bool> isDark)
+    {
+        var s = new List<LatencySample>();
+        for (var t = TestSeries.Start; t < TestSeries.Start + Window; t += TimeSpan.FromSeconds(5))
+            s.Add(new LatencySample(t, 20, 20.5, 0.5, isDark(t) ? 100 : 0));
+        return s;
+    }
+
     [Fact]
     public void Detects_upstream_outage_and_attributes_break_beyond_olt()
     {
@@ -48,6 +57,7 @@ public class OutageDetectorTests
         events[0].Scope.Should().Be(OutageScope.Upstream);
         events[0].LastReachableHop.Should().Be("AT&T nokia-olt");
         events[0].Duration.Should().BeCloseTo(TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1));
+        events[0].IsBrief.Should().BeFalse();
     }
 
     [Fact]
@@ -161,14 +171,33 @@ public class OutageDetectorTests
     }
 
     [Fact]
-    public void Brief_blip_below_min_duration_is_ignored()
+    public void Momentary_blip_below_the_minimum_is_ignored()
     {
-        var internet1 = Series(0, (OutStart, OutStart.AddMinutes(1), 100));
-        var internet2 = Series(0, (OutStart, OutStart.AddMinutes(1), 100));
+        // ~20 s of total loss - below the 30 s floor, a momentary blip, not reported.
+        var darkEnd = OutStart.AddSeconds(20);
+        var internet1 = Cadenced(t => t >= OutStart && t < darkEnd);
+        var internet2 = Cadenced(t => t >= OutStart && t < darkEnd);
 
         var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
 
         events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Drop_between_30s_and_2min_is_flagged_as_a_brief_disruption()
+    {
+        // A clean 45 s drop: above the 30 s floor, below the 2 min brief/full divider. It is
+        // reported but classified brief - the lighter tier for short transit/upstream flaps.
+        var darkEnd = OutStart.AddSeconds(45);
+        var internet1 = Cadenced(t => t >= OutStart && t < darkEnd);
+        var internet2 = Cadenced(t => t >= OutStart && t < darkEnd);
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
+
+        events.Should().ContainSingle();
+        events[0].IsBrief.Should().BeTrue();
+        events[0].Duration.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(30));
+        events[0].Duration.Should().BeLessThan(TimeSpan.FromMinutes(2));
     }
 
     [Fact]
@@ -219,9 +248,9 @@ public class OutageDetectorTests
     public void Gap_longer_than_the_tolerance_stays_two_separate_outages()
     {
         // A long healthy stretch between two dark spans is a genuine recovery then a second
-        // outage - well beyond OutageMaxGapMinutes, so the two must NOT be coalesced.
+        // outage - well beyond OutageMaxGapSeconds, so the two must NOT be coalesced.
         var firstEnd = OutStart.AddMinutes(3);
-        var secondStart = OutStart.AddMinutes(12); // 9-minute clear gap, > OutageMaxGapMinutes
+        var secondStart = OutStart.AddMinutes(12); // 9-minute clear gap, > OutageMaxGapSeconds
         var secondEnd = secondStart.AddMinutes(3);
         List<LatencySample> TwoSpans() => Series(0, (OutStart, firstEnd, 100), (secondStart, secondEnd, 100));
         var internet1 = TwoSpans();
@@ -302,9 +331,9 @@ public class OutageDetectorTests
     [Fact]
     public void Window_and_recovery_carry_real_seconds_not_minute_buckets()
     {
-        // Samples land at :17 past each minute. Detection still buckets by minute, but the
-        // reported onset, recovery, and per-hop recovery must come from the actual sample
-        // instants - otherwise every time renders :00.
+        // Samples land at :17 past each minute. Detection buckets internally, but the reported
+        // onset, recovery, and per-hop recovery must come from the actual sample instants -
+        // otherwise every time renders on a bucket edge.
         var offset = TimeSpan.FromSeconds(17);
         List<LatencySample> Build()
         {

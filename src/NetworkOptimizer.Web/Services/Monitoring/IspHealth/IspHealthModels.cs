@@ -297,13 +297,23 @@ public enum OutageScope
 /// near-total loss while probes kept reporting. A monitoring gap (console offline) has no
 /// samples at all and is never an outage. Scored by duration alone via a capped Packet
 /// Loss penalty - independent of shape or which hops dropped; the scope, break point, and
-/// per-tier recovery shape are presentation only.
+/// per-tier recovery shape are presentation only. Spans below
+/// <see cref="IspHealthOptions.OutageBriefMaxSeconds"/> are flagged <see cref="IsBrief"/> -
+/// short transit/upstream flaps surfaced on the timeline with only a fraction-of-a-point score hit.
 /// </summary>
 public class OutageEvent
 {
     public DateTime Start { get; init; }
     public DateTime End { get; init; }
     public TimeSpan Duration => End - Start;
+
+    /// <summary>
+    /// True when this span is a brief disruption (shorter than
+    /// <see cref="IspHealthOptions.OutageBriefMaxSeconds"/>) rather than a full outage. Brief
+    /// disruptions are reported distinctly and ride the low end of the severity curve, so their
+    /// score impact is at most a point. Set by the detector.
+    /// </summary>
+    public bool IsBrief { get; init; }
 
     /// <summary>Whether even the access hop went dark, or it held while everything beyond it dropped.</summary>
     public OutageScope Scope { get; init; }

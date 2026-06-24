@@ -232,8 +232,13 @@ public class IspHealthOptions
     /// </summary>
     public double StepStableIqrFraction { get; set; } = 0.15;
 
-    /// <summary>Bucket size in minutes for outage detection.</summary>
-    public int OutageBucketMinutes { get; set; } = 1;
+    /// <summary>
+    /// Bucket size in seconds for outage detection. Sub-minute so a brief (~30 s) drop resolves
+    /// into its own fully-dark buckets instead of being diluted to a partial-loss bucket inside a
+    /// one-minute window and failing the dark-fraction gate. At the internet targets' ~7-10 s
+    /// effective sample cadence a 15 s bucket still holds one or two samples per target.
+    /// </summary>
+    public int OutageBucketSeconds { get; set; } = 15;
 
     /// <summary>
     /// Mean loss (percent) at or above which a tier counts as dark in an outage bucket.
@@ -256,17 +261,30 @@ public class IspHealthOptions
     /// </summary>
     public int OutageMinReportingTargets { get; set; } = 2;
 
-    /// <summary>Minimum sustained duration in minutes for an outage event.</summary>
-    public int OutageMinDurationMinutes { get; set; } = 2;
+    /// <summary>
+    /// Minimum sustained duration in seconds before a near-total-loss span is reported at all.
+    /// Set above a momentary blip (a single lost probe group) but well below the brief/full
+    /// divider, so a clean 30 s transit drop is captured rather than discarded.
+    /// </summary>
+    public int OutageMinDurationSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Spans shorter than this are classified as brief disruptions (short transit/upstream flaps);
+    /// at or above it they are full outages. This is the prior two-minute outage threshold, kept as
+    /// the divider so what users already understood as an outage is unchanged - brief disruptions are
+    /// a new, lighter tier beneath it that rides the low end of the severity curve. See
+    /// <see cref="OutageEvent.IsBrief"/>.
+    /// </summary>
+    public int OutageBriefMaxSeconds { get; set; } = 120;
 
     /// <summary>
     /// Two outage runs separated by a healthy gap no longer than this are coalesced into one
     /// event. One real outage briefly clears the dark-fraction gate during staggered onset or
-    /// inside-out recovery (targets dark/heal at slightly different minutes); without this it
+    /// inside-out recovery (targets dark/heal at slightly different times); without this it
     /// would fragment into several adjacent events. The sealed gap counts as downtime, so keep
     /// it short - the over-count is bounded by this value per seam.
     /// </summary>
-    public int OutageMaxGapMinutes { get; set; } = 3;
+    public int OutageMaxGapSeconds { get; set; } = 180;
 
     /// <summary>
     /// Recovery-time tolerance for collapsing per-target access ISP rows in the outage waterfall:

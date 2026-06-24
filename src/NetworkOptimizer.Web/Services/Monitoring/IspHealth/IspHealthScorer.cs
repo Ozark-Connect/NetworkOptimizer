@@ -1140,23 +1140,28 @@ public class IspHealthScorer
 
         // Local (LAN/gateway) outages are surfaced in the waterfall but are not internet outages and
         // don't affect the score, so they never appear in this ISP-impact issue.
+        // Full outages and brief disruptions are surfaced as separate findings: a 30 s transit flap
+        // shouldn't read as the same event as a multi-minute outage. Both ride the same severity
+        // curve (a brief disruption costs at most a point), so the per-event score share is taken
+        // from the already-attributed ScorePenaltyPoints rather than recomputing the curve per group.
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
-        if (wanOutages.Count > 0)
+        var fullOutages = wanOutages.Where(o => !o.IsBrief).ToList();
+        var briefDisruptions = wanOutages.Where(o => o.IsBrief).ToList();
+        if (fullOutages.Count > 0)
         {
-            var multiple = wanOutages.Count > 1;
-            var totalDown = TimeSpan.FromMinutes(wanOutages.Sum(o => o.Duration.TotalMinutes));
-            var upstream = wanOutages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
-            var allUpstream = wanOutages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
+            var multiple = fullOutages.Count > 1;
+            var totalDown = TimeSpan.FromMinutes(fullOutages.Sum(o => o.Duration.TotalMinutes));
+            var upstream = fullOutages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var allUpstream = fullOutages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
             var where = allUpstream
                 ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so {(multiple ? "these were" : "this was")} an ISP-side fault, not your network."
                 : " At least one event took the whole WAN dark, including the first ISP hop.";
             var count = multiple
-                ? $"{wanOutages.Count} internet outages totaling {FormatOutageDuration(totalDown)}"
-                : $"An internet outage of {FormatOutageDuration(wanOutages[0].Duration)}";
+                ? $"{fullOutages.Count} internet outages totaling {FormatOutageDuration(totalDown)}"
+                : $"An internet outage of {FormatOutageDuration(fullOutages[0].Duration)}";
             // Be transparent about the score hit: the outage penalty is applied at the top level
-            // and isn't tied to any one factor, so spell it out here or it's invisible. Matches the
-            // actual penalty (both exclude Local outages).
-            var penalty = (int)Math.Round(OutageScorePenalty(totalDown.TotalMinutes));
+            // and isn't tied to any one factor, so spell it out here or it's invisible.
+            var penalty = fullOutages.Sum(o => o.ScorePenaltyPoints);
             var impact = penalty > 0
                 ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
                 : string.Empty;
@@ -1173,6 +1178,32 @@ public class IspHealthScorer
                     : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
                 LinkUrl = "#isp-outages",
                 LinkText = "The recovery shape is shown on the timeline below."
+            });
+        }
+        if (briefDisruptions.Count > 0)
+        {
+            var multiple = briefDisruptions.Count > 1;
+            var totalDown = TimeSpan.FromSeconds(briefDisruptions.Sum(o => o.Duration.TotalSeconds));
+            var upstream = briefDisruptions.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var allUpstream = briefDisruptions.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
+            var count = multiple
+                ? $"{briefDisruptions.Count} brief internet disruptions totaling {FormatBriefDuration(totalDown)}"
+                : $"A brief internet disruption of {FormatBriefDuration(briefDisruptions[0].Duration)}";
+            var where = allUpstream
+                ? $" {(multiple ? "They sat" : "It sat")} upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())}, so your equipment stayed reachable - short ISP-side flaps."
+                : string.Empty;
+            var penalty = briefDisruptions.Sum(o => o.ScorePenaltyPoints);
+            var impact = penalty > 0
+                ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
+                : " Too short to meaningfully affect your score; logged for visibility.";
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Info,
+                Title = multiple ? "Brief internet disruptions in the window" : "Brief internet disruption in the window",
+                Description = $"{count} occurred while the Monitoring Agent kept probing (so {(multiple ? "these are real, not monitoring gaps" : "this is real, not a monitoring gap")}).{where}{impact}",
+                Recommendation = "Short drops like these are usually transient upstream or transit events; logged here so you can spot a pattern of flapping.",
+                LinkUrl = "#isp-outages",
+                LinkText = "Shown on the timeline below."
             });
         }
 
@@ -1306,6 +1337,9 @@ public class IspHealthScorer
 
     private static string FormatOutageDuration(TimeSpan d) =>
         d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min" : $"{d.TotalHours:0.#} h";
+
+    private static string FormatBriefDuration(TimeSpan d) =>
+        d.TotalSeconds < 90 ? $"{d.TotalSeconds:0} sec" : $"{d.TotalMinutes:0.#} min";
 
     private static string FormatMs(double ms) =>
         $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";

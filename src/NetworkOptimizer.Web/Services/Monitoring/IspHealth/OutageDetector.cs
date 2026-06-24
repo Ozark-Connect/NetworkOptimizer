@@ -34,7 +34,7 @@ public static class OutageDetector
     {
         if (triggerTargets.Count == 0) return new List<OutageEvent>();
 
-        var windowSize = TimeSpan.FromMinutes(options.OutageBucketMinutes);
+        var windowSize = TimeSpan.FromSeconds(options.OutageBucketSeconds);
         var triggerByBucket = BucketTargets(triggerTargets, windowSize);
 
         // Outage buckets: enough internet targets reporting (a bucket with none is a
@@ -49,7 +49,7 @@ public static class OutageDetector
         var hopBuckets = hops.ToDictionary(h => h, h => BucketTargets(new[] { h.Series }, windowSize));
 
         // Contiguous runs of outage buckets (gap of one window ends a run), then coalesce
-        // runs separated by a short healthy gap (OutageMaxGapMinutes). One real outage dips
+        // runs separated by a short healthy gap (OutageMaxGapSeconds). One real outage dips
         // below the dark-fraction gate for a bucket or two during staggered onset/recovery
         // (targets go dark and heal at slightly different times) - without the coalesce that
         // shatters it into several events. Sealing the gap before duration-filtering also lets
@@ -64,7 +64,7 @@ public static class OutageDetector
             i = j + 1;
         }
 
-        var maxGap = TimeSpan.FromMinutes(options.OutageMaxGapMinutes);
+        var maxGap = TimeSpan.FromSeconds(options.OutageMaxGapSeconds);
         var merged = new List<(DateTime Start, DateTime End)>();
         foreach (var run in runs)
         {
@@ -75,7 +75,7 @@ public static class OutageDetector
         }
 
         var events = new List<OutageEvent>();
-        var minDuration = TimeSpan.FromMinutes(options.OutageMinDurationMinutes);
+        var minDuration = TimeSpan.FromSeconds(options.OutageMinDurationSeconds);
         foreach (var (start, end) in merged)
         {
             if (end - start < minDuration) continue;
@@ -188,6 +188,7 @@ public static class OutageDetector
         {
             Start = onset,
             End = recovery,
+            IsBrief = recovery - onset < TimeSpan.FromSeconds(options.OutageBriefMaxSeconds),
             Scope = scope,
             LastReachableHop = scope == OutageScope.Upstream ? lastReachable!.Name : null,
             Tiers = GroupAccessTiers(tiers, options)
