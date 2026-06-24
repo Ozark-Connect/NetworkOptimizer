@@ -72,8 +72,20 @@ public class InterferenceGraph
     /// <summary>True when DFS avoidance was requested but at least one AP had to fall back to DFS channels</summary>
     public bool DfsAvoidanceFallback { get; set; }
 
-    /// <summary>Pairwise internal interference weights [i,j]</summary>
+    /// <summary>
+    /// Pairwise internal interference weights [i,j], symmetric (worst case of both directions).
+    /// Models mutual co-channel contention - used for the global objective and proximity.
+    /// </summary>
     public double[,] InternalWeights { get; set; } = new double[0, 0];
+
+    /// <summary>
+    /// Directional internal interference weights [aggressor, victim] = how much the aggressor AP
+    /// interferes AT the victim, based on the aggressor's signal reaching the victim (its EIRP).
+    /// Used where interference is one-directional: an AP's own suffered interference and the
+    /// degradation guard. A low-power AP correctly interferes with neighbors less than the
+    /// symmetric worst case implies.
+    /// </summary>
+    public double[,] DirectionalWeights { get; set; } = new double[0, 0];
 
     /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = weight</summary>
     public Dictionary<int, double>[] ExternalLoad { get; set; } = [];

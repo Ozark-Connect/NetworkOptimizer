@@ -698,7 +698,11 @@
             _ => null
         };
 
-        if (events.Count == 0 && currentChannel == null)
+        // Only show a channel timeline for APs that actually changed channels in this window.
+        // A constant-channel AP renders nothing here (its channel is already shown in the header),
+        // which also avoids the fallback below picking up a stale current-channel value from a
+        // previously-selected AP - the cause of one AP's channel bleeding onto another's chart.
+        if (events.Count == 0)
             return;
 
         // Build timeline: for each metric timestamp, find the active channel

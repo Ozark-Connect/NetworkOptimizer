@@ -26,15 +26,15 @@ public class ChannelRecommendationServiceTests
         int width = 80, int txPower = 20, bool hasDfs = false,
         bool isMeshChild = false, string? meshParentMac = null,
         RadioBand? meshUplinkBand = null, int? meshUplinkChannel = null) => new()
-    {
-        Mac = mac,
-        Name = name,
-        IsOnline = true,
-        IsMeshChild = isMeshChild,
-        MeshParentMac = meshParentMac,
-        MeshUplinkBand = meshUplinkBand,
-        MeshUplinkChannel = meshUplinkChannel,
-        Radios = new()
+        {
+            Mac = mac,
+            Name = name,
+            IsOnline = true,
+            IsMeshChild = isMeshChild,
+            MeshParentMac = meshParentMac,
+            MeshUplinkBand = meshUplinkBand,
+            MeshUplinkChannel = meshUplinkChannel,
+            Radios = new()
         {
             new RadioSnapshot
             {
@@ -46,7 +46,7 @@ public class ChannelRecommendationServiceTests
                 HasDfs = hasDfs
             }
         }
-    };
+        };
 
     // --- Graph Building ---
 
@@ -109,8 +109,8 @@ public class ChannelRecommendationServiceTests
 
         var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
 
-        // -65 dBm → weight 0.625
-        graph.InternalWeights[0, 1].Should().BeApproximately(0.625, 0.01);
+        // -65 dBm, CCA-anchored: (-65 + 82) / 32 = 0.531
+        graph.InternalWeights[0, 1].Should().BeApproximately(0.531, 0.01);
     }
 
     [Fact]
@@ -222,6 +222,183 @@ public class ChannelRecommendationServiceTests
             graph, new[] { (36, 80), (36, 80) }, RadioBand.Band5GHz);
 
         score.Should().Be(0);
+    }
+
+    // --- Unobserved-channel uncertainty (confidence-weighted) ---
+
+    // Builds a 2-AP graph where the sibling sits on a non-overlapping channel, so the
+    // subject AP (index 0) is the only contributor to the score - isolating its external
+    // + unobserved-uncertainty terms.
+    private InterferenceGraph BuildSubjectGraph(int siblingChannel = 100)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Subject", RadioBand.Band5GHz, 149),
+            CreateAp("aa:bb:cc:dd:ee:02", "Sibling", RadioBand.Band5GHz, siblingChannel)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null);
+        graph.DirectlyObservedChannels[0] = new HashSet<int> { 36 };
+        graph.ExternalLoad[0] = new Dictionary<int, double> { { 36, 1.0 }, { 149, 0.5 } };
+        return graph;
+    }
+
+    [Fact]
+    public void ScoreAssignment_HistoricOccupancy_SoftensUnobservedPenalty()
+    {
+        // ch149 is triangulated-only (not directly scanned), so it normally carries the full
+        // uncertainty penalty. But if the AP has measured historic occupancy of ch149, we have
+        // real data for it and the penalty should be mostly waived (confidence 0.85).
+        var graph = BuildSubjectGraph();
+        var assignment = new[] { (149, 80), (100, 80) };
+
+        graph.Nodes[0].HistoricalStress = null;
+        var scoreNoHistory = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double, double, double)>
+        {
+            { 149, (0, 0, 0) } // benign measured airtime - isolates the unobserved term
+        };
+        var scoreWithHistory = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        scoreWithHistory.Should().BeLessThan(scoreNoHistory);
+        // History keeps only 15% of the cliff, so the gap is 0.85 of the full penalty. The floor
+        // now carries the band uncertainty multiplier (x2.0 on 5 GHz), so the base penalty is 2.0.
+        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(1.7, 0.05);
+    }
+
+    [Fact]
+    public void ScoreAssignment_UnobservedChannelNoEvidence_StillPenalized()
+    {
+        // Soundness guard: a channel with no direct scan, no historic occupancy, and no resident
+        // sibling must still be taxed, so genuinely-unknown channels can't win by looking empty.
+        var graph = BuildSubjectGraph();
+        graph.Nodes[0].HistoricalStress = null;
+
+        var onObserved = _service.ScoreAssignment(
+            graph, new[] { (36, 80), (100, 80) }, RadioBand.Band5GHz);
+        var onUnobserved = _service.ScoreAssignment(
+            graph, new[] { (149, 80), (100, 80) }, RadioBand.Band5GHz);
+
+        onUnobserved.Should().BeGreaterThan(onObserved);
+    }
+
+    [Fact]
+    public void ScoreAssignment_UnobservedPenalty_IndependentOfApCurrentChannel()
+    {
+        // Anti-oscillation invariant: a candidate channel must score the same whether the AP is
+        // currently resident on it or moving onto it. Confidence is drawn from stable signals
+        // (historic occupancy), not the AP's current position, so the score doesn't swing on moves.
+        var graph = BuildSubjectGraph();
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double, double, double)>
+        {
+            { 149, (0, 0, 0) }
+        };
+        var assignment = new[] { (149, 80), (100, 80) };
+
+        graph.Nodes[0].CurrentChannel = 36;  // ch149 is a candidate the AP is moving to
+        var asCandidate = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        graph.Nodes[0].CurrentChannel = 149; // AP is resident on ch149
+        var asResident = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
+
+        asCandidate.Should().BeApproximately(asResident, 0.001);
+    }
+
+    [Fact]
+    public void ScoreAssignment_UnobservedPenalty_LowerForBandsWithBetterPropagation()
+    {
+        // Scan completeness tracks propagation: 2.4 GHz sees nearly every neighbor, so its
+        // unobserved channels are less uncertain than 6 GHz, which dies fastest through walls.
+        // The uncertainty multiplier must therefore order 2.4 < 5 < 6.
+        double UnobservedScore(RadioBand band, int observedCh, int unobservedCh)
+        {
+            var aps = new List<AccessPointSnapshot>
+            {
+                CreateAp("aa:bb:cc:dd:ee:01", "Subject", band, observedCh, width: 20)
+            };
+            var graph = _service.BuildInterferenceGraph(aps, band, null, null, null);
+            graph.DirectlyObservedChannels[0] = new HashSet<int> { observedCh };
+            graph.ExternalLoad[0] = new Dictionary<int, double> { { observedCh, 0.1 }, { unobservedCh, 1.0 } };
+            graph.Nodes[0].HistoricalStress = null;
+            return _service.ScoreAssignment(graph, new[] { (unobservedCh, 20) }, band);
+        }
+
+        var score2_4 = UnobservedScore(RadioBand.Band2_4GHz, 1, 11);
+        var score5 = UnobservedScore(RadioBand.Band5GHz, 36, 149);
+        var score6 = UnobservedScore(RadioBand.Band6GHz, 5, 213);
+
+        score2_4.Should().BeLessThan(score5);
+        score5.Should().BeLessThan(score6);
+    }
+
+    // --- Directional interference (EIRP-aware) ---
+
+    // Two placed APs ~45 m apart, same channel, with the given TX powers. Returns the graph.
+    private InterferenceGraph BuildPlacedPair(int txPowerA, int txPowerB)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-A", RadioBand.Band5GHz, 36, txPower: txPowerA),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-B", RadioBand.Band5GHz, 36, txPower: txPowerB)
+        };
+        var propCtx = new ApPropagationContext
+        {
+            ApsByMac = new Dictionary<string, PropagationAp>
+            {
+                ["aa:bb:cc:dd:ee:01"] = new()
+                {
+                    Mac = "aa:bb:cc:dd:ee:01",
+                    Model = "U6-Pro",
+                    Latitude = 36.0000,
+                    Longitude = -94.0000,
+                    Floor = 1,
+                    TxPowerDbm = txPowerA,
+                    AntennaGainDbi = 3,
+                    MountType = "ceiling"
+                },
+                ["aa:bb:cc:dd:ee:02"] = new()
+                {
+                    Mac = "aa:bb:cc:dd:ee:02",
+                    Model = "U6-Pro",
+                    Latitude = 36.0004,
+                    Longitude = -94.0000,
+                    Floor = 1,
+                    TxPowerDbm = txPowerB,
+                    AntennaGainDbi = 3,
+                    MountType = "ceiling"
+                }
+            },
+            WallsByFloor = new Dictionary<int, List<PropagationWall>>(),
+            Buildings = null
+        };
+        return _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, propCtx, null, null);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_AsymmetricEirp_DirectionalWeightLowerForLowerPowerAggressor()
+    {
+        // AP-A full power (20 dBm), AP-B intentionally low (5 dBm).
+        var graph = BuildPlacedPair(txPowerA: 20, txPowerB: 5);
+
+        // Directional [aggressor, victim]: the low-power AP-B interferes with AP-A LESS than the
+        // full-power AP-A interferes with AP-B (B transmits weaker, so its signal at A is lower).
+        graph.DirectionalWeights[1, 0].Should().BeLessThan(graph.DirectionalWeights[0, 1]);
+
+        // The symmetric weight is the worst case of both directions - it equals the stronger one,
+        // so it does NOT credit B's low power (which is exactly why the degradation guard needs
+        // the directional weight instead).
+        graph.InternalWeights[0, 1].Should().Be(graph.InternalWeights[1, 0]);
+        graph.InternalWeights[0, 1].Should().BeApproximately(graph.DirectionalWeights[0, 1], 0.001);
+    }
+
+    [Fact]
+    public void BuildInterferenceGraph_EqualEirp_DirectionalWeightsSymmetric()
+    {
+        // With equal TX power, the two directions are the same - confirms the asymmetry above is
+        // driven by EIRP, not by anything else.
+        var graph = BuildPlacedPair(txPowerA: 20, txPowerB: 20);
+
+        graph.DirectionalWeights[0, 1].Should().BeApproximately(graph.DirectionalWeights[1, 0], 0.001);
     }
 
     // --- Optimization ---
@@ -545,14 +722,14 @@ public class ChannelRecommendationServiceTests
 
         // AP-1 (index 0) should have triangulated external load on ch36
         graph.ExternalLoad[0].Should().ContainKey(36);
-        // Unplaced APs have internal weight 0.625. Neighbor at -55 dBm → weight 0.875.
+        // Unplaced APs have internal weight 0.531. Neighbor at -55 dBm → weight 0.844 (CCA-anchored).
         // Width matches AP (80=80), no width scaling.
-        // Triangulated weight = 0.875 * 0.625 = 0.547
-        graph.ExternalLoad[0][36].Should().BeApproximately(0.547, 0.05);
+        // Triangulated weight = 0.844 * 0.531 = 0.448
+        graph.ExternalLoad[0][36].Should().BeApproximately(0.448, 0.05);
 
         // AP-2 (index 1) should also have direct external load on ch36
         graph.ExternalLoad[1].Should().ContainKey(36);
-        graph.ExternalLoad[1][36].Should().BeApproximately(0.875, 0.05);
+        graph.ExternalLoad[1][36].Should().BeApproximately(0.844, 0.05);
     }
 
     [Fact]
@@ -582,8 +759,8 @@ public class ChannelRecommendationServiceTests
         var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
 
         graph.ExternalLoad[0].Should().ContainKey(36);
-        // -60 dBm → 0.75, -70 dBm → 0.5, sum = 1.25
-        graph.ExternalLoad[0][36].Should().BeApproximately(1.25, 0.05);
+        // -60 dBm → 0.6875, -70 dBm → 0.375, sum = 1.0625 (CCA-anchored)
+        graph.ExternalLoad[0][36].Should().BeApproximately(1.0625, 0.05);
     }
 
     [Fact]
@@ -658,9 +835,9 @@ public class ChannelRecommendationServiceTests
         // AP-3 (index 2) should have external load on ch100 from the best estimate
         graph.ExternalLoad[2].Should().ContainKey(100);
 
-        // The stronger sighting (-55 dBm → weight 0.875) × proximity 0.625 = 0.547
-        // beats the weaker sighting (-75 dBm → weight 0.375) × proximity 0.625 = 0.234
-        graph.ExternalLoad[2][100].Should().BeApproximately(0.547, 0.05);
+        // The stronger sighting (-55 dBm → weight 0.844) × proximity 0.531 = 0.448
+        // beats the weaker sighting (-75 dBm → weight 0.219) × proximity 0.531 = 0.116
+        graph.ExternalLoad[2][100].Should().BeApproximately(0.448, 0.05);
     }
 
     // --- Re-validation after per-AP filtering ---

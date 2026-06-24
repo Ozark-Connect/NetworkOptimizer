@@ -382,7 +382,8 @@
             </div>
         </div>
 
-        <!-- Client Band Distribution Card -->
+        <!-- Client Band Distribution + Channel Optimization (stacked in one grid cell) -->
+        <div class="wifi-overview-stack">
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Client Band Distribution</h2>
@@ -445,6 +446,65 @@
                     </div>
                 }
             </div>
+        </div>
+
+        <!-- Channel Optimization Card -->
+        <div class="card channel-rec-card">
+            <div class="card-header">
+                <h2 class="card-title">Channel Optimization</h2>
+            </div>
+            <div class="card-body">
+                @if (_loading || _loadingRecs)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Analyzing channels...</span>
+                    </div>
+                }
+                else if (_channelPlans == null || _channelPlans.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>Channel analysis unavailable. Ensure APs are online.</p>
+                    </div>
+                }
+                else if (TotalChannelChanges == 0)
+                {
+                    <div class="channel-rec-summary">
+                        <div class="channel-rec-status optimal">
+                            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                            <span>Channels look optimal</span>
+                        </div>
+                        <button class="btn-recommend" @onclick="NavigateToChannelRecommendations">Review Channel Plan</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="channel-rec-summary">
+                        <div class="channel-rec-status">
+                            <span class="channel-rec-count">@TotalChannelChanges</span>
+                            <span>channel change@(TotalChannelChanges != 1 ? "s" : "") suggested</span>
+                        </div>
+                        <div class="channel-rec-bands">
+                            @if (ChannelChangeCount(RadioBand.Band2_4GHz) > 0)
+                            {
+                                <span class="band-badge band-2ghz">2.4 GHz: @ChannelChangeCount(RadioBand.Band2_4GHz)</span>
+                            }
+                            @if (ChannelChangeCount(RadioBand.Band5GHz) > 0)
+                            {
+                                <span class="band-badge band-5ghz">5 GHz: @ChannelChangeCount(RadioBand.Band5GHz)</span>
+                            }
+                            @if (ChannelChangeCount(RadioBand.Band6GHz) > 0)
+                            {
+                                <span class="band-badge band-6ghz">6 GHz: @ChannelChangeCount(RadioBand.Band6GHz)</span>
+                            }
+                        </div>
+                        <button class="btn-recommend" @onclick="NavigateToChannelRecommendations">Recommend Best Channels</button>
+                    </div>
+                }
+            </div>
+        </div>
         </div>
 
         <!-- Issues Card -->
@@ -758,6 +818,55 @@
         _ => null
     };
 
+    // --- Channel Optimization overview card ---
+    private Dictionary<RadioBand, ChannelPlan>? _channelPlans;
+    private bool _loadingRecs;
+
+    private int ChannelChangeCount(RadioBand band) =>
+        _channelPlans != null && _channelPlans.TryGetValue(band, out var plan)
+            ? plan.Recommendations.Count(r => r.IsChanged)
+            : 0;
+
+    private int TotalChannelChanges =>
+        _channelPlans?.Values.Sum(p => p.Recommendations.Count(r => r.IsChanged)) ?? 0;
+
+    /// <summary>
+    /// Compute channel recommendations for the overview summary card. Runs the full engine,
+    /// so it is kicked off in the background after the overview paints rather than blocking it.
+    /// </summary>
+    private async Task LoadChannelRecommendationsAsync()
+    {
+        if (_loadingRecs) return;
+        _loadingRecs = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(new RecommendationOptions());
+        }
+        catch
+        {
+            _channelPlans = null;
+        }
+        finally
+        {
+            _loadingRecs = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void NavigateToChannelRecommendations()
+    {
+        _activeTab = "channels";
+        _initialApMac = null;
+        _initialBand = null;
+        _initialChannel = null;
+        _initialClientMac = null;
+        _initialEdge = null;
+        _autoRunRecommendation = true;
+        NavigationManager.NavigateTo("/wifi-optimizer?tab=channels&recommend=true", forceLoad: false, replace: false);
+        _lastTabParam = "channels";
+    }
+
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
@@ -897,6 +1006,10 @@
             _loading = false;
             await InvokeAsync(StateHasChanged);
         }
+
+        // Channel recommendations run the full engine; compute in the background so they don't
+        // delay the overview paint. The card shows its own loading state until ready.
+        _ = LoadChannelRecommendationsAsync();
     }
 
     private async Task RefreshData()
@@ -931,6 +1044,9 @@
             _refreshing = false;
             StateHasChanged();
         }
+
+        // Refresh cleared the cache, so recompute the channel recommendations summary too.
+        _ = LoadChannelRecommendationsAsync();
     }
 
     private async Task LoadApMarkers()

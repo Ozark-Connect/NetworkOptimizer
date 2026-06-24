@@ -105,15 +105,23 @@ public class ChannelSpanHelperTests
     }
 
     [Fact]
-    public void SignalToInterferenceWeight_WeakSignal_Returns0_1()
+    public void SignalToInterferenceWeight_BelowCca_ReturnsZero()
     {
-        ChannelSpanHelper.SignalToInterferenceWeight(-90).Should().BeApproximately(0.1, 0.01);
+        // -90 dBm is below the -82 CCA threshold: the radio doesn't defer, so no contention.
+        ChannelSpanHelper.SignalToInterferenceWeight(-90).Should().Be(0.0);
     }
 
     [Fact]
-    public void SignalToInterferenceWeight_TypicalSpacing_Returns0_625()
+    public void SignalToInterferenceWeight_AtCca_ReturnsZero()
     {
-        ChannelSpanHelper.SignalToInterferenceWeight(-65).Should().BeApproximately(0.625, 0.01);
+        ChannelSpanHelper.SignalToInterferenceWeight(-82).Should().Be(0.0);
+    }
+
+    [Fact]
+    public void SignalToInterferenceWeight_TypicalSpacing_Returns0_531()
+    {
+        // -65 dBm, CCA-anchored: (-65 + 82) / 32 = 0.531
+        ChannelSpanHelper.SignalToInterferenceWeight(-65).Should().BeApproximately(0.531, 0.01);
     }
 
     [Fact]

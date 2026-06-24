@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi.Models;
@@ -260,7 +259,18 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         try
         {
             var data = await _client.GetApChannelChangeEventsAsync(start, end, apMac, cancellationToken);
-            return ParseChannelChangeEvents(data);
+            var events = ParseChannelChangeEvents(data);
+
+            // Defensive scoping. The controller's system-log query already filters these events to
+            // the requested device via clientDeviceMacs (verified against the console: filtering to
+            // an AP with no channel changes returns no other AP's events). We re-filter by AP MAC
+            // here so every consumer is guaranteed to see only the requested AP's events even if that
+            // controller-side behavior ever changes - a stale value from another AP would otherwise
+            // be misattributed onto this AP's chart/timeline.
+            if (!string.IsNullOrEmpty(apMac))
+                events = events.Where(e => e.ApMac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            return events;
         }
         catch (Exception ex)
         {

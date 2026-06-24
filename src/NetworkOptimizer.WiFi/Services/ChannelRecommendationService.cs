@@ -76,14 +76,18 @@ public class ChannelRecommendationService
     /// Prevents churn when the gain is negligible (e.g., 0.7 → 0.1 = 0.6 gain).
     /// Both this AND MinApImprovementPercent must be met.
     /// </summary>
-    private const double MinApAbsoluteImprovement = 1.0;
+    // Tuned to 0.6 (from 1.0): surfaces moderate real gains (e.g. a quieter co-channel) now that
+    // scoring is position-independent, so loosening cannot oscillate. Both gates AND'd.
+    private const double MinApAbsoluteImprovement = 0.6;
 
     /// <summary>
     /// Minimum percentage score improvement for an individual AP to justify a move.
     /// Prevents moving APs where the improvement is small relative to current score
     /// (e.g., 3.0 → 2.8 = 7%). Both this AND MinApAbsoluteImprovement must be met.
     /// </summary>
-    private const double MinApImprovementPercent = 0.30;
+    // Tuned to 0.15 (from 0.30): 30% missed genuinely-better channels whose gain was real but
+    // moderate (~15-25%). Both this AND MinApAbsoluteImprovement must be met.
+    private const double MinApImprovementPercent = 0.15;
 
     /// <summary>
     /// Penalty for channels with no historical data. Unknown channels carry more
@@ -99,6 +103,18 @@ public class ChannelRecommendationService
     /// too heavily for network-wide improvement.
     /// </summary>
     private const double MaxApScoreDegradation = 1.5;
+
+    /// <summary>
+    /// Absolute score a per-AP fallback move may never push another AP to, regardless of net
+    /// benefit. A net-positive standalone move (the moving AP gains more than the total it degrades
+    /// others) is allowed even past MaxApScoreDegradation, but never if it leaves a victim above
+    /// this score - so we never put one AP into genuinely bad shape to help the site. Absolute
+    /// (not a multiple of the victim's base) because "bad" is an absolute condition: a high score
+    /// means heavy interference regardless of where the AP started. 4.0 ~ where an AP is clearly
+    /// suffering on the CCA-anchored scale (the worst real APs sit ~4); a modest sacrifice like
+    /// pushing a neighbor 1.2 -> 2.0 stays well clear of it.
+    /// </summary>
+    private const double CatastrophicAbsoluteScore = 4.0;
 
     /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
@@ -119,15 +135,46 @@ public class ChannelRecommendationService
     private const double MinTriangulatedWeight = 0.2;
 
     /// <summary>
-    /// Uncertainty multiplier for external load on channels with no direct neighbor
-    /// observations. Triangulation discovers some neighbors but not all - the observer
-    /// AP may miss neighbors visible from the target's location. This multiplier inflates
-    /// the triangulated estimate to account for missing neighbors. Applied on top of the
-    /// base triangulated load: total = base + base * multiplier = base * (1 + multiplier).
-    /// 2.0 means unobserved channels see 3x their triangulated estimate, which roughly
-    /// matches the ~3x underestimate observed in testing.
+    /// Uncertainty multipliers for external load on channels with no direct neighbor
+    /// observations, by band. Triangulation discovers some neighbors but not all - the observer
+    /// AP may miss neighbors visible from the target's location. The multiplier inflates the
+    /// triangulated estimate to account for missing neighbors (base + base * multiplier).
+    ///
+    /// It is band-dependent because scan completeness tracks propagation range:
+    /// - 2.4 GHz penetrates walls and travels far, so an observer hears nearly every neighbor
+    ///   the target would, and those neighbors genuinely reach the target. The picture is close
+    ///   to complete, so unobserved channels are barely uncertain (1.5).
+    /// - 5 GHz: the ~3x underestimate (2.0) calibrated in testing.
+    /// - 6 GHz dies fastest through walls, so observers miss the most near-target neighbors and
+    ///   uncertainty is highest (2.5). Tempered by 6 GHz being sparsely populated today.
+    ///
+    /// This is the right caution for a genuinely unknown channel; channels we DO have evidence
+    /// for are scaled down separately via <see cref="ObservationConfidence"/>, which is where
+    /// the softening belongs. 2.4/6 GHz values are physically motivated; only 5 GHz is calibrated.
     /// </summary>
-    private const double UnobservedChannelMultiplier = 2.0;
+    private const double UnobservedChannelMultiplier2_4GHz = 1.5;
+    private const double UnobservedChannelMultiplier5GHz = 2.0;
+    private const double UnobservedChannelMultiplier6GHz = 2.5;
+
+    /// <summary>
+    /// Observation confidence for a candidate channel this AP has measured historic occupancy
+    /// of (within the metrics window). We have real airtime data for it, so the uncertainty
+    /// penalty is mostly - but not entirely (data can be stale) - waived.
+    /// </summary>
+    private const double HistoricOccupancyConfidence = 0.85;
+
+    /// <summary>
+    /// Observation confidence for a candidate channel a sibling AP is currently resident on
+    /// and this AP hears well. The sibling is a live observer of that channel's conditions,
+    /// though from its own location, so confidence is high but below historic/direct.
+    /// </summary>
+    private const double SiblingResidentConfidence = 0.70;
+
+    /// <summary>
+    /// Minimum internal (propagation) weight for a resident sibling AP to count as an observer
+    /// of a channel. Below this the sibling is too far to characterize this AP's RF environment.
+    /// </summary>
+    private const double SiblingObserverMinWeight = 0.4;
 
     /// <summary>
     /// Multiplier for internal (own AP) co-channel interference. Co-channeling your
@@ -183,6 +230,7 @@ public class ChannelRecommendationService
         {
             Nodes = new List<ApNode>(n),
             InternalWeights = new double[n, n],
+            DirectionalWeights = new double[n, n],
             ExternalLoad = new Dictionary<int, double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
             ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
@@ -234,10 +282,13 @@ public class ChannelRecommendationService
         {
             for (int j = i + 1; j < n; j++)
             {
-                var weight = ComputeInternalWeight(
+                var w = ComputeInternalWeight(
                     bandAps[i], bandAps[j], band, bandStr, propContext);
-                graph.InternalWeights[i, j] = weight;
-                graph.InternalWeights[j, i] = weight;
+                graph.InternalWeights[i, j] = w.Symmetric;
+                graph.InternalWeights[j, i] = w.Symmetric;
+                // Directional [aggressor, victim]: Forward is i's signal at j, Reverse is j's at i.
+                graph.DirectionalWeights[i, j] = w.Forward;
+                graph.DirectionalWeights[j, i] = w.Reverse;
             }
         }
 
@@ -547,7 +598,7 @@ public class ChannelRecommendationService
                                 if (!jChanged) continue;
                                 if (!jNode.ValidChannels.Contains(jNode.CurrentChannel)) continue;
 
-                                var contribution = graph.InternalWeights[i, j] *
+                                var contribution = graph.DirectionalWeights[j, i] *
                                     ChannelSpanHelper.ComputeOverlapFactor(band,
                                         finalAssignment[i].Channel, finalAssignment[i].Width,
                                         finalAssignment[j].Channel, finalAssignment[j].Width) *
@@ -622,21 +673,43 @@ public class ChannelRecommendationService
                     pctImprovement < MinApImprovementPercent)
                     continue;
 
-                // Check no other AP gets degraded beyond threshold
-                bool degradesOther = false;
+                // A standalone move may degrade other APs, but only if it still improves the site
+                // overall (this AP's gain exceeds the total degradation it causes) and never pushes
+                // any single AP past the catastrophic cap.
+                bool reject = false;
+                double totalDegradation = 0;
                 for (int j = 0; j < n; j++)
                 {
                     if (j == i) continue;
                     var otherCurrent = currentApScores[j];
                     if (otherCurrent <= 0) continue;
                     var otherScore = ScoreAp(graph, trial, j, band);
-                    if (otherScore / otherCurrent > MaxApScoreDegradation)
+                    if (otherScore > otherCurrent) totalDegradation += otherScore - otherCurrent;
+
+                    // Catastrophic: this move would push a victim into genuinely bad territory.
+                    if (otherScore > CatastrophicAbsoluteScore && otherScore > otherCurrent)
                     {
-                        degradesOther = true;
+                        _logger.LogDebug(
+                            "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} would push {Victim} " +
+                            "{From:F3}->{To:F3} above the {Cap:F1} ceiling, skipping",
+                            node.Name, candidateCh, graph.Nodes[j].Name, otherCurrent, otherScore,
+                            CatastrophicAbsoluteScore);
+                        reject = true;
                         break;
                     }
                 }
-                if (degradesOther) continue;
+                if (reject) continue;
+
+                // Net-benefit: the AP's own improvement must outweigh the total degradation it
+                // causes to others, otherwise the move makes the site no better.
+                if (absImprovement <= totalDegradation)
+                {
+                    _logger.LogDebug(
+                        "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} improves {Abs:F3} but degrades " +
+                        "others by {Deg:F3} total (not net-positive for the site), skipping",
+                        node.Name, candidateCh, absImprovement, totalDegradation);
+                    continue;
+                }
 
                 if (candidateScore < fallbackScore)
                 {
@@ -649,7 +722,7 @@ public class ChannelRecommendationService
             {
                 _logger.LogDebug(
                     "[ChannelRec] Per-AP fallback: {ApName} ch{Current} (score {CurrentScore:F3}) → " +
-                    "ch{Best} (score {BestScore:F3}), no degradation to others",
+                    "ch{Best} (score {BestScore:F3}), net-positive for the site",
                     node.Name, node.CurrentChannel, scoreInFinal, fallbackChannel, fallbackScore);
                 rec.RecommendedChannel = fallbackChannel;
                 rec.RecommendedWidth = fallbackWidth;
@@ -742,38 +815,9 @@ public class ChannelRecommendationService
             score += historicalPenalty + fallbackPenalty * bandStress;
         }
 
-        // Unobserved channel uncertainty: inflate triangulated load on channels where the
-        // AP has no direct neighbor observations. Uses max of (triangulated × multiplier)
-        // and (minimum direct load) as a floor so zero-data channels don't score 0.0.
+        // Unobserved channel uncertainty (confidence-weighted, see ComputeUnobservedPenalty)
         for (int i = 0; i < n; i++)
-        {
-            var directChannels = graph.DirectlyObservedChannels[i];
-            if (directChannels.Count == 0) continue;
-
-            var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
-            bool hasDirectOnAssigned = directChannels.Any(dc =>
-                ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
-
-            if (!hasDirectOnAssigned)
-            {
-                double triangulatedLoad = 0;
-                foreach (var (extChannel, extWeight) in graph.ExternalLoad[i])
-                {
-                    if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
-                        triangulatedLoad += extWeight;
-                }
-
-                double minDirectLoad = double.MaxValue;
-                foreach (var dc in directChannels)
-                {
-                    if (graph.ExternalLoad[i].TryGetValue(dc, out var directWeight))
-                        minDirectLoad = Math.Min(minDirectLoad, directWeight);
-                }
-                if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
-
-                score += Math.Max(triangulatedLoad * UnobservedChannelMultiplier, minDirectLoad);
-            }
-        }
+            score += ComputeUnobservedPenalty(graph, band, i, assignment);
 
         return score;
     }
@@ -790,7 +834,8 @@ public class ChannelRecommendationService
         double score = 0;
         var n = graph.Nodes.Count;
 
-        // Internal interference from all other APs
+        // Internal interference this AP SUFFERS from all other APs. Directional [j, apIndex]:
+        // how much j's signal reaches this AP - so a low-EIRP neighbor interferes with it less.
         for (int j = 0; j < n; j++)
         {
             if (j == apIndex) continue;
@@ -801,7 +846,7 @@ public class ChannelRecommendationService
                 assignment[apIndex].Channel, assignment[apIndex].Width,
                 assignment[j].Channel, assignment[j].Width);
 
-            score += graph.InternalWeights[apIndex, j] * overlapFactor * InternalCoChannelMultiplier;
+            score += graph.DirectionalWeights[j, apIndex] * overlapFactor * InternalCoChannelMultiplier;
         }
 
         // External interference
@@ -811,44 +856,6 @@ public class ChannelRecommendationService
             var extSpan = (Low: extChannel, High: extChannel);
             if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                 score += extWeight;
-        }
-
-        // Unobserved channel uncertainty: if this AP has direct neighbor observations on
-        // some channels but NOT on the candidate channel, the external load is based only
-        // on triangulated estimates which typically underestimate (observers miss neighbors
-        // visible from the target's location). Two adjustments:
-        // 1. Inflate existing triangulated load by a multiplier (accounts for missed neighbors)
-        // 2. Apply a floor = minimum direct external load across observed channels (prevents
-        //    channels with zero triangulated data from scoring 0.0 when the site has active neighbors)
-        var directChannels = graph.DirectlyObservedChannels[apIndex];
-        if (directChannels.Count > 0)
-        {
-            bool hasDirectOnAssigned = directChannels.Any(dc =>
-                ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
-
-            if (!hasDirectOnAssigned)
-            {
-                // Sum up the external load already added for this channel (all triangulated)
-                double triangulatedLoad = 0;
-                foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
-                {
-                    if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
-                        triangulatedLoad += extWeight;
-                }
-
-                // Minimum direct external load across observed channels as a floor.
-                // "An unobserved channel is at least as good as your best known channel."
-                double minDirectLoad = double.MaxValue;
-                foreach (var dc in directChannels)
-                {
-                    if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
-                        minDirectLoad = Math.Min(minDirectLoad, directWeight);
-                }
-                if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
-
-                var uncertainty = Math.Max(triangulatedLoad * UnobservedChannelMultiplier, minDirectLoad);
-                score += uncertainty;
-            }
         }
 
         // Channel scan data (scaled by band stress multiplier)
@@ -864,7 +871,126 @@ public class ChannelRecommendationService
         var (histPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, apIndex, assignment);
         score += histPenalty + fallbackPenalty * bandStress;
 
+        // Unobserved channel uncertainty (confidence-weighted)
+        score += ComputeUnobservedPenalty(graph, band, apIndex, assignment);
+
         return score;
+    }
+
+    /// <summary>
+    /// Unobserved-channel uncertainty penalty for an AP on its assigned channel. Triangulated
+    /// external load under-counts neighbors the observing AP can't hear, so a channel with no
+    /// direct observation would otherwise look artificially clean. This taxes that uncertainty,
+    /// scaled by how much real evidence we already have for the channel (see
+    /// <see cref="ObservationConfidence"/>): a channel we have historic occupancy of, or a
+    /// resident sibling AP on, is mostly trusted. The penalty is computed identically whether
+    /// the AP is resident on the channel or a candidate moving onto it, and draws confidence
+    /// only from stable signals (direct scan, historic occupancy, sibling CURRENT channel) so
+    /// it does not swing with transient scan coverage or the assignment being evaluated.
+    /// </summary>
+    private double ComputeUnobservedPenalty(
+        InterferenceGraph graph,
+        RadioBand band,
+        int apIndex,
+        (int Channel, int Width)[] assignment)
+    {
+        var directChannels = graph.DirectlyObservedChannels[apIndex];
+        if (directChannels.Count == 0) return 0;
+
+        var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+
+        var confidence = ObservationConfidence(graph, band, apIndex, apSpan, directChannels);
+        if (confidence >= 1.0) return 0;
+
+        double triangulatedLoad = 0;
+        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        {
+            if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
+                triangulatedLoad += extWeight;
+        }
+
+        // Floor: an unobserved channel is at least as loaded as this AP's best observed channel.
+        double minDirectLoad = double.MaxValue;
+        foreach (var dc in directChannels)
+        {
+            if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
+                minDirectLoad = Math.Min(minDirectLoad, directWeight);
+        }
+        if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
+
+        // Apply the band uncertainty multiplier to the best available estimate - the triangulated
+        // load OR the floor. A channel with zero observations falls back to the floor, and it must
+        // carry the SAME uncertainty premium as a partially-triangulated one. Otherwise a totally-
+        // blind channel would be penalized LESS than a barely-seen one, and the engine would too
+        // eagerly recommend moving onto a channel it has no scan data for.
+        var basePenalty = Math.Max(triangulatedLoad, minDirectLoad) * GetUnobservedMultiplier(band);
+        return (1.0 - confidence) * basePenalty;
+    }
+
+    /// <summary>
+    /// Band-specific uncertainty multiplier for unobserved channels. Lower bands see a more
+    /// complete scan picture (better propagation), so their unobserved channels are less
+    /// uncertain. See the multiplier constants for rationale.
+    /// </summary>
+    private static double GetUnobservedMultiplier(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => UnobservedChannelMultiplier2_4GHz,
+        RadioBand.Band6GHz => UnobservedChannelMultiplier6GHz,
+        _ => UnobservedChannelMultiplier5GHz
+    };
+
+    /// <summary>
+    /// How confident we are in the external-load estimate for an AP's assigned channel span,
+    /// in [0, 1]. 1.0 = a direct scan sighting on the channel (fully observed). Otherwise we
+    /// fall back to weaker-but-real evidence: this AP's measured historic occupancy of the
+    /// channel, or a sibling AP currently resident on it that this AP hears well. Uses each
+    /// sibling's CURRENT channel (not the assignment under evaluation) so confidence is stable.
+    /// </summary>
+    private double ObservationConfidence(
+        InterferenceGraph graph,
+        RadioBand band,
+        int apIndex,
+        (int Low, int High) apSpan,
+        HashSet<int> directChannels)
+    {
+        // Direct scan sighting on the assigned channel - fully observed, no uncertainty.
+        if (directChannels.Any(dc => ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc))))
+            return 1.0;
+
+        double confidence = 0;
+        var node = graph.Nodes[apIndex];
+
+        // Historic occupancy: we have measured airtime for this AP on an overlapping channel.
+        if (node.HistoricalStress != null)
+        {
+            foreach (var histChannel in node.HistoricalStress.Keys)
+            {
+                var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+                if (ChannelSpanHelper.SpansOverlap(apSpan, histSpan))
+                {
+                    confidence = Math.Max(confidence, HistoricOccupancyConfidence);
+                    break;
+                }
+            }
+        }
+
+        // Sibling AP currently resident on the channel that this AP hears well - a live observer.
+        var n = graph.Nodes.Count;
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            if (graph.InternalWeights[apIndex, j] < SiblingObserverMinWeight) continue;
+
+            var siblingNode = graph.Nodes[j];
+            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, siblingNode.CurrentChannel, siblingNode.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(apSpan, siblingSpan))
+            {
+                confidence = Math.Max(confidence, SiblingResidentConfidence);
+                break;
+            }
+        }
+
+        return confidence;
     }
 
     /// <summary>
@@ -967,7 +1093,8 @@ public class ChannelRecommendationService
             if (j == apIndex) continue;
             if (AreMeshPair(graph, apIndex, j)) continue;
 
-            var weight = graph.InternalWeights[apIndex, j];
+            // Directional: co-channel load this AP suffers from j (j's signal reaching apIndex).
+            var weight = graph.DirectionalWeights[j, apIndex];
             if (weight <= 0) continue;
 
             // Current internal co-channel load (weighted, not just count)
@@ -1012,7 +1139,12 @@ public class ChannelRecommendationService
         return Math.Max(internalScale, externalFloor);
     }
 
-    private double ComputeInternalWeight(
+    /// <summary>
+    /// Compute internal interference weights between two APs. Returns the symmetric worst-case
+    /// weight (for mutual contention), plus the two directional weights: Forward = ap1's signal
+    /// reaching ap2 (ap1 as aggressor at ap2), Reverse = ap2's signal reaching ap1.
+    /// </summary>
+    private (double Symmetric, double Forward, double Reverse) ComputeInternalWeight(
         AccessPointSnapshot ap1, AccessPointSnapshot ap2,
         RadioBand band, string bandStr,
         ApPropagationContext? propContext)
@@ -1057,15 +1189,19 @@ public class ChannelRecommendationService
                 ap1.Name, ap2.Name, signal1to2, signal2to1, worstSignal,
                 ChannelSpanHelper.SignalToInterferenceWeight(worstSignal));
 
-            return ChannelSpanHelper.SignalToInterferenceWeight(worstSignal);
+            return (
+                ChannelSpanHelper.SignalToInterferenceWeight(worstSignal),
+                ChannelSpanHelper.SignalToInterferenceWeight((int)signal1to2),
+                ChannelSpanHelper.SignalToInterferenceWeight((int)signal2to1));
         }
 
-        // One or both unplaced - use conservative default
+        // One or both unplaced - use conservative default (symmetric)
+        var defaultWeight = ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm);
         _logger.LogDebug(
             "[ChannelRec] Internal weight {AP1} <-> {AP2}: weight={Weight:F3} (default, unplaced)",
-            ap1.Name, ap2.Name, ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm));
+            ap1.Name, ap2.Name, defaultWeight);
 
-        return ChannelSpanHelper.SignalToInterferenceWeight(DefaultUnplacedSignalDbm);
+        return (defaultWeight, defaultWeight, defaultWeight);
     }
 
     private static PropagationAp ClonePropAp(PropagationAp source, RadioSnapshot radio)
@@ -1550,7 +1686,7 @@ public class ChannelRecommendationService
         return baseScore + penalty;
     }
 
-    private (( int Channel, int Width)[] Assignment, double Score) ExhaustiveSearch(
+    private ((int Channel, int Width)[] Assignment, double Score) ExhaustiveSearch(
         InterferenceGraph graph,
         RadioBand band,
         HashSet<int> pinnedIndices,
@@ -1899,7 +2035,7 @@ public class ChannelRecommendationService
                     var overlap = ChannelSpanHelper.ComputeOverlapFactor(
                         band, ch, currentAssignment[i].Width,
                         testAssignment[j].Channel, testAssignment[j].Width);
-                    internalScore += graph.InternalWeights[i, j] * overlap * InternalCoChannelMultiplier;
+                    internalScore += graph.DirectionalWeights[j, i] * overlap * InternalCoChannelMultiplier;
                 }
 
                 var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
@@ -1949,25 +2085,8 @@ public class ChannelRecommendationService
                     }
                 }
 
-                // Unobserved channel uncertainty
-                double unobservedPenalty = 0;
-                var directChannels = graph.DirectlyObservedChannels[i];
-                if (directChannels.Count > 0)
-                {
-                    bool hasDirectOnCh = directChannels.Any(dc =>
-                        ChannelSpanHelper.SpansOverlap(apSpan, (dc, dc)));
-                    if (!hasDirectOnCh)
-                    {
-                        double minDirectLoad = double.MaxValue;
-                        foreach (var dc in directChannels)
-                        {
-                            if (graph.ExternalLoad[i].TryGetValue(dc, out var dw))
-                                minDirectLoad = Math.Min(minDirectLoad, dw);
-                        }
-                        if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
-                        unobservedPenalty = Math.Max(externalScore * UnobservedChannelMultiplier, minDirectLoad);
-                    }
-                }
+                // Unobserved channel uncertainty (confidence-weighted, matches ScoreAp/ScoreAssignment)
+                double unobservedPenalty = ComputeUnobservedPenalty(graph, band, i, testAssignment);
 
                 var total = internalScore + externalScore + scanScore + stressScore + unobservedPenalty;
                 var marker = ch == currentAssignment[i].Channel ? " <<<" : "";

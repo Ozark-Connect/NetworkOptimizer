@@ -1,3 +1,4 @@
+using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Services;
 
@@ -24,11 +25,6 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
     /// Coefficient of variation threshold (percentage) above which to warn.
     /// </summary>
     private const double ImbalanceThreshold = 50;
-
-    /// <summary>
-    /// Signal strength (dBm) at or above which a client is considered well-connected.
-    /// </summary>
-    private const int StrongSignalThreshold = -65;
 
     public HealthIssue? Evaluate(WiFiOptimizerContext ctx)
     {
@@ -105,13 +101,17 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
                         .Where(c => c.ApMac.Equals(maxAp.Mac, StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
-                    var allStrongSignal = clientsOnMaxAp.Count > 0 &&
-                        clientsOnMaxAp.All(c => c.Signal.HasValue && c.Signal.Value >= StrongSignalThreshold);
+                    // Suppress unless a client on the busy AP is genuinely weak FOR ITS BAND, using
+                    // the same per-band scale as the client list coloring. Higher bands tolerate
+                    // weaker signal: -75 is weak on 2.4 GHz (< -73) but fine on 5/6 GHz (weak only
+                    // below -78 / -87). Clients with no reported signal are ignored - a missing
+                    // reading usually just means an offline/idle device, not a weak one.
+                    var hasWeakClient = clientsOnMaxAp.Any(c => c.Signal.HasValue &&
+                        SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
 
-                    if (allStrongSignal)
+                    if (!hasWeakClient)
                     {
-                        // All clients on the busy AP have strong signal and the quiet AP is
-                        // far away - this is definitively a separate coverage zone, suppress entirely
+                        // Separate coverage zone with no genuinely weak clients - suppress entirely.
                         return null;
                     }
 

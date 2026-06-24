@@ -79,7 +79,7 @@
                 var bandData = GetBandData(band);
                 var hasRecForBand = _showRecommendations && _channelPlans.ContainsKey(band);
                 <button class="band-tab @GetBandClass(band) @(_selectedBand == band ? "active" : "") @(bandData.HasIssues ? "has-issues" : "")"
-                        @onclick="() => { _selectedBand = band; _selectedChannel = null; }">
+                        @onclick="() => { _selectedBand = band; _selectedChannel = null; _bandManuallySelected = true; }">
                     @band.ToDisplayString()
                     @if (_showRecommendations && hasRecForBand)
                     {
@@ -106,7 +106,7 @@
             <div class="recommendation-view">
                 <div class="section-header">
                     <h4>Recommended Channel Plan - @_selectedBand.ToDisplayString()</h4>
-                    <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }">Back to Current</button>
+                    <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }">Show Current Channels</button>
                 </div>
 
                 @if (!_channelDisclaimerDismissed)
@@ -263,11 +263,23 @@
                     <!-- How This Works -->
                     <details class="recommendation-explainer">
                         <summary>How This Works</summary>
-                        <p>
-                            We model how far each AP's signal reaches using your floor plan, wall materials, and antenna patterns.
-                            Then we find the channel assignment that minimizes total interference between your APs and neighboring networks.
-                            Mesh APs are kept on the same channel as their parent. Lower scores mean less interference.
-                        </p>
+                        <div class="recommendation-explainer-content">
+                            <p>
+                                Most channel pickers just count nearby networks. This builds a physical model of your
+                                RF environment and solves for the channel plan that minimizes real interference:
+                            </p>
+                            <ul>
+                                <li><strong>Signal propagation</strong> - models how far each AP's signal actually reaches using your floor plan, wall materials, and per-radio antenna patterns, not distance alone.</li>
+                                <li><strong>Transmit-power aware</strong> - each AP's real EIRP is applied directionally, so a low-power AP correctly counts as a gentler neighbor than a full-power one.</li>
+                                <li><strong>Real contention, not raw signal</strong> - interference is measured against the CCA threshold (where radios actually defer), so barely-audible signals aren't over-counted.</li>
+                                <li><strong>Neighboring networks</strong> - folds in UniFi's RF scan of networks you don't control, triangulated across all your APs for a fuller picture than any single AP sees.</li>
+                                <li><strong>30 days of history</strong> - per-channel utilization, interference, and TX-retry trends, so the plan reflects how channels behave over time, not one noisy snapshot.</li>
+                                <li><strong>Honest about the unknown</strong> - channels with no scan data are penalized for that uncertainty, so it won't push you onto an unseen channel unless your known channels are clearly worse.</li>
+                                <li><strong>Whole-network and per-AP</strong> - minimizes total interference across the site, then checks each AP individually, only suggesting a move that genuinely helps and never wrecking one AP to slightly help another.</li>
+                                <li><strong>Mesh and DFS aware</strong> - mesh APs stay on their parent's channel; DFS channels are handled per your preference.</li>
+                            </ul>
+                            <p>Lower scores mean less interference.</p>
+                        </div>
                     </details>
                 }
                 else
@@ -518,6 +530,8 @@
     private SiteHealthScore? _healthScore;
     private RadioBand _selectedBand = RadioBand.Band5GHz;
     private int? _selectedChannel;
+    // True once the user (or explicit navigation) picks a band, so auto-select won't override it.
+    private bool _bandManuallySelected;
 
     // Channel disclaimer
     private bool _channelDisclaimerDismissed;
@@ -557,9 +571,12 @@
 
         await LoadDataAsync();
 
-        // Apply initial filters from parent navigation
+        // Apply initial filters from parent navigation (explicit band is treated as a manual pick)
         if (InitialBand.HasValue)
+        {
             _selectedBand = InitialBand.Value;
+            _bandManuallySelected = true;
+        }
         if (InitialChannel.HasValue)
             _selectedChannel = InitialChannel.Value;
 
@@ -843,11 +860,36 @@
 
             _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
             _showRecommendations = _channelPlans.Count > 0;
+            AutoSelectBandWithRecommendations();
         }
         finally
         {
             _loadingRecommendations = false;
             StateHasChanged();
+        }
+    }
+
+    private bool BandHasChanges(RadioBand band) =>
+        _channelPlans.TryGetValue(band, out var plan) && plan.Recommendations.Any(r => r.IsChanged);
+
+    /// <summary>
+    /// After running the engine, land on a band that actually has recommendations instead of
+    /// the static default. Skips if the user explicitly picked a band, or if the current band
+    /// already has changes, so we never yank someone off a band they're deliberately viewing.
+    /// </summary>
+    private void AutoSelectBandWithRecommendations()
+    {
+        if (_bandManuallySelected) return;
+        if (BandHasChanges(_selectedBand)) return;
+
+        foreach (var band in _bands)
+        {
+            if (BandHasChanges(band))
+            {
+                _selectedBand = band;
+                _selectedChannel = null;
+                break;
+            }
         }
     }
 

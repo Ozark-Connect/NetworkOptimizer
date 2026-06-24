@@ -236,7 +236,7 @@ public class LoadImbalanceRuleTests
         {
             CreateClient("aa:bb:cc:dd:ee:01", signal: -45),
             CreateClient("aa:bb:cc:dd:ee:01", signal: -45),
-            CreateClient("aa:bb:cc:dd:ee:01", signal: -75), // weak
+            CreateClient("aa:bb:cc:dd:ee:01", signal: -85), // weak for its band (< -78 on 5 GHz)
         };
         // Pad to match TotalClients
         for (int i = 0; i < 14; i++)
@@ -279,7 +279,7 @@ public class LoadImbalanceRuleTests
     }
 
     [Fact]
-    public void FarApart_ClientWithNullSignal_NotSuppressed()
+    public void FarApart_NullSignalClientIgnored_Suppressed()
     {
         var aps = new List<AccessPointSnapshot>
         {
@@ -287,11 +287,11 @@ public class LoadImbalanceRuleTests
             CreateAp("aa:bb:cc:dd:ee:02", "AP-Garage", 2)
         };
 
-        // One client missing signal data
+        // One client missing signal data (e.g. an offline/idle device)
         var clients = new List<WirelessClientSnapshot>
         {
             CreateClient("aa:bb:cc:dd:ee:01", signal: -45),
-            CreateClient("aa:bb:cc:dd:ee:01", signal: null), // missing signal
+            CreateClient("aa:bb:cc:dd:ee:01", signal: null), // missing signal - ignored, not weak
         };
         for (int i = 0; i < 15; i++)
             clients.Add(CreateClient("aa:bb:cc:dd:ee:01", signal: -45));
@@ -303,9 +303,9 @@ public class LoadImbalanceRuleTests
         var ctx = CreateContext(aps, clients, propCtx);
         var issue = _rule.Evaluate(ctx);
 
-        // Should NOT suppress entirely because one client has null signal
-        issue.Should().NotBeNull();
-        issue!.Severity.Should().Be(HealthIssueSeverity.Info, "null signal prevents full suppression");
+        // A missing signal is treated as offline/idle, not weak. With every other client strong,
+        // the separate-zone imbalance is suppressed entirely.
+        issue.Should().BeNull();
     }
 
     [Fact]
