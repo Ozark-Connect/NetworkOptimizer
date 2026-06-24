@@ -10998,6 +10998,17 @@ a.path-hop.hop-clickable:hover {
     margin: 0.5rem 0 0;
     line-height: 1.5;
 }
+.recommendation-explainer ul {
+    margin: 0.5rem 0 0;
+    padding-left: 1.1rem;
+    line-height: 1.5;
+}
+.recommendation-explainer li {
+    margin-bottom: 0.35rem;
+}
+.recommendation-explainer li strong {
+    color: var(--text-secondary);
+}
 
 /* Improvement stat highlighting */
 .stat-improvement .channel-stat-value { color: var(--success-color); }
