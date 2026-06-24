@@ -14,8 +14,10 @@ public static class IspHealthEndpoints
             DateTime? from,
             DateTime? to,
             IspHealthService ispHealth,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
+            var __rt = System.Diagnostics.Stopwatch.StartNew();
             // from/to (the tab's date/time filter) make the chart follow a custom window off
             // the 48 h cache; absent, it serves the cached 48 h report.
             var (series, report) = await ispHealth.GetAsnChartDataAsync(from, to, ct);
@@ -78,6 +80,9 @@ public static class IspHealthEndpoints
                 }));
             }
 
+            loggerFactory.CreateLogger("IspHealthEndpoints").LogInformation(
+                "ISPRT endpoint asn-series total={T}ms window={W}",
+                __rt.ElapsedMilliseconds, from.HasValue && to.HasValue ? $"{(to.Value - from.Value).TotalHours:0}h" : "48h-cache");
             return Results.Ok(new { asns, events });
         });
     }

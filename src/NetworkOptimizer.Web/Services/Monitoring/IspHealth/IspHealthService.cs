@@ -150,6 +150,7 @@ public class IspHealthService
         // single chokepoint every custom-window caller (report and chart endpoint) funnels through, so a
         // sub-minimum (or over-max) request can't slip past into an empty result. Pin the end and expand
         // the start back, exactly as the UI does; min ties to the scoring floor, max is the 30-day cap.
+        var __rt = System.Diagnostics.Stopwatch.StartNew();
         var minSpan = TimeSpan.FromHours(_options.MinDataHours);
         var maxSpan = TimeSpan.FromHours(MaxCustomWindowHours);
         if (windowEnd - windowStart < minSpan) windowStart = windowEnd - minSpan;
@@ -158,7 +159,12 @@ public class IspHealthService
         var cached = _customCache;
         if (!forceRefresh && cached != null && cached.Start == windowStart && cached.End == windowEnd
             && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
+        {
+            _logger.LogInformation("ISPRT win={Win}h total={T}ms cacheHit=true force={Force}",
+                ((windowEnd - windowStart).TotalHours).ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+                __rt.ElapsedMilliseconds, forceRefresh);
             return (cached.Report, cached.ChartClusters);
+        }
 
         // A window longer than the canonical re-covers the recent period at a coarser aggregate,
         // which can inflate bucket-p90 burst detection into congestion events the authoritative
@@ -176,6 +182,9 @@ public class IspHealthService
         var outcome = await ComputeCoreAsync(windowStart, windowEnd, referenceEvents, ct);
         if (outcome.Report != null)
             _customCache = new CustomWindowSnapshot(windowStart, windowEnd, outcome.Report, outcome.ChartClusters, DateTime.UtcNow);
+        _logger.LogInformation("ISPRT win={Win}h total={T}ms cacheHit=false force={Force}",
+            ((windowEnd - windowStart).TotalHours).ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+            __rt.ElapsedMilliseconds, forceRefresh);
         return (outcome.Report, outcome.ChartClusters);
     }
 
