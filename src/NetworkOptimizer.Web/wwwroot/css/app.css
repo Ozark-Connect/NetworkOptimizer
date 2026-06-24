@@ -7646,6 +7646,7 @@ a.path-hop.hop-clickable:hover {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 0.25rem 1.25rem;
+    margin-bottom: 0.25rem;
 }
 
 /* Override main dashboard min-height for WiFi overview cards */
@@ -7664,6 +7665,7 @@ a.path-hop.hop-clickable:hover {
         display: flex;
         flex-direction: column;
         gap: 16px;
+        margin-bottom: 16px;
     }
 }
 
