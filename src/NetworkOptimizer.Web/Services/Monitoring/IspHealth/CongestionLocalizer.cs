@@ -109,7 +109,7 @@ public static class CongestionLocalizer
                     topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, IsElevated));
 
             if (unanchored.Count > 0)
-                result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident));
+                result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
         }
 
         // An Unverifiable hop (dead-end, nothing monitored beyond it) inherits Confirmed from a
@@ -253,7 +253,7 @@ public static class CongestionLocalizer
             _ => 50
         };
 
-        var evt = NewEvent(bottleneckSeries, members, eventsBySeries, window);
+        var evt = NewEvent(bottleneckSeries, members, eventsBySeries, window, options);
         evt.Scope = CongestionScope.Hop;
         evt.Disposition = disposition;
         evt.BottleneckHopIp = bottleneckIp;
@@ -270,9 +270,10 @@ public static class CongestionLocalizer
         Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
         (DateTime Start, DateTime End) window,
         CongestionTopology topology,
-        bool loadCoincident)
+        bool loadCoincident,
+        IspHealthOptions options)
     {
-        var evt = NewEvent(null, members, eventsBySeries, window);
+        var evt = NewEvent(null, members, eventsBySeries, window, options);
         evt.Scope = CongestionScope.Unlocalized;
         evt.Disposition = CongestionDisposition.Confirmed;
         evt.LoadCoincident = loadCoincident;
@@ -287,7 +288,8 @@ public static class CongestionLocalizer
         AsnSeries? identity,
         List<AsnSeries> members,
         Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
-        (DateTime Start, DateTime End) window)
+        (DateTime Start, DateTime End) window,
+        IspHealthOptions options)
     {
         // Metrics come from the culprit hop when it has its own elevation, else the worst member.
         var metricSource = identity != null
@@ -302,14 +304,20 @@ public static class CongestionLocalizer
         // The penalized ASN/targets are the bottleneck hop when localized; downstream victims
         // are excluded. An unlocalized event has no single culprit, so it keeps the full set.
         var id = identity != null ? new List<AsnSeries> { identity } : members;
-        // This event spans its OWN bottleneck's elevation, not the full time-cluster window: a hop
-        // that cleared in 45 min must not inherit a co-occurring hop's multi-hour span just because
-        // they shared a cluster. The cluster window is still used for the correlation, propagation,
-        // and clean-control checks above; only the reported (and scored) duration is per-member.
+        // Report the shared cluster window when this bottleneck's own elevation covers most of it,
+        // so a genuine co-temporal event reads as one clean window across its per-hop rows. Only a
+        // member that cleared much earlier than the others (an outlier) reports its own shorter span
+        // - so a hop that resolved in 45 min isn't stamped with a co-occurring hop's multi-hour span.
+        // Correlation/propagation/disposition above still use the full cluster window regardless.
+        var ownStart = sourceEvents.Min(e => e.Start);
+        var ownEnd = sourceEvents.Max(e => e.End);
+        var clusterSpan = (window.End - window.Start).TotalSeconds;
+        var sharesWindow = clusterSpan <= 0
+            || (ownEnd - ownStart).TotalSeconds >= clusterSpan * options.CongestionSharedWindowMinFraction;
         return new CongestionEvent
         {
-            Start = sourceEvents.Min(e => e.Start),
-            End = sourceEvents.Max(e => e.End),
+            Start = sharesWindow ? window.Start : ownStart,
+            End = sharesWindow ? window.End : ownEnd,
             AsnNumbers = id.Select(m => m.AsnNumber).Distinct().ToList(),
             AsnNames = id.Select(m => m.AsnName ?? $"AS{m.AsnNumber}").Distinct().ToList(),
             TargetIds = id.SelectMany(m => m.TargetIds).Distinct().ToList(),

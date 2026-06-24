@@ -179,6 +179,16 @@ public class IspHealthOptions
     public double CongestionSustainFraction { get; set; } = 0.5;
 
     /// <summary>
+    /// A localized congestion event reports the shared time-cluster window when its own bottleneck's
+    /// elevation covers at least this fraction of that window; a member substantially shorter (an
+    /// outlier that cleared early while co-occurring hops lingered) reports its own span instead.
+    /// Keeps a genuine co-temporal shared event presented as one clean window, while still breaking
+    /// out a hop whose duration is very different. At 1.0 every member uses its own exact span; at 0
+    /// every member uses the full cluster window.
+    /// </summary>
+    public double CongestionSharedWindowMinFraction { get; set; } = 0.7;
+
+    /// <summary>
     /// WAN utilization (fraction of the expected plan speed, worst direction) at or above
     /// which a congestion bucket is treated as coinciding with heavy local load. The
     /// self-inflicted classifier uses this to tell access-egress bufferbloat (your own

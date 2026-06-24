@@ -110,6 +110,33 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Similar_duration_bottlenecks_share_one_clean_window()
+    {
+        // Two bottlenecks elevated for roughly the same long span (slightly staggered). Each covers
+        // most of the cluster, so both report the SAME shared window instead of fragmenting into
+        // slightly different per-hop start/end - the genuine co-temporal event reads as one window.
+        List<LatencySample> ElevatedBetween(DateTime from, DateTime to, double rtt) =>
+            Flat(rtt).WithSegment(from, to, rttMs: rtt + 25, jitterMs: 6);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, ElevatedBetween(HumpStart, HumpStart.AddHours(3), 5), Bng, Border),       // 3 h
+            Hop(200, Transit, Flat(8), Bng, Border, Backhaul),                                            // clean witness
+            Hop(300, DeadEnd, ElevatedBetween(HumpStart.AddMinutes(15), HumpStart.AddMinutes(165), 5), Bng, Border), // 2.5 h, staggered
+            Dest(DestControl, Flat(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        var deadEnd = events.Single(e => e.BottleneckHopIp == DeadEnd);
+        backhaul.Start.Should().Be(deadEnd.Start);
+        backhaul.End.Should().Be(deadEnd.End);
+    }
+
+    [Fact]
     public void Localizes_to_backhaul_hop_and_does_not_blame_downstream_transit()
     {
         var series = new List<AsnSeries>
