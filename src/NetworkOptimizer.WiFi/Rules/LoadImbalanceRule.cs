@@ -101,18 +101,17 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
                         .Where(c => c.ApMac.Equals(maxAp.Mac, StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
-                    // Suppress only when every client on the busy AP is confirmed well-served: it
-                    // has a reported signal that is not weak FOR ITS BAND, using the same per-band
-                    // scale as the client list coloring (a 2.4 GHz client at -66 is fine, a 6 GHz
-                    // client at -66 is not). A missing signal (unverifiable) keeps the issue visible.
-                    var allClientsWellServed = clientsOnMaxAp.Count > 0 &&
-                        clientsOnMaxAp.All(c => c.Signal.HasValue &&
-                            !SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
+                    // Suppress unless a client on the busy AP is genuinely weak FOR ITS BAND, using
+                    // the same per-band scale as the client list coloring. Higher bands tolerate
+                    // weaker signal: -75 is weak on 2.4 GHz (< -73) but fine on 5/6 GHz (weak only
+                    // below -78 / -87). Clients with no reported signal are ignored - a missing
+                    // reading usually just means an offline/idle device, not a weak one.
+                    var hasWeakClient = clientsOnMaxAp.Any(c => c.Signal.HasValue &&
+                        SignalClassification.IsWeakSignal(c.Signal.Value, c.Band));
 
-                    if (allClientsWellServed)
+                    if (!hasWeakClient)
                     {
-                        // Separate coverage zone and every client is well-served for its band -
-                        // this is definitively a separate zone, suppress entirely.
+                        // Separate coverage zone with no genuinely weak clients - suppress entirely.
                         return null;
                     }
 
