@@ -35,7 +35,13 @@ public class CongestionLocalizerTests
 
     private static readonly Dictionary<string, int> HopNumbers = new(StringComparer.OrdinalIgnoreCase)
     {
-        [Bng] = 1, [Border] = 2, [Backhaul] = 3, [Transit] = 4, [DeadEnd] = 3, [DestCorridor] = 5, [DestControl] = 5
+        [Bng] = 1,
+        [Border] = 2,
+        [Backhaul] = 3,
+        [Transit] = 4,
+        [DeadEnd] = 3,
+        [DestCorridor] = 5,
+        [DestControl] = 5
     };
 
     private static List<LatencySample> Flat(double rtt = 5) => TestSeries.Flat(TestSeries.Start, Day, rtt, jitterMs: 0.5);
@@ -60,8 +66,13 @@ public class CongestionLocalizerTests
         var s = Hop(0, ip, samples, ancestors);
         return new AsnSeries
         {
-            AsnNumber = 0, AsnName = ip, TargetIds = { ip }, Samples = samples,
-            HopIps = { ip }, AncestorIps = ancestors.ToList(), IsDestination = true
+            AsnNumber = 0,
+            AsnName = ip,
+            TargetIds = { ip },
+            Samples = samples,
+            HopIps = { ip },
+            AncestorIps = ancestors.ToList(),
+            IsDestination = true
         };
     }
 
@@ -386,6 +397,32 @@ public class CongestionLocalizerTests
         var deadEnd = events.Single(e => e.BottleneckHopIp == "10.0.5.2");
         deadEnd.Disposition.Should().Be(CongestionDisposition.Confirmed);
         deadEnd.ConfirmedBySibling.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_parallel_path_that_only_picked_up_the_jitter_floor_counts_as_a_clean_control()
+    {
+        // Backhaul is the localized bottleneck under load. A parallel branch (DeadEnd) only picked up
+        // the load's jitter floor - its RTT stayed at baseline - so it did NOT get localized congestion
+        // and must count as a clean control (evidence Backhaul is its own capacity, not access
+        // bufferbloat). A jitter-inclusive "elevated" test would wrongly exclude it and drop the count.
+        var jitterFloor = Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),            // localized bottleneck
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),   // downstream victim
+            Hop(300, DeadEnd, jitterFloor, Bng, Border),            // parallel branch: jitter floor only, RTT flat
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
+        // Bng, Border, and the jitter-floor DeadEnd all stayed at the floor -> all clean controls.
+        // Without the floor-relative test, the jitter-floor DeadEnd would be excluded (count would be 2).
+        backhaul.CleanParallelPaths.Should().Be(3);
     }
 
     [Fact]
