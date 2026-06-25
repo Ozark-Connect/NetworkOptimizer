@@ -508,12 +508,12 @@ else
                     <div class="form-group">
                         <label class="form-label">Switch high temperature (&deg;C)</label>
                         <input type="number" class="form-control" min="40" max="120" step="1"
-                               placeholder="@DefaultTempPlaceholder" @bind="_switchTempThresholdInput" />
+                               placeholder="@DefaultTempPlaceholder" @bind="_switchTempThresholdInput" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">Gateway high temperature (&deg;C)</label>
                         <input type="number" class="form-control" min="40" max="120" step="1"
-                               placeholder="@DefaultTempPlaceholder" @bind="_gatewayTempThresholdInput" />
+                               placeholder="@DefaultTempPlaceholder" @bind="_gatewayTempThresholdInput" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                 </div>
                 <div class="input-with-button" style="margin-top: 1rem;">
@@ -636,17 +636,17 @@ else
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
                         <input type="number" class="form-control" min="40" max="120" step="1"
-                               placeholder="@PhPonTemp" @bind="_sfpPonTemp" />
+                               placeholder="@PhPonTemp" @bind="_sfpPonTemp" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">RX power low (dBm)</label>
                         <input type="number" class="form-control" min="-40" max="0" step="0.1"
-                               placeholder="@PhPonRx" @bind="_sfpPonRx" />
+                               placeholder="@PhPonRx" @bind="_sfpPonRx" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">TX power high (dBm)</label>
                         <input type="number" class="form-control" min="-10" max="20" step="0.1"
-                               placeholder="@PhPonTx" @bind="_sfpPonTx" />
+                               placeholder="@PhPonTx" @bind="_sfpPonTx" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                 </div>
 
@@ -655,17 +655,17 @@ else
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
                         <input type="number" class="form-control" min="40" max="120" step="1"
-                               placeholder="@PhAeTemp" @bind="_sfpAeTemp" />
+                               placeholder="@PhAeTemp" @bind="_sfpAeTemp" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">RX power low (dBm)</label>
                         <input type="number" class="form-control" min="-40" max="0" step="0.1"
-                               placeholder="@PhAeRx" @bind="_sfpAeRx" />
+                               placeholder="@PhAeRx" @bind="_sfpAeRx" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">TX power high (dBm)</label>
                         <input type="number" class="form-control" min="-10" max="20" step="0.1"
-                               placeholder="@PhAeTx" @bind="_sfpAeTx" />
+                               placeholder="@PhAeTx" @bind="_sfpAeTx" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                 </div>
 
@@ -674,7 +674,7 @@ else
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
                         <input type="number" class="form-control" min="40" max="120" step="1"
-                               placeholder="@PhGenericTemp" @bind="_sfpGenericTemp" />
+                               placeholder="@PhGenericTemp" @bind="_sfpGenericTemp" @bind:after="ResetThresholdSavedFlags" />
                     </div>
                 </div>
                 <p class="form-help">Generic SFP+ modules have no standard optical envelope, so only a temperature ceiling is checked.</p>
@@ -1397,6 +1397,7 @@ else
             if (!confirmed) return;
         }
         _activeTab = tab;
+        ResetThresholdSavedFlags();
         var uri = "/monitoring?tab=" + tab;
         NavigationManager.NavigateTo(uri, forceLoad: false, replace: false);
         _lastTabParam = tab;
@@ -1422,6 +1423,7 @@ else
             if (newTab != _activeTab)
             {
                 _activeTab = newTab;
+                ResetThresholdSavedFlags();
                 StateHasChanged();
             }
         }
@@ -1591,6 +1593,14 @@ else
     private bool _tempThresholdsSaved;
     private bool _deviceTempCollapsed = true;
     private bool _sfpThresholdsCollapsed = true;
+
+    // Clear the transient "Saved" confirmations so they don't linger after the
+    // user edits a field or navigates back into the tab.
+    private void ResetThresholdSavedFlags()
+    {
+        _tempThresholdsSaved = false;
+        _sfpThresholdsSaved = false;
+    }
 
     private static string DefaultTempPlaceholder =>
         NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator.DefaultDeviceTempHighC.ToString("0");
