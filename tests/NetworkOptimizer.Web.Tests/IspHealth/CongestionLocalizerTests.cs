@@ -406,6 +406,50 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Relative_line_wide_with_no_load_collapses_to_one_shared_confirmed_event()
+    {
+        // Every monitored path is elevated relative to its own baseline, rooted at the access egress,
+        // with no heavy local load: one shared upstream incident attributed to the convergence hop,
+        // Confirmed (scored) - not N separate per-hop rows.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Elevated(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().ContainSingle();
+        events[0].Disposition.Should().Be(CongestionDisposition.Confirmed);
+        events[0].BottleneckHopIp.Should().Be(Bng);
+        events[0].AttributionReason.Should().Contain("shared upstream");
+    }
+
+    [Fact]
+    public void Shared_incident_span_trims_a_lingering_hop()
+    {
+        // Four hops rise together for ~45 min; one lingers 3 h past the rest. The collapsed incident
+        // must span only the shared window (~45 min), not be dragged out to the lingering hop's 3 h.
+        var lingering = Flat(5).WithSegment(HumpStart, HumpStart.AddHours(3), rttMs: 30, jitterMs: 6);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, lingering, Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().ContainSingle();
+        events[0].Duration.Should().BeLessThan(TimeSpan.FromHours(1.5));
+    }
+
+    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise

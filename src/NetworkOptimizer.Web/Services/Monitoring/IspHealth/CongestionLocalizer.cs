@@ -104,6 +104,24 @@ public static class CongestionLocalizer
                 && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options))
                     >= anchoredWithData.Count * options.CongestionLineWideRiseFraction;
 
+            // SHARED-INCIDENT COLLAPSE. The per-hop separation below is the default and stays
+            // authoritative. This narrow exception fires only when a strict majority of monitored
+            // paths are elevated RELATIVE TO THEIR OWN baselines (IsElevated - the same per-hop
+            // relative test the bottleneck walk trusts, NOT an absolute ms floor) AND the rise reaches
+            // the access egress (rooted at your network, not a deep mid-path cluster). That is one
+            // incident - your access link under load, or a shared upstream otherwise - so it collapses
+            // to a single event instead of N rows. A localized bottleneck, a propagation-to-victim, or
+            // a partial rise all fail this gate and fall through to the per-hop logic, unchanged.
+            var relElevated = anchoredWithData.Where(s => IsElevated(s, window.Start, window.End)).ToList();
+            var accessRooted = relElevated.Any(s => s.HopIps.Any(ip => topology.AccessEgressHopIps.Contains(ip)));
+            if (accessRooted && anchoredWithData.Count > 0
+                && relElevated.Count >= anchoredWithData.Count * options.CongestionLineWideRiseFraction)
+            {
+                result.Add(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
+                    topology, options, loadCoincident, IsElevated));
+                continue;
+            }
+
             foreach (var (bnIp, members) in byBottleneck)
                 result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
                     topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, IsElevated));
@@ -130,6 +148,81 @@ public static class CongestionLocalizer
         }
 
         return result.OrderBy(e => e.Start).ToList();
+    }
+
+    /// <summary>
+    /// Builds the single event for a shared incident (a relative-line-wide, access-rooted cluster).
+    /// Attributed to the convergence hop nearest the user; Loaded Latency under load (your access
+    /// link, suppressed), else real shared upstream congestion (Confirmed, scored). The span is
+    /// trimmed to the sub-window where the breadth actually holds, so one hop lingering past the rest
+    /// doesn't stretch it, and the worst single hop is named in the reason.
+    /// </summary>
+    private static CongestionEvent BuildSharedIncident(
+        List<AsnSeries> elevated,
+        Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
+        List<AsnSeries> anchoredWithData,
+        (DateTime Start, DateTime End) window,
+        CongestionTopology topology,
+        IspHealthOptions options,
+        bool loadCoincident,
+        Func<AsnSeries, DateTime, DateTime, bool> isElevated)
+    {
+        int HopNum(AsnSeries s) => s.HopIps.Concat(s.AncestorIps)
+            .Where(topology.HopNumberByIp.ContainsKey)
+            .Select(ip => topology.HopNumberByIp[ip]).DefaultIfEmpty(int.MaxValue).Min();
+
+        // Decision 3: span only the contiguous sub-window where the breadth still holds, so a single
+        // hop lingering past the rest cannot stretch the incident's reported (and scored) duration.
+        var bucket = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
+        var need = anchoredWithData.Count * options.CongestionLineWideRiseFraction;
+        var wide = new List<DateTime>();
+        for (var b = CongestionDetector.FloorTime(window.Start, bucket); b < window.End; b += bucket)
+            if (anchoredWithData.Count(s => isElevated(s, b, b + bucket)) >= need)
+                wide.Add(b);
+        var start = wide.Count > 0 ? wide.Min() : window.Start;
+        var end = wide.Count > 0 ? wide.Max() + bucket : window.End;
+
+        Func<AsnSeries, IEnumerable<CongestionEvent>> evts = s =>
+            (eventsBySeries.TryGetValue(s, out var es) ? es : Enumerable.Empty<CongestionEvent>())
+                .Where(e => Overlaps(e.Start, e.End, start, end));
+
+        // The convergence hop nearest the user owns the event (usually the access egress); this also
+        // keeps the score attributed to your ISP card rather than every downstream transit victim.
+        var owner = elevated.OrderBy(HopNum).First();
+        var ownerEvt = evts(owner).FirstOrDefault();
+
+        // Decision 2: name the single worst hop (largest relative RTT rise among the fired members).
+        var worst = elevated
+            .SelectMany(s => evts(s).Select(e => (Series: s, Rise: e.BaselineRttMs > 0 ? (e.PeakRttMs - e.BaselineRttMs) / e.BaselineRttMs : 0)))
+            .OrderByDescending(x => x.Rise)
+            .Select(x => x.Series)
+            .FirstOrDefault();
+
+        var reason = loadCoincident
+            ? $"{elevated.Count} monitored paths rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not one hop."
+            : $"{elevated.Count} monitored paths across independent networks rose together with no heavy local load - a shared upstream bottleneck lifting the whole path, not one hop.";
+        if (worst != null && worst != owner && worst.AsnName is { Length: > 0 } worstName)
+            reason += $" Worst at {worstName}.";
+
+        return new CongestionEvent
+        {
+            Start = start,
+            End = end,
+            AsnNumbers = owner.AsnNumber > 0 ? new List<int> { owner.AsnNumber } : new List<int>(),
+            AsnNames = owner.AsnName is { Length: > 0 } ? new List<string> { owner.AsnName } : new List<string>(),
+            TargetIds = owner.TargetIds.ToList(),
+            BaselineRttMs = ownerEvt?.BaselineRttMs ?? 0,
+            PeakRttMs = ownerEvt?.PeakRttMs ?? ownerEvt?.BaselineRttMs ?? 0,
+            BaselineJitterMs = ownerEvt?.BaselineJitterMs ?? 0,
+            PeakJitterMs = ownerEvt?.PeakJitterMs ?? 0,
+            Scope = CongestionScope.Unlocalized,
+            Disposition = loadCoincident ? CongestionDisposition.SelfInflicted : CongestionDisposition.Confirmed,
+            BottleneckHopIp = owner.HopIps.FirstOrDefault(),
+            BottleneckLabel = owner.AsnName,
+            LoadCoincident = loadCoincident,
+            Confidence = 70,
+            AttributionReason = reason
+        };
     }
 
     /// <summary>
