@@ -1162,14 +1162,19 @@ public class IspHealthService
             return (Event: e, Runs: runs);
         }));
 
+        // Fine re-detection (with a 2 h clean pad on each side for a baseline, read across the view's
+        // edge) is ground truth. Coarse aggregation INFLATES bucket-p90, so "fires at the coarse
+        // aggregate but not at full resolution" is the signature of a coarse artifact - e.g. a
+        // window-edge p90 phantom on a flat hop - not a real event. Drop those; a genuine event
+        // reproduces against the padded fine baseline at both resolutions.
+        var phantoms = refined.Where(r => r.Runs.Count == 0).Select(r => r.Event).ToHashSet();
         foreach (var (e, runs) in refined)
         {
-            // No overlapping fine run (the fine pass didn't reproduce it) - keep the coarse boundaries
-            // rather than risk dropping or distorting a real event.
             if (runs.Count == 0) continue;
             e.Start = runs.Min(r => r.Start);
             e.End = runs.Max(r => r.End);
         }
+        events.RemoveAll(phantoms.Contains);
     }
 
     private static Dictionary<string, List<LatencySample>> ToSamples(
