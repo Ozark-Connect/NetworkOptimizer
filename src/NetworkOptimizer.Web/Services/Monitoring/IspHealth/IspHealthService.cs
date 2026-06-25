@@ -90,23 +90,16 @@ public class IspHealthService
 
     public async Task<IspHealthReport?> GetReportAsync(bool forceRefresh = false, CancellationToken ct = default)
     {
-        var __rt = System.Diagnostics.Stopwatch.StartNew();
         var cached = _cached?.Report;
         if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
-        {
-            _logger.LogInformation("ISPRT win=48h total={T}ms cacheHit=true force={F}", __rt.ElapsedMilliseconds, forceRefresh);
             return cached;
-        }
 
         await _computeLock.WaitAsync(ct);
         try
         {
             cached = _cached?.Report;
             if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
-            {
-                _logger.LogInformation("ISPRT win=48h total={T}ms cacheHit=true force={F}", __rt.ElapsedMilliseconds, forceRefresh);
                 return cached;
-            }
 
             if (forceRefresh)
                 _connectionService.ClearCaches();
@@ -114,7 +107,6 @@ public class IspHealthService
             _computing = true;
             var (report, chartClusters) = await ComputeAsync(ct);
             if (report != null) _cached = new Snapshot(report, chartClusters);
-            _logger.LogInformation("ISPRT win=48h total={T}ms cacheHit=false force={F}", __rt.ElapsedMilliseconds, forceRefresh);
             return report;
         }
         finally
