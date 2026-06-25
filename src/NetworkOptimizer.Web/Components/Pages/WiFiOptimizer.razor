@@ -877,7 +877,7 @@
 
     // Auto-refresh the Overview tab once the health score has aged past this, so a parked
     // tab doesn't show indefinitely stale data. Checked on each map-poll tick.
-    private static readonly TimeSpan HealthScoreStaleAfter = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan HealthScoreStaleAfter = TimeSpan.FromMinutes(1);
 
     private int _signalTimeRangeHours = 168; // 1 week default, matches FloorPlanEditor slider
     private int _speedTestTimeRangeHours = 720; // 30 days default, matches SpeedTestMap slider
