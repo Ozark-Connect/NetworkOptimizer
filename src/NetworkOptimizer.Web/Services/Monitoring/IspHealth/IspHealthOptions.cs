@@ -231,6 +231,16 @@ public class IspHealthOptions
     public double CongestionPropagationJitterFloorMs { get; set; } = 0.2;
 
     /// <summary>
+    /// Loaded-latency uniformity gate. Under heavy WAN load every path picks up a shared FLOOR of
+    /// added delay (that floor alone is loaded latency). A shared/loaded-latency event collapses to a
+    /// single row only when the rise is UNIFORM: the worst path's RTT rise over its own baseline is
+    /// within this factor of the median path's rise. If a few paths rose materially further than the
+    /// floor (high variance), those are localized congestion ON TOP of the load - the event stays
+    /// per-hop so the localizer surfaces them as "this hop's own capacity", not "everything slowed".
+    /// </summary>
+    public double CongestionLoadedUniformityFactor { get; set; } = 2.0;
+
+    /// <summary>
     /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored
     /// paths (with data) must have their in-window median rise above baseline for an access-egress
     /// bottleneck under load to read as self-inflicted rather than a hop bottleneck. A robust majority

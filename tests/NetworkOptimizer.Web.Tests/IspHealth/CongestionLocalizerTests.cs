@@ -429,6 +429,27 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Floor_jitter_rise_with_only_some_paths_risen_in_rtt_does_not_collapse_to_loaded_latency()
+    {
+        // Under load the jitter floor lifts every path, but only some paths actually rose in RTT.
+        // That's a shared floor + localized congestion, not "everything slowed" - it must NOT collapse
+        // to one Loaded Latency event; the RTT-risen paths localize per-hop instead.
+        var jitterOnly = Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, jitterOnly),
+            Hop(100, Border, jitterOnly, Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, jitterOnly, Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+    }
+
+    [Fact]
     public void Relative_line_wide_with_no_load_collapses_to_one_shared_confirmed_event()
     {
         // Every monitored path is elevated relative to its own baseline, rooted at the access egress,

@@ -104,18 +104,30 @@ public static class CongestionLocalizer
                 && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options))
                     >= anchoredWithData.Count * options.CongestionLineWideRiseFraction;
 
-            // SHARED-INCIDENT COLLAPSE. The per-hop separation below is the default and stays
-            // authoritative. This narrow exception fires only when a strict majority of monitored
-            // paths are elevated RELATIVE TO THEIR OWN baselines (IsElevated - the same per-hop
-            // relative test the bottleneck walk trusts, NOT an absolute ms floor) AND the rise reaches
-            // the access egress (rooted at your network, not a deep mid-path cluster). That is one
-            // incident - your access link under load, or a shared upstream otherwise - so it collapses
-            // to a single event instead of N rows. A localized bottleneck, a propagation-to-victim, or
-            // a partial rise all fail this gate and fall through to the per-hop logic, unchanged.
+            // SHARED-INCIDENT COLLAPSE (narrow exception; the per-hop separation below is the default
+            // and stays authoritative). Collapse to ONE event only when the rise is genuinely UNIFORM:
+            // a strict majority of paths rose in RTT over baseline (lineWideUnderLoad) AND no path rose
+            // MATERIALLY above the shared floor. Under load every path picks up a floor of added delay
+            // (loaded latency); but if a few paths are much worse than that floor, those are localized
+            // congestion on top of the load - stay per-hop so the localizer surfaces them as "this
+            // hop's own capacity", not "everything slowed". A jitter-only floor (queuing jitter lifts
+            // every path) is NOT enough on its own - lineWideUnderLoad keys on RTT.
+            double RttRise(AsnSeries s)
+            {
+                var inW = s.Samples.Where(x => x.Time >= window.Start && x.Time <= window.End && x.RttAvgMs.HasValue)
+                    .Select(x => x.RttAvgMs!.Value).ToList();
+                var baseW = s.Samples.Where(x => (x.Time < window.Start || x.Time > window.End) && x.RttAvgMs.HasValue)
+                    .Select(x => x.RttAvgMs!.Value).ToList();
+                var im = SeriesStats.Median(inW);
+                var bm = SeriesStats.Median(baseW);
+                return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
+            }
             var relElevated = anchoredWithData.Where(s => IsElevated(s, window.Start, window.End)).ToList();
-            var accessRooted = relElevated.Any(s => s.HopIps.Any(ip => topology.AccessEgressHopIps.Contains(ip)));
-            if (accessRooted && anchoredWithData.Count > 0
-                && relElevated.Count >= anchoredWithData.Count * options.CongestionLineWideRiseFraction)
+            var rises = relElevated.Select(RttRise).Where(r => r > 0).OrderBy(r => r).ToList();
+            var floorRise = SeriesStats.Median(rises) ?? 0;
+            var uniform = rises.Count == 0 || floorRise <= 0
+                || rises[^1] <= floorRise * options.CongestionLoadedUniformityFactor;
+            if (lineWideUnderLoad && uniform && relElevated.Count > 0)
             {
                 result.Add(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
                     topology, options, loadCoincident, IsElevated));
@@ -191,6 +203,29 @@ public static class CongestionLocalizer
         var owner = elevated.OrderBy(HopNum).First();
         var ownerEvt = evts(owner).FirstOrDefault();
 
+        // Owner magnitudes from its fired event when it has one; otherwise (the owner was elevated via
+        // the relative jitter/excursion arm with no fired RTT event) compute them from its samples, so
+        // the row never reports 0 -> 0.
+        double baseRtt, peakRtt, baseJit, peakJit;
+        if (ownerEvt != null)
+        {
+            baseRtt = ownerEvt.BaselineRttMs;
+            peakRtt = ownerEvt.PeakRttMs;
+            baseJit = ownerEvt.BaselineJitterMs;
+            peakJit = ownerEvt.PeakJitterMs;
+        }
+        else
+        {
+            var inR = owner.Samples.Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList();
+            var baseR = owner.Samples.Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList();
+            var inJ = owner.Samples.Where(x => x.Time >= start && x.Time <= end).Select(x => x.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+            var baseJ = owner.Samples.Where(x => x.Time < start || x.Time > end).Select(x => x.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+            baseRtt = SeriesStats.Median(baseR) ?? 0;
+            peakRtt = inR.Count > 0 ? SeriesStats.Percentile(inR, 0.90) ?? baseRtt : baseRtt;
+            baseJit = SeriesStats.Median(baseJ) ?? 0;
+            peakJit = inJ.Count > 0 ? inJ.Max() : baseJit;
+        }
+
         // Decision 2: name the single worst hop (largest relative RTT rise among the fired members).
         var worst = elevated
             .SelectMany(s => evts(s).Select(e => (Series: s, Rise: e.BaselineRttMs > 0 ? (e.PeakRttMs - e.BaselineRttMs) / e.BaselineRttMs : 0)))
@@ -211,10 +246,10 @@ public static class CongestionLocalizer
             AsnNumbers = owner.AsnNumber > 0 ? new List<int> { owner.AsnNumber } : new List<int>(),
             AsnNames = owner.AsnName is { Length: > 0 } ? new List<string> { owner.AsnName } : new List<string>(),
             TargetIds = owner.TargetIds.ToList(),
-            BaselineRttMs = ownerEvt?.BaselineRttMs ?? 0,
-            PeakRttMs = ownerEvt?.PeakRttMs ?? ownerEvt?.BaselineRttMs ?? 0,
-            BaselineJitterMs = ownerEvt?.BaselineJitterMs ?? 0,
-            PeakJitterMs = ownerEvt?.PeakJitterMs ?? 0,
+            BaselineRttMs = baseRtt,
+            PeakRttMs = peakRtt,
+            BaselineJitterMs = baseJit,
+            PeakJitterMs = peakJit,
             Scope = CongestionScope.Unlocalized,
             Disposition = loadCoincident ? CongestionDisposition.SelfInflicted : CongestionDisposition.Confirmed,
             BottleneckHopIp = owner.HopIps.FirstOrDefault(),
