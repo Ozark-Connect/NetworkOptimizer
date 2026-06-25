@@ -241,6 +241,16 @@ public class IspHealthOptions
     public double CongestionLoadedUniformityFactor { get; set; } = 2.0;
 
     /// <summary>
+    /// Clean-control floor multiple. A parallel path counts as a CLEAN control (proof a hop's
+    /// elevation is its own capacity, not access bufferbloat) when its RTT rose no more than this
+    /// multiple of the shared floor - i.e. it only picked up the load floor, not localized congestion.
+    /// Must be tighter than <see cref="CongestionLoadedUniformityFactor"/> so the materially-worse
+    /// hops are NOT counted as clean. Uses RTT (not jitter): under load the jitter floor lifts every
+    /// path, so a jitter-inclusive "elevated" test would erase every clean control.
+    /// </summary>
+    public double CongestionCleanControlFloorFactor { get; set; } = 1.5;
+
+    /// <summary>
     /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored
     /// paths (with data) must have their in-window median rise above baseline for an access-egress
     /// bottleneck under load to read as self-inflicted rather than a hop bottleneck. A robust majority
