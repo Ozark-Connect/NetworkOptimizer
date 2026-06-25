@@ -466,6 +466,54 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void A_uniform_line_wide_rise_with_a_long_mild_tail_still_collapses()
+    {
+        // The Jun 23 shape: every path has a strong ~1 h core plus a long jitter tail whose RTT sits
+        // back at baseline (the jitter keeps the run alive). The MEDIAN RTT over the full window
+        // dilutes toward baseline, so a median-based line-wide test flickers below threshold and the
+        // incident fragments into per-hop rows. The high-percentile test sees the strong core, so a
+        // genuinely line-wide, uniform incident collapses to one shared event even with a long tail.
+        List<LatencySample> CoreThenTail() => Flat(5)
+            .WithSegment(HumpStart, HumpStart.AddHours(1), rttMs: 30, jitterMs: 6)
+            .WithSegment(HumpStart.AddHours(1), HumpStart.AddHours(3), rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, CoreThenTail()),
+            Hop(100, Border, CoreThenTail(), Bng),
+            Hop(100, Backhaul, CoreThenTail(), Bng, Border),
+            Hop(200, Transit, CoreThenTail(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, CoreThenTail(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_high_variance_rise_under_load_is_not_loaded_latency_even_when_breadth_passes()
+    {
+        // The 19:15 shape: the access egress rose hard while the rest only picked up the shared load
+        // floor (jitter up, RTT barely moved). The high-percentile breadth test now counts the floor
+        // paths as "rose", so line-wide breadth passes - but the rise is NOT uniform (one path far above
+        // the floor). The uniformity gate must keep this from reading as self-inflicted Loaded Latency;
+        // it's localized congestion on top of load, not your access link slowing everything equally.
+        List<LatencySample> Floor() => Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 6, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),                  // access egress: hard rise
+            Hop(100, Border, Floor(), Bng),             // the rest: shared floor only (jitter up, RTT flat)
+            Hop(100, Backhaul, Floor(), Bng, Border),
+            Hop(200, Transit, Floor(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Floor(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+    }
+
+    [Fact]
     public void Floor_jitter_rise_with_only_some_paths_risen_in_rtt_does_not_collapse_to_loaded_latency()
     {
         // Under load the jitter floor lifts every path, but only some paths actually rose in RTT.

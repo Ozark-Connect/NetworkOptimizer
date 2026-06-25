@@ -139,7 +139,7 @@ public static class CongestionLocalizer
 
             foreach (var (bnIp, members) in byBottleneck)
                 result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
-                    topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, IsElevated, IsClean));
+                    topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsElevated, IsClean));
 
             if (unanchored.Count > 0)
                 result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
@@ -298,6 +298,7 @@ public static class CongestionLocalizer
         bool loadCoincident,
         bool cleanControlExists,
         bool lineWideUnderLoad,
+        bool uniform,
         Func<AsnSeries, DateTime, DateTime, bool> isElevated,
         Func<AsnSeries, bool> isClean)
     {
@@ -347,12 +348,15 @@ public static class CongestionLocalizer
 
         CongestionDisposition disposition;
         string reason;
-        if (isAccessEgress && loadCoincident && lineWideUnderLoad)
+        if (isAccessEgress && loadCoincident && lineWideUnderLoad && uniform)
         {
-            // Bottleneck is the access egress AND every monitored path drifted up together under load
-            // (line-wide). That's loaded latency where all your traffic converges, not a distinct ISP
-            // hop. Surfaced as "Loaded Latency" (not Congestion), not scored (Suppressed). We assert
-            // location + correlation only; the mechanism (CPE buffer, OLT, policing) is unknowable here.
+            // Bottleneck is the access egress AND every monitored path drifted up TOGETHER and UNIFORMLY
+            // under load (line-wide, no path materially worse than the shared floor). That's loaded
+            // latency where all your traffic converges, not a distinct ISP hop. The uniform gate mirrors
+            // the collapse: a shared floor plus a few materially-worse hops is localized congestion on
+            // top of load, not bufferbloat, so it must NOT read as self-inflicted here either. Surfaced
+            // as "Loaded Latency" (not Congestion), not scored (Suppressed). We assert location +
+            // correlation only; the mechanism (CPE buffer, OLT, policing) is unknowable here.
             disposition = CongestionDisposition.SelfInflicted;
             reason = "Every monitored path rose together under load, so the limit was your access link, not a single hop - consistent with bufferbloat or a congested shared-access network.";
         }
@@ -550,8 +554,13 @@ public static class CongestionLocalizer
             .Select(x => x.RttAvgMs!.Value).ToList();
         if (inWindow.Count == 0 || baseline.Count == 0) return false;
         var bMed = SeriesStats.Median(baseline);
-        var eMed = SeriesStats.Median(inWindow);
-        return bMed.HasValue && eMed.HasValue && eMed.Value > bMed.Value + options.CongestionLineWideMinShiftMs;
+        // Use a high in-window percentile, not the median: an event with a strong core and a long
+        // mild tail dilutes the median toward baseline, so a path that genuinely rose for a good part
+        // of the window flickers in and out of "rose" across recomputes and the line-wide breadth
+        // hovers at its threshold. The percentile captures the strong portion robustly; a flat path
+        // (or one that only nudged the tail) still sits at baseline and does not count.
+        var eHigh = SeriesStats.Percentile(inWindow, options.CongestionLineWideRisePercentile);
+        return bMed.HasValue && eHigh.HasValue && eHigh.Value > bMed.Value + options.CongestionLineWideMinShiftMs;
     }
 
     private static List<List<(AsnSeries Series, CongestionEvent Evt)>> ClusterByTime(

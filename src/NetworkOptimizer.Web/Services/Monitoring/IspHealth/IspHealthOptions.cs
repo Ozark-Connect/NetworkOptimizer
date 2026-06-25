@@ -266,6 +266,14 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionLineWideMinShiftMs { get; set; } = 0.5;
 
+    /// <summary>
+    /// In-window percentile used by the line-wide rise test. A high percentile (vs the median) keeps a
+    /// path that rose strongly for a good part of the window counted as "rose" even when a long mild
+    /// tail dilutes its median toward baseline - otherwise the line-wide breadth flickers across
+    /// recomputes for an event with a strong core and a long tail. A flat path still sits at baseline.
+    /// </summary>
+    public double CongestionLineWideRisePercentile { get; set; } = 0.75;
+
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 
