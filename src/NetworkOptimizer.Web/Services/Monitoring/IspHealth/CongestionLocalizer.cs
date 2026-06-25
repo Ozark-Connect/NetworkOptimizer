@@ -53,7 +53,8 @@ public static class CongestionLocalizer
             .Where(s => !s.IsDestination)
             .SelectMany(s => eventsBySeries[s].Select(e => (Series: s, Evt: e)))
             .ToList();
-        if (candidates.Count == 0) return new List<CongestionEvent>();
+
+        var anchored = allSeries.Where(s => HasTrace(s, topology)).ToList();
 
         // A hop counts as elevated if it fired its own event OR shows in-window RTT excursions
         // above its baseline. The softer test matters for propagation: a downstream hop inherits
@@ -62,8 +63,6 @@ public static class CongestionLocalizer
         bool IsElevated(AsnSeries s, DateTime start, DateTime end) =>
             (eventsBySeries.TryGetValue(s, out var evs) && evs.Any(e => Overlaps(e.Start, e.End, start, end)))
             || ElevatedInWindow(s, start, end, options);
-
-        var anchored = allSeries.Where(s => HasTrace(s, topology)).ToList();
 
         var result = new List<CongestionEvent>();
         foreach (var cluster in ClusterByTime(candidates))
@@ -129,8 +128,144 @@ public static class CongestionLocalizer
             evt.AttributionReason = "Confirmed by a sibling hop on the same network congesting in the same window; no monitored hop sits beyond this one to verify it directly.";
         }
 
+        // Collapse genuinely shared incidents: where many independent hops are up TOGETHER (whether
+        // each crossed its own gate or merely drifted up sub-threshold), replace the per-hop events
+        // with one shared-upstream event spanning the concurrent window. Catches both the line-wide
+        // cluster the per-hop localizer would scatter into N rows and the sub-gate rise it misses
+        // entirely - keyed on bucket-level concurrency, so one hop lingering past the rest neither
+        // hides the coincidence nor stretches the collapsed event's duration.
+        ApplySharedUpstream(result, anchored, eventsBySeries, topology, options);
+
         return result.OrderBy(e => e.Start).ToList();
     }
+
+    /// <summary>
+    /// Collapses genuinely shared incidents into one event. A hop is "up" in a bucket if it fired its
+    /// own congestion event there OR merely drifted up sub-threshold (its bucket median rose past
+    /// baseline by a scale-relative margin a fixed millisecond gate would miss). Where a majority of
+    /// independent hops are up TOGETHER, that is one shared upstream bottleneck, not N per-hop events:
+    /// the per-hop events overlapping the concurrent window are removed and replaced with a single
+    /// event attributed to the convergence hop closest to the user. Keyed on bucket-level concurrency
+    /// (not the cluster's outer span), so one hop lingering past the rest neither hides the
+    /// coincidence nor stretches the collapsed duration. Under load it reads as self-inflicted Loaded
+    /// Latency (suppressed); otherwise it is real shared upstream congestion (Confirmed, scored).
+    /// </summary>
+    private static void ApplySharedUpstream(
+        List<CongestionEvent> result,
+        IReadOnlyList<AsnSeries> anchored,
+        Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
+        CongestionTopology topology,
+        IspHealthOptions options)
+    {
+        var hops = anchored.Where(s => !s.IsDestination).ToList();
+        if (hops.Count < options.CoincidentCongestionMinHops) return;
+
+        var bucketSize = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
+        var perHop = new List<(AsnSeries Hop, double Base, Dictionary<DateTime, double> Buckets)>();
+        foreach (var h in hops)
+        {
+            var rtts = h.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
+            var baseRtt = SeriesStats.Median(rtts);
+            if (!baseRtt.HasValue) continue;
+            var buckets = h.Samples.Where(s => s.RttAvgMs.HasValue)
+                .GroupBy(s => CongestionDetector.FloorTime(s.Time, bucketSize))
+                .ToDictionary(g => g.Key, g => SeriesStats.Median(g.Select(s => s.RttAvgMs!.Value).ToList()) ?? baseRtt.Value);
+            perHop.Add((h, baseRtt.Value, buckets));
+        }
+        if (perHop.Count < options.CoincidentCongestionMinHops) return;
+
+        // "Up" in a bucket: fired an event covering it, or drifted up sub-threshold (scale-relative).
+        bool Up((AsnSeries Hop, double Base, Dictionary<DateTime, double> Buckets) p, DateTime t)
+        {
+            if (eventsBySeries.TryGetValue(p.Hop, out var evs) && evs.Any(e => Overlaps(e.Start, e.End, t, t + bucketSize)))
+                return true;
+            return p.Buckets.TryGetValue(t, out var med)
+                && med >= p.Base + Math.Max(options.CongestionLineWideMinShiftMs, p.Base * options.CoincidentCongestionRttRisePct);
+        }
+
+        var upAt = new Dictionary<DateTime, List<AsnSeries>>();
+        foreach (var t in perHop.SelectMany(p => p.Buckets.Keys).Distinct())
+        {
+            var withData = perHop.Where(p => p.Buckets.ContainsKey(t)).ToList();
+            if (withData.Count < options.CoincidentCongestionMinHops) continue;
+            var up = withData.Where(p => Up(p, t)).Select(p => p.Hop).ToList();
+            if (up.Count >= options.CoincidentCongestionMinHops
+                && up.Count >= withData.Count * options.CoincidentCongestionRiseFraction)
+                upAt[t] = up;
+        }
+        if (upAt.Count == 0) return;
+
+        // Group consecutive concurrent buckets (allowing a single-bucket gap) into windows.
+        var groups = new List<List<DateTime>>();
+        foreach (var t in upAt.Keys.OrderBy(t => t))
+        {
+            if (groups.Count > 0 && t - groups[^1][^1] <= bucketSize + bucketSize)
+                groups[^1].Add(t);
+            else
+                groups.Add(new List<DateTime> { t });
+        }
+
+        int HopNum(AsnSeries s) => s.HopIps.Concat(s.AncestorIps)
+            .Where(topology.HopNumberByIp.ContainsKey)
+            .Select(ip => topology.HopNumberByIp[ip]).DefaultIfEmpty(int.MaxValue).Min();
+
+        foreach (var g in groups)
+        {
+            var start = g[0];
+            var end = g[^1] + bucketSize;
+            var upHops = g.SelectMany(t => upAt[t]).Distinct().ToList();
+            if (upHops.Count < options.CoincidentCongestionMinHops) continue;
+
+            // The nearest up hop owns the event: the shared bottleneck sits at or behind the
+            // convergence point closest to the user, and attributing there avoids penalizing every
+            // downstream transit ASN that merely inherited the upstream rise.
+            var owner = upHops.OrderBy(HopNum).First();
+            var ownerPer = perHop.First(p => p.Hop == owner);
+            var peakRtt = g.Where(t => ownerPer.Buckets.ContainsKey(t)).Select(t => ownerPer.Buckets[t]).DefaultIfEmpty(ownerPer.Base).Max();
+            var ownerJits = owner.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+            var baseJit = SeriesStats.Median(ownerJits) ?? 0;
+            var peakJit = owner.Samples.Where(s => s.Time >= start && s.Time < end)
+                .Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).DefaultIfEmpty(baseJit).Max();
+            var loadCoincident = LoadCoincident(start, end, topology, options);
+
+            // This concurrent window is one shared incident: drop the per-hop events it subsumes and
+            // replace them with a single shared-upstream event spanning only the concurrent window.
+            result.RemoveAll(e => !e.SharedUpstream && Overlaps(e.Start, e.End, start, end));
+            result.Add(SharedUpstreamEvent(owner, ownerPer.Base, peakRtt, baseJit, peakJit, start, end, upHops.Count, loadCoincident));
+        }
+    }
+
+    /// <summary>
+    /// Builds one shared-upstream congestion event attributed to <paramref name="owner"/> (the
+    /// convergence hop closest to the user). Under load it reads as self-inflicted "Loaded Latency"
+    /// (your access link is the limit, suppressed from the score); otherwise it is real shared
+    /// upstream congestion (Confirmed, scored). Used both to collapse a line-wide cluster of per-hop
+    /// events and to surface a sub-gate coincident rise.
+    /// </summary>
+    private static CongestionEvent SharedUpstreamEvent(
+        AsnSeries owner, double baselineRtt, double peakRtt, double baselineJit, double peakJit,
+        DateTime start, DateTime end, int riseCount, bool loadCoincident) => new()
+    {
+        Start = start,
+        End = end,
+        AsnNumbers = owner.AsnNumber > 0 ? new List<int> { owner.AsnNumber } : new List<int>(),
+        AsnNames = owner.AsnName is { Length: > 0 } ? new List<string> { owner.AsnName } : new List<string>(),
+        TargetIds = owner.TargetIds.ToList(),
+        BaselineRttMs = baselineRtt,
+        PeakRttMs = peakRtt,
+        BaselineJitterMs = baselineJit,
+        PeakJitterMs = peakJit,
+        Scope = CongestionScope.Unlocalized,
+        Disposition = loadCoincident ? CongestionDisposition.SelfInflicted : CongestionDisposition.Confirmed,
+        BottleneckHopIp = owner.HopIps.FirstOrDefault(),
+        BottleneckLabel = owner.AsnName,
+        SharedUpstream = true,
+        LoadCoincident = loadCoincident,
+        Confidence = 70,
+        AttributionReason = loadCoincident
+            ? "Every monitored path rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not a single hop."
+            : $"{riseCount} monitored paths across independent networks rose together this window - a shared upstream bottleneck lifting the whole path, not any one hop."
+    };
 
     /// <summary>
     /// The shallowest hop in the unbroken elevated run ending at <paramref name="series"/>. A

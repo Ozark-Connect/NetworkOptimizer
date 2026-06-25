@@ -1138,12 +1138,18 @@ public class IspHealthService
         List<CongestionEvent> events, TimeSpan aggregate, CancellationToken ct)
     {
         var fine = TimeSpan.FromSeconds(_options.LoadWindowSeconds);
-        if (events.Count == 0 || aggregate <= fine) return;
+        if (aggregate <= fine) return;
+
+        // Shared-upstream events are sub-gate by design - no single hop fires, so per-hop fine
+        // re-detection would never reproduce them and the phantom-drop below would wrongly remove
+        // them. They are validated by cross-hop coincidence, not boundary-refined here.
+        var refinable = events.Where(e => !e.SharedUpstream).ToList();
+        if (refinable.Count == 0) return;
 
         // Enough clean baseline on each side of a bounded event for fine re-detection to anchor.
         var pad = TimeSpan.FromHours(2);
 
-        var refined = await Task.WhenAll(events.Select(async e =>
+        var refined = await Task.WhenAll(refinable.Select(async e =>
         {
             var runs = new List<(DateTime Start, DateTime End)>();
             foreach (var tid in e.TargetIds)

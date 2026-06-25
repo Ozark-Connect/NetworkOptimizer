@@ -230,6 +230,29 @@ public class IspHealthOptions
     /// </summary>
     public double CongestionLineWideMinShiftMs { get; set; } = 0.5;
 
+    /// <summary>
+    /// Shared-upstream (coincident-rise) detection: the minimum number of independent monitored hops
+    /// that must rise together in a bucket for it to count as shared congestion. Each hop's rise is
+    /// individually sub-threshold (below the per-hop congestion gate); the coincidence across
+    /// unrelated ASNs is the signal a per-hop threshold can't see.
+    /// </summary>
+    public int CoincidentCongestionMinHops { get; set; } = 4;
+
+    /// <summary>
+    /// Shared-upstream detection: the fraction of monitored hops (with data in the bucket) that must
+    /// have risen for the bucket to count as a shared-upstream bucket. Lower than the self-infliction
+    /// line-wide fraction because there is no local-load corroboration to lean on.
+    /// </summary>
+    public double CoincidentCongestionRiseFraction { get; set; } = 0.6;
+
+    /// <summary>
+    /// Shared-upstream detection: a hop's bucket median counts as "risen" when it sits at least this
+    /// fraction of its baseline above baseline (with <see cref="CongestionLineWideMinShiftMs"/> as the
+    /// absolute floor). Scale-relative so a real proportional rise on a low-latency fiber hop registers
+    /// where a fixed millisecond floor would miss it.
+    /// </summary>
+    public double CoincidentCongestionRttRisePct { get; set; } = 0.15;
+
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
 
