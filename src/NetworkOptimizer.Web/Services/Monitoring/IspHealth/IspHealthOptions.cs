@@ -168,6 +168,27 @@ public class IspHealthOptions
     public double CongestionJitterMinDeltaMs { get; set; } = 0.8;
 
     /// <summary>
+    /// Hysteresis for congestion run continuation. Starting a run still requires the full entry
+    /// gate (RTT+jitter, or the burst shape); but once a run is active it stays alive while any
+    /// signal remains at least this fraction of the way from baseline to its entry threshold.
+    /// Without it a long event whose tail hovers just under the entry gate (the milder second half
+    /// of a real multi-hour event) flickers in and out and truncates to its peak. Entry is
+    /// unchanged, so this only extends events that already legitimately started - never creates new
+    /// ones.
+    /// </summary>
+    public double CongestionSustainFraction { get; set; } = 0.5;
+
+    /// <summary>
+    /// A localized congestion event reports the shared time-cluster window when its own bottleneck's
+    /// elevation covers at least this fraction of that window; a member substantially shorter (an
+    /// outlier that cleared early while co-occurring hops lingered) reports its own span instead.
+    /// Keeps a genuine co-temporal shared event presented as one clean window, while still breaking
+    /// out a hop whose duration is very different. At 1.0 every member uses its own exact span; at 0
+    /// every member uses the full cluster window.
+    /// </summary>
+    public double CongestionSharedWindowMinFraction { get; set; } = 0.7;
+
+    /// <summary>
     /// WAN utilization (fraction of the expected plan speed, worst direction) at or above
     /// which a congestion bucket is treated as coinciding with heavy local load. The
     /// self-inflicted classifier uses this to tell access-egress bufferbloat (your own
@@ -194,6 +215,42 @@ public class IspHealthOptions
     public double CongestionPropagationExcursionFraction { get; set; } = 0.05;
 
     /// <summary>
+    /// Factor a hop's in-window median jitter must clear over its own baseline median jitter to count
+    /// as elevated for PROPAGATION. Many congestion incidents are jitter-driven with flat RTT, so an
+    /// RTT-only propagation test reads the downstream as "clean" and wrongly absolves a real chain-wide
+    /// rise as per-hop control-plane noise. Softer than the detection jitter factor; paired with an
+    /// absolute floor below so a near-zero-baseline hop is not tripped by a sub-ms ratio swing.
+    /// </summary>
+    public double CongestionPropagationJitterFactor { get; set; } = 1.5;
+
+    /// <summary>
+    /// Minimum absolute median-jitter rise (ms) for the propagation jitter test, on top of the
+    /// <see cref="CongestionPropagationJitterFactor"/> ratio - a 0.05 -> 0.10 ms doubling is still
+    /// noise, not propagation.
+    /// </summary>
+    public double CongestionPropagationJitterFloorMs { get; set; } = 0.2;
+
+    /// <summary>
+    /// Loaded-latency uniformity gate. Under heavy WAN load every path picks up a shared FLOOR of
+    /// added delay (that floor alone is loaded latency). A shared/loaded-latency event collapses to a
+    /// single row only when the rise is UNIFORM: the worst path's RTT rise over its own baseline is
+    /// within this factor of the median path's rise. If a few paths rose materially further than the
+    /// floor (high variance), those are localized congestion ON TOP of the load - the event stays
+    /// per-hop so the localizer surfaces them as "this hop's own capacity", not "everything slowed".
+    /// </summary>
+    public double CongestionLoadedUniformityFactor { get; set; } = 2.0;
+
+    /// <summary>
+    /// Clean-control floor multiple. A parallel path counts as a CLEAN control (proof a hop's
+    /// elevation is its own capacity, not access bufferbloat) when its RTT rose no more than this
+    /// multiple of the shared floor - i.e. it only picked up the load floor, not localized congestion.
+    /// Must be tighter than <see cref="CongestionLoadedUniformityFactor"/> so the materially-worse
+    /// hops are NOT counted as clean. Uses RTT (not jitter): under load the jitter floor lifts every
+    /// path, so a jitter-inclusive "elevated" test would erase every clean control.
+    /// </summary>
+    public double CongestionCleanControlFloorFactor { get; set; } = 1.5;
+
+    /// <summary>
     /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored
     /// paths (with data) must have their in-window median rise above baseline for an access-egress
     /// bottleneck under load to read as self-inflicted rather than a hop bottleneck. A robust majority
@@ -208,6 +265,14 @@ public class IspHealthOptions
     /// high-baseline hops where it sits under the absolute elevation floor.
     /// </summary>
     public double CongestionLineWideMinShiftMs { get; set; } = 0.5;
+
+    /// <summary>
+    /// In-window percentile used by the line-wide rise test. A high percentile (vs the median) keeps a
+    /// path that rose strongly for a good part of the window counted as "rose" even when a long mild
+    /// tail dilutes its median toward baseline - otherwise the line-wide breadth flickers across
+    /// recomputes for an event with a strong core and a long tail. A flat path still sits at baseline.
+    /// </summary>
+    public double CongestionLineWideRisePercentile { get; set; } = 0.75;
 
     /// <summary>Window size in minutes for step-change median comparison.</summary>
     public int StepWindowMinutes { get; set; } = 30;
@@ -232,8 +297,13 @@ public class IspHealthOptions
     /// </summary>
     public double StepStableIqrFraction { get; set; } = 0.15;
 
-    /// <summary>Bucket size in minutes for outage detection.</summary>
-    public int OutageBucketMinutes { get; set; } = 1;
+    /// <summary>
+    /// Bucket size in seconds for outage detection. Sub-minute so a brief (~30 s) drop resolves
+    /// into its own fully-dark buckets instead of being diluted to a partial-loss bucket inside a
+    /// one-minute window and failing the dark-fraction gate. At the internet targets' ~7-10 s
+    /// effective sample cadence a 15 s bucket still holds one or two samples per target.
+    /// </summary>
+    public int OutageBucketSeconds { get; set; } = 15;
 
     /// <summary>
     /// Mean loss (percent) at or above which a tier counts as dark in an outage bucket.
@@ -256,17 +326,71 @@ public class IspHealthOptions
     /// </summary>
     public int OutageMinReportingTargets { get; set; } = 2;
 
-    /// <summary>Minimum sustained duration in minutes for an outage event.</summary>
-    public int OutageMinDurationMinutes { get; set; } = 2;
+    /// <summary>
+    /// Minimum sustained duration in seconds before a near-total-loss span is reported at all.
+    /// Set above a momentary blip (a single lost probe group) but well below the brief/full
+    /// divider, so a clean 30 s transit drop is captured rather than discarded.
+    /// </summary>
+    public int OutageMinDurationSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Spans shorter than this are classified as brief disruptions (short transit/upstream flaps);
+    /// at or above it they are full outages. This is the prior two-minute outage threshold, kept as
+    /// the divider so what users already understood as an outage is unchanged - brief disruptions are
+    /// a new, lighter tier beneath it that rides the low end of the severity curve. See
+    /// <see cref="OutageEvent.IsBrief"/>.
+    /// </summary>
+    public int OutageBriefMaxSeconds { get; set; } = 120;
 
     /// <summary>
     /// Two outage runs separated by a healthy gap no longer than this are coalesced into one
     /// event. One real outage briefly clears the dark-fraction gate during staggered onset or
-    /// inside-out recovery (targets dark/heal at slightly different minutes); without this it
+    /// inside-out recovery (targets dark/heal at slightly different times); without this it
     /// would fragment into several adjacent events. The sealed gap counts as downtime, so keep
     /// it short - the over-count is bounded by this value per seam.
     /// </summary>
-    public int OutageMaxGapMinutes { get; set; } = 3;
+    public int OutageMaxGapSeconds { get; set; } = 180;
+
+    /// <summary>
+    /// Bucket size in seconds for the partial-loss (degradation) pass. Wider than the blackout
+    /// bucket because partial loss is route-specific: independent targets degrade at slightly
+    /// different instants across the event, so a 15 s bucket holds only a couple at once. A 30 s
+    /// window lets the coincident-but-staggered degradations land together for the breadth gate.
+    /// </summary>
+    public int OutagePartialBucketSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Loss (percent) at or above which a target counts as degraded for partial-loss detection.
+    /// Below the near-total <see cref="OutageDarkLossPct"/> - a partial-loss burst is the path
+    /// getting lossy, not unreachable.
+    /// </summary>
+    public double OutagePartialLossPct { get; set; } = 50.0;
+
+    /// <summary>
+    /// Minimum distinct path targets simultaneously degraded (within one partial bucket) for a
+    /// partial-loss disruption. Coincident loss across many independent destinations is a real
+    /// path event; one or two lossy targets are noise (ICMP rate-limiting, a single bad CDN node).
+    /// </summary>
+    public int OutagePartialMinTargets { get; set; } = 4;
+
+    /// <summary>
+    /// Minimum distinct ASNs/destinations spanned by the degraded targets, alongside
+    /// <see cref="OutagePartialMinTargets"/>. Guards against several targets behind one ASN all
+    /// degrading together (that ASN's own issue, not a path-wide event) tripping detection.
+    /// </summary>
+    public int OutagePartialMinAsns { get; set; } = 2;
+
+    /// <summary>Minimum sustained duration in seconds for a partial-loss disruption.</summary>
+    public int OutagePartialMinDurationSeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Scales a partial-loss disruption's severity-curve penalty relative to a full outage of the
+    /// same duration: the curve input is duration x (peak loss fraction) x this weight, so the ding
+    /// stays tiny (a 30 s / 80% event is about a point). Partial loss also still feeds the Packet
+    /// Loss factor (these events are deliberately not masked from it), so this is a small additional
+    /// nudge for visibility, with the minor overlap accepted by design.
+    /// </summary>
+    public double OutagePartialPenaltyWeight { get; set; } = 1.0;
 
     /// <summary>
     /// Recovery-time tolerance for collapsing per-target access ISP rows in the outage waterfall:

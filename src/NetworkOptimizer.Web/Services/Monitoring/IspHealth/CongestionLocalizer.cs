@@ -88,28 +88,61 @@ public static class CongestionLocalizer
             }
 
             var loadCoincident = LoadCoincident(window.Start, window.End, topology, options);
-            // A clean anchored series anywhere means the elevation is NOT line-wide. Kept for the
-            // Confirmed confidence below (NOT the self-infliction gate - see lineWideUnderLoad).
-            // Must have data in the window - a no-data series (newer target / gap) isn't "clean".
-            var cleanControlExists = anchored.Any(s =>
-                HasDataInWindow(s, window.Start, window.End) && !IsElevated(s, window.Start, window.End));
-            // Self-inflicted access bufferbloat adds a near-constant rise to (almost) every monitored
-            // path crossing the egress under load. The absolute elevation bar misses that on high-
-            // baseline / high-variance paths (their inflated p90 hides a ~1 ms drift), so one such path
-            // reading "clean" wrongly vetoes self-infliction. This robust median-shift test keys on
-            // "did everything drift up together": the fraction of anchored paths (with data) whose
-            // in-window median rose above baseline by a small margin. Only consulted for the egress hop.
             var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
+
+            // Each anchored path's RTT rise over its OWN baseline. Under load every path picks up a
+            // shared FLOOR of added delay; localized congestion is the rise ABOVE that floor.
+            double RttRise(AsnSeries s)
+            {
+                var inW = s.Samples.Where(x => x.Time >= window.Start && x.Time <= window.End && x.RttAvgMs.HasValue)
+                    .Select(x => x.RttAvgMs!.Value).ToList();
+                var baseW = s.Samples.Where(x => (x.Time < window.Start || x.Time > window.End) && x.RttAvgMs.HasValue)
+                    .Select(x => x.RttAvgMs!.Value).ToList();
+                var im = SeriesStats.Median(inW);
+                var bm = SeriesStats.Median(baseW);
+                return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
+            }
+            var relElevated = anchoredWithData.Where(s => IsElevated(s, window.Start, window.End)).ToList();
+            var rises = relElevated.Select(RttRise).Where(r => r > 0).OrderBy(r => r).ToList();
+            var floorRise = SeriesStats.Median(rises) ?? 0;
+
+            // A CLEAN control rose no more than the shared floor in RTT - it picked up the load floor
+            // but NOT localized congestion. Using RTT (not the jitter-inclusive IsElevated) is the point:
+            // under load the jitter floor lifts every path, so IsElevated would mark even Cox "elevated"
+            // and erase every clean control - which is exactly what suppressed the "this hop's own
+            // capacity, not your access egress" messaging. A non-zero count of clean parallel paths is
+            // the proof an elevation is a single hop's capacity rather than access-layer bufferbloat.
+            bool IsClean(AsnSeries s) => RttRise(s) <= floorRise * options.CongestionCleanControlFloorFactor;
+            var cleanControlExists = anchoredWithData.Any(IsClean);
+
+            // Self-inflicted access bufferbloat lifts (almost) every monitored path crossing the egress
+            // under load. The robust median-shift test keys on "did everything drift up together": the
+            // fraction of anchored paths (with data) whose in-window median rose above baseline.
             var lineWideUnderLoad = anchoredWithData.Count > 0
                 && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options))
                     >= anchoredWithData.Count * options.CongestionLineWideRiseFraction;
 
+            // SHARED-INCIDENT COLLAPSE (narrow exception; the per-hop separation below is the default
+            // and stays authoritative). Collapse to ONE event only when the rise is genuinely UNIFORM:
+            // a strict majority rose in RTT (lineWideUnderLoad) AND no path rose MATERIALLY above the
+            // shared floor. If a few paths are much worse than the floor, those are localized congestion
+            // on top of the load - stay per-hop so the localizer surfaces them as "this hop's own
+            // capacity", not "everything slowed".
+            var uniform = rises.Count == 0 || floorRise <= 0
+                || rises[^1] <= floorRise * options.CongestionLoadedUniformityFactor;
+            if (lineWideUnderLoad && uniform && relElevated.Count > 0)
+            {
+                result.Add(BuildSharedIncident(relElevated, eventsBySeries, anchoredWithData, window,
+                    topology, options, loadCoincident, IsElevated));
+                continue;
+            }
+
             foreach (var (bnIp, members) in byBottleneck)
                 result.Add(BuildLocalized(bnIp, members, allSeries, eventsBySeries, window,
-                    topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, IsElevated));
+                    topology, options, loadCoincident, cleanControlExists, lineWideUnderLoad, uniform, IsElevated, IsClean));
 
             if (unanchored.Count > 0)
-                result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident));
+                result.Add(BuildUnlocalized(unanchored, eventsBySeries, window, topology, loadCoincident, options));
         }
 
         // An Unverifiable hop (dead-end, nothing monitored beyond it) inherits Confirmed from a
@@ -130,6 +163,104 @@ public static class CongestionLocalizer
         }
 
         return result.OrderBy(e => e.Start).ToList();
+    }
+
+    /// <summary>
+    /// Builds the single event for a shared incident (a relative-line-wide, access-rooted cluster).
+    /// Attributed to the convergence hop nearest the user; Loaded Latency under load (your access
+    /// link, suppressed), else real shared upstream congestion (Confirmed, scored). The span is
+    /// trimmed to the sub-window where the breadth actually holds, so one hop lingering past the rest
+    /// doesn't stretch it, and the worst single hop is named in the reason.
+    /// </summary>
+    private static CongestionEvent BuildSharedIncident(
+        List<AsnSeries> elevated,
+        Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
+        List<AsnSeries> anchoredWithData,
+        (DateTime Start, DateTime End) window,
+        CongestionTopology topology,
+        IspHealthOptions options,
+        bool loadCoincident,
+        Func<AsnSeries, DateTime, DateTime, bool> isElevated)
+    {
+        int HopNum(AsnSeries s) => s.HopIps.Concat(s.AncestorIps)
+            .Where(topology.HopNumberByIp.ContainsKey)
+            .Select(ip => topology.HopNumberByIp[ip]).DefaultIfEmpty(int.MaxValue).Min();
+
+        // Decision 3: span only the contiguous sub-window where the breadth still holds, so a single
+        // hop lingering past the rest cannot stretch the incident's reported (and scored) duration.
+        var bucket = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
+        var need = anchoredWithData.Count * options.CongestionLineWideRiseFraction;
+        var wide = new List<DateTime>();
+        for (var b = CongestionDetector.FloorTime(window.Start, bucket); b < window.End; b += bucket)
+            if (anchoredWithData.Count(s => isElevated(s, b, b + bucket)) >= need)
+                wide.Add(b);
+        var start = wide.Count > 0 ? wide.Min() : window.Start;
+        var end = wide.Count > 0 ? wide.Max() + bucket : window.End;
+
+        Func<AsnSeries, IEnumerable<CongestionEvent>> evts = s =>
+            (eventsBySeries.TryGetValue(s, out var es) ? es : Enumerable.Empty<CongestionEvent>())
+                .Where(e => Overlaps(e.Start, e.End, start, end));
+
+        // The convergence hop nearest the user owns the event (usually the access egress); this also
+        // keeps the score attributed to your ISP card rather than every downstream transit victim.
+        var owner = elevated.OrderBy(HopNum).First();
+        var ownerEvt = evts(owner).FirstOrDefault();
+
+        // Owner magnitudes from its fired event when it has one; otherwise (the owner was elevated via
+        // the relative jitter/excursion arm with no fired RTT event) compute them from its samples, so
+        // the row never reports 0 -> 0.
+        double baseRtt, peakRtt, baseJit, peakJit;
+        if (ownerEvt != null)
+        {
+            baseRtt = ownerEvt.BaselineRttMs;
+            peakRtt = ownerEvt.PeakRttMs;
+            baseJit = ownerEvt.BaselineJitterMs;
+            peakJit = ownerEvt.PeakJitterMs;
+        }
+        else
+        {
+            var inR = owner.Samples.Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList();
+            var baseR = owner.Samples.Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList();
+            var inJ = owner.Samples.Where(x => x.Time >= start && x.Time <= end).Select(x => x.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+            var baseJ = owner.Samples.Where(x => x.Time < start || x.Time > end).Select(x => x.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
+            baseRtt = SeriesStats.Median(baseR) ?? 0;
+            peakRtt = inR.Count > 0 ? SeriesStats.Percentile(inR, 0.90) ?? baseRtt : baseRtt;
+            baseJit = SeriesStats.Median(baseJ) ?? 0;
+            peakJit = inJ.Count > 0 ? inJ.Max() : baseJit;
+        }
+
+        // Decision 2: name the single worst hop (largest relative RTT rise among the fired members).
+        var worst = elevated
+            .SelectMany(s => evts(s).Select(e => (Series: s, Rise: e.BaselineRttMs > 0 ? (e.PeakRttMs - e.BaselineRttMs) / e.BaselineRttMs : 0)))
+            .OrderByDescending(x => x.Rise)
+            .Select(x => x.Series)
+            .FirstOrDefault();
+
+        var reason = loadCoincident
+            ? $"{elevated.Count} monitored paths rose together under heavy WAN load, so the limit was your access link (bufferbloat or a congested shared-access network), not one hop."
+            : $"{elevated.Count} monitored paths across independent networks rose together with no heavy local load - a shared upstream bottleneck lifting the whole path, not one hop.";
+        if (worst != null && worst != owner && worst.AsnName is { Length: > 0 } worstName)
+            reason += $" Worst at {worstName}.";
+
+        return new CongestionEvent
+        {
+            Start = start,
+            End = end,
+            AsnNumbers = owner.AsnNumber > 0 ? new List<int> { owner.AsnNumber } : new List<int>(),
+            AsnNames = owner.AsnName is { Length: > 0 } ? new List<string> { owner.AsnName } : new List<string>(),
+            TargetIds = owner.TargetIds.ToList(),
+            BaselineRttMs = baseRtt,
+            PeakRttMs = peakRtt,
+            BaselineJitterMs = baseJit,
+            PeakJitterMs = peakJit,
+            Scope = CongestionScope.Unlocalized,
+            Disposition = loadCoincident ? CongestionDisposition.SelfInflicted : CongestionDisposition.Confirmed,
+            BottleneckHopIp = owner.HopIps.FirstOrDefault(),
+            BottleneckLabel = owner.AsnName,
+            LoadCoincident = loadCoincident,
+            Confidence = 70,
+            AttributionReason = reason
+        };
     }
 
     /// <summary>
@@ -167,7 +298,9 @@ public static class CongestionLocalizer
         bool loadCoincident,
         bool cleanControlExists,
         bool lineWideUnderLoad,
-        Func<AsnSeries, DateTime, DateTime, bool> isElevated)
+        bool uniform,
+        Func<AsnSeries, DateTime, DateTime, bool> isElevated,
+        Func<AsnSeries, bool> isClean)
     {
         var hopNum = topology.HopNumberByIp.TryGetValue(bottleneckIp, out var hn) ? hn : int.MaxValue;
         // The hop the congestion sits ON owns the event - that ASN is the culprit, the deeper
@@ -204,20 +337,26 @@ public static class CongestionLocalizer
         // access-layer bufferbloat (which would lift every path that shares your access link).
         // Require samples IN the window: a series with no data then (a newer target added after a
         // past event, or a monitoring gap) is unknown, not clean, and must not pad this evidence.
+        // Clean = rose no more than the shared load floor in RTT (isClean), NOT merely "not elevated":
+        // under load the jitter floor lifts every path, so a jitter-inclusive test would count zero
+        // clean controls and wrongly drop the "this hop's own capacity, not your access egress" finding.
         var cleanParallelPaths = allSeries.Count(s => HasTrace(s, topology)
             && HasDataInWindow(s, window.Start, window.End)
             && !s.HopIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
             && !s.AncestorIps.Contains(bottleneckIp, StringComparer.OrdinalIgnoreCase)
-            && !isElevated(s, window.Start, window.End));
+            && isClean(s));
 
         CongestionDisposition disposition;
         string reason;
-        if (isAccessEgress && loadCoincident && lineWideUnderLoad)
+        if (isAccessEgress && loadCoincident && lineWideUnderLoad && uniform)
         {
-            // Bottleneck is the access egress AND every monitored path drifted up together under load
-            // (line-wide). That's loaded latency where all your traffic converges, not a distinct ISP
-            // hop. Surfaced as "Loaded Latency" (not Congestion), not scored (Suppressed). We assert
-            // location + correlation only; the mechanism (CPE buffer, OLT, policing) is unknowable here.
+            // Bottleneck is the access egress AND every monitored path drifted up TOGETHER and UNIFORMLY
+            // under load (line-wide, no path materially worse than the shared floor). That's loaded
+            // latency where all your traffic converges, not a distinct ISP hop. The uniform gate mirrors
+            // the collapse: a shared floor plus a few materially-worse hops is localized congestion on
+            // top of load, not bufferbloat, so it must NOT read as self-inflicted here either. Surfaced
+            // as "Loaded Latency" (not Congestion), not scored (Suppressed). We assert location +
+            // correlation only; the mechanism (CPE buffer, OLT, policing) is unknowable here.
             disposition = CongestionDisposition.SelfInflicted;
             reason = "Every monitored path rose together under load, so the limit was your access link, not a single hop - consistent with bufferbloat or a congested shared-access network.";
         }
@@ -253,7 +392,7 @@ public static class CongestionLocalizer
             _ => 50
         };
 
-        var evt = NewEvent(bottleneckSeries, members, eventsBySeries, window);
+        var evt = NewEvent(bottleneckSeries, members, eventsBySeries, window, options);
         evt.Scope = CongestionScope.Hop;
         evt.Disposition = disposition;
         evt.BottleneckHopIp = bottleneckIp;
@@ -270,9 +409,10 @@ public static class CongestionLocalizer
         Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
         (DateTime Start, DateTime End) window,
         CongestionTopology topology,
-        bool loadCoincident)
+        bool loadCoincident,
+        IspHealthOptions options)
     {
-        var evt = NewEvent(null, members, eventsBySeries, window);
+        var evt = NewEvent(null, members, eventsBySeries, window, options);
         evt.Scope = CongestionScope.Unlocalized;
         evt.Disposition = CongestionDisposition.Confirmed;
         evt.LoadCoincident = loadCoincident;
@@ -287,7 +427,8 @@ public static class CongestionLocalizer
         AsnSeries? identity,
         List<AsnSeries> members,
         Dictionary<AsnSeries, List<CongestionEvent>> eventsBySeries,
-        (DateTime Start, DateTime End) window)
+        (DateTime Start, DateTime End) window,
+        IspHealthOptions options)
     {
         // Metrics come from the culprit hop when it has its own elevation, else the worst member.
         var metricSource = identity != null
@@ -295,17 +436,27 @@ public static class CongestionLocalizer
             && idEvents.Any(e => Overlaps(e.Start, e.End, window.Start, window.End))
             ? new List<AsnSeries> { identity }
             : members;
-        var worst = metricSource
+        var sourceEvents = metricSource
             .SelectMany(m => eventsBySeries[m].Where(e => Overlaps(e.Start, e.End, window.Start, window.End)))
-            .OrderByDescending(e => e.PeakRttMs - e.BaselineRttMs)
-            .First();
+            .ToList();
+        var worst = sourceEvents.OrderByDescending(e => e.PeakRttMs - e.BaselineRttMs).First();
         // The penalized ASN/targets are the bottleneck hop when localized; downstream victims
         // are excluded. An unlocalized event has no single culprit, so it keeps the full set.
         var id = identity != null ? new List<AsnSeries> { identity } : members;
+        // Report the shared cluster window when this bottleneck's own elevation covers most of it,
+        // so a genuine co-temporal event reads as one clean window across its per-hop rows. Only a
+        // member that cleared much earlier than the others (an outlier) reports its own shorter span
+        // - so a hop that resolved in 45 min isn't stamped with a co-occurring hop's multi-hour span.
+        // Correlation/propagation/disposition above still use the full cluster window regardless.
+        var ownStart = sourceEvents.Min(e => e.Start);
+        var ownEnd = sourceEvents.Max(e => e.End);
+        var clusterSpan = (window.End - window.Start).TotalSeconds;
+        var sharesWindow = clusterSpan <= 0
+            || (ownEnd - ownStart).TotalSeconds >= clusterSpan * options.CongestionSharedWindowMinFraction;
         return new CongestionEvent
         {
-            Start = window.Start,
-            End = window.End,
+            Start = sharesWindow ? window.Start : ownStart,
+            End = sharesWindow ? window.End : ownEnd,
             AsnNumbers = id.Select(m => m.AsnNumber).Distinct().ToList(),
             AsnNames = id.Select(m => m.AsnName ?? $"AS{m.AsnNumber}").Distinct().ToList(),
             TargetIds = id.SelectMany(m => m.TargetIds).Distinct().ToList(),
@@ -327,12 +478,14 @@ public static class CongestionLocalizer
     }
 
     /// <summary>
-    /// A softer "elevated in this window" test than firing a full congestion event: true when a
-    /// meaningful fraction of in-window RTT samples exceed the hop's own baseline p90 by the
-    /// congestion RTT floor. A real bottleneck's added delay reaches downstream hops as excursions
-    /// that may be too sparse to fire their own sustained event; using this for the propagation
-    /// and clean-control checks stops the localizer from absolving a genuine bottleneck as
-    /// control-plane noise just because nothing downstream fired. Clean off-path hops sit near zero.
+    /// A softer "elevated in this window" test than firing a full congestion event, used for the
+    /// propagation and clean-control checks so the localizer doesn't absolve a genuine bottleneck as
+    /// control-plane noise just because nothing downstream fired its own event. A hop counts as
+    /// elevated if EITHER its RTT rose (a meaningful fraction of in-window RTT samples exceed its own
+    /// baseline p90 by the congestion RTT floor) OR its jitter rose relative to its own baseline.
+    /// The jitter arm matters because many incidents are jitter-driven with flat RTT - an RTT-only
+    /// test reads the downstream as clean and shatters one chain-wide rise into per-hop noise rows.
+    /// Both arms are relative to the hop's OWN baseline; clean off-path hops sit near zero on both.
     /// </summary>
     internal static bool ElevatedInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
     {
@@ -345,10 +498,30 @@ public static class CongestionLocalizer
         if (inWindow.Count == 0 || baseline.Count == 0) return false;
 
         var baselineP90 = SeriesStats.Percentile(baseline, 0.90);
-        if (!baselineP90.HasValue) return false;
-        var threshold = baselineP90.Value + options.CongestionRttMinDeltaMs;
-        var excursionFraction = inWindow.Count(v => v > threshold) / (double)inWindow.Count;
-        return excursionFraction >= options.CongestionPropagationExcursionFraction;
+        if (baselineP90.HasValue)
+        {
+            var threshold = baselineP90.Value + options.CongestionRttMinDeltaMs;
+            var excursionFraction = inWindow.Count(v => v > threshold) / (double)inWindow.Count;
+            if (excursionFraction >= options.CongestionPropagationExcursionFraction) return true;
+        }
+
+        // Jitter arm: the downstream of a real bottleneck often inherits the delay as jitter while its
+        // median RTT barely moves, so RTT-only propagation misses it. Compare in-window median jitter
+        // to this hop's OWN baseline median (relative, with a small absolute floor so a near-zero hop
+        // isn't tripped by a sub-ms ratio swing).
+        var inJitter = series.Samples
+            .Where(x => x.Time >= start && x.Time <= end).Select(x => x.EffectiveJitterMs)
+            .Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        var baseJitter = series.Samples
+            .Where(x => x.Time < start || x.Time > end).Select(x => x.EffectiveJitterMs)
+            .Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        if (inJitter.Count == 0 || baseJitter.Count == 0) return false;
+
+        var inJitMedian = SeriesStats.Median(inJitter);
+        var baseJitMedian = SeriesStats.Median(baseJitter);
+        return inJitMedian.HasValue && baseJitMedian.HasValue
+            && inJitMedian.Value >= baseJitMedian.Value * options.CongestionPropagationJitterFactor
+            && inJitMedian.Value - baseJitMedian.Value >= options.CongestionPropagationJitterFloorMs;
     }
 
     private static int DeepestHopNum(AsnSeries series, CongestionTopology topology) => series.HopIps
@@ -381,8 +554,13 @@ public static class CongestionLocalizer
             .Select(x => x.RttAvgMs!.Value).ToList();
         if (inWindow.Count == 0 || baseline.Count == 0) return false;
         var bMed = SeriesStats.Median(baseline);
-        var eMed = SeriesStats.Median(inWindow);
-        return bMed.HasValue && eMed.HasValue && eMed.Value > bMed.Value + options.CongestionLineWideMinShiftMs;
+        // Use a high in-window percentile, not the median: an event with a strong core and a long
+        // mild tail dilutes the median toward baseline, so a path that genuinely rose for a good part
+        // of the window flickers in and out of "rose" across recomputes and the line-wide breadth
+        // hovers at its threshold. The percentile captures the strong portion robustly; a flat path
+        // (or one that only nudged the tail) still sits at baseline and does not count.
+        var eHigh = SeriesStats.Percentile(inWindow, options.CongestionLineWideRisePercentile);
+        return bMed.HasValue && eHigh.HasValue && eHigh.Value > bMed.Value + options.CongestionLineWideMinShiftMs;
     }
 
     private static List<List<(AsnSeries Series, CongestionEvent Evt)>> ClusterByTime(

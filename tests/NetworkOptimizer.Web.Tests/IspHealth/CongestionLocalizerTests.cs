@@ -35,7 +35,13 @@ public class CongestionLocalizerTests
 
     private static readonly Dictionary<string, int> HopNumbers = new(StringComparer.OrdinalIgnoreCase)
     {
-        [Bng] = 1, [Border] = 2, [Backhaul] = 3, [Transit] = 4, [DeadEnd] = 3, [DestCorridor] = 5, [DestControl] = 5
+        [Bng] = 1,
+        [Border] = 2,
+        [Backhaul] = 3,
+        [Transit] = 4,
+        [DeadEnd] = 3,
+        [DestCorridor] = 5,
+        [DestControl] = 5
     };
 
     private static List<LatencySample> Flat(double rtt = 5) => TestSeries.Flat(TestSeries.Start, Day, rtt, jitterMs: 0.5);
@@ -60,8 +66,13 @@ public class CongestionLocalizerTests
         var s = Hop(0, ip, samples, ancestors);
         return new AsnSeries
         {
-            AsnNumber = 0, AsnName = ip, TargetIds = { ip }, Samples = samples,
-            HopIps = { ip }, AncestorIps = ancestors.ToList(), IsDestination = true
+            AsnNumber = 0,
+            AsnName = ip,
+            TargetIds = { ip },
+            Samples = samples,
+            HopIps = { ip },
+            AncestorIps = ancestors.ToList(),
+            IsDestination = true
         };
     }
 
@@ -79,6 +90,62 @@ public class CongestionLocalizerTests
         Load = load ? HighLoad() : new List<(DateTime, double?)>(),
         HasTraceMap = true
     };
+
+    [Fact]
+    public void Each_bottleneck_reports_its_own_duration_not_the_cluster_span()
+    {
+        // Two independent bottlenecks overlap in time: a near backhaul hop that clears in 45 min,
+        // and an off-corridor dead-end hop elevated for 3 h. They land in one time-cluster, but each
+        // event must report its OWN elevation span - the short one must not inherit the long one's.
+        var shortEnd = HumpStart.AddMinutes(45);
+        var longEnd = HumpStart.AddHours(3);
+        List<LatencySample> ElevatedUntil(DateTime end, double rtt) =>
+            Flat(rtt).WithSegment(HumpStart, end, rttMs: rtt + 25, jitterMs: 6);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, ElevatedUntil(shortEnd, 5), Bng, Border), // 45 min; next hop clean -> own bottleneck
+            Hop(200, Transit, Flat(8), Bng, Border, Backhaul),           // clean downstream witness
+            Hop(300, DeadEnd, ElevatedUntil(longEnd, 5), Bng, Border),   // 3 h; off-corridor dead-end -> own bottleneck
+            Dest(DestControl, Flat(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        var deadEnd = events.Single(e => e.BottleneckHopIp == DeadEnd);
+        backhaul.Duration.Should().BeLessThan(TimeSpan.FromHours(1));
+        deadEnd.Duration.Should().BeGreaterThan(TimeSpan.FromHours(2));
+    }
+
+    [Fact]
+    public void Similar_duration_bottlenecks_share_one_clean_window()
+    {
+        // Two bottlenecks elevated for roughly the same long span (slightly staggered). Each covers
+        // most of the cluster, so both report the SAME shared window instead of fragmenting into
+        // slightly different per-hop start/end - the genuine co-temporal event reads as one window.
+        List<LatencySample> ElevatedBetween(DateTime from, DateTime to, double rtt) =>
+            Flat(rtt).WithSegment(from, to, rttMs: rtt + 25, jitterMs: 6);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, ElevatedBetween(HumpStart, HumpStart.AddHours(3), 5), Bng, Border),       // 3 h
+            Hop(200, Transit, Flat(8), Bng, Border, Backhaul),                                            // clean witness
+            Hop(300, DeadEnd, ElevatedBetween(HumpStart.AddMinutes(15), HumpStart.AddMinutes(165), 5), Bng, Border), // 2.5 h, staggered
+            Dest(DestControl, Flat(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        var deadEnd = events.Single(e => e.BottleneckHopIp == DeadEnd);
+        backhaul.Start.Should().Be(deadEnd.Start);
+        backhaul.End.Should().Be(deadEnd.End);
+    }
 
     [Fact]
     public void Localizes_to_backhaul_hop_and_does_not_blame_downstream_transit()
@@ -276,6 +343,29 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Propagation_recognizes_a_jitter_rise_downstream_not_just_rtt()
+    {
+        // The bottleneck's delay reaches the downstream hop as JITTER while its RTT stays flat.
+        // RTT-only propagation would absolve the bottleneck as control-plane noise; the jitter arm
+        // must see the propagation and confirm the real bottleneck.
+        var jitterOnly = Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, Elevated(), Bng, Border),             // bottleneck, fires (rtt + jitter)
+            Hop(200, Transit, jitterOnly, Bng, Border, Backhaul),    // downstream: jitter up, RTT flat
+            Hop(300, DeadEnd, Flat(), Bng, Border),
+            Dest(DestControl, Flat(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
     public void Unverifiable_hop_inherits_confirmed_from_a_same_asn_sibling_in_the_same_window()
     {
         // Two hops on AS 500 elevated in the same window: one has a downstream witness (Confirmed),
@@ -307,6 +397,32 @@ public class CongestionLocalizerTests
         var deadEnd = events.Single(e => e.BottleneckHopIp == "10.0.5.2");
         deadEnd.Disposition.Should().Be(CongestionDisposition.Confirmed);
         deadEnd.ConfirmedBySibling.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_parallel_path_that_only_picked_up_the_jitter_floor_counts_as_a_clean_control()
+    {
+        // Backhaul is the localized bottleneck under load. A parallel branch (DeadEnd) only picked up
+        // the load's jitter floor - its RTT stayed at baseline - so it did NOT get localized congestion
+        // and must count as a clean control (evidence Backhaul is its own capacity, not access
+        // bufferbloat). A jitter-inclusive "elevated" test would wrongly exclude it and drop the count.
+        var jitterFloor = Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),            // localized bottleneck
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),   // downstream victim
+            Hop(300, DeadEnd, jitterFloor, Bng, Border),            // parallel branch: jitter floor only, RTT flat
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
+        // Bng, Border, and the jitter-floor DeadEnd all stayed at the floor -> all clean controls.
+        // Without the floor-relative test, the jitter-floor DeadEnd would be excluded (count would be 2).
+        backhaul.CleanParallelPaths.Should().Be(3);
     }
 
     [Fact]
@@ -347,6 +463,119 @@ public class CongestionLocalizerTests
         // Access hop + 10.0.7.1 (both clean, with data in the window) count; 10.0.8.1 (no data during
         // the event) does not - it would be 3 without the data-presence guard.
         evt.CleanParallelPaths.Should().Be(2);
+    }
+
+    [Fact]
+    public void A_uniform_line_wide_rise_with_a_long_mild_tail_still_collapses()
+    {
+        // The Jun 23 shape: every path has a strong ~1 h core plus a long jitter tail whose RTT sits
+        // back at baseline (the jitter keeps the run alive). The MEDIAN RTT over the full window
+        // dilutes toward baseline, so a median-based line-wide test flickers below threshold and the
+        // incident fragments into per-hop rows. The high-percentile test sees the strong core, so a
+        // genuinely line-wide, uniform incident collapses to one shared event even with a long tail.
+        List<LatencySample> CoreThenTail() => Flat(5)
+            .WithSegment(HumpStart, HumpStart.AddHours(1), rttMs: 30, jitterMs: 6)
+            .WithSegment(HumpStart.AddHours(1), HumpStart.AddHours(3), rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, CoreThenTail()),
+            Hop(100, Border, CoreThenTail(), Bng),
+            Hop(100, Backhaul, CoreThenTail(), Bng, Border),
+            Hop(200, Transit, CoreThenTail(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, CoreThenTail(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_high_variance_rise_under_load_is_not_loaded_latency_even_when_breadth_passes()
+    {
+        // The 19:15 shape: the access egress rose hard while the rest only picked up the shared load
+        // floor (jitter up, RTT barely moved). The high-percentile breadth test now counts the floor
+        // paths as "rose", so line-wide breadth passes - but the rise is NOT uniform (one path far above
+        // the floor). The uniformity gate must keep this from reading as self-inflicted Loaded Latency;
+        // it's localized congestion on top of load, not your access link slowing everything equally.
+        List<LatencySample> Floor() => Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 6, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),                  // access egress: hard rise
+            Hop(100, Border, Floor(), Bng),             // the rest: shared floor only (jitter up, RTT flat)
+            Hop(100, Backhaul, Floor(), Bng, Border),
+            Hop(200, Transit, Floor(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Floor(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+    }
+
+    [Fact]
+    public void Floor_jitter_rise_with_only_some_paths_risen_in_rtt_does_not_collapse_to_loaded_latency()
+    {
+        // Under load the jitter floor lifts every path, but only some paths actually rose in RTT.
+        // That's a shared floor + localized congestion, not "everything slowed" - it must NOT collapse
+        // to one Loaded Latency event; the RTT-risen paths localize per-hop instead.
+        var jitterOnly = Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, jitterOnly),
+            Hop(100, Border, jitterOnly, Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, jitterOnly, Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: true), Options);
+
+        events.Should().NotContain(e => e.Disposition == CongestionDisposition.SelfInflicted);
+    }
+
+    [Fact]
+    public void Relative_line_wide_with_no_load_collapses_to_one_shared_confirmed_event()
+    {
+        // Every monitored path is elevated relative to its own baseline, rooted at the access egress,
+        // with no heavy local load: one shared upstream incident attributed to the convergence hop,
+        // Confirmed (scored) - not N separate per-hop rows.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Elevated(), Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().ContainSingle();
+        events[0].Disposition.Should().Be(CongestionDisposition.Confirmed);
+        events[0].BottleneckHopIp.Should().Be(Bng);
+        events[0].AttributionReason.Should().Contain("shared upstream");
+    }
+
+    [Fact]
+    public void Shared_incident_span_trims_a_lingering_hop()
+    {
+        // Four hops rise together for ~45 min; one lingers 3 h past the rest. The collapsed incident
+        // must span only the shared window (~45 min), not be dragged out to the lingering hop's 3 h.
+        var lingering = Flat(5).WithSegment(HumpStart, HumpStart.AddHours(3), rttMs: 30, jitterMs: 6);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Elevated()),
+            Hop(100, Border, Elevated(), Bng),
+            Hop(100, Backhaul, Elevated(), Bng, Border),
+            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, lingering, Bng, Border),
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().ContainSingle();
+        events[0].Duration.Should().BeLessThan(TimeSpan.FromHours(1.5));
     }
 
     [Fact]

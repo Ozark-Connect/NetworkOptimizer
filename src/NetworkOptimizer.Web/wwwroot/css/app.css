@@ -16440,6 +16440,13 @@ a.isp-health-hero-speed:hover {
     transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.isp-outage-hop-loss {
+    height: 100%;
+    border-radius: 4px 0 0 4px;
+    background: var(--warning-color);
+    transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .isp-outage-hop-status {
     font-size: 0.72rem;
     color: var(--text-secondary);

@@ -26,6 +26,26 @@ public class OutageDetectorTests
 
     private static IReadOnlyList<IReadOnlyList<LatencySample>> Triggers(params List<LatencySample>[] series) => series;
 
+    /// <summary>A target sampled every 5 s across the window, dark (100% loss) where the predicate holds.</summary>
+    private static List<LatencySample> Cadenced(Func<DateTime, bool> isDark)
+    {
+        var s = new List<LatencySample>();
+        for (var t = TestSeries.Start; t < TestSeries.Start + Window; t += TimeSpan.FromSeconds(5))
+            s.Add(new LatencySample(t, 20, 20.5, 0.5, isDark(t) ? 100 : 0));
+        return s;
+    }
+
+    /// <summary>A target sampled every 10 s, at <paramref name="loss"/> within [from, to) and clean otherwise.</summary>
+    private static List<LatencySample> LossSeries(DateTime from, DateTime to, double loss)
+    {
+        var s = new List<LatencySample>();
+        for (var t = TestSeries.Start; t < TestSeries.Start + Window; t += TimeSpan.FromSeconds(10))
+            s.Add(new LatencySample(t, 20, 20.5, 0.5, t >= from && t < to ? loss : 0));
+        return s;
+    }
+
+    private static readonly (DateTime Start, DateTime End)[] NoDarkWindows = System.Array.Empty<(DateTime, DateTime)>();
+
     [Fact]
     public void Detects_upstream_outage_and_attributes_break_beyond_olt()
     {
@@ -48,6 +68,7 @@ public class OutageDetectorTests
         events[0].Scope.Should().Be(OutageScope.Upstream);
         events[0].LastReachableHop.Should().Be("AT&T nokia-olt");
         events[0].Duration.Should().BeCloseTo(TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1));
+        events[0].IsBrief.Should().BeFalse();
     }
 
     [Fact]
@@ -161,12 +182,142 @@ public class OutageDetectorTests
     }
 
     [Fact]
-    public void Brief_blip_below_min_duration_is_ignored()
+    public void Momentary_blip_below_the_minimum_is_ignored()
     {
-        var internet1 = Series(0, (OutStart, OutStart.AddMinutes(1), 100));
-        var internet2 = Series(0, (OutStart, OutStart.AddMinutes(1), 100));
+        // ~20 s of total loss - below the 30 s floor, a momentary blip, not reported.
+        var darkEnd = OutStart.AddSeconds(20);
+        var internet1 = Cadenced(t => t >= OutStart && t < darkEnd);
+        var internet2 = Cadenced(t => t >= OutStart && t < darkEnd);
 
         var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Drop_between_30s_and_2min_is_flagged_as_a_brief_disruption()
+    {
+        // A clean 45 s drop: above the 30 s floor, below the 2 min brief/full divider. It is
+        // reported but classified brief - the lighter tier for short transit/upstream flaps.
+        var darkEnd = OutStart.AddSeconds(45);
+        var internet1 = Cadenced(t => t >= OutStart && t < darkEnd);
+        var internet2 = Cadenced(t => t >= OutStart && t < darkEnd);
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
+
+        events.Should().ContainSingle();
+        events[0].IsBrief.Should().BeTrue();
+        events[0].Duration.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(30));
+        events[0].Duration.Should().BeLessThan(TimeSpan.FromMinutes(2));
+    }
+
+    [Fact]
+    public void Coincident_partial_loss_across_many_targets_and_asns_is_a_partial_disruption()
+    {
+        // ~40 s where four independent destinations across four ASNs degrade together at 60-80%
+        // loss - never the 95% dark threshold. That is a partial-loss disruption, not a blackout.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Cloudflare", 0, LossSeries(ds, de, 60), AsnLabel: "Cloudflare"),
+            new OutageDetector.Hop("Fastly", 1, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+            new OutageDetector.Hop("AS3356", 2, LossSeries(ds, de, 60), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS22773", 3, LossSeries(ds, de, 80), AsnLabel: "AS22773"),
+            new OutageDetector.Hop("CleanA", 4, LossSeries(ds, de, 0), AsnLabel: "CleanA"),
+            new OutageDetector.Hop("CleanB", 5, LossSeries(ds, de, 0), AsnLabel: "CleanB"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().ContainSingle();
+        events[0].IsPartial.Should().BeTrue();
+        events[0].IsBrief.Should().BeTrue();
+        events[0].PeakLossPct.Should().BeGreaterThanOrEqualTo(60);
+        events[0].DegradedTargetCount.Should().Be(4);
+        events[0].PathTargetCount.Should().Be(6);
+    }
+
+    [Fact]
+    public void A_single_lossy_target_is_not_a_partial_disruption()
+    {
+        var ds = OutStart;
+        var de = OutStart.AddMinutes(5);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Fastly", 0, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+            new OutageDetector.Hop("CleanA", 1, LossSeries(ds, de, 0), AsnLabel: "CleanA"),
+            new OutageDetector.Hop("CleanB", 2, LossSeries(ds, de, 0), AsnLabel: "CleanB"),
+            new OutageDetector.Hop("CleanC", 3, LossSeries(ds, de, 0), AsnLabel: "CleanC"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Many_degraded_targets_behind_one_asn_do_not_trip_partial_detection()
+    {
+        // Four lossy targets, but all one ASN - that ASN's own issue, not a path-wide event.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AS3356 a", 0, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS3356 b", 1, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS3356 c", 2, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS3356 d", 3, LossSeries(ds, de, 80), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("CleanA", 4, LossSeries(ds, de, 0), AsnLabel: "CleanA"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Partial_disruption_disambiguates_repeated_asn_labels()
+    {
+        // Several hops of one access ISP would all read as just "AT&T"; only the repeated label gets
+        // disambiguated to the specific hop, while unique labels are left as the clean ASN name.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T mtnview-border", 1, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
+            new OutageDetector.Hop("Cloudflare", 2, LossSeries(ds, de, 80), AsnLabel: "Cloudflare"),
+            new OutageDetector.Hop("Fastly", 3, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().ContainSingle();
+        var names = events[0].Tiers.Select(t => t.Name).ToList();
+        names.Should().Contain("AT&T nokia-olt");
+        names.Should().Contain("AT&T mtnview-border");
+        names.Should().NotContain("AT&T");                 // the bare duplicate label is replaced
+        names.Should().Contain("Cloudflare");              // unique labels stay clean
+        names.Should().Contain("Fastly");
+    }
+
+    [Fact]
+    public void Partial_window_overlapping_a_blackout_is_excluded()
+    {
+        // A blackout also clears the partial threshold; the partial pass must not surface it again.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("Cloudflare", 0, LossSeries(ds, de, 60), AsnLabel: "Cloudflare"),
+            new OutageDetector.Hop("Fastly", 1, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+            new OutageDetector.Hop("AS3356", 2, LossSeries(ds, de, 60), AsnLabel: "AS3356"),
+            new OutageDetector.Hop("AS22773", 3, LossSeries(ds, de, 80), AsnLabel: "AS22773"),
+        };
+        var darkWindows = new[] { (OutStart.AddSeconds(-5), OutStart.AddSeconds(45)) };
+
+        var events = OutageDetector.DetectPartial(hops, darkWindows, Options);
 
         events.Should().BeEmpty();
     }
@@ -219,9 +370,9 @@ public class OutageDetectorTests
     public void Gap_longer_than_the_tolerance_stays_two_separate_outages()
     {
         // A long healthy stretch between two dark spans is a genuine recovery then a second
-        // outage - well beyond OutageMaxGapMinutes, so the two must NOT be coalesced.
+        // outage - well beyond OutageMaxGapSeconds, so the two must NOT be coalesced.
         var firstEnd = OutStart.AddMinutes(3);
-        var secondStart = OutStart.AddMinutes(12); // 9-minute clear gap, > OutageMaxGapMinutes
+        var secondStart = OutStart.AddMinutes(12); // 9-minute clear gap, > OutageMaxGapSeconds
         var secondEnd = secondStart.AddMinutes(3);
         List<LatencySample> TwoSpans() => Series(0, (OutStart, firstEnd, 100), (secondStart, secondEnd, 100));
         var internet1 = TwoSpans();
@@ -302,9 +453,9 @@ public class OutageDetectorTests
     [Fact]
     public void Window_and_recovery_carry_real_seconds_not_minute_buckets()
     {
-        // Samples land at :17 past each minute. Detection still buckets by minute, but the
-        // reported onset, recovery, and per-hop recovery must come from the actual sample
-        // instants - otherwise every time renders :00.
+        // Samples land at :17 past each minute. Detection buckets internally, but the reported
+        // onset, recovery, and per-hop recovery must come from the actual sample instants -
+        // otherwise every time renders on a bucket edge.
         var offset = TimeSpan.FromSeconds(17);
         List<LatencySample> Build()
         {

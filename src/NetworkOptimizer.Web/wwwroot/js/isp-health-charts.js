@@ -12,6 +12,7 @@ let pollTimer = null;
 let fetchController = null;
 let resetBtn = null;
 let isZoomed = false;
+let dotNetRef = null;
 // null = default 48 h cached view; { from, to } ISO strings = a filter-selected window.
 let win = null;
 
@@ -26,7 +27,11 @@ function buildOpts() {
             parentHeightOffset: 0,
             animations: { enabled: false },
             events: {
-                zoomed: (ctx, opts) => setZoomed(opts?.xaxis?.min != null),
+                zoomed: (ctx, opts) => {
+                    const min = opts?.xaxis?.min, max = opts?.xaxis?.max;
+                    setZoomed(min != null);
+                    notifyZoom(min, max);
+                },
             },
         },
         series: [],
@@ -111,10 +116,19 @@ function setZoomed(zoomed) {
     if (resetBtn) resetBtn.style.display = zoomed ? 'inline-flex' : 'none';
 }
 
+// Tell the Blazor panel the current zoom range (epoch ms), or null/null when cleared, so it can
+// filter the Path & Congestion Events list to the visible window. scrollToChart is set only on the
+// Reset zoom button, so the panel can keep the chart in view when the list expands above it.
+function notifyZoom(min, max, scrollToChart = false) {
+    try { dotNetRef?.invokeMethodAsync('OnChartZoom', min ?? null, max ?? null, scrollToChart); }
+    catch { /* ref disposed / not set */ }
+}
+
 function resetZoom() {
     if (!chart) return;
     chart.updateOptions({ xaxis: { min: undefined, max: undefined } }, false, false);
     setZoomed(false);
+    notifyZoom(null, null, true);
     loadAndUpdate();
 }
 
@@ -173,7 +187,16 @@ export async function setWindow(fromISO, toISO) {
     win = (fromISO && toISO) ? { from: fromISO, to: toISO } : null;
     if (chart) chart.updateOptions({ xaxis: { min: undefined, max: undefined } }, false, false);
     setZoomed(false);
+    notifyZoom(null, null);
     await loadAndUpdate();
+}
+
+export function setDotNetRef(ref) {
+    dotNetRef = ref;
+}
+
+export function scrollChartIntoView() {
+    document.getElementById('isp-health-asn-chart')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 export function unmount() {
@@ -181,6 +204,7 @@ export function unmount() {
     fetchController?.abort();
     if (resetBtn) { resetBtn.remove(); resetBtn = null; }
     isZoomed = false;
+    dotNetRef = null;
     win = null;
     if (chart) { chart.destroy(); chart = null; }
 }

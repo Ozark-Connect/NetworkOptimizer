@@ -52,6 +52,56 @@ public class CongestionDetectorTests
     }
 
     [Fact]
+    public void Sustained_event_with_a_dip_and_milder_tail_stays_one_event()
+    {
+        // A peak, a brief dip, then a milder-but-still-jittery tail - one event spanning the whole
+        // span, not truncated to the peak. Mirrors a real multi-hour event whose second half stayed
+        // elevated (jitter still up) just under the strict entry gate.
+        var start = TestSeries.Start.AddHours(12);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 5, jitterMs: 0.5)
+            .WithSegment(start, start.AddMinutes(45), rttMs: 9, jitterMs: 3)                  // peak: clears entry gate
+            .WithSegment(start.AddMinutes(45), start.AddMinutes(60), rttMs: 6.1, jitterMs: 1.0)  // dip: below entry, jitter sustains
+            .WithSegment(start.AddMinutes(60), start.AddMinutes(135), rttMs: 6.5, jitterMs: 1.0); // milder tail: jitter sustains
+
+        var events = CongestionDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().HaveCount(1);
+        events[0].Start.Should().Be(start);
+        events[0].End.Should().Be(start.AddMinutes(135));
+    }
+
+    [Fact]
+    public void Mild_elevation_that_never_meets_the_entry_gate_is_not_congestion()
+    {
+        // An hour at the sustain level but never the strict entry gate (no peak). The hysteresis gate
+        // continues an active run; it must never start one, so nothing is flagged here.
+        var start = TestSeries.Start.AddHours(12);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 5, jitterMs: 0.5)
+            .WithSegment(start, start.AddMinutes(60), rttMs: 6.5, jitterMs: 1.0);
+
+        var events = CongestionDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Path_shift_plateau_with_baseline_jitter_does_not_become_congestion()
+    {
+        // A transit path change: RTT steps up to a flat plateau and back, jitter at baseline the
+        // whole time (a brief blip at the transition can fire the entry gate). With jitter flat there
+        // is no congestion signature to sustain, so the run collapses to the sub-30-min transition
+        // and nothing is flagged. The step detector owns this shape, not congestion.
+        var start = TestSeries.Start.AddHours(12);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 16, jitterMs: 0.5)
+            .WithSegment(start, start.AddMinutes(15), rttMs: 24, jitterMs: 3)            // transition turbulence
+            .WithSegment(start.AddMinutes(15), start.AddHours(3), rttMs: 24, jitterMs: 0.5); // flat plateau, baseline jitter
+
+        var events = CongestionDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Simultaneous_events_across_asns_merge_into_shared_event()
     {
         var humpStart = TestSeries.Start.AddHours(19);

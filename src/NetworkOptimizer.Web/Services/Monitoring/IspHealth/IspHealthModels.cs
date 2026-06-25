@@ -195,8 +195,10 @@ public enum CongestionDisposition
 /// </summary>
 public class CongestionEvent
 {
-    public DateTime Start { get; init; }
-    public DateTime End { get; init; }
+    // Settable (not init) so a long-window report can snap these to fine-resolution boundaries
+    // after detection - see IspHealthService.RefineCongestionBoundariesAsync.
+    public DateTime Start { get; set; }
+    public DateTime End { get; set; }
 
     /// <summary>ASNs affected. More than one means a shared upstream event.</summary>
     public List<int> AsnNumbers { get; init; } = new();
@@ -297,13 +299,40 @@ public enum OutageScope
 /// near-total loss while probes kept reporting. A monitoring gap (console offline) has no
 /// samples at all and is never an outage. Scored by duration alone via a capped Packet
 /// Loss penalty - independent of shape or which hops dropped; the scope, break point, and
-/// per-tier recovery shape are presentation only.
+/// per-tier recovery shape are presentation only. Spans below
+/// <see cref="IspHealthOptions.OutageBriefMaxSeconds"/> are flagged <see cref="IsBrief"/> -
+/// short transit/upstream flaps surfaced on the timeline with only a fraction-of-a-point score hit.
 /// </summary>
 public class OutageEvent
 {
     public DateTime Start { get; init; }
     public DateTime End { get; init; }
     public TimeSpan Duration => End - Start;
+
+    /// <summary>
+    /// True when this span is a brief disruption (shorter than
+    /// <see cref="IspHealthOptions.OutageBriefMaxSeconds"/>) rather than a full outage. Brief
+    /// disruptions are reported distinctly and ride the low end of the severity curve, so their
+    /// score impact is at most a point. Set by the detector.
+    /// </summary>
+    public bool IsBrief { get; init; }
+
+    /// <summary>
+    /// True when this is a partial-loss disruption (degradation): a coincident burst of elevated
+    /// loss across many path targets that never reached the near-total dark threshold, so nothing
+    /// went fully dark. Distinct from a blackout outage - reported by peak loss and breadth rather
+    /// than a dark/recovery waterfall, and its loss is NOT masked from the Packet Loss factor.
+    /// </summary>
+    public bool IsPartial { get; init; }
+
+    /// <summary>Worst per-target mean loss reached during the event, for the partial-loss summary.</summary>
+    public double PeakLossPct { get; init; }
+
+    /// <summary>Distinct path targets that degraded during the event (partial-loss breadth).</summary>
+    public int DegradedTargetCount { get; init; }
+
+    /// <summary>Total path targets reporting during the event, the denominator for the breadth summary.</summary>
+    public int PathTargetCount { get; init; }
 
     /// <summary>Whether even the access hop went dark, or it held while everything beyond it dropped.</summary>
     public OutageScope Scope { get; init; }

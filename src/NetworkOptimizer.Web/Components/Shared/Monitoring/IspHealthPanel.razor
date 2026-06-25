@@ -261,7 +261,7 @@ else
                                             @FormatJitter(target.P95JitterMs)
                                             @if (target.JitterAssimilated)
                                             {
-                                                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
+                                                <span class="tooltip-icon tooltip-icon-sm isp-jitter-tip" data-tooltip="@JitterAssimilationTooltip(target)">i</span>
                                             }
                                         </span>
                                     </span>
@@ -376,7 +376,7 @@ else
                                         @FormatJitter(asn.P95JitterMs)
                                         @if (asn.JitterAssimilated)
                                         {
-                                            <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
+                                            <span class="tooltip-icon tooltip-icon-sm isp-jitter-tip" data-tooltip="@JitterAssimilationTooltip(asn, isIspAsn)">i</span>
                                         }
                                     </span>
                                 </div>
@@ -403,17 +403,21 @@ else
     @if (r.Outages.Count > 0)
     {
         <div class="card isp-health-card" id="isp-outages">
-            <div class="card-header"><h2 class="card-title">Internet Outages (@WindowLabel(r))</h2></div>
+            <div class="card-header"><h2 class="card-title">@OutageSectionTitle(r) (@WindowLabel(r))</h2></div>
             <div class="card-body">
                 <div class="isp-outage-list">
                     @foreach (var outage in r.Outages)
                     {
                         <div class="isp-outage">
                             <div class="isp-outage-head">
-                                <span class="isp-event-badge isp-event-badge-danger" data-tooltip="@OutageScoreTooltip(outage)">Outage</span>
+                                <span class="isp-event-badge @OutageBadgeClass(outage)" data-tooltip="@OutageScoreTooltip(outage)">@OutageBadgeText(outage)</span>
                                 <span class="isp-outage-duration">@FormatDuration(outage.Duration)</span>
                                 <span class="isp-outage-window">@outage.Start.ToLocalTime().ToString("MMM d, HH:mm:ss") &ndash; @outage.End.ToLocalTime().ToString("HH:mm:ss")</span>
                                 <span class="isp-outage-scope" data-tooltip="@OutageScoreTooltip(outage)">@OutageScopeLabel(outage)</span>
+                                @if (outage.IsPartial)
+                                {
+                                    <span class="isp-outage-window">peak @outage.PeakLossPct.ToString("0")% &middot; @outage.DegradedTargetCount/@outage.PathTargetCount targets</span>
+                                }
                             </div>
                             @if (outage.Tiers.Any(t => t.WentDark))
                             {
@@ -430,6 +434,21 @@ else
                                     }
                                 </div>
                             }
+                            else if (outage.IsPartial && outage.Tiers.Count > 0)
+                            {
+                                <div class="isp-outage-shape">
+                                    @foreach (var tier in outage.Tiers)
+                                    {
+                                        <div class="isp-outage-hop">
+                                            <span class="isp-outage-hop-name">@tier.Name</span>
+                                            <div class="isp-outage-hop-track">
+                                                <div class="isp-outage-hop-loss" style="width: @(tier.PeakLossPct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                            </div>
+                                            <span class="isp-outage-hop-status">peak @tier.PeakLossPct.ToString("0")% loss</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -438,16 +457,17 @@ else
     }
 
     <div class="card isp-health-card">
-        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@WindowLabel(r))</h2></div>
+        <div class="card-header"><h2 class="card-title">Path &amp; Congestion Events (@EventsWindowLabel(r))</h2></div>
         <div class="card-body">
-            @if (r.CongestionEvents.Count == 0 && r.PathShifts.Count == 0)
+            @{ var timeline = EventTimeline(r).Where(InZoomWindow).ToList(); }
+            @if (timeline.Count == 0)
             {
-                <p class="page-description">No congestion events or path shifts detected in the window.</p>
+                <p class="page-description">@(IsZoomed ? "No congestion events or path shifts in this range. Reset the chart zoom to see the full window." : "No congestion events or path shifts detected in the window.")</p>
             }
             else
             {
                 <div class="isp-event-timeline">
-                    @foreach (var entry in EventTimeline(r))
+                    @foreach (var entry in timeline)
                     {
                         <div class="isp-event-item">
                             <span class="isp-event-badge @entry.BadgeClass">@entry.Badge</span>
@@ -510,6 +530,17 @@ else
     private bool _windowComputing;
     private DateTime? _windowStart;
     private DateTime? _windowEnd;
+    private DotNetObjectReference<IspHealthPanel>? _selfRef;
+    // Chart drag-zoom range (UTC) the events list is filtered to; null = show the whole window.
+    private DateTime? _zoomFrom;
+    private DateTime? _zoomTo;
+    private bool IsZoomed => _zoomFrom.HasValue && _zoomTo.HasValue;
+    // Set when reset-zoom expands the list (which sits above the chart); scrolls the chart back
+    // into view after the next render so it doesn't get pushed off-screen.
+    private bool _scrollChartAfterRender;
+    // Last report the absolved-jitter tooltips were refreshed against; a new report means their
+    // data-tooltip changed and the cached Tippy content needs rebuilding.
+    private IspHealthReport? _lastTooltipReport;
     private DateTime _customFrom = DateTime.Now.AddDays(-2);
     private DateTime _customTo = DateTime.Now;
 
@@ -570,6 +601,12 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollChartAfterRender)
+        {
+            _scrollChartAfterRender = false;
+            try { await JS.InvokeVoidAsync("__ispHealthCharts.scrollChartIntoView"); }
+            catch { /* chart not mounted */ }
+        }
         if (_report == null)
         {
             // The content (and the chart element) is gone; drop the chart so it re-mounts
@@ -582,15 +619,35 @@ else
             }
             return;
         }
+        // Absolved-jitter tooltip-icons cache their content when Tippy first builds them; on a window
+        // recompute Blazor swaps only their data-tooltip attribute (no node re-add, so the global
+        // observer never re-fires) and the value goes stale. When the report changes, push the current
+        // attribute into each icon's existing Tippy with setContent - scoped to these icons only, and
+        // it leaves all other tooltips and the shared init untouched.
+        if (!ReferenceEquals(_report, _lastTooltipReport))
+        {
+            _lastTooltipReport = _report;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    "document.querySelectorAll('.isp-jitter-tip').forEach(function(el){" +
+                    "if(el._tippy&&el.dataset.tooltip&&el._tippy.props.content!==el.dataset.tooltip)" +
+                    "el._tippy.setContent(el.dataset.tooltip);});");
+            }
+            catch { /* tooltip refresh is best-effort */ }
+        }
         if (_chartMounted) return;
         _chartMounted = true;
         var fromArg = _windowStart.HasValue ? $"'{_windowStart.Value:o}'" : "null";
         var toArg = _windowEnd.HasValue ? $"'{_windowEnd.Value:o}'" : "null";
         try
         {
+            _selfRef ??= DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("eval",
                 $"(async () => {{ const m = await import('{VersionedJs("/js/isp-health-charts.js")}'); " +
                 $"window.__ispHealthCharts = m; await m.mount('isp-health-asn-chart', {fromArg}, {toArg}); }})();");
+            // Hand the chart a callback so its drag-zoom can filter the events list to the visible window.
+            await JS.InvokeVoidAsync("__ispHealthCharts.setDotNetRef", _selfRef);
         }
         catch { _chartMounted = false; }
     }
@@ -665,7 +722,30 @@ else
         catch { /* chart not mounted yet */ }
     }
 
-    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text);
+    /// <summary>
+    /// Called by the per-network RTT chart on drag-zoom (epoch ms, or null/null on reset/window
+    /// change) so the Path &amp; Congestion Events list filters to the visible range.
+    /// </summary>
+    [JSInvokable]
+    public Task OnChartZoom(double? minMs, double? maxMs, bool scrollToChart)
+    {
+        _zoomFrom = minMs.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds((long)minMs.Value).UtcDateTime : null;
+        _zoomTo = maxMs.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds((long)maxMs.Value).UtcDateTime : null;
+        // On reset the list above the chart expands; keep the chart the user was on in view.
+        if (scrollToChart) _scrollChartAfterRender = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    // An event shows when its span overlaps the zoom window (instant events: when the instant is in it).
+    private bool InZoomWindow(TimelineEntry e) =>
+        !IsZoomed || ((e.End ?? e.Time) >= _zoomFrom!.Value && e.Time <= _zoomTo!.Value);
+
+    private string EventsWindowLabel(IspHealthReport r) =>
+        IsZoomed
+            ? $"zoomed: {_zoomFrom!.Value.ToLocalTime():MMM d, HH:mm} to {_zoomTo!.Value.ToLocalTime():MMM d, HH:mm}"
+            : WindowLabel(r);
+
+    private record TimelineEntry(DateTime Time, string Badge, string BadgeClass, string Text, DateTime? End = null);
 
     private static IEnumerable<TimelineEntry> EventTimeline(IspHealthReport r)
     {
@@ -709,7 +789,7 @@ else
                 _ => ("Congestion", "isp-event-badge-warning",
                     $"{lead}")
             };
-            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text));
+            entries.Add(new TimelineEntry(evt.Start, badge, badgeClass, text, evt.End));
         }
         foreach (var shift in r.PathShifts)
         {
@@ -723,7 +803,9 @@ else
     }
 
     private static string FormatDuration(TimeSpan d) =>
-        d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h" : $"{d.TotalMinutes:0} min";
+        d.TotalHours >= 1 ? $"{d.TotalHours:0.#} h"
+        : d.TotalMinutes >= 1 ? $"{d.TotalMinutes:0} min"
+        : $"{d.TotalSeconds:0} sec";
 
     // Event time in local time, prefixed with the date when it is not today so events in a
     // multi-day (7d/30d/custom) window are unambiguous.
@@ -733,10 +815,24 @@ else
         return local.Date == DateTime.Now.Date ? $"Today, {local:HH:mm}" : local.ToString("MMM d, HH:mm");
     }
 
+    private static string OutageBadgeClass(OutageEvent o) =>
+        o.IsPartial ? "isp-event-badge-info"
+        : o.IsBrief ? "isp-event-badge-warning"
+        : "isp-event-badge-danger";
+
+    private static string OutageBadgeText(OutageEvent o) =>
+        o.IsPartial ? "Partial loss" : o.IsBrief ? "Brief" : "Outage";
+
+    private static string OutageSectionTitle(IspHealthReport r) =>
+        r.Outages.Any(o => !o.IsPartial && !o.IsBrief) ? "Internet Outages"
+        : r.Outages.All(o => o.IsPartial) ? "Internet Disruptions"
+        : "Brief Internet Disruptions";
+
     private static string OutageScopeLabel(OutageEvent o) => o.Scope switch
     {
         OutageScope.Local => "LAN / Gateway outage",
         OutageScope.Upstream when !string.IsNullOrEmpty(o.LastReachableHop) => $"Break upstream of {o.LastReachableHop}",
+        _ when o.IsPartial => "Path-wide partial loss",
         _ => "Whole-WAN outage"
     };
 
@@ -839,5 +935,6 @@ else
             try { _ = JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.unmount();"); }
             catch { }
         }
+        _selfRef?.Dispose();
     }
 }

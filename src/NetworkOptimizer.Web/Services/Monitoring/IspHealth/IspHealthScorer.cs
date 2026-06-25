@@ -23,7 +23,10 @@ public class IspHealthScorer
     // band (Item E) used to grade ISP and transit jitter against the access medium's inherent floor.
     private AccessProfile? _profile;
 
-    private bool InOutage(DateTime time) => _outages.Any(o => time >= o.Start && time < o.End);
+    // Only blackout outages mask their loss from the other factors; partial-loss disruptions are
+    // deliberately left in the Packet Loss factor (their loss IS the degradation signal), so they
+    // are excluded here.
+    private bool InOutage(DateTime time) => _outages.Any(o => !o.IsPartial && time >= o.Start && time < o.End);
 
     public IspHealthScorer(IspHealthOptions options, ILogger? logger = null)
     {
@@ -80,22 +83,30 @@ public class IspHealthScorer
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
         // An outage is scored once, here at the top level, on a duration curve - so a long
         // outage actually drives the score down instead of being diluted to a couple of
-        // points inside one factor. Scored by total downtime alone, shape-independent.
+        // points inside one factor. A partial-loss disruption counts as a fraction of that:
+        // its duration is weighted by its peak loss fraction (and a tunable weight), so a brief
+        // degradation is a near-zero ding while a blackout of the same length scores in full.
         // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
         // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
         // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
-        var outageMinutes = wanOutages.Sum(o => o.Duration.TotalMinutes);
+        double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes *
+            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0);
+        var outageMinutes = wanOutages.Sum(EffectiveMinutes);
         if (outageMinutes > 0)
         {
-            var penalty = OutageScorePenalty(outageMinutes);
-            // Attribute the total (curve-based) penalty across the WAN outages by duration share so
-            // each outage row can show its own "-N points". Rounded shares may differ from the curve
-            // total by <=1 pt - cosmetic; the actual score deduction uses the curve total below.
+            // Floor a flagged WAN event at one point: if we surfaced it on the timeline it should
+            // visibly register, not round to a silent zero (a brief/partial event can curve to a
+            // fraction of a point otherwise). The floor is on the total, so many tiny events still
+            // cost at least a point rather than each.
+            var penalty = Math.Max(1.0, OutageScorePenalty(outageMinutes));
+            // Attribute the total penalty across the WAN outages by effective-minute share so each
+            // row can show its own "-N points". Rounded shares may differ from the curve total by
+            // <=1 pt - cosmetic; the actual deduction uses the total below.
             foreach (var o in wanOutages)
-                o.ScorePenaltyPoints = (int)Math.Round(penalty * (o.Duration.TotalMinutes / outageMinutes));
-            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} min downtime ({Before} -> {After})",
-                penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0", CultureInfo.InvariantCulture),
+                o.ScorePenaltyPoints = (int)Math.Round(penalty * (EffectiveMinutes(o) / outageMinutes));
+            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} effective min downtime ({Before} -> {After})",
+                penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
                 overall, (int)Math.Max(0, Math.Round(overall - penalty)));
             overall = (int)Math.Max(0, Math.Round(overall - penalty));
         }
@@ -1140,23 +1151,29 @@ public class IspHealthScorer
 
         // Local (LAN/gateway) outages are surfaced in the waterfall but are not internet outages and
         // don't affect the score, so they never appear in this ISP-impact issue.
+        // Full outages and brief disruptions are surfaced as separate findings: a 30 s transit flap
+        // shouldn't read as the same event as a multi-minute outage. Both ride the same severity
+        // curve (a brief disruption costs at most a point), so the per-event score share is taken
+        // from the already-attributed ScorePenaltyPoints rather than recomputing the curve per group.
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
-        if (wanOutages.Count > 0)
+        var fullOutages = wanOutages.Where(o => !o.IsPartial && !o.IsBrief).ToList();
+        var briefDisruptions = wanOutages.Where(o => !o.IsPartial && o.IsBrief).ToList();
+        var partialDisruptions = wanOutages.Where(o => o.IsPartial).ToList();
+        if (fullOutages.Count > 0)
         {
-            var multiple = wanOutages.Count > 1;
-            var totalDown = TimeSpan.FromMinutes(wanOutages.Sum(o => o.Duration.TotalMinutes));
-            var upstream = wanOutages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
-            var allUpstream = wanOutages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
+            var multiple = fullOutages.Count > 1;
+            var totalDown = TimeSpan.FromMinutes(fullOutages.Sum(o => o.Duration.TotalMinutes));
+            var upstream = fullOutages.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var allUpstream = fullOutages.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
             var where = allUpstream
                 ? $" The break sat upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())} - your equipment stayed reachable, so {(multiple ? "these were" : "this was")} an ISP-side fault, not your network."
                 : " At least one event took the whole WAN dark, including the first ISP hop.";
             var count = multiple
-                ? $"{wanOutages.Count} internet outages totaling {FormatOutageDuration(totalDown)}"
-                : $"An internet outage of {FormatOutageDuration(wanOutages[0].Duration)}";
+                ? $"{fullOutages.Count} internet outages totaling {FormatOutageDuration(totalDown)}"
+                : $"An internet outage of {FormatOutageDuration(fullOutages[0].Duration)}";
             // Be transparent about the score hit: the outage penalty is applied at the top level
-            // and isn't tied to any one factor, so spell it out here or it's invisible. Matches the
-            // actual penalty (both exclude Local outages).
-            var penalty = (int)Math.Round(OutageScorePenalty(totalDown.TotalMinutes));
+            // and isn't tied to any one factor, so spell it out here or it's invisible.
+            var penalty = fullOutages.Sum(o => o.ScorePenaltyPoints);
             var impact = penalty > 0
                 ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
                 : string.Empty;
@@ -1173,6 +1190,53 @@ public class IspHealthScorer
                     : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
                 LinkUrl = "#isp-outages",
                 LinkText = "The recovery shape is shown on the timeline below."
+            });
+        }
+        if (briefDisruptions.Count > 0)
+        {
+            var multiple = briefDisruptions.Count > 1;
+            var totalDown = TimeSpan.FromSeconds(briefDisruptions.Sum(o => o.Duration.TotalSeconds));
+            var upstream = briefDisruptions.Where(o => o.Scope == OutageScope.Upstream && !string.IsNullOrEmpty(o.LastReachableHop)).ToList();
+            var allUpstream = briefDisruptions.All(o => o.Scope == OutageScope.Upstream) && upstream.Count > 0;
+            var count = multiple
+                ? $"{briefDisruptions.Count} brief internet disruptions totaling {FormatBriefDuration(totalDown)}"
+                : $"A brief internet disruption of {FormatBriefDuration(briefDisruptions[0].Duration)}";
+            var where = allUpstream
+                ? $" {(multiple ? "They sat" : "It sat")} upstream of {string.Join(", ", upstream.Select(o => o.LastReachableHop).Distinct())}, so your equipment stayed reachable - short ISP-side flaps."
+                : string.Empty;
+            var penalty = briefDisruptions.Sum(o => o.ScorePenaltyPoints);
+            var impact = penalty > 0
+                ? $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}."
+                : " Too short to meaningfully affect your score; logged for visibility.";
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Info,
+                Title = multiple ? "Brief internet disruptions in the window" : "Brief internet disruption in the window",
+                Description = $"{count} occurred while the Monitoring Agent kept probing (so {(multiple ? "these are real, not monitoring gaps" : "this is real, not a monitoring gap")}).{where}{impact}",
+                Recommendation = "Short drops like these are usually transient upstream or transit events; logged here so you can spot a pattern of flapping.",
+                LinkUrl = "#isp-outages",
+                LinkText = "Shown on the timeline below."
+            });
+        }
+        if (partialDisruptions.Count > 0)
+        {
+            var multiple = partialDisruptions.Count > 1;
+            var totalDown = TimeSpan.FromSeconds(partialDisruptions.Sum(o => o.Duration.TotalSeconds));
+            var worst = partialDisruptions.OrderByDescending(o => o.PeakLossPct).First();
+            var penalty = partialDisruptions.Sum(o => o.ScorePenaltyPoints);
+            var count = multiple
+                ? $"{partialDisruptions.Count} partial-loss disruptions totaling {FormatBriefDuration(totalDown)}"
+                : $"A partial-loss disruption of {FormatBriefDuration(partialDisruptions[0].Duration)}";
+            var breadth = $" Peak loss reached {worst.PeakLossPct:0}% across {worst.DegradedTargetCount} of {worst.PathTargetCount} path targets, so the loss was widespread rather than one bad target.";
+            var impact = $" {(multiple ? "Together they" : "It")} lowered your ISP Health score by {penalty} {(penalty == 1 ? "point" : "points")}.";
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Info,
+                Title = multiple ? "Partial-loss disruptions in the window" : "Partial-loss disruption in the window",
+                Description = $"{count} hit the path: many targets degraded at once without going fully dark, so the internet was lossy but not unreachable.{breadth}{impact}",
+                Recommendation = "Coincident partial loss across many targets is usually upstream/transit congestion or a brief routing wobble; logged so you can correlate it with ISP incidents or watch for a pattern.",
+                LinkUrl = "#isp-outages",
+                LinkText = "Shown on the timeline below."
             });
         }
 
@@ -1306,6 +1370,9 @@ public class IspHealthScorer
 
     private static string FormatOutageDuration(TimeSpan d) =>
         d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min" : $"{d.TotalHours:0.#} h";
+
+    private static string FormatBriefDuration(TimeSpan d) =>
+        d.TotalSeconds < 90 ? $"{d.TotalSeconds:0} sec" : $"{d.TotalMinutes:0.#} min";
 
     private static string FormatMs(double ms) =>
         $"{ms.ToString("0.00", CultureInfo.InvariantCulture)} ms";
