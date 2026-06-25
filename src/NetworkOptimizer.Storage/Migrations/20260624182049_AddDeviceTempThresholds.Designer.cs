@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260624182049_AddDeviceTempThresholds")]
+    partial class AddDeviceTempThresholds
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -1525,15 +1528,6 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("AccessTechnology")
                         .HasColumnType("INTEGER");
 
-                    b.Property<double?>("AeRxPowerLowDbm")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("AeTempHighC")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("AeTxPowerHighDbm")
-                        .HasColumnType("REAL");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -1594,18 +1588,6 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.Property<int>("MediumPollIntervalSeconds")
                         .HasColumnType("INTEGER");
-
-                    b.Property<double?>("PonRxPowerLowDbm")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("PonTempHighC")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("PonTxPowerHighDbm")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("SfpTempHighGenericC")
-                        .HasColumnType("REAL");
 
                     b.Property<int>("SlowPollIntervalSeconds")
                         .HasColumnType("INTEGER");

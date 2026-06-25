@@ -2334,6 +2334,19 @@ select.form-control {
     gap: 0.75rem;
 }
 
+.threshold-fields {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.threshold-fields .form-group {
+    flex: 1;
+    min-width: 180px;
+    margin-bottom: 0;
+}
+
 .input-with-button {
     display: flex;
     gap: 0.5rem;

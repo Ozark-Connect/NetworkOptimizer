@@ -240,6 +240,16 @@ public static class DefaultAlertRules
             ThresholdPercent = 95,
             CooldownSeconds = 1800 // 30 minutes
         },
+        new AlertRule
+        {
+            // Threshold (Celsius) is configured per device type in Monitoring -> Device Stats.
+            Name = "Device: Temperature High",
+            IsEnabled = true,
+            EventTypePattern = "device.high_temperature",
+            Source = "device",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes
+        },
 
         // --- Cable modem (disabled until user configures a cable modem) ---
         new AlertRule

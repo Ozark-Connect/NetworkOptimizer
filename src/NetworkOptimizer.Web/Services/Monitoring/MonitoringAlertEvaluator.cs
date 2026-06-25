@@ -97,7 +97,7 @@ public class MonitoringAlertEvaluator
         DeviceId = target.DeviceMac,
         DeviceName = target.Name,
         DeviceIp = target.Address,
-        SourceUrl = "/monitoring",
+        SourceUrl = "/monitoring?tab=performance",
         Tags = ["monitoring", target.TargetType.ToString().ToLowerInvariant()],
         Context = new Dictionary<string, string>
         {
@@ -118,7 +118,7 @@ public class MonitoringAlertEvaluator
         DeviceName = target.Name,
         DeviceIp = target.Address,
         MetricValue = result.RttAvgMs,
-        SourceUrl = "/monitoring",
+        SourceUrl = "/monitoring?tab=performance",
         Tags = ["monitoring", target.TargetType.ToString().ToLowerInvariant()],
         Context = new Dictionary<string, string>
         {
@@ -139,7 +139,7 @@ public class MonitoringAlertEvaluator
         DeviceIp = target.Address,
         MetricValue = avgLossPercent,
         ThresholdValue = SustainedLossThresholdPercent,
-        SourceUrl = "/monitoring",
+        SourceUrl = "/monitoring?tab=performance",
         Tags = ["monitoring", "packet-loss", target.TargetType.ToString().ToLowerInvariant()],
         Context = new Dictionary<string, string>
         {

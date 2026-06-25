@@ -102,6 +102,24 @@ public class MonitoringSettings
 
     public bool Flex25GLatencyMigrated { get; set; }
 
+    // User-configurable high-temperature alert thresholds (Celsius). Null means
+    // use the built-in default (DeviceHealthAlertEvaluator.DefaultDeviceTempHighC).
+    // Switches and gateways are configured independently.
+    public double? SwitchTempHighC { get; set; }
+    public double? GatewayTempHighC { get; set; }
+
+    // User-configurable SFP DDM alert thresholds, per transceiver category. Null
+    // means use the built-in default (PonThresholds). PON and Active Ethernet
+    // modules have well-defined optical envelopes (RX low / TX high); generic SFP+
+    // only gets a temperature ceiling. See SfpDdmThresholds for resolution.
+    public double? PonRxPowerLowDbm { get; set; }
+    public double? PonTxPowerHighDbm { get; set; }
+    public double? PonTempHighC { get; set; }
+    public double? AeRxPowerLowDbm { get; set; }
+    public double? AeTxPowerHighDbm { get; set; }
+    public double? AeTempHighC { get; set; }
+    public double? SfpTempHighGenericC { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

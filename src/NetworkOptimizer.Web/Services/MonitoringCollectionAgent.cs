@@ -724,7 +724,9 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 await _deviceHealthAlertEvaluator.EvaluateAsync(
                     device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
-                    cpu, memPct);
+                    cpu, memPct,
+                    temperatureC: temp,
+                    tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
             }
             catch (Exception ex)
             {
@@ -786,7 +788,9 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 await _deviceHealthAlertEvaluator.EvaluateAsync(
                     device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
-                    cpu, mem);
+                    cpu, mem,
+                    temperatureC: temp,
+                    tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
             }
             catch (Exception ex)
             {
@@ -881,7 +885,9 @@ public class MonitoringCollectionAgent : BackgroundService
             CollectSfpForDevice(device, db, existingSfps, nowSfp);
         }
 
-        // SFP threshold evaluation: check DDM values against alert thresholds.
+        // SFP threshold evaluation: check DDM values against alert thresholds
+        // (per-category, user-configurable with built-in fallbacks).
+        var sfpThresholds = NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds.FromSettings(settings);
         foreach (var device in devices)
         {
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
@@ -899,7 +905,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 {
                     await _sfpAlertEvaluator.EvaluateAsync(
                         sfpMac, sfpPortName, device.Name, sfpCategory,
-                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, ct);
+                        port.SfpRxPower, port.SfpTxPower, port.SfpTemperature, sfpThresholds, ct);
                 }
                 catch (Exception ex)
                 {
@@ -1892,6 +1898,13 @@ public class MonitoringCollectionAgent : BackgroundService
         NetworkOptimizer.Core.Enums.DeviceType.AccessPoint => "ap",
         _ => "unknown"
     };
+
+    // Per-device-type high-temperature alert threshold (Celsius). Null falls back to
+    // DeviceHealthAlertEvaluator.DefaultDeviceTempHighC inside the evaluator.
+    private static double? ResolveTempThreshold(MonitoringSettings settings, NetworkOptimizer.Core.Enums.DeviceType type) =>
+        type == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+            ? settings.GatewayTempHighC
+            : settings.SwitchTempHighC;
 
     private void CollectSfpForDevice(
         UniFiDeviceResponse device,

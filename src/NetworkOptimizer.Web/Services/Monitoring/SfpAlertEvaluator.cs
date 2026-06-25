@@ -12,16 +12,6 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class SfpAlertEvaluator
 {
-    private const double PonRxPowerLowDbm = PonThresholds.PonRxPowerLowDbm;
-    private const double PonTxPowerHighDbm = PonThresholds.PonTxPowerHighDbm;
-    private const double PonTempHighC = PonThresholds.PonTempHighC;
-
-    private const double AeRxPowerLowDbm = PonThresholds.AeRxPowerLowDbm;
-    private const double AeTxPowerHighDbm = PonThresholds.AeTxPowerHighDbm;
-    private const double AeTempHighC = PonThresholds.AeTempHighC;
-
-    private const double SfpTempHighC = PonThresholds.SfpTempHighGenericC;
-
     private const double TempHysteresisC = PonThresholds.TempHysteresisC;
     private const double PowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
 
@@ -39,6 +29,7 @@ public class SfpAlertEvaluator
         string deviceMac, string portName, string? deviceName,
         SfpCategory category,
         double? rxPowerDbm, double? txPowerDbm, double? temperatureC,
+        SfpDdmThresholds thresholds,
         CancellationToken ct = default)
     {
         var key = $"{deviceMac}:{portName}";
@@ -50,9 +41,9 @@ public class SfpAlertEvaluator
         {
             var threshold = category switch
             {
-                SfpCategory.Pon => PonTempHighC,
-                SfpCategory.ActiveEthernet => AeTempHighC,
-                _ => SfpTempHighC
+                SfpCategory.Pon => thresholds.PonTempHighC,
+                SfpCategory.ActiveEthernet => thresholds.AeTempHighC,
+                _ => thresholds.SfpTempHighGenericC
             };
             await CheckHighThreshold(state, "temp", temperatureC.Value, threshold, TempHysteresisC,
                 "monitoring.sfp_temperature",
@@ -63,7 +54,7 @@ public class SfpAlertEvaluator
 
         if (category != SfpCategory.Standard && rxPowerDbm.HasValue)
         {
-            var rxThreshold = category == SfpCategory.Pon ? PonRxPowerLowDbm : AeRxPowerLowDbm;
+            var rxThreshold = category == SfpCategory.Pon ? thresholds.PonRxPowerLowDbm : thresholds.AeRxPowerLowDbm;
             await CheckLowThreshold(state, "rx", rxPowerDbm.Value, rxThreshold, PowerHysteresisDbm,
                 "monitoring.sfp_rx_power",
                 $"{catLabel} RX power on {portLabel}",
@@ -73,7 +64,7 @@ public class SfpAlertEvaluator
 
         if (category != SfpCategory.Standard && txPowerDbm.HasValue)
         {
-            var txThreshold = category == SfpCategory.Pon ? PonTxPowerHighDbm : AeTxPowerHighDbm;
+            var txThreshold = category == SfpCategory.Pon ? thresholds.PonTxPowerHighDbm : thresholds.AeTxPowerHighDbm;
             await CheckHighThreshold(state, "tx", txPowerDbm.Value, txThreshold, PowerHysteresisDbm,
                 "monitoring.sfp_tx_power",
                 $"{catLabel} TX power on {portLabel}",
