@@ -158,10 +158,10 @@ public static class CongestionLocalizer
         IspHealthOptions options)
     {
         var hops = anchored.Where(s => !s.IsDestination).ToList();
-        if (hops.Count == 0) return;
+        if (hops.Count < options.CoincidentCongestionMinHops) return;
 
         var bucketSize = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
-        var perHop = new List<(AsnSeries Hop, double Base, Dictionary<DateTime, double> Buckets, bool IsAccess)>();
+        var perHop = new List<(AsnSeries Hop, double Base, Dictionary<DateTime, double> Buckets)>();
         foreach (var h in hops)
         {
             var rtts = h.Samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
@@ -170,13 +170,12 @@ public static class CongestionLocalizer
             var buckets = h.Samples.Where(s => s.RttAvgMs.HasValue)
                 .GroupBy(s => CongestionDetector.FloorTime(s.Time, bucketSize))
                 .ToDictionary(g => g.Key, g => SeriesStats.Median(g.Select(s => s.RttAvgMs!.Value).ToList()) ?? baseRtt.Value);
-            var isAccess = h.HopIps.Any(ip => topology.AccessEgressHopIps.Contains(ip));
-            perHop.Add((h, baseRtt.Value, buckets, isAccess));
+            perHop.Add((h, baseRtt.Value, buckets));
         }
-        if (perHop.Count == 0) return;
+        if (perHop.Count < options.CoincidentCongestionMinHops) return;
 
         // "Up" in a bucket: fired an event covering it, or drifted up sub-threshold (scale-relative).
-        bool Up((AsnSeries Hop, double Base, Dictionary<DateTime, double> Buckets, bool IsAccess) p, DateTime t)
+        bool Up((AsnSeries Hop, double Base, Dictionary<DateTime, double> Buckets) p, DateTime t)
         {
             if (eventsBySeries.TryGetValue(p.Hop, out var evs) && evs.Any(e => Overlaps(e.Start, e.End, t, t + bucketSize)))
                 return true;
@@ -187,15 +186,12 @@ public static class CongestionLocalizer
         var upAt = new Dictionary<DateTime, List<AsnSeries>>();
         foreach (var t in perHop.SelectMany(p => p.Buckets.Keys).Distinct())
         {
-            var up = perHop.Where(p => p.Buckets.ContainsKey(t) && Up(p, t)).ToList();
-            // Shared upstream: the elevation is rooted at the access egress (the hop nearest you is up,
-            // not merely a deeper hop with clean upstream) AND spans multiple independent networks.
-            // That separates one shared incident from a single localized bottleneck that simply
-            // propagated to its downstream victim - which must still localize, not collapse.
-            var accessUp = up.Any(p => p.IsAccess);
-            var asns = up.Select(p => p.Hop.AsnNumber).Where(a => a > 0).Distinct().Count();
-            if (accessUp && asns >= options.SharedEventMinAsns)
-                upAt[t] = up.Select(p => p.Hop).ToList();
+            var withData = perHop.Where(p => p.Buckets.ContainsKey(t)).ToList();
+            if (withData.Count < options.CoincidentCongestionMinHops) continue;
+            var up = withData.Where(p => Up(p, t)).Select(p => p.Hop).ToList();
+            if (up.Count >= options.CoincidentCongestionMinHops
+                && up.Count >= withData.Count * options.CoincidentCongestionRiseFraction)
+                upAt[t] = up;
         }
         if (upAt.Count == 0) return;
 
@@ -218,7 +214,7 @@ public static class CongestionLocalizer
             var start = g[0];
             var end = g[^1] + bucketSize;
             var upHops = g.SelectMany(t => upAt[t]).Distinct().ToList();
-            if (upHops.Select(h => h.AsnNumber).Where(a => a > 0).Distinct().Count() < options.SharedEventMinAsns) continue;
+            if (upHops.Count < options.CoincidentCongestionMinHops) continue;
 
             // The nearest up hop owns the event: the shared bottleneck sits at or behind the
             // convergence point closest to the user, and attributing there avoids penalizing every

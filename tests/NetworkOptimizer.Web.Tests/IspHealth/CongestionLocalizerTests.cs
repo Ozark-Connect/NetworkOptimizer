@@ -539,28 +539,6 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
-    public void Access_rooted_rise_across_a_few_networks_collapses_despite_low_hop_count()
-    {
-        // Only three hops up - access egress plus two independent transit ASNs - too few for any
-        // hop-count threshold, but rooted at the access egress and spanning multiple networks. That's
-        // one shared incident and must collapse to a single event, not three separate rows.
-        var series = new List<AsnSeries>
-        {
-            Hop(100, Bng, Elevated()),                          // access egress
-            Hop(100, Border, Flat(), Bng),
-            Hop(100, Backhaul, Flat(), Bng, Border),
-            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
-            Hop(300, DeadEnd, Elevated(), Bng, Border),
-        };
-
-        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
-
-        events.Should().ContainSingle();
-        events[0].SharedUpstream.Should().BeTrue();
-        events[0].BottleneckHopIp.Should().Be(Bng);
-    }
-
-    [Fact]
     public void Jitter_rise_below_the_absolute_floor_does_not_fire()
     {
         // RTT clearly elevated and jitter ratio over 2x, but the absolute jitter rise
