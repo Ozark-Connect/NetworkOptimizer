@@ -2338,6 +2338,7 @@ select.form-control {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
+    margin-top: 0.5rem;
 }
 
 .threshold-fields .form-group {

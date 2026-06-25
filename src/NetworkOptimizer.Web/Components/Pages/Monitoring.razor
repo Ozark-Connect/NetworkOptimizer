@@ -493,15 +493,18 @@ else
         </div>
 
         <div class="card" style="margin-top: 1rem;">
-            <div class="card-header">
+            <div class="card-header card-header-collapsible" @onclick="() => _deviceTempCollapsed = !_deviceTempCollapsed">
                 <h2 class="card-title">Temperature Alert Thresholds</h2>
+                <span class="issue-type-chevron">@(_deviceTempCollapsed ? "▼" : "▲")</span>
             </div>
+            <div class="expand-wrapper @(!_deviceTempCollapsed ? "expanded" : "")">
+            <div class="expand-content">
             <div class="card-body">
                 <p class="page-description">
                     Raise a <a href="/alerts?tab=rules">Device: Temperature High</a> alert when a device runs above these limits.
                     Leave blank to use the default of @DefaultTempPlaceholder&deg;C. Hot-running models (e.g. high-PoE switches) may need a higher value to avoid noise.
                 </p>
-                <div class="threshold-fields">
+                <div class="threshold-fields" style="margin-top: 0.75rem;">
                     <div class="form-group">
                         <label class="form-label">Switch high temperature (&deg;C)</label>
                         <input type="number" class="form-control" min="40" max="120" step="1"
@@ -522,6 +525,8 @@ else
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
                     }
                 </div>
+            </div>
+            </div>
             </div>
         </div>
     }
@@ -614,16 +619,19 @@ else
         </div>
 
         <div class="card" style="margin-top: 1.5rem;">
-            <div class="card-header">
+            <div class="card-header card-header-collapsible" @onclick="() => _sfpThresholdsCollapsed = !_sfpThresholdsCollapsed">
                 <h2 class="card-title">SFP Alert Thresholds</h2>
+                <span class="issue-type-chevron">@(_sfpThresholdsCollapsed ? "▼" : "▲")</span>
             </div>
+            <div class="expand-wrapper @(!_sfpThresholdsCollapsed ? "expanded" : "")">
+            <div class="expand-content">
             <div class="card-body">
                 <p class="page-description">
                     Thresholds for the <a href="/alerts?tab=rules">SFP temperature and power</a> alerts, per transceiver type.
                     Leave a field blank to use the built-in default. The type of each module is set on its row in the table above.
                 </p>
 
-                <h3 class="chart-title" style="margin-top: 0.5rem;">PON</h3>
+                <h3 class="chart-title" style="margin-top: 0.75rem;">PON</h3>
                 <div class="threshold-fields">
                     <div class="form-group">
                         <label class="form-label">Temperature high (&deg;C)</label>
@@ -680,6 +688,8 @@ else
                         <span class="form-help signal-good" style="align-self: center;">Saved</span>
                     }
                 </div>
+            </div>
+            </div>
             </div>
         </div>
     }
@@ -1579,6 +1589,8 @@ else
     private double? _gatewayTempThresholdInput;
     private bool _savingTempThresholds;
     private bool _tempThresholdsSaved;
+    private bool _deviceTempCollapsed = true;
+    private bool _sfpThresholdsCollapsed = true;
 
     private static string DefaultTempPlaceholder =>
         NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator.DefaultDeviceTempHighC.ToString("0");
