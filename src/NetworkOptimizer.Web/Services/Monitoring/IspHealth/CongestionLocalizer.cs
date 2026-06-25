@@ -432,12 +432,14 @@ public static class CongestionLocalizer
     }
 
     /// <summary>
-    /// A softer "elevated in this window" test than firing a full congestion event: true when a
-    /// meaningful fraction of in-window RTT samples exceed the hop's own baseline p90 by the
-    /// congestion RTT floor. A real bottleneck's added delay reaches downstream hops as excursions
-    /// that may be too sparse to fire their own sustained event; using this for the propagation
-    /// and clean-control checks stops the localizer from absolving a genuine bottleneck as
-    /// control-plane noise just because nothing downstream fired. Clean off-path hops sit near zero.
+    /// A softer "elevated in this window" test than firing a full congestion event, used for the
+    /// propagation and clean-control checks so the localizer doesn't absolve a genuine bottleneck as
+    /// control-plane noise just because nothing downstream fired its own event. A hop counts as
+    /// elevated if EITHER its RTT rose (a meaningful fraction of in-window RTT samples exceed its own
+    /// baseline p90 by the congestion RTT floor) OR its jitter rose relative to its own baseline.
+    /// The jitter arm matters because many incidents are jitter-driven with flat RTT - an RTT-only
+    /// test reads the downstream as clean and shatters one chain-wide rise into per-hop noise rows.
+    /// Both arms are relative to the hop's OWN baseline; clean off-path hops sit near zero on both.
     /// </summary>
     internal static bool ElevatedInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
     {
@@ -450,10 +452,30 @@ public static class CongestionLocalizer
         if (inWindow.Count == 0 || baseline.Count == 0) return false;
 
         var baselineP90 = SeriesStats.Percentile(baseline, 0.90);
-        if (!baselineP90.HasValue) return false;
-        var threshold = baselineP90.Value + options.CongestionRttMinDeltaMs;
-        var excursionFraction = inWindow.Count(v => v > threshold) / (double)inWindow.Count;
-        return excursionFraction >= options.CongestionPropagationExcursionFraction;
+        if (baselineP90.HasValue)
+        {
+            var threshold = baselineP90.Value + options.CongestionRttMinDeltaMs;
+            var excursionFraction = inWindow.Count(v => v > threshold) / (double)inWindow.Count;
+            if (excursionFraction >= options.CongestionPropagationExcursionFraction) return true;
+        }
+
+        // Jitter arm: the downstream of a real bottleneck often inherits the delay as jitter while its
+        // median RTT barely moves, so RTT-only propagation misses it. Compare in-window median jitter
+        // to this hop's OWN baseline median (relative, with a small absolute floor so a near-zero hop
+        // isn't tripped by a sub-ms ratio swing).
+        var inJitter = series.Samples
+            .Where(x => x.Time >= start && x.Time <= end).Select(x => x.EffectiveJitterMs)
+            .Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        var baseJitter = series.Samples
+            .Where(x => x.Time < start || x.Time > end).Select(x => x.EffectiveJitterMs)
+            .Where(j => j.HasValue).Select(j => j!.Value).ToList();
+        if (inJitter.Count == 0 || baseJitter.Count == 0) return false;
+
+        var inJitMedian = SeriesStats.Median(inJitter);
+        var baseJitMedian = SeriesStats.Median(baseJitter);
+        return inJitMedian.HasValue && baseJitMedian.HasValue
+            && inJitMedian.Value >= baseJitMedian.Value * options.CongestionPropagationJitterFactor
+            && inJitMedian.Value - baseJitMedian.Value >= options.CongestionPropagationJitterFloorMs;
     }
 
     private static int DeepestHopNum(AsnSeries series, CongestionTopology topology) => series.HopIps

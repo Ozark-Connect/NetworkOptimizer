@@ -215,6 +215,22 @@ public class IspHealthOptions
     public double CongestionPropagationExcursionFraction { get; set; } = 0.05;
 
     /// <summary>
+    /// Factor a hop's in-window median jitter must clear over its own baseline median jitter to count
+    /// as elevated for PROPAGATION. Many congestion incidents are jitter-driven with flat RTT, so an
+    /// RTT-only propagation test reads the downstream as "clean" and wrongly absolves a real chain-wide
+    /// rise as per-hop control-plane noise. Softer than the detection jitter factor; paired with an
+    /// absolute floor below so a near-zero-baseline hop is not tripped by a sub-ms ratio swing.
+    /// </summary>
+    public double CongestionPropagationJitterFactor { get; set; } = 1.5;
+
+    /// <summary>
+    /// Minimum absolute median-jitter rise (ms) for the propagation jitter test, on top of the
+    /// <see cref="CongestionPropagationJitterFactor"/> ratio - a 0.05 -> 0.10 ms doubling is still
+    /// noise, not propagation.
+    /// </summary>
+    public double CongestionPropagationJitterFloorMs { get; set; } = 0.25;
+
+    /// <summary>
     /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored
     /// paths (with data) must have their in-window median rise above baseline for an access-egress
     /// bottleneck under load to read as self-inflicted rather than a hop bottleneck. A robust majority

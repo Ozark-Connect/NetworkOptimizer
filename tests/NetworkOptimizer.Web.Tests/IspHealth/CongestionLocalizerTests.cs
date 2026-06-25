@@ -332,6 +332,29 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Propagation_recognizes_a_jitter_rise_downstream_not_just_rtt()
+    {
+        // The bottleneck's delay reaches the downstream hop as JITTER while its RTT stays flat.
+        // RTT-only propagation would absolve the bottleneck as control-plane noise; the jitter arm
+        // must see the propagation and confirm the real bottleneck.
+        var jitterOnly = Flat(5).WithSegment(HumpStart, HumpEnd, rttMs: 5, jitterMs: 3);
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Flat()),
+            Hop(100, Border, Flat()),
+            Hop(100, Backhaul, Elevated(), Bng, Border),             // bottleneck, fires (rtt + jitter)
+            Hop(200, Transit, jitterOnly, Bng, Border, Backhaul),    // downstream: jitter up, RTT flat
+            Hop(300, DeadEnd, Flat(), Bng, Border),
+            Dest(DestControl, Flat(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var backhaul = events.Single(e => e.BottleneckHopIp == Backhaul);
+        backhaul.Disposition.Should().Be(CongestionDisposition.Confirmed);
+    }
+
+    [Fact]
     public void Unverifiable_hop_inherits_confirmed_from_a_same_asn_sibling_in_the_same_window()
     {
         // Two hops on AS 500 elevated in the same window: one has a downstream witness (Confirmed),
