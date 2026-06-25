@@ -328,11 +328,11 @@ public class CongestionLocalizerTests
 
         var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
 
-        events.Should().ContainSingle();
-        events[0].SharedUpstream.Should().BeTrue();
+        events.Should().HaveCount(1);
+        events[0].BottleneckHopIp.Should().Be(Border);
         events[0].Disposition.Should().Be(CongestionDisposition.Confirmed);
         events[0].Suppressed.Should().BeFalse();
-        events[0].BottleneckHopIp.Should().Be(Bng);   // collapsed onto the convergence hop, not Border
+        events[0].LoadCoincident.Should().BeFalse();
     }
 
     [Fact]
@@ -430,112 +430,6 @@ public class CongestionLocalizerTests
         // Access hop + 10.0.7.1 (both clean, with data in the window) count; 10.0.8.1 (no data during
         // the event) does not - it would be 3 without the data-presence guard.
         evt.CleanParallelPaths.Should().Be(2);
-    }
-
-    [Fact]
-    public void Coincident_sub_gate_rise_across_many_hops_is_shared_upstream_congestion()
-    {
-        // Each hop rises only ~1 ms - below the per-hop gate, so none fires its own event - but
-        // several independent hops rise together in the same window. That coincidence is shared
-        // upstream congestion the per-hop thresholds can't see.
-        var series = new List<AsnSeries>
-        {
-            Hop(100, Bng, SmallRise()),
-            Hop(100, Border, SmallRise(), Bng),
-            Hop(100, Backhaul, SmallRise(), Bng, Border),
-            Hop(200, Transit, SmallRise(), Bng, Border, Backhaul),
-            Hop(300, DeadEnd, SmallRise(), Bng, Border),
-        };
-
-        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
-
-        events.Should().ContainSingle();
-        var e = events[0];
-        e.SharedUpstream.Should().BeTrue();
-        e.Disposition.Should().Be(CongestionDisposition.Confirmed);
-        e.Suppressed.Should().BeFalse();
-        e.BottleneckHopIp.Should().Be(Bng); // nearest risen hop (the convergence point) owns it
-    }
-
-    [Fact]
-    public void A_lone_sub_gate_rise_is_not_shared_upstream()
-    {
-        // One hop drifts up ~1 ms while every other path stays flat - not a shared event, no signal.
-        var series = new List<AsnSeries>
-        {
-            Hop(100, Bng, SmallRise()),
-            Hop(100, Border, Flat(), Bng),
-            Hop(100, Backhaul, Flat(), Bng, Border),
-            Hop(200, Transit, Flat(), Bng, Border, Backhaul),
-            Hop(300, DeadEnd, Flat(), Bng, Border),
-        };
-
-        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
-
-        events.Should().NotContain(e => e.SharedUpstream);
-    }
-
-    [Fact]
-    public void A_fired_per_hop_event_in_a_line_wide_window_is_subsumed_by_the_shared_event()
-    {
-        // A per-hop bottleneck fires while the line is broadly up. The whole incident collapses into
-        // ONE shared-upstream event - the per-hop event is removed, not left alongside a duplicate.
-        var series = new List<AsnSeries>
-        {
-            Hop(100, Bng, SmallRise()),
-            Hop(100, Border, SmallRise(), Bng),
-            Hop(100, Backhaul, Elevated(), Bng, Border),
-            Hop(200, Transit, SmallRise(), Bng, Border, Backhaul),
-            Hop(300, DeadEnd, SmallRise(), Bng, Border),
-        };
-
-        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
-
-        events.Should().ContainSingle();
-        events[0].SharedUpstream.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Line_wide_cluster_of_per_hop_events_collapses_into_one_shared_upstream_event()
-    {
-        // Many independent hops cross the gate in the same window (no local load) - one shared
-        // upstream incident, not N per-hop rows. Collapse to a single shared-upstream Confirmed event.
-        var series = new List<AsnSeries>
-        {
-            Hop(100, Bng, Elevated()),
-            Hop(100, Border, Elevated(), Bng),
-            Hop(100, Backhaul, Elevated(), Bng, Border),
-            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
-            Hop(300, DeadEnd, Elevated(), Bng, Border),
-        };
-
-        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
-
-        events.Should().ContainSingle();
-        events[0].SharedUpstream.Should().BeTrue();
-        events[0].Disposition.Should().Be(CongestionDisposition.Confirmed);
-    }
-
-    [Fact]
-    public void Line_wide_collapse_spans_only_the_shared_window_not_a_lingering_hop()
-    {
-        // Four hops rise for ~45 min together; one lingers 3 h past the rest. The collapsed event
-        // must span only the shared window (~45 min), not be dragged out to the lingering hop's 3 h.
-        var lingering = Flat(5).WithSegment(HumpStart, HumpStart.AddHours(3), rttMs: 30, jitterMs: 6);
-        var series = new List<AsnSeries>
-        {
-            Hop(100, Bng, Elevated()),
-            Hop(100, Border, Elevated(), Bng),
-            Hop(100, Backhaul, Elevated(), Bng, Border),
-            Hop(200, Transit, Elevated(), Bng, Border, Backhaul),
-            Hop(300, DeadEnd, lingering, Bng, Border),
-        };
-
-        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
-
-        events.Should().ContainSingle();
-        events[0].SharedUpstream.Should().BeTrue();
-        events[0].Duration.Should().BeLessThan(TimeSpan.FromHours(1.5));
     }
 
     [Fact]

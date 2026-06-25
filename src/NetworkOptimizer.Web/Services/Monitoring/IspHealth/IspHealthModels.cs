@@ -253,14 +253,6 @@ public class CongestionEvent
     /// <summary>True when this event must not penalize the score: self-inflicted bufferbloat or absolved control-plane noise.</summary>
     public bool Suppressed => Disposition is CongestionDisposition.SelfInflicted or CongestionDisposition.ControlPlaneNoise;
 
-    /// <summary>
-    /// True when this event came from coincident-rise (shared-upstream) detection rather than a
-    /// per-hop gate crossing: many independent hops rose together while each stayed individually
-    /// sub-threshold. Such events are sub-gate by design, so the fine-resolution boundary-refine
-    /// must not treat "no per-hop run reproduces it" as a phantom and drop it.
-    /// </summary>
-    public bool SharedUpstream { get; set; }
-
     public bool IsShared => AsnNumbers.Count > 1;
     public TimeSpan Duration => End - Start;
 }
