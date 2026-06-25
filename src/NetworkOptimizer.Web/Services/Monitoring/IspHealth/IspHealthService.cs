@@ -306,10 +306,7 @@ public class IspHealthService
         var gatewaySeriesTask = gatewayTarget == null
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
             : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, windowStart, windowEnd, aggregate, ct);
-        var __perfQ = System.Diagnostics.Stopwatch.StartNew();
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
-        __perfQ.Stop();
-        var __perfPrep = System.Diagnostics.Stopwatch.StartNew();
 
         var ispSeries = ToSamples(await ispSeriesTask);
         var transitSeries = ToSamples(await transitSeriesTask);
@@ -608,16 +605,7 @@ public class IspHealthService
             LoadExclusionWindows = loadExclusions
         };
 
-        __perfPrep.Stop();
-        var __perfScore = System.Diagnostics.Stopwatch.StartNew();
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
-        __perfScore.Stop();
-        _logger.LogInformation(
-            "ISPPERF win={Win}h agg={Agg}s queries={Q}ms prep+detect={P}ms score={S}ms targets(isp/transit/inet)={Ti}/{Tt}/{Tn}",
-            ((windowEnd - windowStart).TotalHours).ToString("0", System.Globalization.CultureInfo.InvariantCulture),
-            aggregate.TotalSeconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
-            __perfQ.ElapsedMilliseconds, __perfPrep.ElapsedMilliseconds, __perfScore.ElapsedMilliseconds,
-            ispSeries.Count, transitSeries.Count, internetSeries.Count);
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
