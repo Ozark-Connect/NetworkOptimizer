@@ -874,6 +874,11 @@
     private List<SignalMapPoint> _signalMapPoints = new();
     private List<ApMapMarker> _apMapMarkers = new();
     private System.Threading.Timer? _mapPollTimer;
+
+    // Auto-refresh the Overview tab once the health score has aged past this, so a parked
+    // tab doesn't show indefinitely stale data. Checked on each map-poll tick.
+    private static readonly TimeSpan HealthScoreStaleAfter = TimeSpan.FromMinutes(1);
+
     private int _signalTimeRangeHours = 168; // 1 week default, matches FloorPlanEditor slider
     private int _speedTestTimeRangeHours = 720; // 30 days default, matches SpeedTestMap slider
 
@@ -915,6 +920,22 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    // While the user sits on the Overview tab, the health score (and channel plan)
+                    // only refresh on load or manual refresh. Once the score goes stale, run the
+                    // full refresh so it picks everything up - health, APs, speed tests, signal
+                    // data, and channel recommendations. RefreshData re-pulls it all, so skip the
+                    // lighter speed/signal update this tick.
+                    // Only when connected: RefreshData doesn't wait for the console, so firing it
+                    // mid-reconnect (e.g. during a deploy) would hang on a dead connection. On
+                    // reconnect, OnConnectionChanged -> LoadDataAsync does a connection-aware reload.
+                    if (_activeTab == "overview" && ConnectionService.IsConnected && !_refreshing
+                        && _healthScore != null
+                        && DateTimeOffset.UtcNow - _healthScore.Timestamp >= HealthScoreStaleAfter)
+                    {
+                        await RefreshData();
+                        return;
+                    }
+
                     var now = DateTime.UtcNow;
                     var speedTestTask = SpeedTestService.GetResultsAsync(count: 0, hours: _speedTestTimeRangeHours);
                     var signalTask = DashboardService.GetSignalMapPointsAsync(
