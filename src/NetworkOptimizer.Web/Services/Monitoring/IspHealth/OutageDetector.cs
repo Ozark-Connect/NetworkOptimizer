@@ -161,10 +161,10 @@ public static class OutageDetector
         IspHealthOptions options)
     {
         var partialPct = options.OutagePartialLossPct;
-        var tiers = new List<OutageTierState>();
         // Degraded duty cycle per hop, mirroring the blackout attribution but at the partial
         // threshold: the break sits just beyond the deepest hop that stayed clean.
         var degradedDepth = new Dictionary<int, bool>();
+        var degraded = new List<(Hop Hop, double Peak)>();
         double eventPeak = 0;
         foreach (var hop in pool.OrderBy(h => h.Depth))
         {
@@ -182,16 +182,26 @@ public static class OutageDetector
             if (degradedBuckets > 0)
             {
                 eventPeak = Math.Max(eventPeak, peak);
-                tiers.Add(new OutageTierState
-                {
-                    Name = hop.AsnLabel ?? hop.Name,
-                    Depth = hop.Depth,
-                    PeakLossPct = peak,
-                    WentDark = false,
-                    RecoveredAt = null
-                });
+                degraded.Add((hop, peak));
             }
         }
+
+        // Unlike the blackout waterfall (which groups access hops via GroupAccessTiers), partial-loss
+        // tiers are per-hop, so several hops of one ASN would all read as just the ASN label. Only when
+        // a label repeats in this list, disambiguate it with the specific hop's name/hostname tail.
+        var labelCounts = degraded.GroupBy(d => d.Hop.AsnLabel ?? d.Hop.Name).ToDictionary(g => g.Key, g => g.Count());
+        var tiers = degraded.Select(d =>
+        {
+            var label = d.Hop.AsnLabel ?? d.Hop.Name;
+            return new OutageTierState
+            {
+                Name = DisambiguateTierLabel(label, d.Hop.Name, labelCounts[label] > 1),
+                Depth = d.Hop.Depth,
+                PeakLossPct = d.Peak,
+                WentDark = false,
+                RecoveredAt = null
+            };
+        }).ToList();
 
         var nearest = pool.Where(h => degradedDepth.ContainsKey(h.Depth)).OrderBy(h => h.Depth).FirstOrDefault();
         var lastClean = pool.Where(h => degradedDepth.TryGetValue(h.Depth, out var d) && !d).OrderByDescending(h => h.Depth).FirstOrDefault();
@@ -414,6 +424,21 @@ public static class OutageDetector
     /// <summary>The part of a per-target name after its ASN prefix ("AT&amp;T nokia-olt" -> "nokia-olt").</summary>
     private static string HostnameTail(string name, string asn) =>
         name.StartsWith(asn + " ", StringComparison.OrdinalIgnoreCase) ? name[(asn.Length + 1)..] : name;
+
+    /// <summary>
+    /// When a tier label repeats within one event's list (e.g. several hops of one access ISP), make
+    /// it specific: keep the hop's own name if it already extends the label (e.g. a cluster's
+    /// "+N ms hop"), otherwise append the hostname tail as "ASN (tail)" - matching the blackout
+    /// waterfall's style. A unique label is returned unchanged.
+    /// </summary>
+    private static string DisambiguateTierLabel(string label, string hopName, bool repeats)
+    {
+        if (!repeats || string.IsNullOrEmpty(hopName) || string.Equals(hopName, label, StringComparison.OrdinalIgnoreCase))
+            return label;
+        if (hopName.StartsWith(label + " ", StringComparison.OrdinalIgnoreCase))
+            return hopName; // already "label hostname" or "label (+N ms hop)"
+        return $"{label} ({HostnameTail(hopName, label)})";
+    }
 
     /// <summary>Actual timestamp of the first sample at/above the loss threshold in [start, end).</summary>
     private static DateTime? FirstDark(

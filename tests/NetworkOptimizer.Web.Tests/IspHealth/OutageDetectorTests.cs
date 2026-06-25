@@ -277,6 +277,32 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Partial_disruption_disambiguates_repeated_asn_labels()
+    {
+        // Several hops of one access ISP would all read as just "AT&T"; only the repeated label gets
+        // disambiguated to the specific hop, while unique labels are left as the clean ASN name.
+        var ds = OutStart;
+        var de = OutStart.AddSeconds(40);
+        var hops = new[]
+        {
+            new OutageDetector.Hop("AT&T nokia-olt", 0, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
+            new OutageDetector.Hop("AT&T mtnview-border", 1, LossSeries(ds, de, 80), AsnLabel: "AT&T"),
+            new OutageDetector.Hop("Cloudflare", 2, LossSeries(ds, de, 80), AsnLabel: "Cloudflare"),
+            new OutageDetector.Hop("Fastly", 3, LossSeries(ds, de, 80), AsnLabel: "Fastly"),
+        };
+
+        var events = OutageDetector.DetectPartial(hops, NoDarkWindows, Options);
+
+        events.Should().ContainSingle();
+        var names = events[0].Tiers.Select(t => t.Name).ToList();
+        names.Should().Contain("AT&T nokia-olt");
+        names.Should().Contain("AT&T mtnview-border");
+        names.Should().NotContain("AT&T");                 // the bare duplicate label is replaced
+        names.Should().Contain("Cloudflare");              // unique labels stay clean
+        names.Should().Contain("Fastly");
+    }
+
+    [Fact]
     public void Partial_window_overlapping_a_blackout_is_excluded()
     {
         // A blackout also clears the partial threshold; the partial pass must not surface it again.
