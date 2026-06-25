@@ -228,7 +228,7 @@ public class IspHealthOptions
     /// <see cref="CongestionPropagationJitterFactor"/> ratio - a 0.05 -> 0.10 ms doubling is still
     /// noise, not propagation.
     /// </summary>
-    public double CongestionPropagationJitterFloorMs { get; set; } = 0.25;
+    public double CongestionPropagationJitterFloorMs { get; set; } = 0.2;
 
     /// <summary>
     /// Self-inflicted access bufferbloat is a line-wide rise under load: this fraction of monitored

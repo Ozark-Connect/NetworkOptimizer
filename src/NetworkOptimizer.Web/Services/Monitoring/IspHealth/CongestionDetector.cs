@@ -66,15 +66,18 @@ public static class CongestionDetector
         bool StillElevated(Bucket b)
         {
             var f = options.CongestionSustainFraction;
-            // Continuation requires the congestion SIGNATURE to persist, not merely an elevated
-            // level: jitter still up, or p90 still spiking above the bucket's OWN median
-            // (intermittent bursts). A flat elevated plateau - raised median, baseline jitter,
-            // p90 about equal to the median - is a path/route shift (the step detector's job) and
-            // must not hold a congestion run open.
+            // Continuation requires the congestion SIGNATURE to persist RELATIVE TO THIS HOP'S OWN
+            // BASELINE, not merely an absolute delta or the bucket's own internal spread: jitter still
+            // up versus baseline (both an absolute floor AND a ratio, so a naturally jittery hop's
+            // normal wobble doesn't qualify), or p90 still elevated above the BASELINE p90 (mirroring
+            // entry), not just a wide p90-median spread that a chronically bursty hop always shows.
+            // Without the relative bar a bursty/jittery hop holds a run open for hours past the real
+            // event (the false long tail). A flat plateau back at baseline ends the run.
             var jitterOk = b.JitterMs.HasValue && baselineJitter.HasValue
-                && b.JitterMs.Value - baselineJitter.Value >= options.CongestionJitterMinDeltaMs * f;
-            var burstOk = b.P90Ms.HasValue && b.RttMs.HasValue
-                && b.P90Ms.Value - b.RttMs.Value >= (burstThreshold - baselineP90.Value) * f;
+                && b.JitterMs.Value - baselineJitter.Value >= options.CongestionJitterMinDeltaMs * f
+                && b.JitterMs.Value >= baselineJitter.Value * (1 + (options.CongestionJitterFactor - 1) * f);
+            var burstOk = b.P90Ms.HasValue
+                && b.P90Ms.Value - baselineP90.Value >= (burstThreshold - baselineP90.Value) * f;
             return jitterOk || burstOk;
         }
 
