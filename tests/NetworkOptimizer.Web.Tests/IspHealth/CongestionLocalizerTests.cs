@@ -309,6 +309,33 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Non_propagating_hop_during_a_line_wide_rise_is_confirmed_as_shared_upstream_not_noise()
+    {
+        // Border is elevated but its immediate downstream reads clean on the absolute bar - alone that
+        // absolves as control-plane noise. But nearly every monitored path drifted up together this
+        // window (line-wide, no local load needed), so it's a shared upstream bottleneck lifting the
+        // whole path, not the hop's own ICMP handling: Confirmed and scored, not suppressed.
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, SmallRise()),
+            Hop(100, Border, Elevated(), Bng),                            // bottleneck, elevated
+            Hop(100, Backhaul, SmallRise(), Bng, Border),                 // immediate downstream rose but not "elevated" -> propagated=false
+            Hop(200, Transit, SmallRise(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, SmallRise(), Bng, Border),
+            Dest(DestCorridor, SmallRise(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, SmallRise(), Bng, Border)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        events.Should().HaveCount(1);
+        events[0].BottleneckHopIp.Should().Be(Border);
+        events[0].Disposition.Should().Be(CongestionDisposition.Confirmed);
+        events[0].Suppressed.Should().BeFalse();
+        events[0].LoadCoincident.Should().BeFalse();
+    }
+
+    [Fact]
     public void Bottleneck_is_confirmed_when_a_downstream_hop_is_elevated_but_did_not_fire_its_own_event()
     {
         // The downstream transit inherits the bottleneck's delay as a short spike - real, but too

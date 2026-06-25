@@ -230,6 +230,15 @@ public static class CongestionLocalizer
                     ? $" It coincided with heavy WAN load, but {cleanParallelPaths} other monitored paths stayed clean under the same load, so it was this hop's own capacity, not your access egress."
                     : " It coincided with heavy WAN load (load-induced), but localizes to a specific hop rather than your access egress.";
         }
+        else if (hasDescendant && lineWideUnderLoad)
+        {
+            // The elevation didn't forward to THIS hop's immediate downstream witness, which alone
+            // would read as control-plane noise. But nearly every monitored path rose together this
+            // window (line-wide, with or without local load) - that's a shared upstream bottleneck
+            // lifting the whole path, not one hop's own ICMP handling. Real congestion, so scored.
+            disposition = CongestionDisposition.Confirmed;
+            reason = "Elevation rose across nearly every monitored path this window - a shared upstream bottleneck, not this hop's own control-plane handling.";
+        }
         else if (hasDescendant)
         {
             disposition = CongestionDisposition.ControlPlaneNoise;
