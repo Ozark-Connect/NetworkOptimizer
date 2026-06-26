@@ -81,19 +81,21 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     }
 
     [Fact]
-    public void Candidate_excludes_disabled_hops()
+    public void Candidate_includes_unreachable_hops_reachability_independent()
     {
+        // A hop that flapped the ping gate this run is still on the path - it must stay in the
+        // signature so reachability noise doesn't read as a topology change.
         var state = new UpstreamTracerState
         {
             TransitAsns =
             {
                 Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter, enabled: true),
-                Transit("198.51.100.2", TransitAsnB, DiscoveryMethod.DirectRouter, enabled: false),
+                Transit("198.51.100.2", TransitAsnB, DiscoveryMethod.DirectRouter, enabled: false, unreachable: true),
             },
         };
 
         UpstreamRediscoveryService.BuildCandidateSignature(state)
-            .Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
+            .Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}", $"transit:as{TransitAsnB}" });
     }
 
     [Fact]
@@ -111,20 +113,26 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     // ---- Committed signature (DB) ----
 
     [Fact]
-    public async Task Committed_collapses_ecmp_and_excludes_disabled_other_wan_and_custom()
+    public async Task Committed_collapses_ecmp_keeps_disabled_excludes_other_wan_and_custom()
     {
         _db.MonitoringTargets.AddRange(
             Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
             Target("198.51.100.2", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
             Target("192.0.2.1", MonitoringTargetType.AccessIsp, AccessAsn, "wan", DiscoveryMethod.DirectRouter),
+            // user-disabled - still counted (reachability-independent), so it doesn't read as a change
             Target("198.51.100.9", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false),
-            Target("198.51.100.10", MonitoringTargetType.Transit, TransitAsnB, "wan2", DiscoveryMethod.DirectRouter),
+            // other WAN - excluded
+            Target("198.51.100.10", MonitoringTargetType.Transit, PathAsn, "wan2", DiscoveryMethod.DirectRouter),
+            // user custom (no discovery method) - excluded
             Target("203.0.113.50", MonitoringTargetType.Custom, null, "wan", method: null));
         await _db.SaveChangesAsync();
 
         var sig = await UpstreamRediscoveryService.BuildCommittedSignatureAsync(_db, "wan", CancellationToken.None);
 
-        sig.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}", $"access:as{AccessAsn}" });
+        sig.Should().BeEquivalentTo(new[]
+        {
+            $"transit:as{TransitAsnA}", $"transit:as{TransitAsnB}", $"access:as{AccessAsn}"
+        });
     }
 
     // ---- Convergence: the regression this fix targets ----
@@ -178,9 +186,89 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         committed.Except(candidate).Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Disabled_flaky_target_still_on_path_does_not_diff()
+    {
+        // User disabled the only target for an ASN because it was flaky. Discovery still finds
+        // that ASN on the path (here via a different hop IP that's currently unreachable). The
+        // disable must not read as a path change - otherwise we'd nag, and a commit would
+        // silently re-enable the target the user turned off.
+        _db.MonitoringTargets.AddRange(
+            Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
+            Target("198.51.100.2", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false));
+        await _db.SaveChangesAsync();
+
+        var state = new UpstreamTracerState
+        {
+            WanInterface = "wan",
+            TransitAsns =
+            {
+                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter),
+                Transit("203.0.113.9", TransitAsnB, DiscoveryMethod.DirectRouter, unreachable: true),
+            },
+        };
+
+        var committed = await UpstreamRediscoveryService.BuildCommittedSignatureAsync(_db, "wan", CancellationToken.None);
+        var candidate = UpstreamRediscoveryService.BuildCandidateSignature(state);
+
+        committed.SetEquals(candidate).Should().BeTrue();
+    }
+
+    // ---- Degraded-run guard ----
+
+    [Fact]
+    public void Degraded_when_nothing_discovered()
+    {
+        UpstreamRediscoveryService.IsRunDegraded(new UpstreamTracerState()).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Degraded_when_all_access_hops_unreachable()
+    {
+        var state = new UpstreamTracerState
+        {
+            AccessHops = { Hop("192.0.2.1", AccessAsn, unreachable: true) },
+            TransitAsns = { Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter) },
+        };
+        UpstreamRediscoveryService.IsRunDegraded(state).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Degraded_when_majority_of_hops_unreachable()
+    {
+        var state = new UpstreamTracerState
+        {
+            AccessHops = { Hop("192.0.2.1", AccessAsn) },
+            TransitAsns =
+            {
+                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter, unreachable: true),
+                Transit("198.51.100.2", TransitAsnB, DiscoveryMethod.DirectRouter, unreachable: true),
+            },
+        };
+        // 2 of 3 unreachable >= 50%
+        UpstreamRediscoveryService.IsRunDegraded(state).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Not_degraded_when_mostly_reachable()
+    {
+        var state = new UpstreamTracerState
+        {
+            AccessHops = { Hop("192.0.2.1", AccessAsn) },
+            TransitAsns =
+            {
+                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter),
+                Transit("198.51.100.2", TransitAsnB, DiscoveryMethod.DirectRouter),
+                Transit("198.51.100.3", PathAsn, DiscoveryMethod.DirectRouter, unreachable: true),
+            },
+        };
+        // 1 of 4 unreachable < 50%
+        UpstreamRediscoveryService.IsRunDegraded(state).Should().BeFalse();
+    }
+
     // ---- helpers ----
 
-    private static AccessHopCandidate Hop(string address, int? asn, bool enabled = true) => new()
+    private static AccessHopCandidate Hop(string address, int? asn, bool enabled = true, bool unreachable = false) => new()
     {
         TargetId = $"access-{address}",
         Label = $"Access {address}",
@@ -188,10 +276,11 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         AsnNumber = asn,
         Method = DiscoveryMethod.DirectRouter,
         Enabled = enabled,
+        Unreachable = unreachable,
     };
 
     private static TransitAsnCandidate Transit(string? hopAddress, int asn, DiscoveryMethod method,
-        bool enabled = true, string? pathProxy = null) => new()
+        bool enabled = true, string? pathProxy = null, bool unreachable = false) => new()
     {
         AsnName = $"AS{asn}",
         HopAddress = hopAddress,
@@ -199,6 +288,7 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         Method = method,
         Enabled = enabled,
         PathProxyTarget = pathProxy,
+        Unreachable = unreachable,
     };
 
     private static MonitoringTarget Target(string address, MonitoringTargetType type, int? asn,

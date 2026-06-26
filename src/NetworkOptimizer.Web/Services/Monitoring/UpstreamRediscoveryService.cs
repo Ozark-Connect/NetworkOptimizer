@@ -72,6 +72,20 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
+        // A run with broadly failed reachability (transient ICMP throttling, a congested
+        // minute, traceroutes that didn't complete) discovers fewer ASNs than usual, which
+        // would surface as phantom "removed" changes. Don't trust such a run: roll the cadence
+        // forward and try again next cycle rather than nagging the user with a bad result.
+        if (IsRunDegraded(_tracer.State))
+        {
+            _logger.LogInformation("Re-discovery run looked unreliable (degraded reachability); not flagging, retrying next cycle");
+            settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            _tracer.ResetToIdle();
+            return;
+        }
+
         // Compare on a stable upstream-ASN identity scoped to the WAN this run discovered.
         // A run never writes MonitoringTargets (commit only happens on user review), so the
         // committed set is read here, where State.WanInterface is known.
@@ -104,15 +118,17 @@ public class UpstreamRediscoveryService : BackgroundService
 
     internal static async Task<HashSet<string>> BuildCommittedSignatureAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
-        // Tracer-origin targets for this WAN, enabled only. We compare on a stable ASN-level
-        // identity (see IdentityKey), NOT raw per-hop TargetIds: traceroutes load-balance across
-        // multiple hop IPs within the same ASN run-to-run, so a TargetId comparison never
-        // converges and would re-flag the banner on every cycle. Enabled-only and WAN-scoped so
-        // user-disabled targets, other WANs, and stale history the commit path never prunes don't
-        // register as phantom changes. User-added customs (DiscoveryMethod == null) are excluded.
+        // Tracer-origin targets for this WAN, compared on a stable ASN-level identity (see
+        // IdentityKey) - NOT raw per-hop TargetIds, which churn run-to-run as traceroutes
+        // load-balance across hop IPs within an ASN.
+        //
+        // Deliberately reachability-independent: NO Enabled filter. A hop that fails the ping
+        // gate one run is still the same upstream path, and a user disabling a flaky target
+        // shouldn't read as a path change. We compare the set of ASNs on the path; reachability
+        // is handled elsewhere (flaky detection / ISP Health). WAN-scoped; user-added customs
+        // (DiscoveryMethod == null) excluded.
         var targets = await db.MonitoringTargets
-            .Where(t => t.Enabled
-                && t.WanInterface == wanInterface
+            .Where(t => t.WanInterface == wanInterface
                 && (t.DiscoveryMethod == DiscoveryMethod.DirectRouter
                     || t.DiscoveryMethod == DiscoveryMethod.PathProxy
                     || t.DiscoveryMethod == DiscoveryMethod.L2Neighbor))
@@ -126,10 +142,12 @@ public class UpstreamRediscoveryService : BackgroundService
 
     internal static HashSet<string> BuildCandidateSignature(UpstreamTracerState state)
     {
+        // Reachability-independent (no Enabled filter): every ASN discovered on the path this
+        // run, so a hop that flapped the ping gate doesn't drop its ASN and read as a change.
         var sig = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var hop in state.AccessHops.Where(h => h.Enabled))
+        foreach (var hop in state.AccessHops)
             sig.Add(IdentityKey(MonitoringTargetType.AccessIsp, hop.AsnNumber, hop.Address));
-        foreach (var transit in state.TransitAsns.Where(t => t.Enabled))
+        foreach (var transit in state.TransitAsns)
         {
             var type = transit.Method == DiscoveryMethod.PathProxy
                 ? MonitoringTargetType.InternetService
@@ -137,6 +155,24 @@ public class UpstreamRediscoveryService : BackgroundService
             sig.Add(IdentityKey(type, transit.AsnNumber, transit.HopAddress ?? transit.PathProxyTarget));
         }
         return sig;
+    }
+
+    // True when a run's reachability looks too poor to trust its discovered ASN set: nothing
+    // discovered, the first mile couldn't be verified, or at least half of all discovered hops
+    // failed the ping gate. Such a run finds fewer ASNs than the path really has, so treating
+    // its result as "the path changed" would nag the user for a transient blip.
+    internal static bool IsRunDegraded(UpstreamTracerState state)
+    {
+        var total = state.AccessHops.Count + state.TransitAsns.Count;
+        if (total == 0) return true;
+
+        // First mile is the anchor - if every access hop is unreachable, we can't trust the run.
+        if (state.AccessHops.Count > 0 && state.AccessHops.All(h => h.Unreachable))
+            return true;
+
+        var unreachable = state.AccessHops.Count(h => h.Unreachable)
+            + state.TransitAsns.Count(t => t.Unreachable);
+        return unreachable * 2 >= total;
     }
 
     // Stable change-detection identity: the upstream ASN within its tier namespace, so ECMP
