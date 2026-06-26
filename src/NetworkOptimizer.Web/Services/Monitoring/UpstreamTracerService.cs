@@ -203,7 +203,15 @@ public class UpstreamTracerService
         {
             if (_runningTask != null && !_runningTask.IsCompleted) return;
 
+            // Access technology is a user-set input that materially drives the run -
+            // the reachability gate threshold (2/3 vs 3/3) and role/label inference -
+            // not just display. The foreground panel hydrates it via RehydrateFromDbAsync
+            // on open; the background re-discovery scheduler never opens the panel, so when
+            // the in-memory state carries no value, fall back to the persisted one. This
+            // keeps the scheduled run 1:1 with a user-initiated run.
             var preservedTech = State.AccessTechnology;
+            if (preservedTech == AccessTechnology.Unknown)
+                preservedTech = await LoadPersistedAccessTechnologyAsync(ct);
             State = new UpstreamTracerState
             {
                 Step = TracerStep.DetectingPublicIp,
@@ -222,10 +230,40 @@ public class UpstreamTracerService
     /// <summary>Awaits the in-flight discovery task. Returns immediately if no run is active.</summary>
     public Task WaitForCompletionAsync() => _runningTask ?? Task.CompletedTask;
 
+    /// <summary>
+    /// Reads the most-recently-discovered WAN's saved access technology from the DB.
+    /// Fallback for when a run starts (notably the background re-discovery scheduler)
+    /// without the UI having hydrated the in-memory state first. Returns Unknown when
+    /// nothing is persisted yet.
+    /// </summary>
+    private async Task<AccessTechnology> LoadPersistedAccessTechnologyAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var ctx = await db.WanDiscoveryContexts
+                .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
+                .FirstOrDefaultAsync(ct);
+            return ctx?.AccessTechnology ?? AccessTechnology.Unknown;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load persisted access technology; defaulting to Unknown");
+            return AccessTechnology.Unknown;
+        }
+    }
+
     /// <summary>Resets state back to Idle. Used by the re-discovery scheduler when a sweep matched committed targets.</summary>
     public void ResetToIdle()
     {
-        State = new UpstreamTracerState { Step = TracerStep.Idle };
+        // Preserve the access technology - it's a persisted, user-set input the next run
+        // needs as its starting point. Zeroing it forced the following background run to
+        // fall back to Unknown and diverge from the foreground path's reachability/role logic.
+        State = new UpstreamTracerState
+        {
+            Step = TracerStep.Idle,
+            AccessTechnology = State.AccessTechnology
+        };
     }
 
     private async Task RunAsync(CancellationToken ct)

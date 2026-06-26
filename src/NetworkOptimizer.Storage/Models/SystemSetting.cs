@@ -57,6 +57,15 @@ public static class SystemSettingKeys
     // Monitoring Live View map order ("3d-first" or "2d-first")
     public const string MonitoringLiveMapOrder = "ui.monitoring_live_map_order";
 
+    // "results ready" banner for the scheduled upstream re-discovery. Set to "true"
+    // when the user dismisses it; auto-cleared once the underlying review flag clears
+    // (user committed), so the next scheduled run's results re-arm the banner.
+    public const string UpstreamDiscoveryResultsReadyDismissed = "ui.upstream_discovery_results_ready_dismissed";
+
+    // Per-WAN consecutive-miss counters for upstream re-discovery removed-detection. The full
+    // key is this prefix + WanInterface; the value is a JSON map of ASN identity -> miss count.
+    public const string UpstreamAbsentAsnCountsPrefix = "upstream.absent_asn_counts.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 }

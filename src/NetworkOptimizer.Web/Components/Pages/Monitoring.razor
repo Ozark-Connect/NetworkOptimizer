@@ -167,6 +167,11 @@ else
             </div>
         }
 
+        @if (_upstreamNeedsReview && !_upstreamReviewDismissed)
+        {
+            @UpstreamReviewBanner
+        }
+
         if (!_liveViewOnDashboard)
         {
             <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
@@ -307,6 +312,11 @@ else
     @* ──────────────── Tab: Network Performance ──────────────── *@
     @if (_activeTab == "performance" && _monitoringReady)
     {
+        @if (_upstreamNeedsReview && !_upstreamReviewDismissed)
+        {
+            @UpstreamReviewBanner
+        }
+
         <!-- Latency time-series charts -->
         <div class="card" id="latency-charts-container">
             <div class="card-header monitoring-chart-header">
@@ -1342,6 +1352,12 @@ else
     private bool _cellularHasDevices;
     private bool _forceExpandUpstream;
 
+    // "Results ready" banner for the scheduled upstream re-discovery, surfaced on the
+    // Live View and Network Performance tabs. Driven by MonitoringSettings.UpstreamDiscoveryNeedsReview;
+    // dismissal re-arms once the next scheduled run flags fresh results.
+    private bool _upstreamNeedsReview;
+    private bool _upstreamReviewDismissed;
+
     // SNMP device polling status (Setup dashboard + Live-tab key-device banner).
     private IReadOnlyList<SnmpDeviceStatus> _snmpDeviceStatuses = Array.Empty<SnmpDeviceStatus>();
     private SnmpDeviceStatusCard? _snmpDeviceCard;
@@ -1507,6 +1523,8 @@ else
         _activeTab = ResolveDefaultTab();
         _lastTabParam = TabParam ?? _activeTab;
 
+        await RefreshUpstreamReviewAsync();
+
         _liveRefreshTimer = new System.Threading.Timer(_ =>
         {
             try { _ = InvokeAsync(StateHasChanged); }
@@ -1521,6 +1539,7 @@ else
                 {
                     await LoadTargetsAsync();
                     await LoadSnmpDeviceStatusesAsync();
+                    await RefreshUpstreamReviewAsync();
                     StateHasChanged();
                 });
             }
@@ -1855,6 +1874,70 @@ else
         _forceExpandFlaky = true;
         _scrollToFlakyPending = true;
         SetActiveTab("performance");
+    }
+
+    // Shared markup for the "results ready" banner so Live View and Network Performance
+    // render the identical block.
+    private RenderFragment UpstreamReviewBanner => @<div class="alert alert-info" style="margin-bottom: 1rem;">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text" style="flex: 1;">
+                <strong>Upstream discovery results are ready.</strong>
+                The scheduled re-discovery found a different set of hops or ASNs than your saved targets. Review what changed and update them.
+            </div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-primary" @onclick="ReviewUpstreamDiscovery">Review results</button>
+                <button class="btn btn-sm btn-secondary" @onclick="DismissUpstreamReviewAsync">Dismiss</button>
+            </div>
+        </div>
+    </div>;
+
+    private void ReviewUpstreamDiscovery()
+    {
+        _forceExpandUpstream = true;
+        _scrollToDiscoveryPending = true;
+        SetActiveTab("performance");
+    }
+
+    private async Task DismissUpstreamReviewAsync()
+    {
+        _upstreamReviewDismissed = true;
+        try { await SystemSettings.SetAsync(SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed, "true"); }
+        catch { /* still hide it for this session */ }
+    }
+
+    // Reads the scheduled re-discovery review flag and the user's dismissal. When no review
+    // is pending (user committed, flag cleared) we drop any stale dismissal so the next run's
+    // results re-arm the banner.
+    private async Task RefreshUpstreamReviewAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var needsReview = await db.MonitoringSettings
+                .Select(s => s.UpstreamDiscoveryNeedsReview)
+                .FirstOrDefaultAsync();
+            if (!needsReview)
+            {
+                if (_upstreamReviewDismissed)
+                {
+                    await SystemSettings.SetAsync(SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed, null);
+                    _upstreamReviewDismissed = false;
+                }
+                _upstreamNeedsReview = false;
+            }
+            else
+            {
+                _upstreamReviewDismissed = string.Equals(
+                    await SystemSettings.GetAsync(SystemSettingKeys.UpstreamDiscoveryResultsReadyDismissed),
+                    "true", StringComparison.OrdinalIgnoreCase);
+                _upstreamNeedsReview = true;
+            }
+        }
+        catch
+        {
+            _upstreamNeedsReview = false;
+        }
     }
 
     private async Task LoadTargetsAsync()
