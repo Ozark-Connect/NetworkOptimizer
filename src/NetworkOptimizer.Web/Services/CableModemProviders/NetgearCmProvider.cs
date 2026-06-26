@@ -628,7 +628,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
     /// observed to corrupt its HTTP); it does not re-implement the CM600 MultiLogin takeover, which
     /// runs on a different server that returns compliant HTTP and so never reaches here.
     /// </summary>
-    private async Task<string?> FetchViaRawSocketAsync(
+    internal async Task<string?> FetchViaRawSocketAsync(
         string url,
         string? username,
         string? password,
@@ -653,13 +653,19 @@ public sealed class NetgearCmProvider : ICableModemProvider
             var firstRaw = await RawHttpGetAsync(host, port, pathAndQuery, authHeader, cookie: null, ct);
             var first = ParseRawHttpResponse(firstRaw, firstRaw.Length);
 
-            // Pull the cookie straight from the raw bytes so a corrupted Set-Cookie header name
-            // can't hide it. A modem that returns the page on the first request needs no retry.
-            var cookieMatch = XsrfCookieRx.Match(Encoding.Latin1.GetString(firstRaw));
+            // Pull the cookie straight from the response header bytes so a corrupted Set-Cookie
+            // header name can't hide it. Scope the search to the header region (not the body) so a
+            // stray XSRF_TOKEN= occurrence in page content can't be mistaken for the real cookie.
+            var (firstHeaderEnd, _) = FindHeaderBodySplit(firstRaw, firstRaw.Length);
+            var cookieMatch = XsrfCookieRx.Match(Encoding.Latin1.GetString(firstRaw, 0, firstHeaderEnd));
             var cookie = cookieMatch.Success ? "XSRF_TOKEN=" + cookieMatch.Groups[1].Value : null;
 
+            // Replay the primed cookie unless the first request already returned the page. Gating on
+            // "not 200" rather than "exactly 401" means a 401 whose status line was itself corrupted
+            // (so it parsed as an unknown status) still gets the cookie retry instead of being
+            // dropped - the presence of the anti-CSRF cookie is the real signal the modem wants it.
             var resp = first;
-            if (first.StatusCode == 401 && cookie != null)
+            if (cookie != null && first.StatusCode != 200)
             {
                 var secondRaw = await RawHttpGetAsync(host, port, pathAndQuery, authHeader, cookie, ct);
                 resp = ParseRawHttpResponse(secondRaw, secondRaw.Length);
