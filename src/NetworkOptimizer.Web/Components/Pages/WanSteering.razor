@@ -13,8 +13,6 @@
 @using Microsoft.EntityFrameworkCore
 @using System.Text.Json
 @using NetworkOptimizer.Core.Helpers
-@using System.Reflection
-@using System.Text.RegularExpressions
 @inject IJSRuntime JS
 
 <PageTitle>WAN Steering - Network Optimizer</PageTitle>
@@ -132,11 +130,11 @@
                     </div>
                 }
             </div>
-            @if (_showVersionWarning && _parsedStatus != null)
+            @if (_showVersionWarning)
             {
                 <div class="alert alert-warning" style="margin-top: 1rem;">
                     <strong>WAN Steer binary outdated.</strong>
-                    Gateway is running @(_parsedStatus.Version) but the app is @_appVersion. Redeploy to update.
+                    The gateway is running an older WAN Steering daemon than this app ships. Redeploy to update.
                 </div>
             }
             @if (_status.UdmBootInstalled != true)
@@ -544,7 +542,6 @@
     private WanSteerStatus? _status;
     private ParsedDaemonStatus? _parsedStatus;
     private bool _showVersionWarning;
-    private string _appVersion = "";
     private DateTime? _deployedAt;
 
     // Rule editing
@@ -1157,56 +1154,35 @@
     private void ParseStatusJson()
     {
         _parsedStatus = null;
-        _showVersionWarning = false;
-        if (string.IsNullOrWhiteSpace(_status?.StatusJson)) return;
+        if (!string.IsNullOrWhiteSpace(_status?.StatusJson))
+        {
+            try
+            {
+                _parsedStatus = JsonSerializer.Deserialize<ParsedDaemonStatus>(_status.StatusJson, _jsonOptions);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Failed to parse WAN Steering status JSON");
+            }
+        }
 
-        try
-        {
-            _parsedStatus = JsonSerializer.Deserialize<ParsedDaemonStatus>(_status.StatusJson, _jsonOptions);
-            CheckVersionMismatch();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Failed to parse WAN Steering status JSON");
-        }
+        // Run the binary-version check regardless of whether the daemon wrote a status file,
+        // since it keys off the binary itself (works even when the daemon is stopped).
+        CheckBinaryVersion();
     }
 
-    private void CheckVersionMismatch()
+    private void CheckBinaryVersion()
     {
         _showVersionWarning = false;
-        if (_parsedStatus == null) return;
 
-        // After a deploy, suppress the check for 45s (30s grace + 15s buffer)
-        // to avoid showing a stale warning from the old status file.
+        // After a deploy, suppress for 45s so a stale read can't briefly flash a warning before
+        // the freshly deployed binary is in place.
         if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
             return;
 
-        _appVersion = Assembly.GetExecutingAssembly()
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion ?? "";
-
-        var binaryVersion = _parsedStatus.Version ?? "";
-
-        // Extract base version (X.Y.Z) from both, stripping v prefix, pre-release, and metadata.
-        // e.g., "v1.14.7" -> "1.14.7", "1.14.7-alpha.0.2+hash" -> "1.14.7", "dev" -> "dev"
-        var appBase = ExtractBaseVersion(_appVersion);
-        var binBase = ExtractBaseVersion(binaryVersion);
-
-        // Source builds produce 0.0.0 - suppress
-        if (appBase == "0.0.0") return;
-
-        // Binary is "dev" or a different base version: warn
-        if (binBase != appBase)
-        {
-            _showVersionWarning = true;
-        }
-    }
-
-    // Extracts X.Y.Z from version strings like "v1.14.7", "1.14.7-alpha.0.2+hash", "dev"
-    private static string ExtractBaseVersion(string version)
-    {
-        var match = Regex.Match(version, @"v?(\d+\.\d+\.\d+)");
-        return match.Success ? match.Groups[1].Value : version;
+        // Advisory only - the Deploy/Redeploy buttons are never gated on this. The service returns
+        // false before anything is deployed, so a first deploy is never flagged or blocked.
+        _showVersionWarning = WanSteerDeploymentService.IsBinaryOutdated(_status);
     }
 
     private static readonly JsonSerializerOptions _jsonOptions = new()

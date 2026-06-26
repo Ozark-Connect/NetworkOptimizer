@@ -9,6 +9,9 @@ import (
 // Status is the JSON structure written to the status file for Network Optimizer to read.
 type Status struct {
 	Version         string                  `json:"version"`
+	// BinaryVersion is the daemon contract version (see binaryVersion in main.go). Bump
+	// src/wansteer/binary-version when the daemon changes.
+	BinaryVersion   int                     `json:"binary_version"`
 	Running         bool                    `json:"running"`
 	StartedAt       time.Time               `json:"started_at"`
 	LastReconcile   time.Time               `json:"last_reconcile"`
@@ -71,6 +74,7 @@ func buildStatus(cfg *Config, startedAt time.Time, lastReconcile time.Time, reco
 
 	return &Status{
 		Version:        version,
+		BinaryVersion:  binaryVersion(),
 		Running:        true,
 		StartedAt:      startedAt,
 		LastReconcile:  lastReconcile,

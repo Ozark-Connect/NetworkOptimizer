@@ -1,26 +1,57 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
 
 var version = "dev"
 
+// binaryVersionRaw holds the WAN Steering daemon's CONTRACT version - an integer that is
+// completely independent of the release version above.
+//
+// BUMP src/wansteer/binary-version (by one) WHENEVER YOU CHANGE THE DAEMON'S RUNTIME BEHAVIOR
+// (anything under src/wansteer/*.go that affects what the deployed binary actually does).
+// Do NOT bump it for release-only rebuilds.
+//
+// Network Optimizer embeds the SAME file (see NetworkOptimizer.Web.csproj) and compares the two
+// to decide whether to prompt the user to redeploy:
+//   - bumping it on a real daemon change  -> users on the old binary get a one-time redeploy nudge
+//   - leaving it alone for version-only rebuilds -> nobody is nagged when the daemon is unchanged
+// Keeping the value in one file means the Go binary and the .NET app can never disagree.
+//
+//go:embed binary-version
+var binaryVersionRaw string
+
+// binaryVersion returns the embedded daemon contract version as an integer.
+func binaryVersion() int {
+	v, _ := strconv.Atoi(strings.TrimSpace(binaryVersionRaw))
+	return v
+}
+
 func main() {
 	configPath := flag.String("config", "/data/wan-steer/config.json", "Path to config file")
 	cleanup := flag.Bool("cleanup", false, "Remove all rules and exit (for ExecStopPost)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	showBinaryVersion := flag.Bool("binary-version", false, "Print the daemon contract version (integer) and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version)
+		os.Exit(0)
+	}
+
+	if *showBinaryVersion {
+		fmt.Println(binaryVersion())
 		os.Exit(0)
 	}
 
@@ -44,6 +75,7 @@ func main() {
 
 	slog.Info("starting wan-steer",
 		"version", version,
+		"binary_version", binaryVersion(),
 		"wan_interfaces", len(cfg.WANInterfaces),
 		"traffic_classes", countEnabled(cfg),
 		"reconcile_interval", cfg.ReconcileInterval,

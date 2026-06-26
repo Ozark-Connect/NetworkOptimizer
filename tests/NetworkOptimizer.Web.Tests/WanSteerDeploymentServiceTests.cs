@@ -1,3 +1,5 @@
+using System.IO;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using NetworkOptimizer.Web.Services;
 using Xunit;
@@ -284,5 +286,138 @@ public class WanSteerDeploymentServiceTests
 
             script.Should().Contain("-x /data/wan-steer/wansteer");
         }
+    }
+
+    // The app ships binary contract version 1 (src/wansteer/binary-version, embedded in the
+    // assembly). These tests pin the advisory "redeploy" logic against that baseline.
+    public class IsBinaryOutdatedTests
+    {
+        [Fact]
+        public void No_warning_when_nothing_is_deployed()
+        {
+            // First-time deploy: there is no binary yet. Never nag, never block.
+            var status = new WanSteerStatus { BinaryDeployed = false, DeployedBinaryVersion = null };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Fact]
+        public void No_warning_for_null_status()
+        {
+            WanSteerDeploymentService.IsBinaryOutdated(null).Should().BeFalse();
+        }
+
+        [Fact]
+        public void No_warning_when_deployed_contract_version_matches()
+        {
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 1 };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Fact]
+        public void Warns_when_deployed_contract_version_is_older()
+        {
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 0 };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
+        }
+
+        [Fact]
+        public void No_warning_when_deployed_contract_version_is_newer()
+        {
+            // Downgraded app vs a newer gateway binary: never nag the user to deploy an older daemon.
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 2 };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Theory]
+        [InlineData("1.14.7")]
+        [InlineData("v1.14.7")]
+        [InlineData("1.23.0")]
+        [InlineData("1.23.0-alpha.0.2+abc123")]
+        public void No_warning_for_preflag_binary_at_or_above_floor(string releaseVersion)
+        {
+            // Old binary without the -binary-version flag, but its release is >= v1.14.7 (the floor
+            // where the current daemon first shipped). It already runs the current daemon.
+            var status = new WanSteerStatus
+            {
+                BinaryDeployed = true,
+                DeployedBinaryVersion = null,
+                Version = releaseVersion
+            };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Theory]
+        [InlineData("1.14.6")]
+        [InlineData("1.0.0")]
+        [InlineData("0.9.5")]
+        public void Warns_for_preflag_binary_below_floor(string releaseVersion)
+        {
+            var status = new WanSteerStatus
+            {
+                BinaryDeployed = true,
+                DeployedBinaryVersion = null,
+                Version = releaseVersion
+            };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
+        }
+
+        [Theory]
+        [InlineData("dev")]
+        [InlineData(null)]
+        [InlineData("")]
+        public void Warns_for_deployed_binary_that_cannot_identify_itself(string? releaseVersion)
+        {
+            // A binary is present but reports neither a contract version nor a parseable release
+            // (a "dev"/source build that predates the -binary-version flag). It can't prove it is
+            // current, so we flag it. This is resolvable now: redeploying pushes a binary that
+            // reports the contract version (unlike the unresolvable loop in #898). The warning is
+            // advisory only and never blocks deploying.
+            var status = new WanSteerStatus
+            {
+                BinaryDeployed = true,
+                DeployedBinaryVersion = null,
+                Version = releaseVersion
+            };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
+        }
+    }
+
+    public class EmbeddedBinaryVersionTests
+    {
+        // Guard against a silent failure mode: the app reads its expected contract version from the
+        // embedded src/wansteer/binary-version (the same file the Go binary embeds). If that
+        // EmbeddedResource wiring ever breaks - a .csproj refactor, rename, or path change - the
+        // read silently falls back to a default and the redeploy prompt stops working after a future
+        // contract bump, with no other signal. This test fails loudly instead: it verifies the
+        // resource resolves and that the app's expected version matches the source file on disk.
+        [Fact]
+        public void Expected_version_resolves_from_embedded_resource_and_matches_source()
+        {
+            var asm = typeof(WanSteerDeploymentService).Assembly;
+            using var stream = asm.GetManifestResourceStream("wansteer.binary-version");
+            stream.Should().NotBeNull(
+                "the binary-version EmbeddedResource must be wired in NetworkOptimizer.Web.csproj");
+
+            using var reader = new StreamReader(stream!);
+            var embedded = int.Parse(reader.ReadToEnd().Trim());
+
+            var repoFile = Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(SourceFilePath())!, "..", "..", "src", "wansteer", "binary-version"));
+            File.Exists(repoFile).Should().BeTrue($"expected source of truth at {repoFile}");
+            var onDisk = int.Parse(File.ReadAllText(repoFile).Trim());
+
+            embedded.Should().Be(onDisk, "the embedded resource must match the source file");
+            WanSteerDeploymentService.ExpectedBinaryVersion.Should().Be(onDisk,
+                "the app's expected contract version must come from src/wansteer/binary-version, not a silent fallback");
+        }
+
+        private static string SourceFilePath([CallerFilePath] string path = "") => path;
     }
 }

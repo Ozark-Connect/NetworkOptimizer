@@ -17,6 +17,18 @@ public class WanSteerDeploymentService
     private const string BootScriptPath = "/data/on_boot.d/25-wan-steer.sh";
     private const string LocalBinaryName = "wansteer-linux-arm64";
 
+    // The daemon contract version this app ships. Read from the SAME src/wansteer/binary-version
+    // file the Go binary embeds (see src/wansteer/main.go), so the app and the deployed binary can
+    // never disagree. To change it, edit that file - not this code.
+    internal static readonly int ExpectedBinaryVersion = ReadExpectedBinaryVersion();
+
+    // Binaries built before the -binary-version flag existed don't report a contract version. The
+    // last change to the daemon itself was #517 ("WAN stability detection and backoff"), first
+    // shipped in v1.14.7 - which is exactly what contract version 1 represents. So a pre-flag binary
+    // from v1.14.7 or later already runs the current daemon: we treat it as version 1 and never nag.
+    // Anything older is genuinely behind and gets the (advisory) redeploy prompt.
+    private static readonly Version BinaryV1FloorRelease = new(1, 14, 7);
+
     private readonly ILogger<WanSteerDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
     private readonly SshClientService _sshClient;
@@ -55,6 +67,7 @@ public class WanSteerDeploymentService
                 "echo '---PROCESS---'; pgrep -x wansteer > /dev/null 2>&1 && echo running || echo stopped; " +
                 "echo '---STATUS---'; cat /tmp/wan-steer-status.json 2>/dev/null || echo '{}'; echo; " +
                 "echo '---VERSION---'; /data/wan-steer/wansteer -version 2>/dev/null || echo 'not installed'; " +
+                "echo '---BINARY_VERSION---'; /data/wan-steer/wansteer -binary-version 2>/dev/null || echo ''; " +
                 "echo '---BINARY---'; test -x /data/wan-steer/wansteer && echo 'exists' || echo 'missing'";
 
             var result = await _gatewaySsh.RunCommandAsync(combinedCommand, TimeSpan.FromSeconds(15));
@@ -69,6 +82,9 @@ public class WanSteerDeploymentService
             var versionOutput = GetSection(sections, "VERSION").Trim();
             status.Version = versionOutput != "not installed" ? versionOutput : null;
 
+            var binaryVersionOutput = GetSection(sections, "BINARY_VERSION").Trim();
+            status.DeployedBinaryVersion = int.TryParse(binaryVersionOutput, out var bv) ? bv : null;
+
             status.BinaryDeployed = result.success && GetSection(sections, "BINARY").Trim() == "exists";
         }
         catch (Exception ex)
@@ -77,6 +93,65 @@ public class WanSteerDeploymentService
         }
 
         return status;
+    }
+
+    /// <summary>
+    /// Whether the gateway's deployed WAN Steering binary is older than the one this app ships,
+    /// i.e. the user should redeploy. ADVISORY ONLY - this never gates deployment. Returns false
+    /// before anything is deployed and when the gateway already runs the current (or a newer)
+    /// daemon; a deployed binary that cannot prove it is current counts as outdated.
+    /// </summary>
+    public static bool IsBinaryOutdated(WanSteerStatus? status)
+    {
+        if (status is not { BinaryDeployed: true }) return false;
+        return EffectiveDeployedBinaryVersion(status) < ExpectedBinaryVersion;
+    }
+
+    /// <summary>
+    /// The deployed binary's effective contract version. New binaries report it directly; older
+    /// ones predate the flag and are inferred from their release version against
+    /// <see cref="BinaryV1FloorRelease"/>. A deployed binary that can report neither (a "dev" or
+    /// otherwise unversioned source build) predates this feature and counts as 0 (outdated).
+    /// </summary>
+    private static int EffectiveDeployedBinaryVersion(WanSteerStatus status)
+    {
+        if (status.DeployedBinaryVersion is int v) return v;
+
+        // Pre-flag binary: fall back to the release version it does report. A real release at or
+        // above the floor already runs the current daemon.
+        var match = Regex.Match(status.Version ?? "", @"\d+\.\d+\.\d+");
+        if (match.Success && Version.TryParse(match.Value, out var rel))
+            return rel >= BinaryV1FloorRelease ? 1 : 0;
+
+        // No contract version and no parseable release: a "dev"/source binary that predates this
+        // feature and can't prove it is current. We only get here with the binary present and the
+        // status read succeeded (a transient SSH failure leaves BinaryDeployed false and never
+        // reaches this), so this is a definitive old binary, not a glitch. Flag it - redeploying
+        // now pushes a binary that reports the contract version, so the prompt is resolvable (this
+        // was the unresolvable case in #898, which is why we no longer have to stay silent).
+        return 0;
+    }
+
+    private static int ReadExpectedBinaryVersion()
+    {
+        try
+        {
+            var asm = typeof(WanSteerDeploymentService).Assembly;
+            using var stream = asm.GetManifestResourceStream("wansteer.binary-version");
+            if (stream != null)
+            {
+                using var reader = new StreamReader(stream);
+                if (int.TryParse(reader.ReadToEnd().Trim(), out var v))
+                    return v;
+            }
+        }
+        catch
+        {
+            // Fall through to the safe default below.
+        }
+        // If the embedded resource is somehow missing, default to the baseline so we never
+        // produce a bogus "outdated" prompt against real deployments.
+        return 1;
     }
 
     public async Task<(bool Success, string? Error)> DeployAsync(
@@ -569,6 +644,8 @@ public class WanSteerStatus
     public bool UdmBootEnabled { get; set; }
     public bool IsRunning { get; set; }
     public string? Version { get; set; }
+    /// <summary>Daemon contract version reported by the deployed binary, or null if it predates the flag.</summary>
+    public int? DeployedBinaryVersion { get; set; }
     public string? StatusJson { get; set; }
     public bool BinaryDeployed { get; set; }
 }
