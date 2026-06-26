@@ -321,6 +321,14 @@
                 }
             }
 
+            // Manual Transit/Access ISP adds are user-provided upstream hops the tracer didn't
+            // find. Tag them UserProvided so upstream change-detection treats them as curated
+            // (never flags them as "removed", never re-suggests them as "added") while ISP
+            // Health still grades them by TargetType. Generic customs stay unmethoded (null).
+            var discoveryMethod = targetType is MonitoringTargetType.Transit or MonitoringTargetType.AccessIsp
+                ? (DiscoveryMethod?)DiscoveryMethod.UserProvided
+                : null;
+
             await using var db = await DbFactory.CreateDbContextAsync();
             db.MonitoringTargets.Add(new MonitoringTarget
             {
@@ -334,6 +342,7 @@
                 PingCount = 5,
                 Enabled = true,
                 AutoDiscovered = false,
+                DiscoveryMethod = discoveryMethod,
                 VantagePoint = "server",
                 CreatedAt = DateTime.UtcNow,
                 AsnNumber = asnNumber,
