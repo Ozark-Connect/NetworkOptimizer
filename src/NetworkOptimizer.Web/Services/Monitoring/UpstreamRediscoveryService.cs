@@ -102,7 +102,7 @@ public class UpstreamRediscoveryService : BackgroundService
         // when they open the Monitoring page and click the banner.
     }
 
-    private static async Task<HashSet<string>> BuildCommittedSignatureAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    internal static async Task<HashSet<string>> BuildCommittedSignatureAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
         // Tracer-origin targets for this WAN, enabled only. We compare on a stable ASN-level
         // identity (see IdentityKey), NOT raw per-hop TargetIds: traceroutes load-balance across
@@ -124,7 +124,7 @@ public class UpstreamRediscoveryService : BackgroundService
         return sig;
     }
 
-    private static HashSet<string> BuildCandidateSignature(UpstreamTracerState state)
+    internal static HashSet<string> BuildCandidateSignature(UpstreamTracerState state)
     {
         var sig = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var hop in state.AccessHops.Where(h => h.Enabled))
@@ -142,7 +142,7 @@ public class UpstreamRediscoveryService : BackgroundService
     // Stable change-detection identity: the upstream ASN within its tier namespace, so ECMP
     // hop-IP churn within an ASN doesn't read as a change. Falls back to the hop address only
     // when no ASN could be attributed (e.g. a private first-mile hop).
-    private static string IdentityKey(MonitoringTargetType type, int? asn, string? address)
+    internal static string IdentityKey(MonitoringTargetType type, int? asn, string? address)
     {
         var ns = type switch
         {
