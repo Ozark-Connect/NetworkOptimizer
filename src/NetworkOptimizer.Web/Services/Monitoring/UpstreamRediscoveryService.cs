@@ -102,10 +102,9 @@ public class UpstreamRediscoveryService : BackgroundService
         var priorMissCounts = await LoadMissCountsAsync(db, wanInterface, ct);
         var eval = EvaluateChange(monitoredAsns, autoEnabledAsns, candidate, priorMissCounts, RemovalConfirmRuns);
 
-        // Removed-detection is persistence-gated: an ASN must be absent RemovalConfirmRuns runs
-        // in a row before it's even a candidate, so a single incomplete/degraded run only bumps a
-        // counter that resets the moment the ASN reappears. (Commit 2 adds an ad-hoc candidacy
-        // re-trace here before confirming; for now a counter at threshold confirms the removal.)
+        // Removed-detection is persistence-gated: an ASN must be absent from RemovalConfirmRuns
+        // runs in a row before it's confirmed removed, so a single incomplete/degraded run only
+        // bumps a counter that resets the moment the ASN reappears.
         var confirmedRemoved = eval.RemovalCandidates;
 
         // Persist the updated counters (upserted into the same SaveChanges below). The map only
