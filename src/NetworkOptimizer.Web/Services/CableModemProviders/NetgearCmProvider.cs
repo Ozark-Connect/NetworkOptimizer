@@ -50,6 +50,10 @@ public sealed class NetgearCmProvider : ICableModemProvider
     private const int MaxRetries = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
 
+    // Cap on the bytes read from the raw-socket fallback (the DOCSIS pages are tens of KB); guards
+    // against a modem that never closes the connection.
+    private const int MaxRawResponseBytes = 4 * 1024 * 1024;
+
     // Some Netgear modems (e.g. CM600) allow only one web session at a time. When another
     // session is active, any page 302-redirects to MultiLogin.asp, which offers to log out
     // the existing session. These patterns pull the takeover token and RetailSessionId from
@@ -84,6 +88,12 @@ public sealed class NetgearCmProvider : ICableModemProvider
     // form action (e.g. action="/goform/Login?id=1248795675"); we reuse it when present.
     private static readonly Regex LoginIdRx =
         new(@"goform/Login\?id=(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // NET-DK firmware (e.g. CM700) sets the anti-CSRF cookie on its initial 401. The raw-socket
+    // fallback pulls it straight from the response bytes so a corrupted Set-Cookie header name
+    // (the same byte-drop corruption that forces the raw path) can't hide it.
+    private static readonly Regex XsrfCookieRx =
+        new(@"XSRF_TOKEN=([^;\s]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly ILogger<NetgearCmProvider> _logger;
 
@@ -415,7 +425,61 @@ public sealed class NetgearCmProvider : ICableModemProvider
         return string.IsNullOrWhiteSpace(content) ? null : content;
     }
 
+    /// <summary>
+    /// Fetch a page, falling back to a lenient raw-socket reader when the modem returns a
+    /// structurally malformed HTTP response that .NET's strict parser rejects. The NET-DK/1.0
+    /// server on some Netgear modems (e.g. the CM700) intermittently drops the leading bytes of
+    /// response header lines - "Content-Length" arrives as "ntent-Length", or a stray line loses
+    /// its colon - which makes the HttpClient stack throw "Received an invalid header line" even
+    /// though browsers parse the same bytes fine. There is no in-framework switch to relax that
+    /// parsing (the old .NET Framework useUnsafeHeaderParsing has no modern HttpClient/
+    /// SocketsHttpHandler equivalent - see dotnet/runtime#29927), so on exactly that failure we
+    /// re-fetch over a TcpClient and parse the headers leniently. Modems that return RFC-compliant
+    /// HTTP never throw it, so they never enter the raw path and are completely unaffected.
+    /// </summary>
     private async Task<string?> FetchPageAsync(
+        string url,
+        string? username,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchViaHttpClientAsync(url, username, password, cancellationToken);
+        }
+        catch (HttpRequestException ex) when (IsMalformedHttpResponse(ex))
+        {
+            _logger.LogDebug(
+                ex, "Netgear CM {Url}: HttpClient rejected a malformed HTTP response; retrying via lenient raw-socket reader",
+                url);
+            return await FetchViaRawSocketAsync(url, username, password, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// True when an HttpRequestException reflects a structurally malformed response that .NET
+    /// could not parse into an HTTP status, rather than a normal HTTP error status or a connection
+    /// failure. Gated on a null StatusCode so a real 401/404/5xx is never diverted to the raw
+    /// reader, and matched on the specific parser messages so an offline modem (connection
+    /// refused/timed out) isn't either.
+    /// </summary>
+    private static bool IsMalformedHttpResponse(HttpRequestException ex)
+    {
+        if (ex.StatusCode is not null)
+            return false;
+
+        return Mentions(ex.Message) || (ex.InnerException is { } inner && Mentions(inner.Message));
+
+        static bool Mentions(string m) =>
+            m.Contains("invalid header", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("header line", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("invalid status", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("malformed", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("response ended prematurely", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("invalid chunk", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<string?> FetchViaHttpClientAsync(
         string url,
         string? username,
         string? password,
@@ -551,6 +615,209 @@ public sealed class NetgearCmProvider : ICableModemProvider
         // The takeover POST returns a 302 redirect on success (we don't auto-follow it; the
         // caller re-fetches the status page). Treat any non-error status as accepted.
         return (int)postResponse.StatusCode < 400;
+    }
+
+    /// <summary>
+    /// Fetch the status page over a raw <see cref="System.Net.Sockets.TcpClient"/> with a tolerant
+    /// reader. Used only as a fallback when HttpClient rejects the modem's malformed HTTP (see
+    /// <see cref="FetchPageAsync"/>). Replicates the NET-DK two-step HTTP Basic + anti-CSRF cookie
+    /// handshake: the first GET primes the XSRF_TOKEN cookie the modem sets on its 401, and the
+    /// second GET replays it alongside the preemptive Basic header. HTTP/1.0 with Connection: close
+    /// keeps the response simple (no chunking, no keep-alive); the leniently parsed body is handed
+    /// back to the normal parse pipeline. This path covers the Basic + XSRF modems (the only family
+    /// observed to corrupt its HTTP); it does not re-implement the CM600 MultiLogin takeover, which
+    /// runs on a different server that returns compliant HTTP and so never reaches here.
+    /// </summary>
+    internal async Task<string?> FetchViaRawSocketAsync(
+        string url,
+        string? username,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        var uri = new Uri(url);
+        var host = uri.Host;
+        var port = uri.Port > 0 ? uri.Port : 80;
+        var pathAndQuery = string.IsNullOrEmpty(uri.PathAndQuery) ? "/" : uri.PathAndQuery;
+
+        string? authHeader = null;
+        if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+            authHeader = "Basic " + Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"));
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(TimeoutSeconds));
+        var ct = timeoutCts.Token;
+
+        try
+        {
+            // First request primes the XSRF_TOKEN cookie the NET-DK modem sets alongside its 401.
+            var firstRaw = await RawHttpGetAsync(host, port, pathAndQuery, authHeader, cookie: null, ct);
+            var first = ParseRawHttpResponse(firstRaw, firstRaw.Length);
+
+            // Pull the cookie straight from the response header bytes so a corrupted Set-Cookie
+            // header name can't hide it. Scope the search to the header region (not the body) so a
+            // stray XSRF_TOKEN= occurrence in page content can't be mistaken for the real cookie.
+            var (firstHeaderEnd, _) = FindHeaderBodySplit(firstRaw, firstRaw.Length);
+            var cookieMatch = XsrfCookieRx.Match(Encoding.Latin1.GetString(firstRaw, 0, firstHeaderEnd));
+            var cookie = cookieMatch.Success ? "XSRF_TOKEN=" + cookieMatch.Groups[1].Value : null;
+
+            // Replay the primed cookie unless the first request already returned the page. Gating on
+            // "not 200" rather than "exactly 401" means a 401 whose status line was itself corrupted
+            // (so it parsed as an unknown status) still gets the cookie retry instead of being
+            // dropped - the presence of the anti-CSRF cookie is the real signal the modem wants it.
+            var resp = first;
+            if (cookie != null && first.StatusCode != 200)
+            {
+                var secondRaw = await RawHttpGetAsync(host, port, pathAndQuery, authHeader, cookie, ct);
+                resp = ParseRawHttpResponse(secondRaw, secondRaw.Length);
+            }
+
+            if (resp.StatusCode >= 400)
+            {
+                throw new HttpRequestException(
+                    $"Netgear CM raw fetch of {pathAndQuery} returned HTTP {resp.StatusCode}",
+                    inner: null,
+                    statusCode: Enum.IsDefined(typeof(System.Net.HttpStatusCode), resp.StatusCode)
+                        ? (System.Net.HttpStatusCode)resp.StatusCode
+                        : null);
+            }
+
+            return string.IsNullOrWhiteSpace(resp.Body) ? null : resp.Body;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Our own timeout fired (not the caller's token); surface it as a transient HTTP error
+            // so the poll loop's retry/fallback handling treats it like any other fetch failure.
+            throw new HttpRequestException($"Netgear CM raw fetch of {pathAndQuery} timed out after {TimeoutSeconds}s");
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or IOException)
+        {
+            throw new HttpRequestException($"Netgear CM raw fetch of {pathAndQuery} failed: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Open a TCP connection and perform one HTTP/1.0 GET, returning the full raw response bytes
+    /// (headers and body) read until the server closes the connection. No Accept-Encoding is sent,
+    /// so the body comes back uncompressed and plain.
+    /// </summary>
+    private static async Task<byte[]> RawHttpGetAsync(
+        string host, int port, string pathAndQuery, string? authHeader, string? cookie,
+        CancellationToken cancellationToken)
+    {
+        var request = new StringBuilder();
+        request.Append("GET ").Append(pathAndQuery).Append(" HTTP/1.0\r\n");
+        request.Append("Host: ").Append(host).Append("\r\n");
+        if (authHeader != null)
+            request.Append("Authorization: ").Append(authHeader).Append("\r\n");
+        if (cookie != null)
+            request.Append("Cookie: ").Append(cookie).Append("\r\n");
+        request.Append("Accept: */*\r\n");
+        request.Append("Connection: close\r\n");
+        request.Append("\r\n");
+
+        using var tcp = new System.Net.Sockets.TcpClient();
+        await tcp.ConnectAsync(host, port, cancellationToken);
+        await using var stream = tcp.GetStream();
+
+        var reqBytes = Encoding.ASCII.GetBytes(request.ToString());
+        await stream.WriteAsync(reqBytes, cancellationToken);
+        await stream.FlushAsync(cancellationToken);
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            buffer.Write(chunk, 0, read);
+            if (buffer.Length > MaxRawResponseBytes)
+                break;
+        }
+
+        return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// A status code, leniently parsed headers, and decoded body extracted from a raw HTTP
+    /// response by <see cref="ParseRawHttpResponse"/>.
+    /// </summary>
+    internal sealed record RawHttpResponse(int StatusCode, IReadOnlyDictionary<string, string> Headers, string Body);
+
+    /// <summary>
+    /// Parse a raw HTTP response leniently, tolerating the malformations seen from NET-DK modems:
+    /// header lines whose leading bytes were dropped (a corrupted but colon-bearing name is kept
+    /// as-is; a line that lost its colon entirely is skipped rather than aborting the whole
+    /// response), and bare-LF line endings. The status code is taken from the first 3-digit token
+    /// on the status line, so a clipped "HTTP/1.1" prefix still yields the code. The body is decoded
+    /// as UTF-8; when a valid Content-Length survives it bounds the body, otherwise everything after
+    /// the header separator is returned (the modem closes the connection to signal the end).
+    /// </summary>
+    internal static RawHttpResponse ParseRawHttpResponse(byte[] data, int length)
+    {
+        length = Math.Min(length, data.Length);
+
+        var (headerEnd, bodyStart) = FindHeaderBodySplit(data, length);
+        var headerText = Encoding.Latin1.GetString(data, 0, headerEnd);
+        var lines = headerText.Split('\n');
+
+        int status = 0;
+        if (lines.Length > 0)
+        {
+            foreach (var token in lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (token.Length == 3 && int.TryParse(token, out var s) && s is >= 100 and < 600)
+                {
+                    status = s;
+                    break;
+                }
+            }
+        }
+
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < lines.Length; i++)
+        {
+            var line = lines[i].TrimEnd('\r');
+            if (line.Length == 0)
+                continue;
+            var colon = line.IndexOf(':');
+            if (colon <= 0)
+                continue; // dropped-colon corruption - skip rather than reject the whole response
+            var name = line[..colon].Trim();
+            var value = line[(colon + 1)..].Trim();
+            if (name.Length == 0)
+                continue;
+            headers[name] = headers.TryGetValue(name, out var existing) ? existing + ", " + value : value;
+        }
+
+        int bodyLength = Math.Max(0, length - bodyStart);
+        if (headers.TryGetValue("Content-Length", out var clRaw)
+            && int.TryParse(clRaw.Trim(), out var contentLength)
+            && contentLength >= 0 && contentLength <= bodyLength)
+        {
+            bodyLength = contentLength;
+        }
+
+        var body = Encoding.UTF8.GetString(data, bodyStart, bodyLength);
+        return new RawHttpResponse(status, headers, body);
+    }
+
+    /// <summary>
+    /// Locate the header/body boundary, preferring the RFC CRLFCRLF separator and falling back to
+    /// the bare-LFLF some embedded servers emit. Returns the end of the header block and the start
+    /// of the body; when no separator is found the whole buffer is treated as headers.
+    /// </summary>
+    private static (int HeaderEnd, int BodyStart) FindHeaderBodySplit(byte[] data, int length)
+    {
+        for (int i = 0; i + 3 < length; i++)
+        {
+            if (data[i] == '\r' && data[i + 1] == '\n' && data[i + 2] == '\r' && data[i + 3] == '\n')
+                return (i, i + 4);
+        }
+        for (int i = 0; i + 1 < length; i++)
+        {
+            if (data[i] == '\n' && data[i + 1] == '\n')
+                return (i, i + 2);
+        }
+        return (length, length);
     }
 
     internal static CableModemStats ParseDocsisStatus(string html, CmPollContext context)

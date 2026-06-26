@@ -1,4 +1,8 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Web.Services.CableModemProviders;
 using Xunit;
@@ -7,6 +11,119 @@ namespace NetworkOptimizer.Web.Tests;
 
 public class NetgearCmProviderTests
 {
+    private static byte[] Raw(string text) => Encoding.ASCII.GetBytes(text.Replace("\n", "\r\n"));
+
+    [Fact]
+    public void ParseRawHttpResponse_ParsesWellFormedResponse()
+    {
+        var raw = Raw(
+            "HTTP/1.1 200 OK\n" +
+            "Content-Type: text/html\n" +
+            "Content-Length: 5\n" +
+            "\n" +
+            "hello");
+
+        var resp = NetgearCmProvider.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Headers["Content-Type"].Should().Be("text/html");
+        resp.Body.Should().Be("hello");
+    }
+
+    // The CM700's NET-DK/1.0 server intermittently drops the leading bytes of a header line. The
+    // HAR for issue #869 shows "Content-Length" arriving as "ntent-Length" (the "Co" dropped).
+    // That line still has a colon, so the lenient reader keeps it (as an unrecognized header) and,
+    // with no usable Content-Length, returns the whole body that arrived before the connection
+    // closed. .NET's strict parser would not choke on this colon-bearing line, but the reader must
+    // still produce the right body without a real Content-Length.
+    [Fact]
+    public void ParseRawHttpResponse_ToleratesDroppedHeaderNameBytes()
+    {
+        var raw = Raw(
+            "HTTP/1.1 200 OK\n" +
+            "Content-Type: text/html\n" +
+            "ntent-Length: 50471\n" +
+            "Connection: close\n" +
+            "\n" +
+            "<html>dsTable</html>");
+
+        var resp = NetgearCmProvider.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Headers.Should().NotContainKey("Content-Length");
+        // No usable Content-Length, so the body is everything after the header separator.
+        resp.Body.Should().Be("<html>dsTable</html>");
+    }
+
+    // The reporter's log showed `Received an invalid header line: 'ceived response error'.` - the
+    // same byte-drop landing on a line that lost its colon entirely ("Received response error"
+    // minus "Re"). .NET aborts the whole response on such a line; the lenient reader skips it and
+    // still returns the status and body.
+    [Fact]
+    public void ParseRawHttpResponse_SkipsColonlessCorruptedLine()
+    {
+        var raw = Raw(
+            "HTTP/1.1 200 OK\n" +
+            "Content-Type: text/html\n" +
+            "ceived response error\n" +
+            "Connection: close\n" +
+            "\n" +
+            "<html>dsTable</html>");
+
+        var resp = NetgearCmProvider.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Headers["Content-Type"].Should().Be("text/html");
+        resp.Body.Should().Be("<html>dsTable</html>");
+    }
+
+    [Fact]
+    public void ParseRawHttpResponse_RecoversStatusFromClippedStatusLine()
+    {
+        // Leading bytes dropped from the status line too: "HTTP/1.1 401 Unauthorized" -> the code
+        // is still recovered from the first 3-digit token.
+        var raw = Raw(
+            "TP/1.1 401 Unauthorized\n" +
+            "WWW-Authenticate: Basic realm=\"NETGEAR CM700\"\n" +
+            "Set-Cookie: XSRF_TOKEN=2104060059; Path=/\n" +
+            "\n");
+
+        var resp = NetgearCmProvider.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.StatusCode.Should().Be(401);
+        resp.Headers["Set-Cookie"].Should().Contain("XSRF_TOKEN=2104060059");
+    }
+
+    [Fact]
+    public void ParseRawHttpResponse_HandlesBareLfLineEndings()
+    {
+        var raw = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\n" +
+            "Content-Type: text/html\n" +
+            "\n" +
+            "body-bytes");
+
+        var resp = NetgearCmProvider.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.StatusCode.Should().Be(200);
+        resp.Headers["Content-Type"].Should().Be("text/html");
+        resp.Body.Should().Be("body-bytes");
+    }
+
+    [Fact]
+    public void ParseRawHttpResponse_BoundsBodyByContentLengthWhenValid()
+    {
+        var raw = Raw(
+            "HTTP/1.1 200 OK\n" +
+            "Content-Length: 5\n" +
+            "\n" +
+            "helloEXTRA");
+
+        var resp = NetgearCmProvider.ParseRawHttpResponse(raw, raw.Length);
+
+        resp.Body.Should().Be("hello");
+    }
+
     private static CmPollContext Context => new()
     {
         Id = 1,
@@ -280,5 +397,195 @@ public class NetgearCmProviderTests
         // FEC totals come from the SC-QAM channels only (OFDM counts excluded).
         stats.TotalCorrectables.Should().Be(336 + 445);
         stats.TotalUncorrectables.Should().Be(22 + 1004);
+    }
+
+    // ----- Raw-socket fallback (FetchViaRawSocketAsync) -----
+    // These drive the lenient raw fetch end to end against a loopback "fake NET-DK modem" so the
+    // two-step Basic + anti-CSRF cookie handshake, the broadened retry gate, and the header-scoped
+    // cookie extraction are all exercised on real sockets.
+
+    // A status page minimal enough to round-trip: it contains the dsTable token (so it reads as a
+    // real status page) and a parseable tagValueList.
+    private const string RawStatusPage =
+        "<html><body><table id=\"dsTable\"></table><script>function InitDsTableTagValue(){ " +
+        "var tagValueList = '1|1|Locked|QAM 256|1|387000000 Hz|5.8|40.9|7|0|'; }</script></body></html>";
+
+    private static byte[] RawResponse(string statusLine, IEnumerable<string> headerLines, string body)
+    {
+        var sb = new StringBuilder();
+        sb.Append(statusLine).Append("\r\n");
+        foreach (var h in headerLines)
+            sb.Append(h).Append("\r\n");
+        sb.Append("\r\n").Append(body);
+        return Encoding.ASCII.GetBytes(sb.ToString());
+    }
+
+    [Fact]
+    public async Task FetchViaRawSocketAsync_PrimesCookieThenReturnsPage()
+    {
+        using var server = new FakeNetDkServer(
+            RawResponse("HTTP/1.0 401 Unauthorized",
+                new[] { "WWW-Authenticate: Basic realm=\"NETGEAR CM700\"", "Set-Cookie: XSRF_TOKEN=primed123; Path=/", "Connection: close" },
+                "<html>401</html>"),
+            RawResponse("HTTP/1.0 200 OK",
+                new[] { "Content-Type: text/html", "Connection: close" },
+                RawStatusPage));
+
+        var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
+        var body = await provider.FetchViaRawSocketAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "password", CancellationToken.None);
+
+        body.Should().Be(RawStatusPage);
+        server.ReceivedRequests.Should().HaveCount(2);
+        // First request carries the preemptive Basic header but no cookie yet.
+        server.ReceivedRequests[0].Should().Contain("Authorization: Basic");
+        server.ReceivedRequests[0].Should().NotContain("Cookie:");
+        // Second request replays the primed cookie alongside Basic.
+        server.ReceivedRequests[1].Should().Contain("Cookie: XSRF_TOKEN=primed123");
+        server.ReceivedRequests[1].Should().Contain("Authorization: Basic");
+    }
+
+    [Fact]
+    public async Task FetchViaRawSocketAsync_ReadsBodyDespiteCorruptedContentLengthHeader()
+    {
+        // The 200 carries a corrupted "Content-Length" (the "Co" dropped, as in the HAR). With no
+        // usable length the reader falls back to reading until the connection closes.
+        using var server = new FakeNetDkServer(
+            RawResponse("HTTP/1.0 401 Unauthorized",
+                new[] { "Set-Cookie: XSRF_TOKEN=abc; Path=/", "Connection: close" }, "401"),
+            RawResponse("HTTP/1.0 200 OK",
+                new[] { "Content-Type: text/html", "ntent-Length: 99999", "Connection: close" }, RawStatusPage));
+
+        var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
+        var body = await provider.FetchViaRawSocketAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "password", CancellationToken.None);
+
+        body.Should().Be(RawStatusPage);
+    }
+
+    [Fact]
+    public async Task FetchViaRawSocketAsync_RetriesWhenStatusLineCorruptedButCookiePresent()
+    {
+        // Hardening #1: the 401's status line was itself mangled past a recoverable code, so it
+        // parses as an unknown status. The retry must still fire because the anti-CSRF cookie is
+        // present - the broadened gate keys off the cookie, not an exact 401.
+        using var server = new FakeNetDkServer(
+            RawResponse("orized",
+                new[] { "Set-Cookie: XSRF_TOKEN=primed456; Path=/", "Connection: close" },
+                "<html>err</html>"),
+            RawResponse("HTTP/1.0 200 OK",
+                new[] { "Connection: close" },
+                RawStatusPage));
+
+        var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
+        var body = await provider.FetchViaRawSocketAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "password", CancellationToken.None);
+
+        body.Should().Be(RawStatusPage);
+        server.ReceivedRequests.Should().HaveCount(2);
+        server.ReceivedRequests[1].Should().Contain("Cookie: XSRF_TOKEN=primed456");
+    }
+
+    [Fact]
+    public async Task FetchViaRawSocketAsync_IgnoresXsrfTokenInBodyAndDoesNotRetry()
+    {
+        // Hardening #2: no Set-Cookie header, but a stray XSRF_TOKEN= sits in the page body. The
+        // header-scoped search must not pick it up, so there is no cookie, no retry fires, and the
+        // 401 surfaces. A single received request proves the body token was ignored.
+        using var server = new FakeNetDkServer(
+            RawResponse("HTTP/1.0 401 Unauthorized",
+                new[] { "WWW-Authenticate: Basic realm=\"NETGEAR CM700\"", "Connection: close" },
+                "<html>var x='XSRF_TOKEN=frombody';</html>"));
+
+        var provider = new NetgearCmProvider(NullLogger<NetgearCmProvider>.Instance);
+        Func<Task> act = () => provider.FetchViaRawSocketAsync(
+            $"http://127.0.0.1:{server.Port}/DocsisStatus.htm", "admin", "wrongpw", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<HttpRequestException>())
+            .Which.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        server.ReceivedRequests.Should().HaveCount(1);
+    }
+
+    /// <summary>
+    /// Minimal loopback HTTP server that serves a fixed list of raw (byte-exact) responses in
+    /// order, one per accepted connection, and records each request it received. Lets the
+    /// raw-socket fallback be tested end to end - including deliberately malformed responses - on
+    /// real sockets. Connections are handled sequentially, matching the provider's one-request-
+    /// per-connection (Connection: close) behavior.
+    /// </summary>
+    private sealed class FakeNetDkServer : IDisposable
+    {
+        private readonly TcpListener _listener;
+        private readonly List<byte[]> _responses;
+        private readonly object _gate = new();
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Task _loop;
+        private int _served;
+
+        public List<string> ReceivedRequests { get; } = new();
+        public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+        public FakeNetDkServer(params byte[][] responses)
+        {
+            _responses = responses.ToList();
+            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener.Start();
+            _loop = Task.Run(AcceptLoopAsync);
+        }
+
+        private async Task AcceptLoopAsync()
+        {
+            try
+            {
+                while (!_cts.IsCancellationRequested)
+                {
+                    var client = await _listener.AcceptTcpClientAsync(_cts.Token);
+                    await HandleAsync(client);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+            catch (SocketException) { }
+        }
+
+        private async Task HandleAsync(TcpClient client)
+        {
+            using (client)
+            {
+                using var stream = client.GetStream();
+
+                // Read the request headers (the provider sends a GET with no body) up to the blank line.
+                var requestText = new StringBuilder();
+                var buf = new byte[1024];
+                while (!requestText.ToString().Contains("\r\n\r\n"))
+                {
+                    var n = await stream.ReadAsync(buf, _cts.Token);
+                    if (n == 0)
+                        break;
+                    requestText.Append(Encoding.ASCII.GetString(buf, 0, n));
+                }
+
+                byte[] response;
+                lock (_gate)
+                {
+                    ReceivedRequests.Add(requestText.ToString());
+                    response = _responses[Math.Min(_served, _responses.Count - 1)];
+                    _served++;
+                }
+
+                await stream.WriteAsync(response, _cts.Token);
+                await stream.FlushAsync(_cts.Token);
+                // Disposing the connection closes the socket, so the client reads to EOF.
+            }
+        }
+
+        public void Dispose()
+        {
+            _cts.Cancel();
+            _listener.Stop();
+            try { _loop.Wait(TimeSpan.FromSeconds(2)); }
+            catch { /* shutdown best-effort */ }
+            _cts.Dispose();
+        }
     }
 }
