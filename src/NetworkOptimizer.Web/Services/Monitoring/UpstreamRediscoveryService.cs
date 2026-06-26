@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 
@@ -18,6 +19,15 @@ public class UpstreamRediscoveryService : BackgroundService
     // TEMP TEST TIMING - REVERT BEFORE MERGE (was FromHours(1))
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RediscoveryThreshold = TimeSpan.FromDays(7);
+
+    // An auto-discovered ASN must be absent from this many consecutive runs before it's a
+    // removal candidate - long enough (3 cycles) to ride out an incomplete/degraded run.
+    private const int RemovalConfirmRuns = 3;
+
+    // While a removal counter is pending (some ASN currently absent), re-check on this shorter
+    // cadence instead of the full threshold, so a real removal confirms in ~3 days rather than
+    // ~3 weeks and a transient miss clears the next day.
+    private static readonly TimeSpan PendingRecheckInterval = TimeSpan.FromHours(24);
 
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UpstreamTracerService _tracer;
@@ -58,8 +68,16 @@ public class UpstreamRediscoveryService : BackgroundService
         if (settings.UpstreamDiscoveryNeedsReview) return; // already flagged - waiting for user
         if (!settings.LastUpstreamDiscoveryAt.HasValue) return; // never committed - nothing to re-discover
 
+        // While a removal counter is pending for any WAN, run on the shorter recheck cadence so a
+        // genuine removal confirms quickly and a transient miss clears, instead of waiting a full
+        // 7-day cycle each time. SaveMissCounts stores null when no ASN is absent, so a non-null
+        // value means a counter is in flight.
+        var pendingRecheck = await db.SystemSettings.AnyAsync(
+            s => s.Key.StartsWith(SystemSettingKeys.UpstreamAbsentAsnCountsPrefix) && s.Value != null, ct);
+        var threshold = pendingRecheck ? PendingRecheckInterval : RediscoveryThreshold;
+
         var sinceLast = DateTime.UtcNow - settings.LastUpstreamDiscoveryAt.Value;
-        if (sinceLast < RediscoveryThreshold) return;
+        if (sinceLast < threshold) return;
 
         _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
 
@@ -74,42 +92,39 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
-        // A run with broadly failed reachability (transient ICMP throttling, a congested
-        // minute, traceroutes that didn't complete) discovers fewer ASNs than usual, which
-        // would surface as phantom "removed" changes. Don't trust such a run: roll the cadence
-        // forward and try again next cycle rather than nagging the user with a bad result.
-        if (IsRunDegraded(_tracer.State))
-        {
-            _logger.LogInformation("Re-discovery run looked unreliable (degraded reachability); not flagging, retrying next cycle");
-            settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync(ct);
-            _tracer.ResetToIdle();
-            return;
-        }
-
         // Compare on a stable upstream-ASN identity scoped to the WAN this run discovered.
         // A run never writes MonitoringTargets (commit only happens on user review), so the
-        // committed set is read here, where State.WanInterface is known.
+        // committed views are read here, where State.WanInterface is known.
         var wanInterface = _tracer.State.WanInterface ?? "wan";
-        var committedSignature = await BuildCommittedSignatureAsync(db, wanInterface, ct);
-        var newSignature = BuildCandidateSignature(_tracer.State);
-        if (committedSignature.SetEquals(newSignature))
+        var (monitoredAsns, autoEnabledAsns) = await BuildCommittedViewsAsync(db, wanInterface, ct);
+        var candidate = BuildCandidateSignature(_tracer.State);
+
+        var priorMissCounts = await LoadMissCountsAsync(db, wanInterface, ct);
+        var eval = EvaluateChange(monitoredAsns, autoEnabledAsns, candidate, priorMissCounts, RemovalConfirmRuns);
+
+        // Removed-detection is persistence-gated: an ASN must be absent RemovalConfirmRuns runs
+        // in a row before it's even a candidate, so a single incomplete/degraded run only bumps a
+        // counter that resets the moment the ASN reappears. (Commit 2 adds an ad-hoc candidacy
+        // re-trace here before confirming; for now a counter at threshold confirms the removal.)
+        var confirmedRemoved = eval.RemovalCandidates;
+
+        // Persist the updated counters (upserted into the same SaveChanges below). The map only
+        // holds currently-absent ASNs, so reappeared/removed ones are pruned by omission.
+        await SaveMissCountsAsync(db, wanInterface, eval.NewMissCounts, ct);
+
+        if (eval.Added.Count == 0 && confirmedRemoved.Count == 0)
         {
-            _logger.LogInformation("Re-discovery matched committed targets; rolling forward LastUpstreamDiscoveryAt");
+            _logger.LogInformation("Re-discovery matched committed ASNs (no change); rolling forward LastUpstreamDiscoveryAt");
             settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
-            // Don't auto-commit; just reset the tracer state since there's nothing for
-            // the user to review.
+            // Don't auto-commit; just reset the tracer state since there's nothing to review.
             _tracer.ResetToIdle();
             return;
         }
 
-        var added = newSignature.Except(committedSignature).OrderBy(x => x).ToList();
-        var removed = committedSignature.Except(newSignature).OrderBy(x => x).ToList();
         _logger.LogInformation("Re-discovery found upstream changes; flagging for review. Added: [{Added}] Removed: [{Removed}]",
-            string.Join(", ", added), string.Join(", ", removed));
+            string.Join(", ", eval.Added), string.Join(", ", confirmedRemoved));
 
         settings.UpstreamDiscoveryNeedsReview = true;
         settings.UpdatedAt = DateTime.UtcNow;
@@ -118,28 +133,117 @@ public class UpstreamRediscoveryService : BackgroundService
         // when they open the Monitoring page and click the banner.
     }
 
-    internal static async Task<HashSet<string>> BuildCommittedSignatureAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    /// <summary>Result of comparing a run's discovered ASNs against the committed views.</summary>
+    internal sealed record ChangeEvaluation(
+        List<string> Added,
+        List<string> RemovalCandidates,
+        Dictionary<string, int> NewMissCounts);
+
+    /// <summary>
+    /// Two committed views, both keyed on the stable ASN identity (see IdentityKey):
+    /// <list type="bullet">
+    /// <item><b>Monitored</b> (added-suppression): every ASN already monitored or curated -
+    /// auto-discovered (DirectRouter/PathProxy/L2Neighbor) on this WAN, plus all UserProvided
+    /// (WAN-agnostic, since a hand-added Cogent may carry an empty/other WanInterface). Discovery
+    /// finding one of these is not "added".</item>
+    /// <item><b>AutoEnabled</b> (removed-eligibility): enabled, auto-discovered ASNs on this WAN.
+    /// Only these are eligible to be flagged "removed" - UserProvided and disabled targets are
+    /// excluded so a curated or intentionally-off target never nags.</item>
+    /// </list>
+    /// Both are reachability-independent (no relation to whether a hop answered ping this run).
+    /// </summary>
+    internal static async Task<(HashSet<string> Monitored, HashSet<string> AutoEnabled)> BuildCommittedViewsAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
-        // Tracer-origin targets for this WAN, compared on a stable ASN-level identity (see
-        // IdentityKey) - NOT raw per-hop TargetIds, which churn run-to-run as traceroutes
-        // load-balance across hop IPs within an ASN.
-        //
-        // Deliberately reachability-independent: NO Enabled filter. A hop that fails the ping
-        // gate one run is still the same upstream path, and a user disabling a flaky target
-        // shouldn't read as a path change. We compare the set of ASNs on the path; reachability
-        // is handled elsewhere (flaky detection / ISP Health). WAN-scoped; user-added customs
-        // (DiscoveryMethod == null) excluded.
-        var targets = await db.MonitoringTargets
-            .Where(t => t.WanInterface == wanInterface
+        var rows = await db.MonitoringTargets
+            .Where(t => t.DiscoveryMethod == DiscoveryMethod.UserProvided
+                || ((t.DiscoveryMethod == DiscoveryMethod.DirectRouter
+                        || t.DiscoveryMethod == DiscoveryMethod.PathProxy
+                        || t.DiscoveryMethod == DiscoveryMethod.L2Neighbor)
+                    && t.WanInterface == wanInterface))
+            .Select(t => new { t.TargetType, t.AsnNumber, t.Address, t.Enabled, t.DiscoveryMethod, t.WanInterface })
+            .ToListAsync(ct);
+
+        var monitored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var autoEnabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in rows)
+        {
+            var key = IdentityKey(t.TargetType, t.AsnNumber, t.Address);
+            monitored.Add(key);
+            if (t.Enabled && t.WanInterface == wanInterface
                 && (t.DiscoveryMethod == DiscoveryMethod.DirectRouter
                     || t.DiscoveryMethod == DiscoveryMethod.PathProxy
                     || t.DiscoveryMethod == DiscoveryMethod.L2Neighbor))
-            .Select(t => new { t.TargetType, t.AsnNumber, t.Address })
-            .ToListAsync(ct);
-        var sig = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var t in targets)
-            sig.Add(IdentityKey(t.TargetType, t.AsnNumber, t.Address));
-        return sig;
+                autoEnabled.Add(key);
+        }
+        return (monitored, autoEnabled);
+    }
+
+    /// <summary>
+    /// Pure change-detection. Added = discovered ASNs not already monitored (flag now). Missing =
+    /// removal-eligible ASNs absent this run; each bumps a consecutive-miss counter and only
+    /// becomes a removal candidate once it reaches <paramref name="removalThreshold"/> runs. The
+    /// returned counter map holds only currently-absent ASNs, so reappeared ones reset by omission.
+    /// </summary>
+    internal static ChangeEvaluation EvaluateChange(
+        HashSet<string> monitoredAsns,
+        HashSet<string> autoEnabledAsns,
+        HashSet<string> candidate,
+        IReadOnlyDictionary<string, int> priorMissCounts,
+        int removalThreshold)
+    {
+        var added = candidate.Except(monitoredAsns).OrderBy(x => x).ToList();
+
+        var newCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var removalCandidates = new List<string>();
+        foreach (var key in autoEnabledAsns)
+        {
+            if (candidate.Contains(key)) continue; // present this run - counter resets (omitted)
+            var count = (priorMissCounts.TryGetValue(key, out var prev) ? prev : 0) + 1;
+            newCounts[key] = count;
+            if (count >= removalThreshold) removalCandidates.Add(key);
+        }
+        removalCandidates.Sort(StringComparer.OrdinalIgnoreCase);
+        return new ChangeEvaluation(added, removalCandidates, newCounts);
+    }
+
+    private static string MissCountsKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + wanInterface;
+
+    private static async Task<Dictionary<string, int>> LoadMissCountsAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == MissCountsKey(wanInterface), ct);
+        if (string.IsNullOrEmpty(row?.Value)) return new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var map = JsonSerializer.Deserialize<Dictionary<string, int>>(row.Value);
+            return map == null ? new(StringComparer.OrdinalIgnoreCase) : new(map, StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Upserts the counter map into the SystemSetting row. Does not SaveChanges - the
+    /// caller's SaveChanges persists it alongside the settings update.</summary>
+    private static async Task SaveMissCountsAsync(
+        NetworkOptimizerDbContext db, string wanInterface, Dictionary<string, int> counts, CancellationToken ct)
+    {
+        var key = MissCountsKey(wanInterface);
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        var value = counts.Count == 0 ? null : JsonSerializer.Serialize(counts);
+        if (row == null)
+        {
+            if (value == null) return;
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        }
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
     }
 
     internal static HashSet<string> BuildCandidateSignature(UpstreamTracerState state)
@@ -157,24 +261,6 @@ public class UpstreamRediscoveryService : BackgroundService
             sig.Add(IdentityKey(type, transit.AsnNumber, transit.HopAddress ?? transit.PathProxyTarget));
         }
         return sig;
-    }
-
-    // True when a run's reachability looks too poor to trust its discovered ASN set: nothing
-    // discovered, the first mile couldn't be verified, or at least half of all discovered hops
-    // failed the ping gate. Such a run finds fewer ASNs than the path really has, so treating
-    // its result as "the path changed" would nag the user for a transient blip.
-    internal static bool IsRunDegraded(UpstreamTracerState state)
-    {
-        var total = state.AccessHops.Count + state.TransitAsns.Count;
-        if (total == 0) return true;
-
-        // First mile is the anchor - if every access hop is unreachable, we can't trust the run.
-        if (state.AccessHops.Count > 0 && state.AccessHops.All(h => h.Unreachable))
-            return true;
-
-        var unreachable = state.AccessHops.Count(h => h.Unreachable)
-            + state.TransitAsns.Count(t => t.Unreachable);
-        return unreachable * 2 >= total;
     }
 
     // Stable change-detection identity: the upstream ASN within its tier namespace, so ECMP

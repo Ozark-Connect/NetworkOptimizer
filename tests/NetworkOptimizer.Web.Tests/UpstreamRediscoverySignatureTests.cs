@@ -7,12 +7,12 @@ using Xunit;
 namespace NetworkOptimizer.Web.Tests;
 
 /// <summary>
-/// Change-detection signature for the scheduled upstream re-discovery. The fix keys on a
-/// stable upstream-ASN identity instead of per-hop TargetIds so traceroute ECMP churn stops
-/// re-flagging the review banner, while genuine ASN-path changes still flag.
+/// Change-detection for the scheduled upstream re-discovery. Keys on a stable upstream-ASN
+/// identity (ECMP-proof), flags ADDED ASNs immediately, and gates REMOVED behind a consecutive-
+/// miss counter so incomplete/degraded runs don't nag. UserProvided (hand-added) targets suppress
+/// "added" but are never eligible for "removed".
 ///
-/// All ASNs are RFC 5398 documentation ASNs (64496-64511) and all IPs are RFC 5737
-/// documentation ranges - never real network data.
+/// All ASNs are RFC 5398 documentation ASNs (64496-64511) and all IPs are RFC 5737 ranges.
 /// </summary>
 public class UpstreamRediscoverySignatureTests : IDisposable
 {
@@ -20,6 +20,7 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     private const int TransitAsnA = 64497;
     private const int TransitAsnB = 64498;
     private const int PathAsn = 64499;
+    private const int UserAsn = 64500;
 
     private readonly NetworkOptimizerDbContext _db;
 
@@ -60,7 +61,7 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         a.Should().Be(b);
     }
 
-    // ---- Candidate signature (in-memory tracer state) ----
+    // ---- Candidate signature (reachability-independent) ----
 
     [Fact]
     public void Candidate_collapses_ecmp_hops_within_an_asn()
@@ -83,8 +84,6 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     [Fact]
     public void Candidate_includes_unreachable_hops_reachability_independent()
     {
-        // A hop that flapped the ping gate this run is still on the path - it must stay in the
-        // signature so reachability noise doesn't read as a topology change.
         var state = new UpstreamTracerState
         {
             TransitAsns =
@@ -110,163 +109,133 @@ public class UpstreamRediscoverySignatureTests : IDisposable
             .Should().BeEquivalentTo(new[] { $"path:as{PathAsn}" });
     }
 
-    // ---- Committed signature (DB) ----
+    // ---- Committed views ----
 
     [Fact]
-    public async Task Committed_collapses_ecmp_keeps_disabled_excludes_other_wan_and_custom()
+    public async Task Monitored_view_includes_userprovided_wan_agnostic_and_auto_this_wan()
     {
         _db.MonitoringTargets.AddRange(
             Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
-            Target("198.51.100.2", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
-            Target("192.0.2.1", MonitoringTargetType.AccessIsp, AccessAsn, "wan", DiscoveryMethod.DirectRouter),
-            // user-disabled - still counted (reachability-independent), so it doesn't read as a change
             Target("198.51.100.9", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false),
-            // other WAN - excluded
+            // UserProvided with empty WanInterface - still in monitored (WAN-agnostic)
+            Target("203.0.113.1", MonitoringTargetType.Transit, UserAsn, "", DiscoveryMethod.UserProvided),
+            // other-WAN auto - excluded entirely
             Target("198.51.100.10", MonitoringTargetType.Transit, PathAsn, "wan2", DiscoveryMethod.DirectRouter),
-            // user custom (no discovery method) - excluded
+            // user custom (no method) - excluded entirely
             Target("203.0.113.50", MonitoringTargetType.Custom, null, "wan", method: null));
         await _db.SaveChangesAsync();
 
-        var sig = await UpstreamRediscoveryService.BuildCommittedSignatureAsync(_db, "wan", CancellationToken.None);
+        var (monitored, _) = await UpstreamRediscoveryService.BuildCommittedViewsAsync(_db, "wan", CancellationToken.None);
 
-        sig.Should().BeEquivalentTo(new[]
+        monitored.Should().BeEquivalentTo(new[]
         {
-            $"transit:as{TransitAsnA}", $"transit:as{TransitAsnB}", $"access:as{AccessAsn}"
+            $"transit:as{TransitAsnA}", $"transit:as{TransitAsnB}", $"transit:as{UserAsn}"
         });
     }
 
-    // ---- Convergence: the regression this fix targets ----
-
     [Fact]
-    public async Task Stable_asn_path_with_ecmp_hop_churn_reports_no_change()
+    public async Task AutoEnabled_view_is_enabled_auto_this_wan_only()
     {
-        // Committed: two hop IPs for one transit ASN, plus one access hop.
         _db.MonitoringTargets.AddRange(
             Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
-            Target("198.51.100.2", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
-            Target("192.0.2.1", MonitoringTargetType.AccessIsp, AccessAsn, "wan", DiscoveryMethod.DirectRouter));
+            // disabled - excluded from removed-eligibility
+            Target("198.51.100.9", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false),
+            // UserProvided - excluded from removed-eligibility
+            Target("203.0.113.1", MonitoringTargetType.Transit, UserAsn, "wan", DiscoveryMethod.UserProvided),
+            // other WAN - excluded
+            Target("198.51.100.10", MonitoringTargetType.Transit, PathAsn, "wan2", DiscoveryMethod.DirectRouter));
         await _db.SaveChangesAsync();
 
-        // New run: same ASNs, entirely different hop IPs (ECMP load-balancing).
-        var state = new UpstreamTracerState
-        {
-            WanInterface = "wan",
-            AccessHops = { Hop("192.0.2.250", AccessAsn) },
-            TransitAsns = { Transit("203.0.113.77", TransitAsnA, DiscoveryMethod.DirectRouter) },
-        };
+        var (_, autoEnabled) = await UpstreamRediscoveryService.BuildCommittedViewsAsync(_db, "wan", CancellationToken.None);
 
-        var committed = await UpstreamRediscoveryService.BuildCommittedSignatureAsync(_db, "wan", CancellationToken.None);
-        var candidate = UpstreamRediscoveryService.BuildCandidateSignature(state);
+        autoEnabled.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
+    }
 
-        committed.SetEquals(candidate).Should().BeTrue();
+    // ---- EvaluateChange ----
+
+    [Fact]
+    public void Added_is_discovered_not_monitored()
+    {
+        var monitored = Set($"transit:as{TransitAsnA}");
+        var candidate = Set($"transit:as{TransitAsnA}", $"transit:as{TransitAsnB}");
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, Set(), candidate, Empty, 3);
+
+        eval.Added.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnB}" });
+        eval.RemovalCandidates.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task New_transit_asn_is_reported_as_a_change()
+    public void UserProvided_in_monitored_suppresses_added()
     {
-        _db.MonitoringTargets.Add(
-            Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter));
-        await _db.SaveChangesAsync();
+        // Discovery finds the hand-added Cogent ASN; it's already monitored, so not "added".
+        var monitored = Set($"transit:as{UserAsn}");
+        var candidate = Set($"transit:as{UserAsn}");
 
-        var state = new UpstreamTracerState
-        {
-            WanInterface = "wan",
-            TransitAsns =
-            {
-                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter),
-                Transit("203.0.113.1", TransitAsnB, DiscoveryMethod.DirectRouter),
-            },
-        };
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, Set(), candidate, Empty, 3);
 
-        var committed = await UpstreamRediscoveryService.BuildCommittedSignatureAsync(_db, "wan", CancellationToken.None);
-        var candidate = UpstreamRediscoveryService.BuildCandidateSignature(state);
-
-        committed.SetEquals(candidate).Should().BeFalse();
-        candidate.Except(committed).Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnB}" });
-        committed.Except(candidate).Should().BeEmpty();
+        eval.Added.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Disabled_flaky_target_still_on_path_does_not_diff()
+    public void Missing_asn_increments_counter_but_does_not_flag_below_threshold()
     {
-        // User disabled the only target for an ASN because it was flaky. Discovery still finds
-        // that ASN on the path (here via a different hop IP that's currently unreachable). The
-        // disable must not read as a path change - otherwise we'd nag, and a commit would
-        // silently re-enable the target the user turned off.
-        _db.MonitoringTargets.AddRange(
-            Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
-            Target("198.51.100.2", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false));
-        await _db.SaveChangesAsync();
+        var autoEnabled = Set($"transit:as{TransitAsnA}");
+        var candidate = Set(); // A missing this run
 
-        var state = new UpstreamTracerState
-        {
-            WanInterface = "wan",
-            TransitAsns =
-            {
-                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter),
-                Transit("203.0.113.9", TransitAsnB, DiscoveryMethod.DirectRouter, unreachable: true),
-            },
-        };
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, Empty, 3);
 
-        var committed = await UpstreamRediscoveryService.BuildCommittedSignatureAsync(_db, "wan", CancellationToken.None);
-        var candidate = UpstreamRediscoveryService.BuildCandidateSignature(state);
-
-        committed.SetEquals(candidate).Should().BeTrue();
-    }
-
-    // ---- Degraded-run guard ----
-
-    [Fact]
-    public void Degraded_when_nothing_discovered()
-    {
-        UpstreamRediscoveryService.IsRunDegraded(new UpstreamTracerState()).Should().BeTrue();
+        eval.NewMissCounts.Should().ContainKey($"transit:as{TransitAsnA}").WhoseValue.Should().Be(1);
+        eval.RemovalCandidates.Should().BeEmpty();
     }
 
     [Fact]
-    public void Degraded_when_all_access_hops_unreachable()
+    public void Missing_asn_becomes_removal_candidate_at_threshold()
     {
-        var state = new UpstreamTracerState
-        {
-            AccessHops = { Hop("192.0.2.1", AccessAsn, unreachable: true) },
-            TransitAsns = { Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter) },
-        };
-        UpstreamRediscoveryService.IsRunDegraded(state).Should().BeTrue();
+        var autoEnabled = Set($"transit:as{TransitAsnA}");
+        var candidate = Set();
+        var prior = new Dictionary<string, int> { [$"transit:as{TransitAsnA}"] = 2 };
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, 3);
+
+        eval.NewMissCounts[$"transit:as{TransitAsnA}"].Should().Be(3);
+        eval.RemovalCandidates.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
     }
 
     [Fact]
-    public void Degraded_when_majority_of_hops_unreachable()
+    public void Reappearing_asn_resets_its_counter()
     {
-        var state = new UpstreamTracerState
-        {
-            AccessHops = { Hop("192.0.2.1", AccessAsn) },
-            TransitAsns =
-            {
-                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter, unreachable: true),
-                Transit("198.51.100.2", TransitAsnB, DiscoveryMethod.DirectRouter, unreachable: true),
-            },
-        };
-        // 2 of 3 unreachable >= 50%
-        UpstreamRediscoveryService.IsRunDegraded(state).Should().BeTrue();
+        var autoEnabled = Set($"transit:as{TransitAsnA}");
+        var candidate = Set($"transit:as{TransitAsnA}"); // present again
+        var prior = new Dictionary<string, int> { [$"transit:as{TransitAsnA}"] = 2 };
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, 3);
+
+        eval.NewMissCounts.Should().NotContainKey($"transit:as{TransitAsnA}"); // pruned by omission
+        eval.RemovalCandidates.Should().BeEmpty();
     }
 
     [Fact]
-    public void Not_degraded_when_mostly_reachable()
+    public void Disabled_flaky_target_neither_added_nor_removed()
     {
-        var state = new UpstreamTracerState
-        {
-            AccessHops = { Hop("192.0.2.1", AccessAsn) },
-            TransitAsns =
-            {
-                Transit("198.51.100.1", TransitAsnA, DiscoveryMethod.DirectRouter),
-                Transit("198.51.100.2", TransitAsnB, DiscoveryMethod.DirectRouter),
-                Transit("198.51.100.3", PathAsn, DiscoveryMethod.DirectRouter, unreachable: true),
-            },
-        };
-        // 1 of 4 unreachable < 50%
-        UpstreamRediscoveryService.IsRunDegraded(state).Should().BeFalse();
+        // Monitored (suppresses added) but NOT auto-enabled (not removal-eligible). Discovery still
+        // finds the ASN, so nothing flags - and nothing would get silently re-enabled by a commit.
+        var monitored = Set($"transit:as{TransitAsnB}");
+        var autoEnabled = Set(); // disabled => not eligible for removed
+        var candidate = Set($"transit:as{TransitAsnB}");
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, autoEnabled, candidate, Empty, 3);
+
+        eval.Added.Should().BeEmpty();
+        eval.RemovalCandidates.Should().BeEmpty();
+        eval.NewMissCounts.Should().BeEmpty();
     }
 
     // ---- helpers ----
+
+    private static HashSet<string> Set(params string[] keys) => new(keys, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Dictionary<string, int> Empty = new(StringComparer.OrdinalIgnoreCase);
 
     private static AccessHopCandidate Hop(string address, int? asn, bool enabled = true, bool unreachable = false) => new()
     {

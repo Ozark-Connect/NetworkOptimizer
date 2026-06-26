@@ -62,6 +62,10 @@ public static class SystemSettingKeys
     // (user committed), so the next scheduled run's results re-arm the banner.
     public const string UpstreamDiscoveryResultsReadyDismissed = "ui.upstream_discovery_results_ready_dismissed";
 
+    // Per-WAN consecutive-miss counters for upstream re-discovery removed-detection. The full
+    // key is this prefix + WanInterface; the value is a JSON map of ASN identity -> miss count.
+    public const string UpstreamAbsentAsnCountsPrefix = "upstream.absent_asn_counts.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 }
