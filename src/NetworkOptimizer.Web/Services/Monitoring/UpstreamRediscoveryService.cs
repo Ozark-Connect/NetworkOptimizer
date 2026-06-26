@@ -61,10 +61,6 @@ public class UpstreamRediscoveryService : BackgroundService
 
         _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
 
-        // Snapshot the current committed signature before running discovery, since the
-        // tracer mutates State as it runs.
-        var committedSignature = await BuildCommittedSignatureAsync(db, ct);
-
         await _tracer.StartDiscoveryAsync(ct);
         await _tracer.WaitForCompletionAsync();
 
@@ -76,6 +72,11 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
+        // Compare on a stable upstream-ASN identity scoped to the WAN this run discovered.
+        // A run never writes MonitoringTargets (commit only happens on user review), so the
+        // committed set is read here, where State.WanInterface is known.
+        var wanInterface = _tracer.State.WanInterface ?? "wan";
+        var committedSignature = await BuildCommittedSignatureAsync(db, wanInterface, ct);
         var newSignature = BuildCandidateSignature(_tracer.State);
         if (committedSignature.SetEquals(newSignature))
         {
@@ -89,9 +90,10 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("Re-discovery found {Added} new and {Removed} removed targets; flagging for review",
-            newSignature.Except(committedSignature).Count(),
-            committedSignature.Except(newSignature).Count());
+        var added = newSignature.Except(committedSignature).OrderBy(x => x).ToList();
+        var removed = committedSignature.Except(newSignature).OrderBy(x => x).ToList();
+        _logger.LogInformation("Re-discovery found upstream changes; flagging for review. Added: [{Added}] Removed: [{Removed}]",
+            string.Join(", ", added), string.Join(", ", removed));
 
         settings.UpstreamDiscoveryNeedsReview = true;
         settings.UpdatedAt = DateTime.UtcNow;
@@ -100,26 +102,56 @@ public class UpstreamRediscoveryService : BackgroundService
         // when they open the Monitoring page and click the banner.
     }
 
-    private static async Task<HashSet<string>> BuildCommittedSignatureAsync(NetworkOptimizerDbContext db, CancellationToken ct)
+    private static async Task<HashSet<string>> BuildCommittedSignatureAsync(NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
-        // Tracer-origin targets only - user-added customs aren't part of the comparison.
+        // Tracer-origin targets for this WAN, enabled only. We compare on a stable ASN-level
+        // identity (see IdentityKey), NOT raw per-hop TargetIds: traceroutes load-balance across
+        // multiple hop IPs within the same ASN run-to-run, so a TargetId comparison never
+        // converges and would re-flag the banner on every cycle. Enabled-only and WAN-scoped so
+        // user-disabled targets, other WANs, and stale history the commit path never prunes don't
+        // register as phantom changes. User-added customs (DiscoveryMethod == null) are excluded.
         var targets = await db.MonitoringTargets
-            .Where(t => t.DiscoveryMethod != null
+            .Where(t => t.Enabled
+                && t.WanInterface == wanInterface
                 && (t.DiscoveryMethod == DiscoveryMethod.DirectRouter
                     || t.DiscoveryMethod == DiscoveryMethod.PathProxy
                     || t.DiscoveryMethod == DiscoveryMethod.L2Neighbor))
-            .Select(t => t.TargetId)
+            .Select(t => new { t.TargetType, t.AsnNumber, t.Address })
             .ToListAsync(ct);
-        return new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
+        var sig = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in targets)
+            sig.Add(IdentityKey(t.TargetType, t.AsnNumber, t.Address));
+        return sig;
     }
 
     private static HashSet<string> BuildCandidateSignature(UpstreamTracerState state)
     {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sig = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var hop in state.AccessHops.Where(h => h.Enabled))
-            set.Add(hop.TargetId);
-        foreach (var transit in state.TransitAsns.Where(t => t.Enabled && !string.IsNullOrEmpty(t.TargetId)))
-            set.Add(transit.TargetId!);
-        return set;
+            sig.Add(IdentityKey(MonitoringTargetType.AccessIsp, hop.AsnNumber, hop.Address));
+        foreach (var transit in state.TransitAsns.Where(t => t.Enabled))
+        {
+            var type = transit.Method == DiscoveryMethod.PathProxy
+                ? MonitoringTargetType.InternetService
+                : MonitoringTargetType.Transit;
+            sig.Add(IdentityKey(type, transit.AsnNumber, transit.HopAddress ?? transit.PathProxyTarget));
+        }
+        return sig;
+    }
+
+    // Stable change-detection identity: the upstream ASN within its tier namespace, so ECMP
+    // hop-IP churn within an ASN doesn't read as a change. Falls back to the hop address only
+    // when no ASN could be attributed (e.g. a private first-mile hop).
+    private static string IdentityKey(MonitoringTargetType type, int? asn, string? address)
+    {
+        var ns = type switch
+        {
+            MonitoringTargetType.AccessIsp => "access",
+            MonitoringTargetType.Transit => "transit",
+            MonitoringTargetType.InternetService => "path",
+            _ => "other"
+        };
+        var id = asn.HasValue ? $"as{asn.Value}" : (string.IsNullOrEmpty(address) ? "?" : address);
+        return $"{ns}:{id}";
     }
 }
