@@ -285,4 +285,102 @@ public class WanSteerDeploymentServiceTests
             script.Should().Contain("-x /data/wan-steer/wansteer");
         }
     }
+
+    // The app ships binary contract version 1 (src/wansteer/binary-version, embedded in the
+    // assembly). These tests pin the advisory "redeploy" logic against that baseline.
+    public class IsBinaryOutdatedTests
+    {
+        [Fact]
+        public void No_warning_when_nothing_is_deployed()
+        {
+            // First-time deploy: there is no binary yet. Never nag, never block.
+            var status = new WanSteerStatus { BinaryDeployed = false, DeployedBinaryVersion = null };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Fact]
+        public void No_warning_for_null_status()
+        {
+            WanSteerDeploymentService.IsBinaryOutdated(null).Should().BeFalse();
+        }
+
+        [Fact]
+        public void No_warning_when_deployed_contract_version_matches()
+        {
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 1 };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Fact]
+        public void Warns_when_deployed_contract_version_is_older()
+        {
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 0 };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
+        }
+
+        [Fact]
+        public void No_warning_when_deployed_contract_version_is_newer()
+        {
+            // Downgraded app vs a newer gateway binary: never nag the user to deploy an older daemon.
+            var status = new WanSteerStatus { BinaryDeployed = true, DeployedBinaryVersion = 2 };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Theory]
+        [InlineData("1.14.7")]
+        [InlineData("v1.14.7")]
+        [InlineData("1.23.0")]
+        [InlineData("1.23.0-alpha.0.2+abc123")]
+        public void No_warning_for_preflag_binary_at_or_above_floor(string releaseVersion)
+        {
+            // Old binary without the -binary-version flag, but its release is >= v1.14.7 (the floor
+            // where the current daemon first shipped). It already runs the current daemon.
+            var status = new WanSteerStatus
+            {
+                BinaryDeployed = true,
+                DeployedBinaryVersion = null,
+                Version = releaseVersion
+            };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+
+        [Theory]
+        [InlineData("1.14.6")]
+        [InlineData("1.0.0")]
+        [InlineData("0.9.5")]
+        public void Warns_for_preflag_binary_below_floor(string releaseVersion)
+        {
+            var status = new WanSteerStatus
+            {
+                BinaryDeployed = true,
+                DeployedBinaryVersion = null,
+                Version = releaseVersion
+            };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
+        }
+
+        [Theory]
+        [InlineData("dev")]
+        [InlineData(null)]
+        [InlineData("")]
+        public void No_warning_when_version_is_ambiguous(string? releaseVersion)
+        {
+            // Can't determine the deployed version (dev/unstamped/unknown). Stay silent rather than
+            // cry wolf - and crucially, never lock the user out of deploying.
+            var status = new WanSteerStatus
+            {
+                BinaryDeployed = true,
+                DeployedBinaryVersion = null,
+                Version = releaseVersion
+            };
+
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+        }
+    }
 }

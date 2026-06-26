@@ -30,6 +30,12 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\PerfTweaks\*.sh" />
     <EmbeddedResource Include="Resources\PerfTweaks\*.ko" />
+    <!-- Single source of truth for the WAN Steering daemon contract version. The Go binary
+         embeds the same file (src/wansteer/binary-version) so the app and the deployed binary
+         can never disagree. See WanSteerDeploymentService. -->
+    <EmbeddedResource Include="..\wansteer\binary-version">
+      <LogicalName>wansteer.binary-version</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>
