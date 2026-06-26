@@ -96,33 +96,40 @@ public class WanSteerDeploymentService
     }
 
     /// <summary>
-    /// Whether the gateway's deployed WAN Steering binary is an older daemon than the one this app
-    /// ships, i.e. the user should redeploy. ADVISORY ONLY - this never gates deployment. Returns
-    /// false whenever we can't positively determine the deployed version, so we never nag on
-    /// ambiguity, on a "dev"/unstamped binary, or before anything has been deployed.
+    /// Whether the gateway's deployed WAN Steering binary is older than the one this app ships,
+    /// i.e. the user should redeploy. ADVISORY ONLY - this never gates deployment. Returns false
+    /// before anything is deployed and when the gateway already runs the current (or a newer)
+    /// daemon; a deployed binary that cannot prove it is current counts as outdated.
     /// </summary>
     public static bool IsBinaryOutdated(WanSteerStatus? status)
     {
         if (status is not { BinaryDeployed: true }) return false;
-        return EffectiveDeployedBinaryVersion(status) is int v && v < ExpectedBinaryVersion;
+        return EffectiveDeployedBinaryVersion(status) < ExpectedBinaryVersion;
     }
 
     /// <summary>
-    /// The deployed binary's effective contract version, or null when it can't be determined.
-    /// New binaries report it directly; older ones predate the flag and are inferred from their
-    /// release version against <see cref="BinaryV1FloorRelease"/>.
+    /// The deployed binary's effective contract version. New binaries report it directly; older
+    /// ones predate the flag and are inferred from their release version against
+    /// <see cref="BinaryV1FloorRelease"/>. A deployed binary that can report neither (a "dev" or
+    /// otherwise unversioned source build) predates this feature and counts as 0 (outdated).
     /// </summary>
-    private static int? EffectiveDeployedBinaryVersion(WanSteerStatus status)
+    private static int EffectiveDeployedBinaryVersion(WanSteerStatus status)
     {
         if (status.DeployedBinaryVersion is int v) return v;
 
-        // Pre-flag binary: fall back to the release version it does report.
+        // Pre-flag binary: fall back to the release version it does report. A real release at or
+        // above the floor already runs the current daemon.
         var match = Regex.Match(status.Version ?? "", @"\d+\.\d+\.\d+");
         if (match.Success && Version.TryParse(match.Value, out var rel))
             return rel >= BinaryV1FloorRelease ? 1 : 0;
 
-        // Unknown (e.g. "dev", or nothing reported) - stay silent rather than cry wolf.
-        return null;
+        // No contract version and no parseable release: a "dev"/source binary that predates this
+        // feature and can't prove it is current. We only get here with the binary present and the
+        // status read succeeded (a transient SSH failure leaves BinaryDeployed false and never
+        // reaches this), so this is a definitive old binary, not a glitch. Flag it - redeploying
+        // now pushes a binary that reports the contract version, so the prompt is resolvable (this
+        // was the unresolvable case in #898, which is why we no longer have to stay silent).
+        return 0;
     }
 
     private static int ReadExpectedBinaryVersion()

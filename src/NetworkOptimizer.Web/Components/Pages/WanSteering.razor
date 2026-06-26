@@ -1180,8 +1180,8 @@
         if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
             return;
 
-        // Advisory only - the Deploy/Redeploy buttons are never gated on this. The service stays
-        // silent when the deployed version is unknown, so we never nag on ambiguity or first deploy.
+        // Advisory only - the Deploy/Redeploy buttons are never gated on this. The service returns
+        // false before anything is deployed, so a first deploy is never flagged or blocked.
         _showVersionWarning = WanSteerDeploymentService.IsBinaryOutdated(_status);
     }
 

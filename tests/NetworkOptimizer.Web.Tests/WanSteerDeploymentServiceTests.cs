@@ -369,10 +369,13 @@ public class WanSteerDeploymentServiceTests
         [InlineData("dev")]
         [InlineData(null)]
         [InlineData("")]
-        public void No_warning_when_version_is_ambiguous(string? releaseVersion)
+        public void Warns_for_deployed_binary_that_cannot_identify_itself(string? releaseVersion)
         {
-            // Can't determine the deployed version (dev/unstamped/unknown). Stay silent rather than
-            // cry wolf - and crucially, never lock the user out of deploying.
+            // A binary is present but reports neither a contract version nor a parseable release
+            // (a "dev"/source build that predates the -binary-version flag). It can't prove it is
+            // current, so we flag it. This is resolvable now: redeploying pushes a binary that
+            // reports the contract version (unlike the unresolvable loop in #898). The warning is
+            // advisory only and never blocks deploying.
             var status = new WanSteerStatus
             {
                 BinaryDeployed = true,
@@ -380,7 +383,7 @@ public class WanSteerDeploymentServiceTests
                 Version = releaseVersion
             };
 
-            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeFalse();
+            WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
         }
     }
 }
