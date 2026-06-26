@@ -15,7 +15,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class UpstreamRediscoveryService : BackgroundService
 {
-    private static readonly TimeSpan TickInterval = TimeSpan.FromHours(1);
+    // TEMP TEST TIMING - REVERT BEFORE MERGE (was FromHours(1))
+    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RediscoveryThreshold = TimeSpan.FromDays(7);
 
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
@@ -36,7 +37,8 @@ public class UpstreamRediscoveryService : BackgroundService
     {
         // First tick after a short warm-up so we don't run on the same boot as the
         // app starting. Re-discovery is cheap but it does fire 10 traceroutes.
-        await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+        // TEMP TEST TIMING - REVERT BEFORE MERGE (was FromMinutes(5))
+        await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
