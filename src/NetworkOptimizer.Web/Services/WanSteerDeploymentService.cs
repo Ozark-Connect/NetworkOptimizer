@@ -20,7 +20,7 @@ public class WanSteerDeploymentService
     // The daemon contract version this app ships. Read from the SAME src/wansteer/binary-version
     // file the Go binary embeds (see src/wansteer/main.go), so the app and the deployed binary can
     // never disagree. To change it, edit that file - not this code.
-    private static readonly int ExpectedBinaryVersion = ReadExpectedBinaryVersion();
+    internal static readonly int ExpectedBinaryVersion = ReadExpectedBinaryVersion();
 
     // Binaries built before the -binary-version flag existed don't report a contract version. The
     // last change to the daemon itself was #517 ("WAN stability detection and backoff"), first

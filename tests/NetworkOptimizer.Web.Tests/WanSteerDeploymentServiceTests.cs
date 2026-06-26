@@ -1,3 +1,5 @@
+using System.IO;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using NetworkOptimizer.Web.Services;
 using Xunit;
@@ -385,5 +387,37 @@ public class WanSteerDeploymentServiceTests
 
             WanSteerDeploymentService.IsBinaryOutdated(status).Should().BeTrue();
         }
+    }
+
+    public class EmbeddedBinaryVersionTests
+    {
+        // Guard against a silent failure mode: the app reads its expected contract version from the
+        // embedded src/wansteer/binary-version (the same file the Go binary embeds). If that
+        // EmbeddedResource wiring ever breaks - a .csproj refactor, rename, or path change - the
+        // read silently falls back to a default and the redeploy prompt stops working after a future
+        // contract bump, with no other signal. This test fails loudly instead: it verifies the
+        // resource resolves and that the app's expected version matches the source file on disk.
+        [Fact]
+        public void Expected_version_resolves_from_embedded_resource_and_matches_source()
+        {
+            var asm = typeof(WanSteerDeploymentService).Assembly;
+            using var stream = asm.GetManifestResourceStream("wansteer.binary-version");
+            stream.Should().NotBeNull(
+                "the binary-version EmbeddedResource must be wired in NetworkOptimizer.Web.csproj");
+
+            using var reader = new StreamReader(stream!);
+            var embedded = int.Parse(reader.ReadToEnd().Trim());
+
+            var repoFile = Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(SourceFilePath())!, "..", "..", "src", "wansteer", "binary-version"));
+            File.Exists(repoFile).Should().BeTrue($"expected source of truth at {repoFile}");
+            var onDisk = int.Parse(File.ReadAllText(repoFile).Trim());
+
+            embedded.Should().Be(onDisk, "the embedded resource must match the source file");
+            WanSteerDeploymentService.ExpectedBinaryVersion.Should().Be(onDisk,
+                "the app's expected contract version must come from src/wansteer/binary-version, not a silent fallback");
+        }
+
+        private static string SourceFilePath([CallerFilePath] string path = "") => path;
     }
 }
