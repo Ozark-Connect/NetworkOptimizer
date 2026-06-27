@@ -464,6 +464,59 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void Optimize_MeshLeaderForcedToMove_ChildFollowsAndIsNotStranded()
+    {
+        // The leader is jammed on ch36 by two pinned co-channel neighbors, so it must relocate.
+        // Its mesh child must move with it - never left stranded on the old channel, which is what
+        // happened when the per-AP filter reverted a low-scoring child independently of its leader.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Pinned-1", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "Pinned-2", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:03", "Leader", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:04", "Child", RadioBand.Band5GHz, 36,
+                isMeshChild: true, meshParentMac: "aa:bb:cc:dd:ee:03",
+                meshUplinkBand: RadioBand.Band5GHz, meshUplinkChannel: 36)
+        };
+        var options = new RecommendationOptions
+        {
+            PinnedApMacs = new HashSet<string> { "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02" }
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, null, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null, options);
+
+        var leaderRec = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:03");
+        var childRec = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:04");
+
+        leaderRec.RecommendedChannel.Should().NotBe(36, "the leader is forced off the jammed channel");
+        childRec.RecommendedChannel.Should().Be(leaderRec.RecommendedChannel, "the child must follow its leader");
+        childRec.RecommendedWidth.Should().Be(leaderRec.RecommendedWidth);
+        childRec.IsMeshConstrained.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Optimize_MeshUplinkOn5GHz_ChildIsIndependentOn2_4GHz()
+    {
+        // The backhaul runs on 5 GHz, so on the 2.4 GHz plan the child is a free, independent
+        // radio - no mesh constraint should be created and it must not be marked constrained.
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Leader", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:02", "Child", RadioBand.Band2_4GHz, 1,
+                isMeshChild: true, meshParentMac: "aa:bb:cc:dd:ee:01",
+                meshUplinkBand: RadioBand.Band5GHz, meshUplinkChannel: 36)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, null);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, null);
+
+        graph.MeshConstraints.Should().BeEmpty("the backhaul band (5 GHz) is not the band being optimized");
+        var childRec = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        childRec.IsMeshConstrained.Should().BeFalse();
+    }
+
+    [Fact]
     public void Optimize_DfsExclude_NoDfsChannelsRecommended()
     {
         var aps = new List<AccessPointSnapshot>
