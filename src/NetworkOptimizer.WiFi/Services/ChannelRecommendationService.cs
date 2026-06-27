@@ -1126,7 +1126,13 @@ public class ChannelRecommendationService
         {
             // Per-channel historical stress: check each historically stressed channel
             // and apply its penalty if the assigned channel overlaps its span.
-            double penalty = 0;
+            // Track contention (TX-retry + interference) separately from utilization. Contention
+            // is the co-channel/CCA effect the internal weight term already captures, so it scales
+            // down when a move resolves co-channel pairs. Utilization is dominated by the AP's own
+            // serving traffic, which persists regardless of neighbors - it must NOT scale away, or
+            // a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
+            double contentionPenalty = 0;
+            double utilizationPenalty = 0;
             bool hasDataForAssignedChannel = false;
 
             foreach (var (histChannel, stress) in node.HistoricalStress)
@@ -1141,28 +1147,28 @@ public class ChannelRecommendationService
                         stress.Interference < StressMinThreshold)
                         continue;
 
-                    penalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                        + (stress.Utilization / 100.0) * UtilizationStressWeight
+                    contentionPenalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
                         + (stress.Interference / 100.0) * InterferenceStressWeight;
+                    utilizationPenalty += (stress.Utilization / 100.0) * UtilizationStressWeight;
                 }
             }
 
             // Unknown channels carry more risk than measured ones
             if (!hasDataForAssignedChannel)
-                penalty += UnknownChannelPenalty;
+                contentionPenalty += UnknownChannelPenalty;
 
-            // Apply co-channel resolution scaling: historical stress includes the effect
-            // of our own APs co-channeling (CCA deferrals, elevated utilization). The
-            // internal weight term already penalizes co-channel separately, so if the
-            // proposed assignment resolves co-channel pairs, scale down the historical
-            // stress proportionally to avoid double-counting.
+            // Apply co-channel resolution scaling to the contention components only: the internal
+            // weight term already penalizes co-channel separately, so when the proposed assignment
+            // resolves co-channel pairs, scale those down to avoid double-counting. Utilization is
+            // left unscaled - it is the AP's own-traffic baseline and does not vanish with a
+            // neighbor's move.
             var histCurrentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(assignedSpan, histCurrentSpan))
             {
-                penalty *= ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+                contentionPenalty *= ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
             }
 
-            return (penalty, 0);
+            return (contentionPenalty + utilizationPenalty, 0);
         }
 
         // Fallback: use current radio stats on current channel span
@@ -1176,10 +1182,12 @@ public class ChannelRecommendationService
             return (0, 0);
 
         var fallbackScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
-        var fallbackPenalty = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
-            + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
+        // Contention (TX-retry + interference) scales with co-channel resolution; utilization is
+        // the AP's own-traffic baseline and is left unscaled.
+        var fallbackContention = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
             + (node.Interference / 100.0) * InterferenceStressWeight);
-        return (0, fallbackPenalty);
+        var fallbackUtilization = (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
+        return (0, fallbackContention + fallbackUtilization);
     }
 
     /// <summary>
