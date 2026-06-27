@@ -1984,15 +1984,26 @@ else
 
     private async Task OnTargetsChanged()
     {
-        // A target change can flip which upstream hops count toward the map's
-        // discovery-complete (greyed) state, so drop the cached flow-map snapshot.
-        // Returning to Live View rebuilds it with the new state; the banner and stat
-        // cards re-query the DB live. Target edits are infrequent, so the occasional
-        // extra rebuild is cheap.
-        LanFlowMapCache.Invalidate();
+        // Only a change to the enabled ISP/Transit set affects the map's discovery-complete
+        // (greyed) state and ASN label, so invalidate the cached flow-map snapshot only when
+        // that set actually changed - not for interval edits or other target types. Rebuilds
+        // cost a UniFi API call plus Influx queries, so this avoids needless hits. The banner
+        // and stat cards re-query the DB live regardless.
+        var before = UpstreamTargetSignature();
         await LoadTargetsAsync();
+        if (UpstreamTargetSignature() != before)
+            LanFlowMapCache.Invalidate();
         StateHasChanged();
     }
+
+    // Enabled ISP/Transit target IDs - the set that drives the flow-map globe's greyed
+    // state and ASN label. Used to detect when a target change should invalidate the map.
+    private string UpstreamTargetSignature() =>
+        string.Join("|", _targets
+            .Where(t => t.Enabled
+                && t.TargetType is MonitoringTargetType.AccessIsp or MonitoringTargetType.Transit)
+            .OrderBy(t => t.Id)
+            .Select(t => t.Id));
 
     private async Task OnSfpChanged()
     {
