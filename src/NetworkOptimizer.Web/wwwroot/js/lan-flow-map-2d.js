@@ -1642,7 +1642,7 @@ class LanFlowMap2D {
             ctx.globalAlpha=1;
 
             // Name
-            const name=demoMask(cloud.d.asnName||cloud.d.name||'WAN');
+            const name=demoMask(cloud.d.name||cloud.d.asnName||'WAN');
             ctx.fillStyle=C.textSec;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
