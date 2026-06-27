@@ -592,6 +592,10 @@ public class ChannelRecommendationService
                             for (int j = 0; j < n; j++)
                             {
                                 if (j == i) continue;
+                                // Skip mesh pairs - their co-channel is expected and excluded from
+                                // scoring, so a mesh partner can't be the cause of i's degradation
+                                // and must not be the AP we revert (mesh must share a channel).
+                                if (AreMeshPair(graph, i, j)) continue;
                                 var jNode = graph.Nodes[j];
                                 var jChanged = plan.Recommendations[j].RecommendedChannel != jNode.CurrentChannel ||
                                                plan.Recommendations[j].RecommendedWidth != jNode.CurrentWidth;
