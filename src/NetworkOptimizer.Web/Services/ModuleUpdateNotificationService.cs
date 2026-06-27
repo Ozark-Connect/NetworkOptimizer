@@ -95,6 +95,35 @@ public sealed class ModuleUpdateNotificationService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Updates the cached Performance Tweaks state from a freshly fetched status (e.g. a page
+    /// refreshed after a deploy). Reuses the caller's status to avoid a redundant SSH round-trip
+    /// and notifies consumers only on an actual change, so the banner dismisses promptly once a
+    /// tweak is redeployed. Callers should pass a successfully-read status (Error == null).
+    /// </summary>
+    public void NotifyPerfTweaksStatus(PerfTweaksStatus status)
+    {
+        var available = status.Tweaks.Values.Any(t => t.ScriptOutdated);
+        if (available == PerfTweaksUpdateAvailable)
+            return;
+        PerfTweaksUpdateAvailable = available;
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Updates the cached WAN Steering state from a freshly fetched status. See
+    /// <see cref="NotifyPerfTweaksStatus"/>. Callers should pass a status whose binary was
+    /// actually read (BinaryDeployed) so a transient SSH failure doesn't clear the banner.
+    /// </summary>
+    public void NotifyWanSteerStatus(WanSteerStatus status)
+    {
+        var available = WanSteerDeploymentService.IsBinaryOutdated(status);
+        if (available == WanSteerUpdateAvailable)
+            return;
+        WanSteerUpdateAvailable = available;
+        OnStateChanged?.Invoke();
+    }
+
     public void Dispose()
     {
         _connection.OnConnectionChanged -= HandleConnectionChanged;

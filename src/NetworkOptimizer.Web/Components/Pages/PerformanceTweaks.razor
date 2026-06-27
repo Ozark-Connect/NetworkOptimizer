@@ -3,6 +3,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject PerfTweaksDeploymentService DeployService
+@inject ModuleUpdateNotificationService ModuleUpdates
 @inject ILogger<PerformanceTweaks> Logger
 @inject PullToRefreshState PtrState
 @rendermode InteractiveServer
@@ -1084,6 +1085,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
 
             _status = await DeployService.CheckAllStatusAsync();
             _gatewayConnected = _status.Error == null;
+            if (_status.Error == null) ModuleUpdates.NotifyPerfTweaksStatus(_status);
         }
         catch (Exception ex)
         {
