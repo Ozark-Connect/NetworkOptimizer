@@ -452,7 +452,14 @@ public class ChannelRecommendationService
             var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
             var isChanged = recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth;
 
-            if (isOnValidChannel && isChanged)
+            // A mesh child has no independent move decision - its channel is dictated by its
+            // leader (applied during the search). Never run the per-AP "is the move worth it?"
+            // filter on it, or a low-scoring child gets pinned to its old channel while the
+            // leader moves, splitting the backhaul across two channels. Children are synced to
+            // the leader's final channel after reconciliation (see end of method).
+            var isMeshChild = node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i;
+
+            if (!isMeshChild && isOnValidChannel && isChanged)
             {
                 var absoluteImprovement = currentApScore - recommendedApScore;
                 var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
@@ -516,12 +523,17 @@ public class ChannelRecommendationService
                 var rec = plan.Recommendations[i];
                 finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
             }
+            // Keep mesh children on their leader's channel so every re-score below sees a
+            // physically valid assignment (a backhaul pair can't sit on two channels).
+            ApplyMeshConstraints(graph, finalAssignment);
 
             // Check changed APs still meet improvement thresholds
             for (int i = 0; i < n; i++)
             {
                 var rec = plan.Recommendations[i];
                 var node = graph.Nodes[i];
+                // A mesh child follows its leader - it has no independent move to revert.
+                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
                 var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
                                 rec.RecommendedWidth != node.CurrentWidth;
                 if (!isChanged) continue;
@@ -645,6 +657,8 @@ public class ChannelRecommendationService
         {
             var node = graph.Nodes[i];
             var rec = plan.Recommendations[i];
+            // A mesh child can't be moved on its own - it follows its leader's channel.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
             var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
                             rec.RecommendedWidth != node.CurrentWidth;
             if (isChanged) continue;
@@ -733,6 +747,20 @@ public class ChannelRecommendationService
                 rec.RecommendedScore = fallbackScore;
                 finalAssignment[i] = (fallbackChannel, fallbackWidth);
             }
+        }
+
+        // Sync mesh children to their leader's final channel. The leader may have moved or
+        // been reverted during reconciliation; the child must mirror wherever it landed so the
+        // displayed plan is physically valid (a backhaul pair shares one channel) and the
+        // child's row shows the move it actually makes.
+        for (int i = 0; i < n; i++)
+        {
+            var leader = graph.Nodes[i].MeshGroupLeader;
+            if (leader < 0 || leader == i) continue;
+            var leaderRec = plan.Recommendations[leader];
+            plan.Recommendations[i].RecommendedChannel = leaderRec.RecommendedChannel;
+            plan.Recommendations[i].RecommendedWidth = leaderRec.RecommendedWidth;
+            finalAssignment[i] = (leaderRec.RecommendedChannel, leaderRec.RecommendedWidth);
         }
 
         // Re-score ALL APs against the final assignment for accurate display.
