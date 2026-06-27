@@ -755,6 +755,82 @@ public class ChannelRecommendationService
             }
         }
 
+        // Altruistic relocation. The per-AP fallback above only relocates an AP to improve
+        // ITSELF, and only once it is already suffering (>= MinApScoreToMove). That misses the
+        // globally better move of relocating a still-healthy AP to declutter a worse neighbor
+        // (e.g. moving a fine AP off a shared 160 MHz block so a congested neighbor stops sharing
+        // it). The pruned search may never have tried that channel. Consider it here, but gate on
+        // a real site-wide score improvement - not the mover's own score - and never sacrifice
+        // the mover or push a victim into bad territory, so healthy networks see no churn.
+        // The long-term fix is broader search candidate generation (see TODO.md); this is the
+        // targeted, low-risk pass that complements the pruned search.
+        var baselineNetworkScore = AddDfsPenalty(graph, finalAssignment, band, opts.DfsPreference,
+            ScoreAssignment(graph, finalAssignment, band));
+        for (int i = 0; i < n; i++)
+        {
+            if (pinnedIndices.Contains(i)) continue;
+            var node = graph.Nodes[i];
+            var rec = plan.Recommendations[i];
+            // Children follow their leader; suffering APs are the selfish fallback's job.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+            if (rec.RecommendedChannel != node.CurrentChannel || rec.RecommendedWidth != node.CurrentWidth)
+                continue;
+            if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+            var moverScore = ScoreAp(graph, finalAssignment, i, band);
+            if (moverScore >= MinApScoreToMove) continue;
+
+            int bestCh = -1;
+            var bestNetwork = baselineNetworkScore;
+            foreach (var candidateCh in node.ValidChannels)
+            {
+                if (candidateCh == node.CurrentChannel) continue;
+
+                var trial = new (int Channel, int Width)[n];
+                Array.Copy(finalAssignment, trial, n);
+                trial[i] = (candidateCh, node.CurrentWidth);
+                ApplyMeshConstraints(graph, trial);
+
+                // Never sacrifice the mover: a healthy AP must stay healthy after the move.
+                if (ScoreAp(graph, trial, i, band) > MinApScoreToMove) continue;
+
+                // Never push another AP into genuinely bad territory.
+                bool catastrophic = false;
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i || currentApScores[j] <= 0) continue;
+                    var otherScore = ScoreAp(graph, trial, j, band);
+                    if (otherScore > CatastrophicAbsoluteScore && otherScore > currentApScores[j])
+                    {
+                        catastrophic = true;
+                        break;
+                    }
+                }
+                if (catastrophic) continue;
+
+                // Accept only on a meaningful site-wide improvement (DFS-aware, like the search).
+                var trialNetwork = AddDfsPenalty(graph, trial, band, opts.DfsPreference,
+                    ScoreAssignment(graph, trial, band));
+                if (baselineNetworkScore - trialNetwork >= MinApAbsoluteImprovement && trialNetwork < bestNetwork)
+                {
+                    bestNetwork = trialNetwork;
+                    bestCh = candidateCh;
+                }
+            }
+
+            if (bestCh >= 0)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] Altruistic relocation: {ApName} ch{Current} → ch{Best} to declutter " +
+                    "neighbors (own score {Own:F3}, network {From:F3} → {To:F3})",
+                    node.Name, node.CurrentChannel, bestCh, moverScore, baselineNetworkScore, bestNetwork);
+                rec.RecommendedChannel = bestCh;
+                rec.RecommendedWidth = node.CurrentWidth;
+                finalAssignment[i] = (bestCh, node.CurrentWidth);
+                ApplyMeshConstraints(graph, finalAssignment);
+                baselineNetworkScore = bestNetwork;
+            }
+        }
+
         // Sync mesh children to their leader's final channel. The leader may have moved or
         // been reverted during reconciliation; the child must mirror wherever it landed so the
         // displayed plan is physically valid (a backhaul pair shares one channel) and the
