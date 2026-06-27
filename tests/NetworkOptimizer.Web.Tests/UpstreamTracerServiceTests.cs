@@ -1002,7 +1002,7 @@ public class ComputeExcludedTier1AsnsTests
 public class AccessIspFallbackTests
 {
     [Fact]
-    public void AccessIspFallbackHosts_AS3320_has_the_three_pingable_telekom_pops()
+    public void AccessIspFallbackHosts_AS3320_has_the_pingable_telekom_pops()
     {
         UpstreamTracerService.AccessIspFallbackHosts.Should().ContainKey(3320);
         UpstreamTracerService.AccessIspFallbackHosts[3320].Should().BeEquivalentTo(new[]
@@ -1010,6 +1010,7 @@ public class AccessIspFallbackTests
             "ffm.wsqm.telekom-dienste.de",
             "ham.wsqm.telekom-dienste.de",
             "mue.wsqm.telekom-dienste.de",
+            "ber.wsqm.telekom-dienste.de",
         });
     }
 

@@ -1235,6 +1235,7 @@ public class UpstreamTracerService
                 "ffm.wsqm.telekom-dienste.de",   // Frankfurt am Main
                 "ham.wsqm.telekom-dienste.de",   // Hamburg
                 "mue.wsqm.telekom-dienste.de",   // Munich
+                "ber.wsqm.telekom-dienste.de",   // Berlin
             },
             // AS12912 T-Mobile Polska - public speedtest PoPs inside T-Mobile PL's own network.
             [12912] = new[]
