@@ -165,7 +165,11 @@
             </div>
 
             <div class="schedule-section">
-                <h2 class="schedule-section-title">WAN Speed Tests</h2>
+                <div class="schedule-section-header">
+                    <h2 class="schedule-section-title">WAN Speed Tests</h2>
+                    <button class="btn btn-sm btn-primary" @onclick="StartAddWanSchedule">+ Add Test</button>
+                </div>
+                <p class="schedule-section-desc">Add a separate test for each WAN line - schedule as many as you like.</p>
                 @{ var wanTasks = _scheduledTasks.Where(t => t.TaskType == "wan_speedtest").ToList(); }
                 @foreach (var task in wanTasks)
                     {
@@ -269,7 +273,14 @@
             </div>
 
             <div class="schedule-section">
-                <h2 class="schedule-section-title">LAN Speed Tests</h2>
+                <div class="schedule-section-header">
+                    <h2 class="schedule-section-title">LAN Speed Tests</h2>
+                    @if (_lanDeviceOptions.Count > 0)
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="StartAddLanSchedule">+ Add Test</button>
+                    }
+                </div>
+                <p class="schedule-section-desc">Add a separate test for each device - schedule as many as you like.</p>
                 @{ var lanTasks = _scheduledTasks.Where(t => t.TaskType == "lan_speedtest").ToList(); }
                 @foreach (var task in lanTasks)
                 {
@@ -1236,6 +1247,28 @@
         margin-bottom: 0.75rem;
         padding-bottom: 0.5rem;
         border-bottom: 1px solid var(--border-color);
+    }
+
+    .schedule-section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .schedule-section-header .schedule-section-title {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    .schedule-section-desc {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        margin: 0 0 0.75rem;
     }
     .schedule-card {
         background: var(--bg-card);
@@ -2849,6 +2882,9 @@
         }
     }
 
+    // Exits any active edit so the add form at the bottom of the section is shown.
+    private void StartAddWanSchedule() => CancelEditWanSchedule();
+
     private void CancelEditWanSchedule()
     {
         _editingWanScheduleId = null;
@@ -2950,6 +2986,9 @@
             ? UtcToLocalTimeOnly(task.CustomMorningHour.Value, task.CustomMorningMinute ?? 0)
             : new TimeOnly(6, 0);
     }
+
+    // Exits any active edit so the add form at the bottom of the section is shown.
+    private void StartAddLanSchedule() => CancelEditLanSchedule();
 
     private void CancelEditLanSchedule()
     {
