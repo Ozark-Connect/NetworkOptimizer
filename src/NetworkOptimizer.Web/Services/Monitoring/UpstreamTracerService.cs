@@ -1334,10 +1334,10 @@ public class UpstreamTracerService
             PtrHostname = winner.Host,
             AsnNumber = asn,
             AsnName = orgName,
-            Role = UpstreamRole.AccessHop,
+            Role = UpstreamRole.Speedtest,
             HopNumber = 0,
             RespondedTo = ProbeMode.Icmp,
-            Method = DiscoveryMethod.DirectRouter,
+            Method = DiscoveryMethod.ConfiguredFallback,
             VerifiedRttMs = winner.Rtt,
             Enabled = true
         });

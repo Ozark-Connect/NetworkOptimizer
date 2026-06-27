@@ -183,7 +183,7 @@
                                                        disabled="@hop.Unreachable" />
                                             </td>
                                             <td><code>@hop.Address</code> @(string.IsNullOrEmpty(hop.PtrHostname) ? "" : $"({hop.PtrHostname})")</td>
-                                            <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : $"Hop {hop.HopNumber}")</td>
+                                            <td>@(hop.Method == DiscoveryMethod.L2Neighbor ? "L2 neighbor" : hop.Method == DiscoveryMethod.ConfiguredFallback ? "Curated" : $"Hop {hop.HopNumber}")</td>
                                             <td>@hop.Role.ToDisplayName()</td>
                                             <td>@(hop.Unreachable ? "Unreachable" : hop.VerifiedRttMs.HasValue ? $"{hop.VerifiedRttMs:F1} ms" : "-")</td>
                                         </tr>
