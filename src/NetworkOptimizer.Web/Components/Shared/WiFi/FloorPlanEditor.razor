@@ -1799,7 +1799,8 @@
         var centerLat = 38.0;
         var centerLng = -92.0;
         var zoom = 4;
-        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue);
+        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue && a.Longitude.HasValue
+            && IsPositioned(a.Latitude.Value, a.Longitude.Value));
         if (firstAp != null)
         {
             centerLat = firstAp.Latitude!.Value;
@@ -1808,19 +1809,27 @@
         }
         else if (_buildings.Count > 0)
         {
-            // No placed APs - fit to all buildings
-            var allFloors = _buildings.SelectMany(b => b.Floors).ToList();
-            if (allFloors.Count > 0)
+            // No placed APs - fit to all buildings (positioned floors/buildings only)
+            var positionedFloors = _buildings.SelectMany(b => b.Floors)
+                .Where(f => IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
+                .ToList();
+            if (positionedFloors.Count > 0)
             {
-                centerLat = allFloors.Average(f => (f.SwLatitude + f.NeLatitude) / 2);
-                centerLng = allFloors.Average(f => (f.SwLongitude + f.NeLongitude) / 2);
+                centerLat = positionedFloors.Average(f => (f.SwLatitude + f.NeLatitude) / 2);
+                centerLng = positionedFloors.Average(f => (f.SwLongitude + f.NeLongitude) / 2);
                 zoom = 19;
             }
             else
             {
-                centerLat = _buildings.Average(b => b.CenterLatitude);
-                centerLng = _buildings.Average(b => b.CenterLongitude);
-                zoom = 19;
+                var positionedBuildings = _buildings
+                    .Where(b => IsPositioned(b.CenterLatitude, b.CenterLongitude))
+                    .ToList();
+                if (positionedBuildings.Count > 0)
+                {
+                    centerLat = positionedBuildings.Average(b => b.CenterLatitude);
+                    centerLng = positionedBuildings.Average(b => b.CenterLongitude);
+                    zoom = 19;
+                }
             }
         }
 
@@ -1834,7 +1843,8 @@
             double swLat = double.MaxValue, swLng = double.MaxValue;
             double neLat = double.MinValue, neLng = double.MinValue;
 
-            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToList();
+            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue
+                && IsPositioned(a.Latitude.Value, a.Longitude.Value)).ToList();
             foreach (var ap in placedAps)
             {
                 swLat = Math.Min(swLat, ap.Latitude!.Value);
@@ -2062,18 +2072,34 @@
 
         if (!hasData)
         {
-            // Fall back to floor record bounds
-            var allFloors = _buildings.SelectMany(b2 => b2.Floors).ToList();
-            if (allFloors.Count > 0)
+            // Fall back to floor record bounds. Skip floors that were created but never
+            // positioned: their SwLatitude/NeLatitude default to 0, and a single such floor
+            // would drag the fit bounds out to null island and zoom the map to the whole globe.
+            var positionedFloors = _buildings.SelectMany(b2 => b2.Floors)
+                .Where(f => IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
+                .ToList();
+            if (positionedFloors.Count > 0)
             {
-                swLat = allFloors.Min(f => f.SwLatitude);
-                swLng = allFloors.Min(f => f.SwLongitude);
-                neLat = allFloors.Max(f => f.NeLatitude);
-                neLng = allFloors.Max(f => f.NeLongitude);
+                swLat = positionedFloors.Min(f => f.SwLatitude);
+                swLng = positionedFloors.Min(f => f.SwLongitude);
+                neLat = positionedFloors.Max(f => f.NeLatitude);
+                neLng = positionedFloors.Max(f => f.NeLongitude);
             }
         }
 
         return (swLat, swLng, neLat, neLng);
+    }
+
+    /// <summary>
+    /// True if a lat/lng pair represents a real placed location rather than an unset
+    /// default. Floor/building records use non-nullable doubles that default to 0, so an
+    /// un-positioned floor reads as (0, 0) (null island) and must be excluded from map
+    /// fit-bounds calculations or it zooms the map out to the whole world.
+    /// </summary>
+    private static bool IsPositioned(double lat, double lng)
+    {
+        if (Math.Abs(lat) < 0.0001 && Math.Abs(lng) < 0.0001) return false;
+        return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
     }
 
     private async Task SelectFloor(int floorId)
@@ -4000,7 +4026,8 @@
             double swLat = double.MaxValue, swLng = double.MaxValue;
             double neLat = double.MinValue, neLng = double.MinValue;
 
-            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue).ToList();
+            var placedAps = _apMarkers.Where(a => a.Latitude.HasValue && a.Longitude.HasValue
+                && IsPositioned(a.Latitude.Value, a.Longitude.Value)).ToList();
             foreach (var ap in placedAps)
             {
                 swLat = Math.Min(swLat, ap.Latitude!.Value);
@@ -4059,13 +4086,18 @@
             floor.NeLongitude = neLng;
             await FloorPlanSvc.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
 
-            // Update building center from union of all floor bounds
-            if (_selectedBuilding != null && _floors.Count > 0)
+            // Update building center from union of all positioned floor bounds. Excluding
+            // un-positioned floors (default 0 bounds) keeps the persisted building center
+            // from being pulled toward null island when a floor hasn't been placed yet.
+            var positionedFloors = _floors
+                .Where(f => IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
+                .ToList();
+            if (_selectedBuilding != null && positionedFloors.Count > 0)
             {
-                var unionSwLat = _floors.Min(f => f.SwLatitude);
-                var unionSwLng = _floors.Min(f => f.SwLongitude);
-                var unionNeLat = _floors.Max(f => f.NeLatitude);
-                var unionNeLng = _floors.Max(f => f.NeLongitude);
+                var unionSwLat = positionedFloors.Min(f => f.SwLatitude);
+                var unionSwLng = positionedFloors.Min(f => f.SwLongitude);
+                var unionNeLat = positionedFloors.Max(f => f.NeLatitude);
+                var unionNeLng = positionedFloors.Max(f => f.NeLongitude);
                 var centerLat = (unionSwLat + unionNeLat) / 2;
                 var centerLng = (unionSwLng + unionNeLng) / 2;
                 _selectedBuilding.CenterLatitude = centerLat;
