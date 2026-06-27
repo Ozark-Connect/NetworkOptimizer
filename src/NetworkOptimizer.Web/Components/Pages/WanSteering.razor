@@ -544,9 +544,10 @@
     private ParsedDaemonStatus? _parsedStatus;
     private bool _showVersionWarning;
     private DateTime? _deployedAt;
-    // Briefly suppress the version warning right after a deploy to bridge the daemon restart +
-    // next status poll. The check reads the new binary's -version directly, so this can be short.
-    private const int VersionWarningGraceSeconds = 15;
+    // Suppress the version warning/display after a deploy until the restarted daemon rewrites its
+    // status file (the shown version reads that file). The daemon rewrites on its ~30s reconcile
+    // interval, so the grace must exceed it.
+    private const int VersionWarningGraceSeconds = 45;
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -919,9 +920,8 @@
             {
                 _hasUndeployedChanges = false;
                 _showVersionWarning = false;
-                // Briefly suppress the version warning so it doesn't flash "outdated" between the
-                // deploy completing and the next status poll. The new binary's -version is readable
-                // immediately, so the grace is short (VersionWarningGraceSeconds).
+                // Suppress until the restarted daemon rewrites its status file (~30s reconcile
+                // interval); the shown version reads that file. See VersionWarningGraceSeconds.
                 _deployedAt = DateTime.UtcNow;
             }
 
