@@ -1,16 +1,22 @@
 #!/bin/bash
-# 07-mongodb-ssd-backup.sh: MongoDB backup to SSD, with optional weekly eMMC sync
+# 07-mongodb-ssd-backup.sh: MongoDB backup to SSD, with weekly compressed eMMC failover archive
 #
 # Companion to 06-mongodb-ssd-offload.sh. Installs a cron that runs:
 #  - Daily at 1:30am: mongodump to SSD only (fast, zero eMMC impact)
-#  - Weekly (Sunday 1:35am): mongodump to SSD + copy to eMMC as failover
+#  - Weekly (Sunday 1:35am): mongodump to SSD + a compressed archive to eMMC
 #
-# The eMMC copy is a safety net - if the SSD mount breaks or after a firmware
-# upgrade, MongoDB can start from eMMC without needing mongorestore.
+# The eMMC archive is off-SSD insurance: the daily backups live on the SSD, so
+# if the SSD itself dies this is a recent copy to hand-restore from with
+#   mongorestore --gzip --archive=/data/unifi/data/db-backup/unifi-db.archive.gz
+# It is a mongodump archive, NOT a live database: it is not auto-loaded and is
+# not the boot fallback. Zero-touch boot recovery is handled by 06, which on
+# SSD loss leaves MongoDB on the stock eMMC data directory for mongod to open
+# directly. Stored gzip-compressed (~12x smaller than a raw dump) to keep eMMC
+# overlay usage minimal.
 #
 # Can also be run manually:
 #   backup.sh           # SSD-only mongodump
-#   backup.sh --emmc    # SSD mongodump + copy to eMMC
+#   backup.sh --emmc    # SSD mongodump + compressed eMMC archive
 #
 # Requires: 06-mongodb-ssd-offload.sh deployed first.
 
@@ -127,15 +133,24 @@ fi
 SSD_SIZE=$(du -sh "$SSD_BACKUP" | cut -f1)
 log "mongodump complete: $SSD_SIZE on SSD"
 
-# Step 2: optional eMMC sync (weekly failover copy)
+# Step 2: optional eMMC failover archive (weekly, off-SSD insurance)
+# A compressed mongodump archive (~12x smaller than a raw dump dir), restorable
+# with: mongorestore --gzip --archive=<file>. This is NOT a live DB and is not
+# auto-loaded; zero-touch boot recovery is handled by 06 via the stock eMMC
+# data directory, not this file.
 if [ "$1" = "--emmc" ]; then
+    EMMC_ARCHIVE="$EMMC_BACKUP/unifi-db.archive.gz"
     mkdir -p "$EMMC_BACKUP"
-    log "Copying to eMMC (weekly failover sync)..."
-    if ! cp -a "$SSD_BACKUP"/* "$EMMC_BACKUP/"; then
-        log "ERROR: eMMC copy failed"
+    # Reclaim space from legacy uncompressed dump dirs left by older versions
+    find "$EMMC_BACKUP" -mindepth 1 -maxdepth 1 ! -name "unifi-db.archive.gz" -exec rm -rf {} +
+    log "Writing compressed eMMC failover archive..."
+    if ! mongodump --port 27117 --gzip --archive="$EMMC_ARCHIVE.tmp" --quiet 2>&1; then
+        log "ERROR: eMMC archive dump failed"
+        rm -f "$EMMC_ARCHIVE.tmp"
         exit 1
     fi
-    log "eMMC sync complete"
+    mv -f "$EMMC_ARCHIVE.tmp" "$EMMC_ARCHIVE"
+    log "eMMC failover archive complete: $(du -sh "$EMMC_ARCHIVE" | cut -f1)"
 fi
 SCRIPT_EOF
 chmod +x "$BACKUP_SCRIPT"
