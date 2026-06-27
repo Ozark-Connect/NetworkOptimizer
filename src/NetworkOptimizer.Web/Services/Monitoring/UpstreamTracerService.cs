@@ -680,6 +680,11 @@ public class UpstreamTracerService
     private List<AttributedHop> _mergedHops = new();
     private List<AttributedHop> _accessHopsResolved = new();
 
+    // The detected access ISP ASN from the last TraceAccessIspAsync. Kept as a field so
+    // the reachability step can fall back to a curated endpoint even when none of the
+    // access hops responded (the access pool can be empty/unreachable yet the ASN known).
+    private int? _accessAsn;
+
     // The 1st/2nd-degree non-access ASNs off each trace (union): the access ISP's
     // direct upstream and that upstream's upstream. A transit-probe ASN (Lumen, AT&T,
     // INDATEL) only counts as *our* ISP's transit when it lands in this window -
@@ -772,6 +777,9 @@ public class UpstreamTracerService
         // skipped over; they don't have a public ASN.
         var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
         var accessAsn = firstPublicHop?.Asn?.Asn;
+        // Remember it so the reachability step can reach for a curated fallback endpoint
+        // even when the access pool ends up empty or entirely unreachable.
+        _accessAsn = accessAsn;
 
         // Collect ALL hops in the access ASN from the merged pool. Filter-based,
         // not sequential - the merged pool interleaves hops from different traces
@@ -1193,6 +1201,10 @@ public class UpstreamTracerService
         // 4.2.2.2 as a transit witness so ISP Health still has Lumen transit data.
         await InjectTransitWitnessesAsync(minSuccesses, ct);
 
+        // If the access ASN is one we have curated endpoints for and none of its first-mile
+        // hops cleared the gate, adopt the lowest-RTT reachable curated endpoint as the access target.
+        await InjectAccessIspFallbackAsync(minSuccesses, ct);
+
         State.CurrentActivity = unreachable > 0
             ? $"Reachability check complete: {unreachable} of {allTargets.Count} target(s) did not respond and were excluded."
             : $"All {allTargets.Count} target(s) responded to ping.";
@@ -1206,6 +1218,25 @@ public class UpstreamTracerService
     {
         (3356, "4.2.2.2", "Level 3", "Level 3 DNS (transit witness)")
     };
+
+    // Curated access-ISP endpoints for carriers whose first-mile routers commonly ICMP-deprioritize,
+    // leaving the access cloud with no probed target. When the detected access ASN is in this map and
+    // none of the discovered access hops clear the reachability gate, we resolve + ping these published
+    // hosts and adopt the lowest-RTT reachable one as the access target (InjectAccessIspFallbackAsync).
+    // Hosts must answer ICMP (the same gate post-traceroute hops face); non-pingable PoPs are omitted.
+    // The label follows the standard convention (stripped ASN name + stripped hostname via
+    // FormatTransitHopLabel), e.g. "Deutsche Telekom ffm.wsqm".
+    internal static readonly IReadOnlyDictionary<int, IReadOnlyList<string>> AccessIspFallbackHosts =
+        new Dictionary<int, IReadOnlyList<string>>
+        {
+            // AS3320 Deutsche Telekom AG - WSQM endpoints (Düsseldorf omitted: not ICMP-pingable).
+            [3320] = new[]
+            {
+                "ffm.wsqm.telekom-dienste.de",   // Frankfurt am Main
+                "ham.wsqm.telekom-dienste.de",   // Hamburg
+                "mue.wsqm.telekom-dienste.de",   // Munich
+            },
+        };
 
     private async Task InjectTransitWitnessesAsync(int minSuccesses, CancellationToken ct)
     {
@@ -1246,6 +1277,102 @@ public class UpstreamTracerService
             });
             _logger.LogInformation("Injected transit witness {Address} (AS{Asn} {Name}) - no reachable {Name} router",
                 address, asn, name, name);
+        }
+    }
+
+    /// <summary>
+    /// When the detected access ASN is one we have curated endpoints for and discovery surfaced
+    /// no reachable first-mile hop, resolve + ICMP-ping the curated hosts and adopt the single
+    /// lowest-RTT reachable one as the access target. The carrier's own routers commonly
+    /// ICMP-deprioritize, so without this the access cloud would have nothing to probe. Same
+    /// reachability gate as the post-traceroute hops; same label convention (stripped ASN name +
+    /// stripped hostname) as every other discovered target.
+    /// </summary>
+    private async Task InjectAccessIspFallbackAsync(int minSuccesses, CancellationToken ct)
+    {
+        if (_accessAsn is not int asn) return;
+        if (!AccessIspFallbackHosts.TryGetValue(asn, out var hosts)) return;
+
+        // Only when discovery produced no reachable access target. A real first-mile router that
+        // cleared the gate is always the better monitor than a city-PoP speedtest endpoint.
+        if (State.AccessHops.Any(h => h.Enabled && !h.Unreachable)) return;
+
+        var orgName = CleanAsnName(_accessHopsResolved.FirstOrDefault()?.Asn?.Name);
+        if (string.IsNullOrEmpty(orgName)) orgName = $"AS{asn}";
+
+        // Resolve + ping each curated host; keep the reachable ones with their measured RTT.
+        var probed = new List<AccessFallbackProbe>();
+        foreach (var host in hosts)
+        {
+            var ip = await ResolveIPv4Async(host, ct);
+            if (ip == null)
+            {
+                _logger.LogDebug("Access fallback {Host} (AS{Asn}) did not resolve to an IPv4 address", host, asn);
+                continue;
+            }
+            var result = await ProbeReachabilityAsync(ip, ProbeMode.Icmp, ct);
+            if (result.Received >= minSuccesses && result.RttAvgMs is double rtt)
+                probed.Add(new AccessFallbackProbe(host, ip, rtt));
+            else
+                _logger.LogDebug("Access fallback {Host} ({Ip}) only {Recv}/{Sent} - skipping",
+                    host, ip, result.Received, result.Sent);
+        }
+
+        var winner = SelectLowestRtt(probed);
+        if (winner == null)
+        {
+            _logger.LogDebug("Access fallback for AS{Asn} {Org}: no curated host cleared the gate", asn, orgName);
+            return;
+        }
+
+        var ptrLabel = FormatTransitHopLabel(winner.Host, winner.Ip);
+        State.AccessHops.Add(new AccessHopCandidate
+        {
+            TargetId = $"access-fallback-as{asn}-{NormalizeMacForId(winner.Host)}",
+            Label = ptrLabel != null ? $"{orgName} {ptrLabel}" : $"{orgName} {winner.Host}",
+            Address = winner.Ip,
+            PtrHostname = winner.Host,
+            AsnNumber = asn,
+            AsnName = orgName,
+            Role = UpstreamRole.AccessHop,
+            HopNumber = 0,
+            RespondedTo = ProbeMode.Icmp,
+            Method = DiscoveryMethod.DirectRouter,
+            VerifiedRttMs = winner.Rtt,
+            Enabled = true
+        });
+        _logger.LogInformation("Injected access fallback {Host} ({Ip}) for AS{Asn} {Org} - {Rtt:F1} ms, no reachable first-mile router",
+            winner.Host, winner.Ip, asn, orgName, winner.Rtt);
+    }
+
+    /// <summary>A curated access-ISP host that resolved and cleared the reachability gate.</summary>
+    internal sealed record AccessFallbackProbe(string Host, string Ip, double Rtt);
+
+    /// <summary>
+    /// Pick the lowest-RTT reachable curated endpoint, or null when none cleared the gate.
+    /// Pure selection split out so it can be unit-tested without DNS or ICMP.
+    /// </summary>
+    internal static AccessFallbackProbe? SelectLowestRtt(IEnumerable<AccessFallbackProbe> probes) =>
+        probes.OrderBy(p => p.Rtt).FirstOrDefault();
+
+    /// <summary>
+    /// Resolve a hostname to its first IPv4 (A-record) address, or null on failure. Uses the OS
+    /// resolver via <see cref="System.Net.Dns"/>; the curated fallback hosts are plain unicast
+    /// FQDNs so a single A lookup is sufficient.
+    /// </summary>
+    private async Task<string?> ResolveIPv4Async(string host, CancellationToken ct)
+    {
+        try
+        {
+            var addresses = await System.Net.Dns.GetHostAddressesAsync(host, ct);
+            return addresses
+                .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                ?.ToString();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Access fallback DNS resolution failed for {Host}", host);
+            return null;
         }
     }
 
