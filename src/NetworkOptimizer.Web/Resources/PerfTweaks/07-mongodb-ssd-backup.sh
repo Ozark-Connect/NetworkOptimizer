@@ -80,6 +80,33 @@ fi
 SSD_BACKUP="$SSD_MOUNT/$SSD_BACKUP_SUBDIR"
 log "SSD mount: $SSD_MOUNT"
 
+# ─── One-time: compress a legacy uncompressed eMMC backup in place ───
+# Older versions left a raw mongodump dir at $EMMC_BACKUP (~hundreds of MB on
+# the overlay). If one is present, tar.gz it now and drop the raw dirs - so the
+# overlay space is reclaimed on this run instead of waiting for the next weekly
+# --emmc run. The temp tarball is written to a sibling path so tar does not
+# archive its own output.
+EMMC_ARCHIVE="$EMMC_BACKUP/unifi-db.tar.gz"
+if [ -d "$EMMC_BACKUP" ] && \
+   [ -n "$(find "$EMMC_BACKUP" -mindepth 1 -maxdepth 1 ! -name 'unifi-db.tar.gz' -print -quit 2>/dev/null)" ]; then
+    if [ -f "$EMMC_ARCHIVE" ]; then
+        # A current archive already exists; the raw entries are stale leftovers.
+        log "Removing stale uncompressed eMMC backup leftovers..."
+        find "$EMMC_BACKUP" -mindepth 1 -maxdepth 1 ! -name 'unifi-db.tar.gz' -exec rm -rf {} +
+    else
+        log "Found legacy uncompressed eMMC backup. Compressing in place (one-time)..."
+        TMP_TGZ="$EMMC_BACKUP.migrate.tar.gz"
+        if tar czf "$TMP_TGZ" -C "$EMMC_BACKUP" .; then
+            find "$EMMC_BACKUP" -mindepth 1 -maxdepth 1 ! -name 'unifi-db.tar.gz' -exec rm -rf {} +
+            mv -f "$TMP_TGZ" "$EMMC_ARCHIVE"
+            log "Legacy eMMC backup compressed: $(du -sh "$EMMC_ARCHIVE" | cut -f1)"
+        else
+            rm -f "$TMP_TGZ"
+            log "WARNING: legacy eMMC compression failed; leaving as-is"
+        fi
+    fi
+fi
+
 # ─── Install the backup script to /data (persists across reboots) ───
 mkdir -p "$(dirname "$BACKUP_SCRIPT")"
 cat > "$BACKUP_SCRIPT" << 'SCRIPT_EOF'
