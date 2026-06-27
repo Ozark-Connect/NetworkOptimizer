@@ -14,7 +14,7 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <div class="card-title-group">
-            <h2 class="card-title">SNMP Devices (and Custom OIDs)</h2>
+            <h2 class="card-title">SNMP Devices <span class="card-title-suffix">(and Custom OIDs)</span></h2>
         </div>
         <div class="card-header-right">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@SummaryLabel()</span>
@@ -53,8 +53,7 @@
                                 @foreach (var d in Devices.OrderBy(d => d.DeviceType).ThenBy(d => d.Name))
                                 {
                                     var isExpanded = _expandedDeviceMac == d.Mac;
-                                    <tr class="@(isExpanded ? "snmp-row-expanded" : "")" @onclick="() => ToggleDevice(d.Mac)" style="cursor: pointer;"
-                                        data-tooltip-hover-only data-tooltip-wrap data-tooltip="@(isExpanded ? null : "Click to set up custom OID polling")">
+                                    <tr class="@(isExpanded ? "snmp-row-expanded" : "")" @onclick="() => ToggleDevice(d.Mac)" style="cursor: pointer;">
                                         <td>
                                             <span class="snmp-device-name">@d.Name</span>
                                             <span class="status-badge status-neutral snmp-device-type">@d.DeviceType.ToDisplayName()</span>
@@ -225,6 +224,7 @@
 
     private bool _collapsed = true;
     private string? _expandedDeviceMac;
+    private bool _autoExpandedFirst;
     private List<CustomOidDto> _customOids = new();
 
     // Add/edit form state
@@ -240,6 +240,23 @@
     // Test OID state
     private bool _testingOid;
     private TestOidResult? _testResult;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Auto-expand the first device once the list is populated so the Custom OID Polling
+        // section (and its "Add OID" action) is visible without needing a hint. Only on the
+        // first populate, and only if the user hasn't already opened a row themselves.
+        if (!_autoExpandedFirst && Devices.Count > 0 && _expandedDeviceMac == null)
+        {
+            _autoExpandedFirst = true;
+            var first = Devices.OrderBy(d => d.DeviceType).ThenBy(d => d.Name).FirstOrDefault();
+            if (first != null)
+            {
+                _expandedDeviceMac = first.Mac;
+                await LoadCustomOids(first.Mac);
+            }
+        }
+    }
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 
