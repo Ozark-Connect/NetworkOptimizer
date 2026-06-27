@@ -38,6 +38,7 @@ const C = {
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
+const CT = { Solid:0, PathProxy:1, Unresolved:2 }; // LanCloudTier
 
 // ---- Layout geometry ----
 const G = {
@@ -1612,9 +1613,9 @@ class LanFlowMap2D {
     _drawAllClouds(ctx){
         for(const cloud of this._clouds){
             const cx=cloud.x, cy=cloud.y, r=G.cloudR;
-            // Unresolved tier (LanCloudTier.Unresolved=2): inactive WAN or discovery
-            // pending - render the globe greyed, matching the 3D map.
-            const greyed=cloud.d.tier===2;
+            // Unresolved tier: inactive WAN or discovery pending - render the globe
+            // greyed, matching the 3D map.
+            const greyed=cloud.d.tier===CT.Unresolved;
 
             // Subtle radial fill
             const grad=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,0,cx,cy,r);
