@@ -1236,6 +1236,29 @@ public class UpstreamTracerService
                 "ham.wsqm.telekom-dienste.de",   // Hamburg
                 "mue.wsqm.telekom-dienste.de",   // Munich
             },
+            // AS12912 T-Mobile Polska - public speedtest PoPs inside T-Mobile PL's own network.
+            [12912] = new[]
+            {
+                "gda1.t-mobile.pl",   // Gdańsk
+                "poz1.t-mobile.pl",   // Poznań
+                "waw2.t-mobile.pl",   // Warsaw
+                "kra1.t-mobile.pl",   // Kraków
+            },
+            // AS13036 T-Mobile Czech Republic - public speedtest PoPs inside its own network.
+            [13036] = new[]
+            {
+                "speedtest5.t-mobile.cz",   // Prague
+                "speedtest6.t-mobile.cz",   // Brno
+            },
+            // AS394056 Intrepid Fiber - delivers "T-Mobile Fiber" in several US metros. The endpoints
+            // sit in Intrepid's own ASN (not T-Mobile's AS21928), so a subscriber's access ASN
+            // resolves to 394056 - that's the key the discovery path matches against.
+            [394056] = new[]
+            {
+                "speedtest.sandiego.intrepidfiber.com",
+                "speedtest.denver.intrepidfiber.com",
+                "speedtest.minneapolis.intrepidfiber.com",
+            },
         };
 
     private async Task InjectTransitWitnessesAsync(int minSuccesses, CancellationToken ct)
