@@ -678,10 +678,14 @@ public class ChannelRecommendationService
             {
                 if (candidateCh == node.CurrentChannel) continue;
 
-                // Build trial assignment
+                // Build trial assignment. Apply mesh constraints so that if this AP is a mesh
+                // leader, its child moves with it - otherwise the net-benefit check below scores
+                // the child on its old channel and undercounts the degradation a leader's move
+                // actually causes (e.g. dragging the child onto a neighbor's channel too).
                 var trial = new (int Channel, int Width)[n];
                 Array.Copy(finalAssignment, trial, n);
                 trial[i] = (candidateCh, node.CurrentWidth);
+                ApplyMeshConstraints(graph, trial);
 
                 var candidateScore = ScoreAp(graph, trial, i, band);
                 var absImprovement = scoreInFinal - candidateScore;
@@ -746,6 +750,8 @@ public class ChannelRecommendationService
                 rec.RecommendedWidth = fallbackWidth;
                 rec.RecommendedScore = fallbackScore;
                 finalAssignment[i] = (fallbackChannel, fallbackWidth);
+                // Keep the child aligned so later iterations score against a valid topology.
+                ApplyMeshConstraints(graph, finalAssignment);
             }
         }
 
@@ -1502,6 +1508,11 @@ public class ChannelRecommendationService
         {
             if (!ap.IsMeshChild || string.IsNullOrEmpty(ap.MeshParentMac))
                 continue;
+            // TODO(MLO): MeshUplinkBand is a single RadioBand. No AP-to-AP MLO STR backhaul
+            // hardware exists yet (today's MLO STR is client/bridge only), but when it ships a
+            // backhaul can span multiple bands at once (e.g. 5 + 6 GHz). Make this a set and emit
+            // one constraint per participating band once UniFi exposes per-link bands. The
+            // reconciliation logic keys off MeshGroupLeader and needs no change - only this.
             if (ap.MeshUplinkBand != band)
                 continue;
 
