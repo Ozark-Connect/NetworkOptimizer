@@ -76,6 +76,7 @@ public class MonitoringPathView
         // WanInterface only when the requested WAN is the primary (single-WAN heritage).
         var accessHops = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
+                        && t.Enabled
                         && (t.WanInterface == resolvedWanInterface
                             || (isPrimary && t.WanInterface == null)))
             .OrderBy(t => t.Id)
@@ -118,6 +119,7 @@ public class MonitoringPathView
         {
             var transitRows = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Transit
+                            && t.Enabled
                             && (t.WanInterface == resolvedWanInterface || t.WanInterface == null))
                 .OrderBy(t => t.AsnNumber)
                 .ToListAsync(ct);
