@@ -12,7 +12,10 @@ public enum UpstreamRole
     Transit = 5,
     PathProxy = 6,
     AccessHop = 7,
-    AccessGateway = 8
+    AccessGateway = 8,
+    /// <summary>A curated public endpoint (typically the ISP's own speedtest server) adopted
+    /// as the access target when no first-mile router answers ICMP. Not an on-path hop.</summary>
+    Speedtest = 9
 }
 
 public class UpstreamDiscovery

@@ -14,7 +14,7 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <div class="card-title-group">
-            <h2 class="card-title">SNMP Devices</h2>
+            <h2 class="card-title">SNMP Devices <span class="card-title-suffix">and Custom OIDs</span></h2>
         </div>
         <div class="card-header-right">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@SummaryLabel()</span>
@@ -224,6 +224,7 @@
 
     private bool _collapsed = true;
     private string? _expandedDeviceMac;
+    private bool _autoExpandedFirst;
     private List<CustomOidDto> _customOids = new();
 
     // Add/edit form state
@@ -239,6 +240,35 @@
     // Test OID state
     private bool _testingOid;
     private TestOidResult? _testResult;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Nudge users who haven't touched custom OIDs yet: auto-expand the first device so the
+        // Custom OID Polling section (and its "Add OID" action) is visible without a hint. But if
+        // ANY device already has a custom OID configured, the feature is discovered - leave it
+        // collapsed. Runs once, and never overrides a row the user opened themselves.
+        if (_autoExpandedFirst || Devices.Count == 0 || _expandedDeviceMac != null) return;
+        _autoExpandedFirst = true;
+
+        bool anyCustomOids;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            anyCustomOids = await db.CustomOidConfigurations.AnyAsync();
+        }
+        catch
+        {
+            anyCustomOids = true; // fail safe: if we can't tell, don't auto-expand
+        }
+        if (anyCustomOids) return;
+
+        var first = Devices.OrderBy(d => d.DeviceType).ThenBy(d => d.Name).FirstOrDefault();
+        if (first != null)
+        {
+            _expandedDeviceMac = first.Mac;
+            await LoadCustomOids(first.Mac);
+        }
+    }
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
 

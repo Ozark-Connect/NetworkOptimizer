@@ -475,6 +475,12 @@ a:hover {
     margin: 0;
 }
 
+.card-title-suffix {
+    font-size: 0.8125rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
 @media (max-width: 412px) {
     .card-title {
         font-size: 1rem;

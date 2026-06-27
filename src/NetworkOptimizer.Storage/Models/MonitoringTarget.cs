@@ -30,7 +30,11 @@ public enum DiscoveryMethod
     /// interface (ip neigh show). This is the L2 neighbor - typically the OLT on GPON,
     /// CMTS on DOCSIS, or BNG on PPPoE. Closest upstream device; may not appear in
     /// traceroutes if it's L2-transparent.</summary>
-    L2Neighbor = 4
+    L2Neighbor = 4,
+    /// <summary>A curated public endpoint (typically the ISP's own speedtest server) from our
+    /// per-ASN fallback list, adopted as the access target when no first-mile router answers ICMP.
+    /// Not discovered on the path - resolved and ping-selected from a hardcoded map.</summary>
+    ConfiguredFallback = 5
 }
 
 public class MonitoringTarget

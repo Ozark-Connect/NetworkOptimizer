@@ -998,3 +998,62 @@ public class ComputeExcludedTier1AsnsTests
         UpstreamTracerService.Tier1Asns.Should().NotContain(6939);
     }
 }
+
+public class AccessIspFallbackTests
+{
+    [Fact]
+    public void AccessIspFallbackHosts_AS3320_has_the_pingable_telekom_pops()
+    {
+        UpstreamTracerService.AccessIspFallbackHosts.Should().ContainKey(3320);
+        UpstreamTracerService.AccessIspFallbackHosts[3320].Should().BeEquivalentTo(new[]
+        {
+            "ffm.wsqm.telekom-dienste.de",
+            "ham.wsqm.telekom-dienste.de",
+            "mue.wsqm.telekom-dienste.de",
+            "ber.wsqm.telekom-dienste.de",
+        });
+    }
+
+    [Fact]
+    public void AccessIspFallbackHosts_AS3320_omits_non_pingable_dusseldorf()
+    {
+        // dssd-tc.wsqm.telekom-dienste.de does not answer ICMP, so it must stay out of the map.
+        UpstreamTracerService.AccessIspFallbackHosts[3320]
+            .Should().NotContain(h => h.StartsWith("dssd"));
+    }
+
+    [Fact]
+    public void SelectLowestRtt_picks_the_lowest_rtt_candidate()
+    {
+        var probes = new[]
+        {
+            new UpstreamTracerService.AccessFallbackProbe("ffm.wsqm.telekom-dienste.de", "203.0.113.10", 24.5),
+            new UpstreamTracerService.AccessFallbackProbe("ham.wsqm.telekom-dienste.de", "203.0.113.20", 11.2),
+            new UpstreamTracerService.AccessFallbackProbe("mue.wsqm.telekom-dienste.de", "203.0.113.30", 31.0),
+        };
+
+        var winner = UpstreamTracerService.SelectLowestRtt(probes);
+
+        winner.Should().NotBeNull();
+        winner!.Host.Should().Be("ham.wsqm.telekom-dienste.de");
+        winner.Rtt.Should().Be(11.2);
+    }
+
+    [Fact]
+    public void SelectLowestRtt_returns_the_single_candidate_when_only_one_reachable()
+    {
+        var probes = new[]
+        {
+            new UpstreamTracerService.AccessFallbackProbe("mue.wsqm.telekom-dienste.de", "203.0.113.30", 31.0),
+        };
+
+        UpstreamTracerService.SelectLowestRtt(probes)!.Host.Should().Be("mue.wsqm.telekom-dienste.de");
+    }
+
+    [Fact]
+    public void SelectLowestRtt_returns_null_when_none_reachable()
+    {
+        UpstreamTracerService.SelectLowestRtt(Array.Empty<UpstreamTracerService.AccessFallbackProbe>())
+            .Should().BeNull();
+    }
+}
