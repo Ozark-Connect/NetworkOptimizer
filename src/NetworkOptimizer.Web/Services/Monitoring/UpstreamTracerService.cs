@@ -1260,6 +1260,91 @@ public class UpstreamTracerService
                 "speedtest.denver.intrepidfiber.com",
                 "speedtest.minneapolis.intrepidfiber.com",
             },
+
+            // Charter / Spectrum - Ookla speedtest hosts (*.st.charter.com), all verified
+            // ICMP-pingable. Spectrum customers span 10 ASNs from the Charter / Time Warner Cable /
+            // Bright House / Bresnan mergers, so there is one key per ASN, each listing only the
+            // hosts that actually resolve into that ASN - a customer only ever probes the handful
+            // in its own detected ASN (16 for AS20115, 1-5 elsewhere), well within the rapid burst.
+            [20115] = new[]   // Charter Communications LLC
+            {
+                "aldlmi-speedtest-ookla-01.st.charter.com",   // Allendale, MI
+                "euclwi-speedtest-ookla-01.st.charter.com",   // Eau Claire, WI
+                "ftwotx-speedtest-ookla-01.st.charter.com",   // Fort Worth, TX
+                "kgpttn-speedtest-ookla-01.st.charter.com",   // Kingsport, TN
+                "krnyne-speedtest-ookla-01.st.charter.com",   // Kearney, NE
+                "ledsal-speedtest-ookla-01.st.charter.com",   // Leeds, AL
+                "mdfdor-speedtest-ookla-01.st.charter.com",   // Medford, OR
+                "mtpkca-speedtest-ookla-01.st.charter.com",   // Monterey Park, CA
+                "olvemo-speedtest-ookla-01.st.charter.com",   // Olivette, MO
+                "oxfrma-speedtest-ookla-01.st.charter.com",   // Oxford, MA
+                "ptldor-speedtest-ookla-01.st.charter.com",   // Portland, OR
+                "renonv-speedtest-ookla-01.st.charter.com",   // Reno, NV
+                "sghlga-speedtest-ookla-01.st.charter.com",   // Sugar Hill, GA
+                "slidla-speedtest-ookla-01.st.charter.com",   // Slidell, LA
+                "snloca-speedtest-ookla-01.st.charter.com",   // San Luis Obispo, CA
+                "stcdmn-speedtest-ookla-01.st.charter.com",   // St Cloud, MN
+            },
+            [7843] = new[]    // Charter (legacy Time Warner Cable)
+            {
+                "dnvrco-speedtest-ookla-01.st.charter.com",   // Centennial, CO
+            },
+            [10796] = new[]   // Charter (legacy Time Warner Cable)
+            {
+                "clboh-speedtest-ookla-03.st.charter.com",    // Columbus, OH
+                "lxtnky-speedtest-ookla-01.st.charter.com",   // Lexington, KY
+            },
+            [11351] = new[]   // Charter (legacy Time Warner Cable)
+            {
+                "ptldme-speedtest-ookla-01.st.charter.com",   // Portland, ME
+                "syrny-speedtest-ookla-02.st.charter.com",    // Syracuse, NY
+            },
+            [11426] = new[]   // Charter (legacy Time Warner Cable)
+            {
+                "radnc-speedtest-ookla-01.st.charter.com",    // Durham, NC
+            },
+            [11427] = new[]   // Charter (legacy Time Warner Cable)
+            {
+                "houstx-speedtest-ookla-01.st.charter.com",   // Houston, TX
+                "ksczks-speedtest-ookla-01.st.charter.com",   // Kansas City, KS
+                "snantx-speedtest-ookla-01.st.charter.com",   // San Antonio, TX
+            },
+            [12271] = new[]   // Charter (legacy Time Warner Cable)
+            {
+                "nycny-speedtest-ookla-01.st.charter.com",    // New York, NY
+            },
+            [20001] = new[]   // Charter (legacy Time Warner Cable)
+            {
+                "kmlahi-speedtest-ookla-01.st.charter.com",   // Mauna Lani, HI
+                "lsanca-speedtest-ookla-02.st.charter.com",   // Los Angeles, CA
+                "milnhi-speedtest-ookla-01.st.charter.com",   // Mililani, HI
+            },
+            [33363] = new[]   // Charter (Bright House Networks)
+            {
+                "detmi-speedtest-ookla-01.st.charter.com",    // Livonia, MI
+                "tampfl-speedtest-ookla-01.st.charter.com",   // Tampa, FL
+            },
+            [33588] = new[]   // Charter (Bresnan)
+            {
+                "blngmt-speedtest-ookla-01.st.charter.com",   // Billings, MT
+                "chynwy-speedtest-ookla-01.st.charter.com",   // Cheyenne, WY
+                "csprwy-speedtest-ookla-01.st.charter.com",   // Casper, WY
+                "gdjtco-speedtest-ookla-01.st.charter.com",   // Grand Junction, CO
+                "msslmt-speedtest-ookla-01.st.charter.com",   // Missoula, MT
+            },
+
+            // Orange S.A. (AS3215, France) - NOT YET ENABLED. These hosts BLOCK ICMP (0/3) but
+            // answer TCP:8080, so enabling them needs per-endpoint TCP probe support added to this
+            // map + InjectAccessIspFallbackAsync. The probe layer (TcpPingAsync) and the live agent
+            // (MonitoringCollectionAgent) already honor ProbeMode.Tcp + Port; only the fallback
+            // map/injection are ICMP-only today. When TCP support lands, key AS3215 -> TCP:8080:
+            //   montsouris3.d2m.c2d.liveservices.fr   // Paris
+            //   lyon3.d2m.c2d.liveservices.fr         // Lyon
+            //   lille3.d2m.c2d.liveservices.fr        // Lille
+            //   marseille3.d2m.c2d.liveservices.fr    // Marseille
+            //   strasbourg3.d2m.c2d.liveservices.fr   // Strasbourg
+            //   puteaux3.d2m.c2d.liveservices.fr      // Puteaux
+            //   poitiers3.d2m.c2d.liveservices.fr     // Poitiers
         };
 
     private async Task InjectTransitWitnessesAsync(int minSuccesses, CancellationToken ct)
