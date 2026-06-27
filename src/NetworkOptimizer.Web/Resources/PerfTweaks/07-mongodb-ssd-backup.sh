@@ -6,13 +6,13 @@
 #  - Weekly (Sunday 1:35am): mongodump to SSD + a compressed archive to eMMC
 #
 # The eMMC archive is off-SSD insurance: the daily backups live on the SSD, so
-# if the SSD itself dies this is a recent copy to hand-restore from with
-#   mongorestore --gzip --archive=/data/unifi/data/db-backup/unifi-db.archive.gz
-# It is a mongodump archive, NOT a live database: it is not auto-loaded and is
-# not the boot fallback. Zero-touch boot recovery is handled by 06, which on
-# SSD loss leaves MongoDB on the stock eMMC data directory for mongod to open
-# directly. Stored gzip-compressed (~12x smaller than a raw dump) to keep eMMC
-# overlay usage minimal.
+# if the SSD itself dies this is a recent copy to hand-restore from (extract it,
+# then mongorestore the dump - see docs). It is a compressed mongodump, NOT a
+# live database: it is not auto-loaded and is not the boot fallback. Zero-touch
+# boot recovery is handled by 06, which on SSD loss leaves MongoDB on the stock
+# eMMC data directory for mongod to open directly. It is produced by compressing
+# the SSD dump with tar (no second mongodump, so it is light on RAM) and is ~12x
+# smaller than a raw dump, keeping eMMC writes and overlay usage minimal.
 #
 # Can also be run manually:
 #   backup.sh           # SSD-only mongodump
@@ -134,18 +134,19 @@ SSD_SIZE=$(du -sh "$SSD_BACKUP" | cut -f1)
 log "mongodump complete: $SSD_SIZE on SSD"
 
 # Step 2: optional eMMC failover archive (weekly, off-SSD insurance)
-# A compressed mongodump archive (~12x smaller than a raw dump dir), restorable
-# with: mongorestore --gzip --archive=<file>. This is NOT a live DB and is not
-# auto-loaded; zero-touch boot recovery is handled by 06 via the stock eMMC
-# data directory, not this file.
+# Compress the SSD dump we just made straight to eMMC. No second mongodump, so
+# this is light on RAM (tar|gzip streams) - the only compression cost, once a
+# week. ~12x smaller than the raw dump. Restore: extract, then mongorestore the
+# dump dir (see docs). This is NOT a live DB and is not auto-loaded; zero-touch
+# boot recovery is handled by 06 via the stock eMMC data directory, not this file.
 if [ "$1" = "--emmc" ]; then
-    EMMC_ARCHIVE="$EMMC_BACKUP/unifi-db.archive.gz"
+    EMMC_ARCHIVE="$EMMC_BACKUP/unifi-db.tar.gz"
     mkdir -p "$EMMC_BACKUP"
     # Reclaim space from legacy uncompressed dump dirs left by older versions
-    find "$EMMC_BACKUP" -mindepth 1 -maxdepth 1 ! -name "unifi-db.archive.gz" -exec rm -rf {} +
-    log "Writing compressed eMMC failover archive..."
-    if ! mongodump --port 27117 --gzip --archive="$EMMC_ARCHIVE.tmp" --quiet 2>&1; then
-        log "ERROR: eMMC archive dump failed"
+    find "$EMMC_BACKUP" -mindepth 1 -maxdepth 1 ! -name "unifi-db.tar.gz" -exec rm -rf {} +
+    log "Compressing SSD dump to eMMC failover archive..."
+    if ! tar czf "$EMMC_ARCHIVE.tmp" -C "$SSD_BACKUP" .; then
+        log "ERROR: eMMC archive failed"
         rm -f "$EMMC_ARCHIVE.tmp"
         exit 1
     fi
