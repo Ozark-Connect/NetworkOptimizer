@@ -1025,6 +1025,16 @@
             }
             else
             {
+                <div class="alert-group-header">
+                    <h2 class="alert-group-title">Active Incidents</h2>
+                    <div class="alert-group-actions">
+                        @if (_incidents.Any(i => i.Status == AlertStatus.Active))
+                        {
+                            <button class="btn btn-sm btn-secondary" @onclick="AcknowledgeAllIncidents">Acknowledge All</button>
+                        }
+                        <button class="btn btn-sm btn-primary" @onclick="ResolveAllIncidents">Resolve All</button>
+                    </div>
+                </div>
                 @foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved))
                 {
                     <div class="card" style="margin-bottom: 1rem;">
@@ -1059,11 +1069,11 @@
                                 @if (incident.Status == AlertStatus.Active)
                                 {
                                     <button class="btn btn-sm btn-secondary" @onclick="() => AcknowledgeIncident(incident)">
-                                        Acknowledge All
+                                        Acknowledge
                                     </button>
                                 }
                                 <button class="btn btn-sm btn-primary" @onclick="() => ResolveIncident(incident)">
-                                    Resolve All
+                                    Resolve
                                 </button>
                             </div>
                         </div>
@@ -2350,6 +2360,61 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error resolving incident {Id}", incident.Id);
+        }
+    }
+
+    private async Task AcknowledgeAllIncidents()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            foreach (var incident in _incidents.Where(i => i.Status == AlertStatus.Active).ToList())
+            {
+                var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
+                foreach (var alert in alerts.Where(a => a.Status == AlertStatus.Active))
+                {
+                    alert.Status = AlertStatus.Acknowledged;
+                    alert.AcknowledgedAt = now;
+                    await AlertRepository.UpdateAlertAsync(alert);
+                }
+
+                incident.Status = AlertStatus.Acknowledged;
+                await AlertRepository.UpdateIncidentAsync(incident);
+            }
+            await LoadIncidents();
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error acknowledging all incidents");
+        }
+    }
+
+    private async Task ResolveAllIncidents()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            foreach (var incident in _incidents.Where(i => i.Status != AlertStatus.Resolved).ToList())
+            {
+                var alerts = await AlertRepository.GetAlertsByIncidentIdAsync(incident.Id);
+                foreach (var alert in alerts.Where(a => a.Status != AlertStatus.Resolved))
+                {
+                    alert.Status = AlertStatus.Resolved;
+                    alert.ResolvedAt = now;
+                    await AlertRepository.UpdateAlertAsync(alert);
+                }
+
+                incident.Status = AlertStatus.Resolved;
+                incident.ResolvedAt = now;
+                await AlertRepository.UpdateIncidentAsync(incident);
+            }
+            await LoadIncidents();
+            await LoadActiveAlerts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error resolving all incidents");
         }
     }
 
