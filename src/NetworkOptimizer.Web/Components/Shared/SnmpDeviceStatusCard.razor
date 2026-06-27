@@ -14,7 +14,7 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <div class="card-title-group">
-            <h2 class="card-title">SNMP Devices</h2>
+            <h2 class="card-title">SNMP Devices (and Custom OIDs)</h2>
         </div>
         <div class="card-header-right">
             <span class="status-badge status-active" @onclick:stopPropagation="true">@SummaryLabel()</span>
@@ -53,7 +53,8 @@
                                 @foreach (var d in Devices.OrderBy(d => d.DeviceType).ThenBy(d => d.Name))
                                 {
                                     var isExpanded = _expandedDeviceMac == d.Mac;
-                                    <tr class="@(isExpanded ? "snmp-row-expanded" : "")" @onclick="() => ToggleDevice(d.Mac)" style="cursor: pointer;">
+                                    <tr class="@(isExpanded ? "snmp-row-expanded" : "")" @onclick="() => ToggleDevice(d.Mac)" style="cursor: pointer;"
+                                        data-tooltip-hover-only data-tooltip-wrap data-tooltip="@(isExpanded ? null : "Click to set up custom OID polling")">
                                         <td>
                                             <span class="snmp-device-name">@d.Name</span>
                                             <span class="status-badge status-neutral snmp-device-type">@d.DeviceType.ToDisplayName()</span>
