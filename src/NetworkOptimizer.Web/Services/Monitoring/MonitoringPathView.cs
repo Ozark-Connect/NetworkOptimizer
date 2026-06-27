@@ -335,18 +335,6 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
-            // A down WAN carries no traffic. Its physical port has no live per-port
-            // rate, so without this guard it falls through to the device-level
-            // aggregate fallback below and inherits the gateway's total WAN
-            // throughput - i.e. the active WAN's rate bleeds onto the idle WAN's
-            // globe. Only down interfaces are affected; an up WAN always has its
-            // own per-port rate and never hits the fallback.
-            if (!wan.Up)
-            {
-                wan.LiveRateInBps = 0;
-                wan.LiveRateOutBps = 0;
-                continue;
-            }
             // ppp* tunnel for PPPoE, physical port otherwise (issue #669): the
             // physical port stays active under PPPoE and over-counts (overhead +
             // sibling VLANs), while VLAN sub-interfaces double-count on some
@@ -366,6 +354,18 @@ public class MonitoringPathView
                 //           RX = from internet = downloads (LiveRateOutBps).
                 wan.LiveRateInBps = portRate.DownBps;
                 wan.LiveRateOutBps = portRate.UpBps;
+                continue;
+            }
+            // No per-port rate for this WAN. A down WAN carries no traffic, so report
+            // zero rather than the device-level aggregate fallback below - otherwise a
+            // down WAN inherits the gateway's total WAN throughput and the active WAN's
+            // rate bleeds onto the idle WAN's globe. Gating on the port-rate miss (not
+            // the up flag alone) keeps a real measured rate for any WAN actually passing
+            // traffic, including PPPoE ppp* whose up flag the API may misreport.
+            if (!wan.Up)
+            {
+                wan.LiveRateInBps = 0;
+                wan.LiveRateOutBps = 0;
                 continue;
             }
             var deviceLive = _liveStats.GetForDevice(gwMac);
