@@ -268,7 +268,7 @@
                     }
                 @if (!_editingWanScheduleId.HasValue)
                 {
-                    @WanScheduleForm
+                    <div id="wan-add-form">@WanScheduleForm</div>
                 }
             </div>
 
@@ -373,7 +373,7 @@
                 }
                 @if (_lanDeviceOptions.Count > 0 && !_editingLanScheduleId.HasValue)
                 {
-                    @LanScheduleForm
+                    <div id="lan-add-form">@LanScheduleForm</div>
                 }
                 else if (_lanDeviceOptions.Count == 0 && lanTasks.Count == 0)
                 {
@@ -2882,8 +2882,13 @@
         }
     }
 
-    // Exits any active edit so the add form at the bottom of the section is shown.
-    private void StartAddWanSchedule() => CancelEditWanSchedule();
+    // Exits any active edit so the add form at the bottom of the section is shown,
+    // then scrolls to it with a brief highlight (mirrors the Monitoring page pattern).
+    private async Task StartAddWanSchedule()
+    {
+        CancelEditWanSchedule();
+        await ScrollToAddFormAsync("wan-add-form");
+    }
 
     private void CancelEditWanSchedule()
     {
@@ -2987,8 +2992,31 @@
             : new TimeOnly(6, 0);
     }
 
-    // Exits any active edit so the add form at the bottom of the section is shown.
-    private void StartAddLanSchedule() => CancelEditLanSchedule();
+    // Exits any active edit so the add form at the bottom of the section is shown,
+    // then scrolls to it with a brief highlight (mirrors the Monitoring page pattern).
+    private async Task StartAddLanSchedule()
+    {
+        CancelEditLanSchedule();
+        await ScrollToAddFormAsync("lan-add-form");
+    }
+
+    // Scrolls to the add-schedule form and applies a brief outline highlight.
+    private async Task ScrollToAddFormAsync(string elementId)
+    {
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('{elementId}');
+                if (el) {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() {{ el.style.outline = ''; el.style.outlineOffset = ''; }}, 2000);
+                }}
+            }})();");
+    }
 
     private void CancelEditLanSchedule()
     {
