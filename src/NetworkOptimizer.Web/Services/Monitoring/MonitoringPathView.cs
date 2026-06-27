@@ -255,7 +255,12 @@ public class MonitoringPathView
                         portInfo.TryGetValue(wan.PortIdx.Value, out var pi))
                     {
                         interfaceKey = pi.networkName;
-                        friendlyName = pi.name;
+                        // Prefix the port label with the WAN number ("SFP+ 2" -> "WAN2
+                        // (SFP+ 2)") so the flow-map globe carries the WAN identity, not a
+                        // bare port name. Reuses the WAN-group/display convention.
+                        friendlyName = string.IsNullOrEmpty(pi.name)
+                            ? pi.name
+                            : $"{DisplayFormatters.NormalizeWanDisplay(GatewayWanHelper.WanNetworkGroupFromKey(wan.Key))} ({pi.name})";
                         if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
                     }
 
@@ -284,6 +289,7 @@ public class MonitoringPathView
                         WanInterface = interfaceKey,
                         FriendlyName = string.IsNullOrEmpty(friendlyName) ? null : friendlyName,
                         IsPrimary = false,
+                        Up = wan.Up,
                         GatewayMac = gwMac,
                         GatewayPortName = friendlyName,
                         UplinkIfName = uplinkIfname,
@@ -329,6 +335,18 @@ public class MonitoringPathView
         if (string.IsNullOrEmpty(gwMac)) return;
         foreach (var wan in wans)
         {
+            // A down WAN carries no traffic. Its physical port has no live per-port
+            // rate, so without this guard it falls through to the device-level
+            // aggregate fallback below and inherits the gateway's total WAN
+            // throughput - i.e. the active WAN's rate bleeds onto the idle WAN's
+            // globe. Only down interfaces are affected; an up WAN always has its
+            // own per-port rate and never hits the fallback.
+            if (!wan.Up)
+            {
+                wan.LiveRateInBps = 0;
+                wan.LiveRateOutBps = 0;
+                continue;
+            }
             // ppp* tunnel for PPPoE, physical port otherwise (issue #669): the
             // physical port stays active under PPPoE and over-counts (overhead +
             // sibling VLANs), while VLAN sub-interfaces double-count on some
@@ -446,6 +464,7 @@ public record WanSummary
     public required string WanInterface { get; init; }
     public string? FriendlyName { get; init; }
     public required bool IsPrimary { get; set; }
+    public bool Up { get; init; }
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
     public string? UplinkIfName { get; init; }

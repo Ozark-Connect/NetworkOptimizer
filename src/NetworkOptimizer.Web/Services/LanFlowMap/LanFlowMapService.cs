@@ -1529,6 +1529,19 @@ public class LanFlowMapService
             //     });
             // }
         }
+
+        // Disambiguate access clouds that resolve to the same ISP (same ASN) across
+        // multiple WANs by suffixing each with its WAN number, e.g. "Acme Fiber
+        // (WAN1)" / "Acme Fiber (WAN2)". No-op today since only the primary WAN is
+        // traced (at most one cloud carries an AsnName); applies automatically once
+        // secondary WANs get upstream tracing. Singletons keep the bare ISP name.
+        var sharedAsnGroups = snapshot.Clouds
+            .Where(c => c.Kind == LanCloudKind.AccessIsp && !string.IsNullOrEmpty(c.AsnName))
+            .GroupBy(c => c.AsnName, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1);
+        foreach (var group in sharedAsnGroups)
+            foreach (var cloud in group)
+                cloud.Name = $"{cloud.AsnName} ({DisplayFormatters.NormalizeWanDisplay(GatewayWanHelper.WanNetworkGroupFromKey(cloud.WanInterface!))})";
     }
 
     private static void InterpolateInteriorPlacements(LanFlowMapSnapshot snapshot, NetworkTopology topology)
