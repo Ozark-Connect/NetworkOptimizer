@@ -98,18 +98,11 @@
                         }
                     </div>
                 </div>
-                @if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < VersionWarningGraceSeconds)
+                @if (!string.IsNullOrEmpty(_status.Version))
                 {
                     <div class="metric">
                         <div class="metric-label">Version</div>
-                        <div class="metric-value"><span class="spinner spinner-sm"></span></div>
-                    </div>
-                }
-                else if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
-                {
-                    <div class="metric">
-                        <div class="metric-label">Version</div>
-                        <div class="metric-value">@_parsedStatus.Version</div>
+                        <div class="metric-value">@_status.Version</div>
                     </div>
                 }
                 <div class="metric">
@@ -543,11 +536,6 @@
     private WanSteerStatus? _status;
     private ParsedDaemonStatus? _parsedStatus;
     private bool _showVersionWarning;
-    private DateTime? _deployedAt;
-    // Suppress the version warning/display after a deploy until the restarted daemon rewrites its
-    // status file (the shown version reads that file). The daemon rewrites on its ~30s reconcile
-    // interval, so the grace must exceed it.
-    private const int VersionWarningGraceSeconds = 45;
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -919,10 +907,6 @@
             if (success)
             {
                 _hasUndeployedChanges = false;
-                _showVersionWarning = false;
-                // Suppress until the restarted daemon rewrites its status file (~30s reconcile
-                // interval); the shown version reads that file. See VersionWarningGraceSeconds.
-                _deployedAt = DateTime.UtcNow;
             }
 
             await RefreshStatusQuietAsync();
@@ -1180,15 +1164,9 @@
 
     private void CheckBinaryVersion()
     {
-        _showVersionWarning = false;
-
-        // After a deploy, suppress for 45s so a stale read can't briefly flash a warning before
-        // the freshly deployed binary is in place.
-        if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < VersionWarningGraceSeconds)
-            return;
-
         // Advisory only - the Deploy/Redeploy buttons are never gated on this. The service returns
-        // false before anything is deployed, so a first deploy is never flagged or blocked.
+        // false before anything is deployed, so a first deploy is never flagged or blocked. The
+        // check reads the binary's -version directly, so it is correct immediately after a deploy.
         _showVersionWarning = WanSteerDeploymentService.IsBinaryOutdated(_status);
     }
 
