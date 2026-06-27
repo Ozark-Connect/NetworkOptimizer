@@ -161,10 +161,28 @@ public class ChannelSpanHelperTests
     }
 
     [Fact]
-    public void ComputeOverlapFactor_5GHz_SameBondingGroup_Returns0_7()
+    public void ComputeOverlapFactor_5GHz_SameBondingGroupSameSpan_Returns1()
     {
-        // Ch 36/80 and Ch 44/80 share the same 80 MHz block (36-48)
+        // Ch 36/80 and Ch 44/80 occupy the identical 80 MHz block (36-48), so they
+        // time-share the whole channel - full co-channel even though primaries differ.
         ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band5GHz, 36, 80, 44, 80)
+            .Should().Be(1.0);
+    }
+
+    [Fact]
+    public void ComputeOverlapFactor_5GHz_160MHz_SameBlockDifferentPrimary_Returns1()
+    {
+        // Ch 100/160 and Ch 112/160 both span the single 100-128 block: full co-channel.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band5GHz, 100, 160, 112, 160)
+            .Should().Be(1.0);
+    }
+
+    [Fact]
+    public void ComputeOverlapFactor_5GHz_PartialOverlap_Returns0_7()
+    {
+        // Ch 44/80 (span 36-48) partially overlaps Ch 52/160 (span 36-64): shared
+        // sub-channels but not the same block, so it is secondary/partial overlap.
+        ChannelSpanHelper.ComputeOverlapFactor(RadioBand.Band5GHz, 44, 80, 52, 160)
             .Should().Be(0.7);
     }
 
