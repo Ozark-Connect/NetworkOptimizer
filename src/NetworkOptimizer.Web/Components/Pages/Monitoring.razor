@@ -185,7 +185,10 @@ else
         var hasIspTargets = HasUpstreamTargets(MonitoringTargetType.AccessIsp);
         var hasTransitTargets = HasUpstreamTargets(MonitoringTargetType.Transit);
 
-        if (!hasIspTargets || !hasTransitTargets)
+        // Discovery counts as complete if EITHER access ISP or transit hops were
+        // found - some access networks expose no pingable ICMP target, so the path
+        // is proven via transit alone. Only nag when there is no upstream evidence.
+        if (!hasIspTargets && !hasTransitTargets)
         {
             <div class="alert alert-info" style="margin-bottom: 1rem;">
                 <div class="banner-content">
