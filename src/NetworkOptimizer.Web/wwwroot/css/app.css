@@ -3898,6 +3898,27 @@ tr:hover .snmp-row-chevron {
     background: rgba(255, 255, 255, 0.9);
 }
 
+.connection-banner.module-update-banner {
+    background: var(--bg-tertiary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.module-update-banner .banner-icon {
+    background: rgba(231, 150, 19, 0.15);
+    color: var(--warning-color);
+}
+
+.module-update-banner .btn {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.module-update-banner .btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--text-secondary);
+}
+
 @media (max-width: 768px) {
     .connection-banner .banner-content {
         flex-wrap: wrap;

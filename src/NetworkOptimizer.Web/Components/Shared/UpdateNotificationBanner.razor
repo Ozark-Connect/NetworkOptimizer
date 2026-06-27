@@ -4,10 +4,10 @@
 
 @if (Updates.AnyUpdateAvailable)
 {
-    <div class="connection-banner">
+    <div class="connection-banner module-update-banner">
         <div class="banner-content">
             <span class="banner-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="white">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
                 </svg>
             </span>
@@ -17,11 +17,11 @@
             </div>
             @if (Updates.PerfTweaksUpdateAvailable)
             {
-                <a href="/perf-tweaks" class="btn btn-secondary">Performance Tweaks</a>
+                <a href="/perf-tweaks" class="btn">Performance Tweaks</a>
             }
             @if (Updates.WanSteerUpdateAvailable)
             {
-                <a href="/wan-steering" class="btn btn-secondary">WAN Steering</a>
+                <a href="/wan-steering" class="btn">WAN Steering</a>
             }
         </div>
     </div>
