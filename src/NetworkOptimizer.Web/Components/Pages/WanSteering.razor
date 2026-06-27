@@ -7,6 +7,7 @@
 @inject ILogger<WanSteering> Logger
 @inject PullToRefreshState PtrState
 @inject SqmDeploymentService SqmDeploymentService
+@inject ModuleUpdateNotificationService ModuleUpdates
 @rendermode InteractiveServer
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Ssh
@@ -97,18 +98,11 @@
                         }
                     </div>
                 </div>
-                @if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
+                @if (!string.IsNullOrEmpty(_status.Version))
                 {
                     <div class="metric">
                         <div class="metric-label">Version</div>
-                        <div class="metric-value"><span class="spinner spinner-sm"></span></div>
-                    </div>
-                }
-                else if (_parsedStatus != null && !string.IsNullOrEmpty(_parsedStatus.Version))
-                {
-                    <div class="metric">
-                        <div class="metric-label">Version</div>
-                        <div class="metric-value">@_parsedStatus.Version</div>
+                        <div class="metric-value">@_status.Version</div>
                     </div>
                 }
                 <div class="metric">
@@ -542,7 +536,6 @@
     private WanSteerStatus? _status;
     private ParsedDaemonStatus? _parsedStatus;
     private bool _showVersionWarning;
-    private DateTime? _deployedAt;
 
     // Rule editing
     private int? _editingRuleId; // null = not editing, 0 = adding new, >0 = editing existing
@@ -618,6 +611,7 @@
             if (_gatewayConfigured)
             {
                 _status = await DeployService.GetStatusAsync();
+                if (_status.BinaryDeployed) ModuleUpdates.NotifyWanSteerStatus(_status);
                 ParseStatusJson();
             }
             else
@@ -645,6 +639,7 @@
         try
         {
             _status = await DeployService.GetStatusAsync();
+            if (_status.BinaryDeployed) ModuleUpdates.NotifyWanSteerStatus(_status);
             ParseStatusJson();
         }
         catch (Exception ex)
@@ -912,10 +907,6 @@
             if (success)
             {
                 _hasUndeployedChanges = false;
-                _showVersionWarning = false;
-                // Suppress version check until the new binary has time to start
-                // and write its status file (startup grace period is ~30s).
-                _deployedAt = DateTime.UtcNow;
             }
 
             await RefreshStatusQuietAsync();
@@ -1173,15 +1164,9 @@
 
     private void CheckBinaryVersion()
     {
-        _showVersionWarning = false;
-
-        // After a deploy, suppress for 45s so a stale read can't briefly flash a warning before
-        // the freshly deployed binary is in place.
-        if (_deployedAt.HasValue && (DateTime.UtcNow - _deployedAt.Value).TotalSeconds < 45)
-            return;
-
         // Advisory only - the Deploy/Redeploy buttons are never gated on this. The service returns
-        // false before anything is deployed, so a first deploy is never flagged or blocked.
+        // false before anything is deployed, so a first deploy is never flagged or blocked. The
+        // check reads the binary's -version directly, so it is correct immediately after a deploy.
         _showVersionWarning = WanSteerDeploymentService.IsBinaryOutdated(_status);
     }
 

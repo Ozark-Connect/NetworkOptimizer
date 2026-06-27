@@ -3,6 +3,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject PerfTweaksDeploymentService DeployService
+@inject ModuleUpdateNotificationService ModuleUpdates
 @inject ILogger<PerformanceTweaks> Logger
 @inject PullToRefreshState PtrState
 @rendermode InteractiveServer
@@ -156,6 +157,14 @@
                                     <span>Install UDM Boot</span>
                                 }
                             </button>
+                        </div>
+                    }
+
+                    @if (OutdatedTweakTitles is { Count: > 0 } outdated)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>Update@(outdated.Count > 1 ? "s" : "") available:</strong>
+                            @(string.Join(", ", outdated)) @(outdated.Count > 1 ? "have" : "has") a newer version. Redeploy @(outdated.Count > 1 ? "them" : "it") below to update.
                         </div>
                     }
                 }
@@ -981,6 +990,13 @@ ls -la /var/config/run-syslog.sh</code></pre>
     private readonly Dictionary<string, DateTime> _sfpDeployTimes = new();
     private bool _allConfirmed => _confirmBackup && _confirmBackupDownloaded && _confirmWarranty && _confirmRisk;
     private bool _canDeploy => _status?.UdmBootInstalled == true && _status?.FirmwareSupported == true;
+
+    // Titles of compatible tweaks whose deployed boot script is out of date.
+    private List<string> OutdatedTweakTitles => _tweakDefs
+        .Where(d => d.IsCompatibleWith(_status?.GatewayModel)
+                    && _status?.Tweaks.GetValueOrDefault(d.Id)?.ScriptOutdated == true)
+        .Select(d => d.Title)
+        .ToList();
     private List<string> _deploySteps = new();
     private PerfTweaksStatus? _status;
 
@@ -1069,6 +1085,7 @@ ls -la /var/config/run-syslog.sh</code></pre>
 
             _status = await DeployService.CheckAllStatusAsync();
             _gatewayConnected = _status.Error == null;
+            if (_status.Error == null) ModuleUpdates.NotifyPerfTweaksStatus(_status);
         }
         catch (Exception ex)
         {

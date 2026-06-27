@@ -416,6 +416,7 @@ builder.Services.AddScoped<ISqmService, SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<WanSteerDeploymentService>();
 builder.Services.AddScoped<PerfTweaksDeploymentService>();
+builder.Services.AddSingleton<ModuleUpdateNotificationService>(); // caches module update state, computed once per startup post-connect
 builder.Services.AddScoped<MonitoringInterfaceDeploymentService>();
 builder.Services.AddScoped<AgentService>();
 

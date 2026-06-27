@@ -30,6 +30,14 @@ public class PerfTweaksDeploymentService
         ["sfp-sgmiiplus"] = "20-sfp-sgmiiplus.sh"
     };
 
+    // Additional boot scripts a tweak deploys beyond its primary, for out-of-date
+    // detection. mongodb-ssd deploys 07 as a backup companion (see DeployTweakAsync),
+    // so a 07-only change must also flag the tweak as outdated.
+    private static readonly Dictionary<string, string[]> CompanionScripts = new()
+    {
+        ["mongodb-ssd"] = new[] { "07-mongodb-ssd-backup.sh" }
+    };
+
     private static readonly Lazy<Dictionary<string, string>> ExpectedHashes = new(() =>
     {
         var hashes = new Dictionary<string, string>();
@@ -355,16 +363,21 @@ public class PerfTweaksDeploymentService
             {
                 if (!tweak.BootScriptDeployed) continue;
 
-                var scriptName = BootScriptFiles.GetValueOrDefault(tweakId);
-                if (scriptName == null) continue;
+                var scriptNames = new List<string>();
+                if (BootScriptFiles.GetValueOrDefault(tweakId) is { } primary)
+                    scriptNames.Add(primary);
+                if (CompanionScripts.GetValueOrDefault(tweakId) is { } companions)
+                    scriptNames.AddRange(companions);
 
-                if (remoteHashes.TryGetValue(scriptName, out var remoteHash) &&
-                    ExpectedHashes.Value.TryGetValue(scriptName, out var expectedHash))
+                foreach (var scriptName in scriptNames)
                 {
-                    if (remoteHash != expectedHash)
+                    if (remoteHashes.TryGetValue(scriptName, out var remoteHash) &&
+                        ExpectedHashes.Value.TryGetValue(scriptName, out var expectedHash) &&
+                        remoteHash != expectedHash)
                     {
                         tweak.ScriptOutdated = true;
                         tweak.HealthChecks.Add(new("Boot Script", "Update available", HealthCheckStatus.Warning));
+                        break;
                     }
                 }
             }

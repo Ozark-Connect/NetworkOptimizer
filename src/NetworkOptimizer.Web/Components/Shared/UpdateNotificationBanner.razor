@@ -1,0 +1,58 @@
+@using NetworkOptimizer.Web.Services
+@implements IDisposable
+@inject ModuleUpdateNotificationService Updates
+
+@if (Updates.AnyUpdateAvailable)
+{
+    <div class="connection-banner module-update-banner">
+        <div class="banner-content">
+            <span class="banner-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+                </svg>
+            </span>
+            <div class="banner-text">
+                <strong>Module updates available</strong>
+                <span>@Message</span>
+            </div>
+            @if (Updates.PerfTweaksUpdateAvailable)
+            {
+                <a href="/perf-tweaks" class="btn">Performance Tweaks</a>
+            }
+            @if (Updates.WanSteerUpdateAvailable)
+            {
+                <a href="/wan-steering" class="btn">WAN Steering</a>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string Message
+    {
+        get
+        {
+            if (Updates.PerfTweaksUpdateAvailable && Updates.WanSteerUpdateAvailable)
+                return "Performance Tweaks and WAN Steering have updates ready - redeploy to pick up the latest.";
+            if (Updates.PerfTweaksUpdateAvailable)
+                return "Your Performance Tweaks are out of date - redeploy to pick up the latest.";
+            return "Your WAN Steering binary is out of date - redeploy to pick up the latest.";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Updates.OnStateChanged += HandleStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Triggers the once-per-startup check; no-ops if already computed or not yet connected.
+        if (firstRender)
+            await Updates.ComputeOnceAsync();
+    }
+
+    private void HandleStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Updates.OnStateChanged -= HandleStateChanged;
+}
