@@ -1407,7 +1407,7 @@ public class LanFlowMapService
             {
                 Id = $"cloud-access-{wan.WanInterface}",
                 Kind = LanCloudKind.AccessIsp,
-                Name = upstream.Access.AsnName ?? wan.FriendlyName ?? "Access ISP",
+                Name = FormatWanGlobeName(upstream.Access.AsnName, wan.FriendlyName, wan.WanInterface, wans.Count > 1),
                 Asn = upstream.Access.AsnNumber,
                 AsnName = upstream.Access.AsnName,
                 Order = 0,
@@ -1529,20 +1529,36 @@ public class LanFlowMapService
             //     });
             // }
         }
-
-        // Disambiguate access clouds that resolve to the same ISP (same ASN) across
-        // multiple WANs by suffixing each with its WAN number, e.g. "Acme Fiber
-        // (WAN1)" / "Acme Fiber (WAN2)". No-op today since only the primary WAN is
-        // traced (at most one cloud carries an AsnName); applies automatically once
-        // secondary WANs get upstream tracing. Singletons keep the bare ISP name.
-        var sharedAsnGroups = snapshot.Clouds
-            .Where(c => c.Kind == LanCloudKind.AccessIsp && !string.IsNullOrEmpty(c.AsnName))
-            .GroupBy(c => c.AsnName, StringComparer.OrdinalIgnoreCase)
-            .Where(g => g.Count() > 1);
-        foreach (var group in sharedAsnGroups)
-            foreach (var cloud in group)
-                cloud.Name = $"{cloud.AsnName} ({DisplayFormatters.NormalizeWanDisplay(GatewayWanHelper.WanNetworkGroupFromKey(cloud.WanInterface!))})";
     }
+
+    /// <summary>
+    /// Builds the access-cloud display name shown on the flow-map globe. The discovered
+    /// ISP (ASN) or a genuinely custom WAN/port name leads, with the WAN number trailing
+    /// as a qualifier ("Acme Fiber (WAN2)"); on a single-WAN gateway the number is
+    /// dropped as redundant. When there is no real name, a default port label is kept but
+    /// led by the WAN number ("WAN2 (SFP+ 2)"), while a generic name ("Internet 2") is
+    /// dropped to a bare WAN number. The WAN number suffix also disambiguates two WANs
+    /// that resolve to the same ISP. Reuses the shared WAN-display/placeholder helpers.
+    /// </summary>
+    private static string FormatWanGlobeName(string? asnName, string? friendlyName, string wanKey, bool multiWan)
+    {
+        var wanNum = DisplayFormatters.NormalizeWanDisplay(GatewayWanHelper.WanNetworkGroupFromKey(wanKey));
+        var name = !string.IsNullOrWhiteSpace(asnName)
+            ? asnName.Trim()
+            : (!string.IsNullOrWhiteSpace(friendlyName) && !IsPlaceholderWanName(friendlyName))
+                ? friendlyName!.Trim()
+                : null;
+        if (name != null)
+            return multiWan ? $"{name} ({wanNum})" : name;
+        if (!string.IsNullOrWhiteSpace(friendlyName) && InterfaceLabelResolver.IsDefaultPortName(friendlyName))
+            return $"{wanNum} ({friendlyName!.Trim()})";
+        return wanNum;
+    }
+
+    /// <summary>True for names that aren't a real user identity: default port placeholders
+    /// ("SFP+ 2") and generic WAN names ("WAN2", "Internet 2").</summary>
+    private static bool IsPlaceholderWanName(string name)
+        => InterfaceLabelResolver.IsDefaultPortName(name) || DisplayFormatters.IsGenericWanName(name);
 
     private static void InterpolateInteriorPlacements(LanFlowMapSnapshot snapshot, NetworkTopology topology)
     {

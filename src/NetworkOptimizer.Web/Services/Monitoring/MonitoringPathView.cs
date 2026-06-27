@@ -255,12 +255,7 @@ public class MonitoringPathView
                         portInfo.TryGetValue(wan.PortIdx.Value, out var pi))
                     {
                         interfaceKey = pi.networkName;
-                        // Prefix the port label with the WAN number ("SFP+ 2" -> "WAN2
-                        // (SFP+ 2)") so the flow-map globe carries the WAN identity, not a
-                        // bare port name. Reuses the WAN-group/display convention.
-                        friendlyName = string.IsNullOrEmpty(pi.name)
-                            ? pi.name
-                            : $"{DisplayFormatters.NormalizeWanDisplay(GatewayWanHelper.WanNetworkGroupFromKey(wan.Key))} ({pi.name})";
+                        friendlyName = pi.name;
                         if (linkSpeed == 0 && pi.speed > 0) linkSpeed = pi.speed;
                     }
 
