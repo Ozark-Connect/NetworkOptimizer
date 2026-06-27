@@ -4,8 +4,8 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.WiFi.Models;
 
@@ -1391,6 +1391,11 @@ public class LanFlowMapService
         var primary = wans.FirstOrDefault(w => w.IsPrimary) ?? wans[0];
         snapshot.PrimaryWanInterface = primary.WanInterface;
 
+        // Only WANs that pass the activity gate (up, or still holding an IP) render a
+        // globe; base the "tag with WAN number" decision on that visible count so a lone
+        // globe isn't labelled "(WAN1)" even when other WANs are configured but hidden.
+        var shownWanCount = wans.Count(w => w.Up || !string.IsNullOrEmpty(w.IpAddress));
+
         foreach (var wan in wans)
         {
             var gwId = !string.IsNullOrEmpty(wan.GatewayMac)
@@ -1423,7 +1428,7 @@ public class LanFlowMapService
             {
                 Id = $"cloud-access-{wan.WanInterface}",
                 Kind = LanCloudKind.AccessIsp,
-                Name = FormatWanGlobeName(upstream.Access.AsnName, wan.FriendlyName, wan.WanInterface, wans.Count > 1),
+                Name = FormatWanGlobeName(upstream.Access.AsnName, wan.FriendlyName, wan.WanInterface, shownWanCount > 1),
                 Asn = upstream.Access.AsnNumber,
                 AsnName = upstream.Access.AsnName,
                 Order = 0,
