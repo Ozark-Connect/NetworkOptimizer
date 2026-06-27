@@ -1526,6 +1526,22 @@ public class MonitoringCollectionAgent : BackgroundService
                     existing.Address = address;
                     changed = true;
                 }
+                // Flex 2.5G switches are poor latency/loss targets (high RTT/jitter),
+                // so they're disabled by default. The one-shot Flex25GLatencyMigrated
+                // pass can miss an existing target if the device's model hadn't resolved
+                // yet at that instant (offline, or just after a controller reconnect).
+                // Re-assert it here every reconcile so a missed target self-heals once
+                // the model is known. Only writes when currently enabled, so steady
+                // state is a no-op (no per-tick DB churn).
+                if (existing.AutoDiscovered && existing.Enabled
+                    && UniFi.UniFiProductDatabase.IsFlex25G(d.Model, d.Shortname))
+                {
+                    existing.Enabled = false;
+                    changed = true;
+                    _logger.LogInformation(
+                        "Disabled latency probing for Flex 2.5G target {Name} ({Mac})",
+                        existing.Name, existing.DeviceMac);
+                }
                 continue;
             }
 
