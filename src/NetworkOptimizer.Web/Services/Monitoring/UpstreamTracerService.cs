@@ -1251,14 +1251,15 @@ public class UpstreamTracerService
                 "speedtest5.t-mobile.cz",   // Prague
                 "speedtest6.t-mobile.cz",   // Brno
             },
-            // AS394056 Intrepid Fiber - delivers "T-Mobile Fiber" in several US metros. The endpoints
-            // sit in Intrepid's own ASN (not T-Mobile's AS21928), so a subscriber's access ASN
-            // resolves to 394056 - that's the key the discovery path matches against.
+            // AS394056 Intrepid Fiber - the access-layer fiber network. T-Mobile Fiber is a retail
+            // brand that rides on Intrepid in several US metros (and some markets sell Intrepid
+            // Fiber direct). Either way the subscriber's access ASN is 394056 (not T-Mobile's
+            // mobile AS21928), so that's the key matched here.
             [394056] = new[]
             {
-                "speedtest.sandiego.intrepidfiber.com",
-                "speedtest.denver.intrepidfiber.com",
-                "speedtest.minneapolis.intrepidfiber.com",
+                "speedtest.sandiego.intrepidfiber.com",     // San Diego
+                "speedtest.denver.intrepidfiber.com",       // Denver
+                "speedtest.minneapolis.intrepidfiber.com",  // Minneapolis
             },
 
             // Charter / Spectrum - Ookla speedtest hosts (*.st.charter.com), all verified
@@ -1390,9 +1391,10 @@ public class UpstreamTracerService
     }
 
     /// <summary>
-    /// When the detected access ASN is one we have curated endpoints for and discovery surfaced
-    /// no reachable first-mile hop, resolve + ICMP-ping the curated hosts and adopt the single
-    /// lowest-RTT reachable one as the access target. The carrier's own routers commonly
+    /// When the detected access ASN is one we have curated endpoints for and NO discovered hop in
+    /// that ASN answered ICMP (the whole access-ISP hop set - the L2 neighbor plus any aggregation
+    /// and border routers - came back unreachable), resolve + ICMP-ping the curated hosts and adopt
+    /// the single lowest-RTT reachable one as the access target. The carrier's own routers commonly
     /// ICMP-deprioritize, so without this the access cloud would have nothing to probe. Same
     /// reachability gate as the post-traceroute hops; same label convention (stripped ASN name +
     /// stripped hostname) as every other discovered target.
