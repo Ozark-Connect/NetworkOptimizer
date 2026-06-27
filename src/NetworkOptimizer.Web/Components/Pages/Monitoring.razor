@@ -32,6 +32,7 @@
 @inject MonitoringCollectionAgent CollectionAgent
 @inject IspHealthService IspHealthService
 @inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
+@inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache LanFlowMapCache
 @inject ILogger<Monitoring> Logger
 
 <NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation"
@@ -185,7 +186,10 @@ else
         var hasIspTargets = HasUpstreamTargets(MonitoringTargetType.AccessIsp);
         var hasTransitTargets = HasUpstreamTargets(MonitoringTargetType.Transit);
 
-        if (!hasIspTargets || !hasTransitTargets)
+        // Discovery counts as complete if EITHER access ISP or transit hops were
+        // found - some access networks expose no pingable ICMP target, so the path
+        // is proven via transit alone. Only nag when there is no upstream evidence.
+        if (!hasIspTargets && !hasTransitTargets)
         {
             <div class="alert alert-info" style="margin-bottom: 1rem;">
                 <div class="banner-content">
@@ -1980,9 +1984,26 @@ else
 
     private async Task OnTargetsChanged()
     {
+        // Only a change to the enabled ISP/Transit set affects the map's discovery-complete
+        // (greyed) state and ASN label, so invalidate the cached flow-map snapshot only when
+        // that set actually changed - not for interval edits or other target types. Rebuilds
+        // cost a UniFi API call plus Influx queries, so this avoids needless hits. The banner
+        // and stat cards re-query the DB live regardless.
+        var before = UpstreamTargetSignature();
         await LoadTargetsAsync();
+        if (UpstreamTargetSignature() != before)
+            LanFlowMapCache.Invalidate();
         StateHasChanged();
     }
+
+    // Enabled ISP/Transit target IDs - the set that drives the flow-map globe's greyed
+    // state and ASN label. Used to detect when a target change should invalidate the map.
+    private string UpstreamTargetSignature() =>
+        string.Join("|", _targets
+            .Where(t => t.Enabled
+                && t.TargetType is MonitoringTargetType.AccessIsp or MonitoringTargetType.Transit)
+            .OrderBy(t => t.Id)
+            .Select(t => t.Id));
 
     private async Task OnSfpChanged()
     {

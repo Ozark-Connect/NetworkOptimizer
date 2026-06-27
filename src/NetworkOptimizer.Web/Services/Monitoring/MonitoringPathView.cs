@@ -76,6 +76,7 @@ public class MonitoringPathView
         // WanInterface only when the requested WAN is the primary (single-WAN heritage).
         var accessHops = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
+                        && t.Enabled
                         && (t.WanInterface == resolvedWanInterface
                             || (isPrimary && t.WanInterface == null)))
             .OrderBy(t => t.Id)
@@ -118,6 +119,7 @@ public class MonitoringPathView
         {
             var transitRows = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Transit
+                            && t.Enabled
                             && (t.WanInterface == resolvedWanInterface || t.WanInterface == null))
                 .OrderBy(t => t.AsnNumber)
                 .ToListAsync(ct);
@@ -284,6 +286,7 @@ public class MonitoringPathView
                         WanInterface = interfaceKey,
                         FriendlyName = string.IsNullOrEmpty(friendlyName) ? null : friendlyName,
                         IsPrimary = false,
+                        Up = wan.Up,
                         GatewayMac = gwMac,
                         GatewayPortName = friendlyName,
                         UplinkIfName = uplinkIfname,
@@ -348,6 +351,18 @@ public class MonitoringPathView
                 //           RX = from internet = downloads (LiveRateOutBps).
                 wan.LiveRateInBps = portRate.DownBps;
                 wan.LiveRateOutBps = portRate.UpBps;
+                continue;
+            }
+            // No per-port rate for this WAN. A down WAN carries no traffic, so report
+            // zero rather than the device-level aggregate fallback below - otherwise a
+            // down WAN inherits the gateway's total WAN throughput and the active WAN's
+            // rate bleeds onto the idle WAN's globe. Gating on the port-rate miss (not
+            // the up flag alone) keeps a real measured rate for any WAN actually passing
+            // traffic, including PPPoE ppp* whose up flag the API may misreport.
+            if (!wan.Up)
+            {
+                wan.LiveRateInBps = 0;
+                wan.LiveRateOutBps = 0;
                 continue;
             }
             var deviceLive = _liveStats.GetForDevice(gwMac);
@@ -446,6 +461,7 @@ public record WanSummary
     public required string WanInterface { get; init; }
     public string? FriendlyName { get; init; }
     public required bool IsPrimary { get; set; }
+    public bool Up { get; init; }
     public string? GatewayMac { get; init; }
     public string? GatewayPortName { get; init; }
     public string? UplinkIfName { get; init; }

@@ -38,6 +38,7 @@ const C = {
 
 const NK = { Gateway:0, Switch:1, AP:2, WiredClient:3, WifiClient:4, Cloud:5, VirtualHub:6 };
 const LK = { Uplink:0, WiredClient:1, WifiClient:2, Wan:3, Transit:4, MeshBackhaul:5 };
+const CT = { Solid:0, PathProxy:1, Unresolved:2 }; // LanCloudTier
 
 // ---- Layout geometry ----
 const G = {
@@ -1612,16 +1613,19 @@ class LanFlowMap2D {
     _drawAllClouds(ctx){
         for(const cloud of this._clouds){
             const cx=cloud.x, cy=cloud.y, r=G.cloudR;
+            // Unresolved tier: inactive WAN or discovery pending - render the globe
+            // greyed, matching the 3D map.
+            const greyed=cloud.d.tier===CT.Unresolved;
 
             // Subtle radial fill
             const grad=ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,0,cx,cy,r);
-            grad.addColorStop(0,'rgba(59,130,246,0.08)');
-            grad.addColorStop(1,'rgba(59,130,246,0.02)');
+            grad.addColorStop(0,greyed?'rgba(120,130,145,0.06)':'rgba(59,130,246,0.08)');
+            grad.addColorStop(1,greyed?'rgba(120,130,145,0.02)':'rgba(59,130,246,0.02)');
             ctx.fillStyle=grad;
             ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
 
             // Outer circle
-            ctx.strokeStyle=C.globeStroke;
+            ctx.strokeStyle=greyed?'#3a4455':C.globeStroke;
             ctx.lineWidth=1.5; ctx.globalAlpha=0.8;
             ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
 
@@ -1642,8 +1646,8 @@ class LanFlowMap2D {
             ctx.globalAlpha=1;
 
             // Name
-            const name=demoMask(cloud.d.asnName||cloud.d.name||'WAN');
-            ctx.fillStyle=C.textSec;
+            const name=demoMask(cloud.d.name||cloud.d.asnName||'WAN');
+            ctx.fillStyle=greyed?C.textMuted:C.textSec;
             ctx.font=`500 ${G.nameFont}px ${FONT}`;
             ctx.textAlign='center'; ctx.textBaseline='top';
             ctx.fillText(name,cx,cy+r+8);

@@ -4,8 +4,8 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.Web.Services.Monitoring;
 using NetworkOptimizer.WiFi.Models;
 
@@ -1391,6 +1391,11 @@ public class LanFlowMapService
         var primary = wans.FirstOrDefault(w => w.IsPrimary) ?? wans[0];
         snapshot.PrimaryWanInterface = primary.WanInterface;
 
+        // Only WANs that pass the activity gate (up, or still holding an IP) render a
+        // globe; base the "tag with WAN number" decision on that visible count so a lone
+        // globe isn't labelled "(WAN1)" even when other WANs are configured but hidden.
+        var shownWanCount = wans.Count(w => w.Up || !string.IsNullOrEmpty(w.IpAddress));
+
         foreach (var wan in wans)
         {
             var gwId = !string.IsNullOrEmpty(wan.GatewayMac)
@@ -1398,16 +1403,32 @@ public class LanFlowMapService
                 : null;
             if (string.IsNullOrEmpty(gwId)) continue;
 
+            // Render WAN globes by activity, read from the gateway's wanN device JSON
+            // (up + ip; networkconf can't distinguish an unused WAN). Active (up, has
+            // IP) renders normally; a half-state (up without an IP, or down still
+            // holding an IP) renders greyed like a discovery-pending cloud; an
+            // effectively-unused WAN (down, no IP) is not shown at all.
+            var hasIp = !string.IsNullOrEmpty(wan.IpAddress);
+            if (!wan.Up && !hasIp) continue;
+            var inactiveGrey = wan.Up != hasIp;
+
             UpstreamPathSnapshot? upstream = null;
             try { upstream = await _pathView.GetUpstreamPathAsync(wan.WanInterface, ct); }
             catch (Exception ex) { _logger.LogDebug(ex, "Upstream path fetch failed for {Wan}", wan.WanInterface); }
             if (upstream == null) continue;
 
+            // Discovery counts as complete if EITHER access ISP hops or transit hops
+            // were resolved - some access networks expose no pingable ICMP target, so
+            // the path is proven via transit alone. (Only the primary WAN is traced.)
+            var discoveryPending = wan.IsPrimary
+                && upstream.Access.Hops.Count == 0
+                && upstream.Transits.Count == 0;
+
             var accessCloud = new LanCloud
             {
                 Id = $"cloud-access-{wan.WanInterface}",
                 Kind = LanCloudKind.AccessIsp,
-                Name = upstream.Access.AsnName ?? wan.FriendlyName ?? "Access ISP",
+                Name = FormatWanGlobeName(upstream.Access.AsnName, wan.FriendlyName, wan.WanInterface, shownWanCount > 1),
                 Asn = upstream.Access.AsnNumber,
                 AsnName = upstream.Access.AsnName,
                 Order = 0,
@@ -1419,8 +1440,10 @@ public class LanFlowMapService
                 // runs upstream tracing, so secondary WANs always have 0 hops.
                 // Suppress the "discovery pending" state for them until multi-WAN
                 // tracing is implemented.
-                IsDiscoveryPending = wan.IsPrimary && upstream.Access.Hops.Count == 0,
-                Tier = wan.IsPrimary && upstream.Access.Hops.Count == 0 ? LanCloudTier.Unresolved : LanCloudTier.Solid,
+                IsDiscoveryPending = discoveryPending,
+                Tier = inactiveGrey || discoveryPending
+                    ? LanCloudTier.Unresolved
+                    : LanCloudTier.Solid,
             };
             // Collect all access hop target IDs so the live tick can pick the
             // lowest RTT across all of them (closest ISP infrastructure).
@@ -1530,6 +1553,35 @@ public class LanFlowMapService
             // }
         }
     }
+
+    /// <summary>
+    /// Builds the access-cloud display name shown on the flow-map globe. The discovered
+    /// ISP (ASN) or a genuinely custom WAN/port name leads, with the WAN number trailing
+    /// as a qualifier ("Acme Fiber (WAN2)"); on a single-WAN gateway the number is
+    /// dropped as redundant. When there is no real name, a default port label is kept but
+    /// led by the WAN number ("WAN2 (SFP+ 2)"), while a generic name ("Internet 2") is
+    /// dropped to a bare WAN number. The WAN number suffix also disambiguates two WANs
+    /// that resolve to the same ISP. Reuses the shared WAN-display/placeholder helpers.
+    /// </summary>
+    private static string FormatWanGlobeName(string? asnName, string? friendlyName, string wanKey, bool multiWan)
+    {
+        var wanNum = DisplayFormatters.NormalizeWanDisplay(GatewayWanHelper.WanNetworkGroupFromKey(wanKey));
+        var name = !string.IsNullOrWhiteSpace(asnName)
+            ? asnName.Trim()
+            : (!string.IsNullOrWhiteSpace(friendlyName) && !IsPlaceholderWanName(friendlyName))
+                ? friendlyName!.Trim()
+                : null;
+        if (name != null)
+            return multiWan ? $"{name} ({wanNum})" : name;
+        if (!string.IsNullOrWhiteSpace(friendlyName) && InterfaceLabelResolver.IsDefaultPortName(friendlyName))
+            return $"{wanNum} ({friendlyName!.Trim()})";
+        return wanNum;
+    }
+
+    /// <summary>True for names that aren't a real user identity: default port placeholders
+    /// ("SFP+ 2") and generic WAN names ("WAN2", "Internet 2").</summary>
+    private static bool IsPlaceholderWanName(string name)
+        => InterfaceLabelResolver.IsDefaultPortName(name) || DisplayFormatters.IsGenericWanName(name);
 
     private static void InterpolateInteriorPlacements(LanFlowMapSnapshot snapshot, NetworkTopology topology)
     {

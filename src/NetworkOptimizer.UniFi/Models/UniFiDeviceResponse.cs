@@ -348,6 +348,7 @@ public class GatewayWanInterface
     public string? Type { get; set; }
 
     [JsonPropertyName("up")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool Up { get; set; }
 
     [JsonPropertyName("ip")]
