@@ -51,6 +51,15 @@ public class MeshOptimizationService
         if (string.IsNullOrWhiteSpace(iface) || !ValidStaIface.IsMatch(iface))
             return MeshOptimizationResult.NoOp(iface, "This AP isn't a wireless mesh child.");
 
+        // The action runs over the shared UniFi device SSH credentials. Without them every
+        // wpa_cli call just fails with a generic error, so check up front and point the user at
+        // where to set it up.
+        var sshSettings = await _ssh.GetSettingsAsync();
+        var sshConfigured = !string.IsNullOrEmpty(sshSettings.Username) &&
+            (!string.IsNullOrEmpty(sshSettings.Password) || !string.IsNullOrEmpty(sshSettings.PrivateKeyPath));
+        if (!sshConfigured)
+            return MeshOptimizationResult.NoOp(iface, "Set up UniFi Device SSH in Settings to re-pair the uplink.");
+
         // wpa_cli control socket is per-interface on the AP (BusyBox / POSIX sh, runtime only).
         var wc = $"wpa_cli -p /var/run/wpa_supplicant/wpa_supplicant-{iface} -i {iface}";
 
