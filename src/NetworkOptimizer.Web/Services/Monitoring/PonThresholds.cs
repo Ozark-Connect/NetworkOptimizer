@@ -23,6 +23,14 @@ public static class PonThresholds
     /// excess loss (dirty connector, bend, splice), not a deeper splitter - 1:128 is not in the wild.</summary>
     public const double PonExcessLossFloorDbm = -25.5;
 
+    // --- ONT error-counter spike thresholds (per poll) ---
+    /// <summary>Per-poll FEC corrected-error spike threshold. Corrected errors are benign in small
+    /// numbers (the FEC is doing its job); a sustained rate above this corroborates a marginal optic.</summary>
+    public const long PonFecErrorSpikePerPoll = 1000;
+    /// <summary>Per-poll BIP (bit-interleaved-parity) error threshold. BIP errors are uncorrected bit
+    /// errors, so this is stricter than the FEC corrected-error threshold.</summary>
+    public const long PonBipErrorSpikePerPoll = 100;
+
     // --- Hysteresis ---
     public const double PowerHysteresisDbm = 2.0;
     public const double TempHysteresisC = 5.0;

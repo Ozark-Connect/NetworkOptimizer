@@ -171,21 +171,52 @@ public static class PhysicalLinkScorer
             });
         }
 
+        // FEC/BIP error corroboration (external ONT only; null on SFP DDM and on ONTs that don't
+        // report it). Real excess loss for the actual split leaves fingerprints: a sustained
+        // corrected-error or bit-error rate means the optic is marginal, independent of the RX
+        // reading. So a climbing error rate caps the optical score - this is how "too much loss for
+        // the split" is detected, rather than the circular RX-vs-inferred-split residual.
+        var errorScore = 100.0;
+        if (input.FecErrorsPerPoll is double fecRate)
+            errorScore = Math.Min(errorScore, ScoreCurve.Interpolate(fecRate,
+                (0, 100), (PonThresholds.PonFecErrorSpikePerPoll, 90),
+                (PonThresholds.PonFecErrorSpikePerPoll * 20, 40), (PonThresholds.PonFecErrorSpikePerPoll * 100, 0)));
+        if (input.BipErrorsPerPoll is double bipRate)
+            errorScore = Math.Min(errorScore, ScoreCurve.Interpolate(bipRate,
+                (0, 100), (PonThresholds.PonBipErrorSpikePerPoll, 90),
+                (PonThresholds.PonBipErrorSpikePerPoll * 20, 40), (PonThresholds.PonBipErrorSpikePerPoll * 100, 0)));
+        score = Math.Min(score, errorScore);
+        if (errorScore < 90)
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Warning,
+                Title = $"{label}: optical errors elevated",
+                Description = $"{input.SourceName} is accumulating FEC/BIP errors"
+                              + (input.FecErrorsPerPoll is double f ? $" ({f.ToString("0", CultureInfo.InvariantCulture)} FEC/poll)" : "")
+                              + (input.BipErrorsPerPoll is double b and > 0 ? $" ({b.ToString("0", CultureInfo.InvariantCulture)} BIP/poll)" : "")
+                              + ", which corroborates a marginal optical signal (too much loss for the link).",
+                Recommendation = "Inspect the drop for excess loss - a dirty/loose connector, a macrobend, or a degrading splice."
+            });
+
         // Temperature is intentionally NOT a health input or display detail here - the monitoring
         // system already alerts on optic temperature. Its only role for the Physical Link factor is
         // upstream DDM read-artifact rejection (see OpticalSampleStats).
 
         var finalScore = (int)Math.Round(score);
+        // Show TX alongside RX now that TX participates in scoring.
+        var valueText = input.TxPowerDbm is double txp
+            ? $"{rxText}, {txp.ToString("0.0", CultureInfo.InvariantCulture)} dBm TX"
+            : rxText;
         var desc = $"{label} optical receive power scored on margin to the receiver floor"
                    + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".");
 
         logger?.LogDebug(
-            "ISP Health physical(optical {Label}): '{Source}' rxMed={Rx} -> {Score} (worst={Worst}, baseline={Base}, op={Op}, tx={Tx}, {Detail})",
+            "ISP Health physical(optical {Label}): '{Source}' rxMed={Rx} -> {Score} (worst={Worst}, baseline={Base}, op={Op}, tx={Tx}, fecScore={ErrScore}, {Detail})",
             label, input.SourceName, FormatOrNull(rx), finalScore, FormatOrNull(input.RxPowerWorstDbm),
             FormatOrNull(input.RxPowerBaselineDbm), input.PonOperational, FormatOrNull(input.TxPowerDbm),
-            detailBits.Count > 0 ? string.Join(", ", detailBits) : "n/a");
+            (int)Math.Round(errorScore), detailBits.Count > 0 ? string.Join(", ", detailBits) : "n/a");
 
-        return new PhysicalLinkResult(Factor(factorWeight, finalScore, rxText, desc), issues);
+        return new PhysicalLinkResult(Factor(factorWeight, finalScore, valueText, desc), issues);
     }
 
     private static string FormatOrNull(double? v) => v.HasValue ? v.Value.ToString("0.0", CultureInfo.InvariantCulture) : "n/a";

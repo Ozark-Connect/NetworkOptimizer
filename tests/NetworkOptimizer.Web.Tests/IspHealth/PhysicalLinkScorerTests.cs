@@ -14,7 +14,8 @@ public class PhysicalLinkScorerTests
     private const double Weight = 0.25;
 
     private static PhysicalLinkResult ScorePon(double rx, double? worst = null, double? baseline = null,
-        bool? operational = null, double? tx = null, string ponType = "GPON") =>
+        bool? operational = null, double? tx = null, string ponType = "GPON",
+        double? fecPerPoll = null, double? bipPerPoll = null) =>
         PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
             Medium = PhysicalMedium.Pon,
@@ -24,7 +25,9 @@ public class PhysicalLinkScorerTests
             RxPowerBaselineDbm = baseline,
             PonOperational = operational,
             TxPowerDbm = tx,
-            PonType = ponType
+            PonType = ponType,
+            FecErrorsPerPoll = fecPerPoll,
+            BipErrorsPerPoll = bipPerPoll
         }, expectedUploadMbps: null, Weight);
 
     // ---- PON receive-power grading ----
@@ -94,6 +97,40 @@ public class PhysicalLinkScorerTests
     {
         var result = ScorePon(-22.0, baseline: -19.0);   // fell 3 dB from its own baseline
         result.Issues.Should().Contain(i => i.Title.Contains("degrading"));
+    }
+
+    [Fact]
+    public void Pon_elevated_fec_errors_cap_score_and_warn()
+    {
+        // A sustained FEC rate well above the spike threshold corroborates a marginal optic even
+        // though the RX reading itself is fine - this is the non-circular "excess loss" signal.
+        var result = ScorePon(-20.0, fecPerPoll: 25_000);
+        result.Factor.Score.Should().BeLessThan(85);
+        result.Issues.Should().Contain(i => i.Title.Contains("optical errors elevated"));
+    }
+
+    [Fact]
+    public void Pon_clean_fec_does_not_penalize()
+    {
+        var healthy = ScorePon(-20.0).Factor.Score!.Value;
+        var cleanFec = ScorePon(-20.0, fecPerPoll: 50);   // well below the 1000/poll threshold
+        cleanFec.Factor.Score!.Value.Should().Be(healthy);
+        cleanFec.Issues.Should().NotContain(i => i.Title.Contains("optical errors"));
+    }
+
+    [Fact]
+    public void Pon_bip_errors_are_stricter_than_fec()
+    {
+        // BIP (uncorrected) errors use a lower threshold than FEC (corrected): the same rate dings harder.
+        var fecOnly = ScorePon(-20.0, fecPerPoll: 500).Factor.Score!.Value;
+        var bipSame = ScorePon(-20.0, bipPerPoll: 500).Factor.Score!.Value;
+        bipSame.Should().BeLessThan(fecOnly);
+    }
+
+    [Fact]
+    public void Pon_value_text_shows_tx_when_present()
+    {
+        ScorePon(-20.0, tx: 2.5).Factor.ValueText.Should().Contain("TX");
     }
 
     [Fact]

@@ -198,14 +198,17 @@ public class PhysicalLinkResolver
     private async Task<PhysicalLinkInput?> AssembleOntAsync(
         Cand c, int ontId, SfpDdmThresholds thresholds, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
-        // External ONT: vendor firmware, not a DDM stick - no read-artifact problem, so temperature
-        // is NOT passed for rejection (null temps => OpticalSampleStats keeps every sample).
-        var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), null, ct);
-        var pts = dict.Values.FirstOrDefault() ?? new();
+        // External ONT: vendor firmware, not a DDM stick - no read-artifact problem, so temperature is
+        // NOT passed for rejection (null temps => OpticalSampleStats keeps every sample). RAW points
+        // (TimeSpan.Zero) so the FEC/BIP per-poll deltas are real polls, comparable to the alert threshold.
+        var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), TimeSpan.Zero, ct);
+        var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
         var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, (double?)null)).ToList());
         var live = _ontMonitor.GetCachedStats(ontId);
-        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, rxMed={Med} worst={Worst}, op={Op}",
-            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus);
+        var fecPerPoll = PerPollRate(pts.Select(p => p.FecErrors).ToList());
+        var bipPerPoll = PerPollRate(pts.Select(p => p.BipErrors).ToList());
+        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, rxMed={Med} worst={Worst}, op={Op}, fec/poll={Fec} bip/poll={Bip}",
+            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus, fecPerPoll, bipPerPoll);
 
         return new PhysicalLinkInput
         {
@@ -214,10 +217,33 @@ public class PhysicalLinkResolver
             RxPowerMedianDbm = stats.MedianDbm,
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
-            TxPowerDbm = live?.TxPowerDbm ?? pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
+            TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             PonOperational = live != null ? live.PonLinkStatus == PonLinkState.Operation : null,
-            PonType = live?.PonType
+            PonType = live?.PonType,
+            FecErrorsPerPoll = fecPerPoll,
+            BipErrorsPerPoll = bipPerPoll
         };
+    }
+
+    /// <summary>Average per-poll increment of a cumulative error counter over the window, reset-guarded
+    /// (negative steps from a counter reset count as zero). Null when there aren't two readings.</summary>
+    private static double? PerPollRate(IReadOnlyList<long?> counters)
+    {
+        long total = 0;
+        var steps = 0;
+        long? prev = null;
+        foreach (var v in counters)
+        {
+            if (v is not long cur) continue;
+            if (prev is long p)
+            {
+                var delta = cur - p;
+                if (delta > 0) total += delta;
+                steps++;
+            }
+            prev = cur;
+        }
+        return steps > 0 ? (double)total / steps : null;
     }
 
     private async Task<PhysicalLinkInput?> AssembleCableModemAsync(
