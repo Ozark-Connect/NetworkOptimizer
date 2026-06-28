@@ -8200,10 +8200,18 @@ a.path-hop.hop-clickable:hover {
 .wifi-toast {
     position: fixed;
     bottom: 1rem;
-    right: 1rem;
+    right: 3rem;
     z-index: 1080;
     max-width: 22rem;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+    .wifi-toast {
+        right: auto;
+        left: 50%;
+        transform: translateX(-50%);
+    }
 }
 
 .ap-header-text {
