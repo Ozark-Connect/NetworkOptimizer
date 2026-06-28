@@ -14,7 +14,7 @@ public class PhysicalLinkScorerTests
     private const double Weight = 0.25;
 
     private static PhysicalLinkResult ScorePon(double rx, double? worst = null, double? baseline = null,
-        bool? operational = null, double? tx = null, double? temp = null, string ponType = "GPON") =>
+        bool? operational = null, double? tx = null, string ponType = "GPON") =>
         PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
             Medium = PhysicalMedium.Pon,
@@ -24,7 +24,6 @@ public class PhysicalLinkScorerTests
             RxPowerBaselineDbm = baseline,
             PonOperational = operational,
             TxPowerDbm = tx,
-            TemperatureC = temp,
             PonType = ponType
         }, expectedUploadMbps: null, Weight);
 
@@ -108,9 +107,11 @@ public class PhysicalLinkScorerTests
     // ---- Split-ratio inference (display only) ----
 
     [Theory]
-    [InlineData(-22.0, "1:64")]
-    [InlineData(-18.0, "1:32")]
-    [InlineData(-14.0, "1:16")]
+    [InlineData(-16.0, "1:16")]
+    [InlineData(-19.5, "1:32")]
+    [InlineData(-20.5, "1:32")]   // field calibration: -20.5 stays in the 1:32 realm
+    [InlineData(-21.0, "1:64")]
+    [InlineData(-22.6, "1:64")]
     public void Split_ratio_inference_snaps_to_nearest_rung(double rx, string expected)
     {
         PhysicalLinkScorer.InferSplitRatio(rx, "GPON").Should().Contain(expected);

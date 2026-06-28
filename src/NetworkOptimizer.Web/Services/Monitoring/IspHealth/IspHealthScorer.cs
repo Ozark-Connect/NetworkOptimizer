@@ -67,9 +67,11 @@ public class IspHealthScorer
         IspScoreFactor physicalLink;
         if (inputs.PhysicalLink is not null)
         {
-            var physical = PhysicalLinkScorer.Score(inputs.PhysicalLink, inputs.ExpectedUploadMbps, _options.PhysicalLinkWeight);
+            var physical = PhysicalLinkScorer.Score(inputs.PhysicalLink, inputs.ExpectedUploadMbps, _options.PhysicalLinkWeight, _logger);
             physicalLink = physical.Factor;
             physicalIssues = physical.Issues;
+            _logger?.LogDebug("ISP Health physical link factor: {Medium} '{Source}' -> {Score} ({Value})",
+                inputs.PhysicalLink.Medium, inputs.PhysicalLink.SourceName, physicalLink.Score, physicalLink.ValueText ?? "n/a");
         }
         else
         {

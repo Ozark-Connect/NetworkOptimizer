@@ -43,9 +43,6 @@ public class PhysicalLinkInput
     /// <summary>Transmit optical power (dBm); penalized only above the category high threshold.</summary>
     public double? TxPowerDbm { get; init; }
 
-    /// <summary>Transceiver temperature (C); penalized only approaching the category high threshold.</summary>
-    public double? TemperatureC { get; init; }
-
     /// <summary>True when the PON link is in the Operation (O5) state; false is a hard fault.</summary>
     public bool? PonOperational { get; init; }
 

@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -9,10 +10,13 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 ///
 /// Design (see research/isp-health/physical-link-access-scoring.md):
 /// - PON/AE grade on ABSOLUTE receive power margin-to-floor (a gentle healthy slope so
-///   more insertion loss reads slightly lower, never a flat 100), with hard caps for a
-///   down PON link, hot TX, or high temperature. The inferred splitter ratio is
-///   DISPLAY-ONLY verbiage and never feeds the score. A reading colder than the coldest
-///   any realistic 1:64 split can produce is a bounded, baseline-free excess-loss flag.
+///   more insertion loss reads slightly lower, never a flat 100), scored on the robust median
+///   after DDM read-artifact rejection (see OpticalSampleStats), with a worst-sustained cap and
+///   hard caps for a down PON link or hot TX. Temperature is NOT a health input here (the
+///   monitoring system alerts on optic temp); it only drives artifact rejection. The inferred
+///   splitter ratio is DISPLAY-ONLY verbiage derived from the optical power budget and never feeds
+///   the score. A reading colder than the coldest any realistic 1:64 split can produce is a
+///   bounded, baseline-free excess-loss flag.
 /// - DOCSIS grades MER, the FEC uncorrectable ratio (tolerant on 3.1 OFDM where
 ///   correctables are benign, strict on 3.0 SC-QAM), and DS/US power, with a channel-loss
 ///   cap. Plant generation is inferred from an active OFDMA channel, else plan speed.
@@ -36,12 +40,12 @@ public static class PhysicalLinkScorer
         (2, 3.6), (4, 7.2), (8, 10.5), (16, 13.8), (32, 17.1), (64, 20.4)
     };
 
-    public static PhysicalLinkResult Score(PhysicalLinkInput input, double? expectedUploadMbps, double factorWeight)
+    public static PhysicalLinkResult Score(PhysicalLinkInput input, double? expectedUploadMbps, double factorWeight, ILogger? logger = null)
     {
         return input.Medium switch
         {
-            PhysicalMedium.Pon => ScoreOptical(input, factorWeight, isPon: true),
-            PhysicalMedium.ActiveEthernet => ScoreOptical(input, factorWeight, isPon: false),
+            PhysicalMedium.Pon => ScoreOptical(input, factorWeight, isPon: true, logger),
+            PhysicalMedium.ActiveEthernet => ScoreOptical(input, factorWeight, isPon: false, logger),
             PhysicalMedium.Docsis => ScoreDocsis(input, expectedUploadMbps, factorWeight),
             PhysicalMedium.Cellular => ScoreCellular(input, factorWeight),
             _ => new PhysicalLinkResult(NullFactor(factorWeight, "no usable physical-link data"), new())
@@ -52,7 +56,7 @@ public static class PhysicalLinkScorer
     // Optical: PON and Active Ethernet
     // ---------------------------------------------------------------------------
 
-    private static PhysicalLinkResult ScoreOptical(PhysicalLinkInput input, double factorWeight, bool isPon)
+    private static PhysicalLinkResult ScoreOptical(PhysicalLinkInput input, double factorWeight, bool isPon, ILogger? logger)
     {
         var issues = new List<IspHealthIssue>();
         var thresholds = input.OpticalThresholds ?? SfpDdmThresholds.Defaults;
@@ -170,55 +174,51 @@ public static class PhysicalLinkScorer
             });
         }
 
-        var tempHigh = isPon ? thresholds.PonTempHighC : thresholds.AeTempHighC;
-        if (input.TemperatureC is double temp)
-        {
-            if (temp >= tempHigh)
-            {
-                score = Math.Min(score, 70);
-                issues.Add(new IspHealthIssue
-                {
-                    Severity = IspIssueSeverity.Warning,
-                    Title = $"{label}: transceiver hot",
-                    Description = $"{input.SourceName} transceiver temperature is {temp.ToString("0.0", CultureInfo.InvariantCulture)} C, at or above the {tempHigh:0} C threshold.",
-                    Recommendation = "Improve airflow around the SFP/ONT; sustained heat shortens optic life and can raise errors."
-                });
-            }
-            else
-            {
-                detailBits.Add($"{temp.ToString("0", CultureInfo.InvariantCulture)} C");
-            }
-        }
+        // Temperature is intentionally NOT a health input or display detail here - the monitoring
+        // system already alerts on optic temperature. Its only role for the Physical Link factor is
+        // upstream DDM read-artifact rejection (see OpticalSampleStats).
 
-        var value = rxText;
+        var finalScore = (int)Math.Round(score);
         var desc = $"{label} optical receive power scored on margin to the receiver floor"
                    + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".");
 
-        return new PhysicalLinkResult(
-            Factor(factorWeight, (int)Math.Round(score), value, desc), issues);
+        logger?.LogDebug(
+            "ISP Health physical(optical {Label}): '{Source}' rxMed={Rx} -> {Score} (worst={Worst}, baseline={Base}, op={Op}, tx={Tx}, {Detail})",
+            label, input.SourceName, FormatOrNull(rx), finalScore, FormatOrNull(input.RxPowerWorstDbm),
+            FormatOrNull(input.RxPowerBaselineDbm), input.PonOperational, FormatOrNull(input.TxPowerDbm),
+            detailBits.Count > 0 ? string.Join(", ", detailBits) : "n/a");
+
+        return new PhysicalLinkResult(Factor(factorWeight, finalScore, rxText, desc), issues);
     }
 
+    private static string FormatOrNull(double? v) => v.HasValue ? v.Value.ToString("0.0", CultureInfo.InvariantCulture) : "n/a";
+
     /// <summary>
-    /// Inferred EFFECTIVE split ratio for display only. Back-calculates splitter loss from a
-    /// mid-class OLT launch assumption and typical drop loss, snaps to the nearest standard
-    /// rung (capped at 1:64), and states the assumption so an SME can recalibrate. Never feeds
-    /// the score. Returns null when the math lands outside the realistic range.
+    /// Inferred EFFECTIVE split ratio for display only, derived from the optical power budget:
+    ///   RX = OLT_launch - splitter_loss - distribution_loss
+    ///   =&gt; splitter_loss = OLT_launch - RX - distribution_loss   (snap to nearest standard rung)
+    /// The launch and distribution-loss constants are realistic typicals (common GPON B+ launch
+    /// and an average residential drop incl. nominal glass, splices, and un-cleaned connectors);
+    /// high-class OLTs are rare and XGS-PON launches hotter. These are starting defaults meant to
+    /// be nudged from field feedback - the model is the budget math, not a hand-tuned table. Never
+    /// feeds the score. Returns null when the math lands hotter than even a 1:2 split.
     /// </summary>
     internal static string? InferSplitRatio(double rxDbm, string? ponType)
     {
         var isXgs = (ponType ?? "").Contains("XGS", StringComparison.OrdinalIgnoreCase)
                     || (ponType ?? "").Contains("10G", StringComparison.OrdinalIgnoreCase);
-        var oltTx = isXgs ? 5.0 : 3.5;        // mid-class launch (XGS-PON N2 / GPON B+)
-        const double distLoss = 4.0;          // typical drop: fiber + connectors + splices
-        var impliedLoss = oltTx - rxDbm - distLoss;
+        var oltLaunchDbm = isXgs ? 5.0 : 3.0;     // common launch (GPON B+; high-class C+ is the rare rural case)
+        const double distributionLossDb = 5.0;    // realistic drop: glass + splices + typical un-cleaned connectors
+                                                  // (puts the 1:32 -> 1:64 boundary near -20.75 dBm on GPON)
+        var splitterLoss = oltLaunchDbm - rxDbm - distributionLossDb;
 
-        if (impliedLoss < SplitterRungs[0].LossDb - 2.0) return null;  // too hot for even 1:2
-        if (impliedLoss > SplitterRungs[^1].LossDb + 2.0)
-            return "est. 1:64+ split or excess loss";
+        // Colder than the deepest realistic 1:64 can produce is excess loss, not a bigger splitter.
+        if (rxDbm <= PonExcessLossFloorDbm) return "est. 1:64+ split or excess loss";
+        if (splitterLoss < SplitterRungs[0].LossDb - 2.0) return null;  // too hot for even 1:2
 
         var best = SplitterRungs[0];
         foreach (var rung in SplitterRungs)
-            if (Math.Abs(rung.LossDb - impliedLoss) < Math.Abs(best.LossDb - impliedLoss))
+            if (Math.Abs(rung.LossDb - splitterLoss) <= Math.Abs(best.LossDb - splitterLoss))
                 best = rung;
 
         return $"est. 1:{best.Ratio} split";

@@ -174,19 +174,21 @@ public class PhysicalLinkResolver
     private async Task<PhysicalLinkInput?> AssembleSfpAsync(
         Cand c, SfpDdmThresholds thresholds, PhysicalMedium medium, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
-        var dict = await _influx.QuerySfpByModulesAsync(new[] { (c.Mac!, c.Port!) }, windowStart, windowEnd, aggregate, ct);
-        var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
-        var rx = pts.Where(p => p.RxPowerDbm.HasValue).Select(p => p.RxPowerDbm!.Value).ToList();
+        // Raw (un-aggregated) so DDM read artifacts stay isolated for rejection, not averaged into a bucket.
+        var dict = await _influx.QuerySfpByModulesAsync(new[] { (c.Mac!, c.Port!) }, windowStart, windowEnd, null, ct);
+        var pts = dict.Values.FirstOrDefault() ?? new();
+        var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList());
+        _logger.LogDebug("ISP Health physical: SFP {Key} - {N} samples, {Rej} DDM artifacts rejected, rxMed={Med} worst={Worst}",
+            c.Key, pts.Count, stats.RejectedArtifacts, stats.MedianDbm, stats.WorstDbm);
 
         return new PhysicalLinkInput
         {
             Medium = medium,
             SourceName = c.Label,
-            RxPowerMedianDbm = Median(rx),
-            RxPowerWorstDbm = rx.Count > 0 ? rx.Min() : null,
-            RxPowerBaselineDbm = Baseline(rx),
-            TxPowerDbm = pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
-            TemperatureC = pts.LastOrDefault(p => p.TemperatureC.HasValue)?.TemperatureC,
+            RxPowerMedianDbm = stats.MedianDbm,
+            RxPowerWorstDbm = stats.WorstDbm,
+            RxPowerBaselineDbm = stats.BaselineDbm,
+            TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             OpticalThresholds = thresholds
         };
     }
@@ -194,20 +196,21 @@ public class PhysicalLinkResolver
     private async Task<PhysicalLinkInput?> AssembleOntAsync(
         Cand c, int ontId, SfpDdmThresholds thresholds, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
-        var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), aggregate, ct);
-        var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
-        var rx = pts.Where(p => p.RxPowerDbm.HasValue).Select(p => p.RxPowerDbm!.Value).ToList();
+        var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), null, ct);
+        var pts = dict.Values.FirstOrDefault() ?? new();
+        var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList());
         var live = _ontMonitor.GetCachedStats(ontId);
+        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, {Rej} DDM artifacts rejected, rxMed={Med} worst={Worst}, op={Op}",
+            c.Key, pts.Count, stats.RejectedArtifacts, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus);
 
         return new PhysicalLinkInput
         {
             Medium = PhysicalMedium.Pon,
             SourceName = c.Label,
-            RxPowerMedianDbm = Median(rx),
-            RxPowerWorstDbm = rx.Count > 0 ? rx.Min() : null,
-            RxPowerBaselineDbm = Baseline(rx),
-            TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
-            TemperatureC = live?.TemperatureC ?? pts.LastOrDefault(p => p.TemperatureC.HasValue)?.TemperatureC,
+            RxPowerMedianDbm = stats.MedianDbm,
+            RxPowerWorstDbm = stats.WorstDbm,
+            RxPowerBaselineDbm = stats.BaselineDbm,
+            TxPowerDbm = live?.TxPowerDbm ?? pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             PonOperational = live != null ? live.PonLinkStatus == PonLinkState.Operation : null,
             PonType = live?.PonType,
             OpticalThresholds = thresholds
@@ -287,14 +290,6 @@ public class PhysicalLinkResolver
         var sorted = values.OrderBy(v => v).ToList();
         var mid = sorted.Count / 2;
         return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2.0;
-    }
-
-    /// <summary>Median of the earliest fifth of the (time-ordered) window, the trend baseline. Null when too sparse.</summary>
-    private static double? Baseline(List<double> timeOrdered)
-    {
-        if (timeOrdered.Count < 5) return null;
-        var take = Math.Max(1, timeOrdered.Count / 5);
-        return Median(timeOrdered.Take(take).ToList());
     }
 }
 
