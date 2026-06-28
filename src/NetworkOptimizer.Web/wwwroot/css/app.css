@@ -8224,8 +8224,12 @@ a.path-hop.hop-clickable:hover {
 .ap-stats {
     display: flex;
     gap: 1.5rem;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     margin-left: 0.25rem;
+}
+
+.ap-stats-mesh .ap-stat {
+    justify-content: flex-end;
 }
 
 .ap-stat {

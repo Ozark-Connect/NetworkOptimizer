@@ -51,4 +51,31 @@ public class RadioTableStatsTests
 
         Assert.Null(stats!.Bw);
     }
+
+    [Fact]
+    public void Parses_real_radio_table_stats_array()
+    {
+        // Captured radio_table_stats from a real device (issue #921): the 5 GHz radio operates at
+        // 80 MHz (bw) even though it's configured for a wider channel, which is the whole point of
+        // reading bw over radio_table's ht.
+        const string json = """
+        [
+            { "name": "wifi0", "radio": "ng", "channel": 6,  "bw": 20, "state": "RUN", "extchannel": 0 },
+            { "name": "wifi1", "radio": "na", "channel": 36, "bw": 80, "state": "RUN", "extchannel": 1 }
+        ]
+        """;
+
+        var stats = JsonSerializer.Deserialize<List<RadioTableStats>>(json);
+
+        Assert.NotNull(stats);
+        Assert.Equal(2, stats!.Count);
+
+        var ng = stats.Single(r => r.Radio == "ng");
+        Assert.Equal(6, ng.Channel);
+        Assert.Equal(20, ng.Bw);
+
+        var na = stats.Single(r => r.Radio == "na");
+        Assert.Equal(36, na.Channel);
+        Assert.Equal(80, na.Bw);
+    }
 }

@@ -593,7 +593,7 @@
                                         <span class="ap-status-text">@(ap.IsOnline ? "Online" : "Offline")</span>
                                     </div>
                                 </div>
-                                <div class="ap-stats">
+                                <div class="ap-stats @(ap.IsMeshChild ? "ap-stats-mesh" : "")">
                                     <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
