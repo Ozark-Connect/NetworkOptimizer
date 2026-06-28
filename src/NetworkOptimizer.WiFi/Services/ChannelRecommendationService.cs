@@ -56,6 +56,17 @@ public class ChannelRecommendationService
     private const double StressMinThreshold = 5.0;
 
     /// <summary>
+    /// Floor for how far an AP's channel-utilization stress can be scaled down when a proposed
+    /// move resolves its co-channel pairs. Measured utilization is part co-channel airtime (which
+    /// vacates the channel when a neighbor moves) and part the AP's own serving traffic (which
+    /// does not). So utilization drops as co-channel resolves, but never below this fraction -
+    /// otherwise a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
+    /// TX-retry and interference are pure contention (already counted by the internal co-channel
+    /// term) and are not floored - they scale all the way down. Heuristic midpoint; tunable.
+    /// </summary>
+    private const double OwnLoadUtilizationFloor = 0.5;
+
+    /// <summary>
     /// Minimum average score improvement per AP to recommend changes.
     /// Scales with network size: a 4-AP network needs 1.0 total improvement,
     /// a 50-AP network needs 12.5. Prevents recommending changes when
@@ -452,7 +463,14 @@ public class ChannelRecommendationService
             var isOnValidChannel = node.ValidChannels.Contains(node.CurrentChannel);
             var isChanged = recommendedChannel != node.CurrentChannel || recommendedWidth != node.CurrentWidth;
 
-            if (isOnValidChannel && isChanged)
+            // A mesh child has no independent move decision - its channel is dictated by its
+            // leader (applied during the search). Never run the per-AP "is the move worth it?"
+            // filter on it, or a low-scoring child gets pinned to its old channel while the
+            // leader moves, splitting the backhaul across two channels. Children are synced to
+            // the leader's final channel after reconciliation (see end of method).
+            var isMeshChild = node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i;
+
+            if (!isMeshChild && isOnValidChannel && isChanged)
             {
                 var absoluteImprovement = currentApScore - recommendedApScore;
                 var percentImprovement = currentApScore > 0 ? absoluteImprovement / currentApScore : 0;
@@ -516,12 +534,17 @@ public class ChannelRecommendationService
                 var rec = plan.Recommendations[i];
                 finalAssignment[i] = (rec.RecommendedChannel, rec.RecommendedWidth);
             }
+            // Keep mesh children on their leader's channel so every re-score below sees a
+            // physically valid assignment (a backhaul pair can't sit on two channels).
+            ApplyMeshConstraints(graph, finalAssignment);
 
             // Check changed APs still meet improvement thresholds
             for (int i = 0; i < n; i++)
             {
                 var rec = plan.Recommendations[i];
                 var node = graph.Nodes[i];
+                // A mesh child follows its leader - it has no independent move to revert.
+                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
                 var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
                                 rec.RecommendedWidth != node.CurrentWidth;
                 if (!isChanged) continue;
@@ -592,6 +615,10 @@ public class ChannelRecommendationService
                             for (int j = 0; j < n; j++)
                             {
                                 if (j == i) continue;
+                                // Skip mesh pairs - their co-channel is expected and excluded from
+                                // scoring, so a mesh partner can't be the cause of i's degradation
+                                // and must not be the AP we revert (mesh must share a channel).
+                                if (AreMeshPair(graph, i, j)) continue;
                                 var jNode = graph.Nodes[j];
                                 var jChanged = plan.Recommendations[j].RecommendedChannel != jNode.CurrentChannel ||
                                                plan.Recommendations[j].RecommendedWidth != jNode.CurrentWidth;
@@ -641,6 +668,8 @@ public class ChannelRecommendationService
         {
             var node = graph.Nodes[i];
             var rec = plan.Recommendations[i];
+            // A mesh child can't be moved on its own - it follows its leader's channel.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
             var isChanged = rec.RecommendedChannel != node.CurrentChannel ||
                             rec.RecommendedWidth != node.CurrentWidth;
             if (isChanged) continue;
@@ -660,10 +689,14 @@ public class ChannelRecommendationService
             {
                 if (candidateCh == node.CurrentChannel) continue;
 
-                // Build trial assignment
+                // Build trial assignment. Apply mesh constraints so that if this AP is a mesh
+                // leader, its child moves with it - otherwise the net-benefit check below scores
+                // the child on its old channel and undercounts the degradation a leader's move
+                // actually causes (e.g. dragging the child onto a neighbor's channel too).
                 var trial = new (int Channel, int Width)[n];
                 Array.Copy(finalAssignment, trial, n);
                 trial[i] = (candidateCh, node.CurrentWidth);
+                ApplyMeshConstraints(graph, trial);
 
                 var candidateScore = ScoreAp(graph, trial, i, band);
                 var absImprovement = scoreInFinal - candidateScore;
@@ -728,7 +761,99 @@ public class ChannelRecommendationService
                 rec.RecommendedWidth = fallbackWidth;
                 rec.RecommendedScore = fallbackScore;
                 finalAssignment[i] = (fallbackChannel, fallbackWidth);
+                // Keep the child aligned so later iterations score against a valid topology.
+                ApplyMeshConstraints(graph, finalAssignment);
             }
+        }
+
+        // Altruistic relocation. The per-AP fallback above only relocates an AP to improve
+        // ITSELF, and only once it is already suffering (>= MinApScoreToMove). That misses the
+        // globally better move of relocating a still-healthy AP to declutter a worse neighbor
+        // (e.g. moving a fine AP off a shared 160 MHz block so a congested neighbor stops sharing
+        // it). The pruned search may never have tried that channel. Consider it here, but gate on
+        // a real site-wide score improvement - not the mover's own score - and never sacrifice
+        // the mover or push a victim into bad territory, so healthy networks see no churn.
+        // The long-term fix is broader search candidate generation (see TODO.md); this is the
+        // targeted, low-risk pass that complements the pruned search.
+        var baselineNetworkScore = AddDfsPenalty(graph, finalAssignment, band, opts.DfsPreference,
+            ScoreAssignment(graph, finalAssignment, band));
+        for (int i = 0; i < n; i++)
+        {
+            if (pinnedIndices.Contains(i)) continue;
+            var node = graph.Nodes[i];
+            var rec = plan.Recommendations[i];
+            // Children follow their leader; suffering APs are the selfish fallback's job.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+            if (rec.RecommendedChannel != node.CurrentChannel || rec.RecommendedWidth != node.CurrentWidth)
+                continue;
+            if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+            var moverScore = ScoreAp(graph, finalAssignment, i, band);
+            if (moverScore >= MinApScoreToMove) continue;
+
+            int bestCh = -1;
+            var bestNetwork = baselineNetworkScore;
+            foreach (var candidateCh in node.ValidChannels)
+            {
+                if (candidateCh == node.CurrentChannel) continue;
+
+                var trial = new (int Channel, int Width)[n];
+                Array.Copy(finalAssignment, trial, n);
+                trial[i] = (candidateCh, node.CurrentWidth);
+                ApplyMeshConstraints(graph, trial);
+
+                // Never sacrifice the mover: a healthy AP must stay healthy after the move.
+                if (ScoreAp(graph, trial, i, band) > MinApScoreToMove) continue;
+
+                // Never push another AP into genuinely bad territory.
+                bool catastrophic = false;
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i || currentApScores[j] <= 0) continue;
+                    var otherScore = ScoreAp(graph, trial, j, band);
+                    if (otherScore > CatastrophicAbsoluteScore && otherScore > currentApScores[j])
+                    {
+                        catastrophic = true;
+                        break;
+                    }
+                }
+                if (catastrophic) continue;
+
+                // Accept only on a meaningful site-wide improvement (DFS-aware, like the search).
+                var trialNetwork = AddDfsPenalty(graph, trial, band, opts.DfsPreference,
+                    ScoreAssignment(graph, trial, band));
+                if (baselineNetworkScore - trialNetwork >= MinApAbsoluteImprovement && trialNetwork < bestNetwork)
+                {
+                    bestNetwork = trialNetwork;
+                    bestCh = candidateCh;
+                }
+            }
+
+            if (bestCh >= 0)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] Altruistic relocation: {ApName} ch{Current} → ch{Best} to declutter " +
+                    "neighbors (own score {Own:F3}, network {From:F3} → {To:F3})",
+                    node.Name, node.CurrentChannel, bestCh, moverScore, baselineNetworkScore, bestNetwork);
+                rec.RecommendedChannel = bestCh;
+                rec.RecommendedWidth = node.CurrentWidth;
+                finalAssignment[i] = (bestCh, node.CurrentWidth);
+                ApplyMeshConstraints(graph, finalAssignment);
+                baselineNetworkScore = bestNetwork;
+            }
+        }
+
+        // Sync mesh children to their leader's final channel. The leader may have moved or
+        // been reverted during reconciliation; the child must mirror wherever it landed so the
+        // displayed plan is physically valid (a backhaul pair shares one channel) and the
+        // child's row shows the move it actually makes.
+        for (int i = 0; i < n; i++)
+        {
+            var leader = graph.Nodes[i].MeshGroupLeader;
+            if (leader < 0 || leader == i) continue;
+            var leaderRec = plan.Recommendations[leader];
+            plan.Recommendations[i].RecommendedChannel = leaderRec.RecommendedChannel;
+            plan.Recommendations[i].RecommendedWidth = leaderRec.RecommendedWidth;
+            finalAssignment[i] = (leaderRec.RecommendedChannel, leaderRec.RecommendedWidth);
         }
 
         // Re-score ALL APs against the final assignment for accurate display.
@@ -1012,7 +1137,13 @@ public class ChannelRecommendationService
         {
             // Per-channel historical stress: check each historically stressed channel
             // and apply its penalty if the assigned channel overlaps its span.
-            double penalty = 0;
+            // Track contention (TX-retry + interference) separately from utilization. Contention
+            // is the co-channel/CCA effect the internal weight term already captures, so it scales
+            // down when a move resolves co-channel pairs. Utilization is dominated by the AP's own
+            // serving traffic, which persists regardless of neighbors - it must NOT scale away, or
+            // a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
+            double contentionPenalty = 0;
+            double utilizationPenalty = 0;
             bool hasDataForAssignedChannel = false;
 
             foreach (var (histChannel, stress) in node.HistoricalStress)
@@ -1027,28 +1158,30 @@ public class ChannelRecommendationService
                         stress.Interference < StressMinThreshold)
                         continue;
 
-                    penalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                        + (stress.Utilization / 100.0) * UtilizationStressWeight
+                    contentionPenalty += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
                         + (stress.Interference / 100.0) * InterferenceStressWeight;
+                    utilizationPenalty += (stress.Utilization / 100.0) * UtilizationStressWeight;
                 }
             }
 
             // Unknown channels carry more risk than measured ones
             if (!hasDataForAssignedChannel)
-                penalty += UnknownChannelPenalty;
+                contentionPenalty += UnknownChannelPenalty;
 
-            // Apply co-channel resolution scaling: historical stress includes the effect
-            // of our own APs co-channeling (CCA deferrals, elevated utilization). The
-            // internal weight term already penalizes co-channel separately, so if the
-            // proposed assignment resolves co-channel pairs, scale down the historical
-            // stress proportionally to avoid double-counting.
+            // Apply co-channel resolution scaling. TX-retry and interference are pure contention,
+            // already counted by the internal weight term, so they scale all the way down to avoid
+            // double-counting. Utilization is part co-channel airtime (drops with the neighbor) and
+            // part own serving traffic (persists), so it scales too but is floored at the own-load
+            // fraction rather than zeroing out.
             var histCurrentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(assignedSpan, histCurrentSpan))
             {
-                penalty *= ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+                var scale = ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+                contentionPenalty *= scale;
+                utilizationPenalty *= Math.Max(scale, OwnLoadUtilizationFloor);
             }
 
-            return (penalty, 0);
+            return (contentionPenalty + utilizationPenalty, 0);
         }
 
         // Fallback: use current radio stats on current channel span
@@ -1062,10 +1195,13 @@ public class ChannelRecommendationService
             return (0, 0);
 
         var fallbackScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
-        var fallbackPenalty = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
-            + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
+        // Contention (TX-retry + interference) scales all the way down with co-channel resolution;
+        // utilization scales too but is floored at the own-load fraction (it never zeroes out).
+        var fallbackContention = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
             + (node.Interference / 100.0) * InterferenceStressWeight);
-        return (0, fallbackPenalty);
+        var fallbackUtilization = Math.Max(fallbackScale, OwnLoadUtilizationFloor)
+            * (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
+        return (0, fallbackContention + fallbackUtilization);
     }
 
     /// <summary>
@@ -1470,6 +1606,11 @@ public class ChannelRecommendationService
         {
             if (!ap.IsMeshChild || string.IsNullOrEmpty(ap.MeshParentMac))
                 continue;
+            // TODO(MLO): MeshUplinkBand is a single RadioBand. No AP-to-AP MLO STR backhaul
+            // hardware exists yet (today's MLO STR is client/bridge only), but when it ships a
+            // backhaul can span multiple bands at once (e.g. 5 + 6 GHz). Make this a set and emit
+            // one constraint per participating band once UniFi exposes per-link bands. The
+            // reconciliation logic keys off MeshGroupLeader and needs no change - only this.
             if (ap.MeshUplinkBand != band)
                 continue;
 

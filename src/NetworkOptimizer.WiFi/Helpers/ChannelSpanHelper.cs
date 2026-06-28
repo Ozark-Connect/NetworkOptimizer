@@ -148,6 +148,14 @@ public static class ChannelSpanHelper
         var span1 = GetChannelSpan(band, channel1, width1);
         var span2 = GetChannelSpan(band, channel2, width2);
 
+        // Identical span = full co-channel. Two wide radios in the same bonding block occupy
+        // the exact same spectrum even when their control channels differ (e.g. 100/160 and
+        // 112/160 both span 100-128), so they time-share the whole channel just like a matched
+        // primary. Without this they fall through to the partial-overlap branch and are scored
+        // as merely "secondary" overlap, under-counting the interference.
+        if (span1 == span2)
+            return 1.0;
+
         if (SpansOverlap(span1, span2))
             return 0.7; // Bonding group overlap (secondary channels)
 
