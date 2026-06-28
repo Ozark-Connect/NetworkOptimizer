@@ -763,10 +763,13 @@ public class MonitoringCollectionAgent : BackgroundService
                 double? temp = ParseDeviceTemperature(device);
 
                 // SNMP devices that actually returned health data: only supplement
-                // temp for switches and gateways. Some gateways (e.g., UDM-SE / IPQ
-                // chipset) return CPU/mem over SNMP but not temperature; the UniFi API
-                // exposes it, so fill that gap. Devices where SNMP is configured but
-                // returned no health OIDs (e.g., USW-Flex-XG) fall through to full API data.
+                // temp for switches and gateways. Some gateways (e.g., the UDM family)
+                // return CPU/mem over SNMP but not temperature; the UniFi API exposes
+                // it, so fill that gap. This is keyed off whether SNMP actually returned
+                // a temperature at runtime (snmpTempHits), not off any model, so gateways
+                // that do report temp over SNMP are untouched. Devices where SNMP is
+                // configured but returned no health OIDs (e.g., USW-Flex-XG) fall through
+                // to full API data.
                 if (snmpActive && snmpHealthHits.ContainsKey(mac))
                 {
                     if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch
