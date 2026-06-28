@@ -8187,6 +8187,8 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     gap: 0.3rem;
     white-space: nowrap;
+    align-self: flex-end;
+    margin-bottom: 0.5rem;
 }
 
 .optimize-mesh-icon {

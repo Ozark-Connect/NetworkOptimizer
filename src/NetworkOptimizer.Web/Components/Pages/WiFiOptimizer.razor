@@ -592,50 +592,53 @@
                                         <span class="status-dot @(ap.IsOnline ? "online" : "offline")"></span>
                                         <span class="ap-status-text">@(ap.IsOnline ? "Online" : "Offline")</span>
                                     </div>
-                                    @if (ap.IsMeshChild && !string.IsNullOrEmpty(ap.MeshUplinkInterface))
-                                    {
-                                        <button class="btn btn-sm btn-outline-primary optimize-mesh-btn"
-                                                @onclick="@(() => OptimizeMeshAsync(ap))"
-                                                disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac))"
-                                                data-tooltip="Runs a Wi-Fi scan that nudges this AP onto the strongest available mesh parent (or the one you've pinned in UniFi Network) when it's stuck on a weaker uplink. Safe to re-run.">
-                                            @if (_optimizingMacs.Contains(ap.Mac))
-                                            {
-                                                <span class="spinner-sm"></span>
-                                                <span>Optimizing...</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="optimize-mesh-icon">&#x21bb;</span>
-                                                <span>Optimize Mesh</span>
-                                            }
-                                        </button>
-                                    }
                                 </div>
                                 <div class="ap-stats">
                                     <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
-                                    @if (ap.IsMeshChild && ap.MeshUplinkSignalDbm.HasValue)
+                                    @if (ap.IsMeshChild && (ap.MeshUplinkSignalDbm.HasValue || !string.IsNullOrEmpty(ap.MeshUplinkInterface)))
                                     {
                                         <div class="ap-mesh-info">
-                                            <div class="mesh-signal">
-                                                <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
-                                                @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
-                                                {
-                                                    <span class="mesh-rates">
-                                                        @if (ap.MeshUplinkTxRateMbps.HasValue)
-                                                        {
-                                                            <span class="mesh-rate wifi-speed-tx">TX @ap.MeshUplinkTxRateMbps</span>
-                                                        }
-                                                        @if (ap.MeshUplinkRxRateMbps.HasValue)
-                                                        {
-                                                            <span class="mesh-rate wifi-speed-rx">RX @ap.MeshUplinkRxRateMbps</span>
-                                                        }
-                                                    </span>
-                                                }
-                                            </div>
-                                            <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                            @if (!string.IsNullOrEmpty(ap.MeshUplinkInterface))
+                                            {
+                                                <button class="btn btn-sm btn-secondary optimize-mesh-btn"
+                                                        @onclick="@(() => OptimizeMeshAsync(ap))"
+                                                        disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac))"
+                                                        data-tooltip="Runs a Wi-Fi scan that nudges this AP onto the strongest available mesh parent (or the one you've pinned in UniFi Network) when it's stuck on a weaker uplink. Safe to re-run.">
+                                                    @if (_optimizingMacs.Contains(ap.Mac))
+                                                    {
+                                                        <span class="spinner-sm"></span>
+                                                        <span>Optimizing...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="optimize-mesh-icon">&#x21bb;</span>
+                                                        <span>Optimize Mesh</span>
+                                                    }
+                                                </button>
+                                            }
+                                            @if (ap.MeshUplinkSignalDbm.HasValue)
+                                            {
+                                                <div class="mesh-signal">
+                                                    <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                    @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
+                                                    {
+                                                        <span class="mesh-rates">
+                                                            @if (ap.MeshUplinkTxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-tx">TX @ap.MeshUplinkTxRateMbps</span>
+                                                            }
+                                                            @if (ap.MeshUplinkRxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-rx">RX @ap.MeshUplinkRxRateMbps</span>
+                                                            }
+                                                        </span>
+                                                    }
+                                                </div>
+                                                <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                            }
                                         </div>
                                     }
                                     @if (ap.MeshChildren.Count > 0)
