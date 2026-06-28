@@ -90,6 +90,11 @@ public class UniFiDiscovery
                 UplinkTxRateKbps = d.Uplink?.TxRate ?? 0,
                 UplinkRxRateKbps = d.Uplink?.RxRate ?? 0,
                 UplinkType = d.Uplink?.Type,
+                // Active uplink interface name. For a wireless mesh child this is the
+                // wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways
+                // it's the wired/WAN iface. Callers must validate the "vwiresta" prefix before
+                // treating it as a mesh backhaul interface.
+                UplinkInterface = d.Uplink?.Name,
                 UplinkRadioBand = d.Uplink?.RadioBand,
                 UplinkChannel = d.Uplink?.Channel,
                 UplinkSignalDbm = d.Uplink?.Signal,
@@ -725,6 +730,12 @@ public class DiscoveredDevice
     /// <summary>RX rate in Kbps for wireless uplinks</summary>
     public long UplinkRxRateKbps { get; set; }
     public string? UplinkType { get; set; }  // "wire" or "wireless"
+    /// <summary>
+    /// Active uplink interface name (uplink.name). For a wireless mesh child this is the
+    /// wpa_supplicant STA backhaul iface (e.g. "vwiresta7"); for wired APs/gateways it's the
+    /// wired/WAN iface. Validate the "vwiresta" prefix before using as a mesh backhaul iface.
+    /// </summary>
+    public string? UplinkInterface { get; set; }
     public string? UplinkRadioBand { get; set; }  // "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)
     public int? UplinkChannel { get; set; }
     public int? UplinkSignalDbm { get; set; }

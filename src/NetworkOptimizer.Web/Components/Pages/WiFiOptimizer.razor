@@ -11,6 +11,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
+@inject MeshOptimizationService MeshService
 @inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
@@ -41,6 +42,17 @@
             </div>
             <a href="/settings" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.LastError) ? "Check Settings" : "Connect Now")</a>
         </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_toastMessage))
+{
+    <div class="wifi-toast alert @_toastClass">
+        <div>@_toastMessage</div>
+        @if (!string.IsNullOrEmpty(_toastNote))
+        {
+            <div class="wifi-toast-note">@_toastNote</div>
+        }
     </div>
 }
 
@@ -587,31 +599,52 @@
                                         <span class="ap-status-text">@(ap.IsOnline ? "Online" : "Offline")</span>
                                     </div>
                                 </div>
-                                <div class="ap-stats">
+                                <div class="ap-stats @(ap.IsMeshChild ? "ap-stats-mesh" : "")">
                                     <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
-                                    @if (ap.IsMeshChild && ap.MeshUplinkSignalDbm.HasValue)
+                                    @if (ap.IsMeshChild && (ap.MeshUplinkSignalDbm.HasValue || !string.IsNullOrEmpty(ap.MeshUplinkInterface)))
                                     {
-                                        <div class="ap-mesh-info">
-                                            <div class="mesh-signal">
-                                                <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
-                                                @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
-                                                {
-                                                    <span class="mesh-rates">
-                                                        @if (ap.MeshUplinkTxRateMbps.HasValue)
-                                                        {
-                                                            <span class="mesh-rate wifi-speed-tx">TX @ap.MeshUplinkTxRateMbps</span>
-                                                        }
-                                                        @if (ap.MeshUplinkRxRateMbps.HasValue)
-                                                        {
-                                                            <span class="mesh-rate wifi-speed-rx">RX @ap.MeshUplinkRxRateMbps</span>
-                                                        }
-                                                    </span>
-                                                }
-                                            </div>
-                                            <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                        <div class="ap-mesh-info @(!string.IsNullOrEmpty(ap.MeshUplinkInterface) ? "ap-mesh-info-with-action" : "")">
+                                            @if (!string.IsNullOrEmpty(ap.MeshUplinkInterface))
+                                            {
+                                                <button class="btn btn-sm btn-primary optimize-mesh-btn"
+                                                        @onclick="@(() => OptimizeMeshAsync(ap))"
+                                                        disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac))"
+                                                        data-tooltip="Re-scans the mesh uplink so this AP reconnects to its highest Uplink Priority parent when it's stuck on a weaker one. Safe to re-run.">
+                                                    @if (_optimizingMacs.Contains(ap.Mac))
+                                                    {
+                                                        <span class="spinner-sm"></span>
+                                                        <span>Re-pairing...</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="optimize-mesh-icon">&#x21bb;</span>
+                                                        <span>Re-pair Uplink</span>
+                                                    }
+                                                </button>
+                                            }
+                                            @if (ap.MeshUplinkSignalDbm.HasValue)
+                                            {
+                                                <div class="mesh-signal">
+                                                    <span class="mesh-signal-value"><span class="@SignalClassification.GetSignalClass(ap.MeshUplinkSignalDbm.Value, ap.MeshUplinkBand ?? RadioBand.Band5GHz)">@ap.MeshUplinkSignalDbm</span> <span class="mesh-unit">dBm</span></span>
+                                                    @if (ap.MeshUplinkTxRateMbps.HasValue || ap.MeshUplinkRxRateMbps.HasValue)
+                                                    {
+                                                        <span class="mesh-rates">
+                                                            @if (ap.MeshUplinkTxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-tx">TX @ap.MeshUplinkTxRateMbps</span>
+                                                            }
+                                                            @if (ap.MeshUplinkRxRateMbps.HasValue)
+                                                            {
+                                                                <span class="mesh-rate wifi-speed-rx">RX @ap.MeshUplinkRxRateMbps</span>
+                                                            }
+                                                        </span>
+                                                    }
+                                                </div>
+                                                <span class="ap-stat-label"><strong>Mesh Uplink</strong>@(ap.MeshParentName != null ? $" to {ap.MeshParentName}" : "")</span>
+                                            }
                                         </div>
                                     }
                                     @if (ap.MeshChildren.Count > 0)
@@ -875,6 +908,12 @@
     private List<ApMapMarker> _apMapMarkers = new();
     private System.Threading.Timer? _mapPollTimer;
 
+    // MACs of mesh children with an in-flight Optimize Mesh action (drives the per-card spinner).
+    private readonly HashSet<string> _optimizingMacs = new();
+    private string? _toastMessage;
+    private string? _toastNote;
+    private string _toastClass = "alert-info";
+
     // Auto-refresh the Overview tab once the health score has aged past this, so a parked
     // tab doesn't show indefinitely stale data. Checked on each map-poll tick.
     private static readonly TimeSpan HealthScoreStaleAfter = TimeSpan.FromMinutes(1);
@@ -1031,6 +1070,81 @@
         // Channel recommendations run the full engine; compute in the background so they don't
         // delay the overview paint. The card shows its own loading state until ready.
         _ = LoadChannelRecommendationsAsync();
+    }
+
+    private async Task OptimizeMeshAsync(AccessPointSnapshot ap)
+    {
+        if (_optimizingMacs.Contains(ap.Mac)) return;
+
+        _optimizingMacs.Add(ap.Mac);
+        StateHasChanged();
+
+        try
+        {
+            var result = await MeshService.OptimizeAsync(ap.Ip, ap.MeshUplinkInterface, ap.Name);
+            // Only warn about the data lag when it actually roamed - there's nothing to wait for
+            // on a noop or a failure.
+            var note = result.Action == "moved"
+                ? "It may take a minute for the AP data to update."
+                : null;
+            ShowToast(result.Message, result.Ok ? "alert-success" : "alert-warning", note);
+
+            // Pull once now in case the controller already caught up, then again after delays:
+            // the UniFi controller's device list lags the actual roam by ~30s, so the immediate
+            // pull usually still shows the old parent. The +5s catches a fast update and the +30s
+            // catches the typical controller lag.
+            _accessPoints = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            _ = RefreshAccessPointsLater(TimeSpan.FromSeconds(5));
+            _ = RefreshAccessPointsLater(TimeSpan.FromSeconds(30));
+        }
+        catch
+        {
+            // The service logs the detail; surface a friendly message to the user.
+            ShowToast("Couldn't optimize the mesh uplink. Check the AP's SSH connection.", "alert-warning");
+        }
+        finally
+        {
+            _optimizingMacs.Remove(ap.Mac);
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshAccessPointsLater(TimeSpan delay)
+    {
+        try
+        {
+            await Task.Delay(delay);
+            var aps = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            await InvokeAsync(() =>
+            {
+                _accessPoints = aps;
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // Best-effort follow-up refresh; ignore failures (e.g., the circuit went away).
+        }
+    }
+
+    private void ShowToast(string message, string cssClass, string? note = null)
+    {
+        _toastMessage = message;
+        _toastNote = note;
+        _toastClass = cssClass;
+        StateHasChanged();
+
+        // Auto-dismiss after a few seconds without blocking.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            await InvokeAsync(() =>
+            {
+                _toastMessage = null;
+                _toastNote = null;
+                StateHasChanged();
+            });
+        });
     }
 
     private async Task RefreshData()

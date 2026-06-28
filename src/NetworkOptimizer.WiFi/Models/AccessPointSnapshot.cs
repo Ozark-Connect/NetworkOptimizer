@@ -50,6 +50,12 @@ public class AccessPointSnapshot
     /// <summary>Channel used for mesh uplink (if mesh child)</summary>
     public int? MeshUplinkChannel { get; set; }
 
+    /// <summary>
+    /// wpa_supplicant STA backhaul interface for the mesh uplink (e.g. "vwiresta7"), if this is
+    /// a mesh child. Null for wired APs. Used to target the backhaul re-scan/roam over SSH.
+    /// </summary>
+    public string? MeshUplinkInterface { get; set; }
+
     /// <summary>Signal strength of mesh uplink in dBm (if mesh child)</summary>
     public int? MeshUplinkSignalDbm { get; set; }
 

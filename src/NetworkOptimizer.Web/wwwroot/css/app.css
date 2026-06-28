@@ -8175,11 +8175,53 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     gap: 0.35rem;
     margin-left: auto;
+    margin-top: -1.3rem;
 }
 
 .ap-status-text {
     font-size: 0.7rem;
     color: var(--text-muted);
+}
+
+.optimize-mesh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+    align-self: flex-end;
+    margin-bottom: 0.25rem;
+}
+
+.optimize-mesh-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+.wifi-toast {
+    position: fixed;
+    bottom: 5rem;
+    right: 3rem;
+    z-index: 1080;
+    max-width: 22rem;
+    background: rgba(22, 22, 24, 0.8);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.wifi-toast-note {
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .wifi-toast {
+        right: auto;
+        left: 50%;
+        bottom: 1rem;
+        width: 80vw;
+        max-width: 80vw;
+        transform: translateX(-50%);
+    }
 }
 
 .ap-header-text {
@@ -8201,8 +8243,12 @@ a.path-hop.hop-clickable:hover {
 .ap-stats {
     display: flex;
     gap: 1.5rem;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     margin-left: 0.25rem;
+}
+
+.ap-stats-mesh .ap-stat {
+    justify-content: flex-end;
 }
 
 .ap-stat {
@@ -8237,6 +8283,10 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-direction: column;
     margin-left: auto;
+}
+
+.ap-mesh-info-with-action {
+    margin-top: -1.75rem;
 }
 
 .mesh-signal {

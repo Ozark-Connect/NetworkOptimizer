@@ -444,6 +444,8 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddScoped<WiFiOptimizerService>();
+// Mesh backhaul re-scan (Optimize Mesh button); stateless, uses UniFiSshService singleton.
+builder.Services.AddSingleton<MeshOptimizationService>();
 builder.Services.AddScoped<ApMapService>();
 builder.Services.AddSingleton<FloorPlanService>();
 builder.Services.AddSingleton<HeatmapDataCache>();
