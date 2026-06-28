@@ -972,7 +972,13 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     Name = radioStats.Name,
                     Band = RadioBandExtensions.FromUniFiCode(radioStats.Radio),
                     Channel = radioStats.Channel,
-                    ChannelWidth = radioConfig?.ChannelWidth,
+                    // Prefer the operating width (radio_table_stats "bw") over the configured
+                    // width (radio_table "ht"). A mesh backhaul radio can be configured for
+                    // 160 MHz but negotiate down to the parent's width (e.g. 80 MHz) on the
+                    // link; "ht" still reads 160 while "bw" reflects the real 80. Fall back to
+                    // the configured width when "bw" is absent (older firmware) or non-positive
+                    // (e.g. an idle radio reporting 0), which "ht" never is for an enabled radio.
+                    ChannelWidth = radioStats.Bw is > 0 ? radioStats.Bw : radioConfig?.ChannelWidth,
                     ExtChannel = radioStats.ExtChannel,
                     TxPower = radioStats.TxPower,
                     TxPowerMode = radioConfig?.TxPowerMode,

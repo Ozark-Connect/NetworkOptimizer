@@ -1019,6 +1019,15 @@ public class RadioTableStats
     public int? Channel { get; set; }
 
     /// <summary>
+    /// Operating channel width in MHz (the width the radio is actually running at right now).
+    /// Distinct from radio_table's configured "ht" - a mesh backhaul radio can be configured
+    /// for 160 MHz but negotiate down to the parent's width (e.g. 80 MHz) on the link.
+    /// </summary>
+    [JsonPropertyName("bw")]
+    [JsonConverter(typeof(FlexibleIntConverter))]
+    public int? Bw { get; set; }
+
+    /// <summary>
     /// Extension channel for 40MHz+ widths
     /// </summary>
     [JsonPropertyName("extchannel")]
