@@ -1077,9 +1077,13 @@
             var result = await MeshService.OptimizeAsync(ap.Ip, ap.MeshUplinkInterface, ap.Name);
             ShowToast(result.Message, result.Ok ? "alert-success" : "alert-warning");
 
-            // The action already waited for the backhaul to settle; pull the AP list once so the
-            // card reflects the new parent now rather than waiting for the ~1 min auto-refresh.
+            // Pull once now in case the controller already caught up, then again after delays:
+            // the UniFi controller's device list lags the actual roam by ~30s, so the immediate
+            // pull usually still shows the old parent. The +5s catches a fast update and the +30s
+            // catches the typical controller lag.
             _accessPoints = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            _ = RefreshAccessPointsLater(TimeSpan.FromSeconds(5));
+            _ = RefreshAccessPointsLater(TimeSpan.FromSeconds(30));
         }
         catch
         {
@@ -1090,6 +1094,24 @@
         {
             _optimizingMacs.Remove(ap.Mac);
             StateHasChanged();
+        }
+    }
+
+    private async Task RefreshAccessPointsLater(TimeSpan delay)
+    {
+        try
+        {
+            await Task.Delay(delay);
+            var aps = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            await InvokeAsync(() =>
+            {
+                _accessPoints = aps;
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // Best-effort follow-up refresh; ignore failures (e.g., the circuit went away).
         }
     }
 
