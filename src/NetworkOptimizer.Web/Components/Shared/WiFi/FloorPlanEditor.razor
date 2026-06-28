@@ -1809,25 +1809,28 @@
         }
         else if (_buildings.Count > 0)
         {
-            // No placed APs - fit to all buildings (positioned floors/buildings only)
-            var positionedFloors = _buildings.SelectMany(b => b.Floors)
-                .Where(f => IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
+            // No placed APs - fit to floors/buildings that have real content. Bare
+            // placeholder records (no walls, no image) are skipped so they can't drag the
+            // initial center to the app's default map location.
+            var contentFloors = _buildings.SelectMany(b => b.Floors)
+                .Where(f => FloorHasContent(f)
+                    && IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
                 .ToList();
-            if (positionedFloors.Count > 0)
+            if (contentFloors.Count > 0)
             {
-                centerLat = positionedFloors.Average(f => (f.SwLatitude + f.NeLatitude) / 2);
-                centerLng = positionedFloors.Average(f => (f.SwLongitude + f.NeLongitude) / 2);
+                centerLat = contentFloors.Average(f => (f.SwLatitude + f.NeLatitude) / 2);
+                centerLng = contentFloors.Average(f => (f.SwLongitude + f.NeLongitude) / 2);
                 zoom = 19;
             }
             else
             {
-                var positionedBuildings = _buildings
-                    .Where(b => IsPositioned(b.CenterLatitude, b.CenterLongitude))
+                var contentBuildings = _buildings
+                    .Where(b => b.Floors.Any(FloorHasContent) && IsPositioned(b.CenterLatitude, b.CenterLongitude))
                     .ToList();
-                if (positionedBuildings.Count > 0)
+                if (contentBuildings.Count > 0)
                 {
-                    centerLat = positionedBuildings.Average(b => b.CenterLatitude);
-                    centerLng = positionedBuildings.Average(b => b.CenterLongitude);
+                    centerLat = contentBuildings.Average(b => b.CenterLatitude);
+                    centerLng = contentBuildings.Average(b => b.CenterLongitude);
                     zoom = 19;
                 }
             }
@@ -1870,6 +1873,23 @@
         }
     }
 
+    /// <summary>
+    /// The current live map center, used to seed new buildings/floors at the location the
+    /// user is actually looking at instead of a hard-coded default. Returns null when the
+    /// map is not yet initialized or the JS call fails.
+    /// </summary>
+    private async Task<(double lat, double lng)?> GetMapCenterAsync()
+    {
+        if (!_mapInitialized) return null;
+        try
+        {
+            var c = await JS.InvokeAsync<double[]?>("fpEditor.getCenter");
+            if (c is { Length: 2 } && IsPositioned(c[0], c[1])) return (c[0], c[1]);
+        }
+        catch { }
+        return null;
+    }
+
     private async Task LoadBuildings()
     {
         try
@@ -1886,6 +1906,7 @@
                     NeLatitude = f.NeLatitude, NeLongitude = f.NeLongitude,
                     Opacity = f.Opacity, WallsJson = f.WallsJson,
                     HasImage = !string.IsNullOrEmpty(f.ImagePath),
+                    HasOverlayImages = f.Images.Count > 0,
                     FloorMaterial = f.FloorMaterial
                 }).ToList()
             }).ToList();
@@ -2042,10 +2063,8 @@
 
     private (double swLat, double swLng, double neLat, double neLng) ComputeAllBuildingBounds()
     {
-        double swLat = double.MaxValue, swLng = double.MaxValue;
-        double neLat = double.MinValue, neLng = double.MinValue;
-        bool hasData = false;
-
+        // Real, drawn walls are the most reliable positioning signal; collect their points.
+        var wallPoints = new List<(double Lat, double Lng)>();
         var jsonOpts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         foreach (var b in _buildings)
         {
@@ -2058,49 +2077,41 @@
                     if (walls == null) continue;
                     foreach (var wall in walls)
                         foreach (var pt in wall.Points)
-                        {
-                            swLat = Math.Min(swLat, pt.Lat);
-                            swLng = Math.Min(swLng, pt.Lng);
-                            neLat = Math.Max(neLat, pt.Lat);
-                            neLng = Math.Max(neLng, pt.Lng);
-                            hasData = true;
-                        }
+                            wallPoints.Add((pt.Lat, pt.Lng));
                 }
                 catch { }
             }
         }
 
-        if (!hasData)
-        {
-            // Fall back to floor record bounds. Skip floors that were created but never
-            // positioned: their SwLatitude/NeLatitude default to 0, and a single such floor
-            // would drag the fit bounds out to null island and zoom the map to the whole globe.
-            var positionedFloors = _buildings.SelectMany(b2 => b2.Floors)
-                .Where(f => IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
-                .ToList();
-            if (positionedFloors.Count > 0)
-            {
-                swLat = positionedFloors.Min(f => f.SwLatitude);
-                swLng = positionedFloors.Min(f => f.SwLongitude);
-                neLat = positionedFloors.Max(f => f.NeLatitude);
-                neLng = positionedFloors.Max(f => f.NeLongitude);
-            }
-        }
+        // Fall back to floor overlay bounds, but only for floors with real content (walls
+        // or an image). A bare floor sits at its building's placeholder center - which is
+        // an in-range coordinate (the app's default map center), so a coordinate-only guard
+        // would let it through and drag the fit halfway across the globe.
+        var floorRecords = _buildings.SelectMany(b => b.Floors)
+            .Select(f => new MapBoundsHelper.FloorRecord(
+                f.SwLatitude, f.SwLongitude, f.NeLatitude, f.NeLongitude, FloorHasContent(f)));
 
-        return (swLat, swLng, neLat, neLng);
+        var bounds = MapBoundsHelper.ComputeBuildingBounds(wallPoints, floorRecords);
+        return bounds.HasValue
+            ? (bounds.Value.SwLat, bounds.Value.SwLng, bounds.Value.NeLat, bounds.Value.NeLng)
+            : (double.MaxValue, double.MaxValue, double.MinValue, double.MinValue);
     }
 
     /// <summary>
     /// True if a lat/lng pair represents a real placed location rather than an unset
-    /// default. Floor/building records use non-nullable doubles that default to 0, so an
-    /// un-positioned floor reads as (0, 0) (null island) and must be excluded from map
-    /// fit-bounds calculations or it zooms the map out to the whole world.
+    /// default. Forwards to <see cref="MapBoundsHelper.IsPositioned"/> (the single source
+    /// of truth, unit-tested) so every fit-bounds call site agrees.
     /// </summary>
-    private static bool IsPositioned(double lat, double lng)
-    {
-        if (Math.Abs(lat) < 0.0001 && Math.Abs(lng) < 0.0001) return false;
-        return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-    }
+    private static bool IsPositioned(double lat, double lng) => MapBoundsHelper.IsPositioned(lat, lng);
+
+    /// <summary>
+    /// True if a floor has real user-established content - drawn walls or an uploaded
+    /// image - so its stored bounds reflect a deliberate position. A bare floor inherits
+    /// its building's placeholder center at creation and must not drag the map fit, even
+    /// though its coordinates are technically in-range (e.g. the app's default map center).
+    /// </summary>
+    private static bool FloorHasContent(FloorDto f) =>
+        (!string.IsNullOrWhiteSpace(f.WallsJson) && f.WallsJson != "[]") || f.HasImage || f.HasOverlayImages;
 
     private async Task SelectFloor(int floorId)
     {
@@ -3665,7 +3676,14 @@
         {
             var centerLat = _selectedBuilding.CenterLatitude;
             var centerLng = _selectedBuilding.CenterLongitude;
-            if (centerLat == 0 && centerLng == 0) { centerLat = 38.0; centerLng = -92.0; }
+            // Uploading an image marks the floor as content, so its bounds now feed the map
+            // fit. Never seed them at the hard-coded default: prefer the live map center, and
+            // only fall back to the default for a genuinely empty map.
+            if (centerLat == 0 && centerLng == 0)
+            {
+                if (await GetMapCenterAsync() is { } c) { centerLat = c.lat; centerLng = c.lng; }
+                else { centerLat = 38.0; centerLng = -92.0; }
+            }
             var latOffset = 25.0 / 111320.0;
             var lngOffset = 25.0 / (111320.0 * Math.Cos(centerLat * Math.PI / 180));
             _selectedFloor.SwLatitude = centerLat - latOffset;
@@ -3714,10 +3732,15 @@
     {
         _newBuildingName = _newBuildingName.Trim();
         if (string.IsNullOrWhiteSpace(_newBuildingName)) return;
+        // Seed the new building at a real location so its floors don't inherit a placeholder
+        // center: a placed AP first, otherwise wherever the user has the map pointed. Only
+        // fall back to the default when nothing better is available (genuinely empty map).
         var lat = 38.0;
         var lng = -92.0;
-        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue);
+        var firstAp = _apMarkers.FirstOrDefault(a => a.Latitude.HasValue && a.Longitude.HasValue
+            && IsPositioned(a.Latitude.Value, a.Longitude.Value));
         if (firstAp != null) { lat = firstAp.Latitude!.Value; lng = firstAp.Longitude!.Value; }
+        else if (await GetMapCenterAsync() is { } center) { lat = center.lat; lng = center.lng; }
 
         var building = await FloorPlanSvc.CreateBuildingAsync(_newBuildingName, lat, lng);
         HeatmapCache.Invalidate();
@@ -4084,20 +4107,23 @@
             floor.SwLongitude = swLng;
             floor.NeLatitude = neLat;
             floor.NeLongitude = neLng;
+            // Keep the in-memory floor consistent so content/position checks below see the walls.
+            floor.WallsJson = wallsJson;
             await FloorPlanSvc.UpdateFloorAsync(floor.Id, swLat: swLat, swLng: swLng, neLat: neLat, neLng: neLng);
 
-            // Update building center from union of all positioned floor bounds. Excluding
-            // un-positioned floors (default 0 bounds) keeps the persisted building center
-            // from being pulled toward null island when a floor hasn't been placed yet.
-            var positionedFloors = _floors
-                .Where(f => IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
+            // Update building center from the union of floors that have real content. A bare
+            // floor sits at the building's placeholder center, so including it would drag the
+            // persisted building center away from where the user actually drew.
+            var contentFloors = _floors
+                .Where(f => FloorHasContent(f)
+                    && IsPositioned(f.SwLatitude, f.SwLongitude) && IsPositioned(f.NeLatitude, f.NeLongitude))
                 .ToList();
-            if (_selectedBuilding != null && positionedFloors.Count > 0)
+            if (_selectedBuilding != null && contentFloors.Count > 0)
             {
-                var unionSwLat = positionedFloors.Min(f => f.SwLatitude);
-                var unionSwLng = positionedFloors.Min(f => f.SwLongitude);
-                var unionNeLat = positionedFloors.Max(f => f.NeLatitude);
-                var unionNeLng = positionedFloors.Max(f => f.NeLongitude);
+                var unionSwLat = contentFloors.Min(f => f.SwLatitude);
+                var unionSwLng = contentFloors.Min(f => f.SwLongitude);
+                var unionNeLat = contentFloors.Max(f => f.NeLatitude);
+                var unionNeLng = contentFloors.Max(f => f.NeLongitude);
                 var centerLat = (unionSwLat + unionNeLat) / 2;
                 var centerLng = (unionSwLng + unionNeLng) / 2;
                 _selectedBuilding.CenterLatitude = centerLat;
@@ -4139,6 +4165,7 @@
         public double Opacity { get; set; } = 0.7;
         public string? WallsJson { get; set; }
         public bool HasImage { get; set; }
+        public bool HasOverlayImages { get; set; }
         public string FloorMaterial { get; set; } = "floor_wood";
     }
 
