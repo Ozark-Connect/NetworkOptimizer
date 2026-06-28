@@ -679,6 +679,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
         var customOids = await LoadCustomOidsAsync(ct);
         var snmpHealthHits = new ConcurrentDictionary<string, bool>();
+        var snmpTempHits = new ConcurrentDictionary<string, bool>();
         var deviceTasks = devices.Select(async device =>
         {
             await _snmpGate.WaitAsync(ct);
@@ -705,6 +706,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 if (cpu != null || memPct != null)
                     snmpHealthHits[NormalizeMac(device.Mac)] = true;
+                if (temp != null)
+                    snmpTempHits[NormalizeMac(device.Mac)] = true;
 
                 await _influx.WriteDeviceHealthAsync(
                     deviceMac: device.Mac,
@@ -760,14 +763,23 @@ public class MonitoringCollectionAgent : BackgroundService
                 double? temp = ParseDeviceTemperature(device);
 
                 // SNMP devices that actually returned health data: only supplement
-                // temp for switches. Devices where SNMP is configured but returned
-                // no health OIDs (e.g., USW-Flex-XG) fall through to full API data.
+                // temp for switches and gateways. Some gateways (e.g., the UDM family)
+                // return CPU/mem over SNMP but not temperature; the UniFi API exposes
+                // it, so fill that gap. This is keyed off whether SNMP actually returned
+                // a temperature at runtime (snmpTempHits), not off any model, so gateways
+                // that do report temp over SNMP are untouched. Devices where SNMP is
+                // configured but returned no health OIDs (e.g., USW-Flex-XG) fall through
+                // to full API data.
                 if (snmpActive && snmpHealthHits.ContainsKey(mac))
                 {
-                    if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch) continue;
+                    if (device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Switch
+                        && device.DeviceType != NetworkOptimizer.Core.Enums.DeviceType.Gateway) continue;
                     cpu = null;
                     mem = null;
                     uptime = null;
+                    // SNMP already reported a temperature for this device; don't
+                    // double-write it from the API (avoids conflicting data points).
+                    if (snmpTempHits.ContainsKey(mac)) continue;
                     if (temp == null) continue;
                 }
 
