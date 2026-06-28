@@ -8175,6 +8175,7 @@ a.path-hop.hop-clickable:hover {
     align-items: center;
     gap: 0.35rem;
     margin-left: auto;
+    margin-top: -1.3rem;
 }
 
 .ap-status-text {
@@ -8188,7 +8189,6 @@ a.path-hop.hop-clickable:hover {
     gap: 0.3rem;
     white-space: nowrap;
     align-self: flex-end;
-    margin-bottom: 0.5rem;
 }
 
 .optimize-mesh-icon {
@@ -8260,6 +8260,10 @@ a.path-hop.hop-clickable:hover {
     display: flex;
     flex-direction: column;
     margin-left: auto;
+}
+
+.ap-mesh-info-with-action {
+    margin-top: -1.5rem;
 }
 
 .mesh-signal {

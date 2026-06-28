@@ -600,10 +600,10 @@
                                     </div>
                                     @if (ap.IsMeshChild && (ap.MeshUplinkSignalDbm.HasValue || !string.IsNullOrEmpty(ap.MeshUplinkInterface)))
                                     {
-                                        <div class="ap-mesh-info">
+                                        <div class="ap-mesh-info @(!string.IsNullOrEmpty(ap.MeshUplinkInterface) ? "ap-mesh-info-with-action" : "")">
                                             @if (!string.IsNullOrEmpty(ap.MeshUplinkInterface))
                                             {
-                                                <button class="btn btn-sm btn-secondary optimize-mesh-btn"
+                                                <button class="btn btn-sm btn-primary optimize-mesh-btn"
                                                         @onclick="@(() => OptimizeMeshAsync(ap))"
                                                         disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac))"
                                                         data-tooltip="Runs a Wi-Fi scan that nudges this AP onto the strongest available mesh parent (or the one you've pinned in UniFi Network) when it's stuck on a weaker uplink. Safe to re-run.">
