@@ -52,9 +52,6 @@ public class PhysicalLinkInput
     /// <summary>FEC/BIP corrected-error delta over the window; a sustained climb is a mild ding.</summary>
     public long? FecErrorDelta { get; init; }
 
-    /// <summary>Resolved optical thresholds (user overrides folded in), or defaults when null.</summary>
-    public SfpDdmThresholds? OpticalThresholds { get; init; }
-
     // --- DOCSIS ---
 
     /// <summary>Downstream MER/SNR averaged over locked channels (dB).</summary>

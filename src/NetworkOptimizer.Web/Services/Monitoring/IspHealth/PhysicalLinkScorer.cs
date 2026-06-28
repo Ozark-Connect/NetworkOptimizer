@@ -59,16 +59,18 @@ public static class PhysicalLinkScorer
     private static PhysicalLinkResult ScoreOptical(PhysicalLinkInput input, double factorWeight, bool isPon, ILogger? logger)
     {
         var issues = new List<IspHealthIssue>();
-        var thresholds = input.OpticalThresholds ?? SfpDdmThresholds.Defaults;
         var rx = input.RxPowerMedianDbm;
         var label = isPon ? (FormatPonType(input.PonType) ?? "PON") : "Active Ethernet";
 
         if (rx is null)
             return new PhysicalLinkResult(NullFactor(factorWeight, $"{label} link not reporting optical power yet"), issues);
 
-        // Absolute receive-power score: gentle healthy slope, knee at the marginal anchor,
-        // zero at the receiver sensitivity floor. Warmer = healthier until overload.
-        var rxLow = isPon ? thresholds.PonRxPowerLowDbm : thresholds.AeRxPowerLowDbm;
+        // The score curve rides PON receiver PHYSICS (marginal/floor), via the PonThresholds
+        // constants - deliberately NOT the user's SfpDdmThresholds alert override, which tunes when
+        // the SFP DDM alarm fires, not how ISP Health grades optical health. A tightened alert must
+        // not compress this curve. Gentle healthy slope, knee at the marginal anchor, zero at the
+        // receiver sensitivity floor. Warmer = healthier until overload.
+        var rxLow = isPon ? PonThresholds.PonRxPowerLowDbm : PonThresholds.AeRxPowerLowDbm;
         var floor = isPon ? -28.0 : -16.0;             // receiver sensitivity (GPON/XGS-PON; AE)
         var overload = isPon ? -8.0 : -1.0;            // too hot
         var healthyTop = isPon ? -24.0 : -13.0;        // top of the gentle in-spec slope
@@ -161,7 +163,7 @@ public static class PhysicalLinkScorer
             });
         }
 
-        var txHigh = isPon ? thresholds.PonTxPowerHighDbm : thresholds.AeTxPowerHighDbm;
+        var txHigh = isPon ? PonThresholds.PonTxPowerHighDbm : PonThresholds.AeTxPowerHighDbm;
         if (input.TxPowerDbm is double tx && tx > txHigh)
         {
             score = Math.Min(score, 75);

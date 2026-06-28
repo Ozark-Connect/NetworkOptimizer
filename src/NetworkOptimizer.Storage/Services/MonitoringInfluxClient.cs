@@ -1399,19 +1399,24 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<SfpPoint>>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        // TimeSpan.Zero requests RAW (un-aggregated) points. ISP Health needs this so DDM read
+        // artifacts (a single glitchy sample where RX dives and temperature jumps) stay isolated for
+        // rejection - mean aggregation would smear a glitch into a bucket that defeats the filter.
+        var raw = aggregateWindow == TimeSpan.Zero;
+        var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var macFilter = string.Join(" or ", modules.Select(m =>
             $@"(r.device_mac == ""{NormalizeMac(m.DeviceMac)}"" and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
 
+        var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
         var flux = $@"
 from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => {macFilter})
   |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"")
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+{aggregateLine}  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<SfpPoint>>();
         await foreach (var record in QueryFluxAsync(flux, ct))

@@ -231,7 +231,7 @@ else
                     <h2 class="card-title">@dimension.Name</h2>
                     <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
                 </div>
-                <div class="card-body">
+                <div class="card-body isp-card-body-tight-top">
                     @if (dimension == r.IspAsnDimension)
                     {
                         var ispTargets = r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
@@ -499,7 +499,7 @@ else
 
     <div class="card isp-health-card isp-health-chart-card">
         <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
-        <div class="card-body">
+        <div class="card-body isp-card-body-tight-top">
             <div id="isp-health-asn-chart"></div>
 
             @{ var ispAsn = r.IspAsns.FirstOrDefault(a => a.AsnNumber > 0); }

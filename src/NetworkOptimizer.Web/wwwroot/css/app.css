@@ -16197,6 +16197,10 @@ a.isp-health-hero-speed:hover {
     font-weight: 700;
 }
 
+.isp-card-body-tight-top {
+    padding-top: 6px;
+}
+
 .isp-factor-row {
     display: grid;
     grid-template-columns: minmax(110px, 1fr) minmax(60px, 130px) 34px;

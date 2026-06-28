@@ -175,7 +175,10 @@ public class PhysicalLinkResolver
         Cand c, SfpDdmThresholds thresholds, PhysicalMedium medium, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
         // Raw (un-aggregated) so DDM read artifacts stay isolated for rejection, not averaged into a bucket.
-        var dict = await _influx.QuerySfpByModulesAsync(new[] { (c.Mac!, c.Port!) }, windowStart, windowEnd, null, ct);
+        // SFP DDM only: TimeSpan.Zero => RAW (un-aggregated) so glitchy stick reads stay isolated,
+        // with temperature passed through so OpticalSampleStats can reject the artifacts (RX + temp
+        // glitch together). Mean aggregation would smear a glitch into a bucket that defeats the filter.
+        var dict = await _influx.QuerySfpByModulesAsync(new[] { (c.Mac!, c.Port!) }, windowStart, windowEnd, TimeSpan.Zero, ct);
         var pts = dict.Values.FirstOrDefault() ?? new();
         var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList());
         _logger.LogDebug("ISP Health physical: SFP {Key} - {N} samples, {Rej} DDM artifacts rejected, rxMed={Med} worst={Worst}",
@@ -188,20 +191,21 @@ public class PhysicalLinkResolver
             RxPowerMedianDbm = stats.MedianDbm,
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
-            TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
-            OpticalThresholds = thresholds
+            TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm
         };
     }
 
     private async Task<PhysicalLinkInput?> AssembleOntAsync(
         Cand c, int ontId, SfpDdmThresholds thresholds, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
+        // External ONT: vendor firmware, not a DDM stick - no read-artifact problem, so temperature
+        // is NOT passed for rejection (null temps => OpticalSampleStats keeps every sample).
         var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), null, ct);
         var pts = dict.Values.FirstOrDefault() ?? new();
-        var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList());
+        var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, (double?)null)).ToList());
         var live = _ontMonitor.GetCachedStats(ontId);
-        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, {Rej} DDM artifacts rejected, rxMed={Med} worst={Worst}, op={Op}",
-            c.Key, pts.Count, stats.RejectedArtifacts, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus);
+        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, rxMed={Med} worst={Worst}, op={Op}",
+            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus);
 
         return new PhysicalLinkInput
         {
@@ -212,8 +216,7 @@ public class PhysicalLinkResolver
             RxPowerBaselineDbm = stats.BaselineDbm,
             TxPowerDbm = live?.TxPowerDbm ?? pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             PonOperational = live != null ? live.PonLinkStatus == PonLinkState.Operation : null,
-            PonType = live?.PonType,
-            OpticalThresholds = thresholds
+            PonType = live?.PonType
         };
     }
 
