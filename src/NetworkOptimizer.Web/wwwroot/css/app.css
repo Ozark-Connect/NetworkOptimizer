@@ -8203,6 +8203,7 @@ a.path-hop.hop-clickable:hover {
     right: 3rem;
     z-index: 1080;
     max-width: 22rem;
+    background: rgba(22, 22, 24, 0.8);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
