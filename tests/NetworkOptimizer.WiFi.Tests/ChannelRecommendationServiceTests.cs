@@ -206,6 +206,39 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void ScoreAssignment_UtilizationDropsButNotToZero_WhenCoChannelResolved()
+    {
+        // An AP's channel utilization is part co-channel airtime (which vacates when a neighbor
+        // moves off-channel) and part its own serving traffic (which persists). So when the move
+        // resolves the co-channel pair, the utilization stress must drop - but not to zero.
+        // Comparing a busy AP against an idle one cancels the co-channel term and the unobserved
+        // penalty, isolating just the utilization contribution.
+        double UtilContribution((int Channel, int Width)[] assignment)
+        {
+            var busy = CreateAp("aa:bb:cc:dd:ee:01", "Busy", RadioBand.Band5GHz, 36);
+            busy.Radios[0].ChannelUtilization = 40;
+            var idle = CreateAp("aa:bb:cc:dd:ee:01", "Idle", RadioBand.Band5GHz, 36);
+            idle.Radios[0].ChannelUtilization = 0;
+            var neighbor = CreateAp("aa:bb:cc:dd:ee:02", "Neighbor", RadioBand.Band5GHz, 36);
+
+            var busyGraph = _service.BuildInterferenceGraph(
+                new List<AccessPointSnapshot> { busy, neighbor }, RadioBand.Band5GHz, null, null, null);
+            var idleGraph = _service.BuildInterferenceGraph(
+                new List<AccessPointSnapshot> { idle, neighbor }, RadioBand.Band5GHz, null, null, null);
+
+            return _service.ScoreAssignment(busyGraph, assignment, RadioBand.Band5GHz)
+                 - _service.ScoreAssignment(idleGraph, assignment, RadioBand.Band5GHz);
+        }
+
+        // Neighbor stays co-channel (utilization fully retained) vs neighbor moved off-block.
+        var full = UtilContribution(new[] { (36, 80), (36, 80) });
+        var resolved = UtilContribution(new[] { (36, 80), (149, 80) });
+
+        resolved.Should().BeGreaterThan(0, "the AP's own-traffic utilization persists after the neighbor moves");
+        resolved.Should().BeLessThan(full, "the co-channel-attributable share of utilization still drops");
+    }
+
+    [Fact]
     public void ScoreAssignment_MeshPair_ExcludedFromScore()
     {
         var aps = new List<AccessPointSnapshot>

@@ -56,6 +56,17 @@ public class ChannelRecommendationService
     private const double StressMinThreshold = 5.0;
 
     /// <summary>
+    /// Floor for how far an AP's channel-utilization stress can be scaled down when a proposed
+    /// move resolves its co-channel pairs. Measured utilization is part co-channel airtime (which
+    /// vacates the channel when a neighbor moves) and part the AP's own serving traffic (which
+    /// does not). So utilization drops as co-channel resolves, but never below this fraction -
+    /// otherwise a busy AP whose only co-channel neighbor relocates would read as perfectly idle.
+    /// TX-retry and interference are pure contention (already counted by the internal co-channel
+    /// term) and are not floored - they scale all the way down. Heuristic midpoint; tunable.
+    /// </summary>
+    private const double OwnLoadUtilizationFloor = 0.5;
+
+    /// <summary>
     /// Minimum average score improvement per AP to recommend changes.
     /// Scales with network size: a 4-AP network needs 1.0 total improvement,
     /// a 50-AP network needs 12.5. Prevents recommending changes when
@@ -1157,15 +1168,17 @@ public class ChannelRecommendationService
             if (!hasDataForAssignedChannel)
                 contentionPenalty += UnknownChannelPenalty;
 
-            // Apply co-channel resolution scaling to the contention components only: the internal
-            // weight term already penalizes co-channel separately, so when the proposed assignment
-            // resolves co-channel pairs, scale those down to avoid double-counting. Utilization is
-            // left unscaled - it is the AP's own-traffic baseline and does not vanish with a
-            // neighbor's move.
+            // Apply co-channel resolution scaling. TX-retry and interference are pure contention,
+            // already counted by the internal weight term, so they scale all the way down to avoid
+            // double-counting. Utilization is part co-channel airtime (drops with the neighbor) and
+            // part own serving traffic (persists), so it scales too but is floored at the own-load
+            // fraction rather than zeroing out.
             var histCurrentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(assignedSpan, histCurrentSpan))
             {
-                contentionPenalty *= ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+                var scale = ComputeStressScale(graph, band, apIndex, histCurrentSpan, assignment);
+                contentionPenalty *= scale;
+                utilizationPenalty *= Math.Max(scale, OwnLoadUtilizationFloor);
             }
 
             return (contentionPenalty + utilizationPenalty, 0);
@@ -1182,11 +1195,12 @@ public class ChannelRecommendationService
             return (0, 0);
 
         var fallbackScale = ComputeStressScale(graph, band, apIndex, currentSpan, assignment);
-        // Contention (TX-retry + interference) scales with co-channel resolution; utilization is
-        // the AP's own-traffic baseline and is left unscaled.
+        // Contention (TX-retry + interference) scales all the way down with co-channel resolution;
+        // utilization scales too but is floored at the own-load fraction (it never zeroes out).
         var fallbackContention = fallbackScale * ((node.TxRetriesPct / 100.0) * TxRetryStressWeight
             + (node.Interference / 100.0) * InterferenceStressWeight);
-        var fallbackUtilization = (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
+        var fallbackUtilization = Math.Max(fallbackScale, OwnLoadUtilizationFloor)
+            * (node.ChannelUtilization / 100.0) * UtilizationStressWeight;
         return (0, fallbackContention + fallbackUtilization);
     }
 
