@@ -8199,7 +8199,7 @@ a.path-hop.hop-clickable:hover {
 
 .wifi-toast {
     position: fixed;
-    bottom: 1rem;
+    bottom: 5rem;
     right: 3rem;
     z-index: 1080;
     max-width: 22rem;
@@ -8210,6 +8210,7 @@ a.path-hop.hop-clickable:hover {
     .wifi-toast {
         right: auto;
         left: 50%;
+        bottom: 1rem;
         transform: translateX(-50%);
     }
 }
