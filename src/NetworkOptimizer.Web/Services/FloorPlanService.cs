@@ -52,7 +52,9 @@ public class FloorPlanService
     public async Task<List<Building>> GetBuildingsAsync()
     {
         using var db = await _dbFactory.CreateDbContextAsync();
-        return await db.Buildings.Include(b => b.Floors).OrderBy(b => b.Name).ToListAsync();
+        return await db.Buildings
+            .Include(b => b.Floors).ThenInclude(f => f.Images)
+            .OrderBy(b => b.Name).ToListAsync();
     }
 
     public async Task<Building?> GetBuildingAsync(int id)

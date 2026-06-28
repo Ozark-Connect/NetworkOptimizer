@@ -459,6 +459,14 @@ window.fpEditor = {
         }
     },
 
+    getCenter: function () {
+        if (this._map) {
+            var c = this._map.getCenter();
+            return [c.lat, c.lng];
+        }
+        return null;
+    },
+
     saveMapView: function (buildingLat, buildingLng) {
         var self = this;
         if (this._map) {
