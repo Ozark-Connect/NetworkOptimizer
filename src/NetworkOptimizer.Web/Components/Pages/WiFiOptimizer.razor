@@ -1085,7 +1085,7 @@
             // Only warn about the data lag when it actually roamed - there's nothing to wait for
             // on a noop or a failure.
             var note = result.Action == "moved"
-                ? "It may take a minute for the AP data to reflect the new parent."
+                ? "It may take a minute for the AP data to update."
                 : null;
             ShowToast(result.Message, result.Ok ? "alert-success" : "alert-warning", note);
 
