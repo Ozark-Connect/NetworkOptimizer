@@ -606,16 +606,16 @@
                                                 <button class="btn btn-sm btn-primary optimize-mesh-btn"
                                                         @onclick="@(() => OptimizeMeshAsync(ap))"
                                                         disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac))"
-                                                        data-tooltip="Runs a Wi-Fi scan that nudges this AP onto the strongest available mesh parent (or the one you've pinned in UniFi Network) when it's stuck on a weaker uplink. Safe to re-run.">
+                                                        data-tooltip="Re-scans the mesh uplink so this AP reconnects to its highest Uplink Priority parent when it's stuck on a weaker one. Safe to re-run.">
                                                     @if (_optimizingMacs.Contains(ap.Mac))
                                                     {
                                                         <span class="spinner-sm"></span>
-                                                        <span>Optimizing...</span>
+                                                        <span>Scanning...</span>
                                                     }
                                                     else
                                                     {
                                                         <span class="optimize-mesh-icon">&#x21bb;</span>
-                                                        <span>Optimize Mesh</span>
+                                                        <span>Re-scan Uplink</span>
                                                     }
                                                 </button>
                                             }
