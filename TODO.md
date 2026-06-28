@@ -548,3 +548,26 @@ The app auto-detects controller type via login response, but needs testing with 
 - Path detection logic in `UniFiApiClient`
 - All API endpoints work correctly
 - Authentication flow differences (if any)
+
+## Channel Recommendation: Learn From Tried Configs (Outcome History)
+
+Track the channel combinations the user has actually run over time and the util/interference that
+resulted, then weight recommendations toward combos that measurably performed better - a real
+feedback loop instead of inference. UniFi's own metrics history is too short and only reflects the
+current channel, so we need our own longer-term store of tried configs and their outcomes.
+
+**Motivation:** The engine can produce confident false positives. Example (2.4 GHz, two co-located
+APs): it scored a straight 1<->11 swap as ~17% better, but the operator who set these channels up
+knows the swap is actually worse for util/interference. The "improvement" came almost entirely from:
+- **Propagated stress** - each AP's score on the channel it would move TO is inferred from the
+  *other* AP's measurement (halved by proximity), not measured. Circular.
+- **Self-induced load treated as environmental** - a channel's high utilization largely reflects
+  that AP's own clients, which move with it; the model assumes switching channels escapes it.
+- **Thin external margins, no direct scan data** - the only location-specific neighbor signal was
+  triangulated (logs showed "no scan channel data"), with tiny per-channel deltas.
+
+- [ ] Persist each observed (AP, channel, width) -> rolling util/interference/tx-retry outcome, long-term
+- [ ] Attribute metrics to the combo that was actually live (key off channel-change events)
+- [ ] When a candidate assignment matches a previously-tried combo, prefer measured outcome over inferred score
+- [ ] Down-weight (or flag) recommendations whose predicted gain rests mostly on propagated stress
+- [ ] Distinguish self-induced load from environmental interference - don't credit a move for escaping the AP's own traffic
