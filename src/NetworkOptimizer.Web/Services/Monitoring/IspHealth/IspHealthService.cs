@@ -25,6 +25,7 @@ public class IspHealthService
     private readonly MonitoringInfluxClient _influx;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
+    private readonly PhysicalLinkResolver _physicalLinkResolver;
     private readonly ILogger<IspHealthService> _logger;
     private readonly IspHealthOptions _options = new();
     private const int MaxCustomWindowHours = 720;  // 30-day cap on the date/time filter, matching the UI
@@ -49,12 +50,32 @@ public class IspHealthService
         MonitoringInfluxClient influx,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
+        PhysicalLinkResolver physicalLinkResolver,
         ILogger<IspHealthService> logger)
     {
         _influx = influx;
         _dbFactory = dbFactory;
         _connectionService = connectionService;
+        _physicalLinkResolver = physicalLinkResolver;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Persists the user's chosen physical-link source (used when more than one monitored
+    /// device matches the WAN's access technology) and forces a recompute so the Physical
+    /// Link factor reflects the pick. Pass null to clear the selection.
+    /// </summary>
+    public async Task SetPhysicalLinkSourceAsync(string? sourceKey, CancellationToken ct = default)
+    {
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
+            if (settings == null) return;
+            settings.PhysicalLinkSourceKey = string.IsNullOrWhiteSpace(sourceKey) ? null : sourceKey;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+        await GetReportAsync(forceRefresh: true, ct);
     }
 
     public IspHealthOptions Options => _options;
@@ -579,6 +600,10 @@ public class IspHealthService
         var primaryWanInterface = await GetPrimaryWanInterfaceAsync(ct);
         var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, primaryWanInterface, ct);
 
+        // Match the WAN's access technology to one monitored physical device (ONT/SFP, cable
+        // modem, or cellular modem) and aggregate its window metrics for the Physical Link factor.
+        var physical = await _physicalLinkResolver.ResolveAsync(technology, windowStart, windowEnd, aggregate, ct);
+
         var inputs = new IspHealthInputs
         {
             WindowStart = windowStart,
@@ -602,10 +627,14 @@ public class IspHealthService
             Outages = outages,
             SmartQueuesEnabled = smartQueuesEnabled,
             HopOrderKnown = hopOrderKnown,
-            LoadExclusionWindows = loadExclusions
+            LoadExclusionWindows = loadExclusions,
+            PhysicalLink = physical.Input
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
+        report.PhysicalLinkCandidates = physical.Candidates;
+        report.PhysicalLinkSelectedKey = physical.SelectedKey;
+        report.PhysicalLinkAmbiguous = physical.Ambiguous;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);

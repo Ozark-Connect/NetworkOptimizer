@@ -331,9 +331,26 @@ else
                                 </div>
                                 <span class="isp-factor-score @ScoreTextClass(factor.Score)">@(factor.Score?.ToString() ?? "--")</span>
                             </div>
-                            @if (!string.IsNullOrEmpty(factor.Description))
+                            @if (!string.IsNullOrEmpty(factor.Description)
+                                 && !(factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1))
                             {
                                 <div class="isp-factor-description">@factor.Description</div>
+                            }
+                            @if (factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1)
+                            {
+                                <div class="isp-factor-description">
+                                    @(r.PhysicalLinkAmbiguous
+                                        ? "More than one monitored access-link device matches this WAN. Choose which one feeds the score:"
+                                        : "Scoring the selected access-link device. Change it here if needed:")
+                                </div>
+                                <select class="form-control" style="max-width: 320px;"
+                                        value="@(r.PhysicalLinkSelectedKey ?? "")" @onchange="OnPhysicalLinkSourceChanged">
+                                    <option value="">Choose a source...</option>
+                                    @foreach (var cand in r.PhysicalLinkCandidates)
+                                    {
+                                        <option value="@cand.Key" selected="@(cand.Key == r.PhysicalLinkSelectedKey)">@cand.Label</option>
+                                    }
+                                </select>
                             }
                         }
                     }
@@ -597,6 +614,21 @@ else
         {
             _refreshing = false;
         }
+    }
+
+    /// <summary>
+    /// Persists the user's chosen physical-link source (the ambiguity dropdown) and reloads the
+    /// report for the current window so the Physical Link factor reflects the pick.
+    /// </summary>
+    private async Task OnPhysicalLinkSourceChanged(ChangeEventArgs e)
+    {
+        var key = e.Value?.ToString();
+        await IspHealth.SetPhysicalLinkSourceAsync(string.IsNullOrEmpty(key) ? null : key);
+        if (IsLiveWindow)
+            _report = await IspHealth.GetReportAsync();
+        else if (_windowStart.HasValue && _windowEnd.HasValue)
+            _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+        StateHasChanged();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

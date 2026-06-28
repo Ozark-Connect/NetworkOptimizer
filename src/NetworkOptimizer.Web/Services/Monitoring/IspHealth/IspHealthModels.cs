@@ -417,6 +417,18 @@ public class IspHealthReport
     public double? TypicalUploadMbps { get; init; }
     public DateTime? SpeedTestTime { get; init; }
 
+    /// <summary>
+    /// Physical-link source candidates for the WAN. More than one means the match was
+    /// ambiguous; the panel renders a picker. Set by the service after scoring (display only).
+    /// </summary>
+    public List<PhysicalLinkCandidate> PhysicalLinkCandidates { get; set; } = new();
+
+    /// <summary>The currently selected physical-link source key (e.g. "cm:3"), if any.</summary>
+    public string? PhysicalLinkSelectedKey { get; set; }
+
+    /// <summary>True when multiple sources matched and the user has not yet picked one.</summary>
+    public bool PhysicalLinkAmbiguous { get; set; }
+
     public static string GradeLabel(int score) => score switch
     {
         >= 90 => "Excellent",
@@ -570,6 +582,13 @@ public class IspHealthInputs
     /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
     /// </summary>
     public bool HopOrderKnown { get; init; }
+
+    /// <summary>
+    /// Window-aggregated physical-link metrics for the one source matched to the WAN, or null
+    /// when no source matched (or the match was ambiguous and unresolved). Drives the Access
+    /// Layer Physical Link factor.
+    /// </summary>
+    public PhysicalLinkInput? PhysicalLink { get; init; }
 }
 
 /// <summary>

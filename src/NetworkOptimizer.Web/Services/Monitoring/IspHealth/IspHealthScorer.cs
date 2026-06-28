@@ -61,7 +61,28 @@ public class IspHealthScorer
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
 
-        var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, idleLoss, loadedLatency, loadedLoss };
+        // Physical Link: the access medium's own physical layer (optical RX, DOCSIS RF/FEC,
+        // cellular signal). Null factor (omitted, no penalty) when no source matched the WAN.
+        var physicalIssues = new List<IspHealthIssue>();
+        IspScoreFactor physicalLink;
+        if (inputs.PhysicalLink is not null)
+        {
+            var physical = PhysicalLinkScorer.Score(inputs.PhysicalLink, inputs.ExpectedUploadMbps, _options.PhysicalLinkWeight);
+            physicalLink = physical.Factor;
+            physicalIssues = physical.Issues;
+        }
+        else
+        {
+            physicalLink = new IspScoreFactor
+            {
+                Name = "Physical Link",
+                Score = null,
+                Weight = _options.PhysicalLinkWeight,
+                Description = "No monitored access-link device (ONT, cable modem, or cellular modem) matched this WAN."
+            };
+        }
+
+        var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, idleLoss, loadedLatency, loadedLoss, physicalLink };
         var accessDimension = BuildDimension("Access Layer", _options.AccessWeight, accessFactors);
 
         var accessMedianRtt = SeriesStats.Median(
@@ -140,6 +161,7 @@ public class IspHealthScorer
             SpeedTestTime = bestSpeedTest?.Time
         };
         report.Issues.AddRange(CollectIssues(inputs, profile, report, loadWindows, loadedDeltas));
+        report.Issues.AddRange(physicalIssues);
         return report;
     }
 

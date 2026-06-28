@@ -24,24 +24,37 @@ public class IspHealthOptions
     /// <summary>Weight of the ISP-ASN-health dimension in the overall score.</summary>
     public double IspAsnWeight { get; set; } = 1.0 / 3.0;
 
+    // The five symptom factors below were rebalanced to 0.75 of their original weights
+    // (0.30/0.10/0.25/0.175/0.175 -> scaled by 0.75) to make room for the Physical Link
+    // factor at 0.25. BuildDimension renormalizes by the weight of the factors that
+    // actually scored, so a line with no matched physical source (Physical Link omitted)
+    // scores identically to before - the five keep their original relative proportions.
+
     /// <summary>Weight of WAN speed test throughput vs the configured plan within the access dimension.</summary>
-    public double SpeedVsPlanWeight { get; set; } = 0.30;
+    public double SpeedVsPlanWeight { get; set; } = 0.225;
 
     /// <summary>Weight of idle latency within the access dimension.</summary>
-    public double IdleLatencyWeight { get; set; } = 0.10;
+    public double IdleLatencyWeight { get; set; } = 0.075;
 
     /// <summary>
     /// Weight of packet loss within the access dimension. Loss is the heaviest signal
     /// after speed: it captures both steady physical-layer loss and (via the capped
     /// outage penalty) internet-unreachable outages, which users care about most.
     /// </summary>
-    public double IdleLossWeight { get; set; } = 0.25;
+    public double IdleLossWeight { get; set; } = 0.1875;
 
     /// <summary>Weight of loaded latency delta within the access dimension.</summary>
-    public double LoadedLatencyWeight { get; set; } = 0.175;
+    public double LoadedLatencyWeight { get; set; } = 0.13125;
 
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
-    public double LoadedLossWeight { get; set; } = 0.175;
+    public double LoadedLossWeight { get; set; } = 0.13125;
+
+    /// <summary>
+    /// Weight of the Physical Link factor within the access dimension: the access medium's
+    /// own physical layer (optical RX power, DOCSIS RF/FEC, cellular signal). 0.25 of the
+    /// dimension when a source is matched; omitted (no penalty) when none is.
+    /// </summary>
+    public double PhysicalLinkWeight { get; set; } = 0.25;
 
     /// <summary>How far back to fall when no WAN speed test ran inside the score window.</summary>
     public int SpeedTestFallbackDays { get; set; } = 7;
