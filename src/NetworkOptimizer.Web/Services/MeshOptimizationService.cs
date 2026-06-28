@@ -13,8 +13,15 @@ public class MeshOptimizationService
     private readonly UniFiSshService _ssh;
     private readonly ILogger<MeshOptimizationService> _logger;
 
-    /// <summary>How long to wait after issuing the scan before re-reading the link.</summary>
-    private static readonly TimeSpan ScanSettleDelay = TimeSpan.FromSeconds(6);
+    /// <summary>
+    /// After the scan, the AP evaluates results and roams on its own - which can take well over
+    /// ten seconds. Poll the link this many times, waiting <see cref="RoamPollInterval"/> between
+    /// reads, stopping early once it lands on a new parent.
+    /// </summary>
+    private const int RoamPollAttempts = 7;
+
+    /// <summary>Delay between post-scan link reads (also the initial settle after the scan).</summary>
+    private static readonly TimeSpan RoamPollInterval = TimeSpan.FromSeconds(3);
 
     /// <summary>
     /// The STA backhaul iface is interpolated into a shell command, so its format is locked down
@@ -58,22 +65,37 @@ public class MeshOptimizationService
         if (!scanOk)
             return MeshOptimizationResult.Failed(iface, "Couldn't start the backhaul scan.");
 
-        // The scan briefly blips the backhaul (and this SSH session); give it time to settle and
-        // re-associate before re-reading.
-        try
+        // The scan blips the backhaul, then the AP evaluates results and roams on its own, which
+        // can land several seconds after the scan returns. A single early read sees the old parent
+        // and wrongly reports "already on best", so poll the link and stop as soon as the BSSID
+        // changes (or the window closes). Reads during the blip can come back empty; keep the last
+        // good one.
+        (string? Bssid, int? Rssi, int? LinkSpeedMbps) after = (null, null, null);
+        var moved = false;
+        for (var attempt = 0; attempt < RoamPollAttempts; attempt++)
         {
-            await Task.Delay(ScanSettleDelay, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            return MeshOptimizationResult.Failed(iface, "Mesh optimization was cancelled.");
+            try
+            {
+                await Task.Delay(RoamPollInterval, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return MeshOptimizationResult.Failed(iface, "Mesh optimization was cancelled.");
+            }
+
+            var read = await ReadLinkAsync(host, wc, cancellationToken);
+            if (read.Bssid == null) continue;
+
+            after = read;
+            if (!string.Equals(read.Bssid, before.Bssid, StringComparison.OrdinalIgnoreCase))
+            {
+                moved = true;
+                break;
+            }
         }
 
-        var after = await ReadLinkAsync(host, wc, cancellationToken);
-
-        // The scan blips the backhaul (and this SSH session), so the post-scan read can come back
-        // empty even though the scan/roam happened. Don't assert "already on best" in that case -
-        // the card refresh that follows is the source of truth for the current parent.
+        // Every read came back empty (the scan can drop the SSH session). Don't assert "already on
+        // best" - the card refresh that follows is the source of truth for the current parent.
         if (after.Bssid == null)
         {
             return new MeshOptimizationResult
@@ -86,8 +108,6 @@ public class MeshOptimizationService
                 Message = "Backhaul re-scan done. Refreshing to show the current parent."
             };
         }
-
-        var moved = !string.Equals(after.Bssid, before.Bssid, StringComparison.OrdinalIgnoreCase);
 
         var result = new MeshOptimizationResult
         {
