@@ -14,6 +14,15 @@ public static class PonThresholds
     public const double PonTxPowerHighDbm = 4.0;
     public const double PonTempHighC = 75.0;
 
+    // --- PON receiver operating envelope (physics; consumed by ISP Health optical scoring) ---
+    /// <summary>ONU receiver sensitivity floor (GPON/XGS-PON Class B+); at/below this the link risks dropping.</summary>
+    public const double PonRxFloorDbm = -28.0;
+    /// <summary>ONU receiver overload point; receive power hotter than this risks saturating the receiver.</summary>
+    public const double PonRxOverloadDbm = -8.0;
+    /// <summary>Coldest receive power a realistic single/cascaded 1:64 split can produce. Below this is
+    /// excess loss (dirty connector, bend, splice), not a deeper splitter - 1:128 is not in the wild.</summary>
+    public const double PonExcessLossFloorDbm = -25.5;
+
     // --- Hysteresis ---
     public const double PowerHysteresisDbm = 2.0;
     public const double TempHysteresisC = 5.0;
@@ -22,6 +31,10 @@ public static class PonThresholds
     public const double AeRxPowerLowDbm = -14.0;
     public const double AeTxPowerHighDbm = 1.0;
     public const double AeTempHighC = 80.0;
+
+    // --- Active Ethernet receiver operating envelope ---
+    public const double AeRxFloorDbm = -16.0;
+    public const double AeRxOverloadDbm = -1.0;
 
     // --- Generic SFP thresholds ---
     public const double SfpTempHighGenericC = 87.0;

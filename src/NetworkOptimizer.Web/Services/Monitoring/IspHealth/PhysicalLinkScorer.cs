@@ -26,11 +26,6 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// </summary>
 public static class PhysicalLinkScorer
 {
-    /// <summary>Coldest receive power (dBm) any realistic single/cascaded 1:64 PON split can
-    /// produce (min OLT launch, max splitter + drop loss). Below this is excess loss, not a
-    /// bigger splitter - 1:128 is not seen in residential. Bounded, needs no baseline.</summary>
-    private const double PonExcessLossFloorDbm = -25.5;
-
     /// <summary>An RX drop of at least this many dB from the link's own baseline is developing loss.</summary>
     private const double PonTrendDropDbm = 2.5;
 
@@ -71,9 +66,9 @@ public static class PhysicalLinkScorer
         // not compress this curve. Gentle healthy slope, knee at the marginal anchor, zero at the
         // receiver sensitivity floor. Warmer = healthier until overload.
         var rxLow = isPon ? PonThresholds.PonRxPowerLowDbm : PonThresholds.AeRxPowerLowDbm;
-        var floor = isPon ? -28.0 : -16.0;             // receiver sensitivity (GPON/XGS-PON; AE)
-        var overload = isPon ? -8.0 : -1.0;            // too hot
-        var healthyTop = isPon ? -24.0 : -13.0;        // top of the gentle in-spec slope
+        var floor = isPon ? PonThresholds.PonRxFloorDbm : PonThresholds.AeRxFloorDbm;        // receiver sensitivity
+        var overload = isPon ? PonThresholds.PonRxOverloadDbm : PonThresholds.AeRxOverloadDbm;  // too hot
+        var healthyTop = isPon ? -24.0 : -13.0;        // top of the gentle in-spec slope (scoring-curve shape)
 
         var score = ScoreCurve.Interpolate(rx.Value,
             (floor, 0),
@@ -130,7 +125,7 @@ public static class PhysicalLinkScorer
             var split = InferSplitRatio(rx.Value, input.PonType);
             if (split != null) detailBits.Add(split);
 
-            if (rx.Value < PonExcessLossFloorDbm && rx.Value > floor)
+            if (rx.Value < PonThresholds.PonExcessLossFloorDbm && rx.Value > floor)
                 issues.Add(new IspHealthIssue
                 {
                     Severity = IspIssueSeverity.Warning,
@@ -215,7 +210,7 @@ public static class PhysicalLinkScorer
         var splitterLoss = oltLaunchDbm - rxDbm - distributionLossDb;
 
         // Colder than the deepest realistic 1:64 can produce is excess loss, not a bigger splitter.
-        if (rxDbm <= PonExcessLossFloorDbm) return "est. 1:64+ split or excess loss";
+        if (rxDbm <= PonThresholds.PonExcessLossFloorDbm) return "est. 1:64+ split or excess loss";
         if (splitterLoss < SplitterRungs[0].LossDb - 2.0) return null;  // too hot for even 1:2
 
         var best = SplitterRungs[0];
