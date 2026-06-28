@@ -8218,6 +8218,7 @@ a.path-hop.hop-clickable:hover {
         right: auto;
         left: 50%;
         bottom: 1rem;
+        width: 80vw;
         max-width: 80vw;
         transform: translateX(-50%);
     }
