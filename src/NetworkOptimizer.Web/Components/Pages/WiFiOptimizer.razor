@@ -47,7 +47,13 @@
 
 @if (!string.IsNullOrEmpty(_toastMessage))
 {
-    <div class="wifi-toast alert @_toastClass">@_toastMessage</div>
+    <div class="wifi-toast alert @_toastClass">
+        <div>@_toastMessage</div>
+        @if (!string.IsNullOrEmpty(_toastNote))
+        {
+            <div class="wifi-toast-note">@_toastNote</div>
+        }
+    </div>
 }
 
 @if (ConnectionService.IsConnected)
@@ -905,6 +911,7 @@
     // MACs of mesh children with an in-flight Optimize Mesh action (drives the per-card spinner).
     private readonly HashSet<string> _optimizingMacs = new();
     private string? _toastMessage;
+    private string? _toastNote;
     private string _toastClass = "alert-info";
 
     // Auto-refresh the Overview tab once the health score has aged past this, so a parked
@@ -1075,7 +1082,12 @@
         try
         {
             var result = await MeshService.OptimizeAsync(ap.Ip, ap.MeshUplinkInterface, ap.Name);
-            ShowToast(result.Message, result.Ok ? "alert-success" : "alert-warning");
+            // Only warn about the data lag when it actually roamed - there's nothing to wait for
+            // on a noop or a failure.
+            var note = result.Action == "moved"
+                ? "It may take a minute for the AP data to reflect the new parent."
+                : null;
+            ShowToast(result.Message, result.Ok ? "alert-success" : "alert-warning", note);
 
             // Pull once now in case the controller already caught up, then again after delays:
             // the UniFi controller's device list lags the actual roam by ~30s, so the immediate
@@ -1115,9 +1127,10 @@
         }
     }
 
-    private void ShowToast(string message, string cssClass)
+    private void ShowToast(string message, string cssClass, string? note = null)
     {
         _toastMessage = message;
+        _toastNote = note;
         _toastClass = cssClass;
         StateHasChanged();
 
@@ -1128,6 +1141,7 @@
             await InvokeAsync(() =>
             {
                 _toastMessage = null;
+                _toastNote = null;
                 StateHasChanged();
             });
         });

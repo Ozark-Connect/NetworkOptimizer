@@ -8207,11 +8207,18 @@ a.path-hop.hop-clickable:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+.wifi-toast-note {
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
 @media (max-width: 768px) {
     .wifi-toast {
         right: auto;
         left: 50%;
         bottom: 1rem;
+        max-width: 80vw;
         transform: translateX(-50%);
     }
 }
