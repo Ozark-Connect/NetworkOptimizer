@@ -8182,6 +8182,27 @@ a.path-hop.hop-clickable:hover {
     color: var(--text-muted);
 }
 
+.optimize-mesh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+}
+
+.optimize-mesh-icon {
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+.wifi-toast {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1080;
+    max-width: 22rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
 .ap-header-text {
     display: flex;
     flex-direction: column;

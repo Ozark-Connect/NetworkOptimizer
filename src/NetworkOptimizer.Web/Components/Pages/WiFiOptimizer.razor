@@ -11,6 +11,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
 @inject ApMapService ApMapService
+@inject MeshOptimizationService MeshService
 @inject PullToRefreshState PtrState
 @implements IDisposable
 @rendermode InteractiveServer
@@ -42,6 +43,11 @@
             <a href="/settings" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.LastError) ? "Check Settings" : "Connect Now")</a>
         </div>
     </div>
+}
+
+@if (!string.IsNullOrEmpty(_toastMessage))
+{
+    <div class="wifi-toast alert @_toastClass">@_toastMessage</div>
 }
 
 @if (ConnectionService.IsConnected)
@@ -586,6 +592,24 @@
                                         <span class="status-dot @(ap.IsOnline ? "online" : "offline")"></span>
                                         <span class="ap-status-text">@(ap.IsOnline ? "Online" : "Offline")</span>
                                     </div>
+                                    @if (ap.IsMeshChild && !string.IsNullOrEmpty(ap.MeshUplinkInterface))
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary optimize-mesh-btn"
+                                                @onclick="@(() => OptimizeMeshAsync(ap))"
+                                                disabled="@(!ap.IsOnline || _optimizingMacs.Contains(ap.Mac))"
+                                                data-tooltip="Runs a Wi-Fi scan that nudges this AP onto the strongest available mesh parent (or the one you've pinned in UniFi Network) when it's stuck on a weaker uplink. Safe to re-run.">
+                                            @if (_optimizingMacs.Contains(ap.Mac))
+                                            {
+                                                <span class="spinner-sm"></span>
+                                                <span>Optimizing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="optimize-mesh-icon">&#x21bb;</span>
+                                                <span>Optimize Mesh</span>
+                                            }
+                                        </button>
+                                    }
                                 </div>
                                 <div class="ap-stats">
                                     <div class="ap-stat clickable" @onclick="@(() => NavigateToTab("client", ap.Mac))" @onclick:stopPropagation="true">
@@ -875,6 +899,11 @@
     private List<ApMapMarker> _apMapMarkers = new();
     private System.Threading.Timer? _mapPollTimer;
 
+    // MACs of mesh children with an in-flight Optimize Mesh action (drives the per-card spinner).
+    private readonly HashSet<string> _optimizingMacs = new();
+    private string? _toastMessage;
+    private string _toastClass = "alert-info";
+
     // Auto-refresh the Overview tab once the health score has aged past this, so a parked
     // tab doesn't show indefinitely stale data. Checked on each map-poll tick.
     private static readonly TimeSpan HealthScoreStaleAfter = TimeSpan.FromMinutes(1);
@@ -1031,6 +1060,52 @@
         // Channel recommendations run the full engine; compute in the background so they don't
         // delay the overview paint. The card shows its own loading state until ready.
         _ = LoadChannelRecommendationsAsync();
+    }
+
+    private async Task OptimizeMeshAsync(AccessPointSnapshot ap)
+    {
+        if (_optimizingMacs.Contains(ap.Mac)) return;
+
+        _optimizingMacs.Add(ap.Mac);
+        StateHasChanged();
+
+        try
+        {
+            var result = await MeshService.OptimizeAsync(ap.Ip, ap.MeshUplinkInterface, ap.Name);
+            ShowToast(result.Message, result.Ok ? "alert-success" : "alert-warning");
+
+            // The action already waited for the backhaul to settle; pull the AP list once so the
+            // card reflects the new parent now rather than waiting for the ~1 min auto-refresh.
+            _accessPoints = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+        }
+        catch
+        {
+            // The service logs the detail; surface a friendly message to the user.
+            ShowToast("Couldn't optimize the mesh uplink. Check the AP's SSH connection.", "alert-warning");
+        }
+        finally
+        {
+            _optimizingMacs.Remove(ap.Mac);
+            StateHasChanged();
+        }
+    }
+
+    private void ShowToast(string message, string cssClass)
+    {
+        _toastMessage = message;
+        _toastClass = cssClass;
+        StateHasChanged();
+
+        // Auto-dismiss after a few seconds without blocking.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            await InvokeAsync(() =>
+            {
+                _toastMessage = null;
+                StateHasChanged();
+            });
+        });
     }
 
     private async Task RefreshData()
