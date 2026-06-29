@@ -529,6 +529,7 @@ else
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
+    private bool _autoReloading;
     private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
 
@@ -580,13 +581,42 @@ else
             _loading = false;
         }
 
-        // Re-render every 30 s so "Last updated: N min ago" ages on its own, without
-        // waiting for a tab reload or a manual refresh.
+        // Re-render every 30 s so "Last updated: N min ago" ages on its own, and - on the live
+        // 48 h view - pull the latest cached snapshot so the tab follows the background recompute
+        // instead of sitting on a stale "Last updated" until a manual refresh.
         _ageTimer = new System.Threading.Timer(_ =>
         {
-            try { _ = InvokeAsync(StateHasChanged); }
+            try { _ = InvokeAsync(AutoReloadTickAsync); }
             catch { /* never let a render fault kill the timer */ }
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Periodic tick: always re-render so the relative "Last updated" ages, and on the live 48 h
+    /// view fetch the latest snapshot. This is a non-forced GetReportAsync - it serves the cache
+    /// and recomputes at most once per CacheTtl when stale, never the heavy forced refresh (which
+    /// clears caches and recomputes unconditionally). The display only swaps when a newer snapshot
+    /// actually arrives, so the chart isn't reloaded on every tick. Custom windows are left alone.
+    /// </summary>
+    private async Task AutoReloadTickAsync()
+    {
+        if (IsLiveWindow && !_autoReloading && !_loading && !_refreshing && !_windowComputing)
+        {
+            _autoReloading = true;
+            try
+            {
+                var latest = await IspHealth.GetReportAsync();
+                if (latest != null && (_report == null || latest.ComputedAt != _report.ComputedAt))
+                {
+                    _report = latest;
+                    try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+                    catch { /* chart not mounted yet */ }
+                }
+            }
+            catch { /* never let a fetch fault kill the timer */ }
+            finally { _autoReloading = false; }
+        }
+        StateHasChanged();
     }
 
     private async Task RefreshAsync()
