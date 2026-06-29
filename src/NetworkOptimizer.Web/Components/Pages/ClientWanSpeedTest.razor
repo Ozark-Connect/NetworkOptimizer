@@ -744,7 +744,7 @@
                 await InvokeAsync(async () =>
                 {
                     await LoadResults();
-                    StateHasChanged();
+                    await RenderActiveChart();
                 });
             }
             catch { }
