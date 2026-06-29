@@ -641,6 +641,7 @@
     private int _selectedServerId;
     private bool _loading;
     private List<Iperf3Result> _results = new();
+    private (int Count, int MaxId) _resultsSignature;
     private int _expandedId;
     private int _page = 1;
     private const int PageSize = 20;
@@ -743,8 +744,10 @@
             {
                 await InvokeAsync(async () =>
                 {
-                    await LoadResults();
-                    await RenderActiveChart();
+                    if (await LoadResults())
+                        await RenderActiveChart();
+                    else
+                        StateHasChanged();
                 });
             }
             catch { }
@@ -763,14 +766,18 @@
         return server?.Name ?? serverId;
     }
 
-    private async Task LoadResults()
+    private async Task<bool> LoadResults()
     {
         _loading = true;
         try
         {
             _results = await ClientSpeedTestService.GetWanResultsAsync(200);
+            var signature = (_results.Count, _results.Count == 0 ? 0 : _results.Max(r => r.Id));
+            var changed = signature != _resultsSignature;
+            _resultsSignature = signature;
             TransformChartData();
             ApplyChartFilters();
+            return changed;
         }
         finally
         {
