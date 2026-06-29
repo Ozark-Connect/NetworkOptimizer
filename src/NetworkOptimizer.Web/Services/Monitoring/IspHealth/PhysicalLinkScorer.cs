@@ -35,10 +35,11 @@ public static class PhysicalLinkScorer
         (2, 3.6), (4, 7.2), (8, 10.5), (16, 13.8), (32, 17.1), (64, 20.4)
     };
 
-    /// <summary>Generic note appended to a factor description when a detected signal anomaly (a dip,
-    /// excess loss, error burst, or interruption) was factored into the score. Deliberately
-    /// non-specific - the per-anomaly detail lives in the raised issues.</summary>
-    private const string AnomalyNote = " A signal anomaly (dip or interruption) was detected this window and factored into the score.";
+    /// <summary>Generic note appended to a factor description when a TRANSIENT event the snapshot
+    /// values don't show (a dip, an interruption/break, a developing drop, or an error burst) was
+    /// factored into the score. Steady-state conditions (marginal/hot power, low SNR, poor signal)
+    /// are visible in the displayed values, so they do NOT get this note.</summary>
+    private const string AnomalyNote = " A signal anomaly or interruption during this window was factored into the score.";
 
     public static PhysicalLinkResult Score(PhysicalLinkInput input, double? expectedUploadMbps, double factorWeight, ILogger? logger = null)
     {
@@ -176,30 +177,28 @@ public static class PhysicalLinkScorer
             });
         }
 
-        // FEC/BIP error corroboration (external ONT only; null on SFP DDM and on ONTs that don't
-        // report it). Real excess loss for the actual split leaves fingerprints: a sustained
-        // corrected-error or bit-error rate means the optic is marginal, independent of the RX
-        // reading. So a climbing error rate caps the optical score - this is how "too much loss for
-        // the split" is detected, rather than the circular RX-vs-inferred-split residual.
+        // FEC/BIP error corroboration (external ONT only; SFP DDM reports none). A healthy PON link
+        // logs a negligible BIP / uncorrectable-FEC count, so these are graded as an absolute count
+        // over the window normalized to a per-day rate (BIP and FEC sharing the same healthy line).
+        // A climbing count caps the optical score - real excess loss leaves error fingerprints,
+        // rather than inferring it circularly from RX-vs-split.
+        var fecPerDay = input.WindowDays > 0 && input.FecErrorsTotal is long fecT ? fecT / input.WindowDays : (double?)null;
+        var bipPerDay = input.WindowDays > 0 && input.BipErrorsTotal is long bipT ? bipT / input.WindowDays : (double?)null;
         var errorScore = 100.0;
-        if (input.FecErrorsPerPoll is double fecRate)
-            errorScore = Math.Min(errorScore, ScoreCurve.Interpolate(fecRate,
-                (0, 100), (PonThresholds.PonFecErrorSpikePerPoll, 90),
-                (PonThresholds.PonFecErrorSpikePerPoll * 20, 40), (PonThresholds.PonFecErrorSpikePerPoll * 100, 0)));
-        if (input.BipErrorsPerPoll is double bipRate)
-            errorScore = Math.Min(errorScore, ScoreCurve.Interpolate(bipRate,
-                (0, 100), (PonThresholds.PonBipErrorSpikePerPoll, 90),
-                (PonThresholds.PonBipErrorSpikePerPoll * 20, 40), (PonThresholds.PonBipErrorSpikePerPoll * 100, 0)));
+        if (fecPerDay is double fpd) errorScore = Math.Min(errorScore, PonErrorPerDayScore(fpd));
+        if (bipPerDay is double bpd) errorScore = Math.Min(errorScore, PonErrorPerDayScore(bpd));
         score = Math.Min(score, errorScore);
-        if (errorScore < 90)
+        var errorsHigh = (fecPerDay is double f1 && f1 > PonThresholds.PonErrorsPerDayPoor)
+                         || (bipPerDay is double b1 && b1 > PonThresholds.PonErrorsPerDayPoor);
+        if (errorsHigh)
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
-                Title = $"{label}: optical errors elevated",
-                Description = $"{input.SourceName} is accumulating FEC/BIP errors"
-                              + (input.FecErrorsPerPoll is double f ? $" ({f.ToString("0", CultureInfo.InvariantCulture)} FEC/poll)" : "")
-                              + (input.BipErrorsPerPoll is double b and > 0 ? $" ({b.ToString("0", CultureInfo.InvariantCulture)} BIP/poll)" : "")
-                              + ", which corroborates a marginal optical signal (too much loss for the link).",
+                Title = $"{label}: optical errors accumulating",
+                Description = $"{input.SourceName} is logging optical errors"
+                              + (fecPerDay is double f and > 0 ? $" (~{f.ToString("0", CultureInfo.InvariantCulture)}/day uncorrectable FEC)" : "")
+                              + (bipPerDay is double b and > 0 ? $" (~{b.ToString("0", CultureInfo.InvariantCulture)}/day BIP)" : "")
+                              + " - a healthy link sees a negligible count.",
                 Recommendation = "Inspect the drop for excess loss - a dirty/loose connector, a macrobend, or a degrading splice."
             });
 
@@ -212,14 +211,18 @@ public static class PhysicalLinkScorer
         var valueText = input.TxPowerDbm is double txp
             ? $"{rxText}, {txp.ToString("0.0", CultureInfo.InvariantCulture)} dBm TX"
             : rxText;
-        // Note when a real anomaly shaped the score: any raised issue, or a worst-sample dip more
-        // than half a dB below the median (the worst-cap engaged). Artifacts are already discarded,
-        // so a dip that reaches here is genuine.
-        var anomalyFactored = issues.Count > 0
-                              || (input.RxPowerWorstDbm is double worstDip && rx.Value - worstDip > 0.5);
+        // Note only TRANSIENT events the displayed RX/TX don't reveal: a receive-power dip (worst
+        // sample >0.5 dB below the median, where the worst-cap engaged - artifacts are already
+        // discarded so this is genuine), a link interruption (not in O5), a developing drop (trend
+        // vs baseline), or an FEC/BIP error burst. Steady marginal/hot RX or TX show in the values.
+        var transientAnomaly =
+            (input.RxPowerWorstDbm is double worstDip && rx.Value - worstDip > 0.5)
+            || input.PonOperational == false
+            || (isPon && input.RxPowerBaselineDbm is double baseDrop && rx.Value <= baseDrop - PonTrendDropDbm)
+            || errorsHigh;
         var desc = $"{label} optical receive power scored on margin to the receiver floor"
                    + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".")
-                   + (anomalyFactored ? AnomalyNote : "");
+                   + (transientAnomaly ? AnomalyNote : "");
 
         logger?.LogDebug(
             "ISP Health physical(optical {Label}): '{Source}' rxMed={Rx} -> {Score} (worst={Worst}, baseline={Base}, op={Op}, tx={Tx}, fecScore={ErrScore}, {Detail})",
@@ -231,6 +234,12 @@ public static class PhysicalLinkScorer
     }
 
     private static string FormatOrNull(double? v) => v.HasValue ? v.Value.ToString("0.0", CultureInfo.InvariantCulture) : "n/a";
+
+    /// <summary>0-100 score for a PON per-day BIP/uncorrectable-FEC count: 100 at 0 (ideal), still
+    /// high through the good line (~few/day), poor past the poor line. BIP and FEC share this curve.</summary>
+    private static double PonErrorPerDayScore(double perDay) => ScoreCurve.Interpolate(perDay,
+        (0, 100), (PonThresholds.PonErrorsPerDayGood, 92),
+        (PonThresholds.PonErrorsPerDayPoor, 25), (PonThresholds.PonErrorsPerDayPoor * 4, 0));
 
     /// <summary>
     /// Inferred EFFECTIVE split ratio for display only, derived from the optical power budget:
@@ -277,6 +286,9 @@ public static class PhysicalLinkScorer
     {
         var issues = new List<IspHealthIssue>();
         var isOfdm = IsDocsis31(input, expectedUploadMbps);
+        // Transient events only (channel loss, uncorrectable error burst). Steady power/SNR
+        // conditions are visible in the displayed values, so they don't get the anomaly note.
+        var transientAnomaly = false;
 
         var parts = new List<(double Score, double Weight)>();
         var valueBits = new List<string>();
@@ -299,32 +311,37 @@ public static class PhysicalLinkScorer
                 });
         }
 
-        // FEC uncorrectable ratio.
+        // FEC sub-score = 50% RATIO + 50% RATE. The ratio unc/(corr+unc) is "how dominant are
+        // uncorrectables among errored codewords" (texture, gen-independent); the rate is
+        // uncorrectables/day (the magnitude gate, scaled up for 3.1's higher codeword volume). A
+        // moderate ratio with a low rate is normal - only a high rate (or a dominant ratio) drags it.
         if (input.CorrectablesDelta is long corr && input.UncorrectablesDelta is long unc)
         {
             var denom = corr + unc;
-            double fecScore;
-            if (denom <= 0)
+            var ratio = denom > 0 ? (double)unc / denom : 0.0;
+            var ratioScore = denom <= 0 ? 100.0 : ScoreCurve.Interpolate(ratio,
+                (0, 100), (DocsisHealthThresholds.FecUncorrRatioGood, 90), (DocsisHealthThresholds.FecUncorrRatioPoor, 0));
+
+            var rateGood = isOfdm ? DocsisHealthThresholds.UncorrPerDayGoodOfdm : DocsisHealthThresholds.UncorrPerDayGoodScQam;
+            var ratePoor = isOfdm ? DocsisHealthThresholds.UncorrPerDayPoorOfdm : DocsisHealthThresholds.UncorrPerDayPoorScQam;
+            var uncPerDay = input.WindowDays > 0 ? unc / input.WindowDays : 0.0;
+            var rateScore = ScoreCurve.Interpolate(uncPerDay, (0, 100), (rateGood, 92), (ratePoor, 25), (ratePoor * 10, 0));
+
+            parts.Add((0.5 * ratioScore + 0.5 * rateScore, 0.30));
+
+            // Issue when uncorrectables dominate the errored codewords (>40%) or the rate is clearly high.
+            if (unc > 0 && (ratio > DocsisHealthThresholds.FecUncorrRatioIssue || uncPerDay >= ratePoor))
             {
-                fecScore = 100;
+                transientAnomaly = true;
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = IspIssueSeverity.Warning,
+                    Title = "DOCSIS: uncorrectable errors",
+                    Description = $"{input.SourceName} uncorrectable codewords are {(ratio * 100).ToString("0.#", CultureInfo.InvariantCulture)}% of errored codewords"
+                                  + (uncPerDay > 0 ? $" (~{uncPerDay.ToString("0", CultureInfo.InvariantCulture)}/day)" : "") + ".",
+                    Recommendation = "Sustained uncorrectables mean data loss; check downstream SNR and the coax/connectors for ingress."
+                });
             }
-            else
-            {
-                var ratio = (double)unc / denom;
-                var good = isOfdm ? DocsisHealthThresholds.FecUncorrRatioOfdmGood : DocsisHealthThresholds.FecUncorrRatioScQamGood;
-                var poor = isOfdm ? DocsisHealthThresholds.FecUncorrRatioOfdmPoor : DocsisHealthThresholds.FecUncorrRatioScQamPoor;
-                fecScore = ScoreCurve.Interpolate(ratio, (0, 100), (good, 92), (poor, 25), (poor * 5, 0));
-                if (ratio >= poor && unc > 0)
-                    issues.Add(new IspHealthIssue
-                    {
-                        Severity = IspIssueSeverity.Warning,
-                        Title = "DOCSIS: uncorrectable errors",
-                        Description = $"{input.SourceName} uncorrectable codewords are {(ratio * 100).ToString("0.##", CultureInfo.InvariantCulture)}% of errored codewords over the window"
-                                      + (isOfdm ? " (correctables are normal on DOCSIS 3.1 and not counted)." : "."),
-                        Recommendation = "Sustained uncorrectables mean data loss; check downstream SNR and the coax/connectors for ingress."
-                    });
-            }
-            parts.Add((fecScore, 0.30));
         }
 
         // Downstream power: tent centered near 0 dBmV.
@@ -391,6 +408,7 @@ public static class PhysicalLinkScorer
         if (input.LockedDsChannels is int locked && input.PeakDsChannels is int peak && peak - locked >= 4)
         {
             score = Math.Min(score, 40);
+            transientAnomaly = true;
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
@@ -403,7 +421,7 @@ public static class PhysicalLinkScorer
         var gen = isOfdm ? "DOCSIS 3.1" : "DOCSIS 3.0";
         var desc = $"{gen} cable-modem RF health (MER, FEC, downstream/upstream power)"
                    + (valueBits.Count > 0 ? $": {string.Join(", ", valueBits)}." : ".")
-                   + (issues.Count > 0 ? AnomalyNote : "");
+                   + (transientAnomaly ? AnomalyNote : "");
         return new PhysicalLinkResult(
             Factor(factorWeight, (int)Math.Round(score), string.Join(", ", valueBits), desc), issues);
     }
@@ -455,8 +473,9 @@ public static class PhysicalLinkScorer
         }
 
         var modeBit = string.IsNullOrWhiteSpace(input.NetworkMode) ? "" : $" ({input.NetworkMode})";
+        // Only the 5G->LTE downgrade is a transient event; a steady poor signal shows in the value.
         var desc = "Cellular composite signal quality (RSRP, SNR, RSRQ)."
-                   + (issues.Count > 0 ? AnomalyNote : "");
+                   + (input.NetworkModeDowngraded && input.Is5gCapable ? AnomalyNote : "");
         return new PhysicalLinkResult(
             Factor(factorWeight, (int)Math.Round(score), $"Signal {quality}/100{modeBit}", desc),
             issues);

@@ -36,16 +36,28 @@ public static class DocsisHealthThresholds
     public const double DsMerFloorScQamDb = 33.0;   // 256-QAM SC-QAM (DOCSIS 3.0)
     public const double DsMerFloorOfdmDb = 36.0;    // 4096-QAM OFDM (DOCSIS 3.1)
 
-    // --- FEC uncorrectable ratio = unc / (corr + unc) over the window. ---
-    // The denominator is (corrected + uncorrected) errored codewords, NOT all codewords
-    // (the time-series lacks error-free counts), so DOCSIS 3.0 sits inflated vs 3.1 and
-    // gets its own stricter anchors.
-    /// <summary>DOCSIS 3.1 OFDM: correctables benign; flag the uncorrectable fraction at ~1%.</summary>
-    public const double FecUncorrRatioOfdmGood = 0.01;
-    public const double FecUncorrRatioOfdmPoor = 0.10;
-    /// <summary>DOCSIS 3.0 SC-QAM: strict; target uncorrectables near zero.</summary>
-    public const double FecUncorrRatioScQamGood = 1e-4;
-    public const double FecUncorrRatioScQamPoor = 1e-2;
+    // --- FEC scoring: a 50/50 blend of the uncorrectable RATIO and the uncorrectable RATE. ---
+    // The ratio unc / (corr + unc) is "how dominant are uncorrectables among errored codewords" -
+    // a texture signal, NOT unc/total-codewords (the time-series lacks error-free counts), so a
+    // moderate ratio is normal when the absolute rate is low. The rate (uncorrectables per day) is
+    // the magnitude gate. Both halves average into the FEC sub-score.
+    /// <summary>Uncorrectable fraction of errored codewords that still scores well (texture, not a fault).</summary>
+    public const double FecUncorrRatioGood = 0.30;
+    /// <summary>Uncorrectable fraction at which the ratio half bottoms out.</summary>
+    public const double FecUncorrRatioPoor = 0.90;
+    /// <summary>Uncorrectable fraction above which an issue is raised regardless of rate.</summary>
+    public const double FecUncorrRatioIssue = 0.40;
+    // Uncorrectable codewords per day - the magnitude gate. DOCSIS 3.1 OFDM runs ~10x the throughput
+    // of 3.0 SC-QAM, so it processes ~10x the codewords and a healthy 3.1 link logs proportionally
+    // more absolute uncorrectables; its allowable rate scales up accordingly.
+    /// <summary>DOCSIS 3.0 SC-QAM: uncorrectables/day that are fine.</summary>
+    public const double UncorrPerDayGoodScQam = 2000.0;
+    /// <summary>DOCSIS 3.0 SC-QAM: uncorrectables/day at which the rate half bottoms out (and an issue is raised).</summary>
+    public const double UncorrPerDayPoorScQam = 20000.0;
+    /// <summary>DOCSIS 3.1 OFDM: uncorrectables/day that are fine (~10x SC-QAM).</summary>
+    public const double UncorrPerDayGoodOfdm = 20000.0;
+    /// <summary>DOCSIS 3.1 OFDM: uncorrectables/day at which the rate half bottoms out (and an issue is raised).</summary>
+    public const double UncorrPerDayPoorOfdm = 200000.0;
 
     /// <summary>
     /// Provisioned upstream above this (Mbps) is a hint the plant is DOCSIS 3.1 OFDMA

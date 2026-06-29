@@ -31,6 +31,14 @@ public static class PonThresholds
     /// errors, so this is stricter than the FEC corrected-error threshold.</summary>
     public const long PonBipErrorSpikePerPoll = 100;
 
+    // --- ONT error-count health for ISP Health (absolute count over the window, per-day). ---
+    // A healthy PON link has a negligible BIP / uncorrectable-FEC count: 0 is ideal, a few per day
+    // (~5-10) is still good, and above ~50/day is poor. BIP and uncorrectable FEC share this line.
+    /// <summary>Per-day BIP/uncorrectable-FEC count that still scores well (a few errors/day; 0 is ideal).</summary>
+    public const double PonErrorsPerDayGood = 10.0;
+    /// <summary>Per-day BIP/uncorrectable-FEC count above which the link is poor (and an issue is raised).</summary>
+    public const double PonErrorsPerDayPoor = 50.0;
+
     // --- Hysteresis ---
     public const double PowerHysteresisDbm = 2.0;
     public const double TempHysteresisC = 5.0;

@@ -189,7 +189,8 @@ public class PhysicalLinkResolver
             RxPowerMedianDbm = stats.MedianDbm,
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
-            TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm
+            TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
+            WindowDays = (windowEnd - windowStart).TotalDays
         };
     }
 
@@ -203,10 +204,10 @@ public class PhysicalLinkResolver
         var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
         var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, (double?)null)).ToList());
         var live = _ontMonitor.GetCachedStats(ontId);
-        var fecPerPoll = PerPollRate(pts.Select(p => p.FecErrors).ToList());
-        var bipPerPoll = PerPollRate(pts.Select(p => p.BipErrors).ToList());
-        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, rxMed={Med} worst={Worst}, op={Op}, fec/poll={Fec} bip/poll={Bip}",
-            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus, fecPerPoll, bipPerPoll);
+        var fecTotal = TotalIncrements(pts.Select(p => p.FecErrors).ToList());
+        var bipTotal = TotalIncrements(pts.Select(p => p.BipErrors).ToList());
+        _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, rxMed={Med} worst={Worst}, op={Op}, fecTotal={Fec} bipTotal={Bip}",
+            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus, fecTotal, bipTotal);
 
         return new PhysicalLinkInput
         {
@@ -218,17 +219,18 @@ public class PhysicalLinkResolver
             TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             PonOperational = live != null ? live.PonLinkStatus == PonLinkState.Operation : null,
             PonType = live?.PonType,
-            FecErrorsPerPoll = fecPerPoll,
-            BipErrorsPerPoll = bipPerPoll
+            FecErrorsTotal = fecTotal,
+            BipErrorsTotal = bipTotal,
+            WindowDays = (windowEnd - windowStart).TotalDays
         };
     }
 
-    /// <summary>Average per-poll increment of a cumulative error counter over the window, reset-guarded
+    /// <summary>Total positive increments of a cumulative error counter over the window, reset-guarded
     /// (negative steps from a counter reset count as zero). Null when there aren't two readings.</summary>
-    private static double? PerPollRate(IReadOnlyList<long?> counters)
+    private static long? TotalIncrements(IReadOnlyList<long?> counters)
     {
         long total = 0;
-        var steps = 0;
+        var any = false;
         long? prev = null;
         foreach (var v in counters)
         {
@@ -237,11 +239,11 @@ public class PhysicalLinkResolver
             {
                 var delta = cur - p;
                 if (delta > 0) total += delta;
-                steps++;
+                any = true;
             }
             prev = cur;
         }
-        return steps > 0 ? (double)total / steps : null;
+        return any ? total : (long?)null;
     }
 
     private async Task<PhysicalLinkInput?> AssembleCableModemAsync(
@@ -269,7 +271,8 @@ public class PhysicalLinkResolver
             OfdmaActive = live != null
                 ? live.UpstreamChannels.Any(ch => (ch.ChannelType ?? "").Contains("OFDMA", StringComparison.OrdinalIgnoreCase))
                 : null,
-            ModemModel = string.IsNullOrWhiteSpace(live?.DeviceModel) ? null : live!.DeviceModel
+            ModemModel = string.IsNullOrWhiteSpace(live?.DeviceModel) ? null : live!.DeviceModel,
+            WindowDays = (windowEnd - windowStart).TotalDays
         };
     }
 
@@ -297,7 +300,8 @@ public class PhysicalLinkResolver
             SignalQuality = quality is double q ? (int)Math.Round(q) : null,
             NetworkMode = latestMode,
             NetworkModeDowngraded = downgraded,
-            Is5gCapable = had5g
+            Is5gCapable = had5g,
+            WindowDays = (windowEnd - windowStart).TotalDays
         };
     }
 

@@ -49,12 +49,15 @@ public class PhysicalLinkInput
     /// <summary>PON type for display (GPON, XGS-PON); also selects the OLT-launch assumption.</summary>
     public string? PonType { get; init; }
 
-    /// <summary>Average FEC corrected errors per poll over the window (external ONT only). A sustained
-    /// rate above the spike threshold corroborates a marginal optic. Null when not reported.</summary>
-    public double? FecErrorsPerPoll { get; init; }
+    /// <summary>Total uncorrectable-FEC codewords over the window (external ONT only). Graded as an
+    /// absolute per-day count - negligible on a healthy plant. Null when not reported.</summary>
+    public long? FecErrorsTotal { get; init; }
 
-    /// <summary>Average BIP (uncorrected bit) errors per poll over the window (external ONT only).</summary>
-    public double? BipErrorsPerPoll { get; init; }
+    /// <summary>Total BIP (uncorrected bit) errors over the window (external ONT only).</summary>
+    public long? BipErrorsTotal { get; init; }
+
+    /// <summary>Length of the scoring window in days, for normalizing error counts to a per-day rate.</summary>
+    public double WindowDays { get; init; }
 
     // --- DOCSIS ---
 

@@ -15,7 +15,7 @@ public class PhysicalLinkScorerTests
 
     private static PhysicalLinkResult ScorePon(double rx, double? worst = null, double? baseline = null,
         bool? operational = null, double? tx = null, string ponType = "GPON",
-        double? fecPerPoll = null, double? bipPerPoll = null) =>
+        long? fecTotal = null, long? bipTotal = null, double windowDays = 2.0) =>
         PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
             Medium = PhysicalMedium.Pon,
@@ -26,8 +26,9 @@ public class PhysicalLinkScorerTests
             PonOperational = operational,
             TxPowerDbm = tx,
             PonType = ponType,
-            FecErrorsPerPoll = fecPerPoll,
-            BipErrorsPerPoll = bipPerPoll
+            FecErrorsTotal = fecTotal,
+            BipErrorsTotal = bipTotal,
+            WindowDays = windowDays
         }, expectedUploadMbps: null, Weight);
 
     // ---- PON receive-power grading ----
@@ -100,31 +101,30 @@ public class PhysicalLinkScorerTests
     }
 
     [Fact]
-    public void Pon_elevated_fec_errors_cap_score_and_warn()
+    public void Pon_elevated_errors_cap_score_and_warn()
     {
-        // A sustained FEC rate well above the spike threshold corroborates a marginal optic even
-        // though the RX reading itself is fine - this is the non-circular "excess loss" signal.
-        var result = ScorePon(-20.0, fecPerPoll: 25_000);
+        // A high absolute error count (well above the ~50/day poor line) caps the optical score and
+        // raises an issue, even though the RX reading itself is fine.
+        var result = ScorePon(-20.0, fecTotal: 1000, windowDays: 2);   // ~500/day
         result.Factor.Score.Should().BeLessThan(85);
-        result.Issues.Should().Contain(i => i.Title.Contains("optical errors elevated"));
+        result.Issues.Should().Contain(i => i.Title.Contains("optical errors accumulating"));
     }
 
     [Fact]
-    public void Pon_clean_fec_does_not_penalize()
+    public void Pon_zero_errors_do_not_penalize()
     {
         var healthy = ScorePon(-20.0).Factor.Score!.Value;
-        var cleanFec = ScorePon(-20.0, fecPerPoll: 50);   // well below the 1000/poll threshold
-        cleanFec.Factor.Score!.Value.Should().Be(healthy);
-        cleanFec.Issues.Should().NotContain(i => i.Title.Contains("optical errors"));
+        var withZeroErrors = ScorePon(-20.0, fecTotal: 0, bipTotal: 0, windowDays: 2);
+        withZeroErrors.Factor.Score!.Value.Should().Be(healthy);
+        withZeroErrors.Issues.Should().NotContain(i => i.Title.Contains("optical errors"));
     }
 
     [Fact]
-    public void Pon_bip_errors_are_stricter_than_fec()
+    public void Pon_bip_errors_share_the_same_per_day_line_as_fec()
     {
-        // BIP (uncorrected) errors use a lower threshold than FEC (corrected): the same rate dings harder.
-        var fecOnly = ScorePon(-20.0, fecPerPoll: 500).Factor.Score!.Value;
-        var bipSame = ScorePon(-20.0, bipPerPoll: 500).Factor.Score!.Value;
-        bipSame.Should().BeLessThan(fecOnly);
+        // BIP and uncorrectable FEC use the same per-day curve; a high BIP count raises the issue.
+        var result = ScorePon(-20.0, bipTotal: 1000, windowDays: 2);   // ~500/day
+        result.Issues.Should().Contain(i => i.Title.Contains("optical errors accumulating"));
     }
 
     [Fact]
@@ -147,6 +147,30 @@ public class PhysicalLinkScorerTests
         var result = ScorePon(-22.0, worst: -24.0);
         result.Issues.Should().BeEmpty();
         result.Factor.Description.Should().Contain("anomaly");
+    }
+
+    [Fact]
+    public void Pon_steady_marginal_rx_has_issue_but_no_anomaly_note()
+    {
+        // A steadily-low RX raises marginal/excess-loss issues but is NOT a transient event - it's
+        // visible in the displayed value, so it must not get the "anomaly during this window" note.
+        var result = ScorePon(-26.0);
+        result.Issues.Should().NotBeEmpty();
+        result.Factor.Description.Should().NotContain("anomaly");
+    }
+
+    [Fact]
+    public void Docsis_steady_hot_power_has_no_anomaly_note()
+    {
+        var result = ScoreDocsis(dsPower: 10);
+        result.Issues.Should().NotBeEmpty();
+        result.Factor.Description.Should().NotContain("anomaly");
+    }
+
+    [Fact]
+    public void Docsis_channel_loss_appends_anomaly_note()
+    {
+        ScoreDocsis(locked: 24, peak: 32).Factor.Description.Should().Contain("anomaly");
     }
 
     [Fact]
@@ -196,7 +220,7 @@ public class PhysicalLinkScorerTests
 
     private static PhysicalLinkResult ScoreDocsis(double? snr = 40, double? dsPower = 0, double? usPower = 44,
         long corr = 1_000_000, long unc = 0, int? locked = 32, int? peak = 32, bool? ofdma = true,
-        double? expectedUp = null) =>
+        double? expectedUp = null, double windowDays = 2.0) =>
         PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
             Medium = PhysicalMedium.Docsis,
@@ -208,7 +232,8 @@ public class PhysicalLinkScorerTests
             UncorrectablesDelta = unc,
             LockedDsChannels = locked,
             PeakDsChannels = peak,
-            OfdmaActive = ofdma
+            OfdmaActive = ofdma,
+            WindowDays = windowDays
         }, expectedUp, Weight);
 
     [Fact]
@@ -220,21 +245,40 @@ public class PhysicalLinkScorerTests
     }
 
     [Fact]
-    public void Docsis_31_tolerates_fec_that_would_sink_30()
+    public void Docsis_31_tolerates_a_higher_absolute_uncorrectable_rate()
     {
-        // Same uncorrectable fraction: 3.1 OFDM (correctables benign) scores well above 3.0 SC-QAM.
-        var ofdm = ScoreDocsis(corr: 1_000_000, unc: 5_000, ofdma: true).Factor.Score!.Value;
-        var scqam = ScoreDocsis(corr: 1_000_000, unc: 5_000, ofdma: false).Factor.Score!.Value;
+        // Same uncorrectable count: 3.1 OFDM processes ~10x the codewords, so its allowable per-day
+        // rate is higher and it scores above 3.0 SC-QAM for the same absolute count.
+        var ofdm = ScoreDocsis(corr: 1_000_000, unc: 30_000, ofdma: true).Factor.Score!.Value;
+        var scqam = ScoreDocsis(corr: 1_000_000, unc: 30_000, ofdma: false).Factor.Score!.Value;
         ofdm.Should().BeGreaterThan(scqam);
     }
 
     [Fact]
     public void Docsis_plant_generation_inferred_from_plan_speed_when_no_ofdma_reading()
     {
-        // No live OFDMA reading, but a >50 Mbps plan implies OFDMA mid/high-split (tolerant FEC).
-        var byPlan = ScoreDocsis(corr: 1_000_000, unc: 5_000, ofdma: null, expectedUp: 200).Factor.Score!.Value;
-        var legacy = ScoreDocsis(corr: 1_000_000, unc: 5_000, ofdma: null, expectedUp: 20).Factor.Score!.Value;
+        // No live OFDMA reading, but a >50 Mbps plan implies OFDMA - more codewords, higher allowable rate.
+        var byPlan = ScoreDocsis(corr: 1_000_000, unc: 30_000, ofdma: null, expectedUp: 200).Factor.Score!.Value;
+        var legacy = ScoreDocsis(corr: 1_000_000, unc: 30_000, ofdma: null, expectedUp: 20).Factor.Score!.Value;
         byPlan.Should().BeGreaterThan(legacy);
+    }
+
+    [Fact]
+    public void Docsis_high_ratio_but_low_rate_scores_ok_and_no_issue()
+    {
+        // The real-world case: uncorrectables are a high fraction of ERRORED codewords (30%) but the
+        // absolute rate is low. The rate half keeps the FEC score healthy and the issue (gated at the
+        // 40% ratio line, here just below... actually 30% < 40%) does not fire.
+        var result = ScoreDocsis(corr: 700, unc: 300, ofdma: true);   // ratio 30%, ~150/day
+        result.Factor.Score.Should().BeGreaterThan(85);
+        result.Issues.Should().NotContain(i => i.Title.Contains("uncorrectable"));
+    }
+
+    [Fact]
+    public void Docsis_uncorrectable_ratio_over_40pct_raises_issue()
+    {
+        var result = ScoreDocsis(corr: 400, unc: 600, ofdma: true);   // ratio 60% > 40%
+        result.Issues.Should().Contain(i => i.Title.Contains("uncorrectable"));
     }
 
     [Fact]
