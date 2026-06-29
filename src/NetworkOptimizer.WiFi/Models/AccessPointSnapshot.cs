@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Models;
+
 namespace NetworkOptimizer.WiFi.Models;
 
 /// <summary>
@@ -35,8 +37,18 @@ public class AccessPointSnapshot
     /// <summary>When this snapshot was taken</summary>
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
 
-    /// <summary>Whether this AP is currently online (State == 1 from UniFi API)</summary>
-    public bool IsOnline { get; set; } = true;
+    /// <summary>
+    /// Connection status derived from the UniFi device <c>state</c> (see UniFiDeviceStateMap).
+    /// Drives the status indicator; distinguishes provisioning/updating (yellow) from offline (grey).
+    /// </summary>
+    public DeviceStatus Status { get; set; } = new(DeviceStatusKind.Online, "Online");
+
+    /// <summary>
+    /// Whether this AP is fully online and actionable (the Online bucket: connected or
+    /// update-available). A provisioning/updating AP is not offline, but also not yet actionable -
+    /// use <see cref="Status"/> for display, this for gating actions like the backhaul re-scan.
+    /// </summary>
+    public bool IsOnline => Status.IsOnline;
 
     /// <summary>Whether this AP is a mesh child (has wireless uplink to another AP)</summary>
     public bool IsMeshChild { get; set; }

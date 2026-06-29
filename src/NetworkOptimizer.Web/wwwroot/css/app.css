@@ -1386,6 +1386,14 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
+.device-card.device-provisioning {
+    border-left-color: var(--warning-color);
+}
+
+.device-card.device-error {
+    border-left-color: var(--danger-color);
+}
+
 .device-header,
 .ap-header {
     display: flex;
@@ -1449,6 +1457,15 @@ a.stat-card-link:active {
 
 .status-dot.offline {
     background: var(--text-muted);
+}
+
+.status-dot.provisioning {
+    background: #fbbf24;
+    animation: pulse-yellow 2s infinite;
+}
+
+.status-dot.error {
+    background: var(--danger-color);
 }
 
 .device-body {
@@ -2045,6 +2062,11 @@ a.stat-card-link:active {
 .status-badge.status-error {
     background: rgba(239, 68, 68, 0.2);
     color: var(--danger-color);
+}
+
+.status-badge.status-provisioning {
+    background: rgba(231, 150, 19, 0.2);
+    color: var(--warning-color);
 }
 
 /* Buttons - Three colors only: primary (blue), secondary (grey), danger (red) */

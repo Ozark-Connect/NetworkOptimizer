@@ -932,7 +932,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             FirmwareVersion = ap.Firmware,
             Ip = ap.IpAddress,
             Satisfaction = ap.Satisfaction,
-            IsOnline = ap.State == 1,
+            Status = UniFiDeviceStateMap.ToStatus(ap.State),
             Timestamp = timestamp,
             Radios = new List<RadioSnapshot>(),
             Vaps = new List<VapSnapshot>(),
