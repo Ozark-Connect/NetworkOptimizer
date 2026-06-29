@@ -61,7 +61,11 @@ public static class PhysicalLinkScorer
     {
         var issues = new List<IspHealthIssue>();
         var rx = input.RxPowerMedianDbm;
-        var label = isPon ? (FormatPonType(input.PonType) ?? "PON") : "Active Ethernet";
+        // Prefer the type the ONT actually reports; otherwise fall back to the configured access
+        // technology so the copy reads "GPON"/"XGS-PON" rather than a bare "PON".
+        var label = isPon
+            ? (FormatPonType(input.PonType) ?? (input.IsXgsPon ? "XGS-PON" : "GPON"))
+            : "Active Ethernet";
 
         if (rx is null)
             return new PhysicalLinkResult(NullFactor(factorWeight, $"{label} link not reporting optical power yet"), issues);
