@@ -10,9 +10,11 @@ namespace NetworkOptimizer.WiFi;
 public interface IWiFiDataProvider
 {
     /// <summary>
-    /// Get current snapshot of all access points with Wi-Fi metrics
+    /// Get current snapshot of all access points with Wi-Fi metrics.
+    /// Pass <paramref name="useCache"/> = false to force a live device read, bypassing any
+    /// short-lived device-list cache (used by explicit user refresh and post-re-pair refresh).
     /// </summary>
-    Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default);
+    Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true);
 
     /// <summary>
     /// Get current snapshot of all wireless clients with connection details

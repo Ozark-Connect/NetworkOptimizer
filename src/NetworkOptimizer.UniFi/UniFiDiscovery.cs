@@ -206,9 +206,9 @@ public class UniFiDiscovery
     /// radio_table entries in the API but don't actually have Wi-Fi radios.
     /// SmartPower devices (USP-Strip, USP-Plug) are excluded via DeviceType classification.
     /// </summary>
-    public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
-        var devices = await DiscoverDevicesAsync(cancellationToken);
+        var devices = await DiscoverDevicesAsync(cancellationToken, useCache);
         return devices.Where(d =>
             d.Type == DeviceType.AccessPoint ||
             (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsGatewayOnlyConsole(d))).ToList();
