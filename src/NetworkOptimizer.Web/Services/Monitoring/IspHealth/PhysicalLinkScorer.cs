@@ -35,6 +35,11 @@ public static class PhysicalLinkScorer
         (2, 3.6), (4, 7.2), (8, 10.5), (16, 13.8), (32, 17.1), (64, 20.4)
     };
 
+    /// <summary>Generic note appended to a factor description when a detected signal anomaly (a dip,
+    /// excess loss, error burst, or interruption) was factored into the score. Deliberately
+    /// non-specific - the per-anomaly detail lives in the raised issues.</summary>
+    private const string AnomalyNote = " A signal anomaly (dip or interruption) was detected this window and factored into the score.";
+
     public static PhysicalLinkResult Score(PhysicalLinkInput input, double? expectedUploadMbps, double factorWeight, ILogger? logger = null)
     {
         return input.Medium switch
@@ -207,8 +212,14 @@ public static class PhysicalLinkScorer
         var valueText = input.TxPowerDbm is double txp
             ? $"{rxText}, {txp.ToString("0.0", CultureInfo.InvariantCulture)} dBm TX"
             : rxText;
+        // Note when a real anomaly shaped the score: any raised issue, or a worst-sample dip more
+        // than half a dB below the median (the worst-cap engaged). Artifacts are already discarded,
+        // so a dip that reaches here is genuine.
+        var anomalyFactored = issues.Count > 0
+                              || (input.RxPowerWorstDbm is double worstDip && rx.Value - worstDip > 0.5);
         var desc = $"{label} optical receive power scored on margin to the receiver floor"
-                   + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".");
+                   + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".")
+                   + (anomalyFactored ? AnomalyNote : "");
 
         logger?.LogDebug(
             "ISP Health physical(optical {Label}): '{Source}' rxMed={Rx} -> {Score} (worst={Worst}, baseline={Base}, op={Op}, tx={Tx}, fecScore={ErrScore}, {Detail})",
@@ -391,7 +402,8 @@ public static class PhysicalLinkScorer
 
         var gen = isOfdm ? "DOCSIS 3.1" : "DOCSIS 3.0";
         var desc = $"{gen} cable-modem RF health (MER, FEC, downstream/upstream power)"
-                   + (valueBits.Count > 0 ? $": {string.Join(", ", valueBits)}." : ".");
+                   + (valueBits.Count > 0 ? $": {string.Join(", ", valueBits)}." : ".")
+                   + (issues.Count > 0 ? AnomalyNote : "");
         return new PhysicalLinkResult(
             Factor(factorWeight, (int)Math.Round(score), string.Join(", ", valueBits), desc), issues);
     }
@@ -443,9 +455,10 @@ public static class PhysicalLinkScorer
         }
 
         var modeBit = string.IsNullOrWhiteSpace(input.NetworkMode) ? "" : $" ({input.NetworkMode})";
+        var desc = "Cellular composite signal quality (RSRP, SNR, RSRQ)."
+                   + (issues.Count > 0 ? AnomalyNote : "");
         return new PhysicalLinkResult(
-            Factor(factorWeight, (int)Math.Round(score), $"Signal {quality}/100{modeBit}",
-                "Cellular composite signal quality (RSRP, SNR, RSRQ)."),
+            Factor(factorWeight, (int)Math.Round(score), $"Signal {quality}/100{modeBit}", desc),
             issues);
     }
 

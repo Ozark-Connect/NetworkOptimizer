@@ -134,6 +134,22 @@ public class PhysicalLinkScorerTests
     }
 
     [Fact]
+    public void Pon_healthy_steady_link_has_no_anomaly_note()
+    {
+        ScorePon(-22.0).Factor.Description.Should().NotContain("anomaly");
+    }
+
+    [Fact]
+    public void Pon_dip_appends_anomaly_note_even_without_an_issue()
+    {
+        // Worst sample well below the (healthy) median: the worst-cap engaged, so a dip was factored
+        // in even though no threshold-crossing issue was raised.
+        var result = ScorePon(-22.0, worst: -24.0);
+        result.Issues.Should().BeEmpty();
+        result.Factor.Description.Should().Contain("anomaly");
+    }
+
+    [Fact]
     public void Pon_high_tx_power_caps_and_warns()
     {
         var result = ScorePon(-22.0, tx: 6.0);   // above PonTxPowerHighDbm (4.0)
