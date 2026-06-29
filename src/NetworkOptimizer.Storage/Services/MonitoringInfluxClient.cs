@@ -1399,19 +1399,24 @@ from(bucket: ""{_bucket}"")
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured || modules.Count == 0) return new Dictionary<string, List<SfpPoint>>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        // TimeSpan.Zero requests RAW (un-aggregated) points. ISP Health needs this so DDM read
+        // artifacts (a single glitchy sample where RX dives and temperature jumps) stay isolated for
+        // rejection - mean aggregation would smear a glitch into a bucket that defeats the filter.
+        var raw = aggregateWindow == TimeSpan.Zero;
+        var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var macFilter = string.Join(" or ", modules.Select(m =>
             $@"(r.device_mac == ""{NormalizeMac(m.DeviceMac)}"" and r.port_name == ""{SanitizeFluxString(m.PortName)}"")"));
 
+        var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+";
         var flux = $@"
 from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""sfp"")
   |> filter(fn: (r) => {macFilter})
   |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"")
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+{aggregateLine}  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<SfpPoint>>();
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -1568,20 +1573,24 @@ union(tables: [gauges, deltas])
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
         if (!IsConfigured) return new Dictionary<string, List<OntPoint>>();
-        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+        // TimeSpan.Zero requests RAW points so ISP Health gets per-poll FEC/BIP deltas comparable to
+        // the alert spike threshold (aggregation would conflate several polls into one bucket).
+        var raw = aggregateWindow == TimeSpan.Zero;
+        var window = (aggregateWindow is null or { Ticks: 0 }) ? PickAggregateWindow(to - from) : aggregateWindow.Value;
 
         var ontFilter = !string.IsNullOrEmpty(ontId)
             ? $@"|> filter(fn: (r) => r.ont_id == ""{SanitizeFluxString(ontId)}"")"
             : "";
 
+        var aggregateLine = raw ? "" : $@"  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
+";
         var flux = $@"
 from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""ont"")
   {ontFilter}
-  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"")
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: last, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"" or r._field == ""fec_errors"" or r._field == ""bip_errors"" or r._field == ""pon_link_status"")
+{aggregateLine}  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<OntPoint>>();
         await foreach (var record in QueryFluxAsync(flux, ct))
@@ -1600,6 +1609,9 @@ from(bucket: ""{_longtermBucket}"")
                 TemperatureC = AsDoubleOrNull(record.GetValueByKey("temperature_c")),
                 VoltageV = AsDoubleOrNull(record.GetValueByKey("voltage_v")),
                 BiasMa = AsDoubleOrNull(record.GetValueByKey("bias_ma")),
+                FecErrors = AsLongOrNull(record.GetValueByKey("fec_errors")),
+                BipErrors = AsLongOrNull(record.GetValueByKey("bip_errors")),
+                PonLinkStatus = record.GetValueByKey("pon_link_status") as string,
             });
         }
         return results;
@@ -2253,6 +2265,11 @@ from(bucket: ""{_longtermBucket}"")
         public double? TemperatureC { get; init; }
         public double? VoltageV { get; init; }
         public double? BiasMa { get; init; }
+        public long? FecErrors { get; init; }
+        public long? BipErrors { get; init; }
+        /// <summary>Raw PON link status influx value ("operation", "popup", ...); null when the
+        /// source didn't report an O-state on that poll (DDM sticks, a stats-page hiccup).</summary>
+        public string? PonLinkStatus { get; init; }
     }
 
     /// <summary>

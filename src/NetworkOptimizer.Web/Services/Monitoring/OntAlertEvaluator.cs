@@ -15,7 +15,7 @@ public class OntAlertEvaluator
 {
     private const double RxPowerLowDbm = PonThresholds.PonRxPowerLowDbm;
     private const double RxPowerHysteresisDbm = PonThresholds.PowerHysteresisDbm;
-    private const long FecErrorDeltaThreshold = 1000;
+    private const long FecErrorDeltaThreshold = PonThresholds.PonFecErrorSpikePerPoll;
 
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<OntAlertEvaluator> _logger;

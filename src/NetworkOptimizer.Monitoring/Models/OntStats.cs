@@ -60,10 +60,11 @@ public class OntStats
     public int? SfpLinkSpeedMbps { get; set; }
 
     // Error counters
-    /// <summary>FEC corrected error count</summary>
+    /// <summary>FEC error count - the data-loss signal: uncorrectable FEC codewords where the device
+    /// distinguishes them (corrected codewords are benign and excluded). Cumulative.</summary>
     public long? FecErrors { get; set; }
 
-    /// <summary>BIP error count</summary>
+    /// <summary>BIP (bit-interleaved-parity) error count. Cumulative; reads 0 on a healthy link.</summary>
     public long? BipErrors { get; set; }
 
     /// <summary>Estimated distance to OLT in meters</summary>

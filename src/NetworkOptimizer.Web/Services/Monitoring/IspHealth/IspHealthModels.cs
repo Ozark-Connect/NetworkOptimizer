@@ -325,13 +325,15 @@ public class OutageEvent
     /// </summary>
     public bool IsPartial { get; init; }
 
-    /// <summary>Worst per-target mean loss reached during the event, for the partial-loss summary.</summary>
+    /// <summary>Worst per-target loss reached during the event. Feeds the partial-loss summary and the
+    /// scorer's severity depth (peak loss fraction). Populated for blackouts and partials alike.</summary>
     public double PeakLossPct { get; init; }
 
-    /// <summary>Distinct path targets that degraded during the event (partial-loss breadth).</summary>
+    /// <summary>Targets that dropped during the event (dark for a blackout, degraded for a partial) -
+    /// the numerator of the severity breadth fraction.</summary>
     public int DegradedTargetCount { get; init; }
 
-    /// <summary>Total path targets reporting during the event, the denominator for the breadth summary.</summary>
+    /// <summary>Total targets reporting during the event, the denominator for the breadth fraction.</summary>
     public int PathTargetCount { get; init; }
 
     /// <summary>Whether even the access hop went dark, or it held while everything beyond it dropped.</summary>
@@ -352,6 +354,14 @@ public class OutageEvent
     /// scored. Set by the scorer so each outage row can show its own "-N points".
     /// </summary>
     public int ScorePenaltyPoints { get; set; }
+
+    /// <summary>
+    /// Time-of-day usage weight 0..1: how heavily the line is typically in use during this event's
+    /// local hours, relative to its busiest hour, floored by <see cref="IspHealthOptions.UsageWeightFloor"/>.
+    /// 1.0 when usage weighting is off or the fingerprint is unavailable. Scales the outage's score
+    /// penalty so a drop during a quiet hour dings less than the same drop at peak. Set by the service.
+    /// </summary>
+    public double UsageWeight { get; set; } = 1.0;
 }
 
 /// <summary>One network tier's behavior during an outage, for the recovery-shape display.</summary>
@@ -416,6 +426,18 @@ public class IspHealthReport
     public double? TypicalDownloadMbps { get; init; }
     public double? TypicalUploadMbps { get; init; }
     public DateTime? SpeedTestTime { get; init; }
+
+    /// <summary>
+    /// Physical-link source candidates for the WAN. More than one means the match was
+    /// ambiguous; the panel renders a picker. Set by the service after scoring (display only).
+    /// </summary>
+    public List<PhysicalLinkCandidate> PhysicalLinkCandidates { get; set; } = new();
+
+    /// <summary>The currently selected physical-link source key (e.g. "cm:3"), if any.</summary>
+    public string? PhysicalLinkSelectedKey { get; set; }
+
+    /// <summary>True when multiple sources matched and the user has not yet picked one.</summary>
+    public bool PhysicalLinkAmbiguous { get; set; }
 
     public static string GradeLabel(int score) => score switch
     {
@@ -570,6 +592,13 @@ public class IspHealthInputs
     /// transit (transit is always downstream of the ISP) and stays closed for ISP siblings.
     /// </summary>
     public bool HopOrderKnown { get; init; }
+
+    /// <summary>
+    /// Window-aggregated physical-link metrics for the one source matched to the WAN, or null
+    /// when no source matched (or the match was ambiguous and unresolved). Drives the Access
+    /// Layer Physical Link factor.
+    /// </summary>
+    public PhysicalLinkInput? PhysicalLink { get; init; }
 }
 
 /// <summary>

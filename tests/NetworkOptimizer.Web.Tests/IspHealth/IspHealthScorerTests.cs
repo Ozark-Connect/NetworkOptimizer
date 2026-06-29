@@ -39,7 +39,8 @@ public class IspHealthScorerTests
         double? internetDeltaMs = null,
         bool lineIdle = false,
         bool hopOrderKnown = false,
-        List<OutageEvent>? outages = null)
+        List<OutageEvent>? outages = null,
+        TimeSpan? scoreWindow = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -60,7 +61,7 @@ public class IspHealthScorerTests
         return new IspHealthInputs
         {
             WindowStart = TestSeries.Start,
-            WindowEnd = TestSeries.Start + Day,
+            WindowEnd = TestSeries.Start + (scoreWindow ?? Day),
             FirstHopSeries = firstHop,
             AccessHopSeries = accessHops ?? new List<List<LatencySample>>(),
             FirstHopTargetId = firstHopTargetId,
@@ -102,6 +103,107 @@ public class IspHealthScorerTests
         OverallWith(10).Should().Be(86);
         OverallWith(60).Should().Be(55);
         OverallWith(480).Should().Be(10);
+    }
+
+    // A short, broad, near-total drop, like the user's 28 s / 100% across 5 of 9 targets.
+    private static OutageEvent ShortBroadOutage(int seconds = 28, double peakLossPct = 100, int degraded = 5, int total = 9) => new()
+    {
+        Start = TestSeries.Start.AddHours(2),
+        End = TestSeries.Start.AddHours(2).AddSeconds(seconds),
+        PeakLossPct = peakLossPct,
+        DegradedTargetCount = degraded,
+        PathTargetCount = total
+    };
+
+    [Fact]
+    public void Recurring_micro_outages_compound_far_beyond_one_point()
+    {
+        int DropFor(int count)
+        {
+            var events = new List<OutageEvent>();
+            for (var i = 0; i < count; i++)
+                events.Add(ShortBroadOutage());
+            return 100 - new IspHealthScorer(Options).Score(BuildInputs(outages: events), Gpon).OverallScore;
+        }
+
+        // A single 28 s near-total broad drop is felt: a few points, not the old flat 1.
+        var one = DropFor(1);
+        one.Should().BeInRange(2, 5);
+
+        // Ten of them across the window cost far more - the occurrence component compounds rather
+        // than collapsing to ~one point the way summed-duration alone would.
+        var ten = DropFor(10);
+        ten.Should().BeGreaterThan(5 * one);
+        ten.Should().BeGreaterThan(15);
+    }
+
+    [Fact]
+    public void Outage_penalty_scales_with_breadth_and_depth()
+    {
+        int Drop(OutageEvent o) => 100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { o }), Gpon).OverallScore;
+
+        // Same 60 s duration; the broad near-total event must out-penalize the narrow shallow one
+        // purely on severity (breadth x depth), since their duration contribution is identical.
+        var broadDeep = Drop(ShortBroadOutage(seconds: 60, peakLossPct: 100, degraded: 8, total: 9));
+        var narrowShallow = Drop(ShortBroadOutage(seconds: 60, peakLossPct: 55, degraded: 4, total: 9));
+        broadDeep.Should().BeGreaterThan(narrowShallow);
+    }
+
+    [Fact]
+    public void Outage_at_a_quiet_usage_hour_is_softened_and_the_finding_says_so()
+    {
+        OutageEvent FullOutage(double usageWeight) => new()
+        {
+            Start = TestSeries.Start.AddHours(2),
+            End = TestSeries.Start.AddHours(2).AddMinutes(5),
+            PeakLossPct = 100,
+            DegradedTargetCount = 9,
+            PathTargetCount = 9,
+            UsageWeight = usageWeight
+        };
+        int Drop(OutageEvent o) => 100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { o }), Gpon).OverallScore;
+
+        // Same outage, quiet-hour weight dings less than a busy-hour (full-weight) one.
+        Drop(FullOutage(0.5)).Should().BeLessThan(Drop(FullOutage(1.0)));
+
+        // And the finding explains the softening for a clearly quiet-time event.
+        var report = new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { FullOutage(0.4) }), Gpon);
+        report.Issues.Should().Contain(i => i.Description.Contains("typically idle"));
+    }
+
+    [Fact]
+    public void Micro_outages_weigh_less_over_a_longer_window_a_long_outage_does_not()
+    {
+        int Drop(List<OutageEvent> outages, TimeSpan window) => 100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: outages, scoreWindow: window), Gpon).OverallScore;
+
+        // Frequency is a rate: the same two micro-drops spread over a week is a steadier line than
+        // the same two in 48 h, so the occurrence-dominated penalty fades over the longer window.
+        var micros = new List<OutageEvent> { ShortBroadOutage(), ShortBroadOutage() };
+        var micro48h = Drop(micros, TimeSpan.FromHours(48));
+        var micro7d = Drop(micros, TimeSpan.FromDays(7));
+        micro7d.Should().BeLessThan(micro48h);
+        (micro48h - micro7d).Should().BeGreaterThanOrEqualTo(2);
+
+        // A long, duration-dominated outage weighs roughly the same in either window (duration is
+        // absolute; only its small occurrence part rescales).
+        var longOutage = new List<OutageEvent>
+        {
+            new()
+            {
+                Start = TestSeries.Start.AddHours(2),
+                End = TestSeries.Start.AddHours(4),
+                PeakLossPct = 100,
+                DegradedTargetCount = 9,
+                PathTargetCount = 9
+            }
+        };
+        var long48h = Drop(longOutage, TimeSpan.FromHours(48));
+        var long7d = Drop(longOutage, TimeSpan.FromDays(7));
+        long7d.Should().BeCloseTo(long48h, 3);
     }
 
     [Fact]

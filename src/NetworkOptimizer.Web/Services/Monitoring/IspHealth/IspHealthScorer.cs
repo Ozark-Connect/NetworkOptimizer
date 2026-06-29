@@ -61,7 +61,30 @@ public class IspHealthScorer
         var (loadedLatency, hasLoadedLatency) = ScoreLoadedLatency(loadedDeltas, profile);
         var (loadedLoss, hasLoadedLoss) = ScoreLoadedLoss(inputs.LossPoolSeries, loadWindows, profile);
 
-        var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, idleLoss, loadedLatency, loadedLoss };
+        // Physical Link: the access medium's own physical layer (optical RX, DOCSIS RF/FEC,
+        // cellular signal). Null factor (omitted, no penalty) when no source matched the WAN.
+        var physicalIssues = new List<IspHealthIssue>();
+        IspScoreFactor physicalLink;
+        if (inputs.PhysicalLink is not null)
+        {
+            var physical = PhysicalLinkScorer.Score(inputs.PhysicalLink, inputs.ExpectedUploadMbps, _options.PhysicalLinkWeight, _logger);
+            physicalLink = physical.Factor;
+            physicalIssues = physical.Issues;
+            _logger?.LogDebug("ISP Health physical link factor: {Medium} '{Source}' -> {Score} ({Value})",
+                inputs.PhysicalLink.Medium, inputs.PhysicalLink.SourceName, physicalLink.Score, physicalLink.ValueText ?? "n/a");
+        }
+        else
+        {
+            physicalLink = new IspScoreFactor
+            {
+                Name = "Physical Link",
+                Score = null,
+                Weight = _options.PhysicalLinkWeight,
+                Description = "No monitored access-link device (ONT, cable modem, or cellular modem) matched this WAN."
+            };
+        }
+
+        var accessFactors = new List<IspScoreFactor> { speedVsPlan, idleLatency, idleLoss, loadedLatency, loadedLoss, physicalLink };
         var accessDimension = BuildDimension("Access Layer", _options.AccessWeight, accessFactors);
 
         var accessMedianRtt = SeriesStats.Median(
@@ -81,32 +104,80 @@ public class IspHealthScorer
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
-        // An outage is scored once, here at the top level, on a duration curve - so a long
-        // outage actually drives the score down instead of being diluted to a couple of
-        // points inside one factor. A partial-loss disruption counts as a fraction of that:
-        // its duration is weighted by its peak loss fraction (and a tunable weight), so a brief
-        // degradation is a near-zero ding while a blackout of the same length scores in full.
+        // Outages are scored once, here at the top level (not inside a factor, where the dimension
+        // weights would dilute a multi-hour outage to a couple of points), as TWO components:
+        //   - DURATION: one severity-curve lookup on the summed effective downtime. A partial-loss
+        //     disruption's minutes are weighted by its peak loss fraction (and a tunable weight), so a
+        //     shallow degradation dings less than a blackout of the same length.
+        //   - OCCURRENCE: each event's severity (breadth x depth) x a per-event cost, summed and
+        //     capped. This is what makes recurrence bite - ten separate micro-drops cost ~ten times a
+        //     single one, where the duration curve alone treats them as one slightly-longer drop - and
+        //     lifts a single felt short outage off the floor.
         // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
         // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
         // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
+        // Both components are scaled by the event's time-of-day usage weight (1.0 unless the service
+        // set it): an outage during the user's heavy-usage hours counts in full, one during typically
+        // idle hours dings less.
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
         double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes *
-            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0);
-        var outageMinutes = wanOutages.Sum(EffectiveMinutes);
-        if (outageMinutes > 0)
+            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0)
+            * o.UsageWeight;
+        // Severity 0..1 = breadth (fraction of monitored targets that dropped) x depth (peak loss
+        // fraction) x usage weight. A widespread near-total event at a busy hour reads hottest.
+        double Severity(OutageEvent o)
         {
+            var depth = Math.Clamp(o.PeakLossPct / 100.0, 0, 1);
+            var breadth = o.PathTargetCount > 0
+                ? Math.Clamp((double)o.DegradedTargetCount / o.PathTargetCount, 0, 1)
+                : 0.0;
+            return depth * breadth * o.UsageWeight;
+        }
+        if (wanOutages.Count > 0)
+        {
+            var outageMinutes = wanOutages.Sum(EffectiveMinutes);
+            var durationPenalty = outageMinutes > 0 ? OutageScorePenalty(outageMinutes) : 0.0;
+            // Occurrence is a FREQUENCY signal, so judge it as a RATE against the canonical window:
+            // the same few micro-drops spread over a week is a steadier line than the same number in
+            // 48 h. Dilute occurrence for windows LONGER than the reference; never amplify a shorter
+            // (e.g. zoomed-in) window. Duration is left absolute, so a long outage weighs the same in
+            // any window - only the count-based part rescales.
+            var windowHours = (inputs.WindowEnd - inputs.WindowStart).TotalHours;
+            var occurrenceWindowScale = _options.ScoreWindowHours > 0 && windowHours > _options.ScoreWindowHours
+                ? _options.ScoreWindowHours / windowHours
+                : 1.0;
+            double EventOccurrence(OutageEvent o) => _options.OutageEventCost * Severity(o) * occurrenceWindowScale;
+            var rawOccurrence = wanOutages.Sum(EventOccurrence);
+            var occurrencePenalty = Math.Min(_options.OutageOccurrenceCap, rawOccurrence);
+            var occCapScale = rawOccurrence > 0 ? occurrencePenalty / rawOccurrence : 0.0;
             // Floor a flagged WAN event at one point: if we surfaced it on the timeline it should
-            // visibly register, not round to a silent zero (a brief/partial event can curve to a
-            // fraction of a point otherwise). The floor is on the total, so many tiny events still
-            // cost at least a point rather than each.
-            var penalty = Math.Max(1.0, OutageScorePenalty(outageMinutes));
-            // Attribute the total penalty across the WAN outages by effective-minute share so each
-            // row can show its own "-N points". Rounded shares may differ from the curve total by
-            // <=1 pt - cosmetic; the actual deduction uses the total below.
+            // visibly register, not round to a silent zero.
+            var penalty = Math.Max(1.0, durationPenalty + occurrencePenalty);
+            // Attribute the total across events so each row shows its own "-N points": its duration
+            // share (by effective-minute) plus its (capped) occurrence cost. Rounded shares may differ
+            // from the total by <=1 pt - cosmetic; the actual deduction uses the total below.
             foreach (var o in wanOutages)
-                o.ScorePenaltyPoints = (int)Math.Round(penalty * (EffectiveMinutes(o) / outageMinutes));
-            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} effective min downtime ({Before} -> {After})",
-                penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
+            {
+                var durShare = outageMinutes > 0 ? durationPenalty * (EffectiveMinutes(o) / outageMinutes) : 0.0;
+                var occShare = EventOccurrence(o) * occCapScale;
+                o.ScorePenaltyPoints = (int)Math.Round(durShare + occShare);
+                // Per-event "show your work": time, kind, duration, depth (peak loss), breadth, and the
+                // time-of-day usage weight that scaled it, then the duration/occurrence point split.
+                _logger?.LogDebug(
+                    "ISP Health: outage {Start:HH:mm:ss} {Kind} {Dur}s peakLoss={Peak}% breadth={Deg}/{Tot} usageWeight={UW} -> {Pts} pts ({DurShare} dur + {OccShare} occ)",
+                    o.Start, o.IsPartial ? "partial" : o.IsBrief ? "brief" : "full",
+                    o.Duration.TotalSeconds.ToString("0", CultureInfo.InvariantCulture),
+                    o.PeakLossPct.ToString("0", CultureInfo.InvariantCulture),
+                    o.DegradedTargetCount, o.PathTargetCount,
+                    o.UsageWeight.ToString("0.00", CultureInfo.InvariantCulture),
+                    o.ScorePenaltyPoints,
+                    durShare.ToString("0.0", CultureInfo.InvariantCulture),
+                    occShare.ToString("0.0", CultureInfo.InvariantCulture));
+            }
+            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts = {Dur} duration + {Occ} occurrence over {N} event(s), {Min} eff min ({Before} -> {After})",
+                penalty.ToString("0.#", CultureInfo.InvariantCulture), durationPenalty.ToString("0.#", CultureInfo.InvariantCulture),
+                occurrencePenalty.ToString("0.#", CultureInfo.InvariantCulture), wanOutages.Count,
+                outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
                 overall, (int)Math.Max(0, Math.Round(overall - penalty)));
             overall = (int)Math.Max(0, Math.Round(overall - penalty));
         }
@@ -140,6 +211,7 @@ public class IspHealthScorer
             SpeedTestTime = bestSpeedTest?.Time
         };
         report.Issues.AddRange(CollectIssues(inputs, profile, report, loadWindows, loadedDeltas));
+        report.Issues.AddRange(physicalIssues);
         return report;
     }
 
@@ -1184,7 +1256,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = multiple ? "Internet outages in the window" : "Internet outage in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}",
+                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}{UsageNote(fullOutages)}",
                 Recommendation = allUpstream
                     ? "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents."
                     : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
@@ -1212,7 +1284,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Info,
                 Title = multiple ? "Brief internet disruptions in the window" : "Brief internet disruption in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing (so {(multiple ? "these are real, not monitoring gaps" : "this is real, not a monitoring gap")}).{where}{impact}",
+                Description = $"{count} occurred while the Monitoring Agent kept probing (so {(multiple ? "these are real, not monitoring gaps" : "this is real, not a monitoring gap")}).{where}{impact}{UsageNote(briefDisruptions)}",
                 Recommendation = "Short drops like these are usually transient upstream or transit events; logged here so you can spot a pattern of flapping.",
                 LinkUrl = "#isp-outages",
                 LinkText = "Shown on the timeline below."
@@ -1233,7 +1305,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Info,
                 Title = multiple ? "Partial-loss disruptions in the window" : "Partial-loss disruption in the window",
-                Description = $"{count} hit the path: many targets degraded at once without going fully dark, so the internet was lossy but not unreachable.{breadth}{impact}",
+                Description = $"{count} hit the path: many targets degraded at once without going fully dark, so the internet was lossy but not unreachable.{breadth}{impact}{UsageNote(partialDisruptions)}",
                 Recommendation = "Coincident partial loss across many targets is usually upstream/transit congestion or a brief routing wobble; logged so you can correlate it with ISP incidents or watch for a pattern.",
                 LinkUrl = "#isp-outages",
                 LinkText = "Shown on the timeline below."
@@ -1367,6 +1439,18 @@ public class IspHealthScorer
     /// </summary>
     private double OutageScorePenalty(double totalDowntimeMinutes) =>
         ScoreCurve.Interpolate(totalDowntimeMinutes, _options.OutageSeverityCurve);
+
+    /// <summary>A cosmetic note for an outage finding whose events fell during typically-idle hours.
+    /// The score impact already reflects the lower usage weight; this just explains why it's modest.
+    /// Empty when usage weighting is off or the events landed during normal/heavy-usage hours.</summary>
+    private string UsageNote(IReadOnlyCollection<OutageEvent> events)
+    {
+        if (!_options.UsageWeightingEnabled || events.Count == 0) return string.Empty;
+        if (events.Min(e => e.UsageWeight) >= _options.UsageQuietWeightThreshold) return string.Empty;
+        return events.Count > 1
+            ? " Some fell while your connection is typically idle, so the real-world impact was likely lower than the downtime suggests."
+            : " It fell while your connection is typically idle, so the real-world impact was likely lower than the downtime suggests.";
+    }
 
     private static string FormatOutageDuration(TimeSpan d) =>
         d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min" : $"{d.TotalHours:0.#} h";

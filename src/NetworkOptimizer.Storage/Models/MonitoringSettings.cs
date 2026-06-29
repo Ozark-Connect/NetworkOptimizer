@@ -120,6 +120,15 @@ public class MonitoringSettings
     public double? AeTempHighC { get; set; }
     public double? SfpTempHighGenericC { get; set; }
 
+    /// <summary>
+    /// When more than one monitored physical source (ONT, SFP, cable modem, cellular modem)
+    /// matches the WAN's access technology, the user's chosen source for the ISP Health
+    /// Physical Link factor, as a token: "cm:3", "ont:2", "modem:1",
+    /// "sfp:aa:bb:cc:dd:ee:ff/Port 1". Null = single unambiguous match, or not yet picked.
+    /// </summary>
+    [MaxLength(120)]
+    public string? PhysicalLinkSourceKey { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

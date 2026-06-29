@@ -231,7 +231,7 @@ else
                     <h2 class="card-title">@dimension.Name</h2>
                     <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
                 </div>
-                <div class="card-body">
+                <div class="card-body isp-card-body-tight-top">
                     @if (dimension == r.IspAsnDimension)
                     {
                         var ispTargets = r.IspTargets.OrderBy(t => t.RttMs ?? double.MaxValue).ToList();
@@ -331,9 +331,26 @@ else
                                 </div>
                                 <span class="isp-factor-score @ScoreTextClass(factor.Score)">@(factor.Score?.ToString() ?? "--")</span>
                             </div>
-                            @if (!string.IsNullOrEmpty(factor.Description))
+                            @if (!string.IsNullOrEmpty(factor.Description)
+                                 && !(factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1))
                             {
                                 <div class="isp-factor-description">@factor.Description</div>
+                            }
+                            @if (factor.Name == "Physical Link" && r.PhysicalLinkCandidates.Count > 1)
+                            {
+                                <div class="isp-factor-description">
+                                    @(r.PhysicalLinkAmbiguous
+                                        ? "More than one monitored access-link device matches this WAN. Choose which one feeds the score:"
+                                        : "Scoring the selected access-link device. Change it here if needed:")
+                                </div>
+                                <select class="form-control" style="max-width: 320px;"
+                                        value="@(r.PhysicalLinkSelectedKey ?? "")" @onchange="OnPhysicalLinkSourceChanged">
+                                    <option value="">Choose a source...</option>
+                                    @foreach (var cand in r.PhysicalLinkCandidates)
+                                    {
+                                        <option value="@cand.Key" selected="@(cand.Key == r.PhysicalLinkSelectedKey)">@cand.Label</option>
+                                    }
+                                </select>
                             }
                         }
                     }
@@ -482,7 +499,7 @@ else
 
     <div class="card isp-health-card isp-health-chart-card">
         <div class="card-header"><h2 class="card-title">Per-Network RTT (@WindowLabel(r))</h2></div>
-        <div class="card-body">
+        <div class="card-body isp-card-body-tight-top">
             <div id="isp-health-asn-chart"></div>
 
             @{ var ispAsn = r.IspAsns.FirstOrDefault(a => a.AsnNumber > 0); }
@@ -512,6 +529,7 @@ else
     private bool _loading = true;
     private bool _chartMounted;
     private bool _refreshing;
+    private bool _autoReloading;
     private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
 
@@ -563,13 +581,42 @@ else
             _loading = false;
         }
 
-        // Re-render every 30 s so "Last updated: N min ago" ages on its own, without
-        // waiting for a tab reload or a manual refresh.
+        // Re-render every 30 s so "Last updated: N min ago" ages on its own, and - on the live
+        // 48 h view - pull the latest cached snapshot so the tab follows the background recompute
+        // instead of sitting on a stale "Last updated" until a manual refresh.
         _ageTimer = new System.Threading.Timer(_ =>
         {
-            try { _ = InvokeAsync(StateHasChanged); }
+            try { _ = InvokeAsync(AutoReloadTickAsync); }
             catch { /* never let a render fault kill the timer */ }
         }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Periodic tick: always re-render so the relative "Last updated" ages, and on the live 48 h
+    /// view fetch the latest snapshot. This is a non-forced GetReportAsync - it serves the cache
+    /// and recomputes at most once per CacheTtl when stale, never the heavy forced refresh (which
+    /// clears caches and recomputes unconditionally). The display only swaps when a newer snapshot
+    /// actually arrives, so the chart isn't reloaded on every tick. Custom windows are left alone.
+    /// </summary>
+    private async Task AutoReloadTickAsync()
+    {
+        if (IsLiveWindow && !_autoReloading && !_loading && !_refreshing && !_windowComputing)
+        {
+            _autoReloading = true;
+            try
+            {
+                var latest = await IspHealth.GetReportAsync();
+                if (latest != null && (_report == null || latest.ComputedAt != _report.ComputedAt))
+                {
+                    _report = latest;
+                    try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+                    catch { /* chart not mounted yet */ }
+                }
+            }
+            catch { /* never let a fetch fault kill the timer */ }
+            finally { _autoReloading = false; }
+        }
+        StateHasChanged();
     }
 
     private async Task RefreshAsync()
@@ -597,6 +644,21 @@ else
         {
             _refreshing = false;
         }
+    }
+
+    /// <summary>
+    /// Persists the user's chosen physical-link source (the ambiguity dropdown) and reloads the
+    /// report for the current window so the Physical Link factor reflects the pick.
+    /// </summary>
+    private async Task OnPhysicalLinkSourceChanged(ChangeEventArgs e)
+    {
+        var key = e.Value?.ToString();
+        await IspHealth.SetPhysicalLinkSourceAsync(string.IsNullOrEmpty(key) ? null : key);
+        if (IsLiveWindow)
+            _report = await IspHealth.GetReportAsync();
+        else if (_windowStart.HasValue && _windowEnd.HasValue)
+            _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+        StateHasChanged();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

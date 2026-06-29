@@ -24,24 +24,39 @@ public class IspHealthOptions
     /// <summary>Weight of the ISP-ASN-health dimension in the overall score.</summary>
     public double IspAsnWeight { get; set; } = 1.0 / 3.0;
 
+    // The five symptom factors below were rebalanced to 0.85 of their original weights
+    // (0.30/0.10/0.25/0.175/0.175 -> scaled by 0.85) to make room for the Physical Link
+    // factor at 0.15. It is kept a mid-weight signal rather than the dimension's heaviest
+    // because a degraded physical layer usually also surfaces in the loss/latency/speed
+    // factors; its unique value is the early-warning / root-cause case. BuildDimension
+    // renormalizes by the weight of the factors that actually scored, so a line with no
+    // matched physical source (Physical Link omitted) keeps the five's original proportions.
+
     /// <summary>Weight of WAN speed test throughput vs the configured plan within the access dimension.</summary>
-    public double SpeedVsPlanWeight { get; set; } = 0.30;
+    public double SpeedVsPlanWeight { get; set; } = 0.255;
 
     /// <summary>Weight of idle latency within the access dimension.</summary>
-    public double IdleLatencyWeight { get; set; } = 0.10;
+    public double IdleLatencyWeight { get; set; } = 0.085;
 
     /// <summary>
     /// Weight of packet loss within the access dimension. Loss is the heaviest signal
     /// after speed: it captures both steady physical-layer loss and (via the capped
     /// outage penalty) internet-unreachable outages, which users care about most.
     /// </summary>
-    public double IdleLossWeight { get; set; } = 0.25;
+    public double IdleLossWeight { get; set; } = 0.2125;
 
     /// <summary>Weight of loaded latency delta within the access dimension.</summary>
-    public double LoadedLatencyWeight { get; set; } = 0.175;
+    public double LoadedLatencyWeight { get; set; } = 0.14875;
 
     /// <summary>Weight of loaded packet loss within the access dimension.</summary>
-    public double LoadedLossWeight { get; set; } = 0.175;
+    public double LoadedLossWeight { get; set; } = 0.14875;
+
+    /// <summary>
+    /// Weight of the Physical Link factor within the access dimension: the access medium's
+    /// own physical layer (optical RX power, DOCSIS RF/FEC, cellular signal). 0.15 of the
+    /// dimension when a source is matched; omitted (no penalty) when none is.
+    /// </summary>
+    public double PhysicalLinkWeight { get; set; } = 0.15;
 
     /// <summary>How far back to fall when no WAN speed test ran inside the score window.</summary>
     public int SpeedTestFallbackDays { get; set; } = 7;
@@ -401,15 +416,76 @@ public class IspHealthOptions
 
     /// <summary>
     /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
-    /// penaltyPoints) anchor, interpolated. Applied at the top level rather than buried in the
-    /// Packet Loss factor (where the dimension weights would dilute a multi-hour outage to a
-    /// couple of points). Scored by total duration alone - shape-independent. A brief blip barely
-    /// registers; ~10 min is a clear ding; multi-hour drives the score toward zero.
+    /// penaltyPoints) anchor, interpolated. This is the DURATION component of the outage penalty,
+    /// applied at the top level rather than buried in the Packet Loss factor (where the dimension
+    /// weights would dilute a multi-hour outage to a couple of points). The front is deliberately
+    /// steep - a 30 s drop is felt out of all proportion to its seconds (a dropped call, a stalled
+    /// stream), so a sub-minute outage carries a couple of points on duration alone rather than
+    /// rounding to zero; ~10 min is a clear ding; multi-hour drives the score toward zero. Recurrence
+    /// is scored separately by <see cref="OutageEventCost"/>, so this curve need not also encode "many
+    /// short drops are bad".
     /// </summary>
     public (double Minutes, double Penalty)[] OutageSeverityCurve { get; set; } =
     {
-        (0, 0), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
+        (0, 0), (0.5, 1.5), (1, 2.5), (2, 4), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
     };
+
+    /// <summary>
+    /// Per-event occurrence cost: the OCCURRENCE component of the outage penalty, summed across every
+    /// WAN outage on top of the duration curve. Each event contributes OutageEventCost x severity,
+    /// where severity = breadth (fraction of monitored targets that dropped) x depth (peak loss
+    /// fraction), 0..1. This is what makes recurrence bite: ten separate micro-drops cost ~ten times
+    /// a single one, where the duration curve alone would treat them as one slightly-longer drop. It
+    /// also lifts a single felt short outage off the floor. Kept modest because these events still
+    /// feed the Packet Loss factor (not masked), so we don't want to triple-count.
+    /// </summary>
+    public double OutageEventCost { get; set; } = 3.0;
+
+    /// <summary>
+    /// Cap on the summed occurrence component so a pathologically flaky window doesn't run the penalty
+    /// away on its own (the duration curve still adds on top, uncapped). Set high - a line dropping
+    /// dozens of times in the window SHOULD score badly - but bounded so occurrence can't alone zero a
+    /// score that the duration barely touched.
+    /// </summary>
+    public double OutageOccurrenceCap { get; set; } = 35.0;
+
+    /// <summary>
+    /// Weight outage severity by a time-of-day usage fingerprint: an outage during the hours the user
+    /// actually uses the connection bites in full, one during typically-idle hours dings less. The
+    /// fingerprint is built from the WAN throughput we already record (no new measurement) - per
+    /// local hour-of-day, the fraction of time the line was actively in use. Off => every outage is
+    /// weighted 1.0 (the prior behavior).
+    /// </summary>
+    public bool UsageWeightingEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Floor for the time-of-day usage weight: even at the quietest hour an outage still costs this
+    /// fraction of its full penalty (an outage is an outage). 1.0 would disable softening entirely.
+    /// </summary>
+    public double UsageWeightFloor { get; set; } = 0.5;
+
+    /// <summary>Downstream bits/sec above which the line counts as "actively in use" for the usage
+    /// fingerprint. ~1.5 Mbps so HD streaming registers as active, idle keep-alive traffic does not.</summary>
+    public double UsageActiveDownstreamBps { get; set; } = 1_500_000;
+
+    /// <summary>Upstream bits/sec above which the line counts as "actively in use" for the usage
+    /// fingerprint (~1 Mbps: a video call, an upload, a backup).</summary>
+    public double UsageActiveUpstreamBps { get; set; } = 1_000_000;
+
+    /// <summary>How far back to look when building the usage fingerprint. Longer = a cleaner, more
+    /// stable hour-of-day profile, independent of the (possibly short) scoring window.</summary>
+    public int UsageFingerprintLookbackDays { get; set; } = 14;
+
+    /// <summary>Minimum span of throughput data (hours from earliest to latest sample) before the usage
+    /// fingerprint is trusted. We only need roughly a full daily cycle to attempt a profile, not the
+    /// whole lookback - the lookback is a ceiling on history used, not a requirement. Below this it's
+    /// too little to read a time-of-day pattern, so weighting falls back to a flat 1.0 (cold start, no
+    /// grade-down).</summary>
+    public int UsageFingerprintMinHours { get; set; } = 24;
+
+    /// <summary>Usage weight at or below which a finding adds the "during a typically quiet time" note.
+    /// Purely cosmetic - the score impact already reflects the weight; this just explains it.</summary>
+    public double UsageQuietWeightThreshold { get; set; } = 0.7;
 
     /// <summary>Loaded delta beyond excellent by this many band-widths triggers the SQM recommendation.</summary>
     public double SqmDeviationFactor { get; set; } = 1.0;
