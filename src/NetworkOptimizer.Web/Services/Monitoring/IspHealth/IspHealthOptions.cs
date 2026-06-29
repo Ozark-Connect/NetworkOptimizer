@@ -449,6 +449,44 @@ public class IspHealthOptions
     /// </summary>
     public double OutageOccurrenceCap { get; set; } = 35.0;
 
+    /// <summary>
+    /// Weight outage severity by a time-of-day usage fingerprint: an outage during the hours the user
+    /// actually uses the connection bites in full, one during typically-idle hours dings less. The
+    /// fingerprint is built from the WAN throughput we already record (no new measurement) - per
+    /// local hour-of-day, the fraction of time the line was actively in use. Off => every outage is
+    /// weighted 1.0 (the prior behavior).
+    /// </summary>
+    public bool UsageWeightingEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Floor for the time-of-day usage weight: even at the quietest hour an outage still costs this
+    /// fraction of its full penalty (an outage is an outage). 1.0 would disable softening entirely.
+    /// </summary>
+    public double UsageWeightFloor { get; set; } = 0.5;
+
+    /// <summary>Downstream bits/sec above which the line counts as "actively in use" for the usage
+    /// fingerprint. ~1.5 Mbps so HD streaming registers as active, idle keep-alive traffic does not.</summary>
+    public double UsageActiveDownstreamBps { get; set; } = 1_500_000;
+
+    /// <summary>Upstream bits/sec above which the line counts as "actively in use" for the usage
+    /// fingerprint (~1 Mbps: a video call, an upload, a backup).</summary>
+    public double UsageActiveUpstreamBps { get; set; } = 1_000_000;
+
+    /// <summary>How far back to look when building the usage fingerprint. Longer = a cleaner, more
+    /// stable hour-of-day profile, independent of the (possibly short) scoring window.</summary>
+    public int UsageFingerprintLookbackDays { get; set; } = 14;
+
+    /// <summary>Minimum span of throughput data (hours from earliest to latest sample) before the usage
+    /// fingerprint is trusted. We only need roughly a full daily cycle to attempt a profile, not the
+    /// whole lookback - the lookback is a ceiling on history used, not a requirement. Below this it's
+    /// too little to read a time-of-day pattern, so weighting falls back to a flat 1.0 (cold start, no
+    /// grade-down).</summary>
+    public int UsageFingerprintMinHours { get; set; } = 24;
+
+    /// <summary>Usage weight at or below which a finding adds the "during a typically quiet time" note.
+    /// Purely cosmetic - the score impact already reflects the weight; this just explains it.</summary>
+    public double UsageQuietWeightThreshold { get; set; } = 0.7;
+
     /// <summary>Loaded delta beyond excellent by this many band-widths triggers the SQM recommendation.</summary>
     public double SqmDeviationFactor { get; set; } = 1.0;
 

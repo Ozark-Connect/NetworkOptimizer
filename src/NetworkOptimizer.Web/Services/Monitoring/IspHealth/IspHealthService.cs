@@ -594,6 +594,18 @@ public class IspHealthService
             outageHops, outages.Select(o => (o.Start, o.End)).ToList(), _options);
         outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
 
+        // Weight each outage by the time-of-day usage fingerprint so a drop during heavy-usage hours
+        // counts in full and one during typically-idle hours dings less. Null fingerprint (weighting
+        // off, or too few days of data) leaves every UsageWeight at 1.0 - no grade-down.
+        var usageFingerprint = await BuildUsageFingerprintAsync(windowEnd, ct);
+        if (usageFingerprint != null)
+        {
+            var usageZone = TimeZoneInfo.Local;
+            foreach (var o in outages)
+                o.UsageWeight = UsageWeighting.Weight(
+                    usageFingerprint, UsageWeighting.LocalHoursSpanned(o.Start, o.End, usageZone), _options.UsageWeightFloor);
+        }
+
         // chartClusters (one line per cluster) is the chart view computed from the same
         // snapshot the detectors ran on, so deeper-cluster "+N ms hop" labels still match
         // event labels. It is published together with the report (see Snapshot).
@@ -677,35 +689,98 @@ public class IspHealthService
     {
         try
         {
-            var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
-            var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
-            if (gw?.Mac == null)
+            var (mac, ifNames) = await ResolveWanCounterAsync(ct);
+            if (mac == null || ifNames == null || ifNames.Count == 0)
                 return new List<ThroughputSample>();
 
-            // ISP Health analyzes the CONFIGURED primary WAN (same WAN as the expected
-            // speeds and SQM exclusion), so the rate series must come from that WAN's
-            // SNMP counter interface (e.g. "eth6" for a VLAN-tagged primary), not the
-            // live active uplink in WanInterfaceNames. Fall back to the active uplink
-            // only if the config-primary cannot be resolved, so analysis still runs.
-            var primaryIfaces = await _connectionService.GetPrimaryWanInterfacesAsync(ct);
-            var wanCounterNames = !string.IsNullOrEmpty(primaryIfaces?.CounterIfName)
-                ? new List<string> { primaryIfaces!.CounterIfName! }
-                : gw.WanInterfaceNames;
-            if (wanCounterNames == null || wanCounterNames.Count == 0)
-            {
-                _logger.LogDebug("ISP Health: no WAN counter interface resolved for rate query");
-                return new List<ThroughputSample>();
-            }
-            if (primaryIfaces?.CounterIfName == null)
-                _logger.LogDebug("ISP Health: primary WAN unresolved, rate query falling back to active uplink {Ifaces}", string.Join(",", wanCounterNames));
-
-            var rates = await _influx.QueryGatewayWanRatesAsync(gw.Mac, wanCounterNames, from, to, aggregate, ct);
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, to, aggregate, ct);
             return rates.Select(r => new ThroughputSample(r.Time, r.DownloadBps, r.UploadBps)).ToList();
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "ISP Health could not query WAN rates");
             return new List<ThroughputSample>();
+        }
+    }
+
+    /// <summary>
+    /// Resolves the gateway MAC and the CONFIGURED primary WAN's SNMP counter interface(s) - the same
+    /// WAN as the expected speeds and SQM exclusion (e.g. "eth6" for a VLAN-tagged primary), not the
+    /// live active uplink. Falls back to the active uplink only if the config-primary can't be
+    /// resolved, so analysis still runs. Returns (null, null) when no gateway is discovered.
+    /// </summary>
+    private async Task<(string? Mac, List<string>? IfNames)> ResolveWanCounterAsync(CancellationToken ct)
+    {
+        var devices = await _connectionService.GetDiscoveredDevicesAsync(ct);
+        var gw = devices?.FirstOrDefault(d => d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+        if (gw?.Mac == null)
+            return (null, null);
+
+        var primaryIfaces = await _connectionService.GetPrimaryWanInterfacesAsync(ct);
+        var wanCounterNames = !string.IsNullOrEmpty(primaryIfaces?.CounterIfName)
+            ? new List<string> { primaryIfaces!.CounterIfName! }
+            : gw.WanInterfaceNames;
+        if (wanCounterNames == null || wanCounterNames.Count == 0)
+        {
+            _logger.LogDebug("ISP Health: no WAN counter interface resolved");
+            return (gw.Mac, null);
+        }
+        if (primaryIfaces?.CounterIfName == null)
+            _logger.LogDebug("ISP Health: primary WAN unresolved, falling back to active uplink {Ifaces}", string.Join(",", wanCounterNames));
+        return (gw.Mac, wanCounterNames);
+    }
+
+    /// <summary>
+    /// Hour-of-day usage fingerprint from the WAN throughput we already record (no new measurement):
+    /// per local hour-of-day, the fraction of sampled time the line was actively in use (DS/US above
+    /// the configured active thresholds). Drives time-of-day outage weighting. Returns null - so
+    /// weighting falls back to a flat 1.0 and outages are NOT graded down - when usage weighting is
+    /// off, no gateway/data is found, or the data spans fewer than <see cref="IspHealthOptions.UsageFingerprintMinHours"/>
+    /// hours (too little to read a time-of-day pattern). Uses whatever history exists up to the
+    /// lookback; the lookback is a ceiling, not a requirement, so ~a day of data is enough to attempt one.
+    /// </summary>
+    private async Task<double[]?> BuildUsageFingerprintAsync(DateTime windowEnd, CancellationToken ct)
+    {
+        if (!_options.UsageWeightingEnabled) return null;
+        try
+        {
+            var (mac, ifNames) = await ResolveWanCounterAsync(ct);
+            if (mac == null || ifNames == null || ifNames.Count == 0) return null;
+
+            var from = windowEnd.AddDays(-_options.UsageFingerprintLookbackDays);
+            // Active usage is sustained (streaming, calls, uploads); a 5-min mean is plenty to catch
+            // it and keeps the lookback series small.
+            var rates = await _influx.QueryGatewayWanRatesAsync(mac, ifNames, from, windowEnd, TimeSpan.FromMinutes(5), ct);
+            if (rates.Count == 0) return null;
+
+            var tz = TimeZoneInfo.Local;
+            var active = new double[24];
+            var total = new double[24];
+            DateTime? earliest = null, latest = null;
+            foreach (var r in rates)
+            {
+                var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(r.Time, DateTimeKind.Utc), tz);
+                total[local.Hour] += 1;
+                if (r.DownloadBps > _options.UsageActiveDownstreamBps || r.UploadBps > _options.UsageActiveUpstreamBps)
+                    active[local.Hour] += 1;
+                if (earliest is null || r.Time < earliest) earliest = r.Time;
+                if (latest is null || r.Time > latest) latest = r.Time;
+            }
+            // Need roughly a full daily cycle of data to read a time-of-day pattern; less than that
+            // can't distinguish "busy hour" from "quiet hour", so leave outages unweighted.
+            var spanHours = earliest is { } e && latest is { } l ? (l - e).TotalHours : 0;
+            if (spanHours < _options.UsageFingerprintMinHours) return null;
+
+            var fraction = new double[24];
+            for (var h = 0; h < 24; h++)
+                fraction[h] = total[h] > 0 ? active[h] / total[h] : 0.0;
+            _logger.LogDebug("ISP Health: usage fingerprint over {Span:0} h of data, peak-hour active {Peak:P0}", spanHours, fraction.Max());
+            return fraction;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health: usage fingerprint build failed");
+            return null;
         }
     }
 

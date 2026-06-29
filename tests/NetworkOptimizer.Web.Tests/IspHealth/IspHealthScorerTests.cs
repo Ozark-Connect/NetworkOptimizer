@@ -150,6 +150,30 @@ public class IspHealthScorerTests
     }
 
     [Fact]
+    public void Outage_at_a_quiet_usage_hour_is_softened_and_the_finding_says_so()
+    {
+        OutageEvent FullOutage(double usageWeight) => new()
+        {
+            Start = TestSeries.Start.AddHours(2),
+            End = TestSeries.Start.AddHours(2).AddMinutes(5),
+            PeakLossPct = 100,
+            DegradedTargetCount = 9,
+            PathTargetCount = 9,
+            UsageWeight = usageWeight
+        };
+        int Drop(OutageEvent o) => 100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { o }), Gpon).OverallScore;
+
+        // Same outage, quiet-hour weight dings less than a busy-hour (full-weight) one.
+        Drop(FullOutage(0.5)).Should().BeLessThan(Drop(FullOutage(1.0)));
+
+        // And the finding explains the softening for a clearly quiet-time event.
+        var report = new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { FullOutage(0.4) }), Gpon);
+        report.Issues.Should().Contain(i => i.Description.Contains("typically idle"));
+    }
+
+    [Fact]
     public void Outage_finding_spells_out_the_score_impact()
     {
         var outage = new OutageEvent

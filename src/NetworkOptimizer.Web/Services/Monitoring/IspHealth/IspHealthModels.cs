@@ -354,6 +354,14 @@ public class OutageEvent
     /// scored. Set by the scorer so each outage row can show its own "-N points".
     /// </summary>
     public int ScorePenaltyPoints { get; set; }
+
+    /// <summary>
+    /// Time-of-day usage weight 0..1: how heavily the line is typically in use during this event's
+    /// local hours, relative to its busiest hour, floored by <see cref="IspHealthOptions.UsageWeightFloor"/>.
+    /// 1.0 when usage weighting is off or the fingerprint is unavailable. Scales the outage's score
+    /// penalty so a drop during a quiet hour dings less than the same drop at peak. Set by the service.
+    /// </summary>
+    public double UsageWeight { get; set; } = 1.0;
 }
 
 /// <summary>One network tier's behavior during an outage, for the recovery-shape display.</summary>

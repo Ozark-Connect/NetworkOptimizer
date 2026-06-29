@@ -116,18 +116,22 @@ public class IspHealthScorer
         // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
         // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
         // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
+        // Both components are scaled by the event's time-of-day usage weight (1.0 unless the service
+        // set it): an outage during the user's heavy-usage hours counts in full, one during typically
+        // idle hours dings less.
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
         double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes *
-            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0);
+            (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0)
+            * o.UsageWeight;
         // Severity 0..1 = breadth (fraction of monitored targets that dropped) x depth (peak loss
-        // fraction). A widespread near-total event reads hotter than a narrow shallow one.
+        // fraction) x usage weight. A widespread near-total event at a busy hour reads hottest.
         double Severity(OutageEvent o)
         {
             var depth = Math.Clamp(o.PeakLossPct / 100.0, 0, 1);
             var breadth = o.PathTargetCount > 0
                 ? Math.Clamp((double)o.DegradedTargetCount / o.PathTargetCount, 0, 1)
                 : 0.0;
-            return depth * breadth;
+            return depth * breadth * o.UsageWeight;
         }
         if (wanOutages.Count > 0)
         {
@@ -1230,7 +1234,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = multiple ? "Internet outages in the window" : "Internet outage in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}",
+                Description = $"{count} occurred while the Monitoring Agent kept probing ({realPhrase}).{where}{impact}{UsageNote(fullOutages)}",
                 Recommendation = allUpstream
                     ? "No action needed on your side for an upstream outage; it is logged here so you can correlate it with ISP incidents."
                     : "Logged here so you can correlate it with ISP incidents; if the first ISP hop keeps dropping, check your modem/ONT and the line to your ISP.",
@@ -1258,7 +1262,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Info,
                 Title = multiple ? "Brief internet disruptions in the window" : "Brief internet disruption in the window",
-                Description = $"{count} occurred while the Monitoring Agent kept probing (so {(multiple ? "these are real, not monitoring gaps" : "this is real, not a monitoring gap")}).{where}{impact}",
+                Description = $"{count} occurred while the Monitoring Agent kept probing (so {(multiple ? "these are real, not monitoring gaps" : "this is real, not a monitoring gap")}).{where}{impact}{UsageNote(briefDisruptions)}",
                 Recommendation = "Short drops like these are usually transient upstream or transit events; logged here so you can spot a pattern of flapping.",
                 LinkUrl = "#isp-outages",
                 LinkText = "Shown on the timeline below."
@@ -1279,7 +1283,7 @@ public class IspHealthScorer
             {
                 Severity = IspIssueSeverity.Info,
                 Title = multiple ? "Partial-loss disruptions in the window" : "Partial-loss disruption in the window",
-                Description = $"{count} hit the path: many targets degraded at once without going fully dark, so the internet was lossy but not unreachable.{breadth}{impact}",
+                Description = $"{count} hit the path: many targets degraded at once without going fully dark, so the internet was lossy but not unreachable.{breadth}{impact}{UsageNote(partialDisruptions)}",
                 Recommendation = "Coincident partial loss across many targets is usually upstream/transit congestion or a brief routing wobble; logged so you can correlate it with ISP incidents or watch for a pattern.",
                 LinkUrl = "#isp-outages",
                 LinkText = "Shown on the timeline below."
@@ -1413,6 +1417,18 @@ public class IspHealthScorer
     /// </summary>
     private double OutageScorePenalty(double totalDowntimeMinutes) =>
         ScoreCurve.Interpolate(totalDowntimeMinutes, _options.OutageSeverityCurve);
+
+    /// <summary>A cosmetic note for an outage finding whose events fell during typically-idle hours.
+    /// The score impact already reflects the lower usage weight; this just explains why it's modest.
+    /// Empty when usage weighting is off or the events landed during normal/heavy-usage hours.</summary>
+    private string UsageNote(IReadOnlyCollection<OutageEvent> events)
+    {
+        if (!_options.UsageWeightingEnabled || events.Count == 0) return string.Empty;
+        if (events.Min(e => e.UsageWeight) >= _options.UsageQuietWeightThreshold) return string.Empty;
+        return events.Count > 1
+            ? " Some fell while your connection is typically idle, so the real-world impact was likely lower than the downtime suggests."
+            : " It fell while your connection is typically idle, so the real-world impact was likely lower than the downtime suggests.";
+    }
 
     private static string FormatOutageDuration(TimeSpan d) =>
         d.TotalMinutes < 90 ? $"{d.TotalMinutes:0} min" : $"{d.TotalHours:0.#} h";
