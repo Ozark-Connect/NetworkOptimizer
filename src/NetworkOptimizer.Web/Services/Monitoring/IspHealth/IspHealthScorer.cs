@@ -151,6 +151,18 @@ public class IspHealthScorer
                 var durShare = outageMinutes > 0 ? durationPenalty * (EffectiveMinutes(o) / outageMinutes) : 0.0;
                 var occShare = _options.OutageEventCost * Severity(o) * occurrenceScale;
                 o.ScorePenaltyPoints = (int)Math.Round(durShare + occShare);
+                // Per-event "show your work": time, kind, duration, depth (peak loss), breadth, and the
+                // time-of-day usage weight that scaled it, then the duration/occurrence point split.
+                _logger?.LogDebug(
+                    "ISP Health: outage {Start:HH:mm:ss} {Kind} {Dur}s peakLoss={Peak}% breadth={Deg}/{Tot} usageWeight={UW} -> {Pts} pts ({DurShare} dur + {OccShare} occ)",
+                    o.Start, o.IsPartial ? "partial" : o.IsBrief ? "brief" : "full",
+                    o.Duration.TotalSeconds.ToString("0", CultureInfo.InvariantCulture),
+                    o.PeakLossPct.ToString("0", CultureInfo.InvariantCulture),
+                    o.DegradedTargetCount, o.PathTargetCount,
+                    o.UsageWeight.ToString("0.00", CultureInfo.InvariantCulture),
+                    o.ScorePenaltyPoints,
+                    durShare.ToString("0.0", CultureInfo.InvariantCulture),
+                    occShare.ToString("0.0", CultureInfo.InvariantCulture));
             }
             _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts = {Dur} duration + {Occ} occurrence over {N} event(s), {Min} eff min ({Before} -> {After})",
                 penalty.ToString("0.#", CultureInfo.InvariantCulture), durationPenalty.ToString("0.#", CultureInfo.InvariantCulture),
