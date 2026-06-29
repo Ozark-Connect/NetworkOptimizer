@@ -207,8 +207,9 @@ public class PhysicalLinkResolver
         var live = _ontMonitor.GetCachedStats(ontId);
         var fecTotal = TotalIncrements(pts.Select(p => p.FecErrors).ToList());
         var bipTotal = TotalIncrements(pts.Select(p => p.BipErrors).ToList());
+        var operational = ResolveOperationalFromHistory(pts);
         _logger.LogDebug("ISP Health physical: ONT {Key} - {N} samples, rxMed={Med} worst={Worst}, op={Op}, fecTotal={Fec} bipTotal={Bip}",
-            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, live?.PonLinkStatus, fecTotal, bipTotal);
+            c.Key, pts.Count, stats.MedianDbm, stats.WorstDbm, operational, fecTotal, bipTotal);
 
         return new PhysicalLinkInput
         {
@@ -218,7 +219,7 @@ public class PhysicalLinkResolver
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
             TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
-            PonOperational = live != null ? live.PonLinkStatus == PonLinkState.Operation : null,
+            PonOperational = operational,
             PonType = live?.PonType,
             IsXgsPon = isXgsPon,
             FecErrorsTotal = fecTotal,
@@ -246,6 +247,25 @@ public class PhysicalLinkResolver
             prev = cur;
         }
         return any ? total : (long?)null;
+    }
+
+    /// <summary>
+    /// Grades the PON O5 (Operation) state from the persisted series rather than a single live poll:
+    /// true if every reported state was Operation, false if the link broke out of O5 at least once
+    /// during the window. A poll that omits PON Link Status (a DDM stick that never reports it, or the
+    /// gateway's stats page momentarily dropping the row) parses to Unknown and is ignored - missing
+    /// status is absence of data, not a link-down. Returns null when the source reported no O-state at
+    /// all, so the factor never false-alarms on ONTs that don't expose it. Matches OntAlertEvaluator,
+    /// which likewise treats Unknown as "not down".
+    /// </summary>
+    internal static bool? ResolveOperationalFromHistory(IReadOnlyList<MonitoringInfluxClient.OntPoint> pts)
+    {
+        var known = pts
+            .Select(p => PonLinkStateExtensions.ParsePonLinkState(p.PonLinkStatus))
+            .Where(s => s != PonLinkState.Unknown)
+            .ToList();
+        if (known.Count == 0) return null;
+        return known.All(s => s == PonLinkState.Operation);
     }
 
     private async Task<PhysicalLinkInput?> AssembleCableModemAsync(

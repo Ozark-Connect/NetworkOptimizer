@@ -155,16 +155,18 @@ public static class PhysicalLinkScorer
                 });
         }
 
-        // Caps and secondary signals.
+        // Caps and secondary signals. PonOperational reflects the O5 state across the WINDOW (from the
+        // series, not a single live poll), so a break may have happened earlier and since recovered -
+        // the copy is past/window tense, not "is down right now".
         if (input.PonOperational == false)
         {
             score = Math.Min(score, 10);
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Critical,
-                Title = "PON: link not in operation",
-                Description = $"{input.SourceName} PON link is not in the Operation (O5) state - the optical link is down or re-ranging.",
-                Recommendation = "Check the ONT and the fiber; persistent non-O5 state means no service."
+                Title = $"{label}: link dropped out of O5",
+                Description = $"{input.SourceName} PON link left the Operation (O5) state at least once during this window - the optical link went down or re-ranged.",
+                Recommendation = "A single brief drop can be a re-range; repeated O5 breaks point to a fiber or ONT fault - inspect the ONT and the optical path."
             });
         }
 

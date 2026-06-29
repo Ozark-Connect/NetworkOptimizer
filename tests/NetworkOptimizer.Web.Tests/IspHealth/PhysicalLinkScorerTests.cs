@@ -82,7 +82,7 @@ public class PhysicalLinkScorerTests
     {
         var result = ScorePon(-22.0, operational: false);
         result.Factor.Score.Should().BeLessThanOrEqualTo(10);
-        result.Issues.Should().Contain(i => i.Severity == IspIssueSeverity.Critical && i.Title.Contains("not in operation"));
+        result.Issues.Should().Contain(i => i.Severity == IspIssueSeverity.Critical && i.Title.Contains("dropped out of O5"));
     }
 
     [Fact]

@@ -1589,7 +1589,7 @@ from(bucket: ""{_longtermBucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""ont"")
   {ontFilter}
-  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"" or r._field == ""fec_errors"" or r._field == ""bip_errors"")
+  |> filter(fn: (r) => r._field == ""rx_power_dbm"" or r._field == ""tx_power_dbm"" or r._field == ""temperature_c"" or r._field == ""voltage_v"" or r._field == ""bias_ma"" or r._field == ""fec_errors"" or r._field == ""bip_errors"" or r._field == ""pon_link_status"")
 {aggregateLine}  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
 ";
         var results = new Dictionary<string, List<OntPoint>>();
@@ -1611,6 +1611,7 @@ from(bucket: ""{_longtermBucket}"")
                 BiasMa = AsDoubleOrNull(record.GetValueByKey("bias_ma")),
                 FecErrors = AsLongOrNull(record.GetValueByKey("fec_errors")),
                 BipErrors = AsLongOrNull(record.GetValueByKey("bip_errors")),
+                PonLinkStatus = record.GetValueByKey("pon_link_status") as string,
             });
         }
         return results;
@@ -2266,6 +2267,9 @@ from(bucket: ""{_longtermBucket}"")
         public double? BiasMa { get; init; }
         public long? FecErrors { get; init; }
         public long? BipErrors { get; init; }
+        /// <summary>Raw PON link status influx value ("operation", "popup", ...); null when the
+        /// source didn't report an O-state on that poll (DDM sticks, a stats-page hiccup).</summary>
+        public string? PonLinkStatus { get; init; }
     }
 
     /// <summary>
