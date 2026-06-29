@@ -143,7 +143,7 @@ else
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip" data-tooltip="Thresholds are tuned to the access technology selected in Upstream Discovery">
-                    Scored as @r.Profile.DisplayName &middot; last @WindowLabel(r)
+                    Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
                 </div>
             </div>
             <a href="/wan-speedtest" class="isp-health-hero-speed">
@@ -924,6 +924,16 @@ else
 
     private static string OutageHopTooltip(OutageTierState t) =>
         t.WentDark ? $"Went dark; peak loss {t.PeakLossPct:0}%." : "Stayed reachable through the outage.";
+
+    /// <summary>
+    /// The hero pill's window phrase. "last {span}" only reads correctly when the window actually
+    /// ends at (about) now; a custom window ending in the past would otherwise imply it runs up to the
+    /// present, so it gets an explicit date range instead.
+    /// </summary>
+    private static string ScoredWindowLabel(IspHealthReport r) =>
+        DateTime.UtcNow - r.WindowEnd < TimeSpan.FromHours(1)
+            ? $"last {WindowLabel(r)}"
+            : $"{r.WindowStart.ToLocalTime():MMM d, HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, HH:mm}";
 
     private static string WindowLabel(IspHealthReport r)
     {
