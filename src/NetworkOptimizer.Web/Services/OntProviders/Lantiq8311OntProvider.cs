@@ -25,6 +25,14 @@ public sealed class Lantiq8311OntProvider : IOntProvider
     private const int TimeoutSeconds = 10;
     private const string GponStatusPath = "/cgi-bin/luci/admin/8311/gpon_status";
     private const string LoginPath = "/cgi-bin/luci";
+    // Raw `pontop -g "FEC Status & Counters" -b` text (text/plain). The DDM gpon_status JSON does not
+    // carry error counters; FEC/BIP only live on this pontop page.
+    private const string FecCountersPath = "/cgi-bin/luci/admin/8311/pontop/fec";
+
+    // KV row in the pontop batch output: "Label<padding> : Value". Only numeric-valued rows match
+    // (so "FEC upstream : ON" and the "OPTION  VALUE" header are skipped).
+    private static readonly Regex FecCounterRegex = new(
+        @"^(.*\S)\s+:\s+(\d+)\s*$", RegexOptions.Compiled);
 
     private readonly ILogger<Lantiq8311OntProvider> _logger;
 
@@ -55,6 +63,11 @@ public sealed class Lantiq8311OntProvider : IOntProvider
 
             var json = await client.GetStringAsync($"{baseUrl}{GponStatusPath}", cancellationToken);
             var stats = ParseGponStatus(json, context);
+
+            // Best-effort FEC/BIP counters from the pontop page. Fully isolated: any failure here must
+            // not affect the DDM stats already parsed above, so a missing page or parse error just
+            // leaves the error counters null.
+            await TryAddFecCountersAsync(client, baseUrl, stats, cancellationToken);
 
             _logger.LogDebug("8311 ONT {Name} polled: Rx={Rx} dBm, Tx={Tx} dBm, Temp={Temp} C, Mode={Mode}",
                 context.Name, stats.RxPowerDbm?.ToString("F2") ?? "-",
@@ -226,6 +239,47 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         }
 
         return stats;
+    }
+
+    /// <summary>
+    /// Best-effort fetch + parse of the pontop "FEC Status &amp; Counters" page into the error counters.
+    /// Isolated in its own try/catch so a missing page, auth quirk, or format change can never disturb
+    /// the DDM stats; on any failure FecErrors/BipErrors simply stay null.
+    /// </summary>
+    private async Task TryAddFecCountersAsync(HttpClient client, string baseUrl, OntStats stats, CancellationToken ct)
+    {
+        try
+        {
+            var text = await client.GetStringAsync($"{baseUrl}{FecCountersPath}", ct);
+            ParseFecCounters(text, stats);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "8311 ONT {Name}: FEC/BIP counters unavailable", stats.DeviceName);
+        }
+    }
+
+    /// <summary>
+    /// Parses the raw pontop FEC page (KV rows "Label : Value"). Maps "Uncorrected FEC codewords" -&gt;
+    /// FecErrors and "BIP errors" -&gt; BipErrors - both read 0 on a healthy link, so they are clean
+    /// data-loss signals. "Corrected FEC codewords" is deliberately NOT used: FEC correcting errors is
+    /// benign (the optic is still delivering), so counting it would penalize a working link.
+    /// </summary>
+    internal static void ParseFecCounters(string text, OntStats stats)
+    {
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var match = FecCounterRegex.Match(rawLine.TrimEnd('\r'));
+            if (!match.Success || !long.TryParse(match.Groups[2].Value, out var value))
+                continue;
+
+            var key = match.Groups[1].Value.Trim();
+            if (key.Equals("Uncorrected FEC codewords", StringComparison.OrdinalIgnoreCase))
+                stats.FecErrors = value;
+            else if (key.Equals("BIP errors", StringComparison.OrdinalIgnoreCase))
+                stats.BipErrors = value;
+        }
     }
 
     private static double? ParseNumericValue(string? text)
