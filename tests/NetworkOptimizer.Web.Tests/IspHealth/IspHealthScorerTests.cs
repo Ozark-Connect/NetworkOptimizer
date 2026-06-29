@@ -104,6 +104,51 @@ public class IspHealthScorerTests
         OverallWith(480).Should().Be(10);
     }
 
+    // A short, broad, near-total drop, like the user's 28 s / 100% across 5 of 9 targets.
+    private static OutageEvent ShortBroadOutage(int seconds = 28, double peakLossPct = 100, int degraded = 5, int total = 9) => new()
+    {
+        Start = TestSeries.Start.AddHours(2),
+        End = TestSeries.Start.AddHours(2).AddSeconds(seconds),
+        PeakLossPct = peakLossPct,
+        DegradedTargetCount = degraded,
+        PathTargetCount = total
+    };
+
+    [Fact]
+    public void Recurring_micro_outages_compound_far_beyond_one_point()
+    {
+        int DropFor(int count)
+        {
+            var events = new List<OutageEvent>();
+            for (var i = 0; i < count; i++)
+                events.Add(ShortBroadOutage());
+            return 100 - new IspHealthScorer(Options).Score(BuildInputs(outages: events), Gpon).OverallScore;
+        }
+
+        // A single 28 s near-total broad drop is felt: a few points, not the old flat 1.
+        var one = DropFor(1);
+        one.Should().BeInRange(2, 5);
+
+        // Ten of them across the window cost far more - the occurrence component compounds rather
+        // than collapsing to ~one point the way summed-duration alone would.
+        var ten = DropFor(10);
+        ten.Should().BeGreaterThan(5 * one);
+        ten.Should().BeGreaterThan(15);
+    }
+
+    [Fact]
+    public void Outage_penalty_scales_with_breadth_and_depth()
+    {
+        int Drop(OutageEvent o) => 100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: new List<OutageEvent> { o }), Gpon).OverallScore;
+
+        // Same 60 s duration; the broad near-total event must out-penalize the narrow shallow one
+        // purely on severity (breadth x depth), since their duration contribution is identical.
+        var broadDeep = Drop(ShortBroadOutage(seconds: 60, peakLossPct: 100, degraded: 8, total: 9));
+        var narrowShallow = Drop(ShortBroadOutage(seconds: 60, peakLossPct: 55, degraded: 4, total: 9));
+        broadDeep.Should().BeGreaterThan(narrowShallow);
+    }
+
     [Fact]
     public void Outage_finding_spells_out_the_score_impact()
     {

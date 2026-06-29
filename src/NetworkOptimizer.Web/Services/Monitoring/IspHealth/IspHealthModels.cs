@@ -325,13 +325,15 @@ public class OutageEvent
     /// </summary>
     public bool IsPartial { get; init; }
 
-    /// <summary>Worst per-target mean loss reached during the event, for the partial-loss summary.</summary>
+    /// <summary>Worst per-target loss reached during the event. Feeds the partial-loss summary and the
+    /// scorer's severity depth (peak loss fraction). Populated for blackouts and partials alike.</summary>
     public double PeakLossPct { get; init; }
 
-    /// <summary>Distinct path targets that degraded during the event (partial-loss breadth).</summary>
+    /// <summary>Targets that dropped during the event (dark for a blackout, degraded for a partial) -
+    /// the numerator of the severity breadth fraction.</summary>
     public int DegradedTargetCount { get; init; }
 
-    /// <summary>Total path targets reporting during the event, the denominator for the breadth summary.</summary>
+    /// <summary>Total targets reporting during the event, the denominator for the breadth fraction.</summary>
     public int PathTargetCount { get; init; }
 
     /// <summary>Whether even the access hop went dark, or it held while everything beyond it dropped.</summary>

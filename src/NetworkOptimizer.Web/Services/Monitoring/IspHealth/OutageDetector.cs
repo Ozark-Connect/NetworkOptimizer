@@ -329,11 +329,29 @@ public static class OutageDetector
         var onset = FirstDark(triggerTargets, start, end, options.OutageDarkLossPct) ?? start;
         var recovery = PreciseRecovery(triggerTargets, start, end, options.OutageDarkLossPct) ?? end;
 
+        // Breadth/depth over the reporting trigger (internet) targets, so a blackout carries the same
+        // severity = breadth x depth the scorer reads for partials: how many reporting targets went
+        // dark, and the worst loss reached. By the coverage gate breadth is already >= the dark
+        // fraction, but a near-total widespread drop still reads hotter than a borderline one.
+        int reportingTargets = 0, darkTargets = 0;
+        double eventPeakLoss = 0;
+        foreach (var target in triggerTargets)
+        {
+            var inWindow = target.Where(s => s.LossPercent.HasValue && s.Time >= start && s.Time < end).ToList();
+            if (inWindow.Count == 0) continue;
+            reportingTargets++;
+            eventPeakLoss = Math.Max(eventPeakLoss, inWindow.Max(s => s.LossPercent!.Value));
+            if (inWindow.Any(s => s.LossPercent!.Value >= options.OutageDarkLossPct)) darkTargets++;
+        }
+
         return new OutageEvent
         {
             Start = onset,
             End = recovery,
             IsBrief = recovery - onset < TimeSpan.FromSeconds(options.OutageBriefMaxSeconds),
+            PeakLossPct = eventPeakLoss,
+            DegradedTargetCount = darkTargets,
+            PathTargetCount = reportingTargets,
             Scope = scope,
             LastReachableHop = scope == OutageScope.Upstream ? lastReachable!.Name : null,
             Tiers = GroupAccessTiers(tiers, options)

@@ -69,6 +69,11 @@ public class OutageDetectorTests
         events[0].LastReachableHop.Should().Be("AT&T nokia-olt");
         events[0].Duration.Should().BeCloseTo(TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1));
         events[0].IsBrief.Should().BeFalse();
+        // Breadth/depth are populated for blackouts too (both internet triggers went fully dark),
+        // so the scorer's severity = breadth x depth reads full for a real outage.
+        events[0].PeakLossPct.Should().Be(100);
+        events[0].DegradedTargetCount.Should().Be(2);
+        events[0].PathTargetCount.Should().Be(2);
     }
 
     [Fact]

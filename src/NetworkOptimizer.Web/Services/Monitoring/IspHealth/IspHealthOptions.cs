@@ -416,15 +416,38 @@ public class IspHealthOptions
 
     /// <summary>
     /// Outage severity curve: points deducted from the OVERALL score per (totalDowntimeMinutes,
-    /// penaltyPoints) anchor, interpolated. Applied at the top level rather than buried in the
-    /// Packet Loss factor (where the dimension weights would dilute a multi-hour outage to a
-    /// couple of points). Scored by total duration alone - shape-independent. A brief blip barely
-    /// registers; ~10 min is a clear ding; multi-hour drives the score toward zero.
+    /// penaltyPoints) anchor, interpolated. This is the DURATION component of the outage penalty,
+    /// applied at the top level rather than buried in the Packet Loss factor (where the dimension
+    /// weights would dilute a multi-hour outage to a couple of points). The front is deliberately
+    /// steep - a 30 s drop is felt out of all proportion to its seconds (a dropped call, a stalled
+    /// stream), so a sub-minute outage carries a couple of points on duration alone rather than
+    /// rounding to zero; ~10 min is a clear ding; multi-hour drives the score toward zero. Recurrence
+    /// is scored separately by <see cref="OutageEventCost"/>, so this curve need not also encode "many
+    /// short drops are bad".
     /// </summary>
     public (double Minutes, double Penalty)[] OutageSeverityCurve { get; set; } =
     {
-        (0, 0), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
+        (0, 0), (0.5, 1.5), (1, 2.5), (2, 4), (5, 7), (10, 14), (30, 28), (60, 45), (180, 70), (480, 90)
     };
+
+    /// <summary>
+    /// Per-event occurrence cost: the OCCURRENCE component of the outage penalty, summed across every
+    /// WAN outage on top of the duration curve. Each event contributes OutageEventCost x severity,
+    /// where severity = breadth (fraction of monitored targets that dropped) x depth (peak loss
+    /// fraction), 0..1. This is what makes recurrence bite: ten separate micro-drops cost ~ten times
+    /// a single one, where the duration curve alone would treat them as one slightly-longer drop. It
+    /// also lifts a single felt short outage off the floor. Kept modest because these events still
+    /// feed the Packet Loss factor (not masked), so we don't want to triple-count.
+    /// </summary>
+    public double OutageEventCost { get; set; } = 3.0;
+
+    /// <summary>
+    /// Cap on the summed occurrence component so a pathologically flaky window doesn't run the penalty
+    /// away on its own (the duration curve still adds on top, uncapped). Set high - a line dropping
+    /// dozens of times in the window SHOULD score badly - but bounded so occurrence can't alone zero a
+    /// score that the duration barely touched.
+    /// </summary>
+    public double OutageOccurrenceCap { get; set; } = 35.0;
 
     /// <summary>Loaded delta beyond excellent by this many band-widths triggers the SQM recommendation.</summary>
     public double SqmDeviationFactor { get; set; } = 1.0;

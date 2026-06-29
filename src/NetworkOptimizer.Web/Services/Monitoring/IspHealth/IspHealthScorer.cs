@@ -104,32 +104,54 @@ public class IspHealthScorer
         var ispAsnDimension = BuildIspDimension(_options.IspAsnWeight, ispHopGrades);
 
         var overall = CombineDimensions(accessDimension, transitDimension, ispAsnDimension);
-        // An outage is scored once, here at the top level, on a duration curve - so a long
-        // outage actually drives the score down instead of being diluted to a couple of
-        // points inside one factor. A partial-loss disruption counts as a fraction of that:
-        // its duration is weighted by its peak loss fraction (and a tunable weight), so a brief
-        // degradation is a near-zero ding while a blackout of the same length scores in full.
+        // Outages are scored once, here at the top level (not inside a factor, where the dimension
+        // weights would dilute a multi-hour outage to a couple of points), as TWO components:
+        //   - DURATION: one severity-curve lookup on the summed effective downtime. A partial-loss
+        //     disruption's minutes are weighted by its peak loss fraction (and a tunable weight), so a
+        //     shallow degradation dings less than a blackout of the same length.
+        //   - OCCURRENCE: each event's severity (breadth x depth) x a per-event cost, summed and
+        //     capped. This is what makes recurrence bite - ten separate micro-drops cost ~ten times a
+        //     single one, where the duration curve alone treats them as one slightly-longer drop - and
+        //     lifts a single felt short outage off the floor.
         // Local (LAN/gateway) outages are surfaced but never penalize the ISP - the gateway being
         // unreachable is the user's own LAN, not the ISP's fault (they still mask their dark window
         // from the other factors via InOutage, so that loss isn't double-counted against the ISP).
         var wanOutages = inputs.Outages.Where(o => o.Scope != OutageScope.Local).ToList();
         double EffectiveMinutes(OutageEvent o) => o.Duration.TotalMinutes *
             (o.IsPartial ? Math.Clamp(o.PeakLossPct / 100.0, 0, 1) * _options.OutagePartialPenaltyWeight : 1.0);
-        var outageMinutes = wanOutages.Sum(EffectiveMinutes);
-        if (outageMinutes > 0)
+        // Severity 0..1 = breadth (fraction of monitored targets that dropped) x depth (peak loss
+        // fraction). A widespread near-total event reads hotter than a narrow shallow one.
+        double Severity(OutageEvent o)
         {
+            var depth = Math.Clamp(o.PeakLossPct / 100.0, 0, 1);
+            var breadth = o.PathTargetCount > 0
+                ? Math.Clamp((double)o.DegradedTargetCount / o.PathTargetCount, 0, 1)
+                : 0.0;
+            return depth * breadth;
+        }
+        if (wanOutages.Count > 0)
+        {
+            var outageMinutes = wanOutages.Sum(EffectiveMinutes);
+            var durationPenalty = outageMinutes > 0 ? OutageScorePenalty(outageMinutes) : 0.0;
+            var rawOccurrence = wanOutages.Sum(o => _options.OutageEventCost * Severity(o));
+            var occurrencePenalty = Math.Min(_options.OutageOccurrenceCap, rawOccurrence);
+            var occurrenceScale = rawOccurrence > 0 ? occurrencePenalty / rawOccurrence : 0.0;
             // Floor a flagged WAN event at one point: if we surfaced it on the timeline it should
-            // visibly register, not round to a silent zero (a brief/partial event can curve to a
-            // fraction of a point otherwise). The floor is on the total, so many tiny events still
-            // cost at least a point rather than each.
-            var penalty = Math.Max(1.0, OutageScorePenalty(outageMinutes));
-            // Attribute the total penalty across the WAN outages by effective-minute share so each
-            // row can show its own "-N points". Rounded shares may differ from the curve total by
-            // <=1 pt - cosmetic; the actual deduction uses the total below.
+            // visibly register, not round to a silent zero.
+            var penalty = Math.Max(1.0, durationPenalty + occurrencePenalty);
+            // Attribute the total across events so each row shows its own "-N points": its duration
+            // share (by effective-minute) plus its (capped) occurrence cost. Rounded shares may differ
+            // from the total by <=1 pt - cosmetic; the actual deduction uses the total below.
             foreach (var o in wanOutages)
-                o.ScorePenaltyPoints = (int)Math.Round(penalty * (EffectiveMinutes(o) / outageMinutes));
-            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts over {Min} effective min downtime ({Before} -> {After})",
-                penalty.ToString("0.#", CultureInfo.InvariantCulture), outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
+            {
+                var durShare = outageMinutes > 0 ? durationPenalty * (EffectiveMinutes(o) / outageMinutes) : 0.0;
+                var occShare = _options.OutageEventCost * Severity(o) * occurrenceScale;
+                o.ScorePenaltyPoints = (int)Math.Round(durShare + occShare);
+            }
+            _logger?.LogDebug("ISP Health: outage penalty {Penalty} pts = {Dur} duration + {Occ} occurrence over {N} event(s), {Min} eff min ({Before} -> {After})",
+                penalty.ToString("0.#", CultureInfo.InvariantCulture), durationPenalty.ToString("0.#", CultureInfo.InvariantCulture),
+                occurrencePenalty.ToString("0.#", CultureInfo.InvariantCulture), wanOutages.Count,
+                outageMinutes.ToString("0.#", CultureInfo.InvariantCulture),
                 overall, (int)Math.Max(0, Math.Round(overall - penalty)));
             overall = (int)Math.Max(0, Math.Round(overall - penalty));
         }
