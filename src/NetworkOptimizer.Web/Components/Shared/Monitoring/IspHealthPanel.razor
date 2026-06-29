@@ -927,13 +927,13 @@ else
 
     /// <summary>
     /// The hero pill's window phrase. "last {span}" only reads correctly when the window actually
-    /// ends at (about) now; a custom window ending in the past would otherwise imply it runs up to the
-    /// present, so it gets an explicit date range instead.
+    /// ends at (about) now; a custom window ending in the past instead shows the span and its end
+    /// date ("7 days ending Jun 17") - the user picked the range, so the exact end time is implied.
     /// </summary>
     private static string ScoredWindowLabel(IspHealthReport r) =>
         DateTime.UtcNow - r.WindowEnd < TimeSpan.FromHours(1)
             ? $"last {WindowLabel(r)}"
-            : $"{r.WindowStart.ToLocalTime():MMM d, HH:mm} to {r.WindowEnd.ToLocalTime():MMM d, HH:mm}";
+            : $"{WindowLabel(r)} ending {r.WindowEnd.ToLocalTime():MMM d}";
 
     private static string WindowLabel(IspHealthReport r)
     {
