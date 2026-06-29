@@ -137,9 +137,19 @@ public class IspHealthScorer
         {
             var outageMinutes = wanOutages.Sum(EffectiveMinutes);
             var durationPenalty = outageMinutes > 0 ? OutageScorePenalty(outageMinutes) : 0.0;
-            var rawOccurrence = wanOutages.Sum(o => _options.OutageEventCost * Severity(o));
+            // Occurrence is a FREQUENCY signal, so judge it as a RATE against the canonical window:
+            // the same few micro-drops spread over a week is a steadier line than the same number in
+            // 48 h. Dilute occurrence for windows LONGER than the reference; never amplify a shorter
+            // (e.g. zoomed-in) window. Duration is left absolute, so a long outage weighs the same in
+            // any window - only the count-based part rescales.
+            var windowHours = (inputs.WindowEnd - inputs.WindowStart).TotalHours;
+            var occurrenceWindowScale = _options.ScoreWindowHours > 0 && windowHours > _options.ScoreWindowHours
+                ? _options.ScoreWindowHours / windowHours
+                : 1.0;
+            double EventOccurrence(OutageEvent o) => _options.OutageEventCost * Severity(o) * occurrenceWindowScale;
+            var rawOccurrence = wanOutages.Sum(EventOccurrence);
             var occurrencePenalty = Math.Min(_options.OutageOccurrenceCap, rawOccurrence);
-            var occurrenceScale = rawOccurrence > 0 ? occurrencePenalty / rawOccurrence : 0.0;
+            var occCapScale = rawOccurrence > 0 ? occurrencePenalty / rawOccurrence : 0.0;
             // Floor a flagged WAN event at one point: if we surfaced it on the timeline it should
             // visibly register, not round to a silent zero.
             var penalty = Math.Max(1.0, durationPenalty + occurrencePenalty);
@@ -149,7 +159,7 @@ public class IspHealthScorer
             foreach (var o in wanOutages)
             {
                 var durShare = outageMinutes > 0 ? durationPenalty * (EffectiveMinutes(o) / outageMinutes) : 0.0;
-                var occShare = _options.OutageEventCost * Severity(o) * occurrenceScale;
+                var occShare = EventOccurrence(o) * occCapScale;
                 o.ScorePenaltyPoints = (int)Math.Round(durShare + occShare);
                 // Per-event "show your work": time, kind, duration, depth (peak loss), breadth, and the
                 // time-of-day usage weight that scaled it, then the duration/occurrence point split.

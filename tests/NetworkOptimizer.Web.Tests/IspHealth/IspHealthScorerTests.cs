@@ -39,7 +39,8 @@ public class IspHealthScorerTests
         double? internetDeltaMs = null,
         bool lineIdle = false,
         bool hopOrderKnown = false,
-        List<OutageEvent>? outages = null)
+        List<OutageEvent>? outages = null,
+        TimeSpan? scoreWindow = null)
     {
         // lineIdle: a near-zero, flat WAN with no load bursts (~0% average load), for
         // exercising the load-calibrated packet-loss ceiling at the idle end.
@@ -60,7 +61,7 @@ public class IspHealthScorerTests
         return new IspHealthInputs
         {
             WindowStart = TestSeries.Start,
-            WindowEnd = TestSeries.Start + Day,
+            WindowEnd = TestSeries.Start + (scoreWindow ?? Day),
             FirstHopSeries = firstHop,
             AccessHopSeries = accessHops ?? new List<List<LatencySample>>(),
             FirstHopTargetId = firstHopTargetId,
@@ -171,6 +172,38 @@ public class IspHealthScorerTests
         var report = new IspHealthScorer(Options)
             .Score(BuildInputs(outages: new List<OutageEvent> { FullOutage(0.4) }), Gpon);
         report.Issues.Should().Contain(i => i.Description.Contains("typically idle"));
+    }
+
+    [Fact]
+    public void Micro_outages_weigh_less_over_a_longer_window_a_long_outage_does_not()
+    {
+        int Drop(List<OutageEvent> outages, TimeSpan window) => 100 - new IspHealthScorer(Options)
+            .Score(BuildInputs(outages: outages, scoreWindow: window), Gpon).OverallScore;
+
+        // Frequency is a rate: the same two micro-drops spread over a week is a steadier line than
+        // the same two in 48 h, so the occurrence-dominated penalty fades over the longer window.
+        var micros = new List<OutageEvent> { ShortBroadOutage(), ShortBroadOutage() };
+        var micro48h = Drop(micros, TimeSpan.FromHours(48));
+        var micro7d = Drop(micros, TimeSpan.FromDays(7));
+        micro7d.Should().BeLessThan(micro48h);
+        (micro48h - micro7d).Should().BeGreaterThanOrEqualTo(2);
+
+        // A long, duration-dominated outage weighs roughly the same in either window (duration is
+        // absolute; only its small occurrence part rescales).
+        var longOutage = new List<OutageEvent>
+        {
+            new()
+            {
+                Start = TestSeries.Start.AddHours(2),
+                End = TestSeries.Start.AddHours(4),
+                PeakLossPct = 100,
+                DegradedTargetCount = 9,
+                PathTargetCount = 9
+            }
+        };
+        var long48h = Drop(longOutage, TimeSpan.FromHours(48));
+        var long7d = Drop(longOutage, TimeSpan.FromDays(7));
+        long7d.Should().BeCloseTo(long48h, 3);
     }
 
     [Fact]
