@@ -1602,8 +1602,10 @@
                     </div>
                 </div>
                 <div>
-                    <h4 class="event-type-group-header">Gateway Health</h4>
+                    <h4 class="event-type-group-header">Device Health</h4>
                     <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
+                        <div @onclick='() => SelectEventType("device.high_temperature")'><code>device.high_temperature</code> <span>Device (switch, gateway, or AP) temperature above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_cpu")'><code>device.gateway_high_cpu</code> <span>Gateway CPU sustained above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.gateway_high_memory")'><code>device.gateway_high_memory</code> <span>Gateway memory above threshold</span></div>
                         <div @onclick='() => SelectEventType("device.*")'><code>device.*</code> <span>All device events</span></div>
@@ -1650,7 +1652,6 @@
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("schedule.task_completed")'><code>schedule.task_completed</code> <span>Scheduled task succeeded</span></div>
                         <div @onclick='() => SelectEventType("schedule.task_failed")'><code>schedule.task_failed</code> <span>Scheduled task failed</span></div>
-                        <div @onclick='() => SelectEventType("device.offline")'><code>device.offline</code> <span>Device went offline</span></div>
                         <div @onclick='() => SelectEventType("wifi.congestion")'><code>wifi.congestion</code> <span>Wi-Fi channel congestion detected</span></div>
                     </div>
                 </div>
