@@ -77,7 +77,7 @@ public class PhysicalLinkResolver
             chosen = match;
         }
 
-        var input = await AssembleAsync(chosen, windowStart, windowEnd, aggregate, ct);
+        var input = await AssembleAsync(chosen, tech == AccessTechnology.XgsPon, windowStart, windowEnd, aggregate, ct);
         return new PhysicalLinkResolution(input, candidateModels, chosen.Key, false);
     }
 
@@ -157,13 +157,13 @@ public class PhysicalLinkResolver
     // ---------------------------------------------------------------------------
 
     private async Task<PhysicalLinkInput?> AssembleAsync(
-        Cand c, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+        Cand c, bool isXgsPon, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
         return c.Medium switch
         {
-            PhysicalMedium.Pon when c.ConfigId is int ontId => await AssembleOntAsync(c, ontId, windowStart, windowEnd, aggregate, ct),
-            PhysicalMedium.Pon => await AssembleSfpAsync(c, PhysicalMedium.Pon, windowStart, windowEnd, aggregate, ct),
-            PhysicalMedium.ActiveEthernet => await AssembleSfpAsync(c, PhysicalMedium.ActiveEthernet, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.Pon when c.ConfigId is int ontId => await AssembleOntAsync(c, ontId, isXgsPon, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.Pon => await AssembleSfpAsync(c, PhysicalMedium.Pon, isXgsPon, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.ActiveEthernet => await AssembleSfpAsync(c, PhysicalMedium.ActiveEthernet, false, windowStart, windowEnd, aggregate, ct),
             PhysicalMedium.Docsis when c.ConfigId is int cmId => await AssembleCableModemAsync(c, cmId, windowStart, windowEnd, aggregate, ct),
             PhysicalMedium.Cellular when c.ConfigId is int modemId => await AssembleCellularAsync(c, modemId, windowStart, windowEnd, aggregate, ct),
             _ => null
@@ -171,7 +171,7 @@ public class PhysicalLinkResolver
     }
 
     private async Task<PhysicalLinkInput?> AssembleSfpAsync(
-        Cand c, PhysicalMedium medium, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+        Cand c, PhysicalMedium medium, bool isXgsPon, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
         // SFP DDM only: TimeSpan.Zero => RAW (un-aggregated) so glitchy stick reads stay isolated,
         // with temperature passed through so OpticalSampleStats can reject the artifacts (RX + temp
@@ -190,12 +190,13 @@ public class PhysicalLinkResolver
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
             TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
+            IsXgsPon = isXgsPon,
             WindowDays = (windowEnd - windowStart).TotalDays
         };
     }
 
     private async Task<PhysicalLinkInput?> AssembleOntAsync(
-        Cand c, int ontId, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+        Cand c, int ontId, bool isXgsPon, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
         // External ONT: vendor firmware, not a DDM stick - no read-artifact problem, so temperature is
         // NOT passed for rejection (null temps => OpticalSampleStats keeps every sample). RAW points
@@ -219,6 +220,7 @@ public class PhysicalLinkResolver
             TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             PonOperational = live != null ? live.PonLinkStatus == PonLinkState.Operation : null,
             PonType = live?.PonType,
+            IsXgsPon = isXgsPon,
             FecErrorsTotal = fecTotal,
             BipErrorsTotal = bipTotal,
             WindowDays = (windowEnd - windowStart).TotalDays

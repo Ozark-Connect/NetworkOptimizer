@@ -11,7 +11,11 @@ public static class PonThresholds
 {
     // --- PON thresholds (SFP and external ONT share these) ---
     public const double PonRxPowerLowDbm = -25.0;
+    /// <summary>High ONU transmit power for GPON (Class B+ ONUs transmit ~+0.5 to +5 dBm).</summary>
     public const double PonTxPowerHighDbm = 4.0;
+    /// <summary>High ONU transmit power for XGS-PON, which transmits hotter (~+4 to +9 dBm). Set to the
+    /// same relative position in that range as GPON's +4 in +0.5..+5, so it flags before the +9 max.</summary>
+    public const double XgsPonTxPowerHighDbm = 8.0;
     public const double PonTempHighC = 75.0;
 
     // --- PON receiver operating envelope (physics; consumed by ISP Health optical scoring) ---

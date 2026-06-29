@@ -181,6 +181,19 @@ public class PhysicalLinkScorerTests
         result.Issues.Should().Contain(i => i.Title.Contains("transmit power high"));
     }
 
+    [Fact]
+    public void Pon_xgs_tolerates_higher_tx_than_gpon()
+    {
+        // +7 dBm ONU TX flags on GPON (>+4) but is normal on XGS-PON (<+8), which transmits hotter.
+        PhysicalLinkResult Tx7(bool xgs) => PhysicalLinkScorer.Score(new PhysicalLinkInput
+        {
+            Medium = PhysicalMedium.Pon, SourceName = "ONT", RxPowerMedianDbm = -20.0, TxPowerDbm = 7.0, IsXgsPon = xgs
+        }, null, Weight);
+
+        Tx7(false).Issues.Should().Contain(i => i.Title.Contains("transmit power high"));
+        Tx7(true).Issues.Should().NotContain(i => i.Title.Contains("transmit power high"));
+    }
+
     // ---- Split-ratio inference (display only) ----
 
     [Theory]

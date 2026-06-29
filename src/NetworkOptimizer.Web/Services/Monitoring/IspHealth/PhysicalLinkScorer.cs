@@ -164,7 +164,9 @@ public static class PhysicalLinkScorer
             });
         }
 
-        var txHigh = isPon ? PonThresholds.PonTxPowerHighDbm : PonThresholds.AeTxPowerHighDbm;
+        var txHigh = isPon
+            ? (input.IsXgsPon ? PonThresholds.XgsPonTxPowerHighDbm : PonThresholds.PonTxPowerHighDbm)
+            : PonThresholds.AeTxPowerHighDbm;
         if (input.TxPowerDbm is double tx && tx > txHigh)
         {
             score = Math.Min(score, 75);
@@ -357,7 +359,8 @@ public static class PhysicalLinkScorer
                 (12, 40),
                 (DocsisHealthThresholds.DsPowerOutOfSpecHighDbmv, 0));
             parts.Add((dsScore, 0.15));
-            valueBits.Add($"DS {dsp.ToString("0.0", CultureInfo.InvariantCulture)} dBmV");
+            // DS power is scored but kept off the headline (SNR + US are the key factors there);
+            // if it's out of range the issue below surfaces it.
             if (dsp > DocsisHealthThresholds.DsPowerPadAdviseDbmv)
                 issues.Add(new IspHealthIssue
                 {
@@ -419,8 +422,8 @@ public static class PhysicalLinkScorer
         }
 
         var gen = isOfdm ? "DOCSIS 3.1" : "DOCSIS 3.0";
-        var desc = $"{gen} cable-modem RF health (MER, FEC, downstream/upstream power)"
-                   + (valueBits.Count > 0 ? $": {string.Join(", ", valueBits)}." : ".")
+        // The headline (ValueText) carries the values; the description is just the explanation.
+        var desc = $"{gen} cable-modem RF health (MER, FEC, downstream/upstream power)."
                    + (transientAnomaly ? AnomalyNote : "");
         return new PhysicalLinkResult(
             Factor(factorWeight, (int)Math.Round(score), string.Join(", ", valueBits), desc), issues);

@@ -49,6 +49,10 @@ public class PhysicalLinkInput
     /// <summary>PON type for display (GPON, XGS-PON); also selects the OLT-launch assumption.</summary>
     public string? PonType { get; init; }
 
+    /// <summary>True when the configured access technology is XGS-PON (reliable even when the device
+    /// does not report PonType). Selects the higher XGS-PON ONU transmit-power threshold.</summary>
+    public bool IsXgsPon { get; init; }
+
     /// <summary>Total uncorrectable-FEC codewords over the window (external ONT only). Graded as an
     /// absolute per-day count - negligible on a healthy plant. Null when not reported.</summary>
     public long? FecErrorsTotal { get; init; }
