@@ -432,7 +432,7 @@ public static class PhysicalLinkScorer
         // A 5G->LTE downgrade only matters on a 5G-capable modem.
         if (input.NetworkModeDowngraded && input.Is5gCapable)
         {
-            score = Math.Min(score, score - 5);
+            score = Math.Max(0, score - 5);
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Info,

@@ -56,7 +56,6 @@ public class PhysicalLinkResolver
         }
 
         var selectedKey = settings?.PhysicalLinkSourceKey;
-        var thresholds = settings != null ? SfpDdmThresholds.FromSettings(settings) : SfpDdmThresholds.Defaults;
         var candidateModels = candidates.Select(c => new PhysicalLinkCandidate(c.Key, c.Label)).ToList();
 
         if (candidates.Count == 0)
@@ -78,7 +77,7 @@ public class PhysicalLinkResolver
             chosen = match;
         }
 
-        var input = await AssembleAsync(chosen, thresholds, windowStart, windowEnd, aggregate, ct);
+        var input = await AssembleAsync(chosen, windowStart, windowEnd, aggregate, ct);
         return new PhysicalLinkResolution(input, candidateModels, chosen.Key, false);
     }
 
@@ -158,13 +157,13 @@ public class PhysicalLinkResolver
     // ---------------------------------------------------------------------------
 
     private async Task<PhysicalLinkInput?> AssembleAsync(
-        Cand c, SfpDdmThresholds thresholds, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+        Cand c, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
         return c.Medium switch
         {
-            PhysicalMedium.Pon when c.ConfigId is int ontId => await AssembleOntAsync(c, ontId, thresholds, windowStart, windowEnd, aggregate, ct),
-            PhysicalMedium.Pon => await AssembleSfpAsync(c, thresholds, PhysicalMedium.Pon, windowStart, windowEnd, aggregate, ct),
-            PhysicalMedium.ActiveEthernet => await AssembleSfpAsync(c, thresholds, PhysicalMedium.ActiveEthernet, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.Pon when c.ConfigId is int ontId => await AssembleOntAsync(c, ontId, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.Pon => await AssembleSfpAsync(c, PhysicalMedium.Pon, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.ActiveEthernet => await AssembleSfpAsync(c, PhysicalMedium.ActiveEthernet, windowStart, windowEnd, aggregate, ct),
             PhysicalMedium.Docsis when c.ConfigId is int cmId => await AssembleCableModemAsync(c, cmId, windowStart, windowEnd, aggregate, ct),
             PhysicalMedium.Cellular when c.ConfigId is int modemId => await AssembleCellularAsync(c, modemId, windowStart, windowEnd, aggregate, ct),
             _ => null
@@ -172,9 +171,8 @@ public class PhysicalLinkResolver
     }
 
     private async Task<PhysicalLinkInput?> AssembleSfpAsync(
-        Cand c, SfpDdmThresholds thresholds, PhysicalMedium medium, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+        Cand c, PhysicalMedium medium, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
-        // Raw (un-aggregated) so DDM read artifacts stay isolated for rejection, not averaged into a bucket.
         // SFP DDM only: TimeSpan.Zero => RAW (un-aggregated) so glitchy stick reads stay isolated,
         // with temperature passed through so OpticalSampleStats can reject the artifacts (RX + temp
         // glitch together). Mean aggregation would smear a glitch into a bucket that defeats the filter.
@@ -196,7 +194,7 @@ public class PhysicalLinkResolver
     }
 
     private async Task<PhysicalLinkInput?> AssembleOntAsync(
-        Cand c, int ontId, SfpDdmThresholds thresholds, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+        Cand c, int ontId, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
         // External ONT: vendor firmware, not a DDM stick - no read-artifact problem, so temperature is
         // NOT passed for rejection (null temps => OpticalSampleStats keeps every sample). RAW points
