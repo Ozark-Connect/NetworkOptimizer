@@ -16,9 +16,10 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 ///   splitter ratio is DISPLAY-ONLY verbiage derived from the optical power budget and never feeds
 ///   the score. A reading colder than the coldest any realistic 1:64 split can produce is a
 ///   bounded, baseline-free excess-loss flag.
-/// - DOCSIS grades MER, the FEC uncorrectable ratio (tolerant on 3.1 OFDM where
-///   correctables are benign, strict on 3.0 SC-QAM), and DS/US power, with a channel-loss
-///   cap. Plant generation is inferred from an active OFDMA channel, else plan speed.
+/// - DOCSIS grades MER, FEC (a 50/50 blend of the uncorrectable ratio and the per-day
+///   uncorrectable rate, the rate scaled up for 3.1 OFDM's higher codeword volume), and DS/US
+///   power, with a channel-loss cap. Plant generation is inferred from an active OFDMA channel,
+///   else plan speed.
 /// - Cellular passes the existing composite signal quality through.
 /// Reuses <see cref="PonThresholds"/> and <see cref="DocsisHealthThresholds"/> as the
 /// single source-of-truth for breach anchors.
