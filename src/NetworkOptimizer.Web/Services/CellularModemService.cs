@@ -4,6 +4,7 @@ using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -115,7 +116,7 @@ public class CellularModemService : ICellularModemService
                         Model = displayModel,
                         Host = device.Ip ?? "",
                         MacAddress = device.Mac,
-                        IsOnline = device.State == 1 && device.Adopted
+                        IsOnline = UniFiDeviceStateMap.IsOnline(device.State) && device.Adopted
                     });
                     _logger.LogInformation("Discovered cellular modem: {Name} ({Model}) at {Host}",
                         device.Name, displayModel, device.Ip);

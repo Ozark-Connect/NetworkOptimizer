@@ -60,8 +60,16 @@ public class MeshOptimizationService
         if (!sshConfigured)
             return MeshOptimizationResult.NoOp(iface, "Set up UniFi Device SSH in Settings to re-pair the uplink.");
 
-        // wpa_cli control socket is per-interface on the AP (BusyBox / POSIX sh, runtime only).
-        var wc = $"wpa_cli -p /var/run/wpa_supplicant/wpa_supplicant-{iface} -i {iface}";
+        // The per-interface wpa_supplicant control socket lives in different dirs across AP
+        // platforms. U7-class APs run one global wpa_supplicant and nest the socket under
+        // /var/run/wpa_supplicant/wpa_supplicant-<iface>/<iface>; U6-class APs run a per-interface
+        // wpa_supplicant whose socket is flat at /var/run/wpa_supplicant/<iface>. Both name the
+        // socket file <iface>, so probe both parents at call time and use whichever holds the live
+        // socket. iface is validated above (^vwiresta\d+$), so it's safe to interpolate into the
+        // shell. (BusyBox / POSIX sh, runtime only.)
+        var ctrlDir = $"\"$(for d in /var/run/wpa_supplicant/wpa_supplicant-{iface} /var/run/wpa_supplicant; " +
+            $"do [ -S \"$d/{iface}\" ] && {{ printf %s \"$d\"; break; }}; done)\"";
+        var wc = $"wpa_cli -p {ctrlDir} -i {iface}";
 
         var before = await ReadLinkAsync(host, wc, cancellationToken);
         if (before.Bssid == null)

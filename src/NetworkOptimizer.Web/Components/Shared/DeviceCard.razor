@@ -1,7 +1,7 @@
 @if (Device != null)
 {
     var deviceHref = $"/monitoring?tab=devices&device={Uri.EscapeDataString(Device.Mac ?? "")}";
-    <a href="@deviceHref" class="device-card device-card-link device-@Device.Status.ToLower()">
+    <a href="@deviceHref" class="device-card device-card-link device-@Device.StatusInfo.CssClass">
         <div class="device-header">
             <div class="device-icon">
                 @{
@@ -21,8 +21,8 @@
                 <div class="device-meta">
                     <span class="device-type">@Device.TypeDisplayName</span>
                     <div class="device-status">
-                        <span class="status-dot @(Device.Status == "Online" ? "online" : "")"></span>
-                        <span class="status-text">@Device.Status</span>
+                        <span class="status-dot @Device.StatusInfo.CssClass"></span>
+                        <span class="status-text">@Device.StatusInfo.Label</span>
                     </div>
                 </div>
             </div>

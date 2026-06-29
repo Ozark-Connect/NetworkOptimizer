@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Core.Interfaces
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
+@using NetworkOptimizer.UniFi.Models
 @using Microsoft.EntityFrameworkCore
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
@@ -3467,7 +3468,7 @@
 
             var testableDevices = devices
                 .Where(d => testableTypes.Contains(d.Type)
-                            && d.State == 1 && !string.IsNullOrEmpty(d.IpAddress))
+                            && UniFiDeviceStateMap.IsOnline(d.State) && !string.IsNullOrEmpty(d.IpAddress))
                 .GroupBy(d => d.Type)
                 .SelectMany(g => g.OrderBy(d => d.Name).Select((d, i) => new { Device = d, Index = i }))
                 .OrderBy(x => x.Index) // Round-robin: all first-of-type, then all second-of-type, etc.

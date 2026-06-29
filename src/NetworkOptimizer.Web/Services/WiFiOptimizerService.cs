@@ -173,7 +173,7 @@ public class WiFiOptimizerService
             return _cachedAps;
         }
 
-        await RefreshDataAsync();
+        await RefreshDataAsync(bypassClientCache: forceRefresh);
         return _cachedAps ?? new List<AccessPointSnapshot>();
     }
 
@@ -289,7 +289,7 @@ public class WiFiOptimizerService
         return summary;
     }
 
-    private async Task RefreshDataAsync()
+    private async Task RefreshDataAsync(bool bypassClientCache = false)
     {
         if (_connectionService.Client == null)
         {
@@ -302,8 +302,10 @@ public class WiFiOptimizerService
             var provider = CreateProvider();
 
             // Fetch data in parallel - use Task.WhenAll to start all tasks,
-            // but handle individual failures so one bad task doesn't block everything
-            var apsTask = provider.GetAccessPointsAsync();
+            // but handle individual failures so one bad task doesn't block everything.
+            // On an explicit refresh (forceRefresh), bypass the client device-list cache so the
+            // AP snapshots reflect live state - e.g. a freshly re-paired mesh uplink.
+            var apsTask = provider.GetAccessPointsAsync(useCache: !bypassClientCache);
             var clientsTask = provider.GetWirelessClientsAsync();
             var roamingTask = provider.GetRoamingTopologyAsync();
             var wlanTask = provider.GetWlanConfigurationsAsync();

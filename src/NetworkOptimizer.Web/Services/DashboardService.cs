@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi;
 
 namespace NetworkOptimizer.Web.Services;
@@ -73,7 +75,7 @@ public class DashboardService : IDashboardService
                         Name = d.Name ?? d.Mac ?? "Unknown",
                         Mac = d.Mac ?? string.Empty,
                         Type = d.Type,
-                        Status = d.State == 1 ? "Online" : "Offline",
+                        StatusInfo = UniFiDeviceStateMap.ToStatus(d.State),
                         IpAddress = d.DisplayIpAddress ?? "",
                         Model = d.FriendlyModelName,
                         Firmware = d.Firmware,
@@ -269,7 +271,10 @@ public class DeviceInfo
     public string Name { get; set; } = "";
     public string Mac { get; set; } = "";
     public DeviceType Type { get; set; }
-    public string Status { get; set; } = "";
+
+    /// <summary>Connection status (bucket + label) derived from the UniFi device <c>state</c>.</summary>
+    public DeviceStatus StatusInfo { get; set; } = new(DeviceStatusKind.Online, "Online");
+
     public string IpAddress { get; set; } = "";
     public string? Model { get; set; }
     public string? Firmware { get; set; }

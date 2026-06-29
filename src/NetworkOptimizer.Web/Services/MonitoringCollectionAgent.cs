@@ -1901,7 +1901,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             var devices = await _connectionService.Client.GetDevicesAsync(ct);
             var filtered = devices?.Where(d =>
-                d.Adopted && d.State == 1 && !string.IsNullOrEmpty(d.Ip) && !string.IsNullOrEmpty(d.Mac))
+                d.Adopted && UniFiDeviceStateMap.IsOnline(d.State) && !string.IsNullOrEmpty(d.Ip) && !string.IsNullOrEmpty(d.Mac))
                 .ToList() ?? new List<UniFiDeviceResponse>();
             _cachedDevices = filtered;
             _cachedDevicesAt = DateTime.UtcNow;

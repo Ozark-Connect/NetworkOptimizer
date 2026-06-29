@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Core.Models
 @using NetworkOptimizer.Web.Models
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
@@ -334,7 +335,15 @@
                     <tbody>
                         @foreach (var device in discoveredDevices)
                         {
-                            var isOnline = device.State == 1 && device.Adopted;
+                            var status = UniFiDeviceStateMap.ToStatus(device.State);
+                            var isOnline = status.IsOnline && device.Adopted;
+                            var badgeClass = status.Kind switch
+                            {
+                                DeviceStatusKind.Online => "status-connected",
+                                DeviceStatusKind.Transitional => "status-provisioning",
+                                DeviceStatusKind.Error => "status-error",
+                                _ => "status-disconnected"
+                            };
                             <tr>
                                 <td class="icon-cell"><DeviceIcon Model="@device.FriendlyModelName" Size="md" /></td>
                                 <td class="hide-mobile">@device.Name</td>
@@ -346,14 +355,7 @@
                                 <td class="hide-mobile"><code>@device.IpAddress</code></td>
                                 <td class="hide-mobile">@device.Type.ToDisplayName()</td>
                                 <td>
-                                    @if (isOnline)
-                                    {
-                                        <span class="status-badge status-connected">Online</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="status-badge status-disconnected">Offline</span>
-                                    }
+                                    <span class="status-badge @badgeClass">@status.Label</span>
                                 </td>
                                 <td>
                                     <div class="action-buttons">

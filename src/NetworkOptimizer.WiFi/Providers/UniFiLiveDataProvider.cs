@@ -26,10 +26,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     public string ProviderName => "UniFi Live";
     public bool SupportsHistoricalData => true; // Via stat/report endpoints
 
-    public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         // Use UniFiDiscovery for centralized device classification (same as Audit and Speed Test)
-        var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
+        var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken, useCache);
         var timestamp = DateTimeOffset.UtcNow;
 
         // Build a set of AP MACs for mesh parent detection
@@ -932,7 +932,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             FirmwareVersion = ap.Firmware,
             Ip = ap.IpAddress,
             Satisfaction = ap.Satisfaction,
-            IsOnline = ap.State == 1,
+            Status = UniFiDeviceStateMap.ToStatus(ap.State),
             Timestamp = timestamp,
             Radios = new List<RadioSnapshot>(),
             Vaps = new List<VapSnapshot>(),

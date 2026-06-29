@@ -1144,7 +1144,7 @@ public class LanFlowMapService
                 Name = string.IsNullOrEmpty(d.Name) ? d.FriendlyModelName : d.Name,
                 Model = d.FriendlyModelName,
                 Placement = anchor,
-                Online = d.State == 1,
+                Online = UniFiDeviceStateMap.IsOnline(d.State),
             };
             if (string.Equals(d.UplinkType, "wireless", StringComparison.OrdinalIgnoreCase))
             {

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.WiFi.Data;
 using NetworkOptimizer.WiFi.Helpers;
 using NetworkOptimizer.WiFi.Models;
@@ -29,7 +30,7 @@ public class ChannelRecommendationServiceTests
         {
             Mac = mac,
             Name = name,
-            IsOnline = true,
+            Status = new(DeviceStatusKind.Online, "Online"),
             IsMeshChild = isMeshChild,
             MeshParentMac = meshParentMac,
             MeshUplinkBand = meshUplinkBand,
@@ -74,7 +75,7 @@ public class ChannelRecommendationServiceTests
             CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36),
             new()
             {
-                Mac = "aa:bb:cc:dd:ee:02", Name = "AP-Offline", IsOnline = false,
+                Mac = "aa:bb:cc:dd:ee:02", Name = "AP-Offline", Status = new(DeviceStatusKind.Offline, "Offline"),
                 Radios = new() { new RadioSnapshot { Band = RadioBand.Band5GHz, Channel = 36, ChannelWidth = 80 } }
             }
         };
