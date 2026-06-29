@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Tests.IspHealth;
 /// </summary>
 public class PhysicalLinkScorerTests
 {
-    private const double Weight = 0.25;
+    private const double Weight = 0.15;
 
     private static PhysicalLinkResult ScorePon(double rx, double? worst = null, double? baseline = null,
         bool? operational = null, double? tx = null, string ponType = "GPON",
