@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
@@ -293,7 +292,8 @@ public static class PhysicalLinkScorer
         var transientAnomaly = false;
 
         var parts = new List<(double Score, double Weight)>();
-        var valueBits = new List<string>();
+        var valueBits = new List<string>();   // headline (ValueText): SNR + US, the key factors
+        var detailBits = new List<string>();  // description: the other stats (DS power, FEC)
 
         // Downstream MER/SNR.
         if (input.DsSnrDb is double snr)
@@ -309,7 +309,7 @@ public static class PhysicalLinkScorer
                     Severity = IspIssueSeverity.Warning,
                     Title = "DOCSIS: low downstream SNR",
                     Description = $"{input.SourceName} downstream MER/SNR is {snr.ToString("0.0", CultureInfo.InvariantCulture)} dB, below the {floor:0} dB floor for this plant.",
-                    Recommendation = "Low SNR drives uncorrectable errors; check for ingress, corrosion, or a failing amplifier."
+                    Recommendation = "Low SNR drives uncorrectable errors. Check your coax, connectors, and any unused splitters first; if those are clean, the cause is usually plant-side (ingress, a failing amplifier, or the node) and needs a line tech."
                 });
         }
 
@@ -330,6 +330,9 @@ public static class PhysicalLinkScorer
             var rateScore = ScoreCurve.Interpolate(uncPerDay, (0, 100), (rateGood, 92), (ratePoor, 25), (ratePoor * 10, 0));
 
             parts.Add((0.5 * ratioScore + 0.5 * rateScore, 0.30));
+            detailBits.Add(unc == 0
+                ? "FEC clean"
+                : $"FEC {(ratio * 100).ToString("0.#", CultureInfo.InvariantCulture)}% uncorr (~{uncPerDay.ToString("0", CultureInfo.InvariantCulture)}/day)");
 
             // Issue when uncorrectables dominate the errored codewords (>40%) or the rate is clearly high.
             if (unc > 0 && (ratio > DocsisHealthThresholds.FecUncorrRatioIssue || uncPerDay >= ratePoor))
@@ -359,8 +362,8 @@ public static class PhysicalLinkScorer
                 (12, 40),
                 (DocsisHealthThresholds.DsPowerOutOfSpecHighDbmv, 0));
             parts.Add((dsScore, 0.15));
-            // DS power is scored but kept off the headline (SNR + US are the key factors there);
-            // if it's out of range the issue below surfaces it.
+            // DS power: scored above (tent near 0 dBmV) and shown in the description, off the headline.
+            detailBits.Add($"DS {dsp.ToString("0.0", CultureInfo.InvariantCulture)} dBmV");
             if (dsp > DocsisHealthThresholds.DsPowerPadAdviseDbmv)
                 issues.Add(new IspHealthIssue
                 {
@@ -375,7 +378,7 @@ public static class PhysicalLinkScorer
                     Severity = IspIssueSeverity.Warning,
                     Title = "DOCSIS: downstream power starved",
                     Description = $"{input.SourceName} downstream receive power is {dsp.ToString("0.0", CultureInfo.InvariantCulture)} dBmV, below {DocsisHealthThresholds.DsPowerStarvedDbmv:0} dBmV.",
-                    Recommendation = "Remove an unnecessary splitter or check the drop for excess loss."
+                    Recommendation = "Eliminate any unused splitters; if that doesn't help, a line tech may need to check your drop, the amplifier, or the node."
                 });
         }
 
@@ -422,8 +425,9 @@ public static class PhysicalLinkScorer
         }
 
         var gen = isOfdm ? "DOCSIS 3.1" : "DOCSIS 3.0";
-        // The headline (ValueText) carries the values; the description is just the explanation.
-        var desc = $"{gen} cable-modem RF health (MER, FEC, downstream/upstream power)."
+        // Headline (ValueText) carries SNR + US; the description lists the other scored stats (DS, FEC).
+        var desc = $"{gen} cable-modem RF health"
+                   + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".")
                    + (transientAnomaly ? AnomalyNote : "");
         return new PhysicalLinkResult(
             Factor(factorWeight, (int)Math.Round(score), string.Join(", ", valueBits), desc), issues);
