@@ -272,6 +272,16 @@ The following were implemented in the WiFi Optimizer feature:
 - **v1 behavior:** detect the duplicate (preflight gate 2) and bail with a clear message explaining the collision and that alternate-IP DNAT support is planned. Do **not** silently deploy a route that hijacks the shared IP.
 - **Relevant code (once built):** Monitoring Interfaces deployment service (preflight checks + boot script generation), `UniFiNetworkConfig` enumeration for the overlap gate, `NetworkUtilities.IsIpInSubnet` for overlap math.
 
+### Topology / Status History
+- Placeholder for historical topology / connectivity replay (device + link state over time).
+- **When this lands, the topology/map JS needs full device-status support.** Today those spots
+  consume a single online/offline bool - `lan-flow-map.js` / `lan-flow-map-2d.js` (`node.online`),
+  `floorPlanEditor.js` (`ap.online`), and the SpeedTest coverage map (`apData.isOnline`) - so a
+  provisioning/updating device renders offline-grey. The C# side already centralizes this in
+  `UniFiDeviceStateMap` -> `DeviceStatus` (Online / Transitional / Offline / Error); thread that
+  through the marker DTOs and color markers yellow (provisioning) / red (error) instead of the
+  binary bool. The status-dot/badge/card spots already do this - only the JS map markers remain.
+
 ## Multi-Tenant / Multi-Site Support
 
 ### Multi-Tenant Architecture
