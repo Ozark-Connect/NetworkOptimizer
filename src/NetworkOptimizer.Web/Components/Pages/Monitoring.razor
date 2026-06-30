@@ -2705,7 +2705,9 @@ else
     private Task LossNavForward() => _lossNavEventEnd.HasValue
         ? NavigateToLossEvent(null, _lossNavEventEnd.Value.AddSeconds(1), _lossNavLoadedOnly) : Task.CompletedTask;
 
-    private async Task LossNavDeactivate()
+    // Clear the loss-investigation state (no chart call). Used both by the Exit button and
+    // when leaving the performance tab, so the card never shows "active" without a live chart.
+    private void ResetLossNavState()
     {
         _lossNavActive = false;
         _lossNavTimestamp = null;
@@ -2713,6 +2715,11 @@ else
         _lossNavEventEnd = null;
         _lossInvestigateResult = null;
         _lossNavLoadedOnly = false;
+    }
+
+    private async Task LossNavDeactivate()
+    {
+        ResetLossNavState();
         StateHasChanged();
         await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
@@ -2995,6 +3002,10 @@ else
             _latencyChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
             catch { }
+            // The chart (and its highlight) is torn down on leave, so drop the loss-nav state
+            // too - otherwise returning shows the card "active" with no highlight on the chart.
+            // Deep-linked investigations re-arm via the query param on entry, so this is safe.
+            ResetLossNavState();
         }
 
         if (_scrollToDiscoveryPending && _activeTab == "performance")
@@ -3056,6 +3067,8 @@ else
             _sfpChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
             catch { }
+            // Drop the stale SFP investigation result; its chart jump is gone with the unmount.
+            _sfpInvestigateResult = null;
         }
 
         if (_scrollToSfpChartsPending && _activeTab == "sfp" && _sfpChartsMounted)
