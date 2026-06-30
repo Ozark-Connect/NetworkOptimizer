@@ -1,3 +1,5 @@
+using NetworkOptimizer.Storage.Models;
+
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 /// <summary>Readiness of the ISP Health pipeline, used by the live view tiles.</summary>
@@ -390,6 +392,11 @@ public class IspHealthReport
     public DateTime WindowStart { get; init; }
     public DateTime WindowEnd { get; init; }
     public required AccessProfile Profile { get; init; }
+
+    /// <summary>The access technology that selected <see cref="Profile"/>, so the UI can offer a
+    /// quick re-score by changing it (the pill selector) without round-tripping Upstream Discovery.</summary>
+    public AccessTechnology AccessTechnology { get; set; }
+
     public required IspScoreDimension AccessDimension { get; init; }
     public required IspScoreDimension TransitDimension { get; init; }
     public required IspScoreDimension IspAsnDimension { get; init; }

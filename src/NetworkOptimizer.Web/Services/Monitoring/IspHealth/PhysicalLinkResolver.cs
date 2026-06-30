@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -127,9 +128,22 @@ public class PhysicalLinkResolver
         return (await db.MonitoredSfps.AsNoTracking().Where(s => s.Category == category).ToListAsync(ct))
             .Select(s => new Cand(
                 $"sfp:{s.DeviceMac}/{s.PortName}",
-                string.IsNullOrWhiteSpace(s.FriendlyName) ? s.PortName : s.FriendlyName!,
+                SfpDisplayLabel(s),
                 medium, null, s.DeviceMac, s.PortName))
             .ToList();
+    }
+
+    /// <summary>Friendly label for an SFP source: the user's name if set, otherwise the cleaned
+    /// transceiver vendor plus its port (e.g. "Ubiquiti SFP on Port 7"), falling back to just the
+    /// port when no vendor is reported.</summary>
+    private static string SfpDisplayLabel(MonitoredSfp s)
+    {
+        if (!string.IsNullOrWhiteSpace(s.FriendlyName))
+            return s.FriendlyName!;
+        var vendor = NetworkFormatHelpers.CleanOrgName(s.SfpVendor);
+        return string.IsNullOrEmpty(vendor)
+            ? $"SFP on Port {s.PortName}"
+            : $"{vendor} SFP on Port {s.PortName}";
     }
 
     private async Task<List<Cand>> CableModemCandidatesAsync(NetworkOptimizerDbContext db, CancellationToken ct)
@@ -220,7 +234,6 @@ public class PhysicalLinkResolver
             RxPowerBaselineDbm = stats.BaselineDbm,
             TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
             PonOperational = operational,
-            PonType = live?.PonType,
             IsXgsPon = isXgsPon,
             FecErrorsTotal = fecTotal,
             BipErrorsTotal = bipTotal,

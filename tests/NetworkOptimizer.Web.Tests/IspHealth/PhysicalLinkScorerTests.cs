@@ -14,7 +14,7 @@ public class PhysicalLinkScorerTests
     private const double Weight = 0.15;
 
     private static PhysicalLinkResult ScorePon(double rx, double? worst = null, double? baseline = null,
-        bool? operational = null, double? tx = null, string ponType = "GPON",
+        bool? operational = null, double? tx = null, bool isXgsPon = false,
         long? fecTotal = null, long? bipTotal = null, double windowDays = 2.0) =>
         PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
@@ -25,7 +25,7 @@ public class PhysicalLinkScorerTests
             RxPowerBaselineDbm = baseline,
             PonOperational = operational,
             TxPowerDbm = tx,
-            PonType = ponType,
+            IsXgsPon = isXgsPon,
             FecErrorsTotal = fecTotal,
             BipErrorsTotal = bipTotal,
             WindowDays = windowDays
@@ -204,14 +204,14 @@ public class PhysicalLinkScorerTests
     [InlineData(-22.6, "1:64")]
     public void Split_ratio_inference_snaps_to_nearest_rung(double rx, string expected)
     {
-        PhysicalLinkScorer.InferSplitRatio(rx, "GPON").Should().Contain(expected);
+        PhysicalLinkScorer.InferSplitRatio(rx, isXgs: false).Should().Contain(expected);
     }
 
     [Fact]
     public void Split_ratio_caps_at_1_64_for_very_cold_rx()
     {
         // Deeper than 1:64 is reported as 1:64+/excess, never 1:128.
-        PhysicalLinkScorer.InferSplitRatio(-30.0, "GPON").Should().Contain("1:64+");
+        PhysicalLinkScorer.InferSplitRatio(-30.0, isXgs: false).Should().Contain("1:64+");
     }
 
     // ---- Active Ethernet ----

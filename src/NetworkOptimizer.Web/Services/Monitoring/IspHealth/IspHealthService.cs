@@ -78,6 +78,38 @@ public class IspHealthService
         await GetReportAsync(forceRefresh: true, ct);
     }
 
+    /// <summary>
+    /// Overrides the scored access technology from the ISP Health selector and recomputes. Writes
+    /// it the same way Upstream Discovery commits it: to the primary WAN's discovery context,
+    /// created if missing. That is the row the scorer reads and the one a later discovery run
+    /// preserves (it only proposes a technology when none is set), so the override sticks until the
+    /// user changes it again here or in the discovery review. The legacy
+    /// MonitoringSettings.AccessTechnology is intentionally left untouched - it is read only as a
+    /// fallback for installs that predate the per-WAN context.
+    /// </summary>
+    public async Task SetAccessTechnologyAsync(AccessTechnology technology, CancellationToken ct = default)
+    {
+        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        {
+            // Primary WAN context, wan-first like the reader's ordering - but NOT filtered to
+            // non-Unknown: setting it when it is currently unset is the whole point. Create it if
+            // the table is empty, matching Upstream Discovery's create-if-missing on commit.
+            var ctxRow = (await db.WanDiscoveryContexts.ToListAsync(ct))
+                .OrderBy(c => string.Equals(c.WanInterface, "wan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .FirstOrDefault();
+            if (ctxRow == null)
+            {
+                ctxRow = new WanDiscoveryContext { WanInterface = "wan" };
+                db.WanDiscoveryContexts.Add(ctxRow);
+            }
+            ctxRow.AccessTechnology = technology;
+            ctxRow.UpdatedAt = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(ct);
+        }
+        await GetReportAsync(forceRefresh: true, ct);
+    }
+
     public IspHealthOptions Options => _options;
 
     /// <summary>
@@ -127,7 +159,13 @@ public class IspHealthService
 
             _computing = true;
             var (report, chartClusters) = await ComputeAsync(ct);
-            if (report != null) _cached = new Snapshot(report, chartClusters);
+            if (report != null)
+                _cached = new Snapshot(report, chartClusters);
+            else if (forceRefresh)
+                // A forced recompute that lost readiness (e.g. the technology was unset) must drop
+                // the stale snapshot, otherwise Status keeps reporting Ready off the old cache and
+                // the panel shows a generic error instead of the right prerequisite funnel.
+                _cached = null;
             return report;
         }
         finally
@@ -644,6 +682,7 @@ public class IspHealthService
         };
 
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
+        report.AccessTechnology = technology;
         report.PhysicalLinkCandidates = physical.Candidates;
         report.PhysicalLinkSelectedKey = physical.SelectedKey;
         report.PhysicalLinkMedium = physical.Input?.Medium;

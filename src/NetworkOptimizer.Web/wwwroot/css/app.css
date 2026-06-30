@@ -16113,6 +16113,82 @@ tr.stats-row-filtered {
     white-space: nowrap;
 }
 
+.isp-health-profile-chip-selectable {
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.isp-health-profile-chip-selectable:hover {
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.isp-profile-chip-caret {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    margin-right: -0.4rem;
+    vertical-align: middle;
+    background: no-repeat center/13px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%235c5c66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+
+.isp-access-tech-title {
+    display: inline-flex;
+    align-items: center;
+}
+
+.isp-physical-link-source {
+    max-width: 320px;
+    margin-top: 0.5rem;
+}
+
+.isp-access-tech-select {
+    margin-left: 0.75rem;
+    padding: 0 1.1rem 0 0;
+    border: none;
+    background-color: transparent;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    font-weight: 400;
+    vertical-align: middle;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235c5c66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right center;
+}
+
+.isp-access-tech-select:hover {
+    color: var(--text-primary);
+}
+
+.isp-access-tech-select option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.isp-profile-chip-select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+    border: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.isp-profile-chip-select option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
 a.isp-health-hero-speed {
     display: flex;
     flex-direction: column;

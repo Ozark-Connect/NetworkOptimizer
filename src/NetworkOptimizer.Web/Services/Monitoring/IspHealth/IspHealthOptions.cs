@@ -597,8 +597,11 @@ public static class IspHealthProfiles
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
             JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
 
+        // XGS-PON sits a notch below GPON on idle RTT: its low-latency DBA runs shorter upstream
+        // grant cycles than GPON's ~1-2 ms, and the 10G upstream cuts serialization, so the
+        // first-hop floor is lower. Loss/jitter/loaded bands stay as the optical defaults.
         AccessTechnology.XgsPon => new AccessProfile("XGS-PON",
-            IdleRttIdealMs: 1.5, IdleRttNormalLowMs: 2.0, IdleRttNormalHighMs: 3.0, IdleRttPoorMs: 8.0,
+            IdleRttIdealMs: 1.0, IdleRttNormalLowMs: 1.5, IdleRttNormalHighMs: 2.5, IdleRttPoorMs: 7.0,
             IdleLossIdealPct: 0.02, IdleLossAcceptablePct: 0.05,
             LoadedLossDownLowPct: 0.5, LoadedLossDownHighPct: 1.0,
             LoadedLossUpLowPct: 0.25, LoadedLossUpHighPct: 0.5,

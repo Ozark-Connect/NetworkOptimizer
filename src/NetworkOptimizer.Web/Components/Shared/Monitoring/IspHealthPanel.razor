@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Web.Services.Monitoring.IspHealth
+@using NetworkOptimizer.Storage.Models
 @implements IDisposable
 @inject IspHealthService IspHealth
 @inject NavigationManager NavigationManager
@@ -86,10 +87,16 @@ else if (_report == null)
             <div class="banner-content">
                 <span class="banner-icon banner-icon-info">i</span>
                 <div class="banner-text" style="flex: 1;">
-                    Select your access network technology (GPON, DOCSIS, Starlink, ...) in Upstream Discovery so ISP Health can grade against the right expectations.
+                    <span>Pick your access network technology so ISP Health can grade against the right expectations. You can also set it during <a href="/monitoring?tab=performance&amp;discover=1">Upstream Discovery</a>.</span>
                 </div>
                 <div class="banner-actions">
-                    <button class="btn btn-sm btn-primary" @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=performance&discover=1"))">Open Upstream Discovery</button>
+                    <select class="form-control" style="max-width: 240px;" aria-label="Access technology" @onchange="OnAccessTechnologyChanged">
+                        <option value="" selected disabled>Select technology...</option>
+                        @foreach (var tech in ProfileTechOptions)
+                        {
+                            <option value="@((int)tech)">@FormatTechName(tech)</option>
+                        }
+                    </select>
                 </div>
             </div>
         </div>
@@ -142,8 +149,17 @@ else
         <div class="card-body isp-health-hero-body">
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
-                <div class="isp-health-profile-chip" data-tooltip="Thresholds are tuned to the access technology selected in Upstream Discovery">
+                <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
+                     data-tooltip="Score thresholds are tuned to this access technology. Change it here to re-score now.">
                     Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
+                    <span class="isp-profile-chip-caret"></span>
+                    <select class="isp-profile-chip-select" aria-label="Access technology"
+                            value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
+                        @foreach (var tech in ProfileTechOptions)
+                        {
+                            <option value="@((int)tech)" selected="@(tech == r.AccessTechnology)">@FormatTechName(tech)</option>
+                        }
+                    </select>
                 </div>
             </div>
             <a href="/wan-speedtest" class="isp-health-hero-speed">
@@ -228,7 +244,20 @@ else
         {
             <div class="card isp-health-card">
                 <div class="card-header isp-dimension-header">
-                    <h2 class="card-title">@dimension.Name</h2>
+                    <h2 class="card-title@(dimension == r.AccessDimension ? " isp-access-tech-title" : "")">
+                        @dimension.Name
+                        @if (dimension == r.AccessDimension)
+                        {
+                            <select class="isp-access-tech-select" aria-label="Access technology"
+                                    data-tooltip="Score thresholds are tuned to this access technology. Change it here to re-score now."
+                                    value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
+                                @foreach (var tech in ProfileTechOptions)
+                                {
+                                    <option value="@((int)tech)" selected="@(tech == r.AccessTechnology)">@FormatTechName(tech)</option>
+                                }
+                            </select>
+                        }
+                    </h2>
                     <span class="isp-dimension-score @ScoreTextClass(dimension.Score)">@(dimension.Score?.ToString() ?? "--")</span>
                 </div>
                 <div class="card-body isp-card-body-tight-top">
@@ -351,7 +380,7 @@ else
                                         ? "More than one monitored access-link device matches this WAN. Choose which one feeds the score:"
                                         : "Scoring the selected access-link device. Change it here if needed:")
                                 </div>
-                                <select class="form-control" style="max-width: 320px;"
+                                <select class="form-control isp-physical-link-source"
                                         value="@(r.PhysicalLinkSelectedKey ?? "")" @onchange="OnPhysicalLinkSourceChanged">
                                     <option value="">Choose a source...</option>
                                     @foreach (var cand in r.PhysicalLinkCandidates)
@@ -668,6 +697,66 @@ else
             _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
         StateHasChanged();
     }
+
+    /// <summary>
+    /// Overrides the scored access technology from the pill selector and reloads the report for the
+    /// current window so the score and thresholds reflect the new technology immediately.
+    /// </summary>
+    private async Task OnAccessTechnologyChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var techValue))
+            return;
+        if (_refreshing || _windowComputing)
+            return;
+        // Drive the Refresh button's "Loading" spinner while the override re-scores,
+        // the same as a time-window change.
+        _windowComputing = true;
+        StateHasChanged();
+        try
+        {
+            await IspHealth.SetAccessTechnologyAsync((AccessTechnology)techValue);
+            if (IsLiveWindow)
+                _report = await IspHealth.GetReportAsync();
+            else if (_windowStart.HasValue && _windowEnd.HasValue)
+                _report = await IspHealth.GetReportForWindowAsync(_windowStart.Value, _windowEnd.Value, forceRefresh: true);
+        }
+        finally
+        {
+            _windowComputing = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Access technologies offered by the pill selector - only those with a scoring profile
+    /// (<see cref="IspHealthProfiles.GetProfile"/>), since the pill is only shown when scoring is
+    /// active. Unknown / PppoE / Other are excluded: picking them would null the profile and
+    /// collapse the pill into the "needs technology" empty state.
+    /// </summary>
+    private static readonly AccessTechnology[] ProfileTechOptions =
+    [
+        AccessTechnology.Gpon,
+        AccessTechnology.XgsPon,
+        AccessTechnology.Docsis,
+        AccessTechnology.Dsl,
+        AccessTechnology.DirectEthernet,
+        AccessTechnology.FixedWireless,
+        AccessTechnology.Cellular,
+        AccessTechnology.Satellite
+    ];
+
+    private static string FormatTechName(AccessTechnology tech) => tech switch
+    {
+        AccessTechnology.Gpon => "GPON",
+        AccessTechnology.XgsPon => "XGS-PON",
+        AccessTechnology.Docsis => "DOCSIS (Cable)",
+        AccessTechnology.DirectEthernet => "Active Ethernet",
+        AccessTechnology.FixedWireless => "Fixed Wireless",
+        AccessTechnology.Satellite => "Satellite",
+        AccessTechnology.Cellular => "Cellular",
+        AccessTechnology.Dsl => "DSL (ADSL/VDSL)",
+        _ => tech.ToString()
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

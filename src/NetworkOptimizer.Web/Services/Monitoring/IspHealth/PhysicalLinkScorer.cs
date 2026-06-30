@@ -61,10 +61,10 @@ public static class PhysicalLinkScorer
     {
         var issues = new List<IspHealthIssue>();
         var rx = input.RxPowerMedianDbm;
-        // Prefer the type the ONT actually reports; otherwise fall back to the configured access
-        // technology so the copy reads "GPON"/"XGS-PON" rather than a bare "PON".
+        // The configured access technology drives the copy so it reads "GPON"/"XGS-PON"
+        // consistently with the user's selection, not whatever the ONT happens to report.
         var label = isPon
-            ? (FormatPonType(input.PonType) ?? (input.IsXgsPon ? "XGS-PON" : "GPON"))
+            ? (input.IsXgsPon ? "XGS-PON" : "GPON")
             : "Active Ethernet";
 
         if (rx is null)
@@ -132,7 +132,7 @@ public static class PhysicalLinkScorer
         // PON-only: inferred split ratio (display verbiage) and bounded excess-loss flag.
         if (isPon)
         {
-            var split = InferSplitRatio(rx.Value, input.PonType);
+            var split = InferSplitRatio(rx.Value, input.IsXgsPon);
             if (split != null) detailBits.Add(split);
 
             if (rx.Value < PonThresholds.PonExcessLossFloorDbm && rx.Value > floor)
@@ -259,10 +259,8 @@ public static class PhysicalLinkScorer
     /// be nudged from field feedback - the model is the budget math, not a hand-tuned table. Never
     /// feeds the score. Returns null when the math lands hotter than even a 1:2 split.
     /// </summary>
-    internal static string? InferSplitRatio(double rxDbm, string? ponType)
+    internal static string? InferSplitRatio(double rxDbm, bool isXgs)
     {
-        var isXgs = (ponType ?? "").Contains("XGS", StringComparison.OrdinalIgnoreCase)
-                    || (ponType ?? "").Contains("10G", StringComparison.OrdinalIgnoreCase);
         var oltLaunchDbm = isXgs ? 5.0 : 3.0;     // common launch (GPON B+; high-class C+ is the rare rural case)
         const double distributionLossDb = 5.0;    // realistic drop: glass + splices + typical un-cleaned connectors
                                                   // (puts the 1:32 -> 1:64 boundary near -20.75 dBm on GPON)
@@ -278,12 +276,6 @@ public static class PhysicalLinkScorer
                 best = rung;
 
         return $"est. 1:{best.Ratio} split";
-    }
-
-    private static string? FormatPonType(string? ponType)
-    {
-        if (string.IsNullOrWhiteSpace(ponType)) return null;
-        return ponType.Trim();
     }
 
     // ---------------------------------------------------------------------------

@@ -49,11 +49,10 @@ public class PhysicalLinkInput
     /// the status are ignored, so a missing reading never reads as a link-down.</summary>
     public bool? PonOperational { get; init; }
 
-    /// <summary>PON type for display (GPON, XGS-PON); also selects the OLT-launch assumption.</summary>
-    public string? PonType { get; init; }
-
-    /// <summary>True when the configured access technology is XGS-PON (reliable even when the device
-    /// does not report PonType). Selects the higher XGS-PON ONU transmit-power threshold.</summary>
+    /// <summary>True when the configured access technology is XGS-PON. Drives the GPON/XGS-PON
+    /// display copy, the OLT-launch assumption for the split-ratio estimate, and the higher
+    /// XGS-PON ONU transmit-power threshold - the user's selection, not the device's self-report,
+    /// which many ONTs omit or report inconsistently.</summary>
     public bool IsXgsPon { get; init; }
 
     /// <summary>Total uncorrectable-FEC codewords over the window (external ONT only). Graded as an
