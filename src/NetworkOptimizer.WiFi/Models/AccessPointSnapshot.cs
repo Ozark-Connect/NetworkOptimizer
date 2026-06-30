@@ -53,6 +53,14 @@ public class AccessPointSnapshot
     /// <summary>Whether this AP is a mesh child (has wireless uplink to another AP)</summary>
     public bool IsMeshChild { get; set; }
 
+    /// <summary>
+    /// Whether this AP has a dedicated scan radio (an all-band radio that measures the RF
+    /// environment without taking a serving radio off-channel). When true, a quick scan is
+    /// non-disruptive to clients and mesh uplinks; when false, scanning borrows the serving radio
+    /// and briefly interrupts that band. Sourced from the device's scan_radio_table.
+    /// </summary>
+    public bool HasDedicatedScanRadio { get; set; }
+
     /// <summary>MAC address of the mesh parent AP (if this is a mesh child)</summary>
     public string? MeshParentMac { get; set; }
 

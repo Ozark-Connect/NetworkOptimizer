@@ -134,17 +134,14 @@
                             Without a measurement the optimizer infers those channels from neighboring
                             networks instead of seeing them directly. A quick scan reads the real airtime
                             and noise floor on each channel, so the recommendations reflect what's actually
-                            on the air - not a guess. Heads up: scanning briefly steps each radio off its
-                            channel - clients stay connected, but real-time traffic (video calls, gaming, an
-                            active speed test) can hiccup for a moment. Much lighter than a full scan, but
-                            best run during low-usage times.
+                            on the air - not a guess. @ScanDisruptionNote()
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
-                                data-tooltip="Each radio briefly steps off-channel to measure - clients stay connected, but real-time traffic can hiccup for a moment">
+                                data-tooltip="Runs a quick RF scan to measure these channels">
                             @if (_scanningGaps)
                             {
                                 <span class="spinner spinner-sm"></span>
-                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")… real-time traffic may briefly hiccup</span>
+                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")…</span>
                             }
                             else
                             {
@@ -914,9 +911,30 @@
     }
 
     // (AP, band) pairs whose recommendation falls back to neighbor scans because they have no recent
-    // per-channel spectrum measurement. A non-disruptive quick-scan fills them.
+    // per-channel spectrum measurement. A quick-scan fills them.
     private List<SpectrumScanGap> _scanGaps = new();
     private bool _scanningGaps;
+
+    // Disruption note tailored to the gapped APs' scan hardware: an AP with a dedicated scan radio
+    // measures without touching its serving radios (no client impact); without one, scanning briefly
+    // steps the serving radio off-channel and a mesh parent can drop the devices meshed through it.
+    private string ScanDisruptionNote()
+    {
+        var clean = _scanGaps.Count(g => g.HasDedicatedScanRadio);
+        var disruptive = _scanGaps.Count - clean;
+        var meshNote = _scanGaps.Any(g => g.IsMeshParent && !g.HasDedicatedScanRadio)
+            ? ", and may briefly drop devices meshed through an AP" : "";
+
+        if (disruptive == 0)
+            return "These scan on a dedicated radio, so running won't disrupt clients.";
+        if (clean == 0)
+            return $"Heads up: scanning briefly steps each radio off its channel - clients stay connected, "
+                 + $"but real-time traffic (video calls, gaming) can hiccup for a moment{meshNote}. "
+                 + "Much lighter than a full scan, but best run during low-usage times.";
+        return $"{clean} of these scan on a dedicated radio with no client impact; the other {disruptive} "
+             + $"briefly step their serving radio off-channel, so real-time traffic can hiccup{meshNote} - "
+             + "best run during low-usage times.";
+    }
 
     private async Task LoadScanGapsAsync()
     {

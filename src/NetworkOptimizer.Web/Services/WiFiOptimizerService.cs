@@ -615,17 +615,28 @@ public class WiFiOptimizerService
         var scans = await GetChannelScanResultsAsync(
             startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
 
+        var provider = CreateProvider();
+        var aps = await provider.GetAccessPointsAsync();
+        var apByMac = aps.ToDictionary(a => a.Mac, StringComparer.OrdinalIgnoreCase);
+
         // Mesh (wireless-uplink) APs can't quick-scan without dropping their uplink, so the controller
         // refuses - don't list gaps the user can never fill.
-        var provider = CreateProvider();
-        var meshChildMacs = (await provider.GetAccessPointsAsync())
-            .Where(a => a.IsMeshChild)
+        var meshChildMacs = aps.Where(a => a.IsMeshChild)
             .Select(a => a.Mac)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return scans
             .Where(s => s.Channels.Count == 0 && !meshChildMacs.Contains(s.ApMac))
-            .Select(s => new SpectrumScanGap(s.ApMac, s.ApName ?? s.ApMac, s.Band, s.Band.ToUniFiCode()))
+            .Select(s =>
+            {
+                apByMac.TryGetValue(s.ApMac, out var ap);
+                var hasScanRadio = ap?.HasDedicatedScanRadio ?? false;
+                // A mesh parent only matters for the warning when it lacks a dedicated scan radio
+                // (then scanning its uplink band drops children; with a scan radio the uplink is safe).
+                var isMeshParent = (ap?.MeshChildren.Count ?? 0) > 0;
+                return new SpectrumScanGap(
+                    s.ApMac, s.ApName ?? s.ApMac, s.Band, s.Band.ToUniFiCode(), hasScanRadio, isMeshParent);
+            })
             .ToList();
     }
 

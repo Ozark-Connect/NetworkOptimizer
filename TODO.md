@@ -663,8 +663,14 @@ only on `UniFiApiClient`).
   current band (or all bands), then re-run when done. Same async flow as Win 1, just "all" not "gaps".
 - [ ] **Win 3 (scheduled off-peak sweep)** - background job that sweeps quick-scans across APs/bands
   during low-utilization hours, determined from the 1d/7d historic stress we already compute. Stagger
-  ONE radio at a time (never take the whole site's airtime off-channel at once) so the spectrum cache
-  stays fresh and recommendations are always well-grounded with zero user action.
+  ONE band at a time PER AP (parallel across APs - a radio scans one band at a time); never take the
+  whole site's airtime off-channel at once. Spectrum cache stays fresh, recommendations always
+  well-grounded, zero user action.
+  - **Scan-hardware-aware scheduling (use `HasDedicatedScanRadio`):** APs with a dedicated all-band
+    scan radio (verified: phy reports Band 1+2+4) scan with ZERO disruption to clients or mesh
+    uplinks - so scan those freely/immediately, anytime. Only serving-radio APs (no scan radio) need
+    the off-peak window. Mesh parents WITHOUT a scan radio are the most disruptive (scanning the uplink
+    band drops children) - schedule those most conservatively or skip their uplink band.
 - [ ] **Deep-analysis mode (premium, user-initiated)** - trigger fresh scans on ALL radios, wait,
   then recommend on fully-measured data. Best accuracy, slow (minutes); distinct from the fast
   everyday rec.

@@ -967,6 +967,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Timestamp = timestamp,
             Radios = new List<RadioSnapshot>(),
             Vaps = new List<VapSnapshot>(),
+            HasDedicatedScanRadio = ap.HasDedicatedScanRadio,
             IsMeshChild = isMeshChild,
             MeshParentMac = meshParentMac,
             MeshUplinkBand = meshUplinkBand,

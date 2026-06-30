@@ -2,9 +2,13 @@ namespace NetworkOptimizer.WiFi.Models;
 
 /// <summary>
 /// An (AP, band) that has no recent per-channel spectrum-scan measurement, so its channel
-/// recommendation falls back to the neighbor (external) scan. A non-disruptive quick-scan can fill it.
+/// recommendation falls back to the neighbor (external) scan. A quick-scan can fill it.
+/// <paramref name="HasDedicatedScanRadio"/> = the AP scans on a dedicated radio (no client impact);
+/// otherwise scanning briefly interrupts that band. <paramref name="IsMeshParent"/> = scanning this
+/// AP (when it lacks a dedicated scan radio) can also briefly drop devices meshed through it.
 /// </summary>
-public record SpectrumScanGap(string ApMac, string ApName, RadioBand Band, string BandCode);
+public record SpectrumScanGap(
+    string ApMac, string ApName, RadioBand Band, string BandCode, bool HasDedicatedScanRadio, bool IsMeshParent);
 
 /// <summary>
 /// Per-AP channel recommendation: current vs recommended (channel, width) tuple.
