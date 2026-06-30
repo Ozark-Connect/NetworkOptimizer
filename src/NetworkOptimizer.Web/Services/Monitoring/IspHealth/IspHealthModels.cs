@@ -151,6 +151,11 @@ public class IspHealthIssue
     public string? Recommendation { get; init; }
     public string? LinkUrl { get; init; }
     public string? LinkText { get; init; }
+
+    /// <summary>Optional deep-link to the matching loss event on the Network Performance charts,
+    /// mirroring the Access Layer sub-score headers (e.g. ?investigate=loaded-loss).</summary>
+    public string? InvestigateUrl { get; init; }
+    public string? InvestigateText { get; init; }
 }
 
 /// <summary>

@@ -1354,7 +1354,9 @@ public class IspHealthScorer
                     Description = "Packet loss exceeds the acceptable band for this connection type when the line is loaded.",
                     Recommendation = recommendation,
                     LinkUrl = "/sqm",
-                    LinkText = "Adaptive SQM"
+                    LinkText = "Adaptive SQM",
+                    InvestigateUrl = "/monitoring?tab=performance&investigate=loaded-loss",
+                    InvestigateText = "Investigate on the charts"
                 });
             }
         }
@@ -1386,12 +1388,32 @@ public class IspHealthScorer
         var idleLossFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Packet Loss");
         if (idleLossFactor?.Score is < 70)
         {
+            // Dedicated point-to-point media (DSL pair, Active Ethernet / DIA) have no
+            // contended segment, so persistent loss there is a physical-plant fault. On
+            // shared media the same loss can equally be an oversubscribed segment upstream,
+            // and on the neutral PPPoE/Other profile the medium is unknown so we hedge.
+            string lossRecommendation;
+            if (!profile.SharedMedium)
+            {
+                lossRecommendation = "Persistent loss regardless of load usually points at the physical layer: check optics, connectors, or line/signal levels, and raise it with your ISP.";
+            }
+            else if (profile.IsNeutral)
+            {
+                lossRecommendation = "Persistent loss regardless of load points at the access layer: a physical-plant fault (optics, connectors, coax fittings, or signal levels), or - if your line runs over a shared medium like cable, PON, fixed wireless, or cellular - an oversubscribed segment carrying too many subscribers. Raise it with your ISP either way.";
+            }
+            else
+            {
+                lossRecommendation = $"Persistent loss regardless of load points at the access layer: a physical-plant fault (optics, connectors, coax fittings, or signal levels), or an oversubscribed segment upstream, since {profile.DisplayName} shares capacity across subscribers. Raise it with your ISP.";
+            }
+
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = "Packet loss above acceptable",
                 Description = $"Average packet loss of {idleLossFactor.ValueText} exceeds the {FormatPct(profile.IdleLossAcceptablePct)} acceptable ceiling for {profile.DisplayName}.",
-                Recommendation = "Persistent loss regardless of load usually points at the physical layer: check optics, connectors, coax fittings, or signal levels, and raise it with your ISP."
+                Recommendation = lossRecommendation,
+                InvestigateUrl = "/monitoring?tab=performance&investigate=packet-loss",
+                InvestigateText = "Investigate on the charts"
             });
         }
 

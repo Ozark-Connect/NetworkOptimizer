@@ -232,6 +232,13 @@ else
                                     }
                                 </div>
                             }
+                            @if (!string.IsNullOrEmpty(issue.InvestigateUrl))
+                            {
+                                <div class="issue-investigate">
+                                    <a class="isp-factor-link" href="@issue.InvestigateUrl"
+                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@(issue.InvestigateText ?? "Investigate on the charts")</a>
+                                </div>
+                            }
                         </div>
                     </div>
                 }

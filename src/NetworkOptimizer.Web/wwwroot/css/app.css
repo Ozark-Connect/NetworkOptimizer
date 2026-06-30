@@ -2811,6 +2811,11 @@ select.form-control {
     color: var(--text-primary);
 }
 
+.issue-investigate {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
 .issue-recommendation a,
 .issue-type-recommendation a,
 .issue-description a,

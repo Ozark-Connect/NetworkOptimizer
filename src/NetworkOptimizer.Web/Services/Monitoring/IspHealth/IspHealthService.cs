@@ -468,6 +468,15 @@ public class IspHealthService
             })
             .ToList();
 
+        // Surface the well-known anycast DNS endpoints (Cloudflare 1.1.1.1, Google 8.8.8.8)
+        // as their own lines on the Per-Network RTT chart. They already feed loss, path-shift,
+        // and congestion detection (as destination witnesses); they are also exceptionally
+        // stable, so plotting them gives a known-good baseline to read a noisy ISP or transit
+        // hop against. Only the anycast DNS targets are charted, not arbitrary discovered
+        // InternetService destinations.
+        chartClusters.AddRange(internetTargetSeries
+            .Where(s => s.HopIps.Any(AnycastDnsIps.Contains)));
+
         // Per-target (hop-granularity) series for the congestion localizer: clustering would
         // lump a clean middle hop with a hot one and re-merge an off-path ASN, so detection and
         // localization run at the individual hop. Destinations come in as witnesses only.
