@@ -621,10 +621,18 @@ public class WiFiOptimizerService
             .ToList();
     }
 
+    private const int QuickScanPollIntervalSeconds = 3;
+    private const int QuickScanPerBandTimeoutSeconds = 45;
+
     /// <summary>
     /// Trigger non-disruptive quick RF scans on the given (AP, band) targets, wait for them to
-    /// finish (polling, with a timeout), then invalidate the scan cache so the next recommendation
-    /// picks up the fresh per-channel measurements. A quick-scan does NOT disconnect clients.
+    /// finish, then invalidate the scan cache so the next recommendation picks up the fresh
+    /// per-channel measurements. A quick-scan does NOT disconnect clients.
+    ///
+    /// A radio can only scan ONE band at a time, so an AP's bands are scanned SEQUENTIALLY (trigger,
+    /// wait for the AP to go idle, then the next band). Different APs scan CONCURRENTLY. Firing all of
+    /// an AP's bands at once makes all but one fail - that's why an unfiltered batch only ever filled
+    /// one gap per AP.
     /// </summary>
     public async Task RunQuickScansAsync(
         IEnumerable<(string ApMac, string BandCode)> targets,
@@ -635,45 +643,65 @@ public class WiFiOptimizerService
             return;
 
         var provider = CreateProvider();
-        var scannedMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (apMac, bandCode) in list)
-        {
-            try
-            {
-                if (await provider.TriggerQuickScanAsync(apMac, bandCode, cancellationToken))
-                    scannedMacs.Add(apMac);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Quick scan trigger failed for {Mac} band {Band}", apMac, bandCode);
-            }
-        }
-
-        // Poll until every triggered AP reports its quick-scan idle, or we hit the timeout.
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
-        while (scannedMacs.Count > 0 && DateTimeOffset.UtcNow < deadline)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
-
-            var anyRunning = false;
-            foreach (var mac in scannedMacs)
-            {
-                try
-                {
-                    if (await provider.IsQuickScanInProgressAsync(mac, cancellationToken)) { anyRunning = true; break; }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Quick scan status poll failed for {Mac}", mac);
-                }
-            }
-            if (!anyRunning) break;
-        }
+        var perApScans = list
+            .GroupBy(t => t.ApMac, StringComparer.OrdinalIgnoreCase)
+            .Select(g => ScanApBandsSequentiallyAsync(
+                provider, g.Key, g.Select(t => t.BandCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken));
+        await Task.WhenAll(perApScans);
 
         // Fresh scans are in - drop the cached snapshot so the next fetch re-reads the spectrum data.
         _cachedScanResults = null;
         _cachedScanResultsTimeKey = null;
+    }
+
+    /// <summary>
+    /// Scan one AP's bands one at a time, waiting for each to finish before starting the next, since
+    /// the radio can only scan a single band at a time. Different APs run this concurrently.
+    /// </summary>
+    private async Task ScanApBandsSequentiallyAsync(
+        UniFiLiveDataProvider provider, string apMac, List<string> bandCodes, CancellationToken cancellationToken)
+    {
+        foreach (var bandCode in bandCodes)
+        {
+            try
+            {
+                if (!await provider.TriggerQuickScanAsync(apMac, bandCode, cancellationToken))
+                    continue;
+                await WaitForQuickScanIdleAsync(provider, apMac, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Quick scan failed for {Mac} band {Band}", apMac, bandCode);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Poll an AP until its quick-scan reports idle (or the per-band timeout), so the next band on the
+    /// same AP doesn't start while this one is still running.
+    /// </summary>
+    private async Task WaitForQuickScanIdleAsync(
+        UniFiLiveDataProvider provider, string apMac, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(QuickScanPerBandTimeoutSeconds);
+        // Give the controller a moment to mark the scan in-progress before the first check.
+        await Task.Delay(TimeSpan.FromSeconds(QuickScanPollIntervalSeconds), cancellationToken);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            bool inProgress;
+            try
+            {
+                inProgress = await provider.IsQuickScanInProgressAsync(apMac, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Quick scan status poll failed for {Mac}", apMac);
+                break;
+            }
+            if (!inProgress) break;
+            await Task.Delay(TimeSpan.FromSeconds(QuickScanPollIntervalSeconds), cancellationToken);
+        }
     }
 
     /// <summary>
