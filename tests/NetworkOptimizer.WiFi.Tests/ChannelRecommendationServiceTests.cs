@@ -888,6 +888,32 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void ScoreAssignment_MeasuredFloor_RaisesUnderstated_ButNeverDiscountsKnownBssids()
+    {
+        // Floor: the rogue scan barely registers ch36 (0.5) but the radio measures it genuinely busy
+        // (50% airtime - non-beaconing/hidden congestion), so congestion is RAISED to the measurement.
+        // Not a cap: a channel with many KNOWN BSSIDs (proxy 8.0) that the scan happens to catch idle
+        // (5%) keeps its proxy - detected BSSIDs are real and the scan is only a reference.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(double externalLoad, int scanUtil)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 36, externalLoad } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int Interference)> { { 36, (scanUtil, 0) } };
+            return g;
+        }
+
+        var understated = _service.ScoreAssignment(Build(0.5, 50), new[] { (36, 80) }, RadioBand.Band5GHz);
+        var knownButIdle = _service.ScoreAssignment(Build(8.0, 5), new[] { (36, 80) }, RadioBand.Band5GHz);
+
+        understated.Should().BeGreaterThan(6.0,
+            "an under-stated channel is floored up to the measured 50% airtime (~7.5), not left at the 0.5 proxy");
+        knownButIdle.Should().BeGreaterThan(7.0,
+            "the 8.0 of known BSSIDs is kept - a one-shot idle scan never discounts detected APs");
+    }
+
+    [Fact]
     public void Optimize_MeasuredComfortableCurrentChannel_NotChurnedForOwnBenefit()
     {
         // The reported class: the external neighbor scan inflates a channel that the AP's own radio

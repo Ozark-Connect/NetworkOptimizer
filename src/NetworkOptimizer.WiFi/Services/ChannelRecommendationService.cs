@@ -145,6 +145,14 @@ public class ChannelRecommendationService
     private const double ComfortableInterferencePct = 20.0;
 
     /// <summary>
+    /// Converts a measured channel occupancy percentage (0-100) to the external-load score scale,
+    /// used by the measured-congestion floor (#2). Scaled so ~50% airtime maps to ~7.5 (a busy
+    /// external load) and a fully-saturated 100% channel maps to 15 (just above the worst real
+    /// external values). Tunable.
+    /// </summary>
+    private const double MeasuredCongestionToLoadScale = 0.15;
+
+    /// <summary>
     /// Maximum allowed score degradation for any individual AP in a recommended plan.
     /// 1.5 = AP's score can increase by up to 50%. Prevents sacrificing one AP
     /// too heavily for network-wide improvement.
@@ -216,6 +224,14 @@ public class ChannelRecommendationService
     /// though from its own location, so confidence is high but below historic/direct.
     /// </summary>
     private const double SiblingResidentConfidence = 0.70;
+
+    /// <summary>
+    /// Observation confidence from spectrum-scan coverage of a channel: the radio directly measured
+    /// the channel's airtime, so it isn't "unknown" - but it's a one-shot sample, so it reduces the
+    /// uncertainty penalty without erasing it (the scan is a reference, not the authority for a
+    /// move-to channel). Between sibling-resident and historic. Tunable.
+    /// </summary>
+    private const double ScanCoverageConfidence = 0.80;
 
     /// <summary>
     /// Minimum internal (propagation) weight for a resident sibling AP to count as an observer
@@ -1083,15 +1099,21 @@ public class ChannelRecommendationService
             }
         }
 
-        // External interference (neighbor networks)
+        // External interference (neighbor networks), floored by measured congestion (#2): the scan
+        // can UNDER-state a channel (non-beaconing/hidden airtime the rogue scan never sees), so
+        // raise it to what the radio measured. It is a floor only - never lower the proxy, because
+        // the BSSIDs the scan DID detect are real and will transmit even if idle this instant.
         for (int i = 0; i < n; i++)
         {
             var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
+            double externalLoad = 0;
             foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, i))
             {
                 if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
-                    score += extWeight;
+                    externalLoad += extWeight;
             }
+            var measured = MeasuredCongestionLoad(graph, band, i, assignment);
+            score += measured > externalLoad ? measured : externalLoad;
         }
 
         // Channel scan data (utilization/interference from RF environment scan)
@@ -1157,13 +1179,17 @@ public class ChannelRecommendationService
             score += graph.DirectionalWeights[j, apIndex] * overlapFactor * InternalCoChannelMultiplier;
         }
 
-        // External interference
+        // External interference, floored by measured congestion (#2): raise a channel the rogue scan
+        // under-states up to what the radio measured, but never lower it - detected BSSIDs are real.
         var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+        double externalLoad = 0;
         foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
             if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
-                score += extWeight;
+                externalLoad += extWeight;
         }
+        var measuredLoad = MeasuredCongestionLoad(graph, band, apIndex, assignment);
+        score += measuredLoad > externalLoad ? measuredLoad : externalLoad;
 
         // Channel scan data (scaled by band stress multiplier)
         var bandStress = GetBandStressMultiplier(band);
@@ -1302,6 +1328,44 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
+    /// Measured-congestion FLOOR (#2) for the AP's assigned channel, on the external-load scale. The
+    /// rogue/neighbor scan only sees beaconing BSSIDs, so it can UNDER-state a channel that's
+    /// genuinely busy (the inverted ch1 case: low scan weight, but high measured airtime from
+    /// non-beaconing or hidden sources). This raises the channel's congestion to what the radio
+    /// actually measured, from the best signals we have: the AP's OWN spectrum-scan utilization for
+    /// the channel (right vantage, all scanned channels), or a sibling AP's time-averaged external
+    /// interference for a channel it currently occupies (averaged, and a real signal we'd also
+    /// collide with our own AP there). Takes the higher of those. The caller uses it as a FLOOR only
+    /// - it never LOWERS the proxy, because the BSSIDs the scan DID detect are real and will transmit
+    /// even if idle this instant; the scan is a reference, not the authority. Returns -1 when no
+    /// measurement exists.
+    /// </summary>
+    private double MeasuredCongestionLoad(InterferenceGraph graph, RadioBand band, int apIndex, (int Channel, int Width)[] assignment)
+    {
+        var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
+        double measuredPct = -1;
+
+        // The AP's own spectrum-scan utilization for the assigned channel (its own vantage).
+        if (graph.ScanChannelData[apIndex].TryGetValue(assignment[apIndex].Channel, out var scan))
+            measuredPct = Math.Max(measuredPct, scan.Utilization);
+
+        // A sibling AP's time-averaged external interference for a channel it currently sits on.
+        var n = graph.Nodes.Count;
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            var sibling = graph.Nodes[j];
+            if (sibling.HistoricalStress == null) continue;
+            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            if (!ChannelSpanHelper.SpansOverlap(apSpan, siblingSpan)) continue;
+            if (sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress))
+                measuredPct = Math.Max(measuredPct, stress.Interference);
+        }
+
+        return measuredPct < 0 ? -1 : measuredPct * MeasuredCongestionToLoadScale;
+    }
+
+    /// <summary>
     /// Each external contributor to an AP as a (channel span, weight) pair, accounting for the
     /// neighbor's width so a wide neighbor's load is tested against its full span (e.g. a 40 MHz
     /// neighbor on 2.4 GHz ch11 also covers ch6) - and ONLY that neighbor's weight spills, not the
@@ -1356,6 +1420,12 @@ public class ChannelRecommendationService
 
         double confidence = 0;
         var node = graph.Nodes[apIndex];
+
+        // Spectrum-scan coverage: the radio directly measured the channel's airtime, so it isn't
+        // "unknown" even if it heard no beaconing neighbor there. But it's a one-shot sample, so it
+        // only partially resolves the uncertainty - the scan informs the move, it doesn't crown it.
+        if (graph.ScanChannelData[apIndex].Keys.Any(ch => ChannelSpanHelper.SpansOverlap(apSpan, (ch, ch))))
+            confidence = Math.Max(confidence, ScanCoverageConfidence);
 
         // Historic occupancy: we have measured airtime for this AP on an overlapping channel.
         if (node.HistoricalStress != null)
