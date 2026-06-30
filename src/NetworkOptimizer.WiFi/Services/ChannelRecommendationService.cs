@@ -21,6 +21,17 @@ public class ChannelRecommendationService
     /// <summary>DFS penalty base (equivalent to a moderate neighbor)</summary>
     private const double DfsPenaltyBase = 0.5;
 
+    /// <summary>
+    /// Friction for moving an AP off a DFS channel onto a non-DFS channel we have no direct
+    /// neighbor observation of. DFS channels are typically underused, so abandoning a working one
+    /// for a channel we have zero scan data on risks trading a known-decent channel for a hidden
+    /// mess - the apparent "improvement" may be nothing more than the absence of data. This fixed
+    /// cost is added to the candidate in the search-decision scoring so the move only wins on a
+    /// clearly substantial net gain (roughly double the normal <see cref="MinApAbsoluteImprovement"/>
+    /// bar), not on missing data. A genuinely congested DFS channel still clears it. Tunable.
+    /// </summary>
+    private const double DfsDepartureFrictionPenalty = 0.6;
+
     /// <summary>Number of random restarts for optimization</summary>
     private const int RandomRestarts = 8;
 
@@ -245,7 +256,8 @@ public class ChannelRecommendationService
             ExternalLoad = new Dictionary<int, double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
             ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
-            MeshConstraints = new List<MeshConstraint>()
+            MeshConstraints = new List<MeshConstraint>(),
+            DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
         };
 
         // Build nodes
@@ -343,6 +355,12 @@ public class ChannelRecommendationService
             return new ChannelPlan { Band = band };
         }
 
+        // Apply DFS-departure friction on 5 GHz except in Avoid-DFS mode (where leaving DFS is the
+        // user's explicit goal). The scorer reads this flag, so the friction reaches every
+        // move-decision path - search, per-AP gates, fallback and altruistic relocation alike.
+        graph.ApplyDfsDepartureFriction =
+            band == RadioBand.Band5GHz && opts.DfsPreference != DfsPreference.Exclude;
+
         // Score current assignment
         var currentAssignment = new (int Channel, int Width)[n];
         for (int i = 0; i < n; i++)
@@ -435,9 +453,6 @@ public class ChannelRecommendationService
         }
 
         // Build result
-        var dfsChannels = regulatoryData?.DfsChannels ?? [];
-        var dfsSet = new HashSet<int>(dfsChannels);
-
         var plan = new ChannelPlan
         {
             Band = band,
@@ -513,7 +528,10 @@ public class ChannelRecommendationService
                 RecommendedScore = recommendedApScore,
                 IsMeshConstrained = node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i,
                 IsUnplaced = !node.IsPlaced,
-                IsDfsChannel = band == RadioBand.Band5GHz && dfsSet.Contains(recommendedChannel)
+                // Authoritatively recomputed against the final channel after reconciliation (the
+                // per-AP fallback, altruistic relocation and mesh sync can all rewrite the channel
+                // below). This initial value is the optimizer's raw pick.
+                IsDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels)
             });
         }
 
@@ -859,9 +877,14 @@ public class ChannelRecommendationService
         // Re-score ALL APs against the final assignment for accurate display.
         // Unchanged APs may still be affected by other APs' moves (e.g., a neighbor
         // moved onto or off their channel), so their displayed score must reflect reality.
+        // Also recompute the DFS badge here: the channel may have been rewritten by the
+        // per-AP fallback, altruistic relocation or mesh sync since it was first set, so the
+        // badge must reflect the channel actually shown, not the optimizer's original pick.
         for (int i = 0; i < n; i++)
         {
-            plan.Recommendations[i].RecommendedScore = ScoreAp(graph, finalAssignment, i, band);
+            var rec = plan.Recommendations[i];
+            rec.RecommendedScore = ScoreAp(graph, finalAssignment, i, band);
+            rec.IsDfsChannel = IsDfsAssignment(band, rec.RecommendedChannel, rec.RecommendedWidth, graph.DfsChannels);
         }
 
         // Display scores without DFS penalty for consistency across modes.
@@ -944,6 +967,10 @@ public class ChannelRecommendationService
         for (int i = 0; i < n; i++)
             score += ComputeUnobservedPenalty(graph, band, i, assignment);
 
+        // Friction against blindly leaving a DFS channel for an unobserved non-DFS one
+        for (int i = 0; i < n; i++)
+            score += ComputeDfsDepartureFriction(graph, band, i, assignment[i]);
+
         return score;
     }
 
@@ -998,6 +1025,9 @@ public class ChannelRecommendationService
 
         // Unobserved channel uncertainty (confidence-weighted)
         score += ComputeUnobservedPenalty(graph, band, apIndex, assignment);
+
+        // Friction against blindly leaving a DFS channel for an unobserved non-DFS one
+        score += ComputeDfsDepartureFriction(graph, band, apIndex, assignment[apIndex]);
 
         return score;
     }
@@ -1810,7 +1840,10 @@ public class ChannelRecommendationService
         if (dfsPref == DfsPreference.Exclude)
             return baseScore; // DFS channels already excluded from valid set
 
-        // IncludeWithPenalty
+        // IncludeWithPenalty: mild penalty for occupying a DFS channel (radar-interruption risk).
+        // The DFS-departure friction (the inverse bias - don't blindly leave DFS) lives in
+        // ScoreAp/ScoreAssignment instead, so it applies on every move-decision path, not just the
+        // search/altruistic paths that route through here.
         double penalty = 0;
         for (int i = 0; i < assignment.Length; i++)
         {
@@ -1825,6 +1858,62 @@ public class ChannelRecommendationService
         }
 
         return baseScore + penalty;
+    }
+
+    /// <summary>
+    /// Friction for moving an AP off a DFS channel onto a non-DFS channel that has no direct
+    /// neighbor observation. Returns <see cref="DfsDepartureFrictionPenalty"/> only when the AP
+    /// currently sits on a DFS channel, the proposed channel is non-DFS and different, and the
+    /// proposed channel's span has zero direct neighbor sightings. A DFS channel is typically
+    /// underused, so abandoning a working one for a channel we know nothing about risks trading a
+    /// known-decent channel for a hidden mess; require real evidence before making that move.
+    /// Gated by <see cref="InterferenceGraph.ApplyDfsDepartureFriction"/> (off in Avoid-DFS mode,
+    /// where leaving DFS is the user's explicit goal).
+    /// </summary>
+    private double ComputeDfsDepartureFriction(
+        InterferenceGraph graph,
+        RadioBand band,
+        int apIndex,
+        (int Channel, int Width) assigned)
+    {
+        if (!graph.ApplyDfsDepartureFriction) return 0;
+
+        var node = graph.Nodes[apIndex];
+        if (assigned.Channel == node.CurrentChannel) return 0; // not moving
+
+        // Must currently be on DFS and proposing a non-DFS channel.
+        if (!IsDfsAssignment(band, node.CurrentChannel, node.CurrentWidth, graph.DfsChannels)) return 0;
+        if (IsDfsAssignment(band, assigned.Channel, assigned.Width, graph.DfsChannels)) return 0;
+
+        // Only when the destination has no direct neighbor observation. A channel we've actually
+        // scanned and found quiet is real evidence and earns no friction.
+        var span = ChannelSpanHelper.GetChannelSpan(band, assigned.Channel, assigned.Width);
+        bool observed = graph.DirectlyObservedChannels[apIndex]
+            .Any(dc => ChannelSpanHelper.SpansOverlap(span, (dc, dc)));
+        if (observed) return 0;
+
+        return DfsDepartureFrictionPenalty;
+    }
+
+    /// <summary>
+    /// Whether a 5 GHz channel assignment is subject to DFS. Considers the full bonding span, not
+    /// just the control channel: an 80/160 MHz block whose span includes any DFS sub-channel is a
+    /// DFS assignment (the radio must perform radar detection across the whole block). Uses the
+    /// site's regulatory DFS set when available, falling back to the standard UNII-2/2C ranges.
+    /// Mirrors the bonding-group DFS logic in <see cref="RegulatoryChannelData.GetChannels"/>.
+    /// </summary>
+    private static bool IsDfsAssignment(RadioBand band, int channel, int width, HashSet<int> dfsSet)
+    {
+        if (band != RadioBand.Band5GHz) return false;
+        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        for (int c = span.Low; c <= span.High; c += 4)
+        {
+            bool isDfs = dfsSet.Count > 0
+                ? dfsSet.Contains(c)
+                : (c >= 52 && c <= 64) || (c >= 100 && c <= 144);
+            if (isDfs) return true;
+        }
+        return false;
     }
 
     private ((int Channel, int Width)[] Assignment, double Score) ExhaustiveSearch(

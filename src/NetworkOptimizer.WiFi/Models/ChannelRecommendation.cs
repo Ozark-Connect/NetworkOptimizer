@@ -104,6 +104,21 @@ public class InterferenceGraph
 
     /// <summary>Whether scan results existed for this band (UniFi provided RF scan data)</summary>
     public bool HasScanData { get; set; }
+
+    /// <summary>
+    /// 5 GHz DFS channels for the site's regulatory domain (from <see cref="RegulatoryChannelData"/>).
+    /// Empty when no regulatory data is available, in which case DFS reasoning falls back to the
+    /// standard UNII-2/2C ranges. Used for the DFS badge and the DFS-departure friction.
+    /// </summary>
+    public HashSet<int> DfsChannels { get; set; } = new();
+
+    /// <summary>
+    /// When true, the scorer adds friction to moving an AP off a DFS channel onto a non-DFS
+    /// channel it has no scan data for. Set by the optimizer for 5 GHz except in Avoid-DFS mode,
+    /// where leaving DFS is the user's explicit goal. Off by default so direct scorer calls are
+    /// unaffected.
+    /// </summary>
+    public bool ApplyDfsDepartureFriction { get; set; }
 }
 
 /// <summary>

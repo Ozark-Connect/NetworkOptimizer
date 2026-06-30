@@ -571,6 +571,98 @@ public class ChannelRecommendationServiceTests
         }
     }
 
+    // Standard US 5 GHz regulatory channel set (80 MHz bonding groups + DFS list).
+    private static RegulatoryChannelData StdUsRegulatory() => new()
+    {
+        Channels5GHz = new Dictionary<int, int[]>
+        {
+            { 20, new[] { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 } },
+            { 80, new[] { 36, 52, 100, 116, 132, 149 } }
+        },
+        DfsChannels = new[] { 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144 }
+    };
+
+    // A single 5 GHz AP on the given channel, with the given per-channel external load and the set
+    // of channels it has directly observed. Mirrors the live-graph shape the optimizer consumes.
+    private InterferenceGraph SingleApGraph(
+        int currentChannel,
+        Dictionary<int, double> externalLoad,
+        HashSet<int> directlyObserved,
+        RegulatoryChannelData reg,
+        RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Subject", RadioBand.Band5GHz, currentChannel, hasDfs: true)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        graph.ExternalLoad[0] = externalLoad;
+        graph.DirectlyObservedChannels[0] = directlyObserved;
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_DfsToUnobservedNonDfs_FrictionKeepsApOnDfs()
+    {
+        // The reported case (Mac site): an AP healthy on a DFS channel with one known neighbor, and
+        // a non-DFS channel it has NO scan data for. Without friction the engine jumps to the
+        // non-DFS channel because it "looks" empty - but that emptiness is just missing data.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(52,
+            externalLoad: new() { { 52, 0.55 } },
+            directlyObserved: new(), // only triangulated data, like the live Mac AP
+            reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var subject = plan.Recommendations.Single();
+        subject.RecommendedChannel.Should().Be(52,
+            "leaving a working DFS channel for a non-DFS channel with no scan data is a blind bet");
+        subject.IsChanged.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Optimize_DfsToObservedCleanNonDfs_MoveAllowed_BadgeNotDfs()
+    {
+        // Friction is waived when the non-DFS destination has real scan evidence it's clean. A
+        // congested DFS AP should still move - and the DFS badge must reflect the final non-DFS
+        // channel, not the optimizer's first pick (the stale-badge bug).
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(52,
+            externalLoad: new() { { 52, 2.5 }, { 36, 0.0 } }, // current DFS busy, ch36 scanned clean
+            directlyObserved: new() { 52, 36 },
+            reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var subject = plan.Recommendations.Single();
+        subject.RecommendedChannel.Should().Be(36);
+        subject.IsChanged.Should().BeTrue();
+        subject.IsDfsChannel.Should().BeFalse("ch36 (UNII-1) is not a DFS channel");
+    }
+
+    [Fact]
+    public void Optimize_RecommendsDfsChannel_BadgeIsDfs()
+    {
+        // A congested non-DFS AP with a clean, observed DFS channel available: the move is to DFS
+        // (no departure friction - it's moving onto DFS, not off it) and the badge must show DFS.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(149,
+            externalLoad: new() { { 149, 3.0 }, { 100, 0.5 }, { 116, 2.0 }, { 132, 2.0 } },
+            directlyObserved: new() { 149, 100, 116, 132 },
+            reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var subject = plan.Recommendations.Single();
+        subject.RecommendedChannel.Should().Be(100);
+        subject.IsChanged.Should().BeTrue();
+        subject.IsDfsChannel.Should().BeTrue("ch100 (UNII-2C) is a DFS channel");
+    }
+
     [Fact]
     public void Optimize_PinnedAp_ChannelUnchanged()
     {
