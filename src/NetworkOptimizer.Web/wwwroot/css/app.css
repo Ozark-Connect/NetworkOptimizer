@@ -3710,6 +3710,31 @@ select.form-control {
     gap: 1rem;
 }
 
+.scan-gap-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.scan-gap-banner .scan-gap-text {
+    flex: 1;
+    min-width: 12rem;
+}
+
+.scan-gap-banner .scan-gap-list {
+    color: var(--text-muted);
+}
+
+.scan-gap-banner .btn {
+    flex-shrink: 0;
+}
+
 .banner-icon {
     font-size: 1.5rem;
     background: rgba(255, 255, 255, 0.2);

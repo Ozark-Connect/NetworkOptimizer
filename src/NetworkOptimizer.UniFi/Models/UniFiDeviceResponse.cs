@@ -1364,6 +1364,18 @@ public class UniFiSpectrumScanResponse
     /// <summary>One entry per radio (radio = "ng"/"na"/"6e"), each with its own spectrum_table.</summary>
     [JsonPropertyName("scans")]
     public List<ScanRadioEntry>? Scans { get; set; }
+
+    /// <summary>State of the most recent quick-scan on this AP (whether one is still running).</summary>
+    [JsonPropertyName("quick_scan_state")]
+    public UniFiQuickScanState? QuickScanState { get; set; }
+}
+
+/// <summary>Quick-scan progress state from the spectrum-scan endpoint.</summary>
+public class UniFiQuickScanState
+{
+    /// <summary>True while a quick-scan is still in progress (results not yet final).</summary>
+    [JsonPropertyName("in_progress")]
+    public bool InProgress { get; set; }
 }
 
 /// <summary>

@@ -26,6 +26,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     public string ProviderName => "UniFi Live";
     public bool SupportsHistoricalData => true; // Via stat/report endpoints
 
+    /// <inheritdoc />
+    public Task<bool> TriggerQuickScanAsync(string apMac, string bandCode, CancellationToken cancellationToken = default)
+        => _client.TriggerQuickScanAsync(apMac, bandCode, cancellationToken: cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<bool> IsQuickScanInProgressAsync(string apMac, CancellationToken cancellationToken = default)
+    {
+        var scan = await _client.GetSpectrumScanAsync(apMac, cancellationToken);
+        return scan?.QuickScanState?.InProgress == true;
+    }
+
     public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         // Use UniFiDiscovery for centralized device classification (same as Audit and Speed Test)

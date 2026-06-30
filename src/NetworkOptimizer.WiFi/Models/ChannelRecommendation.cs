@@ -1,6 +1,12 @@
 namespace NetworkOptimizer.WiFi.Models;
 
 /// <summary>
+/// An (AP, band) that has no recent per-channel spectrum-scan measurement, so its channel
+/// recommendation falls back to the neighbor (external) scan. A non-disruptive quick-scan can fill it.
+/// </summary>
+public record SpectrumScanGap(string ApMac, string ApName, RadioBand Band, string BandCode);
+
+/// <summary>
 /// Per-AP channel recommendation: current vs recommended (channel, width) tuple.
 /// </summary>
 public class ApChannelRecommendation

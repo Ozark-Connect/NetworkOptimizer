@@ -605,6 +605,78 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// (AP, band) pairs that have no recent per-channel spectrum-scan measurement, so their channel
+    /// recommendation falls back to the neighbor (external) scan. A non-disruptive quick-scan fills
+    /// them (see <see cref="RunQuickScansAsync"/>). Derived from the same scan snapshot the
+    /// recommendation uses, so it reflects exactly what the engine is working with.
+    /// </summary>
+    public async Task<List<SpectrumScanGap>> GetSpectrumScanGapsAsync()
+    {
+        var scans = await GetChannelScanResultsAsync(
+            startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
+
+        return scans
+            .Where(s => s.Channels.Count == 0)
+            .Select(s => new SpectrumScanGap(s.ApMac, s.ApName ?? s.ApMac, s.Band, s.Band.ToUniFiCode()))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Trigger non-disruptive quick RF scans on the given (AP, band) targets, wait for them to
+    /// finish (polling, with a timeout), then invalidate the scan cache so the next recommendation
+    /// picks up the fresh per-channel measurements. A quick-scan does NOT disconnect clients.
+    /// </summary>
+    public async Task RunQuickScansAsync(
+        IEnumerable<(string ApMac, string BandCode)> targets,
+        CancellationToken cancellationToken = default)
+    {
+        var list = targets.ToList();
+        if (list.Count == 0 || !_connectionService.IsConnected || _connectionService.Client == null)
+            return;
+
+        var provider = CreateProvider();
+        var scannedMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (apMac, bandCode) in list)
+        {
+            try
+            {
+                if (await provider.TriggerQuickScanAsync(apMac, bandCode, cancellationToken))
+                    scannedMacs.Add(apMac);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Quick scan trigger failed for {Mac} band {Band}", apMac, bandCode);
+            }
+        }
+
+        // Poll until every triggered AP reports its quick-scan idle, or we hit the timeout.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+        while (scannedMacs.Count > 0 && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+
+            var anyRunning = false;
+            foreach (var mac in scannedMacs)
+            {
+                try
+                {
+                    if (await provider.IsQuickScanInProgressAsync(mac, cancellationToken)) { anyRunning = true; break; }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Quick scan status poll failed for {Mac}", mac);
+                }
+            }
+            if (!anyRunning) break;
+        }
+
+        // Fresh scans are in - drop the cached snapshot so the next fetch re-reads the spectrum data.
+        _cachedScanResults = null;
+        _cachedScanResultsTimeKey = null;
+    }
+
+    /// <summary>
     /// Record each fresh scan's neighbor sightings into the rolling per-(AP, band) history (and
     /// prune anything past the window). Called once per fresh scan fetch; does not modify the
     /// scans, so callers still get the raw live scan back.

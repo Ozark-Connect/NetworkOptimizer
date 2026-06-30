@@ -179,6 +179,29 @@
                         }
                     }
 
+                    @if (_scanGaps.Count > 0)
+                    {
+                        <div class="alert-info scan-gap-banner">
+                            <div class="scan-gap-text">
+                                <strong>@_scanGaps.Count</strong> @(_scanGaps.Count == 1 ? "radio has" : "radios have")
+                                no recent RF measurement, so @(_scanGaps.Count == 1 ? "it falls" : "they fall") back to neighbor scans:
+                                <span class="scan-gap-list">@string.Join(", ", _scanGaps.Select(g => $"{g.ApName} · {g.Band.ToDisplayString()}"))</span>
+                            </div>
+                            <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
+                                    data-tooltip="Runs a quick RF scan to measure these channels - it won't disconnect clients">
+                                @if (_scanningGaps)
+                                {
+                                    <span class="spinner spinner-sm"></span>
+                                    <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")… won't disconnect clients</span>
+                                }
+                                else
+                                {
+                                    <span>Run quick scan</span>
+                                }
+                            </button>
+                        </div>
+                    }
+
                     <!-- Per-AP Recommendation Table -->
                     <div class="aps-band-table rec-table">
                         <div class="rec-header">
@@ -876,10 +899,51 @@
             _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
             _showRecommendations = _channelPlans.Count > 0;
             AutoSelectBandWithRecommendations();
+            await LoadScanGapsAsync();
         }
         finally
         {
             _loadingRecommendations = false;
+            StateHasChanged();
+        }
+    }
+
+    // (AP, band) pairs whose recommendation falls back to neighbor scans because they have no recent
+    // per-channel spectrum measurement. A non-disruptive quick-scan fills them.
+    private List<SpectrumScanGap> _scanGaps = new();
+    private bool _scanningGaps;
+
+    private async Task LoadScanGapsAsync()
+    {
+        try
+        {
+            _scanGaps = await WiFiService.GetSpectrumScanGapsAsync();
+        }
+        catch
+        {
+            _scanGaps = new();
+        }
+    }
+
+    private async Task RunGapScans()
+    {
+        if (_scanningGaps || _scanGaps.Count == 0) return;
+
+        _scanningGaps = true;
+        StateHasChanged();
+        try
+        {
+            var targets = _scanGaps.Select(g => (g.ApMac, g.BandCode)).ToList();
+            await WiFiService.RunQuickScansAsync(targets);
+
+            // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
+            var options = new RecommendationOptions { DfsPreference = _dfsPreference };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            await LoadScanGapsAsync();
+        }
+        finally
+        {
+            _scanningGaps = false;
             StateHasChanged();
         }
     }

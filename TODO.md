@@ -603,3 +603,29 @@ knows the swap is actually worse for util/interference. The "improvement" came a
 - [ ] When a candidate assignment matches a previously-tried combo, prefer measured outcome over inferred score
 - [ ] Down-weight (or flag) recommendations whose predicted gain rests mostly on propagated stress
 - [ ] Distinguish self-induced load from environmental interference - don't credit a move for escaping the AP's own traffic
+
+## Channel Recommendation: Spectrum-Scan UX (background / on-demand quick-scans)
+
+We now read per-channel measured occupancy from UniFi's `stat/spectrum-scan/{mac}` and can trigger
+scans via `cmd/devmgr` quick-scan (`UniFiApiClient.TriggerQuickScanAsync`). A quick-scan does NOT
+disconnect clients (only a FULL scan does), but it's slow per band per AP, so we never run it inline
+with a recommendation. The recommender reads whatever scan results are cached; a band/AP with no
+recent scan falls back to the neighbor-scan (external) proxy. Lead all UX with "won't disconnect
+clients" - that's why quick-scan is safe to offer freely.
+
+Shared piece to build once: a "trigger -> poll `quick_scan_state.in_progress` until done -> read
+results -> re-run rec" helper. Expose the trigger through `IWiFiDataProvider` (it currently lives
+only on `UniFiApiClient`).
+
+- [ ] **Win 1 (gap-aware prompt)** - on the recommendation page, when a band/AP has no recent
+  measurement (empty `ScanChannelData`; we already log the fallback), offer a one-click "run a quick
+  scan on [these APs/bands]?" that scans exactly the gaps, polls, and re-runs. *(In progress this session.)*
+- [ ] **Win 2 (manual "Refresh measurements" button)** - stagger a quick-scan across all APs for the
+  current band (or all bands), then re-run when done. Same async flow as Win 1, just "all" not "gaps".
+- [ ] **Win 3 (scheduled off-peak sweep)** - background job that sweeps quick-scans across APs/bands
+  during low-utilization hours, determined from the 1d/7d historic stress we already compute. Stagger
+  ONE radio at a time (never take the whole site's airtime off-channel at once) so the spectrum cache
+  stays fresh and recommendations are always well-grounded with zero user action.
+- [ ] **Deep-analysis mode (premium, user-initiated)** - trigger fresh scans on ALL radios, wait,
+  then recommend on fully-measured data. Best accuracy, slow (minutes); distinct from the fast
+  everyday rec.
