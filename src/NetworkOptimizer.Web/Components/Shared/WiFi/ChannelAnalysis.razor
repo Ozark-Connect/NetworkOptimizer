@@ -211,9 +211,13 @@
                                     @if (rec.IsChanged)
                                     {
                                         <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
+                                        @if (rec.IsCurrentDfsChannel)
+                                        {
+                                            <span class="dfs-badge">DFS</span>
+                                        }
                                         <span class="channel-change-arrow"><svg width="20" height="14" viewBox="0 0 20 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1L19 7L12 13M19 7H1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                                         <span class="rec-changed">Ch @rec.RecommendedChannel / @(rec.RecommendedWidth) MHz</span>
-                                        @if (rec.IsDfsChannel)
+                                        @if (rec.IsRecommendedDfsChannel)
                                         {
                                             <span class="dfs-badge">DFS</span>
                                         }
@@ -221,6 +225,10 @@
                                     else
                                     {
                                         <span>Ch @rec.CurrentChannel / @(rec.CurrentWidth) MHz</span>
+                                        @if (rec.IsCurrentDfsChannel)
+                                        {
+                                            <span class="dfs-badge">DFS</span>
+                                        }
                                         <span class="rec-no-change">(No change)</span>
                                     }
                                 </div>

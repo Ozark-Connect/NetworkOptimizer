@@ -23,7 +23,12 @@ public class ApChannelRecommendation
     public bool IsChanged => CurrentChannel != RecommendedChannel || CurrentWidth != RecommendedWidth;
     public bool IsMeshConstrained { get; set; }
     public bool IsUnplaced { get; set; }
-    public bool IsDfsChannel { get; set; }
+
+    /// <summary>Whether the AP's current channel span is subject to DFS.</summary>
+    public bool IsCurrentDfsChannel { get; set; }
+
+    /// <summary>Whether the recommended channel span is subject to DFS.</summary>
+    public bool IsRecommendedDfsChannel { get; set; }
 }
 
 /// <summary>

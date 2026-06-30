@@ -528,10 +528,11 @@ public class ChannelRecommendationService
                 RecommendedScore = recommendedApScore,
                 IsMeshConstrained = node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i,
                 IsUnplaced = !node.IsPlaced,
-                // Authoritatively recomputed against the final channel after reconciliation (the
-                // per-AP fallback, altruistic relocation and mesh sync can all rewrite the channel
-                // below). This initial value is the optimizer's raw pick.
-                IsDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels)
+                IsCurrentDfsChannel = IsDfsAssignment(band, node.CurrentChannel, node.CurrentWidth, graph.DfsChannels),
+                // Recommended DFS status is authoritatively recomputed against the final channel
+                // after reconciliation (the per-AP fallback, altruistic relocation and mesh sync
+                // can all rewrite the channel below). This initial value is the optimizer's raw pick.
+                IsRecommendedDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels)
             });
         }
 
@@ -884,7 +885,7 @@ public class ChannelRecommendationService
         {
             var rec = plan.Recommendations[i];
             rec.RecommendedScore = ScoreAp(graph, finalAssignment, i, band);
-            rec.IsDfsChannel = IsDfsAssignment(band, rec.RecommendedChannel, rec.RecommendedWidth, graph.DfsChannels);
+            rec.IsRecommendedDfsChannel = IsDfsAssignment(band, rec.RecommendedChannel, rec.RecommendedWidth, graph.DfsChannels);
         }
 
         // Display scores without DFS penalty for consistency across modes.

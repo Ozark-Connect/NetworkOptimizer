@@ -640,7 +640,8 @@ public class ChannelRecommendationServiceTests
         var subject = plan.Recommendations.Single();
         subject.RecommendedChannel.Should().Be(36);
         subject.IsChanged.Should().BeTrue();
-        subject.IsDfsChannel.Should().BeFalse("ch36 (UNII-1) is not a DFS channel");
+        subject.IsCurrentDfsChannel.Should().BeTrue("ch52 (UNII-2) is a DFS channel");
+        subject.IsRecommendedDfsChannel.Should().BeFalse("ch36 (UNII-1) is not a DFS channel");
     }
 
     [Fact]
@@ -660,7 +661,8 @@ public class ChannelRecommendationServiceTests
         var subject = plan.Recommendations.Single();
         subject.RecommendedChannel.Should().Be(100);
         subject.IsChanged.Should().BeTrue();
-        subject.IsDfsChannel.Should().BeTrue("ch100 (UNII-2C) is a DFS channel");
+        subject.IsCurrentDfsChannel.Should().BeFalse("ch149 (UNII-3) is not a DFS channel");
+        subject.IsRecommendedDfsChannel.Should().BeTrue("ch100 (UNII-2C) is a DFS channel");
     }
 
     [Fact]
