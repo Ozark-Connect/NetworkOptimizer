@@ -94,10 +94,6 @@ a {
     transition: color 0.15s ease-out;
 }
 
-a:visited {
-    color: inherit;
-}
-
 .page-description a,
 .page-description a:visited {
     color: var(--primary-color);
