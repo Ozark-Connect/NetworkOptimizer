@@ -915,6 +915,52 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void MeasuredFloor_AppliesToCandidateNotCurrentChannel_OwnUtilizationBiasRemoved()
+    {
+        // The own-scan utilization floor must NOT inflate the AP's CURRENT channel - its scan radio
+        // also hears its own serving traffic, which follows it anywhere. Same measured 60% util: on a
+        // candidate it floors the score up; on the current channel it does not.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int scanChannel)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 36, 0.5 }, { 40, 0.5 } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int? NoiseFloor)> { { scanChannel, (60, (int?)null) } };
+            return g;
+        }
+
+        var current = _service.ScoreAssignment(Build(36), new[] { (36, 80) }, RadioBand.Band5GHz);
+        var candidate = _service.ScoreAssignment(Build(40), new[] { (40, 80) }, RadioBand.Band5GHz);
+
+        candidate.Should().BeGreaterThan(current + 1.5,
+            "60% measured util floors a candidate channel (~3.0) but not the current channel, whose airtime is the AP's own traffic");
+    }
+
+    [Fact]
+    public void ScoreAssignment_NoiseFloor_PenalizesNoisyChannelOverQuietOne()
+    {
+        // Two candidates, identical low utilization, differing only in measured noise floor: the
+        // noisy one (-50 dBm) must score worse than the pristine one (-95 dBm). Utilization alone
+        // would tie them - the noise floor is the RF-energy signal that breaks the tie.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int noiseFloor)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 40, 0.5 } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int? NoiseFloor)> { { 40, (5, (int?)noiseFloor) } };
+            return g;
+        }
+
+        var noisy = _service.ScoreAssignment(Build(-50), new[] { (40, 80) }, RadioBand.Band5GHz);
+        var quiet = _service.ScoreAssignment(Build(-95), new[] { (40, 80) }, RadioBand.Band5GHz);
+
+        noisy.Should().BeGreaterThan(quiet + 1.5,
+            "a high noise floor (RF energy that utilization misses) penalizes the channel even at equal airtime");
+    }
+
+    [Fact]
     public void Optimize_MeasuredComfortableCurrentChannel_NotChurnedForOwnBenefit()
     {
         // The reported class: the external neighbor scan inflates a channel that the AP's own radio
