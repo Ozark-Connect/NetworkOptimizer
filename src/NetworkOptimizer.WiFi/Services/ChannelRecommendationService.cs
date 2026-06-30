@@ -1065,21 +1065,34 @@ public class ChannelRecommendationService
                 triangulatedLoad += extWeight;
         }
 
-        // Floor: an unobserved channel is at least as loaded as this AP's best observed channel.
-        double minDirectLoad = double.MaxValue;
-        foreach (var dc in directChannels)
+        // Estimate the channel's load to apply the uncertainty premium to.
+        //
+        // If we have a triangulated sighting on this channel (a sibling AP scanned it and reported
+        // a neighbor), that's a real measurement - trust it. It keeps the band uncertainty
+        // multiplier below, since the observer isn't at this AP's exact spot, but it is NOT floored
+        // up to our best observed channel: a channel a sibling scanned and found quiet should read
+        // as quiet, not be assumed as busy as wherever we happen to sit.
+        //
+        // Only a channel with NO sighting at all (no direct, no triangulated) is a true blind spot.
+        // Floor it at this AP's best observed load so a blind channel never scores better than a
+        // barely-seen one - otherwise the engine eagerly jumps onto channels it has zero data for.
+        double estimatedLoad;
+        if (triangulatedLoad > 0)
         {
-            if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
-                minDirectLoad = Math.Min(minDirectLoad, directWeight);
+            estimatedLoad = triangulatedLoad;
         }
-        if (minDirectLoad == double.MaxValue) minDirectLoad = 0;
+        else
+        {
+            double minDirectLoad = double.MaxValue;
+            foreach (var dc in directChannels)
+            {
+                if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
+                    minDirectLoad = Math.Min(minDirectLoad, directWeight);
+            }
+            estimatedLoad = minDirectLoad == double.MaxValue ? 0 : minDirectLoad;
+        }
 
-        // Apply the band uncertainty multiplier to the best available estimate - the triangulated
-        // load OR the floor. A channel with zero observations falls back to the floor, and it must
-        // carry the SAME uncertainty premium as a partially-triangulated one. Otherwise a totally-
-        // blind channel would be penalized LESS than a barely-seen one, and the engine would too
-        // eagerly recommend moving onto a channel it has no scan data for.
-        var basePenalty = Math.Max(triangulatedLoad, minDirectLoad) * GetUnobservedMultiplier(band);
+        var basePenalty = estimatedLoad * GetUnobservedMultiplier(band);
         return (1.0 - confidence) * basePenalty;
     }
 
@@ -1862,14 +1875,15 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
-    /// Friction for moving an AP off a DFS channel onto a non-DFS channel that has no direct
-    /// neighbor observation. Returns <see cref="DfsDepartureFrictionPenalty"/> only when the AP
-    /// currently sits on a DFS channel, the proposed channel is non-DFS and different, and the
-    /// proposed channel's span has zero direct neighbor sightings. A DFS channel is typically
-    /// underused, so abandoning a working one for a channel we know nothing about risks trading a
-    /// known-decent channel for a hidden mess; require real evidence before making that move.
-    /// Gated by <see cref="InterferenceGraph.ApplyDfsDepartureFriction"/> (off in Avoid-DFS mode,
-    /// where leaving DFS is the user's explicit goal).
+    /// Friction for moving an AP off a DFS channel onto a non-DFS channel we have no neighbor data
+    /// for. Returns <see cref="DfsDepartureFrictionPenalty"/> only when the AP currently sits on a
+    /// DFS channel, the proposed channel is non-DFS and different, and we have NO sighting on it at
+    /// all - neither a direct scan by this AP nor a triangulated neighbor from a sibling that
+    /// scanned it. A DFS channel is typically underused, so abandoning a working one for a channel
+    /// no one has any data on risks trading a known-decent channel for a hidden mess. A channel a
+    /// sibling has already scanned is real evidence (its measured load drives the score normally)
+    /// and earns no friction. Gated by <see cref="InterferenceGraph.ApplyDfsDepartureFriction"/>
+    /// (off in Avoid-DFS mode, where leaving DFS is the user's explicit goal).
     /// </summary>
     private double ComputeDfsDepartureFriction(
         InterferenceGraph graph,
@@ -1886,12 +1900,13 @@ public class ChannelRecommendationService
         if (!IsDfsAssignment(band, node.CurrentChannel, node.CurrentWidth, graph.DfsChannels)) return 0;
         if (IsDfsAssignment(band, assigned.Channel, assigned.Width, graph.DfsChannels)) return 0;
 
-        // Only when the destination has no direct neighbor observation. A channel we've actually
-        // scanned and found quiet is real evidence and earns no friction.
+        // Only when we have no neighbor data for the destination at all. Any external-load entry
+        // overlapping it - direct or triangulated from a sibling's scan - is real evidence, so its
+        // measured load already drives the score and no friction applies.
         var span = ChannelSpanHelper.GetChannelSpan(band, assigned.Channel, assigned.Width);
-        bool observed = graph.DirectlyObservedChannels[apIndex]
-            .Any(dc => ChannelSpanHelper.SpansOverlap(span, (dc, dc)));
-        if (observed) return 0;
+        bool haveEvidence = graph.ExternalLoad[apIndex].Keys
+            .Any(extCh => ChannelSpanHelper.SpansOverlap(span, (extCh, extCh)));
+        if (haveEvidence) return 0;
 
         return DfsDepartureFrictionPenalty;
     }

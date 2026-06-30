@@ -295,9 +295,10 @@ public class ChannelRecommendationServiceTests
         var scoreWithHistory = _service.ScoreAssignment(graph, assignment, RadioBand.Band5GHz);
 
         scoreWithHistory.Should().BeLessThan(scoreNoHistory);
-        // History keeps only 15% of the cliff, so the gap is 0.85 of the full penalty. The floor
-        // now carries the band uncertainty multiplier (x2.0 on 5 GHz), so the base penalty is 2.0.
-        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(1.7, 0.05);
+        // History keeps only 15% of the cliff, so the gap is 0.85 of the full penalty. ch149 has a
+        // triangulated sighting (0.5), which is trusted as-is (no floor) and carries the band
+        // uncertainty multiplier (x2.0 on 5 GHz), so the base penalty is 1.0 and the gap is 0.85.
+        (scoreNoHistory - scoreWithHistory).Should().BeApproximately(0.85, 0.05);
     }
 
     [Fact]
@@ -663,6 +664,29 @@ public class ChannelRecommendationServiceTests
         subject.IsChanged.Should().BeTrue();
         subject.IsCurrentDfsChannel.Should().BeFalse("ch149 (UNII-3) is not a DFS channel");
         subject.IsRecommendedDfsChannel.Should().BeTrue("ch100 (UNII-2C) is a DFS channel");
+    }
+
+    [Fact]
+    public void Optimize_TriangulatedCleanNonDfs_PreferredOverObservedDfs()
+    {
+        // The reported case: a congested DFS AP, a non-DFS channel that a sibling scanned and found
+        // clean (triangulated, not in this AP's own direct set). Triangulation is real evidence, so
+        // the clean non-DFS channel should win - the engine must NOT floor or friction it into
+        // losing to a directly-observed-but-occupied DFS channel.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(52,
+            externalLoad: new() { { 52, 1.5 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
+            directlyObserved: new() { 52 },                   // ch36 NOT directly observed by this AP
+            reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var subject = plan.Recommendations.Single();
+        subject.RecommendedChannel.Should().Be(36,
+            "a sibling-scanned clean channel is real evidence and beats a directly-observed occupied DFS channel");
+        subject.IsCurrentDfsChannel.Should().BeTrue("ch52 (UNII-2) is a DFS channel");
+        subject.IsRecommendedDfsChannel.Should().BeFalse("ch36 (UNII-1) is not a DFS channel");
     }
 
     [Fact]
