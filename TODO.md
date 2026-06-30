@@ -1,5 +1,40 @@
 # Network Optimizer - TODO / Future Enhancements
 
+## Channel Recommendation: Engine-Review Follow-ups (recalibration-sensitive)
+
+From the full engine review. The clear correctness bugs and the live measured-floor issues are
+already fixed and shipped (floor candidate-only + proximity-weighted + gate-scaled; propagated stress
+split from measured; noise floor wired in; DFS penalty span-aware; fallback baseline). These five
+remain. They all shift the recommendation DISTRIBUTION and the gate thresholds are calibrated to
+current behavior, so each needs a live before/after comparison on the NAS + Mac sites (and ideally a
+fleet sample) to land safely - not a blind edit.
+
+- [ ] **Inconsistent objective (sum-of-ScoreAp vs ScoreAssignment).** The search minimizes
+  `ScoreAssignment` (each internal pair counted once, symmetric). The auxiliary passes (per-AP
+  fallback net-benefit, altruistic "others", crowding friction, comfort "others") sum `ScoreAp`
+  deltas, which count each internal pair ~2x (directional both ways) - so a move the search rejected
+  can be re-approved by an auxiliary pass on an inconsistent yardstick. Fix: express the auxiliary
+  net/others measures as `ScoreAssignment`-deltas (or halve the internal contribution in the per-AP
+  sum), then re-tune MinApAbsoluteImprovement / MinApScoreToMove against the new scale.
+- [ ] **Position-dependence in the post-passes.** Per-AP fallback, altruistic, crowding, and comfort
+  all loop in AP array order and mutate the plan in place, so earlier APs shift later APs' baselines.
+  The main search is most-constrained-first; the post-passes aren't. Fix: order them deterministically
+  by something meaningful (e.g. current score, most-constrained) and add a current-channel tiebreak
+  when candidates are near-tied (the greedy phase already does this).
+- [ ] **Global avg-improvement gate doesn't actually prevent churn.** When avg improvement <
+  threshold the plan reverts to current, but the per-AP fallback and altruistic passes then run on the
+  reverted plan and can still introduce moves. Decide intent: should "network not worth touching" be a
+  hard stop on all per-AP moves too? (Design call - confirm desired behavior before changing.)
+- [ ] **Threshold-cliff churn.** All the gates are hard cliffs evaluated against scores driven by the
+  rogue scan (a few dB of snapshot variance can flip a recommendation on/off between runs). Determinism
+  protects against algorithmic randomness, not input variance. Fix: hysteresis / a dead-band on the
+  move decision, or smoothing the external input over multiple snapshots. (Feature-sized.)
+- [ ] **Width double-discount.** In `BuildExternalLoad` a narrow neighbor inside a wider victim is
+  scaled by the width ratio (0.25x for 20-in-80) AND stored only on its narrow sub-channel - but in
+  OFDM a 20 MHz interferer makes the whole 80 MHz block CCA-busy. The common case is under-weighted.
+  Fix: a narrower-than-victim interferer should count against the full overlapping span without the
+  width-ratio discount. Shifts external magnitudes - re-validate.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements
