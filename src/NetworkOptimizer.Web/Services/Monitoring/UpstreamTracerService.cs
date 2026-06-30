@@ -1004,6 +1004,7 @@ public class UpstreamTracerService
                         && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
                         && !transitProbeAddresses.Contains(h.Address)
                         && !_excludedTier1Asns.Contains(h.Asn.Asn)
+                        && !WellKnownAsns.NonTransitInfrastructure.Contains(h.Asn.Asn)
                         && (!transitProbeAsns.Contains(h.Asn.Asn)
                             || _nearTransitAsns.Contains(h.Asn.Asn)))
             .GroupBy(h => h.Asn!.Asn)
