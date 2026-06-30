@@ -2595,6 +2595,7 @@ public class ChannelRecommendationService
         var n = graph.Nodes.Count;
         if (n == 0) return;
 
+        var bandStress = GetBandStressMultiplier(band);
         var sb = new StringBuilder();
         sb.AppendLine($"[ChannelRec] === {phase}: Per-AP channel scores ({band}) ===");
         sb.AppendLine($"  Current assignment: {string.Join(", ", Enumerable.Range(0, n).Select(i => $"{graph.Nodes[i].Name}=ch{currentAssignment[i].Channel}"))}");
@@ -2636,54 +2637,34 @@ public class ChannelRecommendationService
                         externalScore += extW;
                 }
 
+                // #2 measured floor: a candidate channel's congestion is raised to what the radio
+                // measured where that exceeds the neighbor-scan proxy (matches ScoreAp).
+                var measuredFloor = MeasuredCongestionLoad(graph, band, i, testAssignment);
+                if (measuredFloor > externalScore) externalScore = measuredFloor;
+
+                // Scan: measured utilization + noise floor, band-weighted (matches ScoreAp).
+                double scanUtil = 0, scanNoise = 0;
                 if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
                 {
-                    scanScore = scanData.Utilization * ScanUtilizationWeight
-                              + ScanNoiseFloorPenalty(scanData.NoiseFloor);
+                    scanUtil = scanData.Utilization * ScanUtilizationWeight * bandStress;
+                    scanNoise = ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
                 }
+                scanScore = scanUtil + scanNoise;
 
-                // Historical channel stress penalty
-                double stressScore = 0;
-                var testSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
-
-                if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
-                {
-                    foreach (var (histCh, stress) in node.HistoricalStress)
-                    {
-                        if (stress.TxRetryPct < StressMinThreshold &&
-                            stress.Utilization < StressMinThreshold &&
-                            stress.Interference < StressMinThreshold)
-                            continue;
-                        var histSpan = ChannelSpanHelper.GetChannelSpan(band, histCh, node.CurrentWidth);
-                        if (ChannelSpanHelper.SpansOverlap(testSpan, histSpan))
-                        {
-                            stressScore += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                                + (stress.Utilization / 100.0) * UtilizationStressWeight
-                                + (stress.Interference / 100.0) * InterferenceStressWeight;
-                        }
-                    }
-                }
-                else if (node.TxRetriesPct >= StressMinThreshold ||
-                    node.ChannelUtilization >= StressMinThreshold ||
-                    node.Interference >= StressMinThreshold)
-                {
-                    var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
-                    if (ChannelSpanHelper.SpansOverlap(currentSpan, testSpan))
-                    {
-                        stressScore = (node.TxRetriesPct / 100.0) * TxRetryStressWeight
-                                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
-                                    + (node.Interference / 100.0) * InterferenceStressWeight;
-                    }
-                }
+                // Stress: reuse the real penalty so the breakdown reconciles with the score
+                // (measured historical stress un-scaled, neighbor-propagated fallback band-weighted).
+                var (histPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, i, testAssignment);
+                var stressScore = histPenalty + fallbackPenalty * bandStress;
 
                 // Unobserved channel uncertainty (confidence-weighted, matches ScoreAp/ScoreAssignment)
                 double unobservedPenalty = ComputeUnobservedPenalty(graph, band, i, testAssignment);
 
                 var total = internalScore + externalScore + scanScore + stressScore + unobservedPenalty;
                 var marker = ch == currentAssignment[i].Channel ? " <<<" : "";
-                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}(raw)" : "";
+                var scanStr = scanScore > 0 ? $" + scan={scanScore:F3}(util {scanUtil:F2}/nf {scanNoise:F2})" : "";
+                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}" : "";
                 var unobsStr = unobservedPenalty > 0 ? $" + unobs={unobservedPenalty:F3}" : "";
-                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3}{stressStr}{unobsStr} = {total:F3}{marker}");
+                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3}{scanStr}{stressStr}{unobsStr} = {total:F3}{marker}");
             }
         }
 
