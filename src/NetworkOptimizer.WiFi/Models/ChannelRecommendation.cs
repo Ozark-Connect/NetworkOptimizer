@@ -96,6 +96,15 @@ public class InterferenceGraph
     public Dictionary<int, double>[] ExternalLoad { get; set; } = [];
 
     /// <summary>
+    /// Per-AP channel width (MHz) of the neighbors pooled at each external-load channel.
+    /// ExternalLoadWidths[apIndex][channel] = width. Lets the scorer model a wide neighbor's full
+    /// spectral footprint: a 40 MHz neighbor on 2.4 GHz ch11 also steps on ch6, so its load must
+    /// count against any candidate channel its span overlaps, not just its control channel. A
+    /// channel absent from this map is treated as 20 MHz (a point at its control channel).
+    /// </summary>
+    public Dictionary<int, int>[] ExternalLoadWidths { get; set; } = [];
+
+    /// <summary>
     /// Per-AP set of channels with at least one direct neighbor observation.
     /// Channels NOT in this set have only triangulated (estimated) external load data,
     /// which is less reliable. Used by the scorer to penalize unobserved channels.

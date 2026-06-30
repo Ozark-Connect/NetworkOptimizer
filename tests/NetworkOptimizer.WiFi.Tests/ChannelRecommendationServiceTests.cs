@@ -844,6 +844,38 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void ScoreAssignment_WideNeighbor_StepsOnAdjacentChannel()
+    {
+        // A 40 MHz neighbor on 2.4 GHz ch11 spectrally covers ch6 too (span 7-14 vs ch6's 4-8), so
+        // its load must count against a candidate ch6, not just its control channel. A 20 MHz
+        // neighbor on ch11 does not reach ch6. Without width-aware overlap, ch6 reads deceptively
+        // clear right next to an inconsiderate wide neighbor.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP", RadioBand.Band2_4GHz, 11, width: 20)
+        };
+
+        InterferenceGraph Build(int neighborWidth)
+        {
+            var g = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+            g.ExternalLoad[0] = new() { { 11, 1.0 } };
+            g.ExternalLoadWidths[0] = new() { { 11, neighborWidth } };
+            g.DirectlyObservedChannels[0] = new() { 11 };
+            return g;
+        }
+
+        var ch6NextToNarrow = _service.ScoreAssignment(Build(20), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        var ch6NextToWide = _service.ScoreAssignment(Build(40), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+
+        ch6NextToWide.Should().BeGreaterThan(ch6NextToNarrow,
+            "a 40 MHz neighbor on ch11 steps on ch6, so it must raise ch6's score; a 20 MHz one does not");
+        (ch6NextToWide - ch6NextToNarrow).Should().BeApproximately(1.0, 0.01,
+            "the wide neighbor's full weight reaches ch6 once spectral width is accounted for");
+    }
+
+    [Fact]
     public void Optimize_PinnedAp_ChannelUnchanged()
     {
         var aps = new List<AccessPointSnapshot>
