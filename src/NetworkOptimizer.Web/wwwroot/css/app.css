@@ -226,6 +226,14 @@ a:hover {
     font-weight: 500;
 }
 
+.card-title-icon {
+    width: 1.75rem;
+    height: 1.4rem;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 0.45rem;
+}
+
 .nav-sub-item {
     padding-left: 1rem;
 }

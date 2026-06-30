@@ -324,7 +324,7 @@ else
         <!-- Quick investigation -->
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="ToggleInvestigateCollapse">
-                <h2 class="card-title">Investigate</h2>
+                <h2 class="card-title"><img src="/icons/port-scan.png" alt="" class="card-title-icon" />Investigate</h2>
                 <span class="issue-type-chevron">@(_investigateCollapsed ? "▼" : "▲")</span>
             </div>
             <div class="expand-wrapper @(!_investigateCollapsed && _investigateStateLoaded ? "expanded" : "")" style="@(!_investigateStateLoaded ? "display:none" : "")">
@@ -622,7 +622,7 @@ else
         <!-- SFP investigation -->
         <div class="card" style="margin-top: 1.5rem;">
             <div class="card-header">
-                <h2 class="card-title">Investigate</h2>
+                <h2 class="card-title"><img src="/icons/port-scan.png" alt="" class="card-title-icon" />Investigate</h2>
             </div>
             <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
                 <button class="btn btn-secondary" @onclick="InvestigateSfpAnomaly" disabled="@_investigatingSfp"
@@ -2694,8 +2694,14 @@ else
     private Task InvestigateLoadedLoss() => NavigateToLossEvent(null, null, loadedOnly: true);
     // Step to the previous/next distinct event by querying strictly outside the current
     // event's bounds, so a multi-minute burst is one stop rather than one stop per minute.
+    // The 1-minute aggregateWindow buckets are stamped at their STOP edge, so the bucket at
+    // EventStart holds data from the minute before it; an exclusive range stop at EventStart
+    // would still return that bucket. Step back a full minute so the current event's first
+    // bucket is actually excluded (the coalesce gap guarantees the previous event is >= 3 min
+    // earlier, so it is never dropped). Forward needs no such fudge: the current event's data
+    // all precedes the EventEnd stamp, so an inclusive start just past EventEnd excludes it.
     private Task LossNavBack() => _lossNavEventStart.HasValue
-        ? NavigateToLossEvent(_lossNavEventStart.Value, null, _lossNavLoadedOnly) : Task.CompletedTask;
+        ? NavigateToLossEvent(_lossNavEventStart.Value.AddMinutes(-1), null, _lossNavLoadedOnly) : Task.CompletedTask;
     private Task LossNavForward() => _lossNavEventEnd.HasValue
         ? NavigateToLossEvent(null, _lossNavEventEnd.Value.AddSeconds(1), _lossNavLoadedOnly) : Task.CompletedTask;
 
@@ -2764,7 +2770,7 @@ else
             StateHasChanged();
             var annotationLabel = $"{(loadedOnly ? "Loaded" : "Packet")} loss {result.LossPercent:0.#}%";
             await JS.InvokeVoidAsync("eval",
-                $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}', '{annotationLabel}', {(loadedOnly ? "true" : "false")});");
+                $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}', '{annotationLabel}', {(loadedOnly ? "true" : "false")}, '{result.EventStart:o}', '{result.EventEnd:o}');");
         }
         catch (Exception ex)
         {
