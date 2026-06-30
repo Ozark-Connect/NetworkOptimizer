@@ -120,6 +120,20 @@ public class ChannelRecommendationService
     private const double UnknownChannelPenalty = 0.15;
 
     /// <summary>
+    /// 2.4 GHz crowding friction baseline. 2.4 GHz has only three non-overlapping channels, so when
+    /// the whole band is congested a channel change buys little and risks shuffling APs onto each
+    /// other. Once the mean current per-AP score on 2.4 GHz exceeds this baseline, the optimizer
+    /// raises the net-benefit a move must clear, scaled by how far past the baseline the band is
+    /// (capped at <see cref="MaxCrowdingFriction"/>). Below the baseline, and on every other band,
+    /// there is no friction. 4.0 is roughly where a 2.4 GHz AP is clearly contended on the
+    /// CCA-anchored scale, so friction only engages once the band is genuinely busy.
+    /// </summary>
+    private const double CrowdingFrictionScoreBaseline = 4.0;
+
+    /// <summary>Maximum 2.4 GHz crowding friction multiplier (see <see cref="CrowdingFrictionScoreBaseline"/>).</summary>
+    private const double MaxCrowdingFriction = 3.0;
+
+    /// <summary>
     /// Maximum allowed score degradation for any individual AP in a recommended plan.
     /// 1.5 = AP's score can increase by up to 50%. Prevents sacrificing one AP
     /// too heavily for network-wide improvement.
@@ -879,6 +893,57 @@ public class ChannelRecommendationService
             }
         }
 
+        // 2.4 GHz crowding friction: in a broadly congested 2.4 GHz band, a channel change buys
+        // little and can shuffle APs onto each other, so hold an AP on its current channel unless
+        // its move clears a crowding-scaled net-site-benefit bar. The benefit sums EVERY AP's
+        // interference, so a co-channel collision is counted against both victims, not netted away.
+        // No-op on other bands and on an uncrowded 2.4 GHz band; an AP on an invalid channel still
+        // moves. Runs before the mesh sync below so a reverted leader re-aligns its children.
+        var crowdingFriction = ComputeBandCrowdingFriction(band, currentApScores);
+        if (crowdingFriction > 1.0)
+        {
+            var netBenefitBar = MinApAbsoluteImprovement * (crowdingFriction - 1.0);
+            bool revertedAny;
+            do
+            {
+                revertedAny = false;
+                for (int i = 0; i < n; i++)
+                {
+                    var node = graph.Nodes[i];
+                    var rec = plan.Recommendations[i];
+                    if (rec.RecommendedChannel == node.CurrentChannel && rec.RecommendedWidth == node.CurrentWidth)
+                        continue;
+                    // Mesh children follow their leader; an AP stuck on an invalid channel must move.
+                    if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+                    if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+
+                    var revertedAssignment = ((int Channel, int Width)[])finalAssignment.Clone();
+                    revertedAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                    ApplyMeshConstraints(graph, revertedAssignment);
+
+                    double withMove = 0, withoutMove = 0;
+                    for (int j = 0; j < n; j++)
+                    {
+                        withMove += ScoreAp(graph, finalAssignment, j, band);
+                        withoutMove += ScoreAp(graph, revertedAssignment, j, band);
+                    }
+                    if (withoutMove - withMove >= netBenefitBar) continue; // the move earns its keep
+
+                    _logger.LogDebug(
+                        "[ChannelRec] 2.4 GHz crowding friction: reverting {ApName} ch{Rec} → ch{Cur}; net " +
+                        "site benefit {Net:F3} below the crowded-band bar {Bar:F3} (friction {Friction:F2})",
+                        node.Name, rec.RecommendedChannel, node.CurrentChannel,
+                        withoutMove - withMove, netBenefitBar, crowdingFriction);
+
+                    rec.RecommendedChannel = node.CurrentChannel;
+                    rec.RecommendedWidth = node.CurrentWidth;
+                    finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                    ApplyMeshConstraints(graph, finalAssignment);
+                    revertedAny = true;
+                }
+            } while (revertedAny);
+        }
+
         // Sync mesh children to their leader's final channel. The leader may have moved or
         // been reverted during reconciliation; the child must mirror wherever it landed so the
         // displayed plan is physically valid (a backhaul pair shares one channel) and the
@@ -1119,6 +1184,26 @@ public class ChannelRecommendationService
 
         var basePenalty = estimatedLoad * GetUnobservedMultiplier(band);
         return (1.0 - confidence) * basePenalty;
+    }
+
+    /// <summary>
+    /// A &gt;= 1.0 multiplier capturing how congested a 2.4 GHz band is, used to raise the net
+    /// benefit a channel move must clear before it's worth recommending. Returns 1.0 (no friction)
+    /// on every other band and when the mean current per-AP score is at or below
+    /// <see cref="CrowdingFrictionScoreBaseline"/>; above the baseline it grows with the mean score,
+    /// capped at <see cref="MaxCrowdingFriction"/>. 2.4 GHz only: with just three non-overlapping
+    /// channels, once they are all busy no move meaningfully helps, so the optimizer should hold put.
+    /// </summary>
+    private static double ComputeBandCrowdingFriction(RadioBand band, double[] currentApScores)
+    {
+        if (band != RadioBand.Band2_4GHz || currentApScores.Length == 0) return 1.0;
+
+        double sum = 0;
+        foreach (var s in currentApScores) sum += s;
+        var mean = sum / currentApScores.Length;
+
+        if (mean <= CrowdingFrictionScoreBaseline) return 1.0;
+        return Math.Min(mean / CrowdingFrictionScoreBaseline, MaxCrowdingFriction);
     }
 
     /// <summary>

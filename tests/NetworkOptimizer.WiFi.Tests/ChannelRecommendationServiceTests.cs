@@ -781,6 +781,69 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void Optimize_Crowded24GHz_SuppressesMarginalCollisionMove()
+    {
+        // In a saturated 2.4 GHz band, the optimizer was shoving a congested AP onto a neighbor's
+        // channel for a tiny net gain (the unobserved floor over-priced the one empty lane). The
+        // crowding friction must hold it put: a move that nets little once both co-channel victims
+        // are counted isn't worth the churn when the whole band is already busy.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 11, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        // Every channel is busy. ch1 is the least-bad, so the search wants to pile Downstairs onto
+        // Living Room's ch1 - a co-channel collision whose net site benefit is negative.
+        graph.ExternalLoad[0] = new() { { 1, 4.0 }, { 6, 8.0 }, { 11, 9.0 } };
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 4.0 }, { 6, 8.0 }, { 11, 9.0 } };
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(11,
+            "in a crowded 2.4 GHz band a move onto a neighbor's channel isn't worth the churn");
+        downstairs.RecommendedChannel.Should().NotBe(1, "it must not be shoved into a co-channel collision");
+    }
+
+    [Fact]
+    public void Optimize_Crowded24GHz_StillSpreadsClusteredAps()
+    {
+        // The crowding friction must not stop us spreading APs apart: three APs piled on ch1 hurt
+        // each other badly, and splitting them across 1/6/11 is a large net win (each resolved
+        // collision frees both victims), so it clears the crowded-band bar with room to spare.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band2_4GHz, 1, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        for (int a = 0; a < 3; a++)
+            for (int b = 0; b < 3; b++)
+                if (a != b) { graph.InternalWeights[a, b] = 1.0; graph.DirectionalWeights[a, b] = 1.0; }
+        for (int a = 0; a < 3; a++)
+        {
+            graph.ExternalLoad[a] = new() { { 1, 2.0 }, { 6, 2.0 }, { 11, 2.0 } };
+            graph.DirectlyObservedChannels[a] = new() { 1, 6, 11 };
+        }
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var channels = plan.Recommendations.Select(r => r.RecommendedChannel).Distinct().ToList();
+        channels.Should().HaveCountGreaterThan(1,
+            "clustered APs must still be spread across 2.4 GHz channels despite the crowding friction");
+    }
+
+    [Fact]
     public void Optimize_PinnedAp_ChannelUnchanged()
     {
         var aps = new List<AccessPointSnapshot>
