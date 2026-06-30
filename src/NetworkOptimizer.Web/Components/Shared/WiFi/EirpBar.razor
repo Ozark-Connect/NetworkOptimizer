@@ -17,10 +17,6 @@
             <div class="power-bar-gain @powerClass" style="width: @(eirpPct - txPowerPct)%"></div>
         }
     </div>
-    @if (!string.IsNullOrEmpty(ModeLabel))
-    {
-        <span class="power-mode-center">@ModeLabel</span>
-    }
     <span class="power-values">
         <span class="power-tx">@(Radio.TxPower ?? 0)</span>
         @if (hasGain)
@@ -37,9 +33,6 @@
 
     /// <summary>AP model, used to resolve the catalog max EIRP for the bar scale.</summary>
     [Parameter] public string Model { get; set; } = "";
-
-    /// <summary>Optional power-mode label (e.g. "auto", "high") rendered centered on the bar.</summary>
-    [Parameter] public string? ModeLabel { get; set; }
 
     /// <summary>
     /// Get the max EIRP for a radio, using catalog data with the same clamping logic as ApMapService.

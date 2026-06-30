@@ -10903,16 +10903,14 @@ a.path-hop.hop-clickable:hover {
     background: var(--bg-tertiary);
 }
 
-.power-mode-center {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
+.aps-row .ap-power-col .power-mode-below {
+    display: block;
+    max-width: 170px;
+    text-align: center;
+    margin-top: 3px;
     font-size: 0.7rem;
     color: var(--text-muted);
     text-transform: capitalize;
-    z-index: 1;
-    pointer-events: none;
 }
 
 .ap-name-col {
