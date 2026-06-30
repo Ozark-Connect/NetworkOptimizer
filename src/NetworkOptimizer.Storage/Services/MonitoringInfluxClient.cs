@@ -2160,9 +2160,10 @@ from(bucket: ""{_longtermBucket}"")
     /// <summary>One qualifying loss minute before coalescing into an event.</summary>
     private readonly record struct LossMinute(DateTime Time, double Loss, string? TargetId, string TargetType);
 
-    /// <summary>Loss minutes within this gap of each other are treated as one event, so a
-    /// brief dip (e.g. a one-minute lull mid-burst) doesn't split a sustained loss period.</summary>
-    private static readonly TimeSpan LossEventCoalesceGap = TimeSpan.FromMinutes(2);
+    /// <summary>Loss minutes more than this far apart start a new event. Set to one minute so
+    /// only truly adjacent minutes coalesce; a single clean minute (load/loss dropping out, then
+    /// resuming) splits the burst, keeping back-to-back transfer spikes as distinct events.</summary>
+    private static readonly TimeSpan LossEventCoalesceGap = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Coalesce time-ascending loss minutes into events (gap &lt;= <see cref="LossEventCoalesceGap"/>)

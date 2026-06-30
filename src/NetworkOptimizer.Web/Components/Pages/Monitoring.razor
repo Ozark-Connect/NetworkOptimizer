@@ -2697,7 +2697,7 @@ else
     // The 1-minute aggregateWindow buckets are stamped at their STOP edge, so the bucket at
     // EventStart holds data from the minute before it; an exclusive range stop at EventStart
     // would still return that bucket. Step back a full minute so the current event's first
-    // bucket is actually excluded (the coalesce gap guarantees the previous event is >= 3 min
+    // bucket is actually excluded (the coalesce gap guarantees the previous event is >= 2 min
     // earlier, so it is never dropped). Forward needs no such fudge: the current event's data
     // all precedes the EventEnd stamp, so an inclusive start just past EventEnd excludes it.
     private Task LossNavBack() => _lossNavEventStart.HasValue
