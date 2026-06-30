@@ -4993,6 +4993,10 @@ tr:hover .snmp-row-chevron {
     display: none !important;
 }
 
+.btn-label-compact {
+    display: none;
+}
+
 .col-actions {
     width: 1%;
     white-space: nowrap;
@@ -5032,6 +5036,14 @@ tr:hover .snmp-row-chevron {
 
     .show-mobile {
         display: table-cell !important;
+    }
+
+    .btn-label-full {
+        display: none;
+    }
+
+    .btn-label-compact {
+        display: inline;
     }
 
     .host-truncate {
