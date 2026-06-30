@@ -643,10 +643,14 @@ knows the swap is actually worse for util/interference. The "improvement" came a
 
 We now read per-channel measured occupancy from UniFi's `stat/spectrum-scan/{mac}` and can trigger
 scans via `cmd/devmgr` quick-scan (`UniFiApiClient.TriggerQuickScanAsync`). A quick-scan does NOT
-disconnect clients (only a FULL scan does), but it's slow per band per AP, so we never run it inline
-with a recommendation. The recommender reads whatever scan results are cached; a band/AP with no
-recent scan falls back to the neighbor-scan (external) proxy. Lead all UX with "won't disconnect
-clients" - that's why quick-scan is safe to offer freely.
+disconnect clients (the association stays up - only a FULL scan drops clients), BUT it briefly steps
+each radio off its channel, so real-time traffic (video calls, gaming, an active speed test) can
+hiccup for a moment - verified live (an iperf3 run died mid-scan; Wi-Fi stayed connected). It's also
+slow per band per AP, so we never run it inline with a recommendation. The recommender reads whatever
+scan results are cached; a band/AP with no recent scan falls back to the neighbor-scan (external)
+proxy. UX should be honest: "clients stay connected, but real-time traffic may briefly hiccup -
+best run during low-usage times" (NOT "won't disrupt"). Mesh/wireless-uplink APs can't quick-scan at
+all (controller refuses - it'd drop their uplink), so exclude them from gap prompts.
 
 Shared piece to build once: a "trigger -> poll `quick_scan_state.in_progress` until done -> read
 results -> re-run rec" helper. Expose the trigger through `IWiFiDataProvider` (it currently lives

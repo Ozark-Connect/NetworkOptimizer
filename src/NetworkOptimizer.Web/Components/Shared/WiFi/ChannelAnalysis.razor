@@ -134,14 +134,17 @@
                             Without a measurement the optimizer infers those channels from neighboring
                             networks instead of seeing them directly. A quick scan reads the real airtime
                             and noise floor on each channel, so the recommendations reflect what's actually
-                            on the air - not a guess. It won't disconnect clients.
+                            on the air - not a guess. Heads up: scanning briefly steps each radio off its
+                            channel - clients stay connected, but real-time traffic (video calls, gaming, an
+                            active speed test) can hiccup for a moment. Much lighter than a full scan, but
+                            best run during low-usage times.
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
-                                data-tooltip="Runs a quick RF scan to measure these channels - it won't disconnect clients">
+                                data-tooltip="Each radio briefly steps off-channel to measure - clients stay connected, but real-time traffic can hiccup for a moment">
                             @if (_scanningGaps)
                             {
                                 <span class="spinner spinner-sm"></span>
-                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")… won't disconnect clients</span>
+                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")… real-time traffic may briefly hiccup</span>
                             }
                             else
                             {
