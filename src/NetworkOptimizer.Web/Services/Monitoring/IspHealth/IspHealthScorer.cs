@@ -1326,14 +1326,15 @@ public class IspHealthScorer
         var (latencyTriggered, lossTriggered) = SqmTriggers(inputs, profile, loadWindows, loadedDeltas);
         if (latencyTriggered || lossTriggered)
         {
-            // Adaptive SQM (our feature) overrides the UniFi Smart Queues messaging: if it is
-            // already managing this WAN, don't pitch it or tell the user to enable Smart Queues.
-            // Loss under load despite Adaptive SQM points at its rates sitting above what the line
-            // currently delivers, or at it having been paused/disabled.
+            // Adaptive SQM (our feature) overrides the UniFi Smart Queues messaging: we can see
+            // it's already shaping this WAN, so don't pitch it or tell the user to enable Smart
+            // Queues. Loss under load while it shapes means the rate it holds isn't backing off
+            // enough for the real-time capacity drop, so point at its own tuning knobs (Severity
+            // deepens the time-of-day dips; nominal speeds set the ceiling everything scales from).
             string recommendation;
             if (inputs.AdaptiveSqmEnabled)
             {
-                recommendation = "Adaptive SQM is managing this WAN, so loss under load usually means its rates are set above what the line is currently delivering, or it was recently paused or disabled. Confirm it is active and that its rates track a fresh speed test.";
+                recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
             }
             else if (inputs.SmartQueuesEnabled)
             {
