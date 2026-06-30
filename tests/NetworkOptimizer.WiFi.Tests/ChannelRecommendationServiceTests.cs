@@ -672,11 +672,12 @@ public class ChannelRecommendationServiceTests
         // The reported case: a congested DFS AP, a non-DFS channel that a sibling scanned and found
         // clean (triangulated, not in this AP's own direct set). Triangulation is real evidence, so
         // the clean non-DFS channel should win - the engine must NOT floor or friction it into
-        // losing to a directly-observed-but-occupied DFS channel.
+        // losing to a directly-observed-but-occupied DFS channel. The current channel is loaded
+        // above the per-AP move threshold so the move routes through the normal per-AP path.
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
         var graph = SingleApGraph(52,
-            externalLoad: new() { { 52, 1.5 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
+            externalLoad: new() { { 52, 2.5 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
             directlyObserved: new() { 52 },                   // ch36 NOT directly observed by this AP
             reg, options);
 
@@ -687,6 +688,96 @@ public class ChannelRecommendationServiceTests
             "a sibling-scanned clean channel is real evidence and beats a directly-observed occupied DFS channel");
         subject.IsCurrentDfsChannel.Should().BeTrue("ch52 (UNII-2) is a DFS channel");
         subject.IsRecommendedDfsChannel.Should().BeFalse("ch36 (UNII-1) is not a DFS channel");
+    }
+
+    [Fact]
+    public void Optimize_AltruisticRelocation_DoesNotMoveHealthyApWhenNoNeighborBenefits()
+    {
+        // The reported Mac case: two APs that share no spectrum (ch36 and ch149). The ch36 AP is
+        // healthy (below the per-AP move threshold) and a cleaner channel exists, but relocating it
+        // only lowers ITS OWN score - it cannot declutter the ch149 neighbor. The altruistic pass
+        // must NOT move it. Before the fix the gate measured total network score, which the mover's
+        // own drop inflates, so it relocated the AP onto an unshared channel for no one's benefit.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Mover", RadioBand.Band5GHz, 36, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Bystander", RadioBand.Band5GHz, 149, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        // Mover sits on a lightly-loaded ch36 with a clean, directly-observed non-DFS ch161 nearby.
+        graph.ExternalLoad[0] = new() { { 36, 0.8 } };
+        graph.DirectlyObservedChannels[0] = new() { 36, 161 };
+        // Bystander is healthy on ch149 and overlaps neither ch36 nor the mover's alternatives.
+        graph.ExternalLoad[1] = new() { { 149, 0.3 } };
+        graph.DirectlyObservedChannels[1] = new() { 149 };
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var mover = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01");
+        mover.RecommendedChannel.Should().Be(36,
+            "a healthy AP must not relocate when the move helps no neighbor - that just chases its own score");
+        mover.IsChanged.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Optimize_AltruisticRelocation_StillMovesHealthyApThatDecluttersCoChannelNeighbor()
+    {
+        // Regression guard for the legitimate altruistic path: a healthy AP that interferes with a
+        // co-channel neighbor SHOULD relocate, because the neighbor genuinely benefits. The neighbor
+        // suffers from the shared channel but stays below the move threshold, so it can't rescue
+        // itself - only the mover relocating helps it. The per-AP path won't move the mover either
+        // (it too is below the threshold); only the altruistic pass can, and it must still fire when
+        // the OTHER AP's score actually drops.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Mover", RadioBand.Band5GHz, 36, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Victim", RadioBand.Band5GHz, 36, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        // Asymmetric coupling: the mover blasts the victim (0.5 -> 1.5 co-channel pain, real but
+        // under the 2.0 move threshold so the victim can't escape on its own), but barely hears it
+        // back (0.1 -> 0.3), so the mover stays comfortably healthy on the shared channel.
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 0.5;
+        graph.DirectionalWeights[0, 1] = 0.5; // mover -> victim (strong)
+        graph.DirectionalWeights[1, 0] = 0.1; // victim -> mover (weak)
+        graph.ExternalLoad[0] = new() { { 36, 0.0 }, { 161, 0.0 } };
+        graph.DirectlyObservedChannels[0] = new() { 36, 161 };
+        graph.ExternalLoad[1] = new() { { 36, 0.0 } };
+        graph.DirectlyObservedChannels[1] = new() { 36 };
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var mover = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01");
+        var victim = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        mover.RecommendedChannel.Should().NotBe(36,
+            "the mover should relocate to declutter the co-channel victim that genuinely benefits");
+        victim.RecommendedChannel.Should().Be(36,
+            "the victim is below the move threshold and is decluttered by the mover leaving, not by moving itself");
+    }
+
+    [Fact]
+    public void ScoreAssignment_BlindApUnobservedChannel_FlooredAgainstTriangulatedLoad()
+    {
+        // Fix for the deceptive 0.0: an AP with NO direct scan data on the band (fully blind, only
+        // triangulated neighbor sightings) used to short-circuit the unobserved penalty to 0, so an
+        // unscanned channel read as a perfect 0.0 and won relocations. It must instead floor against
+        // the AP's known (triangulated) load so a blind channel carries real uncertainty.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(36,
+            externalLoad: new() { { 36, 0.2 } }, // a single triangulated sighting; nothing on ch100
+            directlyObserved: new(),             // fully blind - no direct scans on this band
+            reg, options);
+
+        var onUnobserved = _service.ScoreAssignment(graph, new[] { (100, 80) }, RadioBand.Band5GHz);
+
+        onUnobserved.Should().BeGreaterThan(0, "an unobserved channel must never score a deceptive 0.0");
+        onUnobserved.Should().BeApproximately(0.4, 0.05,
+            "a blind AP floors an unscanned channel at its triangulated load (0.2) x the 5 GHz uncertainty multiplier (2.0)");
     }
 
     [Fact]

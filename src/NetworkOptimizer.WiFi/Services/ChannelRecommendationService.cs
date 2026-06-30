@@ -809,6 +809,16 @@ public class ChannelRecommendationService
             var moverScore = ScoreAp(graph, finalAssignment, i, band);
             if (moverScore >= MinApScoreToMove) continue;
 
+            // Interference borne by every OTHER AP today. The altruistic pass only fires when a
+            // move reduces THIS - the mover's own score is deliberately excluded, because improving
+            // the mover is the per-AP fallback's job and it already declined to move this healthy
+            // AP. Gating on total network score instead would let a healthy AP relocate purely for
+            // its own gain (e.g. chasing a quieter channel it shares with no neighbor), which is not
+            // altruism and sneaks past the per-AP move threshold.
+            double othersBaseline = 0;
+            for (int j = 0; j < n; j++)
+                if (j != i) othersBaseline += ScoreAp(graph, finalAssignment, j, band);
+
             int bestCh = -1;
             var bestNetwork = baselineNetworkScore;
             foreach (var candidateCh in node.ValidChannels)
@@ -837,10 +847,18 @@ public class ChannelRecommendationService
                 }
                 if (catastrophic) continue;
 
-                // Accept only on a meaningful site-wide improvement (DFS-aware, like the search).
+                // The neighbors must genuinely benefit: require a meaningful drop in the OTHER APs'
+                // interference, not just a lower total (which the mover's own score change inflates).
+                double othersTrial = 0;
+                for (int j = 0; j < n; j++)
+                    if (j != i) othersTrial += ScoreAp(graph, trial, j, band);
+                if (othersBaseline - othersTrial < MinApAbsoluteImprovement) continue;
+
+                // Among genuinely altruistic moves, pick the best site-wide outcome (DFS-aware,
+                // like the search) and never accept one that makes the whole site worse.
                 var trialNetwork = AddDfsPenalty(graph, trial, band, opts.DfsPreference,
                     ScoreAssignment(graph, trial, band));
-                if (baselineNetworkScore - trialNetwork >= MinApAbsoluteImprovement && trialNetwork < bestNetwork)
+                if (trialNetwork < bestNetwork)
                 {
                     bestNetwork = trialNetwork;
                     bestCh = candidateCh;
@@ -1051,7 +1069,6 @@ public class ChannelRecommendationService
         (int Channel, int Width)[] assignment)
     {
         var directChannels = graph.DirectlyObservedChannels[apIndex];
-        if (directChannels.Count == 0) return 0;
 
         var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
 
@@ -1074,8 +1091,11 @@ public class ChannelRecommendationService
         // as quiet, not be assumed as busy as wherever we happen to sit.
         //
         // Only a channel with NO sighting at all (no direct, no triangulated) is a true blind spot.
-        // Floor it at this AP's best observed load so a blind channel never scores better than a
+        // Floor it at this AP's best KNOWN load so a blind channel never scores better than a
         // barely-seen one - otherwise the engine eagerly jumps onto channels it has zero data for.
+        // Prefer directly-observed channels as the floor; an AP with NO direct scan data at all
+        // (fully blind on this band) still floors against its triangulated neighbor load, so a
+        // blind radio carries real uncertainty instead of reading a deceptive 0.
         double estimatedLoad;
         if (triangulatedLoad > 0)
         {
@@ -1083,13 +1103,18 @@ public class ChannelRecommendationService
         }
         else
         {
-            double minDirectLoad = double.MaxValue;
+            double minKnownLoad = double.MaxValue;
             foreach (var dc in directChannels)
             {
                 if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
-                    minDirectLoad = Math.Min(minDirectLoad, directWeight);
+                    minKnownLoad = Math.Min(minKnownLoad, directWeight);
             }
-            estimatedLoad = minDirectLoad == double.MaxValue ? 0 : minDirectLoad;
+            if (minKnownLoad == double.MaxValue)
+            {
+                foreach (var (_, extWeight) in graph.ExternalLoad[apIndex])
+                    minKnownLoad = Math.Min(minKnownLoad, extWeight);
+            }
+            estimatedLoad = minKnownLoad == double.MaxValue ? 0 : minKnownLoad;
         }
 
         var basePenalty = estimatedLoad * GetUnobservedMultiplier(band);
