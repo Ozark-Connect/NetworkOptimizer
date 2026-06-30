@@ -1326,10 +1326,26 @@ public class IspHealthScorer
         var (latencyTriggered, lossTriggered) = SqmTriggers(inputs, profile, loadWindows, loadedDeltas);
         if (latencyTriggered || lossTriggered)
         {
-            var recommendation = inputs.SmartQueuesEnabled
-                ? "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers."
-                : "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
-            if (inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
+            // Adaptive SQM (our feature) overrides the UniFi Smart Queues messaging: if it is
+            // already managing this WAN, don't pitch it or tell the user to enable Smart Queues.
+            // Loss under load despite Adaptive SQM points at its rates sitting above what the line
+            // currently delivers, or at it having been paused/disabled.
+            string recommendation;
+            if (inputs.AdaptiveSqmEnabled)
+            {
+                recommendation = "Adaptive SQM is managing this WAN, so loss under load usually means its rates are set above what the line is currently delivering, or it was recently paused or disabled. Confirm it is active and that its rates track a fresh speed test.";
+            }
+            else if (inputs.SmartQueuesEnabled)
+            {
+                recommendation = "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers.";
+            }
+            else
+            {
+                recommendation = "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
+            }
+            // Only pitch Adaptive SQM when the WAN isn't already running it.
+            if (!inputs.AdaptiveSqmEnabled
+                && inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
                 recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
             }

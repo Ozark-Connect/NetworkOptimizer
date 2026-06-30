@@ -587,6 +587,11 @@ public class IspHealthInputs
     /// <summary>Whether UniFi Smart Queues is already enabled on the WAN.</summary>
     public bool SmartQueuesEnabled { get; init; }
 
+    /// <summary>Whether OUR Adaptive SQM is enabled and configured for the primary WAN. Distinct
+    /// from <see cref="SmartQueuesEnabled"/> (UniFi's base feature); used so the loaded-loss
+    /// recommendation never pitches Adaptive SQM to someone already running it.</summary>
+    public bool AdaptiveSqmEnabled { get; init; }
+
     /// <summary>
     /// Time windows to exclude from loaded-line analysis. Adaptive SQM speed probes
     /// briefly crank the HTB rate for an unshaped measurement; the resulting bufferbloat
