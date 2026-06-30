@@ -888,27 +888,28 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
-    public void ScoreAssignment_MeasuredFloor_RaisesUnderstated_ButNeverDiscountsKnownBssids()
+    public void ScoreAssignment_MeasuredFloor_RaisesUnderstatedCandidate_ButNeverDiscountsKnownBssids()
     {
-        // Floor: the rogue scan barely registers ch36 (0.5) but the radio measures it genuinely busy
-        // (50% airtime - non-beaconing/hidden congestion), so congestion is RAISED to the measurement.
-        // Not a cap: a channel with many KNOWN BSSIDs (proxy 8.0) that the scan happens to catch idle
-        // (5%) keeps its proxy - detected BSSIDs are real and the scan is only a reference.
+        // The measured floor applies to CANDIDATE channels (a move-to). AP currently on ch36; we
+        // score it on the candidate ch40. Floor: the scan barely registers ch40 (0.5 proxy) but the
+        // radio measures it 50% busy, so congestion is RAISED to the measurement. Not a cap: a
+        // candidate with many KNOWN BSSIDs (proxy 8.0) that scans idle (5%) keeps its proxy -
+        // detected BSSIDs are real and the scan is only a reference.
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions();
 
         InterferenceGraph Build(double externalLoad, int scanUtil)
         {
-            var g = SingleApGraph(36, externalLoad: new() { { 36, externalLoad } }, directlyObserved: new(), reg, options);
-            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int Interference)> { { 36, (scanUtil, 0) } };
+            var g = SingleApGraph(36, externalLoad: new() { { 40, externalLoad } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int? NoiseFloor)> { { 40, (scanUtil, (int?)null) } };
             return g;
         }
 
-        var understated = _service.ScoreAssignment(Build(0.5, 50), new[] { (36, 80) }, RadioBand.Band5GHz);
-        var knownButIdle = _service.ScoreAssignment(Build(8.0, 5), new[] { (36, 80) }, RadioBand.Band5GHz);
+        var understated = _service.ScoreAssignment(Build(0.5, 50), new[] { (40, 80) }, RadioBand.Band5GHz);
+        var knownButIdle = _service.ScoreAssignment(Build(8.0, 5), new[] { (40, 80) }, RadioBand.Band5GHz);
 
-        understated.Should().BeGreaterThan(6.0,
-            "an under-stated channel is floored up to the measured 50% airtime (~7.5), not left at the 0.5 proxy");
+        understated.Should().BeGreaterThan(2.0,
+            "an under-stated candidate is floored up to the measured 50% airtime (~2.5 at the 0.05 scale), not left at the 0.5 proxy");
         knownButIdle.Should().BeGreaterThan(7.0,
             "the 8.0 of known BSSIDs is kept - a one-shot idle scan never discounts detected APs");
     }
