@@ -126,6 +126,29 @@
                     </div>
                 }
 
+                @if (_scanGaps.Count > 0)
+                {
+                    <div class="alert-info scan-gap-banner">
+                        <div class="scan-gap-text">
+                            <strong>@_scanGaps.Count</strong> @(_scanGaps.Count == 1 ? "radio has" : "radios have")
+                            no recent RF measurement, so @(_scanGaps.Count == 1 ? "it falls" : "they fall") back to neighbor scans:
+                            <span class="scan-gap-list">@string.Join(", ", _scanGaps.Select(g => $"{g.ApName} · {g.Band.ToDisplayString()}"))</span>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
+                                data-tooltip="Runs a quick RF scan to measure these channels - it won't disconnect clients">
+                            @if (_scanningGaps)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")… won't disconnect clients</span>
+                            }
+                            else
+                            {
+                                <span>Run quick scan</span>
+                            }
+                        </button>
+                    </div>
+                }
+
                 @if (_channelPlan is { } plan)
                 {
                     <!-- Network Score Summary -->
@@ -177,29 +200,6 @@
                                 DFS channels can't be avoided at 160 MHz - all bonding groups include DFS frequencies. Results shown are the same as Include DFS.
                             </div>
                         }
-                    }
-
-                    @if (_scanGaps.Count > 0)
-                    {
-                        <div class="alert-info scan-gap-banner">
-                            <div class="scan-gap-text">
-                                <strong>@_scanGaps.Count</strong> @(_scanGaps.Count == 1 ? "radio has" : "radios have")
-                                no recent RF measurement, so @(_scanGaps.Count == 1 ? "it falls" : "they fall") back to neighbor scans:
-                                <span class="scan-gap-list">@string.Join(", ", _scanGaps.Select(g => $"{g.ApName} · {g.Band.ToDisplayString()}"))</span>
-                            </div>
-                            <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
-                                    data-tooltip="Runs a quick RF scan to measure these channels - it won't disconnect clients">
-                                @if (_scanningGaps)
-                                {
-                                    <span class="spinner spinner-sm"></span>
-                                    <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")… won't disconnect clients</span>
-                                }
-                                else
-                                {
-                                    <span>Run quick scan</span>
-                                }
-                            </button>
-                        </div>
                     }
 
                     <!-- Per-AP Recommendation Table -->
