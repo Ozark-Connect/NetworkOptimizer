@@ -1,6 +1,7 @@
 using System.Text.Json;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Helpers;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Helpers;
@@ -839,6 +840,31 @@ public class WiFiOptimizerService
         {
             _logger.LogError(ex, "Failed to get client events for {ClientMac}", clientMac);
             return new List<WiFi.Models.ClientConnectionEvent>();
+        }
+    }
+
+    /// <summary>
+    /// Read the console's configured DFS preference for the 5 GHz radio from the
+    /// "radio_ai" (Auto-Optimize / RF Scanning) settings. Returns true when DFS is
+    /// enabled, false when it is disabled, or null when unavailable so callers can
+    /// fall back to their own default.
+    /// </summary>
+    public async Task<bool?> GetAutoOptimizeDfsEnabledAsync()
+    {
+        var client = _connectionService.Client;
+        if (client == null)
+            return null;
+
+        try
+        {
+            using var settings = await client.GetSettingsRawAsync();
+            var radioAi = RadioAiSettings.FromSettingsJson(settings);
+            return radioAi?.GetDfsEnabled(RadioAiSettings.Radio5GHz);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read radio_ai DFS preference");
+            return null;
         }
     }
 
