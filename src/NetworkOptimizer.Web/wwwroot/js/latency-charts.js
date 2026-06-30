@@ -46,6 +46,31 @@ let visibilityObserver = null;
 let isInViewport = true;
 let lastFetchData = null;
 let savedState = null;
+let investigateMarker = null;  // { ts, label, loaded } while investigating a loss event
+
+// Highlight the investigated loss event on the RTT and loss charts, mirroring the
+// shaded event annotations on the ISP Health chart. Loaded-loss events are amber
+// (the SQM/bufferbloat signal); plain packet-loss events are info blue.
+function buildInvestigateAnnotations() {
+    if (!investigateMarker) return { xaxis: [] };
+    const { ts, label, loaded } = investigateMarker;
+    const half = 60000; // ±1 min band, visible inside the ~20 min investigation window
+    const color = loaded ? '#f59e0b' : '#4797ff';
+    const labelBg = loaded ? '#78350f' : '#1e3a5f';
+    return {
+        xaxis: [{
+            x: ts - half,
+            x2: ts + half,
+            fillColor: color,
+            opacity: 0.15,
+            borderColor: color,
+            label: {
+                text: label,
+                style: { color: '#ededef', background: labelBg, fontSize: '10px' },
+            },
+        }],
+    };
+}
 
 function baseChartOpts(type, yTitle, yFormatter, extraOpts) {
     return {
@@ -248,6 +273,10 @@ async function loadAndUpdate() {
 
     if (rttChart) rttChart.updateSeries(rttSeries, false);
     if (lossChart) lossChart.updateSeries(lossSeries, false);
+
+    const annotations = buildInvestigateAnnotations();
+    if (rttChart) rttChart.updateOptions({ annotations }, false, false);
+    if (lossChart) lossChart.updateOptions({ annotations }, false, false);
 
     updateChartVisibility();
 
@@ -569,12 +598,13 @@ export async function mount(elId) {
     startPoll();
 }
 
-export function navigateToTime(isoTimestamp, category) {
+export function navigateToTime(isoTimestamp, category, label, loaded) {
     if (!savedState) {
         savedState = { category: currentCategory, rangeHours: currentRangeHours,
             customFrom, customTo, isCustomRange, windowOffset, visibility: { ...visibility } };
     }
     const ts = new Date(isoTimestamp).getTime();
+    investigateMarker = label ? { ts, label, loaded: !!loaded } : null;
     const windowMs = 10 * 60000; // 10 min window centered on event
     customFrom = new Date(ts - windowMs);
     customTo = new Date(ts + windowMs);
@@ -598,6 +628,7 @@ export function navigateToTime(isoTimestamp, category) {
 
 export function restoreState() {
     if (!savedState) return;
+    investigateMarker = null;
     currentCategory = savedState.category;
     currentRangeHours = savedState.rangeHours;
     customFrom = savedState.customFrom;
@@ -672,5 +703,6 @@ export function unmount() {
     customTo = null;
     lastFetchData = null;
     savedState = null;
+    investigateMarker = null;
     isInViewport = true;
 }
