@@ -16071,6 +16071,39 @@ tr.stats-row-filtered {
     z-index: 1;
 }
 
+.isp-health-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    min-height: 320px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    background:
+        radial-gradient(ellipse 60% 120% at 18% 0%, rgba(5, 80, 181, 0.12), transparent 60%),
+        radial-gradient(ellipse 50% 100% at 85% 100%, rgba(43, 168, 154, 0.08), transparent 65%),
+        var(--bg-card);
+}
+
+.isp-health-loading-spinner {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0%, var(--primary-color) 45%, #2ba89a 100%);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    filter: drop-shadow(0 4px 16px rgba(43, 168, 154, 0.28));
+    animation: spin 0.9s linear infinite;
+}
+
+.isp-health-loading-text {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+}
+
 .isp-health-hero {
     position: relative;
     margin-bottom: 1rem;
