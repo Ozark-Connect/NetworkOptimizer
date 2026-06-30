@@ -487,11 +487,7 @@
                                 </div>
                                 <div class="ap-col ap-width-col">@(radio.ChannelWidth ?? 20) MHz</div>
                                 <div class="ap-col ap-power-col">
-                                    <EirpBar Radio="radio" Model="@ap.Model" />
-                                    @if (!string.IsNullOrEmpty(radio.TxPowerMode))
-                                    {
-                                        <span class="power-mode">(@radio.TxPowerMode)</span>
-                                    }
+                                    <EirpBar Radio="radio" Model="@ap.Model" ModeLabel="@radio.TxPowerMode" />
                                 </div>
                                 <div class="ap-col ap-util-col">
                                     <div class="util-bar-container">

@@ -10899,8 +10899,20 @@ a.path-hop.hop-clickable:hover {
 }
 
 .aps-row .ap-power-col .power-bar-container {
-    max-width: 180px;
+    max-width: 170px;
     background: var(--bg-tertiary);
+}
+
+.power-mode-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: capitalize;
+    z-index: 1;
+    pointer-events: none;
 }
 
 .ap-name-col {
