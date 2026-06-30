@@ -615,14 +615,22 @@ public class WiFiOptimizerService
         var scans = await GetChannelScanResultsAsync(
             startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
 
+        // Mesh (wireless-uplink) APs can't quick-scan without dropping their uplink, so the controller
+        // refuses - don't list gaps the user can never fill.
+        var provider = CreateProvider();
+        var meshChildMacs = (await provider.GetAccessPointsAsync())
+            .Where(a => a.IsMeshChild)
+            .Select(a => a.Mac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         return scans
-            .Where(s => s.Channels.Count == 0)
+            .Where(s => s.Channels.Count == 0 && !meshChildMacs.Contains(s.ApMac))
             .Select(s => new SpectrumScanGap(s.ApMac, s.ApName ?? s.ApMac, s.Band, s.Band.ToUniFiCode()))
             .ToList();
     }
 
     private const int QuickScanPollIntervalSeconds = 3;
-    private const int QuickScanPerBandTimeoutSeconds = 45;
+    private const int QuickScanPerBandTimeoutSeconds = 150;
 
     /// <summary>
     /// Trigger non-disruptive quick RF scans on the given (AP, band) targets, wait for them to
@@ -668,7 +676,16 @@ public class WiFiOptimizerService
             {
                 if (!await provider.TriggerQuickScanAsync(apMac, bandCode, cancellationToken))
                     continue;
-                await WaitForQuickScanIdleAsync(provider, apMac, cancellationToken);
+                // Wait for THIS band to finish before starting the next on the same AP. If it doesn't
+                // finish in time, skip the AP's remaining bands rather than fire into a still-busy
+                // radio (which the controller rejects with api.err.QuickScanInProgress).
+                if (!await WaitForQuickScanIdleAsync(provider, apMac, cancellationToken))
+                {
+                    _logger.LogDebug(
+                        "Quick scan on {Mac} still running after {Timeout}s; skipping its remaining bands",
+                        apMac, QuickScanPerBandTimeoutSeconds);
+                    break;
+                }
             }
             catch (Exception ex)
             {
@@ -678,10 +695,11 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
-    /// Poll an AP until its quick-scan reports idle (or the per-band timeout), so the next band on the
-    /// same AP doesn't start while this one is still running.
+    /// Poll an AP until its quick-scan reports idle, so the next band on the same AP doesn't start
+    /// while this one is still running. Returns true when the AP went idle, false if it was still
+    /// in-progress at the timeout (caller should not start another band on it).
     /// </summary>
-    private async Task WaitForQuickScanIdleAsync(
+    private async Task<bool> WaitForQuickScanIdleAsync(
         UniFiLiveDataProvider provider, string apMac, CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(QuickScanPerBandTimeoutSeconds);
@@ -689,19 +707,19 @@ public class WiFiOptimizerService
         await Task.Delay(TimeSpan.FromSeconds(QuickScanPollIntervalSeconds), cancellationToken);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            bool inProgress;
             try
             {
-                inProgress = await provider.IsQuickScanInProgressAsync(apMac, cancellationToken);
+                if (!await provider.IsQuickScanInProgressAsync(apMac, cancellationToken))
+                    return true;
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Quick scan status poll failed for {Mac}", apMac);
-                break;
+                return true; // can't tell - assume done rather than block the AP's other bands
             }
-            if (!inProgress) break;
             await Task.Delay(TimeSpan.FromSeconds(QuickScanPollIntervalSeconds), cancellationToken);
         }
+        return false;
     }
 
     /// <summary>

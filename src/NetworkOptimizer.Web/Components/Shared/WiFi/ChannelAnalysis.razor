@@ -130,9 +130,11 @@
                 {
                     <div class="alert-info scan-gap-banner">
                         <div class="scan-gap-text">
-                            <strong>@_scanGaps.Count</strong> @(_scanGaps.Count == 1 ? "radio has" : "radios have")
-                            no recent RF measurement, so @(_scanGaps.Count == 1 ? "it falls" : "they fall") back to neighbor scans:
-                            <span class="scan-gap-list">@string.Join(", ", _scanGaps.Select(g => $"{g.ApName} · {g.Band.ToDisplayString()}"))</span>
+                            <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio hasn't" : "radios haven't") been scanned recently.</strong>
+                            Without a measurement the optimizer infers those channels from neighboring
+                            networks instead of seeing them directly. A quick scan reads the real airtime
+                            and noise floor on each channel, so the recommendations reflect what's actually
+                            on the air - not a guess. It won't disconnect clients.
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
                                 data-tooltip="Runs a quick RF scan to measure these channels - it won't disconnect clients">

@@ -3727,10 +3727,6 @@ select.form-control {
     min-width: 12rem;
 }
 
-.scan-gap-banner .scan-gap-list {
-    color: var(--text-muted);
-}
-
 .scan-gap-banner .btn {
     flex-shrink: 0;
 }
