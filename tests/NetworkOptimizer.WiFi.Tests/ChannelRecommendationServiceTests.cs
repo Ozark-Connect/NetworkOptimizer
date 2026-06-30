@@ -888,6 +888,32 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void Optimize_MeasuredComfortableCurrentChannel_NotChurnedForOwnBenefit()
+    {
+        // The reported class: the external neighbor scan inflates a channel that the AP's own radio
+        // measures as externally quiet (low 1d/7d interference). Without the measured-comfort anchor
+        // the optimizer moves the AP off it; with it, a lone AP (no sibling to declutter) stays put.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(52,
+            externalLoad: new() { { 52, 6.0 }, { 36, 0.0 } }, // scan says ch52 busy, ch36 clean
+            directlyObserved: new() { 52, 36 },
+            reg, options);
+        // ...but the radio measured ch52 at only 10% external interference (< the comfortable bar).
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 52, (15.0, 10.0, 2.0) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var subject = plan.Recommendations.Single();
+        subject.RecommendedChannel.Should().Be(52,
+            "the radio measures ch52 as externally quiet, so it must not be churned off it on the neighbor scan alone");
+        subject.IsChanged.Should().BeFalse();
+    }
+
+    [Fact]
     public void Optimize_PinnedAp_ChannelUnchanged()
     {
         var aps = new List<AccessPointSnapshot>

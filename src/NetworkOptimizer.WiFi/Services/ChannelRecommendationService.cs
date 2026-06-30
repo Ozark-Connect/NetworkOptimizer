@@ -134,6 +134,17 @@ public class ChannelRecommendationService
     private const double MaxCrowdingFriction = 3.0;
 
     /// <summary>
+    /// A channel is "measurably comfortable" when the AP's own radio reports time-averaged (1d/7d)
+    /// EXTERNAL-network interference on it (airtime from other people's networks) below this percent.
+    /// The external neighbor scan counts visible-but-idle BSSIDs and can inflate a fine channel into a
+    /// bogus move recommendation; the radio's measured interference is the ground truth for the
+    /// channel it sits on. We gate on interference (not utilization, which is partly the AP's own
+    /// serving traffic that follows it to any channel). Below ~20% external airtime a 2.4/5 GHz
+    /// channel is genuinely usable, so we don't churn off it for the AP's own benefit. Tunable.
+    /// </summary>
+    private const double ComfortableInterferencePct = 20.0;
+
+    /// <summary>
     /// Maximum allowed score degradation for any individual AP in a recommended plan.
     /// 1.5 = AP's score can increase by up to 50%. Prevents sacrificing one AP
     /// too heavily for network-wide improvement.
@@ -292,6 +303,16 @@ public class ChannelRecommendationService
             Dictionary<int, (double, double, double)>? apHistStress = null;
             if (historicalStress != null)
                 historicalStress.TryGetValue(macLower, out apHistStress);
+
+            // Visibility: if an AP has no time-averaged channel metrics, the stress term falls back
+            // to the AP's live (instantaneous) radio stats for its current channel - which a burst
+            // of client activity can inflate. Log it so we can confirm both sites are using the
+            // historical (1d/7d) data wherever it exists.
+            if (apHistStress == null || apHistStress.Count == 0)
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} {Band}: no historical channel metrics - stress falls back " +
+                    "to live radio stats for the current channel only",
+                    ap.Name, band);
 
             graph.Nodes.Add(new ApNode
             {
@@ -946,6 +967,56 @@ public class ChannelRecommendationService
             } while (revertedAny);
         }
 
+        // Measured-comfort anchor (#1): don't churn an AP off a channel that its own radio measures
+        // as quiet from OUTSIDE networks (low time-averaged external-network interference) unless the
+        // move actually reduces co-channel interference to one of OUR OWN sibling APs. The external
+        // neighbor scan counts visible-but-idle BSSIDs and can inflate an externally-clean channel
+        // into a bogus move; the radio's 1d/7d interference measurement is ground truth for the
+        // channel it sits on. Self-benefit moves off such a channel are reverted; a genuine move
+        // that unsticks two of our APs sharing a channel still goes through.
+        bool comfortReverted;
+        do
+        {
+            comfortReverted = false;
+            for (int i = 0; i < n; i++)
+            {
+                var node = graph.Nodes[i];
+                var rec = plan.Recommendations[i];
+                if (rec.RecommendedChannel == node.CurrentChannel && rec.RecommendedWidth == node.CurrentWidth)
+                    continue;
+                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+                if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+                if (!IsCurrentChannelComfortable(graph, band, i)) continue;
+
+                // Interference borne by our OTHER managed APs as recommended vs with this AP reverted
+                // (moving this AP only changes the co-channel interference it imposes on them).
+                var revertTrial = ((int Channel, int Width)[])finalAssignment.Clone();
+                revertTrial[i] = (node.CurrentChannel, node.CurrentWidth);
+                ApplyMeshConstraints(graph, revertTrial);
+
+                double othersWithMove = 0, othersReverted = 0;
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i) continue;
+                    othersWithMove += ScoreAp(graph, finalAssignment, j, band);
+                    othersReverted += ScoreAp(graph, revertTrial, j, band);
+                }
+                // Keep it put unless the move meaningfully reduces interference to our own sibling APs.
+                if (othersReverted - othersWithMove >= MinApAbsoluteImprovement) continue;
+
+                _logger.LogDebug(
+                    "[ChannelRec] Measured-comfort: keeping {ApName} on ch{Cur} (radio measures it " +
+                    "externally quiet; proposed ch{Rec} didn't help our own APs)",
+                    node.Name, node.CurrentChannel, rec.RecommendedChannel);
+
+                rec.RecommendedChannel = node.CurrentChannel;
+                rec.RecommendedWidth = node.CurrentWidth;
+                finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                ApplyMeshConstraints(graph, finalAssignment);
+                comfortReverted = true;
+            }
+        } while (comfortReverted);
+
         // Sync mesh children to their leader's final channel. The leader may have moved or
         // been reverted during reconciliation; the child must mirror wherever it landed so the
         // displayed plan is physically valid (a backhaul pair shares one channel) and the
@@ -1204,6 +1275,30 @@ public class ChannelRecommendationService
 
         if (mean <= CrowdingFrictionScoreBaseline) return 1.0;
         return Math.Min(mean / CrowdingFrictionScoreBaseline, MaxCrowdingFriction);
+    }
+
+    /// <summary>
+    /// Whether the AP's current channel is "measurably comfortable" - its own radio reports
+    /// time-averaged (1d/7d) EXTERNAL-network interference on it (airtime used by other people's
+    /// networks) below <see cref="ComfortableInterferencePct"/>. Requires historical metrics (no
+    /// averaged data → not claimed comfortable). Uses interference, not utilization, so the AP's own
+    /// serving traffic (which follows it to any channel) doesn't make a fine channel read as busy.
+    /// The measured-comfort anchor uses this to avoid churning an AP off a genuinely-clean channel
+    /// just because the external neighbor scan sees a lot of idle BSSIDs.
+    /// </summary>
+    private bool IsCurrentChannelComfortable(InterferenceGraph graph, RadioBand band, int apIndex)
+    {
+        var node = graph.Nodes[apIndex];
+        if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
+
+        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        foreach (var (histChannel, stress) in node.HistoricalStress)
+        {
+            var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
+                return stress.Interference < ComfortableInterferencePct;
+        }
+        return false;
     }
 
     /// <summary>
