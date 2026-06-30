@@ -92,17 +92,19 @@ public class InterferenceGraph
     /// </summary>
     public double[,] DirectionalWeights { get; set; } = new double[0, 0];
 
-    /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = weight</summary>
+    /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = total weight</summary>
     public Dictionary<int, double>[] ExternalLoad { get; set; } = [];
 
     /// <summary>
-    /// Per-AP channel width (MHz) of the neighbors pooled at each external-load channel.
-    /// ExternalLoadWidths[apIndex][channel] = width. Lets the scorer model a wide neighbor's full
-    /// spectral footprint: a 40 MHz neighbor on 2.4 GHz ch11 also steps on ch6, so its load must
-    /// count against any candidate channel its span overlaps, not just its control channel. A
-    /// channel absent from this map is treated as 20 MHz (a point at its control channel).
+    /// Per-AP external load pooled by (control channel, width). ExternalNeighbors[apIndex][(channel,
+    /// width)] = weight. Keeping weight separated by width lets the scorer model each neighbor's true
+    /// spectral footprint: a 40 MHz neighbor on 2.4 GHz ch11 steps on ch6, so its weight counts
+    /// against any candidate channel its span overlaps - WITHOUT dragging the 20 MHz neighbors that
+    /// share its control channel along with it (pooling everything to one width over-spilled them).
+    /// When empty (e.g. a unit test that sets only <see cref="ExternalLoad"/>), the scorer falls back
+    /// to treating each external-load channel as a 20 MHz point.
     /// </summary>
-    public Dictionary<int, int>[] ExternalLoadWidths { get; set; } = [];
+    public Dictionary<(int Channel, int Width), double>[] ExternalNeighbors { get; set; } = [];
 
     /// <summary>
     /// Per-AP set of channels with at least one direct neighbor observation.

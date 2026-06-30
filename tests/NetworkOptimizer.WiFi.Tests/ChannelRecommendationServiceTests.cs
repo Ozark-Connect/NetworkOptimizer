@@ -848,8 +848,8 @@ public class ChannelRecommendationServiceTests
     {
         // A 40 MHz neighbor on 2.4 GHz ch11 spectrally covers ch6 too (span 7-14 vs ch6's 4-8), so
         // its load must count against a candidate ch6, not just its control channel. A 20 MHz
-        // neighbor on ch11 does not reach ch6. Without width-aware overlap, ch6 reads deceptively
-        // clear right next to an inconsiderate wide neighbor.
+        // neighbor on ch11 does not reach ch6. And crucially, 20 MHz neighbors that share the wide
+        // neighbor's control channel must NOT be dragged into spilling along with it.
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions();
         var aps = new List<AccessPointSnapshot>
@@ -857,22 +857,34 @@ public class ChannelRecommendationServiceTests
             CreateAp("aa:bb:cc:dd:ee:01", "AP", RadioBand.Band2_4GHz, 11, width: 20)
         };
 
-        InterferenceGraph Build(int neighborWidth)
+        InterferenceGraph Build(params (int Channel, int Width, double Weight)[] neighbors)
         {
             var g = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
-            g.ExternalLoad[0] = new() { { 11, 1.0 } };
-            g.ExternalLoadWidths[0] = new() { { 11, neighborWidth } };
+            g.ExternalLoad[0] = new();
+            g.ExternalNeighbors[0] = new();
+            foreach (var (ch, w, weight) in neighbors)
+            {
+                g.ExternalLoad[0][ch] = g.ExternalLoad[0].GetValueOrDefault(ch) + weight;
+                g.ExternalNeighbors[0][(ch, w)] = g.ExternalNeighbors[0].GetValueOrDefault((ch, w)) + weight;
+            }
             g.DirectlyObservedChannels[0] = new() { 11 };
             return g;
         }
 
-        var ch6NextToNarrow = _service.ScoreAssignment(Build(20), new[] { (6, 20) }, RadioBand.Band2_4GHz);
-        var ch6NextToWide = _service.ScoreAssignment(Build(40), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        var ch6Narrow = _service.ScoreAssignment(Build((11, 20, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        var ch6Wide = _service.ScoreAssignment(Build((11, 40, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
 
-        ch6NextToWide.Should().BeGreaterThan(ch6NextToNarrow,
-            "a 40 MHz neighbor on ch11 steps on ch6, so it must raise ch6's score; a 20 MHz one does not");
-        (ch6NextToWide - ch6NextToNarrow).Should().BeApproximately(1.0, 0.01,
-            "the wide neighbor's full weight reaches ch6 once spectral width is accounted for");
+        ch6Wide.Should().BeGreaterThan(ch6Narrow,
+            "a 40 MHz neighbor on ch11 steps on ch6, so it raises ch6's score; a 20 MHz one does not");
+        (ch6Wide - ch6Narrow).Should().BeApproximately(1.0, 0.01,
+            "only the wide neighbor's weight reaches ch6 once spectral width is accounted for");
+
+        // The fix for the over-spill: a pile of 20 MHz neighbors on ch11 plus ONE 40 MHz neighbor
+        // there must spill only the 40 MHz neighbor's weight into ch6 - the 20 MHz weight stays put.
+        var ch6Mixed = _service.ScoreAssignment(
+            Build((11, 20, 5.0), (11, 40, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        (ch6Mixed - ch6Narrow).Should().BeApproximately(1.0, 0.01,
+            "only the 40 MHz neighbor (1.0) spills to ch6; the 5.0 of 20 MHz neighbors on ch11 do not");
     }
 
     [Fact]

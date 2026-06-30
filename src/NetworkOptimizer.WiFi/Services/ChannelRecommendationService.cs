@@ -268,7 +268,7 @@ public class ChannelRecommendationService
             InternalWeights = new double[n, n],
             DirectionalWeights = new double[n, n],
             ExternalLoad = new Dictionary<int, double>[n],
-            ExternalLoadWidths = new Dictionary<int, int>[n],
+            ExternalNeighbors = new Dictionary<(int Channel, int Width), double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
             ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
             MeshConstraints = new List<MeshConstraint>(),
@@ -310,7 +310,7 @@ public class ChannelRecommendationService
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
-            graph.ExternalLoadWidths[i] = new Dictionary<int, int>();
+            graph.ExternalNeighbors[i] = new Dictionary<(int Channel, int Width), double>();
             graph.DirectlyObservedChannels[i] = new HashSet<int>();
             graph.ScanChannelData[i] = new Dictionary<int, (int, int)>();
         }
@@ -1016,9 +1016,8 @@ public class ChannelRecommendationService
         for (int i = 0; i < n; i++)
         {
             var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
-            foreach (var (extChannel, extWeight) in graph.ExternalLoad[i])
+            foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, i))
             {
-                var extSpan = ExternalNeighborSpan(graph, band, i, extChannel);
                 if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                     score += extWeight;
             }
@@ -1089,9 +1088,8 @@ public class ChannelRecommendationService
 
         // External interference
         var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
-        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
-            var extSpan = ExternalNeighborSpan(graph, band, apIndex, extChannel);
             if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                 score += extWeight;
         }
@@ -1143,9 +1141,9 @@ public class ChannelRecommendationService
         if (confidence >= 1.0) return 0;
 
         double triangulatedLoad = 0;
-        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
-            if (ChannelSpanHelper.SpansOverlap(apSpan, ExternalNeighborSpan(graph, band, apIndex, extChannel)))
+            if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                 triangulatedLoad += extWeight;
         }
 
@@ -1209,20 +1207,26 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
-    /// The channel span a pooled external-load entry occupies, accounting for the neighbor's width.
-    /// A wide neighbor steps on more than its control channel (e.g. a 40 MHz AP on 2.4 GHz ch11 also
-    /// covers ch6), so its load must be tested against the full span, not a single point. Falls back
-    /// to a 20 MHz point when no width was recorded for the channel.
+    /// Each external contributor to an AP as a (channel span, weight) pair, accounting for the
+    /// neighbor's width so a wide neighbor's load is tested against its full span (e.g. a 40 MHz
+    /// neighbor on 2.4 GHz ch11 also covers ch6) - and ONLY that neighbor's weight spills, not the
+    /// 20 MHz neighbors sharing its control channel. Falls back to treating each
+    /// <see cref="InterferenceGraph.ExternalLoad"/> channel as a 20 MHz point when no per-width data
+    /// exists (e.g. a unit test that populates ExternalLoad directly).
     /// </summary>
-    private static (int Low, int High) ExternalNeighborSpan(
-        InterferenceGraph graph, RadioBand band, int apIndex, int extChannel)
+    private static IEnumerable<((int Low, int High) Span, double Weight)> ExternalContributors(
+        InterferenceGraph graph, RadioBand band, int apIndex)
     {
-        int width = 20;
-        if (graph.ExternalLoadWidths != null && apIndex < graph.ExternalLoadWidths.Length &&
-            graph.ExternalLoadWidths[apIndex] != null &&
-            graph.ExternalLoadWidths[apIndex].TryGetValue(extChannel, out var w))
-            width = w;
-        return ChannelSpanHelper.GetChannelSpan(band, extChannel, width);
+        var byWidth = graph.ExternalNeighbors;
+        if (byWidth != null && apIndex < byWidth.Length && byWidth[apIndex] is { Count: > 0 } neighbors)
+        {
+            foreach (var ((channel, width), weight) in neighbors)
+                yield return (ChannelSpanHelper.GetChannelSpan(band, channel, width), weight);
+            yield break;
+        }
+
+        foreach (var (channel, weight) in graph.ExternalLoad[apIndex])
+            yield return ((channel, channel), weight);
     }
 
     /// <summary>
@@ -1431,9 +1435,9 @@ public class ChannelRecommendationService
 
         // Compute external load on this channel span to set a floor
         double externalLoad = 0;
-        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
-            if (ChannelSpanHelper.SpansOverlap(currentSpan, ExternalNeighborSpan(graph, band, apIndex, extChannel)))
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, extSpan))
                 externalLoad += extWeight;
         }
 
@@ -1630,13 +1634,12 @@ public class ChannelRecommendationService
                     graph.ExternalLoad[j][bestChannel] = 0;
                 graph.ExternalLoad[j][bestChannel] += bestWeight;
 
-                // Track the widest neighbor pooled at this channel so the scorer can account for its
-                // full spectral footprint (e.g. a 40 MHz neighbor on 2.4 GHz ch11 also steps on ch6).
-                // Widest is conservative: it never makes an occupied channel read as clear.
+                // Pool by (channel, width) so the scorer can account for each neighbor's true
+                // spectral footprint (a 40 MHz neighbor on 2.4 GHz ch11 also steps on ch6) WITHOUT
+                // dragging the 20 MHz neighbors that share its control channel into spilling too.
                 var sightingWidth = bestWidth ?? 20;
-                if (!graph.ExternalLoadWidths[j].TryGetValue(bestChannel, out var existingWidth) ||
-                    sightingWidth > existingWidth)
-                    graph.ExternalLoadWidths[j][bestChannel] = sightingWidth;
+                var key = (bestChannel, sightingWidth);
+                graph.ExternalNeighbors[j][key] = graph.ExternalNeighbors[j].GetValueOrDefault(key) + bestWeight;
 
                 if (isDirect)
                 {
@@ -2041,8 +2044,8 @@ public class ChannelRecommendationService
         // overlapping it - direct or triangulated from a sibling's scan - is real evidence, so its
         // measured load already drives the score and no friction applies.
         var span = ChannelSpanHelper.GetChannelSpan(band, assigned.Channel, assigned.Width);
-        bool haveEvidence = graph.ExternalLoad[apIndex].Keys
-            .Any(extCh => ChannelSpanHelper.SpansOverlap(span, ExternalNeighborSpan(graph, band, apIndex, extCh)));
+        bool haveEvidence = ExternalContributors(graph, band, apIndex)
+            .Any(c => ChannelSpanHelper.SpansOverlap(span, c.Span));
         if (haveEvidence) return 0;
 
         return DfsDepartureFrictionPenalty;
@@ -2422,9 +2425,9 @@ public class ChannelRecommendationService
                 }
 
                 var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
-                foreach (var (extCh, extW) in graph.ExternalLoad[i])
+                foreach (var (extSpan, extW) in ExternalContributors(graph, band, i))
                 {
-                    if (ChannelSpanHelper.SpansOverlap(apSpan, ExternalNeighborSpan(graph, band, i, extCh)))
+                    if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                         externalScore += extW;
                 }
 
