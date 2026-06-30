@@ -468,6 +468,15 @@ public class IspHealthService
             })
             .ToList();
 
+        // Surface the well-known anycast DNS endpoints (Cloudflare 1.1.1.1, Google 8.8.8.8)
+        // as their own lines on the Per-Network RTT chart. They already feed loss, path-shift,
+        // and congestion detection (as destination witnesses); they are also exceptionally
+        // stable, so plotting them gives a known-good baseline to read a noisy ISP or transit
+        // hop against. Only the anycast DNS targets are charted, not arbitrary discovered
+        // InternetService destinations.
+        chartClusters.AddRange(internetTargetSeries
+            .Where(s => s.HopIps.Any(AnycastDnsIps.Contains)));
+
         // Per-target (hop-granularity) series for the congestion localizer: clustering would
         // lump a clean middle hop with a hot one and re-merge an off-path ASN, so detection and
         // localization run at the individual hop. Destinations come in as witnesses only.
@@ -649,6 +658,7 @@ public class IspHealthService
         // event labels. It is published together with the report (see Snapshot).
         var primaryWanInterface = await GetPrimaryWanInterfaceAsync(ct);
         var loadExclusions = await BuildSqmProbeExclusionsAsync(windowStart, windowEnd, primaryWanInterface, ct);
+        var adaptiveSqmEnabled = await IsAdaptiveSqmEnabledAsync(primaryWanInterface, ct);
 
         // Match the WAN's access technology to one monitored physical device (ONT/SFP, cable
         // modem, or cellular modem) and aggregate its window metrics for the Physical Link factor.
@@ -676,6 +686,7 @@ public class IspHealthService
             PathShifts = pathShifts,
             Outages = outages,
             SmartQueuesEnabled = smartQueuesEnabled,
+            AdaptiveSqmEnabled = adaptiveSqmEnabled,
             HopOrderKnown = hopOrderKnown,
             LoadExclusionWindows = loadExclusions,
             PhysicalLink = physical.Input
@@ -932,6 +943,23 @@ public class IspHealthService
             }
         }
         return exclusions;
+    }
+
+    /// <summary>
+    /// True when OUR Adaptive SQM is enabled and configured for the primary WAN (an enabled
+    /// <see cref="SqmWanConfiguration"/> matching the interface). Distinct from UniFi's base
+    /// Smart Queues toggle (<see cref="IspHealthInputs.SmartQueuesEnabled"/>); the loaded-loss
+    /// recommendation uses this so it never tells a user to "consider Adaptive SQM" when they
+    /// already run it.
+    /// </summary>
+    private async Task<bool> IsAdaptiveSqmEnabledAsync(string? primaryWanInterface, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(primaryWanInterface)) return false;
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
+            .Where(c => c.Enabled)
+            .ToListAsync(ct);
+        return sqmConfigs.Any(c => string.Equals(c.Interface, primaryWanInterface, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

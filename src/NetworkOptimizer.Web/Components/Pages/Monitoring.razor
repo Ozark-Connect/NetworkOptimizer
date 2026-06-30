@@ -321,8 +321,50 @@ else
             @UpstreamReviewBanner
         }
 
+        <!-- Quick investigation -->
+        <div class="card">
+            <div class="card-header card-header-collapsible" @onclick="ToggleInvestigateCollapse">
+                <h2 class="card-title"><img src="/icons/port-scan.png" alt="" class="card-title-icon" />Investigate</h2>
+                <span class="issue-type-chevron">@(_investigateCollapsed ? "▼" : "▲")</span>
+            </div>
+            <div class="expand-wrapper @(!_investigateCollapsed && _investigateStateLoaded ? "expanded" : "")" style="@(!_investigateStateLoaded ? "display:none" : "")">
+            <div class="expand-content">
+            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+                @if (_lossNavActive)
+                {
+                    <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavBack" disabled="@_investigatingLoss"
+                            data-tooltip="Previous loss event">&#x25C0;</button>
+                    <button class="btn btn-primary" @onclick="LossNavDeactivate"
+                            data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
+                        @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
+                    </button>
+                    <button class="btn btn-sm btn-secondary loss-nav-arrow" @onclick="LossNavForward" disabled="@_investigatingLoss"
+                            data-tooltip="Next loss event">&#x25B6;</button>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
+                            data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
+                        @if (_investigatingLoss && !_lossNavLoadedOnly) { <span class="spinner-sm"></span> }
+                        else { <span>Packet Loss Events</span> }
+                    </button>
+                    <button class="btn btn-secondary" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
+                            data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
+                        @if (_investigatingLoss && _lossNavLoadedOnly) { <span class="spinner-sm"></span> }
+                        else { <span>Loaded Loss Events</span> }
+                    </button>
+                }
+                @if (!string.IsNullOrEmpty(_lossInvestigateResult))
+                {
+                    <span class="page-description" style="align-self: center;">@_lossInvestigateResult</span>
+                }
+            </div>
+            </div>
+            </div>
+        </div>
+
         <!-- Latency time-series charts -->
-        <div class="card" id="latency-charts-container">
+        <div class="card" id="latency-charts-container" style="margin-top: 1.5rem;">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Latency &amp; Packet Loss</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -382,43 +424,6 @@ else
                     <div class="latency-wan-rate-chart"></div>
                 </div>
                 <div class="latency-stats-table"></div>
-            </div>
-        </div>
-
-        <!-- Quick investigation -->
-        <div class="card" style="margin-top: 1.5rem;">
-            <div class="card-header">
-                <h2 class="card-title">Investigate</h2>
-            </div>
-            <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-                @if (_lossNavActive)
-                {
-                    <button class="btn btn-sm btn-secondary" @onclick="LossNavBack" disabled="@_investigatingLoss"
-                            data-tooltip="Previous loss event">&#x25C0;</button>
-                    <button class="btn btn-primary" @onclick="LossNavDeactivate"
-                            data-tooltip="Exit @(_lossNavLoadedOnly ? "loaded" : "packet") loss investigation">
-                        @(_lossNavLoadedOnly ? "Loaded Loss Events" : "Packet Loss Events")
-                    </button>
-                    <button class="btn btn-sm btn-secondary" @onclick="LossNavForward" disabled="@_investigatingLoss"
-                            data-tooltip="Next loss event">&#x25B6;</button>
-                }
-                else
-                {
-                    <button class="btn btn-secondary" @onclick="InvestigatePacketLoss" disabled="@_investigatingLoss"
-                            data-tooltip="Find the most recent packet loss event across ISP, Transit, and Internet targets and jump to it on the chart">
-                        @if (_investigatingLoss && !_lossNavLoadedOnly) { <span class="spinner-sm"></span> }
-                        else { <span>Packet Loss Events</span> }
-                    </button>
-                    <button class="btn btn-secondary" @onclick="InvestigateLoadedLoss" disabled="@_investigatingLoss"
-                            data-tooltip="Find the most recent loss event that happened while the WAN was under load - the SQM/bufferbloat signal">
-                        @if (_investigatingLoss && _lossNavLoadedOnly) { <span class="spinner-sm"></span> }
-                        else { <span>Loaded Loss Events</span> }
-                    </button>
-                }
-                @if (!string.IsNullOrEmpty(_lossInvestigateResult))
-                {
-                    <span class="page-description" style="align-self: center;">@_lossInvestigateResult</span>
-                }
             </div>
         </div>
 
@@ -617,7 +622,7 @@ else
         <!-- SFP investigation -->
         <div class="card" style="margin-top: 1.5rem;">
             <div class="card-header">
-                <h2 class="card-title">Investigate</h2>
+                <h2 class="card-title"><img src="/icons/port-scan.png" alt="" class="card-title-icon" />Investigate</h2>
             </div>
             <div class="card-body" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
                 <button class="btn btn-secondary" @onclick="InvestigateSfpAnomaly" disabled="@_investigatingSfp"
@@ -1391,6 +1396,10 @@ else
     private string? _pendingInvestigateParam;
     private bool _lossNavActive;
     private DateTime? _lossNavTimestamp;
+    // Bounds of the current coalesced loss event, so back/forward step past the whole event
+    // rather than minute-by-minute through it.
+    private DateTime? _lossNavEventStart;
+    private DateTime? _lossNavEventEnd;
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -1616,6 +1625,15 @@ else
     private bool _tempThresholdsSaved;
     private bool _deviceTempCollapsed = true;
     private bool _sfpThresholdsCollapsed = true;
+    // Investigate card collapse, persisted to localStorage like the Monitoring Interfaces card.
+    // _investigateCollapsed is the live (possibly force-opened) state; _investigateSavedCollapsed
+    // is the user's persisted preference. A deep-linked investigation force-opens the live state
+    // only, and leaving the tab reverts to the saved preference, so the link never counts as a
+    // user-set expand.
+    private bool _investigateCollapsed = true;
+    private bool _investigateSavedCollapsed = true;
+    private bool _investigateStateLoaded;
+    private const string InvestigateCollapseKey = "monitoring-investigate-collapsed";
 
     // Clear the transient "Saved" confirmations so they don't linger after the
     // user edits a field or navigates back into the tab.
@@ -2670,19 +2688,46 @@ else
 
     // ─── Investigation ───
 
+    private async Task ToggleInvestigateCollapse()
+    {
+        _investigateCollapsed = !_investigateCollapsed;
+        // A manual toggle is a real preference: update the saved baseline too, so leaving the
+        // tab (which reverts to the baseline) keeps the user's choice rather than undoing it.
+        _investigateSavedCollapsed = _investigateCollapsed;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", InvestigateCollapseKey, _investigateCollapsed ? "true" : "false"); }
+        catch { }
+    }
+
     private Task InvestigatePacketLoss() => NavigateToLossEvent(null, null, loadedOnly: false);
     private Task InvestigateLoadedLoss() => NavigateToLossEvent(null, null, loadedOnly: true);
-    private Task LossNavBack() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(_lossNavTimestamp.Value.AddMinutes(-1), null, _lossNavLoadedOnly) : Task.CompletedTask;
-    private Task LossNavForward() => _lossNavTimestamp.HasValue
-        ? NavigateToLossEvent(null, _lossNavTimestamp.Value.AddMinutes(1), _lossNavLoadedOnly) : Task.CompletedTask;
+    // Step to the previous/next distinct event by querying strictly outside the current
+    // event's bounds, so a multi-minute burst is one stop rather than one stop per minute.
+    // The 1-minute aggregateWindow buckets are stamped at their STOP edge, so the bucket at
+    // EventStart holds data from the minute before it; an exclusive range stop at EventStart
+    // would still return that bucket. Step back a full minute so the current event's first
+    // bucket is actually excluded (the coalesce gap guarantees the previous event is >= 2 min
+    // earlier, so it is never dropped). Forward needs no such fudge: the current event's data
+    // all precedes the EventEnd stamp, so an inclusive start just past EventEnd excludes it.
+    private Task LossNavBack() => _lossNavEventStart.HasValue
+        ? NavigateToLossEvent(_lossNavEventStart.Value.AddMinutes(-1), null, _lossNavLoadedOnly) : Task.CompletedTask;
+    private Task LossNavForward() => _lossNavEventEnd.HasValue
+        ? NavigateToLossEvent(null, _lossNavEventEnd.Value.AddSeconds(1), _lossNavLoadedOnly) : Task.CompletedTask;
 
-    private async Task LossNavDeactivate()
+    // Clear the loss-investigation state (no chart call). Used both by the Exit button and
+    // when leaving the performance tab, so the card never shows "active" without a live chart.
+    private void ResetLossNavState()
     {
         _lossNavActive = false;
         _lossNavTimestamp = null;
+        _lossNavEventStart = null;
+        _lossNavEventEnd = null;
         _lossInvestigateResult = null;
         _lossNavLoadedOnly = false;
+    }
+
+    private async Task LossNavDeactivate()
+    {
+        ResetLossNavState();
         StateHasChanged();
         await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.restoreState();");
     }
@@ -2729,6 +2774,8 @@ else
             };
             _lossNavActive = true;
             _lossNavTimestamp = result.Timestamp;
+            _lossNavEventStart = result.EventStart;
+            _lossNavEventEnd = result.EventEnd;
             var delta = DateTime.UtcNow - result.Timestamp;
             var ago = delta.TotalMinutes < 60 ? $"{(int)delta.TotalMinutes}m ago"
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
@@ -2736,8 +2783,9 @@ else
             var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
             _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago} ({localTime})";
             StateHasChanged();
+            var annotationLabel = $"{(loadedOnly ? "Loaded" : "Packet")} loss {result.LossPercent:0.#}%";
             await JS.InvokeVoidAsync("eval",
-                $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}');");
+                $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}', '{annotationLabel}', {(loadedOnly ? "true" : "false")}, '{result.EventStart:o}', '{result.EventEnd:o}');");
         }
         catch (Exception ex)
         {
@@ -2810,11 +2858,30 @@ else
             await ScrollToMonitoringInterfacesAsync();
         }
 
+        // Load the Investigate card's saved collapse state once the performance tab is shown.
+        // Set the loaded flag before the await so this can't re-enter on later renders; the body
+        // stays collapsed (default) until the preference resolves, so nothing flashes open.
+        if (_activeTab == "performance" && _monitoringReady && !_investigateStateLoaded)
+        {
+            _investigateStateLoaded = true;
+            string? val = null;
+            try { val = await JS.InvokeAsync<string>("localStorage.getItem", InvestigateCollapseKey); }
+            catch { }
+            // Saved preference wins; with none, default to expanded so the controls are discoverable.
+            _investigateSavedCollapsed = val == "true";
+            _investigateCollapsed = _investigateSavedCollapsed;
+            StateHasChanged();
+        }
+
         // Deep-linked investigation fires once the performance tab and its chart exist
         if (_pendingInvestigateParam != null && _activeTab == "performance" && _monitoringReady && !_investigatingLoss)
         {
             var kind = _pendingInvestigateParam;
             _pendingInvestigateParam = null;
+            // Open the (possibly collapsed) card so the deep-linked result and nav controls are
+            // visible. Live state only - the saved preference is untouched, and leaving the tab
+            // reverts to it, so a linkable investigation never counts as a user-set expand.
+            _investigateCollapsed = false;
             await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
         }
 
@@ -2945,6 +3012,13 @@ else
             _latencyChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
             catch { }
+            // The chart (and its highlight) is torn down on leave, so drop the loss-nav state
+            // too - otherwise returning shows the card "active" with no highlight on the chart.
+            // Deep-linked investigations re-arm via the query param on entry, so this is safe.
+            ResetLossNavState();
+            // Revert any transient deep-link force-open to the user's saved preference, so a
+            // linkable investigation never lingers as an expand the user didn't choose.
+            _investigateCollapsed = _investigateSavedCollapsed;
         }
 
         if (_scrollToDiscoveryPending && _activeTab == "performance")
@@ -3006,6 +3080,8 @@ else
             _sfpChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__sfpCharts?.unmount();"); }
             catch { }
+            // Drop the stale SFP investigation result; its chart jump is gone with the unmount.
+            _sfpInvestigateResult = null;
         }
 
         if (_scrollToSfpChartsPending && _activeTab == "sfp" && _sfpChartsMounted)

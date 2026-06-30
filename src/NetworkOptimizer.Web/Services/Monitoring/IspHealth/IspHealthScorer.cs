@@ -1326,10 +1326,27 @@ public class IspHealthScorer
         var (latencyTriggered, lossTriggered) = SqmTriggers(inputs, profile, loadWindows, loadedDeltas);
         if (latencyTriggered || lossTriggered)
         {
-            var recommendation = inputs.SmartQueuesEnabled
-                ? "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers."
-                : "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
-            if (inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
+            // Adaptive SQM (our feature) overrides the UniFi Smart Queues messaging: we can see
+            // it's already shaping this WAN, so don't pitch it or tell the user to enable Smart
+            // Queues. Loss under load while it shapes means the rate it holds isn't backing off
+            // enough for the real-time capacity drop, so point at its own tuning knobs (Severity
+            // deepens the time-of-day dips; nominal speeds set the ceiling everything scales from).
+            string recommendation;
+            if (inputs.AdaptiveSqmEnabled)
+            {
+                recommendation = "Adaptive SQM is already shaping this WAN, so loss under load means the rate it holds isn't backing off enough when the line congests. In your Adaptive SQM settings, raise the Severity so the peak-hour rate dips go deeper, or lower the nominal download/upload if the line consistently delivers less than its plan. If loss persists once the rate is pulled down, the drops are upstream and only your ISP can fix them.";
+            }
+            else if (inputs.SmartQueuesEnabled)
+            {
+                recommendation = "Smart Queues is enabled on this WAN but the line still degrades under load; check that its configured rates match what the line actually delivers.";
+            }
+            else
+            {
+                recommendation = "Enable Smart Queues (SQM) on this WAN in UniFi Network (Settings, Internet, your WAN, Smart Queues).";
+            }
+            // Only pitch Adaptive SQM when the WAN isn't already running it.
+            if (!inputs.AdaptiveSqmEnabled
+                && inputs.CongestionEvents.Count(e => e.Disposition == CongestionDisposition.Confirmed) >= _options.SqmRecurringCongestionEvents)
             {
                 recommendation += " This connection also shows a recurring congestion pattern; consider Adaptive SQM, which tracks time-of-day capacity changes automatically.";
             }
@@ -1354,7 +1371,9 @@ public class IspHealthScorer
                     Description = "Packet loss exceeds the acceptable band for this connection type when the line is loaded.",
                     Recommendation = recommendation,
                     LinkUrl = "/sqm",
-                    LinkText = "Adaptive SQM"
+                    LinkText = "Adaptive SQM",
+                    InvestigateUrl = "/monitoring?tab=performance&investigate=loaded-loss",
+                    InvestigateText = "Investigate on the charts"
                 });
             }
         }
@@ -1386,12 +1405,32 @@ public class IspHealthScorer
         var idleLossFactor = report.AccessDimension.Factors.FirstOrDefault(f => f.Name == "Packet Loss");
         if (idleLossFactor?.Score is < 70)
         {
+            // Dedicated point-to-point media (DSL pair, Active Ethernet / DIA) have no
+            // contended segment, so persistent loss there is a physical-plant fault. On
+            // shared media the same loss can equally be an oversubscribed segment upstream,
+            // and on the neutral PPPoE/Other profile the medium is unknown so we hedge.
+            string lossRecommendation;
+            if (!profile.SharedMedium)
+            {
+                lossRecommendation = "Persistent loss regardless of load usually points at the physical layer: check optics, connectors, or line/signal levels, and raise it with your ISP.";
+            }
+            else if (profile.IsNeutral)
+            {
+                lossRecommendation = "Persistent loss regardless of load points at the access layer: a physical-plant fault (optics, connectors, coax fittings, or signal levels), or - if your line runs over a shared medium like cable, PON, fixed wireless, or cellular - an oversubscribed segment carrying too many subscribers. Raise it with your ISP either way.";
+            }
+            else
+            {
+                lossRecommendation = $"Persistent loss regardless of load points at the access layer: a physical-plant fault (optics, connectors, coax fittings, or signal levels), or an oversubscribed segment upstream, since {profile.DisplayName} shares capacity across subscribers. Raise it with your ISP.";
+            }
+
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = "Packet loss above acceptable",
                 Description = $"Average packet loss of {idleLossFactor.ValueText} exceeds the {FormatPct(profile.IdleLossAcceptablePct)} acceptable ceiling for {profile.DisplayName}.",
-                Recommendation = "Persistent loss regardless of load usually points at the physical layer: check optics, connectors, coax fittings, or signal levels, and raise it with your ISP."
+                Recommendation = lossRecommendation,
+                InvestigateUrl = "/monitoring?tab=performance&investigate=packet-loss",
+                InvestigateText = "Investigate on the charts"
             });
         }
 

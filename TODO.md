@@ -241,6 +241,28 @@ The following were implemented in the WiFi Optimizer feature:
 
 ## Monitoring
 
+### Investigation Functions (Network Performance tab)
+The Investigate card currently jumps the latency charts to the most recent **packet-loss** and **loaded-loss** events and steps event-to-event (coalesced, peak-loss minute). Ideas to extend it:
+
+**Reuse detectors ISP Health already computes (low effort - mostly wiring existing results into `navigateToTime` + buttons):**
+- **Congestion events** - `CongestionLocalizer` already produces events with disposition (confirmed / self-inflicted / control-plane-noise) and scope (hop / ASN / shared). Add an Investigate button that jumps the latency charts to each event, with the highlight band colored shared-vs-local like the ISP Health chart. Strongest detector, currently invisible on these charts.
+- **Path-shift events** - `StepChangeDetector` already finds RTT step changes; jump to the step with a "+N ms" label.
+- **Outages** - `OutageDetector` already classifies full / partial / brief; jump to the outage window and show the recovery shape.
+- **Unify the two views** - make the ISP Health "Path & Congestion Events" timeline items deep-link into the latency charts (the way the loss findings now do via `?investigate=`).
+
+**New detections (more work):**
+- **Bufferbloat events** - loaded *latency* spikes (the `latencyTriggered` signal), distinct from loaded loss; bufferbloat often has zero loss, so the loss buttons miss it.
+- **Jitter spikes** - sustained P95 jitter excursions.
+- **Saturation events** - when WAN throughput pegged at/over the configured plan; pairs with loaded loss to answer "was the line actually maxed."
+
+**UX upgrades to what exists:**
+- **"Worst in window" vs "most recent"** - a jump-to-peak mode that lands on the highest-loss event directly instead of stepping from the latest.
+- **Verdict line on landing** - when landing on a loss event, append what it was (loaded vs idle, which hop/ASN, congestion disposition) so "0.7% loss" becomes "0.7% loss, self-inflicted bufferbloat at your access egress." The localizer already computes this.
+- **Per-target investigate** - click a target in the stats table to step through just that target's events.
+
+Suggested order: congestion / path-shift / outage navigation first (cheap, consistent), then the verdict line (makes every investigation land with an explanation, not just a number).
+- **Relevant code:** `MonitoringInfluxClient.FindRecentLossEventAsync` / `FindRecentLoadedLossEventAsync` (+ `SelectBoundaryEvent` coalescing), `Monitoring.razor` Investigate card + `NavigateToLossEvent`, `latency-charts.js` `navigateToTime` / `buildInvestigateAnnotations`, `IspHealthService` (`CongestionLocalizer`, `StepChangeDetector`, `OutageDetector` outputs already on the report).
+
 ### Multi-WAN Support (ISP Health & NMS)
 - ISP Health currently grades a single (primary) WAN. Several inputs are read globally rather than scoped to the WAN being scored:
   - **Upstream ancestry / `hopOrderKnown`** (`IspHealthService.ComputeAsync`): `UpstreamDiscoveries` are queried across all WANs. Rows carry `WanInterface`, and the tracer persists per-WAN, but the scorer reads them globally - so a second WAN's discovery data can flip the jitter-absolve gate (and the routes-through witnesses) for a WAN that has no ancestry of its own. Scope the discovery query and `hopOrderKnown` by `WanInterface`.

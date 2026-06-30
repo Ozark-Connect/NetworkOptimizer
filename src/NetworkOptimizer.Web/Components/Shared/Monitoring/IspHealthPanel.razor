@@ -150,7 +150,7 @@ else
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
-                     data-tooltip="Score thresholds are tuned to this access technology. Change it here to re-score now.">
+                     data-tooltip="Thresholds are tuned per access technology; change it to re-score.">
                     Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
                     <span class="isp-profile-chip-caret"></span>
                     <select class="isp-profile-chip-select" aria-label="Access technology"
@@ -232,6 +232,13 @@ else
                                     }
                                 </div>
                             }
+                            @if (!string.IsNullOrEmpty(issue.InvestigateUrl))
+                            {
+                                <div class="issue-investigate">
+                                    <a class="isp-factor-link" href="@issue.InvestigateUrl"
+                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@(issue.InvestigateText ?? "Investigate on the charts")</a>
+                                </div>
+                            }
                         </div>
                     </div>
                 }
@@ -249,7 +256,7 @@ else
                         @if (dimension == r.AccessDimension)
                         {
                             <select class="isp-access-tech-select" aria-label="Access technology"
-                                    data-tooltip="Score thresholds are tuned to this access technology. Change it here to re-score now."
+                                    data-tooltip="Thresholds are tuned per access technology; change it to re-score."
                                     value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                                 @foreach (var tech in ProfileTechOptions)
                                 {

@@ -1999,7 +1999,6 @@ from(bucket: ""{_longtermBucket}"")
 
         var rangeStart = after ?? DateTime.UtcNow.AddDays(-30);
         var rangeStop = before ?? DateTime.UtcNow;
-        var sortDesc = !after.HasValue;
 
         var targetFilter = "";
         if (enabledTargetIds != null && enabledTargetIds.Count > 0)
@@ -2008,6 +2007,9 @@ from(bucket: ""{_longtermBucket}"")
             targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
         }
 
+        // Pull every qualifying loss minute in the window time-ascending, then coalesce into
+        // events in memory. The caller bounds the window to just before/after the current event
+        // (via before/after), so the boundary event we want is fully inside the range.
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(rangeStart)}, stop: {ToFluxInstant(rangeStop)})
@@ -2017,24 +2019,18 @@ from(bucket: ""{_bucket}"")
   |> aggregateWindow(every: 1m, fn: mean, createEmpty: false)
   |> filter(fn: (r) => r._value > 1.0)
   |> group()
-  |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
-  |> limit(n: 1)
+  |> sort(columns: [""_time""], desc: false)
 ";
+        var minutes = new List<LossMinute>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
             var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
             var targetId = record.GetValueByKey("target_id") as string;
             var targetType = record.GetValueByKey("target_type") as string ?? "internetservice";
-            var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
-            return new RecentLossEvent
-            {
-                Timestamp = time,
-                TargetType = targetType,
-                TargetId = targetId,
-                LossPercent = loss ?? 0
-            };
+            var loss = AsDoubleOrNull(record.GetValueByKey("_value")) ?? 0;
+            minutes.Add(new LossMinute(time, loss, targetId, targetType));
         }
-        return null;
+        return SelectBoundaryEvent(minutes, pickEarliest: after.HasValue);
     }
 
     /// <summary>
@@ -2057,7 +2053,6 @@ from(bucket: ""{_bucket}"")
 
         var rangeStart = after ?? DateTime.UtcNow.AddDays(-30);
         var rangeStop = before ?? DateTime.UtcNow;
-        var sortDesc = !after.HasValue;
 
         var targetFilter = "";
         if (enabledTargetIds != null && enabledTargetIds.Count > 0)
@@ -2094,24 +2089,18 @@ load = from(bucket: ""{_bucket}"")
   |> unique(column: ""_time"")
 
 join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r) => l)
-  |> sort(columns: [""_time""], desc: {(sortDesc ? "true" : "false")})
-  |> limit(n: 1)
+  |> sort(columns: [""_time""], desc: false)
 ";
+        var minutes = new List<LossMinute>();
         await foreach (var record in QueryFluxAsync(flux, ct))
         {
             var time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow);
             var targetId = record.GetValueByKey("target_id") as string;
             var targetType = record.GetValueByKey("target_type") as string ?? "internetservice";
-            var loss = AsDoubleOrNull(record.GetValueByKey("_value"));
-            return new RecentLossEvent
-            {
-                Timestamp = time,
-                TargetType = targetType,
-                TargetId = targetId,
-                LossPercent = loss ?? 0
-            };
+            var loss = AsDoubleOrNull(record.GetValueByKey("_value")) ?? 0;
+            minutes.Add(new LossMinute(time, loss, targetId, targetType));
         }
-        return null;
+        return SelectBoundaryEvent(minutes, pickEarliest: after.HasValue);
     }
 
     /// <summary>
@@ -2155,10 +2144,69 @@ from(bucket: ""{_longtermBucket}"")
 
     public record RecentLossEvent
     {
+        /// <summary>The peak-loss minute of the coalesced event, used to center the chart.</summary>
         public required DateTime Timestamp { get; init; }
         public required string TargetType { get; init; }
         public string? TargetId { get; init; }
         public double LossPercent { get; init; }
+
+        /// <summary>First and last loss minute of the coalesced event. Stepping back queries
+        /// strictly before <see cref="EventStart"/>; stepping forward strictly after
+        /// <see cref="EventEnd"/>, so a sustained loss burst is one stop, not many.</summary>
+        public DateTime EventStart { get; init; }
+        public DateTime EventEnd { get; init; }
+    }
+
+    /// <summary>One qualifying loss minute before coalescing into an event.</summary>
+    private readonly record struct LossMinute(DateTime Time, double Loss, string? TargetId, string TargetType);
+
+    /// <summary>Loss minutes more than this far apart start a new event. Set to one minute so
+    /// only truly adjacent minutes coalesce; a single clean minute (load/loss dropping out, then
+    /// resuming) splits the burst, keeping back-to-back transfer spikes as distinct events.</summary>
+    private static readonly TimeSpan LossEventCoalesceGap = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Coalesce time-ascending loss minutes into events (gap &lt;= <see cref="LossEventCoalesceGap"/>)
+    /// and return the boundary event represented by its peak-loss minute: the earliest event when
+    /// stepping forward (<paramref name="pickEarliest"/>), else the latest. Stepping by event, not
+    /// by minute, keeps a multi-minute burst from fragmenting into separate stops.
+    /// </summary>
+    private static RecentLossEvent? SelectBoundaryEvent(List<LossMinute> minutes, bool pickEarliest)
+    {
+        if (minutes.Count == 0) return null;
+
+        var eventStart = minutes[0].Time;
+        var eventEnd = minutes[0].Time;
+        var peak = minutes[0];
+        var events = new List<(DateTime Start, DateTime End, LossMinute Peak)>();
+        for (var i = 1; i < minutes.Count; i++)
+        {
+            var m = minutes[i];
+            if (m.Time - eventEnd > LossEventCoalesceGap)
+            {
+                events.Add((eventStart, eventEnd, peak));
+                eventStart = m.Time;
+                eventEnd = m.Time;
+                peak = m;
+            }
+            else
+            {
+                eventEnd = m.Time;
+                if (m.Loss > peak.Loss) peak = m;
+            }
+        }
+        events.Add((eventStart, eventEnd, peak));
+
+        var chosen = pickEarliest ? events[0] : events[^1];
+        return new RecentLossEvent
+        {
+            Timestamp = chosen.Peak.Time,
+            TargetType = chosen.Peak.TargetType,
+            TargetId = chosen.Peak.TargetId,
+            LossPercent = chosen.Peak.Loss,
+            EventStart = chosen.Start,
+            EventEnd = chosen.End,
+        };
     }
 
     public record RecentSfpAnomaly

@@ -570,6 +570,11 @@ public sealed record AccessProfile(
     double LoadedDeltaExcellentMs,
     double LoadedDeltaAcceptableMs,
     bool IsNeutral = false,
+    // True for shared-medium access where capacity is contended across subscribers
+    // (cable/DOCSIS, PON, fixed wireless, cellular, LEO). Persistent loss on these can
+    // mean an oversubscribed segment, not just a local physical-plant fault. False for
+    // dedicated point-to-point media (DSL pair, Active Ethernet / DIA).
+    bool SharedMedium = true,
     // Per-tech jitter band (P95 jitter, ms). When set, jitter is scored straight off the band -
     // (ideal,100) (typical,90) (poor,25) (2*poor,0) - so a medium's inherent jitter (e.g. DOCSIS's
     // ~3 ms request-grant) reads as normal instead of being graded against a sub-ms path floor.
@@ -630,6 +635,7 @@ public static class IspHealthProfiles
             LoadedLossDownLowPct: 1.0, LoadedLossDownHighPct: 2.0,
             LoadedLossUpLowPct: 0.5, LoadedLossUpHighPct: 1.0,
             LoadedDeltaExcellentMs: 2.0, LoadedDeltaAcceptableMs: 10.0,
+            SharedMedium: false,
             JitterIdealMs: 0.4, JitterTypicalMs: 0.7, JitterPoorMs: 3.0),
 
         AccessTechnology.FixedWireless => new AccessProfile("Fixed Wireless",
@@ -654,6 +660,7 @@ public static class IspHealthProfiles
             LoadedLossDownLowPct: 3.0, LoadedLossDownHighPct: 5.0,
             LoadedLossUpLowPct: 3.0, LoadedLossUpHighPct: 5.0,
             LoadedDeltaExcellentMs: 5.0, LoadedDeltaAcceptableMs: 20.0,
+            SharedMedium: false,
             JitterIdealMs: 1.0, JitterTypicalMs: 2.0, JitterPoorMs: 5.0),
 
         AccessTechnology.PppoE => NeutralProfile("PPPoE"),

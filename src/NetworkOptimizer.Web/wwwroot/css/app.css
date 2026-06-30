@@ -226,6 +226,14 @@ a:hover {
     font-weight: 500;
 }
 
+.card-title-icon {
+    width: 1.75rem;
+    height: 1.4rem;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 0.45rem;
+}
+
 .nav-sub-item {
     padding-left: 1rem;
 }
@@ -2102,6 +2110,12 @@ a.btn-sm {
     line-height: 28px;
 }
 
+@media (max-width: 768px) {
+    .loss-nav-arrow {
+        min-width: 4rem;
+    }
+}
+
 .btn-group-wrap {
     display: flex;
     flex-wrap: wrap;
@@ -2809,6 +2823,11 @@ select.form-control {
 
 .issue-recommendation strong {
     color: var(--text-primary);
+}
+
+.issue-investigate {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
 }
 
 .issue-recommendation a,
