@@ -27,8 +27,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     public bool SupportsHistoricalData => true; // Via stat/report endpoints
 
     /// <inheritdoc />
-    public Task<bool> TriggerQuickScanAsync(string apMac, string bandCode, CancellationToken cancellationToken = default)
-        => _client.TriggerQuickScanAsync(apMac, bandCode, cancellationToken: cancellationToken);
+    public Task<bool> TriggerQuickScanAsync(string apMac, string bandCode, int bandwidthMhz, CancellationToken cancellationToken = default)
+        => _client.TriggerQuickScanAsync(apMac, bandCode, bandwidthMhz, cancellationToken);
 
     /// <inheritdoc />
     public async Task<bool> IsQuickScanInProgressAsync(string apMac, CancellationToken cancellationToken = default)

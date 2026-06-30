@@ -77,13 +77,16 @@ public interface IWiFiDataProvider
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Trigger a non-disruptive quick RF spectrum scan on an AP's band. A quick scan does NOT
-    /// disconnect clients (unlike a full scan), but takes time per band - intended for on-demand or
-    /// background refresh, never inline with a recommendation. Read results later via the scan APIs.
+    /// Trigger a quick RF spectrum scan on an AP's band. A quick scan does NOT disconnect clients
+    /// (unlike a full scan), but takes time per band - intended for on-demand or background refresh,
+    /// never inline with a recommendation. Read results later via the scan APIs.
     /// </summary>
     /// <param name="apMac">AP MAC address.</param>
     /// <param name="bandCode">UniFi band code: "ng" (2.4), "na" (5), "6e" (6).</param>
-    Task<bool> TriggerQuickScanAsync(string apMac, string bandCode, CancellationToken cancellationToken = default);
+    /// <param name="bandwidthMhz">Scan bandwidth - should match the radio's CURRENT operating width
+    /// so the radio doesn't reconfigure (less disruption) and the result buckets line up with the
+    /// operating channel.</param>
+    Task<bool> TriggerQuickScanAsync(string apMac, string bandCode, int bandwidthMhz, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Whether a quick-scan is still running on the given AP (results not yet final).

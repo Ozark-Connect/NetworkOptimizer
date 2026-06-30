@@ -901,7 +901,7 @@ public class ChannelRecommendationServiceTests
         InterferenceGraph Build(double externalLoad, int scanUtil)
         {
             var g = SingleApGraph(36, externalLoad: new() { { 40, externalLoad } }, directlyObserved: new(), reg, options);
-            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int? NoiseFloor)> { { 40, (scanUtil, (int?)null) } };
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (40, 80), (scanUtil, (int?)null) } };
             return g;
         }
 
@@ -926,7 +926,7 @@ public class ChannelRecommendationServiceTests
         InterferenceGraph Build(int scanChannel)
         {
             var g = SingleApGraph(36, externalLoad: new() { { 36, 0.5 }, { 40, 0.5 } }, directlyObserved: new(), reg, options);
-            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int? NoiseFloor)> { { scanChannel, (60, (int?)null) } };
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (scanChannel, 80), (60, (int?)null) } };
             return g;
         }
 
@@ -949,7 +949,7 @@ public class ChannelRecommendationServiceTests
         InterferenceGraph Build(int noiseFloor)
         {
             var g = SingleApGraph(36, externalLoad: new() { { 40, 0.5 } }, directlyObserved: new(), reg, options);
-            g.ScanChannelData[0] = new Dictionary<int, (int Utilization, int? NoiseFloor)> { { 40, (5, (int?)noiseFloor) } };
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (40, 80), (5, (int?)noiseFloor) } };
             return g;
         }
 
@@ -958,6 +958,33 @@ public class ChannelRecommendationServiceTests
 
         noisy.Should().BeGreaterThan(quiet + 1.5,
             "a high noise floor (RF energy that utilization misses) penalizes the channel even at equal airtime");
+    }
+
+    [Fact]
+    public void ScanOverSpan_AggregatesSubChannels_CatchesNoiseAnywhereInTheSpan()
+    {
+        // A 160 MHz channel's badness can sit on a non-control 20 MHz sub-channel. With BW20 buckets
+        // the scorer must aggregate across the whole span (noise floor = worst sub-channel), not read
+        // only the control bucket - else a clean control channel would hide a noisy bonded sub-channel.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int noisySubChannel)
+        {
+            var g = SingleApGraph(100, externalLoad: new(), directlyObserved: new(), reg, options);
+            var scan = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>();
+            foreach (var ch in new[] { 36, 40, 44, 48, 52, 56, 60, 64 })
+                scan[(ch, 20)] = (0, ch == noisySubChannel ? -50 : -96);
+            g.ScanChannelData[0] = scan;
+            return g;
+        }
+
+        var noisyOnControl = _service.ScoreAssignment(Build(36), new[] { (36, 160) }, RadioBand.Band5GHz);
+        var noisyOnSubChannel = _service.ScoreAssignment(Build(56), new[] { (36, 160) }, RadioBand.Band5GHz);
+
+        noisyOnSubChannel.Should().BeApproximately(noisyOnControl, 0.01,
+            "noise floor aggregates as the worst sub-channel across the 160 span, so it's caught whether on the control channel or a bonded sub-channel");
+        noisyOnSubChannel.Should().BeGreaterThan(1.5, "a -50 dBm sub-channel meaningfully penalizes the 160 MHz channel");
     }
 
     [Fact]

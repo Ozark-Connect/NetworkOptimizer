@@ -311,7 +311,7 @@ public class ChannelRecommendationService
             ExternalLoad = new Dictionary<int, double>[n],
             ExternalNeighbors = new Dictionary<(int Channel, int Width), double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
-            ScanChannelData = new Dictionary<int, (int Utilization, int? NoiseFloor)>[n],
+            ScanChannelData = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[n],
             MeshConstraints = new List<MeshConstraint>(),
             DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
         };
@@ -363,7 +363,7 @@ public class ChannelRecommendationService
             graph.ExternalLoad[i] = new Dictionary<int, double>();
             graph.ExternalNeighbors[i] = new Dictionary<(int Channel, int Width), double>();
             graph.DirectlyObservedChannels[i] = new HashSet<int>();
-            graph.ScanChannelData[i] = new Dictionary<int, (int, int?)>();
+            graph.ScanChannelData[i] = new Dictionary<(int, int), (int, int?)>();
         }
 
         // Build pairwise internal interference weights
@@ -1142,8 +1142,7 @@ public class ChannelRecommendationService
         {
             if (graph.ScanChannelData[i].Count == 0) continue;
 
-            var ch = assignment[i].Channel;
-            if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
+            if (ScanOverSpan(graph, band, i, assignment[i].Channel, assignment[i].Width) is { } scanData)
             {
                 score += scanData.Utilization * ScanUtilizationWeight * bandStress;
                 score += ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
@@ -1210,10 +1209,9 @@ public class ChannelRecommendationService
         var measuredLoad = MeasuredCongestionLoad(graph, band, apIndex, assignment);
         score += measuredLoad > externalLoad ? measuredLoad : externalLoad;
 
-        // Channel scan data (scaled by band stress multiplier)
+        // Channel scan data (scaled by band stress multiplier), aggregated over the channel's span.
         var bandStress = GetBandStressMultiplier(band);
-        var ch = assignment[apIndex].Channel;
-        if (graph.ScanChannelData[apIndex].TryGetValue(ch, out var scanData))
+        if (ScanOverSpan(graph, band, apIndex, assignment[apIndex].Channel, assignment[apIndex].Width) is { } scanData)
         {
             score += scanData.Utilization * ScanUtilizationWeight * bandStress;
             score += ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
@@ -1375,6 +1373,42 @@ public class ChannelRecommendationService
         return excessDb * ScanNoiseFloorWeight;
     }
 
+    /// <summary>
+    /// The spectrum-scan reading for an operating (channel, width). Prefers a bucket measured at that
+    /// exact width - UniFi already aggregated that channel - so we use its own number. Otherwise the
+    /// scan is finer than the operating channel (e.g. BW20 buckets under a 160 MHz channel), and
+    /// reading only the control bucket would judge a wide channel by one-eighth of its spectrum; so we
+    /// aggregate the finest sub-channels across the span the way UniFi's wide-channel scan does
+    /// (verified against a BW160-vs-BW20 capture): utilization = MEAN of the sub-channels, noise floor
+    /// = MAX (worst) of them. Returns null when no bucket overlaps the span.
+    /// </summary>
+    private static (int Utilization, int? NoiseFloor)? ScanOverSpan(
+        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        var buckets = graph.ScanChannelData[apIndex];
+        if (buckets.Count == 0) return null;
+
+        // 1) Exact operating-width bucket - trust UniFi's own aggregation for that channel.
+        if (buckets.TryGetValue((channel, width), out var exact)) return exact;
+
+        // 2) Aggregate the finest sub-channels overlapping the span (don't mix widths).
+        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        var overlapping = buckets
+            .Where(kv => ChannelSpanHelper.SpansOverlap(span, (kv.Key.Channel, kv.Key.Channel)))
+            .ToList();
+        if (overlapping.Count == 0) return null;
+
+        var finestWidth = overlapping.Min(kv => kv.Key.Width);
+        var fine = overlapping.Where(kv => kv.Key.Width == finestWidth).ToList();
+
+        var util = (int)Math.Round(fine.Average(kv => (double)kv.Value.Utilization));
+        int? worstNoise = null;
+        foreach (var kv in fine)
+            if (kv.Value.NoiseFloor is int nf)
+                worstNoise = worstNoise is int n ? Math.Max(n, nf) : nf; // higher (less negative) dBm = worse
+        return (util, worstNoise);
+    }
+
     private double MeasuredCongestionLoad(InterferenceGraph graph, RadioBand band, int apIndex, (int Channel, int Width)[] assignment)
     {
         var node = graph.Nodes[apIndex];
@@ -1387,7 +1421,7 @@ public class ChannelRecommendationService
         // channel), so using it there would bias toward a move; the current channel's congestion is
         // governed by the external load + the interference-based comfort anchor (#1) instead.
         if (assignedChannel != node.CurrentChannel &&
-            graph.ScanChannelData[apIndex].TryGetValue(assignedChannel, out var scan))
+            ScanOverSpan(graph, band, apIndex, assignedChannel, assignment[apIndex].Width) is { } scan)
             measuredPct = Math.Max(measuredPct, scan.Utilization);
 
         // A sibling AP's time-averaged external interference for a channel it currently sits on,
@@ -1467,7 +1501,7 @@ public class ChannelRecommendationService
         // Spectrum-scan coverage: the radio directly measured the channel's airtime, so it isn't
         // "unknown" even if it heard no beaconing neighbor there. But it's a one-shot sample, so it
         // only partially resolves the uncertainty - the scan informs the move, it doesn't crown it.
-        if (graph.ScanChannelData[apIndex].Keys.Any(ch => ChannelSpanHelper.SpansOverlap(apSpan, (ch, ch))))
+        if (graph.ScanChannelData[apIndex].Keys.Any(k => ChannelSpanHelper.SpansOverlap(apSpan, (k.Channel, k.Channel))))
             confidence = Math.Max(confidence, ScanCoverageConfidence);
 
         // Historic occupancy: we have measured airtime for this AP on an overlapping channel.
@@ -1973,9 +2007,10 @@ public class ChannelRecommendationService
             {
                 if (chInfo.Utilization.HasValue || chInfo.NoiseFloor.HasValue)
                 {
-                    graph.ScanChannelData[apIndex][chInfo.Channel] = (
-                        chInfo.Utilization ?? 0,
-                        chInfo.NoiseFloor);
+                    // Key by (channel, width) so a channel's BW20 and BW160 readings coexist; the
+                    // scorer (ScanOverSpan) picks the right one for the operating width.
+                    var key = (chInfo.Channel, chInfo.Width ?? 20);
+                    graph.ScanChannelData[apIndex][key] = (chInfo.Utilization ?? 0, chInfo.NoiseFloor);
                 }
             }
         }
@@ -2570,8 +2605,8 @@ public class ChannelRecommendationService
                 continue;
             }
             var metrics = graph.ScanChannelData[i]
-                .OrderBy(kv => kv.Key)
-                .Select(kv => $"ch{kv.Key}=util:{kv.Value.Utilization}%/nf:{(kv.Value.NoiseFloor.HasValue ? kv.Value.NoiseFloor + "dBm" : "n/a")}");
+                .OrderBy(kv => kv.Key.Channel).ThenBy(kv => kv.Key.Width)
+                .Select(kv => $"ch{kv.Key.Channel}/{kv.Key.Width}=util:{kv.Value.Utilization}%/nf:{(kv.Value.NoiseFloor.HasValue ? kv.Value.NoiseFloor + "dBm" : "n/a")}");
             sb.AppendLine($"    {graph.Nodes[i].Name}: {string.Join(", ", metrics)}");
         }
 
@@ -2642,9 +2677,9 @@ public class ChannelRecommendationService
                 var measuredFloor = MeasuredCongestionLoad(graph, band, i, testAssignment);
                 if (measuredFloor > externalScore) externalScore = measuredFloor;
 
-                // Scan: measured utilization + noise floor, band-weighted (matches ScoreAp).
+                // Scan: measured utilization + noise floor, band-weighted, span-aggregated (matches ScoreAp).
                 double scanUtil = 0, scanNoise = 0;
-                if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
+                if (ScanOverSpan(graph, band, i, ch, currentAssignment[i].Width) is { } scanData)
                 {
                     scanUtil = scanData.Utilization * ScanUtilizationWeight * bandStress;
                     scanNoise = ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;

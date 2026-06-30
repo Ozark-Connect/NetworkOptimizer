@@ -663,10 +663,19 @@ public class WiFiOptimizerService
 
         var provider = CreateProvider();
 
+        // Scan each band at the radio's CURRENT operating width so the radio doesn't reconfigure
+        // (less disruption) and the result buckets line up with the operating channel.
+        var widthByApBand = new Dictionary<(string Mac, string BandCode), int>();
+        foreach (var ap in await provider.GetAccessPointsAsync())
+            foreach (var radio in ap.Radios)
+                if (radio.ChannelWidth is int w)
+                    widthByApBand[(ap.Mac, radio.Band.ToUniFiCode())] = w;
+
         var perApScans = list
             .GroupBy(t => t.ApMac, StringComparer.OrdinalIgnoreCase)
             .Select(g => ScanApBandsSequentiallyAsync(
-                provider, g.Key, g.Select(t => t.BandCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken));
+                provider, g.Key, g.Select(t => t.BandCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                widthByApBand, cancellationToken));
         await Task.WhenAll(perApScans);
 
         // Fresh scans are in - drop the cached snapshot so the next fetch re-reads the spectrum data.
@@ -679,13 +688,16 @@ public class WiFiOptimizerService
     /// the radio can only scan a single band at a time. Different APs run this concurrently.
     /// </summary>
     private async Task ScanApBandsSequentiallyAsync(
-        UniFiLiveDataProvider provider, string apMac, List<string> bandCodes, CancellationToken cancellationToken)
+        UniFiLiveDataProvider provider, string apMac, List<string> bandCodes,
+        IReadOnlyDictionary<(string Mac, string BandCode), int> widthByApBand, CancellationToken cancellationToken)
     {
         foreach (var bandCode in bandCodes)
         {
+            // Scan at the radio's current width (fall back to 20 MHz if unknown).
+            var bandwidthMhz = widthByApBand.TryGetValue((apMac, bandCode), out var w) ? w : 20;
             try
             {
-                if (!await provider.TriggerQuickScanAsync(apMac, bandCode, cancellationToken))
+                if (!await provider.TriggerQuickScanAsync(apMac, bandCode, bandwidthMhz, cancellationToken))
                     continue;
                 // Wait for THIS band to finish before starting the next on the same AP. If it doesn't
                 // finish in time, skip the AP's remaining bands rather than fire into a still-busy

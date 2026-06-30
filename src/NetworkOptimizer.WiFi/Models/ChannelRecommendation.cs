@@ -124,10 +124,13 @@ public class InterferenceGraph
     public HashSet<int>[] DirectlyObservedChannels { get; set; } = [];
 
     /// <summary>
-    /// Per-AP channel scan metrics. ScanChannelData[apIndex][channel] = (utilization %, noise floor
-    /// dBm). NoiseFloor is null when the scan reported no reading; lower (more negative) is cleaner.
+    /// Per-AP channel scan metrics, keyed by (control channel, scan bandwidth MHz) so multiple-width
+    /// buckets for the same channel can coexist (e.g. a BW20 and a BW160 reading of ch36). Value =
+    /// (utilization %, noise floor dBm); NoiseFloor is null when the scan reported no reading, lower
+    /// (more negative) is cleaner. The scorer reads it via ScanOverSpan, which prefers an exact
+    /// operating-width bucket and otherwise aggregates the finest sub-channels across the span.
     /// </summary>
-    public Dictionary<int, (int Utilization, int? NoiseFloor)>[] ScanChannelData { get; set; } = [];
+    public Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[] ScanChannelData { get; set; } = [];
 
     public List<MeshConstraint> MeshConstraints { get; set; } = new();
 
