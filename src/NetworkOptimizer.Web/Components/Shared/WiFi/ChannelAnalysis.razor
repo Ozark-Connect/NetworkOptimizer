@@ -579,6 +579,13 @@
 
         await LoadDataAsync();
 
+        // Default the DFS toggle to match the console's Auto-Optimize configuration
+        // (dfs=true -> Include DFS, dfs=false -> Avoid DFS). Falls back to the field
+        // default when the setting is unavailable.
+        var autoOptimizeDfs = await WiFiService.GetAutoOptimizeDfsEnabledAsync();
+        if (autoOptimizeDfs.HasValue)
+            _dfsPreference = autoOptimizeDfs.Value ? DfsPreference.IncludeWithPenalty : DfsPreference.Exclude;
+
         // Apply initial filters from parent navigation (explicit band is treated as a manual pick)
         if (InitialBand.HasValue)
         {
