@@ -986,7 +986,7 @@ public class ComputeExcludedTier1AsnsTests
     {
         // Core tier-1s, plus the corrected AS1239 (now Cogent) and active AT&T/Lumen
         // sibling ASNs that show up in US traces.
-        UpstreamTracerService.Tier1Asns.Should().Contain(
+        WellKnownAsns.Tier1.Should().Contain(
             new[] { 3356, 174, 7018, 2914, 1299, 6461, 1239, 7132, 3561 });
     }
 
@@ -995,7 +995,7 @@ public class ComputeExcludedTier1AsnsTests
     {
         // AS6939 is not settlement-free on IPv4, so it carries no reliable core-peering
         // signal and stays out of the adjacency set.
-        UpstreamTracerService.Tier1Asns.Should().NotContain(6939);
+        WellKnownAsns.Tier1.Should().NotContain(6939);
     }
 }
 
