@@ -1626,7 +1626,12 @@ else
     private bool _deviceTempCollapsed = true;
     private bool _sfpThresholdsCollapsed = true;
     // Investigate card collapse, persisted to localStorage like the Monitoring Interfaces card.
+    // _investigateCollapsed is the live (possibly force-opened) state; _investigateSavedCollapsed
+    // is the user's persisted preference. A deep-linked investigation force-opens the live state
+    // only, and leaving the tab reverts to the saved preference, so the link never counts as a
+    // user-set expand.
     private bool _investigateCollapsed = true;
+    private bool _investigateSavedCollapsed = true;
     private bool _investigateStateLoaded;
     private const string InvestigateCollapseKey = "monitoring-investigate-collapsed";
 
@@ -2686,6 +2691,9 @@ else
     private async Task ToggleInvestigateCollapse()
     {
         _investigateCollapsed = !_investigateCollapsed;
+        // A manual toggle is a real preference: update the saved baseline too, so leaving the
+        // tab (which reverts to the baseline) keeps the user's choice rather than undoing it.
+        _investigateSavedCollapsed = _investigateCollapsed;
         try { await JS.InvokeVoidAsync("localStorage.setItem", InvestigateCollapseKey, _investigateCollapsed ? "true" : "false"); }
         catch { }
     }
@@ -2860,7 +2868,8 @@ else
             try { val = await JS.InvokeAsync<string>("localStorage.getItem", InvestigateCollapseKey); }
             catch { }
             // Saved preference wins; with none, default to expanded so the controls are discoverable.
-            _investigateCollapsed = val == "true";
+            _investigateSavedCollapsed = val == "true";
+            _investigateCollapsed = _investigateSavedCollapsed;
             StateHasChanged();
         }
 
@@ -2870,7 +2879,8 @@ else
             var kind = _pendingInvestigateParam;
             _pendingInvestigateParam = null;
             // Open the (possibly collapsed) card so the deep-linked result and nav controls are
-            // visible. Transient: not persisted, so the user's saved preference is preserved.
+            // visible. Live state only - the saved preference is untouched, and leaving the tab
+            // reverts to it, so a linkable investigation never counts as a user-set expand.
             _investigateCollapsed = false;
             await NavigateToLossEvent(null, null, loadedOnly: kind == "loaded-loss");
         }
@@ -3006,6 +3016,9 @@ else
             // too - otherwise returning shows the card "active" with no highlight on the chart.
             // Deep-linked investigations re-arm via the query param on entry, so this is safe.
             ResetLossNavState();
+            // Revert any transient deep-link force-open to the user's saved preference, so a
+            // linkable investigation never lingers as an expand the user didn't choose.
+            _investigateCollapsed = _investigateSavedCollapsed;
         }
 
         if (_scrollToDiscoveryPending && _activeTab == "performance")
