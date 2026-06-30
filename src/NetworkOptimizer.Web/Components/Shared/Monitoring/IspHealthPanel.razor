@@ -236,7 +236,7 @@ else
                             {
                                 <div class="issue-investigate">
                                     <a class="isp-factor-link" href="@issue.InvestigateUrl"
-                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@(issue.InvestigateText ?? "Investigate on the charts")</a>
+                                       data-tooltip="Jump to the most recent matching loss event on the Network Performance charts" data-tooltip-hover-only>@(issue.InvestigateText ?? "Investigate on the charts")</a>
                                 </div>
                             }
                         </div>
@@ -359,7 +359,7 @@ else
                                     @if (investigateUrl != null)
                                     {
                                         <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
-                                           data-tooltip="@investigateTooltip">@factor.Name</a>
+                                           data-tooltip="@investigateTooltip" data-tooltip-hover-only>@factor.Name</a>
                                     }
                                     else
                                     {
