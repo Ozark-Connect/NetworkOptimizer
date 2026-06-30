@@ -311,11 +311,19 @@ else
                         {
                             <div class="isp-factor-row">
                                 <div class="isp-factor-label">
-                                    @{ var investigateUrl = FactorInvestigateUrl(factor.Name); }
+                                    @{
+                                        var isPhysicalLink = factor.Name == "Physical Link";
+                                        var investigateUrl = isPhysicalLink
+                                            ? PhysicalLinkInvestigateUrl(r.PhysicalLinkSelectedKey)
+                                            : FactorInvestigateUrl(factor.Name);
+                                        var investigateTooltip = isPhysicalLink
+                                            ? PhysicalLinkInvestigateTooltip(r.PhysicalLinkSelectedKey, r.PhysicalLinkMedium)
+                                            : "Jump to the most recent matching loss event on the Network Performance charts";
+                                    }
                                     @if (investigateUrl != null)
                                     {
                                         <a class="isp-factor-name isp-factor-link" href="@investigateUrl"
-                                           data-tooltip="Jump to the most recent matching loss event on the Network Performance charts">@factor.Name</a>
+                                           data-tooltip="@investigateTooltip">@factor.Name</a>
                                     }
                                     else
                                     {
@@ -961,6 +969,62 @@ else
         "Loaded Loss" => "/monitoring?tab=performance&investigate=loaded-loss",
         _ => null
     };
+
+    /// <summary>
+    /// Deep-link for the Physical Link factor to the monitoring tab for the matched access-link
+    /// device. The selected-source key encodes the source type and id ("cm:3", "ont:2",
+    /// "modem:1", "sfp:&lt;mac&gt;/&lt;port&gt;"), which maps directly to the CM / ONT / SFP /
+    /// Cellular stats tabs and their solo-device query params.
+    /// </summary>
+    private static string? PhysicalLinkInvestigateUrl(string? selectedKey)
+    {
+        if (string.IsNullOrEmpty(selectedKey))
+            return null;
+        var idx = selectedKey.IndexOf(':');
+        if (idx <= 0 || idx == selectedKey.Length - 1)
+            return null;
+        var prefix = selectedKey[..idx];
+        var raw = selectedKey[(idx + 1)..];
+        return prefix switch
+        {
+            "cm" => $"/monitoring?tab=cm&cm={Uri.EscapeDataString(raw)}",
+            "ont" => $"/monitoring?tab=ont&ont={Uri.EscapeDataString(raw)}",
+            // The SFP charts solo on the "mac:port" module key (MAC colon-normalized,
+            // lowercased) the device panels emit, not the resolver's "mac/port" token.
+            "sfp" => $"/monitoring?tab=sfp&sfp={Uri.EscapeDataString(SfpModuleKey(raw))}",
+            "modem" => $"/monitoring?tab=cellular&modem={Uri.EscapeDataString(raw)}",
+            _ => null
+        };
+    }
+
+    /// <summary>Converts a resolver SFP token ("&lt;mac&gt;/&lt;port&gt;") to the chart module
+    /// key ("&lt;mac&gt;:&lt;port&gt;" with the MAC colon-normalized and lowercased).</summary>
+    private static string SfpModuleKey(string macSlashPort)
+    {
+        var slash = macSlashPort.IndexOf('/');
+        if (slash < 0)
+            return macSlashPort;
+        var mac = macSlashPort[..slash].Replace("-", ":").ToLowerInvariant();
+        var port = macSlashPort[(slash + 1)..];
+        return $"{mac}:{port}";
+    }
+
+    private static string PhysicalLinkInvestigateTooltip(string? selectedKey, PhysicalMedium? medium)
+    {
+        var idx = selectedKey?.IndexOf(':') ?? -1;
+        var prefix = idx > 0 ? selectedKey![..idx] : "";
+        return prefix switch
+        {
+            "cm" => "Jump to the CM Stats charts for this cable modem",
+            "ont" => "Jump to the ONT Stats charts for this ONT",
+            // A PON SFP is an ONT; an Active Ethernet SFP is just a transceiver.
+            "sfp" => medium == PhysicalMedium.Pon
+                ? "Jump to the SFP Stats charts for this ONT"
+                : "Jump to the SFP Stats charts for this transceiver",
+            "modem" => "Jump to the Cellular Stats charts for this modem",
+            _ => "Jump to the monitoring charts for this access link"
+        };
+    }
 
     private static string FormatSpeed(double? mbps) => mbps.HasValue ? mbps.Value.ToString(mbps >= 100 ? "0" : "0.#") : "--";
 

@@ -436,6 +436,11 @@ public class IspHealthReport
     /// <summary>The currently selected physical-link source key (e.g. "cm:3"), if any.</summary>
     public string? PhysicalLinkSelectedKey { get; set; }
 
+    /// <summary>The access medium of the selected physical-link source, for display verbiage
+    /// (e.g. a PON SFP reads as an ONT, an Active Ethernet SFP as a transceiver). Null when no
+    /// single source matched.</summary>
+    public PhysicalMedium? PhysicalLinkMedium { get; set; }
+
     /// <summary>True when multiple sources matched and the user has not yet picked one.</summary>
     public bool PhysicalLinkAmbiguous { get; set; }
 

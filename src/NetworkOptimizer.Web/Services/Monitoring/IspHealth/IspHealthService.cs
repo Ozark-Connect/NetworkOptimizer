@@ -646,6 +646,7 @@ public class IspHealthService
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
         report.PhysicalLinkCandidates = physical.Candidates;
         report.PhysicalLinkSelectedKey = physical.SelectedKey;
+        report.PhysicalLinkMedium = physical.Input?.Medium;
         report.PhysicalLinkAmbiguous = physical.Ambiguous;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
