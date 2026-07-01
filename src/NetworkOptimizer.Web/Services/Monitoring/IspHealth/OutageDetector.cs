@@ -234,17 +234,31 @@ public static class OutageDetector
         IReadOnlyList<IReadOnlyList<LatencySample>> targets, TimeSpan windowSize)
     {
         var perBucket = new Dictionary<DateTime, List<double>>();
+        // Accumulate sum+count per bucket manually rather than GroupBy(...).Average(): the loss
+        // series are coarse relative to the outage bucket, so most buckets hold a single sample and
+        // GroupBy would allocate one IGrouping per bucket per hop. Summation stays in source order,
+        // so the per-bucket mean is bit-identical to the GroupBy version.
+        var sum = new Dictionary<DateTime, double>();
+        var cnt = new Dictionary<DateTime, int>();
         foreach (var target in targets)
         {
-            foreach (var g in target.Where(s => s.LossPercent.HasValue)
-                         .GroupBy(s => CongestionDetector.FloorTime(s.Time, windowSize)))
+            sum.Clear();
+            cnt.Clear();
+            foreach (var s in target)
             {
-                if (!perBucket.TryGetValue(g.Key, out var list))
+                if (!s.LossPercent.HasValue) continue;
+                var b = CongestionDetector.FloorTime(s.Time, windowSize);
+                sum[b] = (sum.TryGetValue(b, out var sv) ? sv : 0d) + s.LossPercent.Value;
+                cnt[b] = (cnt.TryGetValue(b, out var cv) ? cv : 0) + 1;
+            }
+            foreach (var kv in cnt)
+            {
+                if (!perBucket.TryGetValue(kv.Key, out var list))
                 {
                     list = new List<double>();
-                    perBucket[g.Key] = list;
+                    perBucket[kv.Key] = list;
                 }
-                list.Add(g.Average(s => s.LossPercent!.Value));
+                list.Add(sum[kv.Key] / kv.Value);
             }
         }
         return perBucket;
