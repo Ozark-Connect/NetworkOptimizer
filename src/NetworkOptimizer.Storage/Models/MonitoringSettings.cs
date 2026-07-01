@@ -129,6 +129,13 @@ public class MonitoringSettings
     [MaxLength(120)]
     public string? PhysicalLinkSourceKey { get; set; }
 
+    /// <summary>
+    /// Target trailing window (hours) for the auto-computed ISP Health score and the tab's default
+    /// view. This is the ceiling the compute aims for; on slower hardware where the target exceeds the
+    /// per-compute time budget it automatically falls back to a shorter window (24 h, then 16 h).
+    /// </summary>
+    public int IspHealthScoreWindowHours { get; set; } = 48;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

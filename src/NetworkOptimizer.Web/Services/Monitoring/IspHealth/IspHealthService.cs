@@ -45,6 +45,13 @@ public class IspHealthService
     private CustomWindowSnapshot? _customCache;
     private IspHealthStatus _status = IspHealthStatus.Computing;
     private volatile bool _computing;
+    // Trailing window (hours) the last successful auto-compute used. Drops down the ladder when a
+    // longer window exceeds the compute budget on this hardware; resets to 0 on process restart so the
+    // configured target is re-probed once after each deploy. 0 until the first auto-compute runs.
+    private volatile int _effectiveWindowHours;
+    // Configured target window (hours), cached from MonitoringSettings on each auto-compute so the
+    // dashboard tile and tab can read it without a DB hit. 0 until the first auto-compute runs.
+    private volatile int _configuredWindowHours;
 
     public IspHealthService(
         MonitoringInfluxClient influx,
@@ -185,15 +192,130 @@ public class IspHealthService
 
     public IspHealthStatus Status => _cached != null ? IspHealthStatus.Ready : _status;
 
+    /// <summary>The trailing window (hours) the auto-computed score and default view currently use.
+    /// Falls below the configured target on slower hardware that can't finish the longer window inside
+    /// the compute budget. 0 until the first auto-compute completes.</summary>
+    public int EffectiveWindowHours => _effectiveWindowHours;
+
+    /// <summary>The configured target window (hours) the auto-compute aims for (per-site setting, or
+    /// the built-in default). 0 until the first auto-compute runs.</summary>
+    public int ConfiguredWindowHours => _configuredWindowHours;
+
+    /// <summary>
+    /// Re-probe the configured target window on the next auto-compute. Wired to the "reduced window"
+    /// badge so a user who thinks the hardware can now handle the full window (e.g. after an upgrade)
+    /// can ask for it: resets the fallback to start the ladder at the target again, and drops the
+    /// cached shorter report so the next read recomputes.
+    /// </summary>
+    public void RetryConfiguredWindow()
+    {
+        _effectiveWindowHours = 0;
+        _cached = null;
+    }
+
     private async Task<(IspHealthReport? Report, List<AsnSeries> ChartClusters)> ComputeAsync(CancellationToken ct)
     {
-        // Canonical/auto-computed path: always the trailing ScoreWindowHours (48 h). Publishes
-        // the readiness status the dashboard tile reads.
-        var windowEnd = DateTime.UtcNow;
-        var windowStart = windowEnd.AddHours(-_options.ScoreWindowHours);
-        var outcome = await ComputeCoreAsync(windowStart, windowEnd, null, ct);
-        _status = outcome.Status;
-        return (outcome.Report, outcome.ChartClusters);
+        // Canonical/auto-computed path. It targets the configured window (default 48 h) but drops down
+        // ScoreWindowLadderHours whenever a window's compute exceeds ComputeBudget, so on slower NAS
+        // hardware the default view and dashboard score fall back to a window the box can actually
+        // finish (24 h, then 16 h) instead of hanging past the HTTP timeout. Publishes the readiness
+        // status the dashboard tile reads.
+        var ceiling = await ResolveConfiguredWindowHoursAsync(ct);
+        _configuredWindowHours = ceiling;
+        var budget = ResolveComputeBudget();
+
+        // Always attempt the configured target first, then the standard rungs strictly below it, so a
+        // ceiling that isn't itself a ScoreWindowLadderHours value (e.g. 36 h) still tries the target
+        // before falling back rather than jumping straight to the nearest shorter rung.
+        var ladder = new[] { ceiling }
+            .Concat(_options.ScoreWindowLadderHours.Where(h => h < ceiling))
+            .Where(h => h >= _options.MinDataHours)
+            .Distinct()
+            .OrderByDescending(h => h)
+            .ToList();
+        if (ladder.Count == 0) ladder.Add(Math.Max(ceiling, _options.MinDataHours));
+
+        // Resume at the current effective rung so a box that already fell back doesn't re-attempt the
+        // too-slow longer windows on every refresh. A process restart resets _effectiveWindowHours, so
+        // the ceiling is re-probed once on the first compute after each deploy.
+        var startIdx = 0;
+        if (_effectiveWindowHours > 0)
+        {
+            var resume = ladder.FindIndex(h => h <= _effectiveWindowHours);
+            startIdx = resume < 0 ? 0 : resume;
+        }
+
+        for (var i = startIdx; i < ladder.Count; i++)
+        {
+            var hours = ladder[i];
+            var windowEnd = DateTime.UtcNow;
+            var windowStart = windowEnd.AddHours(-hours);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budgetCts.CancelAfter(budget);
+            try
+            {
+                var outcome = await ComputeCoreAsync(windowStart, windowEnd, null, budgetCts.Token);
+                _effectiveWindowHours = hours;
+                _status = outcome.Status;
+                _logger.LogDebug("ISP Health auto-compute at {Hours}h completed in {Ms}ms (status {Status})",
+                    hours, sw.ElapsedMilliseconds, outcome.Status);
+                if (hours < ceiling)
+                    _logger.LogInformation(
+                        "ISP Health auto-compute using a {Hours}h window (target {Ceiling}h): the longer window exceeded the {Budget}s time budget on this hardware",
+                        hours, ceiling, (int)budget.TotalSeconds);
+                return (outcome.Report, outcome.ChartClusters);
+            }
+            catch (OperationCanceledException) when (budgetCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                var next = i + 1 < ladder.Count ? ladder[i + 1] : hours;
+                _effectiveWindowHours = next;
+                _logger.LogInformation(
+                    "ISP Health {Hours}h auto-compute exceeded the {Budget}s time budget after {Ms}ms; falling back to {Next}h",
+                    hours, (int)budget.TotalSeconds, sw.ElapsedMilliseconds, next);
+            }
+        }
+
+        // Every rung exceeded the budget: leave the funnel status so the tile/tab report progress and
+        // the next cycle retries. Don't publish a stale report.
+        _logger.LogWarning(
+            "ISP Health auto-compute could not finish any window ({Ladder}h) within the {Budget}s budget",
+            string.Join("/", ladder), (int)budget.TotalSeconds);
+        _status = IspHealthStatus.Computing;
+        return (null, new List<AsnSeries>());
+    }
+
+    /// <summary>
+    /// Configured target window (hours) from MonitoringSettings, floored at MinDataHours and defaulting
+    /// to the built-in ScoreWindowHours when unset or unreadable.
+    /// </summary>
+    private async Task<int> ResolveConfiguredWindowHoursAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            var hours = settings?.IspHealthScoreWindowHours ?? _options.ScoreWindowHours;
+            return hours >= _options.MinDataHours ? hours : _options.ScoreWindowHours;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ISP Health could not read the configured score window; using default {Default}h", _options.ScoreWindowHours);
+            return _options.ScoreWindowHours;
+        }
+    }
+
+    /// <summary>
+    /// Per-attempt compute budget: the ISP_HEALTH_COMPUTE_BUDGET_SECONDS env var when set (used to
+    /// force the window fallback on fast hardware for testing, or to tune for a specific box), else the
+    /// built-in <see cref="IspHealthOptions.ComputeBudget"/> default.
+    /// </summary>
+    private TimeSpan ResolveComputeBudget()
+    {
+        var raw = Environment.GetEnvironmentVariable("ISP_HEALTH_COMPUTE_BUDGET_SECONDS");
+        if (double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds) && seconds > 0)
+            return TimeSpan.FromSeconds(seconds);
+        return _options.ComputeBudget;
     }
 
     /// <summary>
@@ -541,6 +663,10 @@ public class IspHealthService
             Load = loadByTime,
             HasTraceMap = hopOrderKnown
         };
+        // Compute-budget checkpoints between the heavy in-memory phases: the Influx reads above honor
+        // the token, but the detectors/scorer are CPU loops, so a deadline that fires mid-compute is
+        // caught at the next phase boundary and abandons the attempt (the auto path then drops a rung).
+        ct.ThrowIfCancellationRequested();
         var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
         if (referenceEvents != null)
             congestionEvents = GateAgainstCanonical(congestionEvents, referenceEvents, windowEnd);
@@ -642,6 +768,7 @@ public class IspHealthService
             .Concat(orderedWanHops.Select((x, i) =>
                 new OutageDetector.Hop(x.Name, baseDepth + i, x.Series, x.Groupable, x.AsnLabel)))
             .ToList();
+        ct.ThrowIfCancellationRequested();
         var outages = OutageDetector.Detect(internetTriggerTargets, outageHops, _options);
         // Second pass: coincident partial-loss disruptions (the path getting lossy but not dark)
         // across the full set of monitored hops, excluding windows already flagged as blackouts.
@@ -700,6 +827,7 @@ public class IspHealthService
             PhysicalLink = physical.Input
         };
 
+        ct.ThrowIfCancellationRequested();
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
         report.AccessTechnology = technology;
         report.PhysicalLinkCandidates = physical.Candidates;
