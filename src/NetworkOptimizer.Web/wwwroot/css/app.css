@@ -15464,7 +15464,7 @@ tr.stats-row-filtered {
    jumps right under the cursor as it approaches the live edge. */
 .lan-flow-map-scrubber-row [data-role="right"] {
     display: inline-block;
-    min-width: 7.5rem;
+    min-width: min(7.5rem, 30vw);
     text-align: center;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;

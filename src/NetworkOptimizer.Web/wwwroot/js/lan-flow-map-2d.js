@@ -334,6 +334,7 @@ class LanFlowMap2D {
         this._streams=[];
         // The mobile scrubber lives outside _el (below the stage), so clearing
         // _el's children alone would leave it behind on unmount.
+        if(this._scrubberMq)this._scrubberMq.removeEventListener('change',this._placeScrubber);
         if(this._scrubberEl)this._scrubberEl.remove();
         this._el.innerHTML='';
     }
@@ -607,11 +608,18 @@ class LanFlowMap2D {
         // Mobile: place the scrubber below the stage like the 3D map does, so
         // the stage bottom stays the canvas bottom and the mode badge anchors
         // to the same spot as on 3D instead of dropping onto the scrubber row.
-        if(isMobile&&this._el.parentElement){
-            this._el.parentElement.insertBefore(scrubber,this._el.nextSibling);
-        }else{
-            this._el.appendChild(scrubber);
-        }
+        // Tracked live, not just at mount - the breakpoint CSS applies on
+        // resize, so the DOM placement must follow it.
+        this._scrubberMq=window.matchMedia('(max-width: 768px)');
+        this._placeScrubber=()=>{
+            if(this._scrubberMq.matches&&this._el.parentElement){
+                this._el.parentElement.insertBefore(scrubber,this._el.nextSibling);
+            }else{
+                this._el.appendChild(scrubber);
+            }
+        };
+        this._placeScrubber();
+        this._scrubberMq.addEventListener('change',this._placeScrubber);
         this._scrubberEl=scrubber;
         this._scrubberEls={
             range:sRange,
