@@ -15918,6 +15918,7 @@ tr.stats-row-filtered {
     position: relative;
 }
 .lan-flow-map-2d-stage {
+    position: relative;
     width: 100%;
     height: clamp(520px, 70vh, 820px);
 }
