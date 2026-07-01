@@ -531,12 +531,17 @@ class LanFlowMap2D {
             const inst=window.__lanFlowMap?.getInstance?.();
             if(inst)inst._setScrubSpan(windowSel.value);
         });
-        // Arrow left/right (and Shift for fast scrub) float up to timeline
-        // scrubbing (on the 3D instance); without this the focused dropdown
-        // consumes arrows as value changes.
+        // Arrow left/right (with Shift for fast scrub) and Space float up to
+        // timeline scrubbing and play/pause (on the 3D instance); without this
+        // the focused dropdown consumes them natively.
         windowSel.addEventListener('keydown',(e)=>{
             const inst=window.__lanFlowMap?.getInstance?.();
             if(e.key==='Shift'){if(inst&&inst._keys)inst._keys.shift=true;return;}
+            if(e.key===' '){
+                e.preventDefault();
+                if(inst)inst._togglePlayPause();
+                return;
+            }
             if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
             e.preventDefault();
             if(inst&&inst._keys)inst._keys[e.key.toLowerCase()]=true;
