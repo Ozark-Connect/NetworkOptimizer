@@ -188,7 +188,9 @@ export class LanFlowMap {
         try { savedSpan = localStorage.getItem(this._storagePrefix + 'ScrubSpan'); } catch { /* localStorage unavailable */ }
         const savedPreset = flowData.SCRUBBER_PRESETS.find(p => p.key === savedSpan);
         this._scrubSpanKey = savedPreset ? savedPreset.key : '24h';
-        this._scrubSpan = savedPreset?.ms ?? 24 * 3600000;
+        // A restored 'max' preset (ms: null) seeds at the 90-day retention cap;
+        // _loadHistoryRange narrows it to the actual data start once known.
+        this._scrubSpan = savedPreset ? (savedPreset.ms ?? 90 * 86400000) : 24 * 3600000;
         this._dataStartMs = null; // earliest stored point; clamps Max and disables too-wide presets
 
         this._panels = {};        // DOM refs for overlay UI
@@ -1837,7 +1839,9 @@ export class LanFlowMap {
         // Track playback as a continuous timestamp, not integer slider units.
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
-        this._playbackTime = this._scrubberValueToTime(
+        // Seed from the exact parked instant when known - requantizing through
+        // the slider value can be minutes off on a wide window.
+        this._playbackTime = this._historicAt ?? this._scrubberValueToTime(
             Number(this._panels.scrubberRange?.value ?? 500));
         let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
@@ -1850,21 +1854,26 @@ export class LanFlowMap {
             // Derive slider position from the timestamp (inverse of _scrubberValueToTime)
             const clamped = this._timeToScrubberValue(this._playbackTime.getTime());
             range.value = clamped;
+            // Live detection is time-based - on a wide window the last slider
+            // step spans many minutes and value-based detection would snap
+            // playback to Live long before it actually caught up to now.
+            const atLive = this._playbackTime.getTime() >= Date.now() - 2000;
             // Update the time label from the continuous timestamp, not the
             // integer slider position (which only moves every ~86s at 1x).
-            const rightLabel = this._isLiveValue(clamped) ? 'Live' : _fmtDateTime(this._playbackTime);
+            const rightLabel = atLive ? 'Live' : _fmtDateTime(this._playbackTime);
             if (this._panels.scrubberRight) {
                 this._panels.scrubberRight.textContent = rightLabel;
             }
             flowData.publishScrubber(clamped, rightLabel, this._playbackSpeed);
             tickCount++;
             // Refresh map and stat cards periodically
-            if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
-                if (clamped >= 9998) {
+            if (tickCount % DATA_REFRESH_TICKS === 0 || atLive) {
+                if (atLive) {
                     if (this._historicPlaybackTimer) {
                         clearInterval(this._historicPlaybackTimer);
                         this._historicPlaybackTimer = null;
                     }
+                    range.value = 10000;
                     this._onScrubberChange(10000);
                 } else {
                     this._historicAt = this._playbackTime;
@@ -2113,7 +2122,7 @@ export class LanFlowMap {
         range.addEventListener('input', (e) => {
             const val = Number(e.target.value);
             this._onScrubberInput(val);
-            if (this._mode === 'live' && val < 9998) {
+            if (this._mode === 'live' && !this._isLiveValue(val)) {
                 this._mode = 'historic';
                 this._paused = true;
                 this._syncPlayPauseIcon();
@@ -2533,9 +2542,13 @@ export class LanFlowMap {
         return Math.max(0, Math.min(10000, Math.round((ms - start) / span * 10000)));
     }
 
-    // The window trails now, so the right edge of the slider is Live.
+    // The window trails now, so the right edge of the slider is Live. Near-edge
+    // values only count as Live when they are also near now in TIME - on a wide
+    // window the last couple of slider steps span many minutes, and a position
+    // parked "10 minutes ago" must not read (or snap) as Live.
     _isLiveValue(value) {
-        return value >= 9998;
+        if (value < 9998) return false;
+        return Date.now() - this._scrubberValueToTime(value).getTime() < 60000;
     }
 
     // Widest selectable span: capped by the primary bucket's 90-day retention and,
@@ -2567,20 +2580,21 @@ export class LanFlowMap {
             const at = (this._historicAt ?? this._scrubberValueToTime(value)).getTime();
             this._scrubSpan = span;
             const clampedAt = Math.max(at, now - span);
+            const atDate = new Date(clampedAt);
+            this._historicAt = atDate;
             if (range) range.value = this._timeToScrubberValue(clampedAt);
+            // Label from the true instant, not the requantized slider value -
+            // near the live edge of a wide window the rounded value would read
+            // back as Live (or minutes off) while the data stays historic.
+            const rightLabel = _fmtDateTime(atDate);
+            if (this._panels.scrubberRight) this._panels.scrubberRight.textContent = rightLabel;
+            flowData.publishScrubber(Number(range?.value ?? 0), rightLabel, this._playbackSpeed);
             if (clampedAt !== at) {
                 // The old position fell off the narrower window: seek to the
                 // new left edge, keeping any running playback going from there.
-                const atDate = new Date(clampedAt);
-                this._historicAt = atDate;
                 if (this._historicPlaybackTimer) this._playbackTime = atDate;
-                this._onScrubberInput(Number(range?.value ?? 0));
                 this._notifyStatCards(atDate);
                 this._loadHistoric(atDate);
-            } else {
-                // The instant under the thumb didn't move, so no data refetch -
-                // just refresh the position label and mirror state.
-                this._onScrubberInput(Number(range?.value ?? 0));
             }
         }
         if (this._panels.scrubberWindow) this._panels.scrubberWindow.value = key;

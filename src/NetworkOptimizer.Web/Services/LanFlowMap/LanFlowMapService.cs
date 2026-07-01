@@ -457,8 +457,19 @@ public class LanFlowMapService
         var ttl = _cache.EarliestData == null ? TimeSpan.FromMinutes(5) : TimeSpan.FromHours(1);
         if (DateTime.UtcNow - _cache.EarliestDataAt < ttl)
             return _cache.EarliestData;
-        _cache.EarliestData = await _influx.QueryEarliestInterfaceDataAsync(ct);
-        _cache.EarliestDataAt = DateTime.UtcNow;
+        try
+        {
+            // Keep a known-good floor on transient failures (Influx restart,
+            // auth blip) - a null answer must not clobber the cached value.
+            var earliest = await _influx.QueryEarliestInterfaceDataAsync(ct);
+            if (earliest != null) _cache.EarliestData = earliest;
+            _cache.EarliestDataAt = DateTime.UtcNow;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Earliest-data query failed; keeping cached timeline floor");
+            _cache.EarliestDataAt = DateTime.UtcNow;
+        }
         return _cache.EarliestData;
     }
 

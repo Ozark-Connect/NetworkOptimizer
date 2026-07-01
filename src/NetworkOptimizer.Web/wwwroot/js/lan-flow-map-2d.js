@@ -527,6 +527,7 @@ class LanFlowMap2D {
             opt.value=p.key;opt.textContent=p.label;
             windowSel.appendChild(opt);
         }
+        windowSel.value='24h';
         windowSel.addEventListener('change',()=>{
             const inst=window.__lanFlowMap?.getInstance?.();
             if(inst)inst._setScrubSpan(windowSel.value);
