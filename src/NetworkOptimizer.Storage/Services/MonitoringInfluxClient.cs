@@ -1238,6 +1238,63 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Two-resolution variant of <see cref="QueryLatencyDetailByTargetTypeAsync"/> that reads RTT,
+    /// max RTT, and jitter at a COARSE aggregate while reading loss at a FINE aggregate, then merges
+    /// the two grids per target. RTT/jitter only feed the 15-min congestion and 30-min step buckets
+    /// and whole-window per-ASN statistics, so their fine-resolution volume is wasted; loss must stay
+    /// fine because outage detection buckets it at 15-30 s. On the merged series, RTT points carry a
+    /// null loss and loss points carry a null RTT: every consumer filters by the field it reads
+    /// (RttAvgMs.HasValue for congestion/step, LossPercent.HasValue for outage / the loss pool), so
+    /// the disjoint timestamps are consumed cleanly. rtt_max_ms rides with rtt_avg_ms and jitter_ms
+    /// on the same coarse row because <see cref="LatencySample.EffectiveJitterMs"/> derives jitter
+    /// from (rtt_max - rtt_avg) when jitter_ms is absent. Cuts the transit/internet payload the app
+    /// deserializes without touching any loss-based detection. Used for Transit and InternetService;
+    /// AccessIsp stays fully fine (its RTT drives the loaded-latency delta).
+    /// </summary>
+    public async Task<Dictionary<string, List<LatencySeriesPoint>>> QueryLatencyDetailTieredByTargetTypeAsync(
+        MonitoringTargetType targetType,
+        DateTime from,
+        DateTime to,
+        TimeSpan coarseAggregate,
+        TimeSpan fineAggregate,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<LatencySeriesPoint>>();
+        var typeTag = targetType.ToString().ToLowerInvariant();
+        var typeFilter = targetType == MonitoringTargetType.InternetService
+            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+            : $@"r.target_type == ""{typeTag}""";
+
+        string BuildFlux(string fieldFilter, TimeSpan window) => $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {typeFilter})
+  |> filter(fn: (r) => {fieldFilter})
+  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var coarseTask = QueryRawAsync(
+            BuildFlux(@"r._field == ""rtt_avg_ms"" or r._field == ""rtt_max_ms"" or r._field == ""jitter_ms""", coarseAggregate), ct);
+        var fineTask = QueryRawAsync(
+            BuildFlux(@"r._field == ""loss_percent""", fineAggregate), ct);
+        await Task.WhenAll(coarseTask, fineTask);
+
+        var merged = ParseLatencyDetailCsv(await coarseTask);
+        foreach (var (target, lossPoints) in ParseLatencyDetailCsv(await fineTask))
+        {
+            if (merged.TryGetValue(target, out var list)) list.AddRange(lossPoints);
+            else merged[target] = lossPoints;
+        }
+        // The two grids interleave (coarse RTT rows and fine loss rows at different instants), so
+        // re-sort each target by time - the detectors and per-ASN grading assume chronological order.
+        foreach (var list in merged.Values)
+            list.Sort((a, b) => a.Time.CompareTo(b.Time));
+        return merged;
+    }
+
+    /// <summary>
     /// Per-window rtt/jitter/loss detail for a single target by its id - used to pull just the LAN
     /// gateway's loss for outage scoping without loading every fabric device's series.
     /// </summary>

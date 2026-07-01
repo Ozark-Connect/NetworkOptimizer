@@ -358,10 +358,19 @@ public class IspHealthService
         // LoadWindowSeconds, so the auto-computed report is unchanged.
         var aggregate = TimeSpan.FromSeconds(Math.Max(
             _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
+        // Transit and InternetService RTT/jitter only feed the 15-min congestion and 30-min step
+        // buckets and whole-window per-ASN statistics, so pulling them at the fine load-classification
+        // resolution is wasted volume (the dominant cost is the app deserializing these series - see
+        // research profiling). Read their RTT/jitter at a coarser window while keeping their loss fine
+        // for outage detection (buckets loss at 15-30 s). Clamped so it stays well under the 15-min
+        // congestion bucket (>= ~7 samples/bucket) and never finer than the fine window on long ranges.
+        var coarseAggregate = TimeSpan.FromSeconds(Math.Clamp(aggregate.TotalSeconds * 8, 60, 120));
 
+        // AccessIsp stays fully fine: its first-hop RTT drives the loaded-latency delta, matched
+        // against the fine LoadWindowSeconds throughput grid.
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
-        var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
-        var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, windowStart, windowEnd, aggregate, ct);
+        var transitSeriesTask = _influx.QueryLatencyDetailTieredByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, coarseAggregate, aggregate, ct);
+        var internetSeriesTask = _influx.QueryLatencyDetailTieredByTargetTypeAsync(MonitoringTargetType.InternetService, windowStart, windowEnd, coarseAggregate, aggregate, ct);
         var ratesTask = QueryWanRatesAsync(windowStart, windowEnd, aggregate, ct);
         var speedsTask = ResolveExpectedSpeedsAsync(ct);
         var speedTestsTask = LoadWanSpeedTestsAsync(windowStart, windowEnd, ct);
