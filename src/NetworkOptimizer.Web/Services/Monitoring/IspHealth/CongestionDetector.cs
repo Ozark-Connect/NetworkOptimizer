@@ -24,12 +24,17 @@ public static class CongestionDetector
     /// <summary>Detects events within a single ASN's series. Exposed for replay against exported data.</summary>
     public static List<CongestionEvent> DetectForSeries(AsnSeries series, IspHealthOptions options)
     {
-        var samples = series.Samples.Where(s => s.RttAvgMs.HasValue).OrderBy(s => s.Time).ToList();
-        if (samples.Count == 0) return new List<CongestionEvent>();
+        // RTT and jitter can arrive on separate rows: the tiered transit/internet fetch reads coarse
+        // mean RTT and fine jitter as disjoint points, so gather each field's samples independently
+        // rather than reading jitter off the RTT-bearing rows only. Identical for co-located data (any
+        // row with RTT also has jitter, and loss-only rows have neither), so every all-fine site and
+        // the tests are unchanged; it only lets the fine jitter rows through on the tiered path.
+        var samples = series.Samples.Where(s => s.RttAvgMs.HasValue || s.EffectiveJitterMs.HasValue).OrderBy(s => s.Time).ToList();
 
         // Sort each array once and derive median/MAD/p90 from it, rather than letting each SeriesStats
         // call sort again (Median + Mad + Percentile would sort the RTT array 4x). Bit-identical.
-        var allRtts = samples.Select(s => s.RttAvgMs!.Value).ToArray();
+        var allRtts = samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToArray();
+        if (allRtts.Length == 0) return new List<CongestionEvent>();
         Array.Sort(allRtts);
         var allJitters = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToArray();
         Array.Sort(allJitters);
