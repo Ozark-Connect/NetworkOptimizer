@@ -855,6 +855,31 @@ public class IspHealthService
     }
 
     /// <summary>
+    /// The exact set of target IDs whose loss ISP Health pools into the Packet Loss and Loaded Loss
+    /// factors: every enabled access ISP hop, every enabled transit hop except non-transit IXP /
+    /// anycast infrastructure (WoodyNet / PCH), and the well-known anycast DNS resolvers. Kept here as
+    /// the single source of the pool definition (mirrors the lossPool built in ComputeCoreAsync) so the
+    /// Investigate loss highlight can average the very pool the score is graded on instead of a
+    /// per-type approximation, and the two can never drift.
+    /// </summary>
+    public async Task<List<string>> GetLossPoolTargetIdsAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var targets = await db.MonitoringTargets.AsNoTracking()
+            .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
+                || t.TargetType == MonitoringTargetType.Transit
+                || t.TargetType == MonitoringTargetType.InternetService))
+            .ToListAsync(ct);
+        return targets
+            .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
+                || (t.TargetType == MonitoringTargetType.Transit
+                    && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a)))
+                || (t.TargetType == MonitoringTargetType.InternetService && AnycastDnsIps.Contains(t.Address)))
+            .Select(t => t.TargetId)
+            .ToList();
+    }
+
+    /// <summary>
     /// Expected speeds are configured values, never measured: the UniFi WAN provider
     /// capabilities (ISP speeds the user set in UniFi Network) with the Adaptive SQM
     /// nominal speeds as fallback.

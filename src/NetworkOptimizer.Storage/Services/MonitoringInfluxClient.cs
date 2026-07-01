@@ -2161,39 +2161,29 @@ join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r)
     }
 
     /// <summary>
-    /// Mean loss_percent pooled across every enabled target of one type over a window, weighting
-    /// all their samples equally - the same per-sample mean ISP Health's loss factors use. The loss
-    /// event finders report a single target's PEAK-loss minute (to center the chart on the worst
-    /// point); this gives the type-wide average over the coalesced event window, so the Investigate
-    /// highlight reflects what the whole tier did - close to the pooled figure ISP Health scores -
-    /// rather than the single worst target. Null when no loss samples fall in the window.
+    /// Pooled per-sample mean loss_percent across an explicit set of targets over a window - the same
+    /// per-sample mean ISP Health's loss factors compute. The caller passes the exact loss-pool target
+    /// IDs (see <c>IspHealthService.GetLossPoolTargetIdsAsync</c>) so the Investigate highlight reads
+    /// the very pool the score is graded on. The loss event finders report a single target's PEAK-loss
+    /// minute to center the chart on the worst point; this is the pooled average over the coalesced
+    /// event window instead. Null when the set is empty or no loss samples fall in the window.
     /// </summary>
-    public async Task<double?> QueryMeanLossByTargetTypeAsync(
-        MonitoringTargetType targetType,
+    public async Task<double?> QueryMeanLossAcrossTargetsAsync(
+        IReadOnlyCollection<string> targetIds,
         DateTime from,
         DateTime to,
-        IReadOnlyCollection<string>? enabledTargetIds = null,
         CancellationToken ct = default)
     {
         if (!IsConfigured) await ReconfigureAsync(ct);
-        if (!IsConfigured) return null;
-        var typeTag = targetType.ToString().ToLowerInvariant();
-        var typeFilter = targetType == MonitoringTargetType.InternetService
-            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
-            : $@"r.target_type == ""{typeTag}""";
-        var targetFilter = "";
-        if (enabledTargetIds != null && enabledTargetIds.Count > 0)
-        {
-            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
-            targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
-        }
+        if (!IsConfigured || targetIds.Count == 0) return null;
+        var idFilter = string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
         // group() collapses every target's per-sample loss into one table so mean() is the pooled
-        // average across the whole tier, not per target.
+        // average across the whole set, not per target.
         var flux = $@"
 from(bucket: ""{_bucket}"")
   |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
   |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => {typeFilter}){targetFilter}
+  |> filter(fn: (r) => {idFilter})
   |> filter(fn: (r) => r._field == ""loss_percent"")
   |> group()
   |> mean()

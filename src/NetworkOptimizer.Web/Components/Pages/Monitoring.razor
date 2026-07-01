@@ -2766,11 +2766,11 @@ else
                 _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
                 return;
             }
-            var (targetType, category) = result.TargetType switch
+            var category = result.TargetType switch
             {
-                "accessisp" => (MonitoringTargetType.AccessIsp, "AccessIsp"),
-                "transit" => (MonitoringTargetType.Transit, "Transit"),
-                _ => (MonitoringTargetType.InternetService, "InternetService")
+                "accessisp" => "AccessIsp",
+                "transit" => "Transit",
+                _ => "InternetService"
             };
             _lossNavActive = true;
             _lossNavTimestamp = result.Timestamp;
@@ -2782,12 +2782,13 @@ else
                 : $"{(int)delta.TotalDays}d ago";
             var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
             // The event is found on its single worst target's peak minute, but the highlight should
-            // read the loss the whole tier saw over the event - the pooled per-sample mean across all
-            // enabled targets of that type, matching (ish) what ISP Health's loss factors score. The
-            // band's start is backed up one bucket, so pool over the same widened window. Fall back to
-            // the peak target's value if the pooled query returns nothing.
-            var pooledLoss = await InfluxClient.QueryMeanLossByTargetTypeAsync(
-                targetType, result.EventStart.AddMinutes(-1), result.EventEnd, enabledIds)
+            // read the loss the score is actually graded on: the pooled per-sample mean across the
+            // exact ISP Health loss pool (access + transit excl. non-transit infra + anycast DNS) over
+            // the event window. The band's start is backed up one bucket, so pool over the same widened
+            // window. Fall back to the peak target's value if the pooled query returns nothing.
+            var poolIds = await IspHealthService.GetLossPoolTargetIdsAsync();
+            var pooledLoss = await InfluxClient.QueryMeanLossAcrossTargetsAsync(
+                poolIds, result.EventStart.AddMinutes(-1), result.EventEnd)
                 ?? result.LossPercent;
             _lossInvestigateResult = $"{pooledLoss:0.#}% loss {ago} ({localTime})";
             StateHasChanged();
