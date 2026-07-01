@@ -163,9 +163,14 @@ else
        score never displays a stale number mid-recompute. The detail cards below stay put. *@
     @if (_refreshing || _windowComputing)
     {
-        <div class="isp-health-loading card isp-health-hero-loading">
-            <div class="isp-health-loading-spinner"></div>
-            <p class="isp-health-loading-text">Analyzing ISP and transit data...</p>
+        @* Reuse the hero's exact card + card-body chain so the spinner box matches the score box to
+           the pixel (a single min-height on .isp-health-hero-body governs both); only the inner layout
+           differs, which doesn't affect the outer height. *@
+        <div class="isp-health-hero card">
+            <div class="card-body isp-health-hero-body isp-health-hero-body-loading">
+                <div class="isp-health-loading-spinner"></div>
+                <p class="isp-health-loading-text">Analyzing ISP and transit data...</p>
+            </div>
         </div>
     }
     else
