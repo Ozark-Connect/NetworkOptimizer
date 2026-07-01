@@ -265,6 +265,7 @@ public class IspHealthService
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
             return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
+        var perf = System.Diagnostics.Stopwatch.StartNew(); // TEMP ISPPERF
         AccessTechnology technology;
         List<MonitoringTarget> targets;
         // Enabled fabric (UniFi device) targets, used only to find the LAN gateway's monitoring
@@ -366,6 +367,7 @@ public class IspHealthService
         // congestion bucket (>= ~7 samples/bucket) and never finer than the fine window on long ranges.
         var coarseAggregate = TimeSpan.FromSeconds(Math.Clamp(aggregate.TotalSeconds * 8, 60, 120));
 
+        var msSetup = perf.ElapsedMilliseconds; // TEMP ISPPERF
         // AccessIsp stays fully fine: its first-hop RTT drives the loaded-latency delta, matched
         // against the fine LoadWindowSeconds throughput grid.
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
@@ -378,6 +380,7 @@ public class IspHealthService
             ? Task.FromResult(new List<MonitoringInfluxClient.LatencySeriesPoint>())
             : _influx.QueryLatencyDetailByTargetIdAsync(gatewayTarget.TargetId, windowStart, windowEnd, aggregate, ct);
         await Task.WhenAll(ispSeriesTask, transitSeriesTask, internetSeriesTask, ratesTask, speedsTask, speedTestsTask, gatewaySeriesTask);
+        var msQ = perf.ElapsedMilliseconds; // TEMP ISPPERF
 
         var ispSeries = ToSamples(await ispSeriesTask);
         var transitSeries = ToSamples(await transitSeriesTask);
@@ -545,13 +548,16 @@ public class IspHealthService
             Load = loadByTime,
             HasTraceMap = hopOrderKnown
         };
+        var msPrep = perf.ElapsedMilliseconds; // TEMP ISPPERF
         var congestionEvents = CongestionLocalizer.Localize(localizerSeries, congestionTopology, _options);
+        var msLoc = perf.ElapsedMilliseconds; // TEMP ISPPERF
         if (referenceEvents != null)
             congestionEvents = GateAgainstCanonical(congestionEvents, referenceEvents, windowEnd);
         // On a long (coarse-aggregate) window, snap congestion boundaries back to fine resolution so
         // a marginal event's 15-min bucket edges don't land off where the canonical view would place
         // them. No-op at canonical resolution; reads run concurrently (see method).
         await RefineCongestionBoundariesAsync(congestionEvents, aggregate, ct);
+        var msRef = perf.ElapsedMilliseconds; // TEMP ISPPERF
         foreach (var ce in congestionEvents)
             _logger.LogDebug(
                 "ISP Health congestion: {Disposition} at {Hop} ({Label}) conf={Confidence} load={Load} - {Reason}",
@@ -562,6 +568,7 @@ public class IspHealthService
         // network show up on every path that crosses it (per the real shift examples)
         var stepInput = allClusters.Concat(internetTargetSeries).ToList();
         var pathShifts = StepChangeDetector.Detect(stepInput, _options);
+        var msStep = perf.ElapsedMilliseconds; // TEMP ISPPERF
 
         // Outage detection: the internet targets going dark defines an outage; every hop is
         // carried (ordered nearest-first by the hop map, RTT tiebreaker) to shape it and
@@ -652,6 +659,7 @@ public class IspHealthService
         var partialDisruptions = OutageDetector.DetectPartial(
             outageHops, outages.Select(o => (o.Start, o.End)).ToList(), _options);
         outages = outages.Concat(partialDisruptions).OrderBy(o => o.Start).ToList();
+        var msOut = perf.ElapsedMilliseconds; // TEMP ISPPERF
 
         // Weight each outage by the time-of-day usage fingerprint so a drop during heavy-usage hours
         // counts in full and one during typically-idle hours dings less. Null fingerprint (weighting
@@ -704,7 +712,11 @@ public class IspHealthService
             PhysicalLink = physical.Input
         };
 
+        var msPost = perf.ElapsedMilliseconds; // TEMP ISPPERF
         var report = new IspHealthScorer(_options, _logger).Score(inputs, profile);
+        var msScore = perf.ElapsedMilliseconds; // TEMP ISPPERF
+        _logger.LogInformation("TEMP ISPPERF window={Win:0}h setup={Setup}ms queries={Q}ms prep={Prep}ms localize={Loc}ms refine={Ref}ms step={Step}ms outage={Out}ms postio={Post}ms score={Score}ms total={Total}ms", // TEMP ISPPERF
+            (windowEnd - windowStart).TotalHours, msSetup, msQ - msSetup, msPrep - msQ, msLoc - msPrep, msRef - msLoc, msStep - msRef, msOut - msStep, msPost - msOut, msScore - msPost, msScore); // TEMP ISPPERF
         report.AccessTechnology = technology;
         report.PhysicalLinkCandidates = physical.Candidates;
         report.PhysicalLinkSelectedKey = physical.SelectedKey;
