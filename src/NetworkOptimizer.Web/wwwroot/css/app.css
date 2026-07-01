@@ -16187,6 +16187,7 @@ tr.stats-row-filtered {
     align-items: center;
     gap: 2rem;
     padding: 1.5rem 2rem;
+    min-height: 248px;
 }
 
 .isp-health-hero-gauge {
