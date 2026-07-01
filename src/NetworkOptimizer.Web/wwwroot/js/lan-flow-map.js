@@ -2092,10 +2092,13 @@ export class LanFlowMap {
         }
         windowSel.value = this._scrubSpanKey;
         windowSel.addEventListener('change', () => this._setScrubSpan(windowSel.value));
-        // Arrow left/right float up to timeline scrubbing; without this the
-        // focused dropdown consumes them as value changes. Other keys stay
-        // native so the dropdown remains keyboard-operable (Enter/Space/Up/Down).
+        // Arrow left/right (and Shift for fast scrub) float up to timeline
+        // scrubbing; without this the focused dropdown consumes arrows as value
+        // changes and the global key handler ignores keys while a select has
+        // focus. Other keys stay native so the dropdown remains keyboard-operable
+        // (Enter/Space/Up/Down).
         windowSel.addEventListener('keydown', (e) => {
+            if (e.key === 'Shift') { this._keys.shift = true; return; }
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
             e.preventDefault();
             this._keys[e.key.toLowerCase()] = true;

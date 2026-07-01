@@ -531,18 +531,21 @@ class LanFlowMap2D {
             const inst=window.__lanFlowMap?.getInstance?.();
             if(inst)inst._setScrubSpan(windowSel.value);
         });
-        // Arrow left/right float up to timeline scrubbing (on the 3D instance);
-        // without this the focused dropdown consumes them as value changes.
+        // Arrow left/right (and Shift for fast scrub) float up to timeline
+        // scrubbing (on the 3D instance); without this the focused dropdown
+        // consumes arrows as value changes.
         windowSel.addEventListener('keydown',(e)=>{
+            const inst=window.__lanFlowMap?.getInstance?.();
+            if(e.key==='Shift'){if(inst&&inst._keys)inst._keys.shift=true;return;}
             if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
             e.preventDefault();
-            const inst=window.__lanFlowMap?.getInstance?.();
             if(inst&&inst._keys)inst._keys[e.key.toLowerCase()]=true;
         });
         windowSel.addEventListener('keyup',(e)=>{
-            if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
             const inst=window.__lanFlowMap?.getInstance?.();
             if(!inst)return;
+            if(e.key==='Shift'){if(inst._keys)inst._keys.shift=false;return;}
+            if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
             if(inst._keys)inst._keys[e.key.toLowerCase()]=false;
             inst._arrowScrubStart=null;
         });
