@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 
 /// <summary>
@@ -94,12 +96,13 @@ public static class CongestionLocalizer
             // shared FLOOR of added delay; localized congestion is the rise ABOVE that floor.
             double RttRise(AsnSeries s)
             {
-                var inW = s.Samples.Where(x => x.Time >= window.Start && x.Time <= window.End && x.RttAvgMs.HasValue)
-                    .Select(x => x.RttAvgMs!.Value).ToList();
-                var baseW = s.Samples.Where(x => (x.Time < window.Start || x.Time > window.End) && x.RttAvgMs.HasValue)
-                    .Select(x => x.RttAvgMs!.Value).ToList();
+                // In-window samples come from a binary-searched slice; the baseline (the series minus
+                // that slice) is read off a precomputed sorted array by value-exclusion, so this is
+                // identical to the prior full-scan + sort but far cheaper. See SeriesIndex.
+                var ix = Index(s);
+                var inW = ix.InWindowRtt(window.Start, window.End);
                 var im = SeriesStats.Median(inW);
-                var bm = SeriesStats.Median(baseW);
+                var bm = ix.BaselineRttMedian(inW);
                 return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
             }
             var relElevated = anchoredWithData.Where(s => IsElevated(s, window.Start, window.End)).ToList();
@@ -219,13 +222,12 @@ public static class CongestionLocalizer
         }
         else
         {
-            var inR = owner.Samples.Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList();
-            var baseR = owner.Samples.Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).ToList();
-            var inJ = owner.Samples.Where(x => x.Time >= start && x.Time <= end).Select(x => x.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-            var baseJ = owner.Samples.Where(x => x.Time < start || x.Time > end).Select(x => x.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-            baseRtt = SeriesStats.Median(baseR) ?? 0;
+            var ix = Index(owner);
+            var inR = ix.InWindowRtt(start, end);
+            var inJ = ix.InWindowJitter(start, end);
+            baseRtt = ix.BaselineRttMedian(inR) ?? 0;
             peakRtt = inR.Count > 0 ? SeriesStats.Percentile(inR, 0.90) ?? baseRtt : baseRtt;
-            baseJit = SeriesStats.Median(baseJ) ?? 0;
+            baseJit = ix.BaselineJitterMedian(inJ) ?? 0;
             peakJit = inJ.Count > 0 ? inJ.Max() : baseJit;
         }
 
@@ -489,15 +491,11 @@ public static class CongestionLocalizer
     /// </summary>
     internal static bool ElevatedInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
     {
-        var inWindow = series.Samples
-            .Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue)
-            .Select(x => x.RttAvgMs!.Value).ToList();
-        var baseline = series.Samples
-            .Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue)
-            .Select(x => x.RttAvgMs!.Value).ToList();
-        if (inWindow.Count == 0 || baseline.Count == 0) return false;
+        var ix = Index(series);
+        var inWindow = ix.InWindowRtt(start, end);
+        if (inWindow.Count == 0 || ix.RttCount - inWindow.Count == 0) return false;
 
-        var baselineP90 = SeriesStats.Percentile(baseline, 0.90);
+        var baselineP90 = ix.BaselineRttPercentile(inWindow, 0.90);
         if (baselineP90.HasValue)
         {
             var threshold = baselineP90.Value + options.CongestionRttMinDeltaMs;
@@ -509,16 +507,11 @@ public static class CongestionLocalizer
         // median RTT barely moves, so RTT-only propagation misses it. Compare in-window median jitter
         // to this hop's OWN baseline median (relative, with a small absolute floor so a near-zero hop
         // isn't tripped by a sub-ms ratio swing).
-        var inJitter = series.Samples
-            .Where(x => x.Time >= start && x.Time <= end).Select(x => x.EffectiveJitterMs)
-            .Where(j => j.HasValue).Select(j => j!.Value).ToList();
-        var baseJitter = series.Samples
-            .Where(x => x.Time < start || x.Time > end).Select(x => x.EffectiveJitterMs)
-            .Where(j => j.HasValue).Select(j => j!.Value).ToList();
-        if (inJitter.Count == 0 || baseJitter.Count == 0) return false;
+        var inJitter = ix.InWindowJitter(start, end);
+        if (inJitter.Count == 0 || ix.JitterCount - inJitter.Count == 0) return false;
 
         var inJitMedian = SeriesStats.Median(inJitter);
-        var baseJitMedian = SeriesStats.Median(baseJitter);
+        var baseJitMedian = ix.BaselineJitterMedian(inJitter);
         return inJitMedian.HasValue && baseJitMedian.HasValue
             && inJitMedian.Value >= baseJitMedian.Value * options.CongestionPropagationJitterFactor
             && inJitMedian.Value - baseJitMedian.Value >= options.CongestionPropagationJitterFloorMs;
@@ -536,7 +529,7 @@ public static class CongestionLocalizer
     /// data then (a newer target added after a past event, or a monitoring gap) reads as unknown,
     /// never as "clean" - so absence of data can't pad the clean-control or clean-parallel evidence.</summary>
     private static bool HasDataInWindow(AsnSeries series, DateTime start, DateTime end) =>
-        series.Samples.Any(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue);
+        Index(series).HasRttInWindow(start, end);
 
     /// <summary>
     /// True when the series' in-window median rose above its out-of-window baseline median by at least
@@ -546,14 +539,10 @@ public static class CongestionLocalizer
     /// </summary>
     private static bool RoseInWindow(AsnSeries series, DateTime start, DateTime end, IspHealthOptions options)
     {
-        var inWindow = series.Samples
-            .Where(x => x.Time >= start && x.Time <= end && x.RttAvgMs.HasValue)
-            .Select(x => x.RttAvgMs!.Value).ToList();
-        var baseline = series.Samples
-            .Where(x => (x.Time < start || x.Time > end) && x.RttAvgMs.HasValue)
-            .Select(x => x.RttAvgMs!.Value).ToList();
-        if (inWindow.Count == 0 || baseline.Count == 0) return false;
-        var bMed = SeriesStats.Median(baseline);
+        var ix = Index(series);
+        var inWindow = ix.InWindowRtt(start, end);
+        if (inWindow.Count == 0 || ix.RttCount - inWindow.Count == 0) return false;
+        var bMed = ix.BaselineRttMedian(inWindow);
         // Use a high in-window percentile, not the median: an event with a strong core and a long
         // mild tail dilutes the median toward baseline, so a path that genuinely rose for a good part
         // of the window flickers in and out of "rose" across recomputes and the line-wide breadth
@@ -585,4 +574,123 @@ public static class CongestionLocalizer
 
     private static bool Overlaps(DateTime aStart, DateTime aEnd, DateTime bStart, DateTime bEnd) =>
         aStart < bEnd && bStart < aEnd;
+
+    // ---- Fast windowed statistics (exact, precomputed per series) ----
+
+    // Per-series index, keyed by reference and weak so it is freed with the series. A series'
+    // samples are immutable for the life of a Localize call, so caching the sorted views is safe and
+    // lets the windowed elevation/rise tests avoid re-scanning and re-sorting the full series on
+    // every call - the localizer's dominant cost at long windows.
+    private static readonly ConditionalWeakTable<AsnSeries, SeriesIndex> _indexCache = new();
+    private static SeriesIndex Index(AsnSeries s) => _indexCache.GetValue(s, static key => new SeriesIndex(key));
+
+    /// <summary>
+    /// Precomputed sorted views of one series for the windowed elevation/rise tests. Sample times are
+    /// held ascending for binary-searched in-window slicing; RTT and jitter values are also kept sorted
+    /// ascending so a baseline statistic (the series minus the in-window slice) can be read by exact
+    /// value-exclusion instead of re-collecting and re-sorting the whole series. Every result is
+    /// identical to the prior full-scan code - only faster.
+    /// </summary>
+    private sealed class SeriesIndex
+    {
+        private readonly long[] _ticks;     // sample times, ascending
+        private readonly double?[] _rtt;    // RttAvgMs in the same (time) order as _ticks
+        private readonly double?[] _jit;    // EffectiveJitterMs in time order
+        private readonly double[] _rttAsc;  // all non-null RttAvgMs, ascending
+        private readonly double[] _jitAsc;  // all non-null EffectiveJitterMs, ascending
+
+        public SeriesIndex(AsnSeries s)
+        {
+            // Sort by time defensively: callers pass time-sorted per-target series, but the prior
+            // full-scan code did not depend on ordering, so don't silently assume it here either.
+            var ordered = s.Samples.OrderBy(x => x.Time).ToArray();
+            _ticks = new long[ordered.Length];
+            _rtt = new double?[ordered.Length];
+            _jit = new double?[ordered.Length];
+            for (var i = 0; i < ordered.Length; i++)
+            {
+                _ticks[i] = ordered[i].Time.Ticks;
+                _rtt[i] = ordered[i].RttAvgMs;
+                _jit[i] = ordered[i].EffectiveJitterMs;
+            }
+            _rttAsc = _rtt.Where(v => v.HasValue).Select(v => v!.Value).OrderBy(v => v).ToArray();
+            _jitAsc = _jit.Where(v => v.HasValue).Select(v => v!.Value).OrderBy(v => v).ToArray();
+        }
+
+        public int RttCount => _rttAsc.Length;
+        public int JitterCount => _jitAsc.Length;
+
+        public bool HasRttInWindow(DateTime start, DateTime end)
+        {
+            var (lo, hi) = Range(start, end);
+            for (var i = lo; i < hi; i++)
+                if (_rtt[i].HasValue) return true;
+            return false;
+        }
+
+        public List<double> InWindowRtt(DateTime start, DateTime end) => Collect(_rtt, start, end);
+        public List<double> InWindowJitter(DateTime start, DateTime end) => Collect(_jit, start, end);
+
+        public double? BaselineRttMedian(List<double> inWindow) => PercentileExcluding(_rttAsc, inWindow, 0.5);
+        public double? BaselineRttPercentile(List<double> inWindow, double p) => PercentileExcluding(_rttAsc, inWindow, p);
+        public double? BaselineJitterMedian(List<double> inWindow) => PercentileExcluding(_jitAsc, inWindow, 0.5);
+
+        private List<double> Collect(double?[] values, DateTime start, DateTime end)
+        {
+            var (lo, hi) = Range(start, end);
+            var list = new List<double>(Math.Max(0, hi - lo));
+            for (var i = lo; i < hi; i++)
+                if (values[i].HasValue) list.Add(values[i]!.Value);
+            return list;
+        }
+
+        // [lo, hi) index range of samples with start &lt;= time &lt;= end.
+        private (int lo, int hi) Range(DateTime start, DateTime end)
+            => (LowerBound(_ticks, start.Ticks), UpperBound(_ticks, end.Ticks));
+
+        private static int LowerBound(long[] a, long key)
+        {
+            int lo = 0, hi = a.Length;
+            while (lo < hi) { var m = (lo + hi) >> 1; if (a[m] < key) lo = m + 1; else hi = m; }
+            return lo;
+        }
+
+        private static int UpperBound(long[] a, long key)
+        {
+            int lo = 0, hi = a.Length;
+            while (lo < hi) { var m = (lo + hi) >> 1; if (a[m] <= key) lo = m + 1; else hi = m; }
+            return lo;
+        }
+
+        /// <summary>
+        /// Percentile of <paramref name="fullAsc"/> with the values in <paramref name="excl"/> removed,
+        /// matching <see cref="SeriesStats.Percentile"/> exactly (same rank + interpolation) but without
+        /// materializing or sorting the baseline. <paramref name="excl"/> is always a sub-multiset of
+        /// <paramref name="fullAsc"/> (the in-window slice), so values match bit-for-bit and duplicates
+        /// are skipped one-for-one during the merge. Null when the baseline is empty.
+        /// </summary>
+        private static double? PercentileExcluding(double[] fullAsc, List<double> excl, double p)
+        {
+            var n = fullAsc.Length - excl.Count;
+            if (n <= 0) return null;
+            var ex = excl.ToArray();
+            Array.Sort(ex);
+            var rank = p * (n - 1);
+            var loR = (int)Math.Floor(rank);
+            var hiR = (int)Math.Ceiling(rank);
+            double vLo = 0, vHi = 0;
+            bool gotLo = false, gotHi = false;
+            int bi = -1, ei = 0;
+            for (var i = 0; i < fullAsc.Length; i++)
+            {
+                if (ei < ex.Length && fullAsc[i] == ex[ei]) { ei++; continue; }
+                bi++;
+                if (bi == loR) { vLo = fullAsc[i]; gotLo = true; }
+                if (bi == hiR) { vHi = fullAsc[i]; gotHi = true; break; }
+            }
+            if (!gotLo) return null;
+            if (loR == hiR || !gotHi) return vLo;
+            return vLo + (vHi - vLo) * (rank - loR);
+        }
+    }
 }

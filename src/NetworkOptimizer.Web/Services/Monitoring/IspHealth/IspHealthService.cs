@@ -359,6 +359,11 @@ public class IspHealthService
         var aggregate = TimeSpan.FromSeconds(Math.Max(
             _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
 
+        // All target types read at the fine window. Coarsening transit/internet RTT bought a modest
+        // 48h deserialize win but shifted congestion localization (the bottleneck walk keys on RTT
+        // bursts, which a coarse mean blunts), so it diverged from the fine-resolution attribution on
+        // transit-heavy paths. Kept fine everywhere; the compute-time wins now come from the in-memory
+        // detector/scorer paths, not from coarsening the input.
         var ispSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.AccessIsp, windowStart, windowEnd, aggregate, ct);
         var transitSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.Transit, windowStart, windowEnd, aggregate, ct);
         var internetSeriesTask = _influx.QueryLatencyDetailByTargetTypeAsync(MonitoringTargetType.InternetService, windowStart, windowEnd, aggregate, ct);
@@ -843,6 +848,31 @@ public class IspHealthService
     {
         var (down, up, _, _) = await ResolveExpectedSpeedsAsync(ct);
         return (down, up);
+    }
+
+    /// <summary>
+    /// The exact set of target IDs whose loss ISP Health pools into the Packet Loss and Loaded Loss
+    /// factors: every enabled access ISP hop, every enabled transit hop except non-transit IXP /
+    /// anycast infrastructure (WoodyNet / PCH), and the well-known anycast DNS resolvers. Kept here as
+    /// the single source of the pool definition (mirrors the lossPool built in ComputeCoreAsync) so the
+    /// Investigate loss highlight can average the very pool the score is graded on instead of a
+    /// per-type approximation, and the two can never drift.
+    /// </summary>
+    public async Task<List<string>> GetLossPoolTargetIdsAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var targets = await db.MonitoringTargets.AsNoTracking()
+            .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
+                || t.TargetType == MonitoringTargetType.Transit
+                || t.TargetType == MonitoringTargetType.InternetService))
+            .ToListAsync(ct);
+        return targets
+            .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
+                || (t.TargetType == MonitoringTargetType.Transit
+                    && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a)))
+                || (t.TargetType == MonitoringTargetType.InternetService && AnycastDnsIps.Contains(t.Address)))
+            .Select(t => t.TargetId)
+            .ToList();
     }
 
     /// <summary>

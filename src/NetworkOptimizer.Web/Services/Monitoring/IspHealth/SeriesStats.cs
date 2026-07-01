@@ -42,6 +42,48 @@ internal static class SeriesStats
         return Median(deviations);
     }
 
+    // ---- Pre-sorted variants ----
+    // When several statistics are needed over the same series, the caller sorts once and uses these
+    // instead of the list overloads (each of which sorts internally). Results are identical.
+
+    /// <summary>Percentile of an already ascending-sorted list, matching <see cref="Percentile"/>.</summary>
+    public static double? PercentileSorted(IReadOnlyList<double> sortedAsc, double p)
+    {
+        if (sortedAsc.Count == 0) return null;
+        var rank = p * (sortedAsc.Count - 1);
+        var lo = (int)Math.Floor(rank);
+        var hi = (int)Math.Ceiling(rank);
+        if (lo == hi) return sortedAsc[lo];
+        return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (rank - lo);
+    }
+
+    /// <summary>Median of an already ascending-sorted list, matching <see cref="Median"/>.</summary>
+    public static double? MedianSorted(IReadOnlyList<double> sortedAsc) => PercentileSorted(sortedAsc, 0.5);
+
+    /// <summary>
+    /// MAD given the series already ascending-sorted and its (pre-computed) median, so the median
+    /// isn't re-sorted for. Identical result to <see cref="Mad"/>.
+    /// </summary>
+    public static double? MadSorted(IReadOnlyList<double> sortedAsc, double median)
+    {
+        if (sortedAsc.Count == 0) return null;
+        var dev = new double[sortedAsc.Count];
+        for (var i = 0; i < sortedAsc.Count; i++) dev[i] = Math.Abs(sortedAsc[i] - median);
+        Array.Sort(dev);
+        return PercentileSorted(dev, 0.5);
+    }
+
+    /// <summary>Winsorized mean of an already ascending-sorted list, matching <see cref="WinsorizedMean"/>.</summary>
+    public static double? WinsorizedMeanSorted(IReadOnlyList<double> sortedAsc, double upperPercentile)
+    {
+        if (sortedAsc.Count == 0) return null;
+        var cap = PercentileSorted(sortedAsc, upperPercentile);
+        if (cap == null) return null;
+        double sum = 0;
+        for (var i = 0; i < sortedAsc.Count; i++) sum += Math.Min(sortedAsc[i], cap.Value);
+        return sum / sortedAsc.Count;
+    }
+
     /// <summary>Interquartile range as (q1, q3), or null when empty.</summary>
     public static (double Q1, double Q3)? Iqr(IReadOnlyList<double> values)
     {

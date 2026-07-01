@@ -2104,6 +2104,42 @@ join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r)
     }
 
     /// <summary>
+    /// Pooled per-sample mean loss_percent across an explicit set of targets over a window - the same
+    /// per-sample mean ISP Health's loss factors compute. The caller passes the exact loss-pool target
+    /// IDs (see <c>IspHealthService.GetLossPoolTargetIdsAsync</c>) so the Investigate highlight reads
+    /// the very pool the score is graded on. The loss event finders report a single target's PEAK-loss
+    /// minute to center the chart on the worst point; this is the pooled average over the coalesced
+    /// event window instead. Null when the set is empty or no loss samples fall in the window.
+    /// </summary>
+    public async Task<double?> QueryMeanLossAcrossTargetsAsync(
+        IReadOnlyCollection<string> targetIds,
+        DateTime from,
+        DateTime to,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured || targetIds.Count == 0) return null;
+        var idFilter = string.Join(" or ", targetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+        // group() collapses every target's per-sample loss into one table so mean() is the pooled
+        // average across the whole set, not per target.
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {idFilter})
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> group()
+  |> mean()
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var v = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (v != null) return v;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Find the most recent SFP anomaly: temperature above PON threshold (75 C) or
     /// RX power below PON threshold (-25 dBm). Scans the last 7 days.
     /// </summary>

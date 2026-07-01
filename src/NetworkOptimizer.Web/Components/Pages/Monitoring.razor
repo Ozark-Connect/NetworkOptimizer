@@ -2781,9 +2781,18 @@ else
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
             var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
-            _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago} ({localTime})";
+            // The event is found on its single worst target's peak minute, but the highlight should
+            // read the loss the score is actually graded on: the pooled per-sample mean across the
+            // exact ISP Health loss pool (access + transit excl. non-transit infra + anycast DNS) over
+            // the event window. The band's start is backed up one bucket, so pool over the same widened
+            // window. Fall back to the peak target's value if the pooled query returns nothing.
+            var poolIds = await IspHealthService.GetLossPoolTargetIdsAsync();
+            var pooledLoss = await InfluxClient.QueryMeanLossAcrossTargetsAsync(
+                poolIds, result.EventStart.AddMinutes(-1), result.EventEnd)
+                ?? result.LossPercent;
+            _lossInvestigateResult = $"{pooledLoss:0.#}% loss {ago} ({localTime})";
             StateHasChanged();
-            var annotationLabel = $"{(loadedOnly ? "Loaded" : "Packet")} loss {result.LossPercent:0.#}%";
+            var annotationLabel = $"{(loadedOnly ? "Loaded" : "Packet")} loss {pooledLoss:0.#}%";
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}', '{annotationLabel}', {(loadedOnly ? "true" : "false")}, '{result.EventStart:o}', '{result.EventEnd:o}');");
         }

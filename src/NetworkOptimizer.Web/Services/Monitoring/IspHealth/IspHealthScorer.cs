@@ -719,8 +719,11 @@ public class IspHealthScorer
         var losses = series.Samples.Where(s => s.LossPercent.HasValue && !InOutage(s.Time)).Select(s => s.LossPercent!.Value).ToList();
         var jitters = series.Samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
 
-        var medianRtt = SeriesStats.Median(rtts);
-        var mad = SeriesStats.Mad(rtts);
+        // Sort the RTT set once; median, MAD, and the winsorized-mean / P95 below all read from it.
+        var sortedRtts = rtts.ToArray();
+        Array.Sort(sortedRtts);
+        var medianRtt = SeriesStats.MedianSorted(sortedRtts);
+        var mad = medianRtt.HasValue ? SeriesStats.MadSorted(sortedRtts, medianRtt.Value) : null;
 
         // Jitter and stability are absolve-only across clusters. The nearest cluster's
         // variance can be false (ICMP deprioritization at that hop); a cleaner farther
@@ -863,8 +866,8 @@ public class IspHealthScorer
             MedianRttMs = medianRtt,
             // Displayed RTT: winsorized mean (P99-capped) so sustained elevation shows but a
             // flap can't distort it. Reach (above) stays on the median - that measures distance.
-            MeanRttMs = SeriesStats.WinsorizedMean(rtts, _options.RttWinsorPercentile),
-            P95RttMs = SeriesStats.Percentile(rtts, 0.95),
+            MeanRttMs = SeriesStats.WinsorizedMeanSorted(sortedRtts, _options.RttWinsorPercentile),
+            P95RttMs = SeriesStats.PercentileSorted(sortedRtts, 0.95),
             // Raw near-cluster median, informational only. The displayed and scored jitter
             // is the effective (absolve/assimilated) value below.
             MedianJitterMs = jitters.Count > 0 ? SeriesStats.Median(jitters) : null,
@@ -921,9 +924,10 @@ public class IspHealthScorer
     /// <summary>RTT stability ratio (MAD / median) of a sample set; lower is steadier. Null without RTT.</summary>
     private static double? StabilityRatioOf(IReadOnlyList<LatencySample> samples)
     {
-        var rtts = samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
-        var median = SeriesStats.Median(rtts);
-        var mad = SeriesStats.Mad(rtts);
+        var rtts = samples.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToArray();
+        Array.Sort(rtts);
+        var median = SeriesStats.MedianSorted(rtts);
+        var mad = median.HasValue ? SeriesStats.MadSorted(rtts, median.Value) : null;
         return median is > 0 && mad.HasValue ? mad.Value / median.Value : null;
     }
 
