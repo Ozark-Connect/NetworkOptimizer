@@ -27,12 +27,16 @@ public static class CongestionDetector
         var samples = series.Samples.Where(s => s.RttAvgMs.HasValue).OrderBy(s => s.Time).ToList();
         if (samples.Count == 0) return new List<CongestionEvent>();
 
-        var allRtts = samples.Select(s => s.RttAvgMs!.Value).ToList();
-        var allJitters = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList();
-        var baselineRtt = SeriesStats.Median(allRtts);
-        var rttMad = SeriesStats.Mad(allRtts);
-        var baselineP90 = SeriesStats.Percentile(allRtts, 0.90);
-        var baselineJitter = allJitters.Count > 0 ? SeriesStats.Median(allJitters) : null;
+        // Sort each array once and derive median/MAD/p90 from it, rather than letting each SeriesStats
+        // call sort again (Median + Mad + Percentile would sort the RTT array 4x). Bit-identical.
+        var allRtts = samples.Select(s => s.RttAvgMs!.Value).ToArray();
+        Array.Sort(allRtts);
+        var allJitters = samples.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToArray();
+        Array.Sort(allJitters);
+        var baselineRtt = SeriesStats.MedianSorted(allRtts);
+        var baselineP90 = SeriesStats.PercentileSorted(allRtts, 0.90);
+        var rttMad = baselineRtt.HasValue ? SeriesStats.MadSorted(allRtts, baselineRtt.Value) : null;
+        var baselineJitter = allJitters.Length > 0 ? SeriesStats.MedianSorted(allJitters) : null;
         if (baselineRtt == null || rttMad == null || baselineP90 == null) return new List<CongestionEvent>();
 
         var bucketSize = TimeSpan.FromMinutes(options.CongestionBucketMinutes);
@@ -41,12 +45,15 @@ public static class CongestionDetector
             .OrderBy(g => g.Key)
             .Select(g =>
             {
-                var rtts = g.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToList();
+                var rtts = g.Where(s => s.RttAvgMs.HasValue).Select(s => s.RttAvgMs!.Value).ToArray();
+                Array.Sort(rtts);
+                var jit = g.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToArray();
+                Array.Sort(jit);
                 return new Bucket(
                     g.Key,
-                    SeriesStats.Median(rtts),
-                    SeriesStats.Percentile(rtts, 0.90),
-                    SeriesStats.Median(g.Select(s => s.EffectiveJitterMs).Where(j => j.HasValue).Select(j => j!.Value).ToList()));
+                    SeriesStats.MedianSorted(rtts),
+                    SeriesStats.PercentileSorted(rtts, 0.90),
+                    SeriesStats.MedianSorted(jit));
             })
             .ToList();
 
