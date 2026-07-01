@@ -265,6 +265,7 @@ public class IspHealthService
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
             return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
+        var perfSw = System.Diagnostics.Stopwatch.StartNew(); // TEMP ISPPERF
         AccessTechnology technology;
         List<MonitoringTarget> targets;
         // Enabled fabric (UniFi device) targets, used only to find the LAN gateway's monitoring
@@ -358,12 +359,13 @@ public class IspHealthService
         // LoadWindowSeconds, so the auto-computed report is unchanged.
         var aggregate = TimeSpan.FromSeconds(Math.Max(
             _options.LoadWindowSeconds, (windowEnd - windowStart).TotalSeconds / 25000.0));
-        // Transit and InternetService RTT/jitter only feed the 15-min congestion and 30-min step
-        // buckets and whole-window per-ASN statistics, so pulling them at the fine load-classification
-        // resolution is wasted volume (the dominant cost is the app deserializing these series - see
-        // research profiling). Read their RTT/jitter at a coarser window while keeping their loss fine
-        // for outage detection (buckets loss at 15-30 s). Clamped so it stays well under the 15-min
-        // congestion bucket (>= ~7 samples/bucket) and never finer than the fine window on long ranges.
+        // Transit and InternetService mean RTT only feeds the 15-min congestion and 30-min step buckets
+        // and whole-window per-ASN medians, so pulling it at the fine load-classification resolution is
+        // wasted volume (the dominant cost is the app deserializing these series - see research
+        // profiling). Read their RTT at a coarser window; JITTER and loss stay fine (fine jitter because
+        // mean-coarsening dilutes the bursts congestion detection and the per-ASN P95 key on, and loss
+        // because outage buckets it at 15-30 s). Clamped so it stays well under the 15-min congestion
+        // bucket (>= ~7 samples/bucket) and never finer than the fine window on long ranges.
         var coarseAggregate = TimeSpan.FromSeconds(Math.Clamp(aggregate.TotalSeconds * 8, 60, 120));
 
         // AccessIsp stays fully fine: its first-hop RTT drives the loaded-latency delta, matched
@@ -712,6 +714,8 @@ public class IspHealthService
         report.PhysicalLinkAmbiguous = physical.Ambiguous;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
+        _logger.LogInformation("TEMP ISPPERF window={Win:0}h total={Total}ms score={Score}", // TEMP ISPPERF
+            (windowEnd - windowStart).TotalHours, perfSw.ElapsedMilliseconds, report.OverallScore); // TEMP ISPPERF
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
