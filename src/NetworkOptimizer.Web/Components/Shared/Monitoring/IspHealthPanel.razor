@@ -6,9 +6,10 @@
 @inject IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 
-@* Date/time filter (left) + Refresh. Default 48 h is the live/cached view and the only state
-   where Refresh is enabled; any other selection recomputes off-cache and locks Refresh. Always
-   rendered (once past initial load) so a custom window with no data can still be switched back. *@
+@* Date/time filter (left) + Refresh. The live/cached view (the effective auto-computed window, which
+   auto-fallback may have reduced below the configured target) is the only state where Refresh is
+   enabled; any other selection recomputes off-cache and locks Refresh. Always rendered (once past
+   initial load) so a custom window with no data can still be switched back. *@
 @if (!_loading)
 {
     <div class="isp-health-toolbar">
@@ -24,7 +25,7 @@
         @if (windowReduced)
         {
             <button class="isp-window-reduced" @onclick="RetryFullWindowAsync" disabled="@(_refreshing || _windowComputing)"
-                    data-tooltip="Auto-reduced to @(effWin) h: the @(cfgWin) h window took longer than this hardware's time budget to compute, so the live score and default view use a shorter window. Tap to retry the full window (e.g. after a hardware upgrade)." data-tooltip-hover-only>
+                    data-tooltip="ISP Health is slow-running on your box, so we dropped the window to @(effWin)h. Tap to retry, and adjust if your hardware has changed." data-tooltip-hover-only>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 <span>@(effWin)h</span>
             </button>
@@ -590,9 +591,10 @@ else
     private bool _showAllIspHops;
     private System.Threading.Timer? _ageTimer;
 
-    // Date/time filter. Never persisted: OnInitializedAsync always starts on 48 h, so leaving
-    // and returning to the tab (and every auto-computed path) resets to the live window.
-    private static readonly (string Label, int Hours)[] FilterPresets =
+    // Date/time filter. Never persisted: OnInitializedAsync starts on the live window (the effective
+    // auto-computed window, which auto-fallback may have reduced below the configured target), so
+    // leaving and returning to the tab - and every auto-computed path - resets to the live view.
+    private static readonly (string Label, int Hours)[] BasePresets =
     {
         ("24h", 24), ("48h", 48), ("7d", 168), ("14d", 336), ("30d", 720)
     };
@@ -600,6 +602,32 @@ else
     private const int MaxRangeHours = 720;   // 30-day / 1-month hard cap
     private const int MinRangeHours = 4;     // smallest custom window
     private int _selectedPreset = DefaultPresetHours;
+    // True while the selection follows the live/cached auto-computed report (rather than a preset or
+    // custom window computed off-cache). While set, _selectedPreset is kept in sync with the effective
+    // (possibly reduced) window so the matching button stays highlighted.
+    private bool _followLive = true;
+
+    // The live/cached window in hours: the effective auto-computed window (reduced by auto-fallback
+    // when the box can't finish the configured target in time), else the configured target, else 48.
+    private int LiveWindowHours => IspHealth.EffectiveWindowHours > 0
+        ? IspHealth.EffectiveWindowHours
+        : (IspHealth.ConfiguredWindowHours > 0 ? IspHealth.ConfiguredWindowHours : DefaultPresetHours);
+
+    // Presets shown in the selector: the base set plus the live window when auto-fallback landed on a
+    // value that isn't already a preset (e.g. the 16 h rung), so the active default always has a button.
+    private IEnumerable<(string Label, int Hours)> FilterPresets
+    {
+        get
+        {
+            var live = LiveWindowHours;
+            if (BasePresets.Any(p => p.Hours == live))
+                return BasePresets;
+            return BasePresets.Append((Label: FormatPresetLabel(live), Hours: live)).OrderBy(p => p.Hours);
+        }
+    }
+
+    private static string FormatPresetLabel(int hours) =>
+        hours % 24 == 0 ? $"{hours / 24}d" : $"{hours}h";
     private bool _isCustom;
     private bool _showCustomPopover;
     private bool _windowComputing;
@@ -619,7 +647,7 @@ else
     private DateTime _customFrom = DateTime.Now.AddDays(-2);
     private DateTime _customTo = DateTime.Now;
 
-    private bool IsLiveWindow => !_isCustom && _selectedPreset == DefaultPresetHours;
+    private bool IsLiveWindow => !_isCustom && _followLive;
 
     /// <summary>
     /// User asked to retry the full configured window from the "reduced window" badge (e.g. after a
@@ -647,6 +675,8 @@ else
         {
             _refreshing = false;
         }
+        // The retry may restore the full window or drop again; re-sync the highlighted button.
+        if (_followLive) _selectedPreset = LiveWindowHours;
         StateHasChanged();
     }
 
@@ -666,6 +696,9 @@ else
         {
             _loading = false;
         }
+
+        // Highlight the button for the effective (possibly auto-reduced) live window.
+        if (_followLive) _selectedPreset = LiveWindowHours;
 
         // Re-render every 30 s so "Last updated: N min ago" ages on its own, and - on the live
         // 48 h view - pull the latest cached snapshot so the tab follows the background recompute
@@ -702,6 +735,8 @@ else
             catch { /* never let a fetch fault kill the timer */ }
             finally { _autoReloading = false; }
         }
+        // Follow a background auto-fallback: keep the live button on the effective window.
+        if (_followLive) _selectedPreset = LiveWindowHours;
         StateHasChanged();
     }
 
@@ -867,7 +902,7 @@ else
         {
             // Seed both pickers from the active window so they reflect the current filter.
             _customTo = (_windowEnd ?? DateTime.UtcNow).ToLocalTime();
-            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-DefaultPresetHours)).ToLocalTime();
+            _customFrom = (_windowStart ?? DateTime.UtcNow.AddHours(-LiveWindowHours)).ToLocalTime();
         }
     }
 
@@ -876,8 +911,11 @@ else
         _showCustomPopover = false;
         _isCustom = false;
         _selectedPreset = hours;
-        if (hours == DefaultPresetHours)
-            await LoadWindowAsync(null, null);   // back to the live/cached 48 h report
+        // Selecting the live window follows the cached auto-computed report; anything else computes
+        // that window off-cache.
+        _followLive = hours == LiveWindowHours;
+        if (_followLive)
+            await LoadWindowAsync(null, null);   // back to the live/cached report
         else
         {
             var end = DateTime.UtcNow;
