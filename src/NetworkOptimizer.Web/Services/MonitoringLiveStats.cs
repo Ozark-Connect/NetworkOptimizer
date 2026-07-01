@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -304,7 +305,8 @@ public class MonitoringLiveStats
         var targets = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.Enabled
                 && (t.TargetType == MonitoringTargetType.AccessIsp
-                    || t.TargetType == MonitoringTargetType.Transit))
+                    || t.TargetType == MonitoringTargetType.Transit)
+                && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
             .Select(t => new { t.TargetId, t.TargetType })
             .ToListAsync(ct);
 

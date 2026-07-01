@@ -423,7 +423,9 @@ public static class PhysicalLinkScorer
             });
         }
 
-        var gen = isOfdm ? "DOCSIS 3.1" : "DOCSIS 3.0";
+        // An active OFDMA channel proves an OFDM-capable plant but can't tell 3.1 from 4.0
+        // (4.0 also runs OFDMA), so we name both rather than claim 3.1 specifically.
+        var gen = isOfdm ? "DOCSIS 3.1/4.0" : "DOCSIS 3.0";
         // Headline (ValueText) carries SNR + US; the description lists the other scored stats (DS, FEC).
         var desc = $"{gen} cable-modem RF health"
                    + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".")

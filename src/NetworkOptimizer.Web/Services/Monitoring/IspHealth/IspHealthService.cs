@@ -332,7 +332,10 @@ public class IspHealthService
         }
 
         var ispTargets = targets.Where(t => t.TargetType == MonitoringTargetType.AccessIsp).ToList();
-        var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit).ToList();
+        // WoodyNet / PCH (AS42, AS715) and similar IXP/anycast-DNS infrastructure are not
+        // transit; drop them so they never enter scoring, the per-ASN cards, or the chart clusters.
+        var transitTargets = targets.Where(t => t.TargetType == MonitoringTargetType.Transit
+            && !(t.AsnNumber is int a && WellKnownAsns.NonTransitInfrastructure.Contains(a))).ToList();
         if (ispTargets.Count == 0 && transitTargets.Count == 0)
             return new ComputeOutcome(IspHealthStatus.NeedsDiscovery, null, new List<AsnSeries>());
 

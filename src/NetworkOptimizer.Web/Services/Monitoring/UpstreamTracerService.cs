@@ -991,11 +991,11 @@ public class UpstreamTracerService
 
         _nearTransitAsns.Clear();
         _nearTransitAsns.UnionWith(
-            ComputeNearTransitAsns(traceSequences, asnByIp, accessAsnNumbers, destinationAsns, Tier1Asns));
+            ComputeNearTransitAsns(traceSequences, asnByIp, accessAsnNumbers, destinationAsns, WellKnownAsns.Tier1));
 
         _excludedTier1Asns.Clear();
         _excludedTier1Asns.UnionWith(
-            ComputeExcludedTier1Asns(traceSequences, asnByIp, Tier1Asns, accessAsnNumbers));
+            ComputeExcludedTier1Asns(traceSequences, asnByIp, WellKnownAsns.Tier1, accessAsnNumbers));
 
         var transitGroups = _mergedHops
             .Where(h => h.Asn != null
@@ -1004,6 +1004,7 @@ public class UpstreamTracerService
                         && !(h.Asn.Name != null && destinationOrgs.Contains(h.Asn.Name.Trim()))
                         && !transitProbeAddresses.Contains(h.Address)
                         && !_excludedTier1Asns.Contains(h.Asn.Asn)
+                        && !WellKnownAsns.NonTransitInfrastructure.Contains(h.Asn.Asn)
                         && (!transitProbeAsns.Contains(h.Asn.Asn)
                             || _nearTransitAsns.Contains(h.Asn.Asn)))
             .GroupBy(h => h.Asn!.Asn)
@@ -1929,33 +1930,6 @@ public class UpstreamTracerService
     /// </summary>
     internal static string CleanAsnName(string? name) =>
         NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(name);
-
-    // Tier-1 (settlement-free) networks, with the sibling ASNs that show up in real
-    // US traces. Two tier-1s adjacent on a path is core peering, not our access ISP's
-    // transit, so a tier-1 sitting directly above another tier-1 is excluded as a
-    // candidate. Stable set - revisit only on major carrier M&A. Last reviewed 2026-06.
-    //
-    // Hurricane Electric (AS6939) is deliberately NOT included: it isn't settlement-free
-    // on IPv4 (buys paid transit; Cogent won't peer), so its presence beneath a tier-1
-    // carries no reliable "core peering" signal. A tier-1 reached via HE still surfaces
-    // as a candidate and can simply be unchecked in the discovery review list.
-    internal static readonly HashSet<int> Tier1Asns = new()
-    {
-        3356, 209, 3549, 3561,            // Lumen / Level 3 / CenturyLink / Global Crossing / Savvis
-        7018, 2386, 7132, 6389, 2686,     // AT&T (incl. legacy SBC / BellSouth ASNs seen in US traces)
-        701, 702, 703,     // Verizon (UUNET)
-        2914,              // NTT (GIN)
-        174, 1239,         // Cogent (1239 = ex-SprintLink, sold to Cogent 2023)
-        1299,              // Arelion (ex-Telia)
-        3257,              // GTT (backbone now EXA Infrastructure; ASN still registered GTT)
-        6453,              // Tata
-        6461,              // Zayo
-        6762,              // Telecom Italia Sparkle
-        3491,              // PCCW Global
-        5511,              // Orange
-        12956,             // Telxius (Telefonica)
-        3320,              // Deutsche Telekom
-    };
 
     /// <summary>
     /// Near-transit ASNs: every ASN that appears as the 1st or 2nd distinct non-access,

@@ -3,6 +3,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -199,7 +200,8 @@ public static class MonitoringChartEndpoints
             // target_id set (full scan, ~400ms+).
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var targets = await db.MonitoringTargets.AsNoTracking()
-                .Where(t => t.TargetType == targetType && t.Enabled)
+                .Where(t => t.TargetType == targetType && t.Enabled
+                    && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))
                 .OrderBy(t => t.Name)
                 .Select(t => new { t.TargetId, t.Name })
                 .ToListAsync(ct);
