@@ -24,9 +24,8 @@ let _mode = 'live';
 let _scrubberValue = 10000;
 let _scrubberRight = 'Live';
 let _playbackSpeed = 1;
-// Timeline window the slider spans: { startMs, endMs, presetKey, trailing,
-// leftLabel, disabledKeys }. trailing means the right edge tracks now (Live
-// reachable); an anchored window is pinned around a historic instant.
+// Timeline window the slider spans: { startMs, endMs, presetKey, leftLabel,
+// disabledKeys }. The window always trails now, so the right edge is Live.
 let _scrubberWindow = null;
 let _listeners = new Set();
 

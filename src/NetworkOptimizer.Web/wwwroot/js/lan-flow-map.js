@@ -182,16 +182,13 @@ export class LanFlowMap {
         this._dotnetRef = window.__monitoringRef || null;
         this._playbackSpeed = 1;  // real-time multiplier
         this._playbackAccum = 0;  // fractional slider unit accumulator
-        // Timeline window: the slider spans _scrubSpan ms. _scrubEnd null means the
-        // window trails now (right edge = Live, like a fixed -24h view); a fixed ms
-        // timestamp means the window is anchored around a historic instant so the
-        // user can zoom in on an event older than half the span.
+        // Timeline window: the slider spans the latest _scrubSpan ms, always
+        // trailing now so the right edge is Live and recent time stays reachable.
         let savedSpan = null;
         try { savedSpan = localStorage.getItem(this._storagePrefix + 'ScrubSpan'); } catch { /* localStorage unavailable */ }
         const savedPreset = flowData.SCRUBBER_PRESETS.find(p => p.key === savedSpan);
         this._scrubSpanKey = savedPreset ? savedPreset.key : '24h';
         this._scrubSpan = savedPreset?.ms ?? 24 * 3600000;
-        this._scrubEnd = null;
         this._dataStartMs = null; // earliest stored point; clamps Max and disables too-wide presets
 
         this._panels = {};        // DOM refs for overlay UI
@@ -1861,21 +1858,6 @@ export class LanFlowMap {
             }
             flowData.publishScrubber(clamped, rightLabel, this._playbackSpeed);
             tickCount++;
-            // An anchored window's right edge is a fixed historic instant, not
-            // Live - park playback there paused instead of snapping to live.
-            if (clamped >= 9998 && this._scrubEnd !== null) {
-                this._stopHistoricPlayback();
-                this._paused = true;
-                this._syncPlayPauseIcon();
-                const endAt = new Date(this._scrubEnd);
-                this._historicAt = endAt;
-                this._playbackTime = endAt;
-                flowData.publishPlayState(true, this._mode);
-                this._notifyPlayState();
-                this._notifyStatCards(endAt);
-                this._loadHistoric(endAt);
-                return;
-            }
             // Refresh map and stat cards periodically
             if (tickCount % DATA_REFRESH_TICKS === 0 || clamped >= 9998) {
                 if (clamped >= 9998) {
@@ -2222,7 +2204,7 @@ export class LanFlowMap {
         // Trailing multi-day windows slide with now, so the midnight ticks drift;
         // a slow refresh keeps them honest on long-open pages.
         this._windowTickTimer = setInterval(() => {
-            if (this._scrubEnd === null && this._scrubSpan >= 48 * 3600000) this._publishWindow();
+            if (this._scrubSpan >= 48 * 3600000) this._publishWindow();
         }, 60000);
 
         this._buildSignalMapHint();
@@ -2515,10 +2497,10 @@ export class LanFlowMap {
         if (label) label.textContent = `${this._playbackSpeed}x`;
     }
 
-    // Current timeline window bounds. Trailing windows slide with now so Live is
-    // always the right edge; anchored windows are fixed around a historic instant.
+    // Current timeline window bounds. The window slides with now so Live is
+    // always the right edge.
     _scrubWindowBounds() {
-        const end = this._scrubEnd ?? Date.now();
+        const end = Date.now();
         return { start: end - this._scrubSpan, end };
     }
 
@@ -2535,10 +2517,9 @@ export class LanFlowMap {
         return Math.max(0, Math.min(10000, Math.round((ms - start) / span * 10000)));
     }
 
-    // The right edge only means Live while the window trails now; an anchored
-    // window's right edge is a fixed historic instant.
+    // The window trails now, so the right edge of the slider is Live.
     _isLiveValue(value) {
-        return value >= 9998 && this._scrubEnd === null;
+        return value >= 9998;
     }
 
     // Widest selectable span: capped by the primary bucket's 90-day retention and,
@@ -2549,12 +2530,11 @@ export class LanFlowMap {
         return Math.max(3600000, Math.min(cap, now - this._dataStartMs));
     }
 
-    // Switch the timeline window preset. At Live the window just becomes a wider or
-    // narrower trailing view. Parked at a historic instant, the window re-anchors
-    // around that instant (zoom-around-thumb) so the user can find an event on a
-    // coarse window, then narrow the preset to fine-scrub it. The right edge clamps
-    // to now; if the new window reaches now it falls back to trailing so a drag to
-    // the right edge still lands on Live.
+    // Switch the timeline window preset. The window always spans the latest N back
+    // from now. At Live nothing else moves. Parked or playing at a historic instant,
+    // the instant stays under the thumb when it still falls inside the new window;
+    // an instant older than the new window clamps to the left edge (the oldest
+    // reachable point) and seeks there.
     _setScrubSpan(key) {
         const preset = flowData.SCRUBBER_PRESETS.find(p => p.key === key);
         if (!preset) return;
@@ -2566,18 +2546,25 @@ export class LanFlowMap {
         try { localStorage.setItem(this._storagePrefix + 'ScrubSpan', key); } catch { /* localStorage unavailable */ }
         if (this._mode === 'live' || this._isLiveValue(value)) {
             this._scrubSpan = span;
-            this._scrubEnd = null;
         } else {
             // Resolve the current instant against the OLD window before resizing.
             const at = (this._historicAt ?? this._scrubberValueToTime(value)).getTime();
             this._scrubSpan = span;
-            const end = Math.min(at + span / 2, now);
-            this._scrubEnd = (now - end < 5000) ? null : end;
-            if (range) {
-                range.value = this._timeToScrubberValue(at);
+            const clampedAt = Math.max(at, now - span);
+            if (range) range.value = this._timeToScrubberValue(clampedAt);
+            if (clampedAt !== at) {
+                // The old position fell off the narrower window: seek to the
+                // new left edge, keeping any running playback going from there.
+                const atDate = new Date(clampedAt);
+                this._historicAt = atDate;
+                if (this._historicPlaybackTimer) this._playbackTime = atDate;
+                this._onScrubberInput(Number(range?.value ?? 0));
+                this._notifyStatCards(atDate);
+                this._loadHistoric(atDate);
+            } else {
                 // The instant under the thumb didn't move, so no data refetch -
                 // just refresh the position label and mirror state.
-                this._onScrubberInput(Number(range.value));
+                this._onScrubberInput(Number(range?.value ?? 0));
             }
         }
         if (this._panels.scrubberWindow) this._panels.scrubberWindow.value = key;
@@ -2611,20 +2598,15 @@ export class LanFlowMap {
     }
 
     _returnToLive() {
-        this._scrubEnd = null;
-        this._publishWindow();
         const range = this._panels.scrubberRange;
         if (range) range.value = 10000;
         this._onScrubberChange(10000);
     }
 
     _windowLeftLabel() {
-        if (this._scrubEnd === null) {
-            const p = flowData.SCRUBBER_PRESETS.find(x => x.key === this._scrubSpanKey);
-            if (p?.ms != null) return `-${p.label}`;
-            return `-${_fmtSpan(this._scrubSpan)}`;
-        }
-        return _fmtDateTime(new Date(this._scrubEnd - this._scrubSpan));
+        const p = flowData.SCRUBBER_PRESETS.find(x => x.key === this._scrubSpanKey);
+        if (p?.ms != null) return `-${p.label}`;
+        return `-${_fmtSpan(this._scrubSpan)}`;
     }
 
     // Refresh the 3D scrubber's window-dependent UI (left label, preset select,
@@ -2644,7 +2626,6 @@ export class LanFlowMap {
             startMs: start,
             endMs: end,
             presetKey: this._scrubSpanKey,
-            trailing: this._scrubEnd === null,
             leftLabel: this._windowLeftLabel(),
             disabledKeys: disabled,
         });
