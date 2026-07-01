@@ -1840,9 +1840,16 @@ export class LanFlowMap {
         const TICK_MS = 1000;
         const DATA_REFRESH_TICKS = 1;
         // Seed from the exact parked instant when known - requantizing through
-        // the slider value can be minutes off on a wide window.
-        this._playbackTime = this._historicAt ?? this._scrubberValueToTime(
+        // the slider value can be minutes off on a wide window. But only when
+        // the thumb still agrees with it: a quick scrub right before resuming
+        // may not have flushed through the debounced change handler yet, and
+        // then the thumb position is the user's intent, not the stale instant.
+        const fromValue = this._scrubberValueToTime(
             Number(this._panels.scrubberRange?.value ?? 500));
+        const stepMs = this._scrubSpan / 10000;
+        this._playbackTime =
+            (this._historicAt && Math.abs(this._historicAt.getTime() - fromValue.getTime()) <= stepMs)
+                ? this._historicAt : fromValue;
         let tickCount = 0;
         this._historicPlaybackTimer = setInterval(() => {
             if (this._paused) return;
@@ -2472,6 +2479,9 @@ export class LanFlowMap {
         const at = this._scrubberValueToTime(value);
         this._mode = 'historic';
         this._historicAt = at;
+        // Redirect any running playback to the new position - otherwise its
+        // next tick snaps the thumb back to wherever it was playing.
+        if (this._historicPlaybackTimer) this._playbackTime = at;
         if (this._panels.modeBadge) {
             this._panels.modeBadge.textContent = 'Historic';
             this._panels.modeBadge.classList.add('is-historic');
