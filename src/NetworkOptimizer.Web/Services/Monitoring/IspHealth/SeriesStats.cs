@@ -73,6 +73,17 @@ internal static class SeriesStats
         return PercentileSorted(dev, 0.5);
     }
 
+    /// <summary>Winsorized mean of an already ascending-sorted list, matching <see cref="WinsorizedMean"/>.</summary>
+    public static double? WinsorizedMeanSorted(IReadOnlyList<double> sortedAsc, double upperPercentile)
+    {
+        if (sortedAsc.Count == 0) return null;
+        var cap = PercentileSorted(sortedAsc, upperPercentile);
+        if (cap == null) return null;
+        double sum = 0;
+        for (var i = 0; i < sortedAsc.Count; i++) sum += Math.Min(sortedAsc[i], cap.Value);
+        return sum / sortedAsc.Count;
+    }
+
     /// <summary>Interquartile range as (q1, q3), or null when empty.</summary>
     public static (double Q1, double Q3)? Iqr(IReadOnlyList<double> values)
     {
