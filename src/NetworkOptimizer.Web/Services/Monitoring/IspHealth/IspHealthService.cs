@@ -224,8 +224,13 @@ public class IspHealthService
         _configuredWindowHours = ceiling;
         var budget = ResolveComputeBudget();
 
-        var ladder = _options.ScoreWindowLadderHours
-            .Where(h => h <= ceiling && h >= _options.MinDataHours)
+        // Always attempt the configured target first, then the standard rungs strictly below it, so a
+        // ceiling that isn't itself a ScoreWindowLadderHours value (e.g. 36 h) still tries the target
+        // before falling back rather than jumping straight to the nearest shorter rung.
+        var ladder = new[] { ceiling }
+            .Concat(_options.ScoreWindowLadderHours.Where(h => h < ceiling))
+            .Where(h => h >= _options.MinDataHours)
+            .Distinct()
             .OrderByDescending(h => h)
             .ToList();
         if (ladder.Count == 0) ladder.Add(Math.Max(ceiling, _options.MinDataHours));

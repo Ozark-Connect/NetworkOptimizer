@@ -181,7 +181,7 @@ else
             <div class="isp-health-hero-gauge">
                 <IspHealthScoreGauge Score="r.OverallScore" Label="ISP Health" />
                 <div class="isp-health-profile-chip isp-health-profile-chip-selectable"
-                     data-tooltip="Thresholds are tuned per access technology; change it to re-score.">
+                     data-tooltip="Thresholds are tuned per access technology; change it to re-score." data-tooltip-hover-only>
                     Scored as @r.Profile.DisplayName &middot; @ScoredWindowLabel(r)
                     <span class="isp-profile-chip-caret"></span>
                     <select class="isp-profile-chip-select" aria-label="Access technology"
@@ -288,7 +288,7 @@ else
                         @if (dimension == r.AccessDimension)
                         {
                             <select class="isp-access-tech-select" aria-label="Access technology"
-                                    data-tooltip="Thresholds are tuned per access technology; change it to re-score."
+                                    data-tooltip="Thresholds are tuned per access technology; change it to re-score." data-tooltip-hover-only
                                     value="@((int)r.AccessTechnology)" @onchange="OnAccessTechnologyChanged">
                                 @foreach (var tech in ProfileTechOptions)
                                 {
