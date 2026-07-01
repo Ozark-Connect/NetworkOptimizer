@@ -933,11 +933,15 @@ else
             // feed stays readable and still agrees with the cards (which badge only confirmed).
             // A localized, propagated bottleneck names the hop AND the hops beyond it in the subject,
             // which replaces the old trailing "it propagates ..." sentence. Sibling-confirmed,
-            // clean-parallel, and unlocalized events don't get it.
+            // clean-parallel, and unlocalized events don't get it. Require a placed bottleneck hop
+            // (BottleneckHopIp) so an un-traced target that only surfaced as an unlocalized Confirmed
+            // event - e.g. an access-ISP leaf with no saved trace - is never described as a hop with
+            // topology beyond it; only genuinely localized hops and shared-incident owners carry a hop IP.
             var beyond = evt.Disposition == CongestionDisposition.Confirmed
                 && !evt.ConfirmedBySibling
                 && !(evt.LoadCoincident && evt.CleanParallelPaths > 0)
                 && !evt.IsShared
+                && evt.BottleneckHopIp != null
                 ? " and the hops beyond" : "";
             var lead = $"{span} of elevated latency and jitter on {where}{beyond}{load} ({mag}).";
             var (badge, badgeClass, text) = evt.Disposition switch
