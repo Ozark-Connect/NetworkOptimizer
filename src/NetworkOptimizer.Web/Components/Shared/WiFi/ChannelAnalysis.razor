@@ -140,7 +140,7 @@
                             @if (_scanningGaps)
                             {
                                 <span class="spinner spinner-sm"></span>
-                                <span>Scanning…</span>
+                                <span>@ScanProgressLabel()</span>
                             }
                             else
                             {
@@ -927,8 +927,17 @@
     // per-channel spectrum measurement. A quick-scan fills them.
     private List<SpectrumScanGap> _scanGaps = new();
     private bool _scanningGaps;
+    // Progress for the running gap scan: bands started so far, and the total to scan. Drives the
+    // "Scanning… X/N bands" label so a multi-minute serial scan reads as working, not hung.
+    private int _scanCompletedBands;
+    private int _scanTotalBands;
     // Set when a scan fails because the UniFi account lacks the Site Admin role.
     private string? _scanError;
+
+    private string ScanProgressLabel() =>
+        _scanTotalBands > 1
+            ? $"Scanning… {Math.Clamp(_scanCompletedBands, 1, _scanTotalBands)}/{_scanTotalBands} bands"
+            : "Scanning…";
 
     // Disruption note tailored to the gapped APs' scan hardware: an AP with a dedicated scan radio
     // measures without touching its serving radios (no client impact); without one, scanning briefly
@@ -963,11 +972,20 @@
 
         _scanningGaps = true;
         _scanError = null;
+        _scanCompletedBands = 0;
+        _scanTotalBands = _scanGaps.Count; // one band scan per gapped (AP, band)
         StateHasChanged();
         try
         {
             var targets = _scanGaps.Select(g => (g.ApMac, g.BandCode)).ToList();
-            await WiFiService.RunQuickScansAsync(targets);
+            // Report progress on the Blazor circuit's context; Math.Max keeps the count monotonic
+            // even if concurrent APs report band starts out of order.
+            var progress = new Progress<int>(n =>
+            {
+                _scanCompletedBands = Math.Max(_scanCompletedBands, n);
+                InvokeAsync(StateHasChanged);
+            });
+            await WiFiService.RunQuickScansAsync(targets, progress);
 
             // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
