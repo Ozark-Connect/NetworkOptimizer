@@ -766,10 +766,13 @@ public class ChannelRecommendationService
             if (scoreInFinal < MinApScoreToMove) continue;
             if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
 
-            // Try each valid channel and find the best that meets all constraints
+            // Try each valid channel and find the best that meets all constraints. Selection and the
+            // net-benefit test are on the NETWORK objective so a fallback move can never raise it.
             int fallbackChannel = -1;
             int fallbackWidth = node.CurrentWidth;
             double fallbackScore = scoreInFinal;
+            var netBefore = ScoreAssignment(graph, finalAssignment, band);
+            var bestNet = netBefore;
 
             foreach (var candidateCh in node.ValidChannels)
             {
@@ -792,25 +795,16 @@ public class ChannelRecommendationService
                     pctImprovement < MinApImprovementPercent)
                     continue;
 
-                // A standalone move may degrade other APs, but only if it still improves the site
-                // overall (this AP's gain exceeds the total degradation it causes) and never pushes
-                // any single AP past the catastrophic cap.
+                // Catastrophic guard: never push any single AP past the catastrophic cap. Measure each
+                // victim against its score in the REALIZED plan (finalAssignment), the same baseline
+                // the mover's gain uses.
                 bool reject = false;
-                double totalDegradation = 0;
                 for (int j = 0; j < n; j++)
                 {
                     if (j == i) continue;
                     if (currentApScores[j] <= 0) continue;
-                    // Measure the victim against its score in the REALIZED plan (finalAssignment), the
-                    // same baseline the mover's gain uses - not the original score. Otherwise an AP
-                    // that already improved earlier in the plan could be pushed back up (but still
-                    // below its original) and register zero degradation, letting a net-negative move
-                    // through.
                     var otherInFinal = ScoreAp(graph, finalAssignment, j, band);
                     var otherScore = ScoreAp(graph, trial, j, band);
-                    if (otherScore > otherInFinal) totalDegradation += otherScore - otherInFinal;
-
-                    // Catastrophic: this move would push a victim into genuinely bad territory.
                     if (otherScore > CatastrophicAbsoluteScore && otherScore > otherInFinal)
                     {
                         _logger.LogDebug(
@@ -824,22 +818,24 @@ public class ChannelRecommendationService
                 }
                 if (reject) continue;
 
-                // Net-benefit: the AP's own improvement must outweigh the total degradation it
-                // causes to others, otherwise the move makes the site no better.
-                if (absImprovement <= totalDegradation)
+                // Net-benefit measured on the ACTUAL network objective (ScoreAssignment), NOT a sum of
+                // per-AP scores. Summing ScoreAp double-counts a newly-created co-channel pair, so it
+                // can call a net-WORSENING move "positive" - e.g. moving an AP onto a channel a sibling
+                // already occupies (the Front Yard ch1->ch6 case that raised the network score). Pick
+                // the candidate that lowers the network score the most; require a strict improvement.
+                var netAfter = ScoreAssignment(graph, trial, band);
+                if (netAfter >= bestNet)
                 {
                     _logger.LogDebug(
-                        "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} improves {Abs:F3} but degrades " +
-                        "others by {Deg:F3} total (not net-positive for the site), skipping",
-                        node.Name, candidateCh, absImprovement, totalDegradation);
+                        "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} network {Before:F3}->{After:F3} " +
+                        "is not a net improvement, skipping",
+                        node.Name, candidateCh, netBefore, netAfter);
                     continue;
                 }
 
-                if (candidateScore < fallbackScore)
-                {
-                    fallbackScore = candidateScore;
-                    fallbackChannel = candidateCh;
-                }
+                bestNet = netAfter;
+                fallbackScore = candidateScore;
+                fallbackChannel = candidateCh;
             }
 
             if (fallbackChannel >= 0)
@@ -1064,6 +1060,25 @@ public class ChannelRecommendationService
             plan.Recommendations[i].RecommendedChannel = leaderRec.RecommendedChannel;
             plan.Recommendations[i].RecommendedWidth = leaderRec.RecommendedWidth;
             finalAssignment[i] = (leaderRec.RecommendedChannel, leaderRec.RecommendedWidth);
+        }
+
+        // Global guardrail: never emit a plan that RAISES the network score. The post-passes
+        // (per-AP fallback, altruistic) judge benefit per AP, and a per-AP proxy can disagree with the
+        // network objective; if the final plan isn't a net improvement over current, drop every move
+        // and keep the current assignment. (Higher ScoreAssignment = worse.)
+        var finalNetworkScore = ScoreAssignment(graph, finalAssignment, band);
+        if (finalNetworkScore > currentNetworkScore)
+        {
+            _logger.LogDebug(
+                "[ChannelRec] {Band}: final plan network {Final:F3} is worse than current {Current:F3} - reverting all moves",
+                band, finalNetworkScore, currentNetworkScore);
+            for (int i = 0; i < n; i++)
+            {
+                var node = graph.Nodes[i];
+                finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                plan.Recommendations[i].RecommendedChannel = node.CurrentChannel;
+                plan.Recommendations[i].RecommendedWidth = node.CurrentWidth;
+            }
         }
 
         // Re-score ALL APs against the final assignment for accurate display.

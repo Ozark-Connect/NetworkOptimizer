@@ -1017,6 +1017,32 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void Optimize_RecommendedNetworkScore_NeverWorseThanCurrent()
+    {
+        // Invariant: the engine must never recommend a plan that RAISES (worsens) the network score.
+        // A per-AP fallback move can help the mover but collide with a sibling and worsen the network
+        // (the Front Yard ch1->ch6 case, where sum-of-ScoreAp called a net-worsening move "positive").
+        // The fallback's network-objective net check + the global guardrail must prevent that.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "A", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:02", "B", RadioBand.Band2_4GHz, 6),
+            CreateAp("aa:bb:cc:dd:ee:03", "C", RadioBand.Band2_4GHz, 11)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.ExternalLoad[0] = new() { { 1, 4.0 } };  // A's current channel is loaded - it wants to move
+        graph.ExternalLoad[1] = new() { { 6, 1.0 } };
+        graph.ExternalLoad[2] = new() { { 11, 1.0 } };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.RecommendedNetworkScore.Should().BeLessThanOrEqualTo(plan.CurrentNetworkScore + 1e-6,
+            "the engine must never recommend a plan that raises the network score");
+    }
+
+    [Fact]
     public void Optimize_MeasuredComfortableCurrentChannel_NotChurnedForOwnBenefit()
     {
         // The reported class: the external neighbor scan inflates a channel that the AP's own radio
