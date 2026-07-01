@@ -147,6 +147,17 @@ public class ChannelRecommendationService
     private const double MaxCrowdingFriction = 3.0;
 
     /// <summary>
+    /// Minimum whole-site improvement (as a percent of the current network score) required before ANY
+    /// 2.4 GHz channel move is recommended. 2.4 GHz is low-value and inherently congested - three
+    /// usable channels, legacy and IoT clients - so a marginal site gain just shuffles interference
+    /// between APs and isn't worth the churn. The other bands recommend on any net improvement (still
+    /// subject to the per-AP move gates); only 2.4 GHz must clear this higher whole-site bar. Applied
+    /// as a final guardrail after all optimization passes, and skipped when any AP sits on an invalid
+    /// channel (those always move to 1/6/11 regardless). Tunable.
+    /// </summary>
+    private const double MinBand24NetworkImprovementPercent = 8.0;
+
+    /// <summary>
     /// A channel is "measurably comfortable" when the AP's own radio reports time-averaged (1d/7d)
     /// EXTERNAL-network interference on it (airtime from other people's networks) below this percent.
     /// The external neighbor scan counts visible-but-idle BSSIDs and can inflate a fine channel into a
@@ -1067,12 +1078,23 @@ public class ChannelRecommendationService
         // (per-AP fallback, altruistic) judge benefit per AP, and a per-AP proxy can disagree with the
         // network objective; if the final plan isn't a net improvement over current, drop every move
         // and keep the current assignment. (Higher ScoreAssignment = worse.)
+        //
+        // 2.4 GHz additionally requires the whole-site gain to clear MinBand24NetworkImprovementPercent:
+        // the band is low-value and congested, so a marginal site improvement (e.g. a 3% drop that just
+        // moves one AP onto a neighbor's channel) isn't worth the churn. Skipped when an AP is on an
+        // invalid channel - those must always move to 1/6/11 no matter how small the site gain looks.
         var finalNetworkScore = ScoreAssignment(graph, finalAssignment, band);
-        if (finalNetworkScore > currentNetworkScore)
+        var networkImprovementPct = currentNetworkScore > 0
+            ? (currentNetworkScore - finalNetworkScore) / currentNetworkScore * 100
+            : 0;
+        var band24GainTooSmall = band == RadioBand.Band2_4GHz && !hasInvalidChannelAps &&
+                                 networkImprovementPct < MinBand24NetworkImprovementPercent;
+        if (finalNetworkScore > currentNetworkScore || band24GainTooSmall)
         {
             _logger.LogDebug(
-                "[ChannelRec] {Band}: final plan network {Final:F3} is worse than current {Current:F3} - reverting all moves",
-                band, finalNetworkScore, currentNetworkScore);
+                "[ChannelRec] {Band}: final plan network {Final:F3} vs current {Current:F3} " +
+                "({Pct:F1}% improvement) doesn't justify moves - reverting all",
+                band, finalNetworkScore, currentNetworkScore, networkImprovementPct);
             for (int i = 0; i < n; i++)
             {
                 var node = graph.Nodes[i];
