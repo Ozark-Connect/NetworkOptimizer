@@ -3731,6 +3731,17 @@ select.form-control {
     flex-shrink: 0;
 }
 
+.scan-error-banner {
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+    .scan-gap-banner .btn {
+        width: 100%;
+    }
+}
+
 .banner-icon {
     font-size: 1.5rem;
     background: rgba(255, 255, 255, 0.2);

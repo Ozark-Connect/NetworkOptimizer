@@ -132,18 +132,15 @@
                 {
                     <div class="alert-info scan-gap-banner">
                         <div class="scan-gap-text">
-                            <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio hasn't" : "radios haven't") been scanned recently.</strong>
-                            Without a measurement the optimizer infers those channels from neighboring
-                            networks instead of seeing them directly. A quick scan reads the real airtime
-                            and noise floor on each channel, so the recommendations reflect what's actually
-                            on the air - not a guess. @ScanDisruptionNote()
+                            <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio needs" : "radios need") a scan.</strong>
+                            Their channels are estimated from nearby networks, not measured. @ScanDisruptionNote()
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
-                                data-tooltip="Runs a quick RF scan to measure these channels">
+                                data-tooltip="Runs a quick RF scan to measure the real airtime and noise floor on these channels, so the recommendations reflect what's actually on the air instead of a guess.">
                             @if (_scanningGaps)
                             {
                                 <span class="spinner spinner-sm"></span>
-                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")…</span>
+                                <span>@ScanProgressLabel()</span>
                             }
                             else
                             {
@@ -151,6 +148,10 @@
                             }
                         </button>
                     </div>
+                    @if (_scanError is not null)
+                    {
+                        <div class="alert-danger scan-error-banner">@_scanError</div>
+                    }
                 }
 
                 @if (_channelPlan is { } plan)
@@ -926,6 +927,17 @@
     // per-channel spectrum measurement. A quick-scan fills them.
     private List<SpectrumScanGap> _scanGaps = new();
     private bool _scanningGaps;
+    // Progress for the running gap scan: bands started so far, and the total to scan. Drives the
+    // "Scanning… X/N bands" label so a multi-minute serial scan reads as working, not hung.
+    private int _scanCompletedBands;
+    private int _scanTotalBands;
+    // Set when a scan fails because the UniFi account lacks the Site Admin role.
+    private string? _scanError;
+
+    private string ScanProgressLabel() =>
+        _scanTotalBands > 1
+            ? $"Scanning… {Math.Clamp(_scanCompletedBands, 1, _scanTotalBands)}/{_scanTotalBands} bands"
+            : "Scanning…";
 
     // Disruption note tailored to the gapped APs' scan hardware: an AP with a dedicated scan radio
     // measures without touching its serving radios (no client impact); without one, scanning briefly
@@ -935,17 +947,11 @@
         var clean = _scanGaps.Count(g => g.HasDedicatedScanRadio);
         var disruptive = _scanGaps.Count - clean;
         var meshNote = _scanGaps.Any(g => g.IsMeshParent && !g.HasDedicatedScanRadio)
-            ? ", and may briefly drop devices meshed through an AP" : "";
+            ? " (and devices meshed through an AP)" : "";
 
         if (disruptive == 0)
-            return "These scan on a dedicated radio, so running won't disrupt clients.";
-        if (clean == 0)
-            return $"Heads up: scanning briefly steps each radio off its channel - clients stay connected, "
-                 + $"but real-time traffic (video calls, gaming) can hiccup for a moment{meshNote}. "
-                 + "Much lighter than a full scan, but best run during low-usage times.";
-        return $"{clean} of these scan on a dedicated radio with no client impact; the other {disruptive} "
-             + $"briefly step their serving radio off-channel, so real-time traffic can hiccup{meshNote} - "
-             + "best run during low-usage times.";
+            return "Won't disrupt clients.";
+        return $"May briefly interrupt {(clean == 0 ? "clients" : "some clients")}{meshNote}; best at quiet times.";
     }
 
     private async Task LoadScanGapsAsync()
@@ -965,16 +971,30 @@
         if (_scanningGaps || _scanGaps.Count == 0) return;
 
         _scanningGaps = true;
+        _scanError = null;
+        _scanCompletedBands = 0;
+        _scanTotalBands = _scanGaps.Count; // one band scan per gapped (AP, band)
         StateHasChanged();
         try
         {
             var targets = _scanGaps.Select(g => (g.ApMac, g.BandCode)).ToList();
-            await WiFiService.RunQuickScansAsync(targets);
+            // Report progress on the Blazor circuit's context; Math.Max keeps the count monotonic
+            // even if concurrent APs report band starts out of order.
+            var progress = new Progress<int>(n =>
+            {
+                _scanCompletedBands = Math.Max(_scanCompletedBands, n);
+                InvokeAsync(StateHasChanged);
+            });
+            await WiFiService.RunQuickScansAsync(targets, progress);
 
             // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
             _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
             await LoadScanGapsAsync();
+        }
+        catch (ScanPermissionException ex)
+        {
+            _scanError = ex.Message;
         }
         finally
         {

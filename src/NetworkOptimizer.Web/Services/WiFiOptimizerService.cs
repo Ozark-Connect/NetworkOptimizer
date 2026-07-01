@@ -655,6 +655,7 @@ public class WiFiOptimizerService
     /// </summary>
     public async Task RunQuickScansAsync(
         IEnumerable<(string ApMac, string BandCode)> targets,
+        IProgress<int>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var list = targets.ToList();
@@ -671,12 +672,32 @@ public class WiFiOptimizerService
                 if (radio.ChannelWidth is int w)
                     widthByApBand[(ap.Mac, radio.Band.ToUniFiCode())] = w;
 
+        // Report progress as each band scan STARTS (bands run sequentially within an AP but APs run
+        // concurrently, so the counter is shared and bumped atomically). Counting at start - not
+        // completion - means the UI shows "scanning band N" while that band is actually in flight,
+        // and never sits at 0. Total = list.Count (one scan per gapped (AP, band) target).
+        var bandsStarted = 0;
+        void ReportBandStart()
+        {
+            if (progress != null)
+                progress.Report(Interlocked.Increment(ref bandsStarted));
+        }
+
         var perApScans = list
             .GroupBy(t => t.ApMac, StringComparer.OrdinalIgnoreCase)
             .Select(g => ScanApBandsSequentiallyAsync(
                 provider, g.Key, g.Select(t => t.BandCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                widthByApBand, cancellationToken));
-        await Task.WhenAll(perApScans);
+                widthByApBand, ReportBandStart, cancellationToken));
+        try
+        {
+            await Task.WhenAll(perApScans);
+        }
+        catch (UniFiPermissionException ex)
+        {
+            // Insufficient UniFi role - re-throw as a UI-facing error so the user knows to fix
+            // permissions rather than retry. Nothing scanned, so the cache stays valid.
+            throw new ScanPermissionException(ex.Message);
+        }
 
         // Fresh scans are in - drop the cached snapshot so the next fetch re-reads the spectrum data.
         _cachedScanResults = null;
@@ -689,10 +710,12 @@ public class WiFiOptimizerService
     /// </summary>
     private async Task ScanApBandsSequentiallyAsync(
         UniFiLiveDataProvider provider, string apMac, List<string> bandCodes,
-        IReadOnlyDictionary<(string Mac, string BandCode), int> widthByApBand, CancellationToken cancellationToken)
+        IReadOnlyDictionary<(string Mac, string BandCode), int> widthByApBand,
+        Action? onBandStart, CancellationToken cancellationToken)
     {
         foreach (var bandCode in bandCodes)
         {
+            onBandStart?.Invoke();
             // Scan at the radio's current width (fall back to 20 MHz if unknown).
             var bandwidthMhz = widthByApBand.TryGetValue((apMac, bandCode), out var w) ? w : 20;
             try
@@ -709,6 +732,12 @@ public class WiFiOptimizerService
                         apMac, QuickScanPerBandTimeoutSeconds);
                     break;
                 }
+            }
+            catch (UniFiPermissionException)
+            {
+                // Insufficient role affects every scan, not just this band - stop and let the caller
+                // surface it rather than swallowing it and hammering the controller with more 403s.
+                throw;
             }
             catch (Exception ex)
             {

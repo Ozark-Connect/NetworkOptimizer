@@ -584,7 +584,8 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     private async Task<T?> ExecuteApiCallAsync<T>(
         Func<Task<HttpResponseMessage>> apiCall,
-        CancellationToken cancellationToken = default) where T : class
+        CancellationToken cancellationToken = default,
+        bool throwOnPermissionError = false) where T : class
     {
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
@@ -595,6 +596,18 @@ public class UniFiApiClient : IDisposable
         return await _retryPolicy.ExecuteAsync(async () =>
         {
             var response = await apiCall();
+
+            // A 403 with api.err.NoPermission means the credentials are valid but lack the required
+            // access level - re-authenticating won't fix it. Surface it (for mutative callers that
+            // opt in) instead of looping through a pointless re-auth that just spams the log.
+            if (throwOnPermissionError && response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (body.Contains("api.err.NoPermission", StringComparison.OrdinalIgnoreCase))
+                    throw new UniFiPermissionException(
+                        "The UniFi account lacks permission to run RF spectrum scans. In UniFi Network, " +
+                        "give this account the Network: Site Admin role, then try again.");
+            }
 
             // Handle authentication failures
             if (response.StatusCode == HttpStatusCode.Unauthorized ||
@@ -2458,9 +2471,12 @@ public class UniFiApiClient : IDisposable
         };
         var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
+        // Opt into permission-error surfacing: this is a mutative call, so a NoPermission 403 is a
+        // real, actionable failure (insufficient role) rather than a transient/auth-expiry hiccup.
         var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
             () => _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken),
-            cancellationToken);
+            cancellationToken,
+            throwOnPermissionError: true);
 
         if (response?.Meta.Rc == "ok")
         {
