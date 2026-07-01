@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260701210000_AddIspHealthScoreWindow")]
+    partial class AddIspHealthScoreWindow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");

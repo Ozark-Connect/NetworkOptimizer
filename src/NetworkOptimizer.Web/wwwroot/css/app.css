@@ -16088,6 +16088,31 @@ tr.stats-row-filtered {
     justify-content: center;
 }
 
+.isp-window-reduced {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--warning-color);
+    border-radius: 6px;
+    background: rgba(231, 150, 19, 0.12);
+    color: var(--warning-color);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.isp-window-reduced:hover {
+    background: rgba(231, 150, 19, 0.2);
+}
+
+.isp-window-reduced:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .isp-popover-backdrop {
     position: fixed;
     inset: 0;

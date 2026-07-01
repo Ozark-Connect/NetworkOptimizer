@@ -9,8 +9,23 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 /// </summary>
 public class IspHealthOptions
 {
-    /// <summary>Trailing analysis window in hours.</summary>
+    /// <summary>Trailing analysis window in hours. The built-in default target; the per-site
+    /// configurable target (MonitoringSettings.IspHealthScoreWindowHours) overrides it.</summary>
     public int ScoreWindowHours { get; set; } = 48;
+
+    /// <summary>
+    /// Trailing windows (hours) the auto-computed score falls back through, longest first, when a
+    /// compute exceeds <see cref="ComputeBudget"/> on slower hardware. Only rungs at or below the
+    /// configured target window are used; a rung below <see cref="MinDataHours"/> is skipped.
+    /// </summary>
+    public int[] ScoreWindowLadderHours { get; set; } = { 48, 24, 16 };
+
+    /// <summary>
+    /// Per-attempt time budget for an auto-computed score. If a window's compute exceeds it, the auto
+    /// path abandons that window and drops to the next-shorter rung. Kept under the ~30 s HTTP/circuit
+    /// timeout so the default view never hangs on a window the hardware cannot finish in time.
+    /// </summary>
+    public TimeSpan ComputeBudget { get; set; } = TimeSpan.FromSeconds(25);
 
     /// <summary>Minimum hours of latency data required before a score is shown (new installs).</summary>
     public int MinDataHours { get; set; } = 4;

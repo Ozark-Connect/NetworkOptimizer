@@ -16,6 +16,19 @@
         {
             <div class="isp-popover-backdrop" @onclick="() => _showCustomPopover = false"></div>
         }
+        @{
+            var effWin = IspHealth.EffectiveWindowHours;
+            var cfgWin = IspHealth.ConfiguredWindowHours;
+            var windowReduced = effWin > 0 && cfgWin > 0 && effWin < cfgWin;
+        }
+        @if (windowReduced)
+        {
+            <button class="isp-window-reduced" @onclick="RetryFullWindowAsync" disabled="@(_refreshing || _windowComputing)"
+                    data-tooltip="Auto-reduced to @(effWin) h: the @(cfgWin) h window took longer than this hardware's time budget to compute, so the live score and default view use a shorter window. Tap to retry the full window (e.g. after a hardware upgrade)." data-tooltip-hover-only>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                <span>@(effWin)h</span>
+            </button>
+        }
         <div class="time-range-selector @(_showCustomPopover ? "isp-filter-raised" : "")" style="position: relative;">
             @foreach (var p in FilterPresets)
             {
@@ -607,6 +620,35 @@ else
     private DateTime _customTo = DateTime.Now;
 
     private bool IsLiveWindow => !_isCustom && _selectedPreset == DefaultPresetHours;
+
+    /// <summary>
+    /// User asked to retry the full configured window from the "reduced window" badge (e.g. after a
+    /// hardware upgrade). Reset the auto-fallback so the next compute re-probes the target, then force
+    /// a recompute; if the box still can't finish it in time it simply drops back and the badge
+    /// returns. Only swaps the displayed report when on the live view.
+    /// </summary>
+    private async Task RetryFullWindowAsync()
+    {
+        if (_refreshing || _windowComputing) return;
+        IspHealth.RetryConfiguredWindow();
+        _refreshing = true;
+        StateHasChanged();
+        try
+        {
+            var report = await IspHealth.GetReportAsync(forceRefresh: true);
+            if (IsLiveWindow)
+            {
+                _report = report;
+                try { await JS.InvokeVoidAsync("eval", "window.__ispHealthCharts?.reload?.();"); }
+                catch { /* chart not mounted yet */ }
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+        StateHasChanged();
+    }
 
     protected override async Task OnInitializedAsync()
     {

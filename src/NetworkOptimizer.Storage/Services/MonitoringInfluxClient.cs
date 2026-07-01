@@ -137,6 +137,12 @@ public class MonitoringInfluxClient : IAsyncDisposable
                 .Url(url)
                 .AuthenticateToken(plainToken)
                 .LogLevel(InfluxDB.Client.Core.LogLevel.None)
+                // The client default query timeout (~10 s) cancels heavy reads (e.g. a 48 h ISP Health
+                // window on a slow spinning-disk NAS with a Comcast-style hop-heavy path - see #941)
+                // before they finish, surfacing as a TaskCanceledException that reads as a hard failure.
+                // Raise it well past ISP Health's own per-compute budget so that budget is the single
+                // authority on when to give up (and fall back to a shorter window), not the transport.
+                .TimeOut(TimeSpan.FromSeconds(60))
                 .Build();
 
             _client = new InfluxDBClient(options);
