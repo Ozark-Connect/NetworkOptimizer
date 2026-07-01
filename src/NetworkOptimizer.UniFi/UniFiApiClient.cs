@@ -606,7 +606,7 @@ public class UniFiApiClient : IDisposable
                 if (body.Contains("api.err.NoPermission", StringComparison.OrdinalIgnoreCase))
                     throw new UniFiPermissionException(
                         "The UniFi account lacks permission to run RF spectrum scans. In UniFi Network, " +
-                        "give this account (or API key) the Network: Site Admin role, then try again.");
+                        "give this account the Network: Site Admin role, then try again.");
             }
 
             // Handle authentication failures
