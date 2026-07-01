@@ -2161,6 +2161,52 @@ join.inner(left: loss, right: load, on: (l, r) => l._time == r._time, as: (l, r)
     }
 
     /// <summary>
+    /// Mean loss_percent pooled across every enabled target of one type over a window, weighting
+    /// all their samples equally - the same per-sample mean ISP Health's loss factors use. The loss
+    /// event finders report a single target's PEAK-loss minute (to center the chart on the worst
+    /// point); this gives the type-wide average over the coalesced event window, so the Investigate
+    /// highlight reflects what the whole tier did - close to the pooled figure ISP Health scores -
+    /// rather than the single worst target. Null when no loss samples fall in the window.
+    /// </summary>
+    public async Task<double?> QueryMeanLossByTargetTypeAsync(
+        MonitoringTargetType targetType,
+        DateTime from,
+        DateTime to,
+        IReadOnlyCollection<string>? enabledTargetIds = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return null;
+        var typeTag = targetType.ToString().ToLowerInvariant();
+        var typeFilter = targetType == MonitoringTargetType.InternetService
+            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
+            : $@"r.target_type == ""{typeTag}""";
+        var targetFilter = "";
+        if (enabledTargetIds != null && enabledTargetIds.Count > 0)
+        {
+            var conditions = string.Join(" or ", enabledTargetIds.Select(id => $@"r.target_id == ""{SanitizeFluxString(id)}"""));
+            targetFilter = $"\n  |> filter(fn: (r) => {conditions})";
+        }
+        // group() collapses every target's per-sample loss into one table so mean() is the pooled
+        // average across the whole tier, not per target.
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""latency"")
+  |> filter(fn: (r) => {typeFilter}){targetFilter}
+  |> filter(fn: (r) => r._field == ""loss_percent"")
+  |> group()
+  |> mean()
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var v = AsDoubleOrNull(record.GetValueByKey("_value"));
+            if (v != null) return v;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Find the most recent SFP anomaly: temperature above PON threshold (75 C) or
     /// RX power below PON threshold (-25 dBm). Scans the last 7 days.
     /// </summary>

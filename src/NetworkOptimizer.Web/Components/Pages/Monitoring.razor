@@ -2766,11 +2766,11 @@ else
                 _lossInvestigateResult = after.HasValue ? "No newer events" : "No older events";
                 return;
             }
-            var category = result.TargetType switch
+            var (targetType, category) = result.TargetType switch
             {
-                "accessisp" => "AccessIsp",
-                "transit" => "Transit",
-                _ => "InternetService"
+                "accessisp" => (MonitoringTargetType.AccessIsp, "AccessIsp"),
+                "transit" => (MonitoringTargetType.Transit, "Transit"),
+                _ => (MonitoringTargetType.InternetService, "InternetService")
             };
             _lossNavActive = true;
             _lossNavTimestamp = result.Timestamp;
@@ -2781,9 +2781,17 @@ else
                 : delta.TotalHours < 24 ? $"{(int)delta.TotalHours}h ago"
                 : $"{(int)delta.TotalDays}d ago";
             var localTime = result.Timestamp.ToLocalTime().ToString("M/d h:mm tt");
-            _lossInvestigateResult = $"{result.LossPercent:0.#}% loss {ago} ({localTime})";
+            // The event is found on its single worst target's peak minute, but the highlight should
+            // read the loss the whole tier saw over the event - the pooled per-sample mean across all
+            // enabled targets of that type, matching (ish) what ISP Health's loss factors score. The
+            // band's start is backed up one bucket, so pool over the same widened window. Fall back to
+            // the peak target's value if the pooled query returns nothing.
+            var pooledLoss = await InfluxClient.QueryMeanLossByTargetTypeAsync(
+                targetType, result.EventStart.AddMinutes(-1), result.EventEnd, enabledIds)
+                ?? result.LossPercent;
+            _lossInvestigateResult = $"{pooledLoss:0.#}% loss {ago} ({localTime})";
             StateHasChanged();
-            var annotationLabel = $"{(loadedOnly ? "Loaded" : "Packet")} loss {result.LossPercent:0.#}%";
+            var annotationLabel = $"{(loadedOnly ? "Loaded" : "Packet")} loss {pooledLoss:0.#}%";
             await JS.InvokeVoidAsync("eval",
                 $"window.__latencyCharts?.navigateToTime('{result.Timestamp:o}', '{category}', '{annotationLabel}', {(loadedOnly ? "true" : "false")}, '{result.EventStart:o}', '{result.EventEnd:o}');");
         }
