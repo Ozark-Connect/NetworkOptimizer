@@ -3,7 +3,7 @@
 // zero duplicate API calls. GPU-composited canvas for smooth particle animation.
 
 // KEEP IN SYNC: lan-flow-map.js imports the same module. Both must use the same ?v= or they get separate instances.
-import * as flowData from './lan-flow-data.js?v=3';
+import * as flowData from './lan-flow-data.js?v=4';
 
 function demoMask(text) {
     const dm = window.DemoMask;
@@ -317,6 +317,8 @@ class LanFlowMap2D {
                 this._needsStaticRedraw=true;
             }else if(ev==='scrubber'||ev==='playstate'){
                 this._syncScrubber();
+            }else if(ev==='scrubber-window'){
+                this._syncScrubberWindow();
             }
         });
         this._lastFrame=performance.now();
@@ -493,10 +495,7 @@ class LanFlowMap2D {
         modeBadge.setAttribute('data-tooltip-hover-only','');
         modeBadge.addEventListener('click',()=>{
             const inst=window.__lanFlowMap?.getInstance?.();
-            if(inst&&inst._mode==='historic'){
-                const r=inst._panels?.scrubberRange;
-                if(r){r.value=10000;r.dispatchEvent(new Event('change'));}
-            }
+            if(inst&&inst._mode==='historic')inst._returnToLive();
         });
         status.appendChild(modeBadge);
         this._el.appendChild(status);
@@ -514,10 +513,24 @@ class LanFlowMap2D {
                     <span class="lan-flow-map-speed-label" data-role="speed-label">1x</span>
                     <button class="lan-flow-map-speed-step" data-dir="1" type="button" aria-label="Faster">+</button>
                 </div>
+                <select class="lan-flow-map-scrubber-window" data-role="window" aria-label="Timeline range"></select>
                 <span data-role="left">-24h</span>
-                <input class="lan-flow-map-scrubber-range" type="range" min="0" max="10000" value="10000" />
+                <span class="lan-flow-map-scrubber-track">
+                    <input class="lan-flow-map-scrubber-range" type="range" min="0" max="10000" value="10000" />
+                    <span class="lan-flow-map-scrubber-ticks" data-role="ticks"></span>
+                </span>
                 <span data-role="right">Live</span>
             </div>`;
+        const windowSel=scrubber.querySelector('[data-role="window"]');
+        for(const p of flowData.SCRUBBER_PRESETS){
+            const opt=document.createElement('option');
+            opt.value=p.key;opt.textContent=p.label;
+            windowSel.appendChild(opt);
+        }
+        windowSel.addEventListener('change',()=>{
+            const inst=window.__lanFlowMap?.getInstance?.();
+            if(inst)inst._setScrubSpan(windowSel.value);
+        });
         // Forward all interactions to the 3D map
         const fwd=()=>window.__lanFlowMap?.getInstance?.();
         const sRange=scrubber.querySelector('.lan-flow-map-scrubber-range');
@@ -567,10 +580,15 @@ class LanFlowMap2D {
         this._el.appendChild(scrubber);
         this._scrubberEls={
             range:sRange,
+            left:scrubber.querySelector('[data-role="left"]'),
             right:scrubber.querySelector('[data-role="right"]'),
             playPause:scrubber.querySelector('[data-role="playpause"]'),
             speedLabel:scrubber.querySelector('[data-role="speed-label"]'),
+            windowSel,
+            ticks:scrubber.querySelector('[data-role="ticks"]'),
         };
+        // Adopt whatever window the 3D map already published (it usually mounts first).
+        this._syncScrubberWindow();
 
         // Events
         canvas.addEventListener('wheel',(e)=>this._onWheel(e),{passive:false});
@@ -752,6 +770,19 @@ class LanFlowMap2D {
                 if(this._modeBadge._tippy)this._modeBadge._tippy.destroy();
             }
         }
+    }
+
+    _syncScrubberWindow(){
+        if(!this._scrubberEls)return;
+        const win=flowData.getScrubberWindow();
+        if(!win)return;
+        this._scrubberEls.left.textContent=win.leftLabel;
+        const sel=this._scrubberEls.windowSel;
+        if(sel){
+            sel.value=win.presetKey;
+            for(const opt of sel.options)opt.disabled=win.disabledKeys?.includes(opt.value)??false;
+        }
+        flowData.renderScrubberTicks(this._scrubberEls.ticks,win.startMs,win.endMs);
     }
 
     _isNodeVisible(n){

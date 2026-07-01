@@ -773,6 +773,31 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
+    /// Earliest interface_counters point in the primary bucket - the effective floor for
+    /// historic playback. first() runs per series (pushed down, cheap), then min picks the
+    /// oldest across series. Returns null when unconfigured or no data exists yet.
+    /// </summary>
+    public async Task<DateTime?> QueryEarliestInterfaceDataAsync(CancellationToken ct = default)
+    {
+        if (!IsConfigured) return null;
+        var flux = $@"
+from(bucket: ""{_bucket}"")
+  |> range(start: -90d)
+  |> filter(fn: (r) => r._measurement == ""interface_counters"")
+  |> filter(fn: (r) => r._field == ""rate_in_bps"")
+  |> first()
+  |> group()
+  |> min(column: ""_time"")
+";
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var time = record.GetTimeInDateTime();
+            if (time != null) return ToUtc(time.Value);
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Batch variant: fetches interface rates for a set of devices in one query.
     /// Returns results grouped by device MAC for caller-side partitioning.
     /// </summary>
