@@ -997,6 +997,14 @@ public class ComputeExcludedTier1AsnsTests
         // signal and stays out of the adjacency set.
         WellKnownAsns.Tier1.Should().NotContain(6939);
     }
+
+    [Fact]
+    public void NonTransitInfrastructure_includes_woodynet_pch()
+    {
+        // WoodyNet / PCH (AS42, AS715) runs IXP route servers and anycast DNS, not
+        // commercial transit, so both stay in the non-transit exclusion set.
+        WellKnownAsns.NonTransitInfrastructure.Should().Contain(new[] { 42, 715 });
+    }
 }
 
 public class AccessIspFallbackTests
