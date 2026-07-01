@@ -25,7 +25,7 @@
         @if (windowReduced)
         {
             <button class="isp-window-reduced" @onclick="RetryFullWindowAsync" disabled="@(_refreshing || _windowComputing)"
-                    data-tooltip="ISP Health is slow-running on your box, so we dropped the window to @(effWin)h. Tap to retry, and adjust if your hardware has changed." data-tooltip-hover-only>
+                    data-tooltip="ISP Health is slow-running on your box, so we dropped the default window to @(effWin)h. Tap to retry, and adjust if your hardware has changed." data-tooltip-hover-only>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 <span>@(effWin)h</span>
             </button>
@@ -158,6 +158,18 @@ else
             </div>
         </div>
     }
+    @* While an explicit recompute is in flight (Refresh, a time-window change, or an access-tech
+       change) swap just the hero for the same area spinner shown on initial load, so the headline
+       score never displays a stale number mid-recompute. The detail cards below stay put. *@
+    @if (_refreshing || _windowComputing)
+    {
+        <div class="isp-health-loading card isp-health-hero-loading">
+            <div class="isp-health-loading-spinner"></div>
+            <p class="isp-health-loading-text">Analyzing recent ISP data...</p>
+        </div>
+    }
+    else
+    {
     <div class="isp-health-hero card">
         <span class="isp-health-updated">Last updated: @TimeFormatHelper.FormatRelativeTimeShort(r.ComputedAt)</span>
         <div class="card-body isp-health-hero-body">
@@ -216,6 +228,7 @@ else
             </div>
         </div>
     </div>
+    }
 
     @if (r.Issues.Count > 0)
     {

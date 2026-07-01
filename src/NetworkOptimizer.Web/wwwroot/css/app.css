@@ -16176,6 +16176,11 @@ tr.stats-row-filtered {
         var(--bg-card);
 }
 
+.isp-health-hero-loading {
+    min-height: 200px;
+    margin-bottom: 1rem;
+}
+
 .isp-health-hero-body {
     display: grid;
     grid-template-columns: auto 1fr auto;
