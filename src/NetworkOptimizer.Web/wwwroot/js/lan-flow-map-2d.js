@@ -531,6 +531,21 @@ class LanFlowMap2D {
             const inst=window.__lanFlowMap?.getInstance?.();
             if(inst)inst._setScrubSpan(windowSel.value);
         });
+        // Arrow left/right float up to timeline scrubbing (on the 3D instance);
+        // without this the focused dropdown consumes them as value changes.
+        windowSel.addEventListener('keydown',(e)=>{
+            if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+            e.preventDefault();
+            const inst=window.__lanFlowMap?.getInstance?.();
+            if(inst&&inst._keys)inst._keys[e.key.toLowerCase()]=true;
+        });
+        windowSel.addEventListener('keyup',(e)=>{
+            if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+            const inst=window.__lanFlowMap?.getInstance?.();
+            if(!inst)return;
+            if(inst._keys)inst._keys[e.key.toLowerCase()]=false;
+            inst._arrowScrubStart=null;
+        });
         // Forward all interactions to the 3D map
         const fwd=()=>window.__lanFlowMap?.getInstance?.();
         const sRange=scrubber.querySelector('.lan-flow-map-scrubber-range');

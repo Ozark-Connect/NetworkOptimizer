@@ -2092,6 +2092,14 @@ export class LanFlowMap {
         }
         windowSel.value = this._scrubSpanKey;
         windowSel.addEventListener('change', () => this._setScrubSpan(windowSel.value));
+        // Arrow left/right float up to timeline scrubbing; without this the
+        // focused dropdown consumes them as value changes. Other keys stay
+        // native so the dropdown remains keyboard-operable (Enter/Space/Up/Down).
+        windowSel.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault();
+            this._keys[e.key.toLowerCase()] = true;
+        });
         const range = scrubber.querySelector('.lan-flow-map-scrubber-range');
         this._scrubberInputDebounce = null;
         range.addEventListener('input', (e) => {
