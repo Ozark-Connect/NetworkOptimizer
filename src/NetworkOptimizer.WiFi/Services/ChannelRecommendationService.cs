@@ -1142,7 +1142,7 @@ public class ChannelRecommendationService
         {
             if (graph.ScanChannelData[i].Count == 0) continue;
 
-            if (ScanOverSpan(graph, band, i, assignment[i].Channel, assignment[i].Width) is { } scanData)
+            if (ScanReadingForScoring(graph, band, i, assignment[i].Channel, assignment[i].Width) is { } scanData)
             {
                 score += scanData.Utilization * ScanUtilizationWeight * bandStress;
                 score += ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
@@ -1211,7 +1211,7 @@ public class ChannelRecommendationService
 
         // Channel scan data (scaled by band stress multiplier), aggregated over the channel's span.
         var bandStress = GetBandStressMultiplier(band);
-        if (ScanOverSpan(graph, band, apIndex, assignment[apIndex].Channel, assignment[apIndex].Width) is { } scanData)
+        if (ScanReadingForScoring(graph, band, apIndex, assignment[apIndex].Channel, assignment[apIndex].Width) is { } scanData)
         {
             score += scanData.Utilization * ScanUtilizationWeight * bandStress;
             score += ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
@@ -1407,6 +1407,43 @@ public class ChannelRecommendationService
             if (kv.Value.NoiseFloor is int nf)
                 worstNoise = worstNoise is int n ? Math.Max(n, nf) : nf; // higher (less negative) dBm = worse
         return (util, worstNoise);
+    }
+
+    /// <summary>
+    /// The scan reading to SCORE a channel with. For a candidate channel the AP's own scan is clean
+    /// (it wasn't transmitting there when it scanned). For the AP's CURRENT channel its own scan is
+    /// contaminated by traffic that FOLLOWS the AP - its serving load and, importantly, a mesh uplink
+    /// carrying the same traffic (e.g. a camera feed) to whatever channel the AP moves to. Counting
+    /// that against the current channel wrongly singles it out for an inescapable, self-induced load.
+    /// So for the current channel we use the CLOSEST sibling that ISN'T on that channel - its read is
+    /// a clean off-channel external scan of it - and fall back to the AP's own reading only when no
+    /// sibling has a view (e.g. a single-AP site).
+    /// </summary>
+    private static (int Utilization, int? NoiseFloor)? ScanReadingForScoring(
+        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        if (channel != graph.Nodes[apIndex].CurrentChannel)
+            return ScanOverSpan(graph, band, apIndex, channel, width);
+
+        var targetSpan = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        double bestWeight = -1;
+        (int Utilization, int? NoiseFloor)? best = null;
+        var n = graph.Nodes.Count;
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            var sibling = graph.Nodes[j];
+            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(targetSpan, siblingSpan)) continue; // on the channel - its read is self-contaminated too
+            if (ScanOverSpan(graph, band, j, channel, width) is not { } reading) continue;
+            var weight = graph.InternalWeights[apIndex, j];
+            if (weight > bestWeight)
+            {
+                bestWeight = weight;
+                best = reading;
+            }
+        }
+        return best ?? ScanOverSpan(graph, band, apIndex, channel, width);
     }
 
     private double MeasuredCongestionLoad(InterferenceGraph graph, RadioBand band, int apIndex, (int Channel, int Width)[] assignment)
@@ -2677,9 +2714,10 @@ public class ChannelRecommendationService
                 var measuredFloor = MeasuredCongestionLoad(graph, band, i, testAssignment);
                 if (measuredFloor > externalScore) externalScore = measuredFloor;
 
-                // Scan: measured utilization + noise floor, band-weighted, span-aggregated (matches ScoreAp).
+                // Scan: measured utilization + noise floor, band-weighted, span-aggregated, with the
+                // current channel read cross-vantage (matches ScoreAp).
                 double scanUtil = 0, scanNoise = 0;
-                if (ScanOverSpan(graph, band, i, ch, currentAssignment[i].Width) is { } scanData)
+                if (ScanReadingForScoring(graph, band, i, ch, currentAssignment[i].Width) is { } scanData)
                 {
                     scanUtil = scanData.Utilization * ScanUtilizationWeight * bandStress;
                     scanNoise = ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;

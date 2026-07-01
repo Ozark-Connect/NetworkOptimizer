@@ -988,6 +988,35 @@ public class ChannelRecommendationServiceTests
     }
 
     [Fact]
+    public void CurrentChannel_ScoredFromSiblingVantage_NotSelfContaminatedReading()
+    {
+        // An AP's own scan of its CURRENT channel is contaminated by traffic that follows it (serving
+        // load / a mesh uplink). The scorer must read the current channel from a clean off-channel
+        // sibling instead. Here Subject (ch36) reads its own ch36 noisy (-40, self), but Sibling (on
+        // ch149, off ch36) sees ch36 clean (-90). Subject's score should reflect the clean -90.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Subject", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "Sibling", RadioBand.Band5GHz, 149)
+        };
+        var assignment = new[] { (36, 80), (149, 80) };
+
+        var withSiblingView = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        withSiblingView.ScanChannelData[0] = new() { { (36, 80), (0, (int?)(-40)) } }; // self-contaminated
+        withSiblingView.ScanChannelData[1] = new() { { (36, 80), (0, (int?)(-90)) } }; // sibling's clean view of ch36
+        var crossVantage = _service.ScoreAssignment(withSiblingView, assignment, RadioBand.Band5GHz);
+
+        var noSiblingView = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        noSiblingView.ScanChannelData[0] = new() { { (36, 80), (0, (int?)(-40)) } }; // only the self read exists
+        var selfContaminated = _service.ScoreAssignment(noSiblingView, assignment, RadioBand.Band5GHz);
+
+        crossVantage.Should().BeLessThan(selfContaminated - 1.0,
+            "the current channel is scored from the sibling's clean -90 view; only when no sibling has a view does it fall back to the self-contaminated -40");
+    }
+
+    [Fact]
     public void Optimize_MeasuredComfortableCurrentChannel_NotChurnedForOwnBenefit()
     {
         // The reported class: the external neighbor scan inflates a channel that the AP's own radio
