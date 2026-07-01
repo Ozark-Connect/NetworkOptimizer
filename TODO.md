@@ -672,7 +672,9 @@ only on `UniFiApiClient`).
 - [x] **Win 1 (gap-aware prompt)** - DONE & shipped. Gap banner offers a one-click quick scan of the
   gapped (AP, band)s (mesh APs excluded, per-AP-serial/cross-AP-parallel, scans at live BW), polls,
   re-runs. Warning tailored by `HasDedicatedScanRadio` + mesh role; disclaimer auto-hides when no gaps.
-- [ ] **NEXT: Win 2 (staleness + manual "Refresh measurements" button)** - two parts:
+- [ ] **Win 2 (staleness + manual "Refresh measurements" button)** - can wait for a PATCH after this
+  minor release: there's a natural window between when people pick up the feature and when their scan
+  data goes stale, so no rush. Two parts:
   1. *Staleness:* scan data currently never expires - the provider stamps `ScanTime = fetch-time`
      (not the real scan time), so a days-old scan reads as fresh and never becomes a gap. Propagate the
      real `spectrum_table_time` into `ChannelScanResult.ScanTime`, then treat an (AP, band) as a gap if
