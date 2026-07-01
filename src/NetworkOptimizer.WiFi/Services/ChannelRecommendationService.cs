@@ -38,8 +38,21 @@ public class ChannelRecommendationService
     /// <summary>Weight multiplier for channel scan utilization in scoring (0-1 scale)</summary>
     private const double ScanUtilizationWeight = 0.02;
 
-    /// <summary>Weight multiplier for channel scan interference in scoring (0-1 scale)</summary>
-    private const double ScanInterferenceWeight = 0.03;
+    /// <summary>
+    /// Spectrum-scan noise floor (dBm) at or below which a channel is treated as RF-clean; only the
+    /// energy ABOVE this reference is penalized. Near -90 dBm a channel is quiet; higher (less
+    /// negative) readings mean non-Wi-Fi energy (radar, microwaves, etc.) or a strong interferer
+    /// raising the floor and hurting SNR - a real signal that utilization alone misses (a channel can
+    /// be idle yet noisy). Tunable; verify against logged live values.
+    /// </summary>
+    private const double ScanNoiseFloorReferenceDbm = -90.0;
+
+    /// <summary>Score penalty per dB of scan noise floor above the clean reference. -70 dBm (20 dB over)
+    /// adds ~1.8 before the band-stress multiplier. Tunable.</summary>
+    private const double ScanNoiseFloorWeight = 0.09;
+
+    /// <summary>Cap on noise-floor excess (dB) so an out-of-range/garbage reading can't dominate.</summary>
+    private const double ScanNoiseFloorMaxExcessDb = 45.0;
 
     /// <summary>
     /// Weight for TX retry stress penalty. High TX retries indicate the external load
@@ -120,6 +133,40 @@ public class ChannelRecommendationService
     private const double UnknownChannelPenalty = 0.15;
 
     /// <summary>
+    /// 2.4 GHz crowding friction baseline. 2.4 GHz has only three non-overlapping channels, so when
+    /// the whole band is congested a channel change buys little and risks shuffling APs onto each
+    /// other. Once the mean current per-AP score on 2.4 GHz exceeds this baseline, the optimizer
+    /// raises the net-benefit a move must clear, scaled by how far past the baseline the band is
+    /// (capped at <see cref="MaxCrowdingFriction"/>). Below the baseline, and on every other band,
+    /// there is no friction. 4.0 is roughly where a 2.4 GHz AP is clearly contended on the
+    /// CCA-anchored scale, so friction only engages once the band is genuinely busy.
+    /// </summary>
+    private const double CrowdingFrictionScoreBaseline = 4.0;
+
+    /// <summary>Maximum 2.4 GHz crowding friction multiplier (see <see cref="CrowdingFrictionScoreBaseline"/>).</summary>
+    private const double MaxCrowdingFriction = 3.0;
+
+    /// <summary>
+    /// A channel is "measurably comfortable" when the AP's own radio reports time-averaged (1d/7d)
+    /// EXTERNAL-network interference on it (airtime from other people's networks) below this percent.
+    /// The external neighbor scan counts visible-but-idle BSSIDs and can inflate a fine channel into a
+    /// bogus move recommendation; the radio's measured interference is the ground truth for the
+    /// channel it sits on. We gate on interference (not utilization, which is partly the AP's own
+    /// serving traffic that follows it to any channel). Below ~20% external airtime a 2.4/5 GHz
+    /// channel is genuinely usable, so we don't churn off it for the AP's own benefit. Tunable.
+    /// </summary>
+    private const double ComfortableInterferencePct = 20.0;
+
+    /// <summary>
+    /// Converts a measured channel occupancy percentage (0-100) to the per-AP score scale used by
+    /// the absolute gates, for the measured-congestion floor (#2). Anchored to those gates rather
+    /// than to the (over-stated) external proxy: ~40% airtime lands near <see cref="MinApScoreToMove"/>
+    /// (2.0) and ~80% near <see cref="CatastrophicAbsoluteScore"/> (4.0), so a moderately busy channel
+    /// reads as moderate - not catastrophic. Tunable.
+    /// </summary>
+    private const double MeasuredCongestionToLoadScale = 0.05;
+
+    /// <summary>
     /// Maximum allowed score degradation for any individual AP in a recommended plan.
     /// 1.5 = AP's score can increase by up to 50%. Prevents sacrificing one AP
     /// too heavily for network-wide improvement.
@@ -193,6 +240,14 @@ public class ChannelRecommendationService
     private const double SiblingResidentConfidence = 0.70;
 
     /// <summary>
+    /// Observation confidence from spectrum-scan coverage of a channel: the radio directly measured
+    /// the channel's airtime, so it isn't "unknown" - but it's a one-shot sample, so it reduces the
+    /// uncertainty penalty without erasing it (the scan is a reference, not the authority for a
+    /// move-to channel). Between sibling-resident and historic. Tunable.
+    /// </summary>
+    private const double ScanCoverageConfidence = 0.80;
+
+    /// <summary>
     /// Minimum internal (propagation) weight for a resident sibling AP to count as an observer
     /// of a channel. Below this the sibling is too far to characterize this AP's RF environment.
     /// </summary>
@@ -254,8 +309,9 @@ public class ChannelRecommendationService
             InternalWeights = new double[n, n],
             DirectionalWeights = new double[n, n],
             ExternalLoad = new Dictionary<int, double>[n],
+            ExternalNeighbors = new Dictionary<(int Channel, int Width), double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
-            ScanChannelData = new Dictionary<int, (int Utilization, int Interference)>[n],
+            ScanChannelData = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[n],
             MeshConstraints = new List<MeshConstraint>(),
             DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
         };
@@ -278,6 +334,16 @@ public class ChannelRecommendationService
             if (historicalStress != null)
                 historicalStress.TryGetValue(macLower, out apHistStress);
 
+            // Visibility: if an AP has no time-averaged channel metrics, the stress term falls back
+            // to the AP's live (instantaneous) radio stats for its current channel - which a burst
+            // of client activity can inflate. Log it so we can confirm both sites are using the
+            // historical (1d/7d) data wherever it exists.
+            if (apHistStress == null || apHistStress.Count == 0)
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} {Band}: no historical channel metrics - stress falls back " +
+                    "to live radio stats for the current channel only",
+                    ap.Name, band);
+
             graph.Nodes.Add(new ApNode
             {
                 Mac = ap.Mac,
@@ -295,8 +361,9 @@ public class ChannelRecommendationService
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
+            graph.ExternalNeighbors[i] = new Dictionary<(int Channel, int Width), double>();
             graph.DirectlyObservedChannels[i] = new HashSet<int>();
-            graph.ScanChannelData[i] = new Dictionary<int, (int, int)>();
+            graph.ScanChannelData[i] = new Dictionary<(int, int), (int, int?)>();
         }
 
         // Build pairwise internal interference weights
@@ -461,6 +528,7 @@ public class ChannelRecommendationService
             UnplacedApCount = graph.Nodes.Count(node => !node.IsPlaced),
             HasScanData = graph.HasScanData,
             HasNeighborNetworks = graph.ExternalLoad.Any(d => d.Count > 0),
+            HasMeasuredChannelData = graph.ScanChannelData.Any(d => d.Count > 0),
             HasBuildingData = hasBuildingData,
             DfsAvoidanceNotPossible = graph.DfsAvoidanceFallback
         };
@@ -699,10 +767,13 @@ public class ChannelRecommendationService
             if (scoreInFinal < MinApScoreToMove) continue;
             if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
 
-            // Try each valid channel and find the best that meets all constraints
+            // Try each valid channel and find the best that meets all constraints. Selection and the
+            // net-benefit test are on the NETWORK objective so a fallback move can never raise it.
             int fallbackChannel = -1;
             int fallbackWidth = node.CurrentWidth;
             double fallbackScore = scoreInFinal;
+            var netBefore = ScoreAssignment(graph, finalAssignment, band);
+            var bestNet = netBefore;
 
             foreach (var candidateCh in node.ValidChannels)
             {
@@ -725,26 +796,22 @@ public class ChannelRecommendationService
                     pctImprovement < MinApImprovementPercent)
                     continue;
 
-                // A standalone move may degrade other APs, but only if it still improves the site
-                // overall (this AP's gain exceeds the total degradation it causes) and never pushes
-                // any single AP past the catastrophic cap.
+                // Catastrophic guard: never push any single AP past the catastrophic cap. Measure each
+                // victim against its score in the REALIZED plan (finalAssignment), the same baseline
+                // the mover's gain uses.
                 bool reject = false;
-                double totalDegradation = 0;
                 for (int j = 0; j < n; j++)
                 {
                     if (j == i) continue;
-                    var otherCurrent = currentApScores[j];
-                    if (otherCurrent <= 0) continue;
+                    if (currentApScores[j] <= 0) continue;
+                    var otherInFinal = ScoreAp(graph, finalAssignment, j, band);
                     var otherScore = ScoreAp(graph, trial, j, band);
-                    if (otherScore > otherCurrent) totalDegradation += otherScore - otherCurrent;
-
-                    // Catastrophic: this move would push a victim into genuinely bad territory.
-                    if (otherScore > CatastrophicAbsoluteScore && otherScore > otherCurrent)
+                    if (otherScore > CatastrophicAbsoluteScore && otherScore > otherInFinal)
                     {
                         _logger.LogDebug(
                             "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} would push {Victim} " +
                             "{From:F3}->{To:F3} above the {Cap:F1} ceiling, skipping",
-                            node.Name, candidateCh, graph.Nodes[j].Name, otherCurrent, otherScore,
+                            node.Name, candidateCh, graph.Nodes[j].Name, otherInFinal, otherScore,
                             CatastrophicAbsoluteScore);
                         reject = true;
                         break;
@@ -752,22 +819,24 @@ public class ChannelRecommendationService
                 }
                 if (reject) continue;
 
-                // Net-benefit: the AP's own improvement must outweigh the total degradation it
-                // causes to others, otherwise the move makes the site no better.
-                if (absImprovement <= totalDegradation)
+                // Net-benefit measured on the ACTUAL network objective (ScoreAssignment), NOT a sum of
+                // per-AP scores. Summing ScoreAp double-counts a newly-created co-channel pair, so it
+                // can call a net-WORSENING move "positive" - e.g. moving an AP onto a channel a sibling
+                // already occupies (the Front Yard ch1->ch6 case that raised the network score). Pick
+                // the candidate that lowers the network score the most; require a strict improvement.
+                var netAfter = ScoreAssignment(graph, trial, band);
+                if (netAfter >= bestNet)
                 {
                     _logger.LogDebug(
-                        "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} improves {Abs:F3} but degrades " +
-                        "others by {Deg:F3} total (not net-positive for the site), skipping",
-                        node.Name, candidateCh, absImprovement, totalDegradation);
+                        "[ChannelRec] Per-AP fallback: {ApName} -> ch{Ch} network {Before:F3}->{After:F3} " +
+                        "is not a net improvement, skipping",
+                        node.Name, candidateCh, netBefore, netAfter);
                     continue;
                 }
 
-                if (candidateScore < fallbackScore)
-                {
-                    fallbackScore = candidateScore;
-                    fallbackChannel = candidateCh;
-                }
+                bestNet = netAfter;
+                fallbackScore = candidateScore;
+                fallbackChannel = candidateCh;
             }
 
             if (fallbackChannel >= 0)
@@ -809,6 +878,16 @@ public class ChannelRecommendationService
             var moverScore = ScoreAp(graph, finalAssignment, i, band);
             if (moverScore >= MinApScoreToMove) continue;
 
+            // Interference borne by every OTHER AP today. The altruistic pass only fires when a
+            // move reduces THIS - the mover's own score is deliberately excluded, because improving
+            // the mover is the per-AP fallback's job and it already declined to move this healthy
+            // AP. Gating on total network score instead would let a healthy AP relocate purely for
+            // its own gain (e.g. chasing a quieter channel it shares with no neighbor), which is not
+            // altruism and sneaks past the per-AP move threshold.
+            double othersBaseline = 0;
+            for (int j = 0; j < n; j++)
+                if (j != i) othersBaseline += ScoreAp(graph, finalAssignment, j, band);
+
             int bestCh = -1;
             var bestNetwork = baselineNetworkScore;
             foreach (var candidateCh in node.ValidChannels)
@@ -837,10 +916,18 @@ public class ChannelRecommendationService
                 }
                 if (catastrophic) continue;
 
-                // Accept only on a meaningful site-wide improvement (DFS-aware, like the search).
+                // The neighbors must genuinely benefit: require a meaningful drop in the OTHER APs'
+                // interference, not just a lower total (which the mover's own score change inflates).
+                double othersTrial = 0;
+                for (int j = 0; j < n; j++)
+                    if (j != i) othersTrial += ScoreAp(graph, trial, j, band);
+                if (othersBaseline - othersTrial < MinApAbsoluteImprovement) continue;
+
+                // Among genuinely altruistic moves, pick the best site-wide outcome (DFS-aware,
+                // like the search) and never accept one that makes the whole site worse.
                 var trialNetwork = AddDfsPenalty(graph, trial, band, opts.DfsPreference,
                     ScoreAssignment(graph, trial, band));
-                if (baselineNetworkScore - trialNetwork >= MinApAbsoluteImprovement && trialNetwork < bestNetwork)
+                if (trialNetwork < bestNetwork)
                 {
                     bestNetwork = trialNetwork;
                     bestCh = candidateCh;
@@ -861,6 +948,107 @@ public class ChannelRecommendationService
             }
         }
 
+        // 2.4 GHz crowding friction: in a broadly congested 2.4 GHz band, a channel change buys
+        // little and can shuffle APs onto each other, so hold an AP on its current channel unless
+        // its move clears a crowding-scaled net-site-benefit bar. The benefit sums EVERY AP's
+        // interference, so a co-channel collision is counted against both victims, not netted away.
+        // No-op on other bands and on an uncrowded 2.4 GHz band; an AP on an invalid channel still
+        // moves. Runs before the mesh sync below so a reverted leader re-aligns its children.
+        var crowdingFriction = ComputeBandCrowdingFriction(band, currentApScores);
+        if (crowdingFriction > 1.0)
+        {
+            var netBenefitBar = MinApAbsoluteImprovement * (crowdingFriction - 1.0);
+            bool revertedAny;
+            do
+            {
+                revertedAny = false;
+                for (int i = 0; i < n; i++)
+                {
+                    var node = graph.Nodes[i];
+                    var rec = plan.Recommendations[i];
+                    if (rec.RecommendedChannel == node.CurrentChannel && rec.RecommendedWidth == node.CurrentWidth)
+                        continue;
+                    // Mesh children follow their leader; an AP stuck on an invalid channel must move.
+                    if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+                    if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+
+                    var revertedAssignment = ((int Channel, int Width)[])finalAssignment.Clone();
+                    revertedAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                    ApplyMeshConstraints(graph, revertedAssignment);
+
+                    double withMove = 0, withoutMove = 0;
+                    for (int j = 0; j < n; j++)
+                    {
+                        withMove += ScoreAp(graph, finalAssignment, j, band);
+                        withoutMove += ScoreAp(graph, revertedAssignment, j, band);
+                    }
+                    if (withoutMove - withMove >= netBenefitBar) continue; // the move earns its keep
+
+                    _logger.LogDebug(
+                        "[ChannelRec] 2.4 GHz crowding friction: reverting {ApName} ch{Rec} → ch{Cur}; net " +
+                        "site benefit {Net:F3} below the crowded-band bar {Bar:F3} (friction {Friction:F2})",
+                        node.Name, rec.RecommendedChannel, node.CurrentChannel,
+                        withoutMove - withMove, netBenefitBar, crowdingFriction);
+
+                    rec.RecommendedChannel = node.CurrentChannel;
+                    rec.RecommendedWidth = node.CurrentWidth;
+                    finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                    ApplyMeshConstraints(graph, finalAssignment);
+                    revertedAny = true;
+                }
+            } while (revertedAny);
+        }
+
+        // Measured-comfort anchor (#1): don't churn an AP off a channel that its own radio measures
+        // as quiet from OUTSIDE networks (low time-averaged external-network interference) unless the
+        // move actually reduces co-channel interference to one of OUR OWN sibling APs. The external
+        // neighbor scan counts visible-but-idle BSSIDs and can inflate an externally-clean channel
+        // into a bogus move; the radio's 1d/7d interference measurement is ground truth for the
+        // channel it sits on. Self-benefit moves off such a channel are reverted; a genuine move
+        // that unsticks two of our APs sharing a channel still goes through.
+        bool comfortReverted;
+        do
+        {
+            comfortReverted = false;
+            for (int i = 0; i < n; i++)
+            {
+                var node = graph.Nodes[i];
+                var rec = plan.Recommendations[i];
+                if (rec.RecommendedChannel == node.CurrentChannel && rec.RecommendedWidth == node.CurrentWidth)
+                    continue;
+                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+                if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+                if (!IsCurrentChannelComfortable(graph, band, i)) continue;
+
+                // Interference borne by our OTHER managed APs as recommended vs with this AP reverted
+                // (moving this AP only changes the co-channel interference it imposes on them).
+                var revertTrial = ((int Channel, int Width)[])finalAssignment.Clone();
+                revertTrial[i] = (node.CurrentChannel, node.CurrentWidth);
+                ApplyMeshConstraints(graph, revertTrial);
+
+                double othersWithMove = 0, othersReverted = 0;
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i) continue;
+                    othersWithMove += ScoreAp(graph, finalAssignment, j, band);
+                    othersReverted += ScoreAp(graph, revertTrial, j, band);
+                }
+                // Keep it put unless the move meaningfully reduces interference to our own sibling APs.
+                if (othersReverted - othersWithMove >= MinApAbsoluteImprovement) continue;
+
+                _logger.LogDebug(
+                    "[ChannelRec] Measured-comfort: keeping {ApName} on ch{Cur} (radio measures it " +
+                    "externally quiet; proposed ch{Rec} didn't help our own APs)",
+                    node.Name, node.CurrentChannel, rec.RecommendedChannel);
+
+                rec.RecommendedChannel = node.CurrentChannel;
+                rec.RecommendedWidth = node.CurrentWidth;
+                finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                ApplyMeshConstraints(graph, finalAssignment);
+                comfortReverted = true;
+            }
+        } while (comfortReverted);
+
         // Sync mesh children to their leader's final channel. The leader may have moved or
         // been reverted during reconciliation; the child must mirror wherever it landed so the
         // displayed plan is physically valid (a backhaul pair shares one channel) and the
@@ -873,6 +1061,25 @@ public class ChannelRecommendationService
             plan.Recommendations[i].RecommendedChannel = leaderRec.RecommendedChannel;
             plan.Recommendations[i].RecommendedWidth = leaderRec.RecommendedWidth;
             finalAssignment[i] = (leaderRec.RecommendedChannel, leaderRec.RecommendedWidth);
+        }
+
+        // Global guardrail: never emit a plan that RAISES the network score. The post-passes
+        // (per-AP fallback, altruistic) judge benefit per AP, and a per-AP proxy can disagree with the
+        // network objective; if the final plan isn't a net improvement over current, drop every move
+        // and keep the current assignment. (Higher ScoreAssignment = worse.)
+        var finalNetworkScore = ScoreAssignment(graph, finalAssignment, band);
+        if (finalNetworkScore > currentNetworkScore)
+        {
+            _logger.LogDebug(
+                "[ChannelRec] {Band}: final plan network {Final:F3} is worse than current {Current:F3} - reverting all moves",
+                band, finalNetworkScore, currentNetworkScore);
+            for (int i = 0; i < n; i++)
+            {
+                var node = graph.Nodes[i];
+                finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                plan.Recommendations[i].RecommendedChannel = node.CurrentChannel;
+                plan.Recommendations[i].RecommendedWidth = node.CurrentWidth;
+            }
         }
 
         // Re-score ALL APs against the final assignment for accurate display.
@@ -927,16 +1134,21 @@ public class ChannelRecommendationService
             }
         }
 
-        // External interference (neighbor networks)
+        // External interference (neighbor networks), floored by measured congestion (#2): the scan
+        // can UNDER-state a channel (non-beaconing/hidden airtime the rogue scan never sees), so
+        // raise it to what the radio measured. It is a floor only - never lower the proxy, because
+        // the BSSIDs the scan DID detect are real and will transmit even if idle this instant.
         for (int i = 0; i < n; i++)
         {
             var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[i].Channel, assignment[i].Width);
-            foreach (var (extChannel, extWeight) in graph.ExternalLoad[i])
+            double externalLoad = 0;
+            foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, i))
             {
-                var extSpan = (Low: extChannel, High: extChannel);
                 if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
-                    score += extWeight;
+                    externalLoad += extWeight;
             }
+            var measured = MeasuredCongestionLoad(graph, band, i, assignment);
+            score += measured > externalLoad ? measured : externalLoad;
         }
 
         // Channel scan data (utilization/interference from RF environment scan)
@@ -946,11 +1158,10 @@ public class ChannelRecommendationService
         {
             if (graph.ScanChannelData[i].Count == 0) continue;
 
-            var ch = assignment[i].Channel;
-            if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
+            if (ScanReadingForScoring(graph, band, i, assignment[i].Channel, assignment[i].Width) is { } scanData)
             {
                 score += scanData.Utilization * ScanUtilizationWeight * bandStress;
-                score += scanData.Interference * ScanInterferenceWeight * bandStress;
+                score += ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
             }
         }
 
@@ -1002,22 +1213,24 @@ public class ChannelRecommendationService
             score += graph.DirectionalWeights[j, apIndex] * overlapFactor * InternalCoChannelMultiplier;
         }
 
-        // External interference
+        // External interference, floored by measured congestion (#2): raise a channel the rogue scan
+        // under-states up to what the radio measured, but never lower it - detected BSSIDs are real.
         var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
-        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        double externalLoad = 0;
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
-            var extSpan = (Low: extChannel, High: extChannel);
             if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
-                score += extWeight;
+                externalLoad += extWeight;
         }
+        var measuredLoad = MeasuredCongestionLoad(graph, band, apIndex, assignment);
+        score += measuredLoad > externalLoad ? measuredLoad : externalLoad;
 
-        // Channel scan data (scaled by band stress multiplier)
+        // Channel scan data (scaled by band stress multiplier), aggregated over the channel's span.
         var bandStress = GetBandStressMultiplier(band);
-        var ch = assignment[apIndex].Channel;
-        if (graph.ScanChannelData[apIndex].TryGetValue(ch, out var scanData))
+        if (ScanReadingForScoring(graph, band, apIndex, assignment[apIndex].Channel, assignment[apIndex].Width) is { } scanData)
         {
             score += scanData.Utilization * ScanUtilizationWeight * bandStress;
-            score += scanData.Interference * ScanInterferenceWeight * bandStress;
+            score += ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
         }
 
         // Historical stress (undampened) + current stats fallback (dampened)
@@ -1051,7 +1264,6 @@ public class ChannelRecommendationService
         (int Channel, int Width)[] assignment)
     {
         var directChannels = graph.DirectlyObservedChannels[apIndex];
-        if (directChannels.Count == 0) return 0;
 
         var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
 
@@ -1059,9 +1271,9 @@ public class ChannelRecommendationService
         if (confidence >= 1.0) return 0;
 
         double triangulatedLoad = 0;
-        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
-            if (ChannelSpanHelper.SpansOverlap(apSpan, (extChannel, extChannel)))
+            if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                 triangulatedLoad += extWeight;
         }
 
@@ -1074,8 +1286,11 @@ public class ChannelRecommendationService
         // as quiet, not be assumed as busy as wherever we happen to sit.
         //
         // Only a channel with NO sighting at all (no direct, no triangulated) is a true blind spot.
-        // Floor it at this AP's best observed load so a blind channel never scores better than a
+        // Floor it at this AP's best KNOWN load so a blind channel never scores better than a
         // barely-seen one - otherwise the engine eagerly jumps onto channels it has zero data for.
+        // Prefer directly-observed channels as the floor; an AP with NO direct scan data at all
+        // (fully blind on this band) still floors against its triangulated neighbor load, so a
+        // blind radio carries real uncertainty instead of reading a deceptive 0.
         double estimatedLoad;
         if (triangulatedLoad > 0)
         {
@@ -1083,17 +1298,224 @@ public class ChannelRecommendationService
         }
         else
         {
-            double minDirectLoad = double.MaxValue;
+            double minKnownLoad = double.MaxValue;
             foreach (var dc in directChannels)
             {
                 if (graph.ExternalLoad[apIndex].TryGetValue(dc, out var directWeight))
-                    minDirectLoad = Math.Min(minDirectLoad, directWeight);
+                    minKnownLoad = Math.Min(minKnownLoad, directWeight);
             }
-            estimatedLoad = minDirectLoad == double.MaxValue ? 0 : minDirectLoad;
+            if (minKnownLoad == double.MaxValue)
+            {
+                foreach (var (_, extWeight) in graph.ExternalLoad[apIndex])
+                    minKnownLoad = Math.Min(minKnownLoad, extWeight);
+            }
+            estimatedLoad = minKnownLoad == double.MaxValue ? 0 : minKnownLoad;
         }
 
         var basePenalty = estimatedLoad * GetUnobservedMultiplier(band);
         return (1.0 - confidence) * basePenalty;
+    }
+
+    /// <summary>
+    /// A &gt;= 1.0 multiplier capturing how congested a 2.4 GHz band is, used to raise the net
+    /// benefit a channel move must clear before it's worth recommending. Returns 1.0 (no friction)
+    /// on every other band and when the mean current per-AP score is at or below
+    /// <see cref="CrowdingFrictionScoreBaseline"/>; above the baseline it grows with the mean score,
+    /// capped at <see cref="MaxCrowdingFriction"/>. 2.4 GHz only: with just three non-overlapping
+    /// channels, once they are all busy no move meaningfully helps, so the optimizer should hold put.
+    /// </summary>
+    private static double ComputeBandCrowdingFriction(RadioBand band, double[] currentApScores)
+    {
+        if (band != RadioBand.Band2_4GHz || currentApScores.Length == 0) return 1.0;
+
+        double sum = 0;
+        foreach (var s in currentApScores) sum += s;
+        var mean = sum / currentApScores.Length;
+
+        if (mean <= CrowdingFrictionScoreBaseline) return 1.0;
+        return Math.Min(mean / CrowdingFrictionScoreBaseline, MaxCrowdingFriction);
+    }
+
+    /// <summary>
+    /// Whether the AP's current channel is "measurably comfortable" - its own radio reports
+    /// time-averaged (1d/7d) EXTERNAL-network interference on it (airtime used by other people's
+    /// networks) below <see cref="ComfortableInterferencePct"/>. Requires historical metrics (no
+    /// averaged data → not claimed comfortable). Uses interference, not utilization, so the AP's own
+    /// serving traffic (which follows it to any channel) doesn't make a fine channel read as busy.
+    /// The measured-comfort anchor uses this to avoid churning an AP off a genuinely-clean channel
+    /// just because the external neighbor scan sees a lot of idle BSSIDs.
+    /// </summary>
+    private bool IsCurrentChannelComfortable(InterferenceGraph graph, RadioBand band, int apIndex)
+    {
+        var node = graph.Nodes[apIndex];
+        if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
+
+        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        foreach (var (histChannel, stress) in node.HistoricalStress)
+        {
+            var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
+                return stress.Interference < ComfortableInterferencePct;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Measured-congestion FLOOR (#2) for the AP's assigned channel, on the external-load scale. The
+    /// rogue/neighbor scan only sees beaconing BSSIDs, so it can UNDER-state a channel that's
+    /// genuinely busy (the inverted ch1 case: low scan weight, but high measured airtime from
+    /// non-beaconing or hidden sources). This raises the channel's congestion to what the radio
+    /// actually measured, from the best signals we have: the AP's OWN spectrum-scan utilization for
+    /// the channel (right vantage, all scanned channels), or a sibling AP's time-averaged external
+    /// interference for a channel it currently occupies (averaged, and a real signal we'd also
+    /// collide with our own AP there). Takes the higher of those. The caller uses it as a FLOOR only
+    /// - it never LOWERS the proxy, because the BSSIDs the scan DID detect are real and will transmit
+    /// even if idle this instant; the scan is a reference, not the authority. Returns -1 when no
+    /// measurement exists.
+    /// </summary>
+    /// <summary>
+    /// Score penalty from a channel's spectrum-scan noise floor (dBm): the energy ABOVE the clean
+    /// reference, capped, times the per-dB weight. Returns 0 when there's no reading. Captures RF
+    /// energy - non-Wi-Fi interference or a strong interferer - that raw utilization misses (a channel
+    /// can be idle in airtime yet have a high noise floor, e.g. 2.4 GHz ch11). The noise floor is the
+    /// ambient RF level, NOT the AP's own traffic (that shows up as utilization), so unlike the
+    /// utilization floor it's safe to apply on the AP's current channel too. Caller scales by band
+    /// stress.
+    /// </summary>
+    private static double ScanNoiseFloorPenalty(int? noiseFloorDbm)
+    {
+        if (noiseFloorDbm is not int nf) return 0;
+        var excessDb = Math.Min(ScanNoiseFloorMaxExcessDb, Math.Max(0.0, nf - ScanNoiseFloorReferenceDbm));
+        return excessDb * ScanNoiseFloorWeight;
+    }
+
+    /// <summary>
+    /// The spectrum-scan reading for an operating (channel, width). Prefers a bucket measured at that
+    /// exact width - UniFi already aggregated that channel - so we use its own number. Otherwise the
+    /// scan is finer than the operating channel (e.g. BW20 buckets under a 160 MHz channel), and
+    /// reading only the control bucket would judge a wide channel by one-eighth of its spectrum; so we
+    /// aggregate the finest sub-channels across the span the way UniFi's wide-channel scan does
+    /// (verified against a BW160-vs-BW20 capture): utilization = MEAN of the sub-channels, noise floor
+    /// = MAX (worst) of them. Returns null when no bucket overlaps the span.
+    /// </summary>
+    private static (int Utilization, int? NoiseFloor)? ScanOverSpan(
+        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        var buckets = graph.ScanChannelData[apIndex];
+        if (buckets.Count == 0) return null;
+
+        // 1) Exact operating-width bucket - trust UniFi's own aggregation for that channel.
+        if (buckets.TryGetValue((channel, width), out var exact)) return exact;
+
+        // 2) Aggregate the finest sub-channels overlapping the span (don't mix widths).
+        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        var overlapping = buckets
+            .Where(kv => ChannelSpanHelper.SpansOverlap(span, (kv.Key.Channel, kv.Key.Channel)))
+            .ToList();
+        if (overlapping.Count == 0) return null;
+
+        var finestWidth = overlapping.Min(kv => kv.Key.Width);
+        var fine = overlapping.Where(kv => kv.Key.Width == finestWidth).ToList();
+
+        var util = (int)Math.Round(fine.Average(kv => (double)kv.Value.Utilization));
+        int? worstNoise = null;
+        foreach (var kv in fine)
+            if (kv.Value.NoiseFloor is int nf)
+                worstNoise = worstNoise is int n ? Math.Max(n, nf) : nf; // higher (less negative) dBm = worse
+        return (util, worstNoise);
+    }
+
+    /// <summary>
+    /// The scan reading to SCORE a channel with. For a candidate channel the AP's own scan is clean
+    /// (it wasn't transmitting there when it scanned). For the AP's CURRENT channel its own scan is
+    /// contaminated by traffic that FOLLOWS the AP - its serving load and, importantly, a mesh uplink
+    /// carrying the same traffic (e.g. a camera feed) to whatever channel the AP moves to. Counting
+    /// that against the current channel wrongly singles it out for an inescapable, self-induced load.
+    /// So for the current channel we use the CLOSEST sibling that ISN'T on that channel - its read is
+    /// a clean off-channel external scan of it - and fall back to the AP's own reading only when no
+    /// sibling has a view (e.g. a single-AP site).
+    /// </summary>
+    private static (int Utilization, int? NoiseFloor)? ScanReadingForScoring(
+        InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        if (channel != graph.Nodes[apIndex].CurrentChannel)
+            return ScanOverSpan(graph, band, apIndex, channel, width);
+
+        var targetSpan = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        double bestWeight = -1;
+        (int Utilization, int? NoiseFloor)? best = null;
+        var n = graph.Nodes.Count;
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            var sibling = graph.Nodes[j];
+            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(targetSpan, siblingSpan)) continue; // on the channel - its read is self-contaminated too
+            if (ScanOverSpan(graph, band, j, channel, width) is not { } reading) continue;
+            var weight = graph.InternalWeights[apIndex, j];
+            if (weight > bestWeight)
+            {
+                bestWeight = weight;
+                best = reading;
+            }
+        }
+        return best ?? ScanOverSpan(graph, band, apIndex, channel, width);
+    }
+
+    private double MeasuredCongestionLoad(InterferenceGraph graph, RadioBand band, int apIndex, (int Channel, int Width)[] assignment)
+    {
+        var node = graph.Nodes[apIndex];
+        var assignedChannel = assignment[apIndex].Channel;
+        var apSpan = ChannelSpanHelper.GetChannelSpan(band, assignedChannel, assignment[apIndex].Width);
+        double measuredPct = -1;
+
+        // The AP's own spectrum-scan utilization - only for a CANDIDATE channel. On its CURRENT
+        // channel the scan radio also hears the AP's own serving traffic (which follows it to any
+        // channel), so using it there would bias toward a move; the current channel's congestion is
+        // governed by the external load + the interference-based comfort anchor (#1) instead.
+        if (assignedChannel != node.CurrentChannel &&
+            ScanOverSpan(graph, band, apIndex, assignedChannel, assignment[apIndex].Width) is { } scan)
+            measuredPct = Math.Max(measuredPct, scan.Utilization);
+
+        // A sibling AP's time-averaged external interference for a channel it currently sits on,
+        // scaled by how strongly THIS AP hears that sibling (proximity) - a distant sibling's local
+        // noise isn't our experience. Reads only real (measured) HistoricalStress, never propagated.
+        var n = graph.Nodes.Count;
+        for (int j = 0; j < n; j++)
+        {
+            if (j == apIndex) continue;
+            var sibling = graph.Nodes[j];
+            if (sibling.HistoricalStress == null) continue;
+            var siblingSpan = ChannelSpanHelper.GetChannelSpan(band, sibling.CurrentChannel, sibling.CurrentWidth);
+            if (!ChannelSpanHelper.SpansOverlap(apSpan, siblingSpan)) continue;
+            if (sibling.HistoricalStress.TryGetValue(sibling.CurrentChannel, out var stress))
+                measuredPct = Math.Max(measuredPct, stress.Interference * graph.InternalWeights[apIndex, j]);
+        }
+
+        return measuredPct < 0 ? -1 : measuredPct * MeasuredCongestionToLoadScale;
+    }
+
+    /// <summary>
+    /// Each external contributor to an AP as a (channel span, weight) pair, accounting for the
+    /// neighbor's width so a wide neighbor's load is tested against its full span (e.g. a 40 MHz
+    /// neighbor on 2.4 GHz ch11 also covers ch6) - and ONLY that neighbor's weight spills, not the
+    /// 20 MHz neighbors sharing its control channel. Falls back to treating each
+    /// <see cref="InterferenceGraph.ExternalLoad"/> channel as a 20 MHz point when no per-width data
+    /// exists (e.g. a unit test that populates ExternalLoad directly).
+    /// </summary>
+    private static IEnumerable<((int Low, int High) Span, double Weight)> ExternalContributors(
+        InterferenceGraph graph, RadioBand band, int apIndex)
+    {
+        var byWidth = graph.ExternalNeighbors;
+        if (byWidth != null && apIndex < byWidth.Length && byWidth[apIndex] is { Count: > 0 } neighbors)
+        {
+            foreach (var ((channel, width), weight) in neighbors)
+                yield return (ChannelSpanHelper.GetChannelSpan(band, channel, width), weight);
+            yield break;
+        }
+
+        foreach (var (channel, weight) in graph.ExternalLoad[apIndex])
+            yield return ((channel, channel), weight);
     }
 
     /// <summary>
@@ -1128,6 +1550,12 @@ public class ChannelRecommendationService
 
         double confidence = 0;
         var node = graph.Nodes[apIndex];
+
+        // Spectrum-scan coverage: the radio directly measured the channel's airtime, so it isn't
+        // "unknown" even if it heard no beaconing neighbor there. But it's a one-shot sample, so it
+        // only partially resolves the uncertainty - the scan informs the move, it doesn't crown it.
+        if (graph.ScanChannelData[apIndex].Keys.Any(k => ChannelSpanHelper.SpansOverlap(apSpan, (k.Channel, k.Channel))))
+            confidence = Math.Max(confidence, ScanCoverageConfidence);
 
         // Historic occupancy: we have measured airtime for this AP on an overlapping channel.
         if (node.HistoricalStress != null)
@@ -1177,7 +1605,20 @@ public class ChannelRecommendationService
         var node = graph.Nodes[apIndex];
         var assignedSpan = ChannelSpanHelper.GetChannelSpan(band, assignment[apIndex].Channel, assignment[apIndex].Width);
 
-        if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
+        // Combine measured history (ground truth) with neighbor-estimated (propagated) stress for
+        // channels this AP never sat on; real measurements win where both have an entry. The
+        // propagated estimates are legitimate here (a soft channel-preference signal) but stay out of
+        // the ground-truth consumers (comfort anchor, measured floor's sibling lookup, confidence).
+        var effectiveStress = node.HistoricalStress;
+        if (node.PropagatedStress is { Count: > 0 })
+        {
+            effectiveStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>(node.PropagatedStress);
+            if (node.HistoricalStress != null)
+                foreach (var (measuredCh, measuredStress) in node.HistoricalStress)
+                    effectiveStress[measuredCh] = measuredStress;
+        }
+
+        if (effectiveStress != null && effectiveStress.Count > 0)
         {
             // Per-channel historical stress: check each historically stressed channel
             // and apply its penalty if the assigned channel overlaps its span.
@@ -1190,7 +1631,7 @@ public class ChannelRecommendationService
             double utilizationPenalty = 0;
             bool hasDataForAssignedChannel = false;
 
-            foreach (var (histChannel, stress) in node.HistoricalStress)
+            foreach (var (histChannel, stress) in effectiveStress)
             {
                 var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
                 if (ChannelSpanHelper.SpansOverlap(assignedSpan, histSpan))
@@ -1302,9 +1743,9 @@ public class ChannelRecommendationService
 
         // Compute external load on this channel span to set a floor
         double externalLoad = 0;
-        foreach (var (extChannel, extWeight) in graph.ExternalLoad[apIndex])
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
         {
-            if (ChannelSpanHelper.SpansOverlap(currentSpan, (extChannel, extChannel)))
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, extSpan))
                 externalLoad += extWeight;
         }
 
@@ -1501,6 +1942,13 @@ public class ChannelRecommendationService
                     graph.ExternalLoad[j][bestChannel] = 0;
                 graph.ExternalLoad[j][bestChannel] += bestWeight;
 
+                // Pool by (channel, width) so the scorer can account for each neighbor's true
+                // spectral footprint (a 40 MHz neighbor on 2.4 GHz ch11 also steps on ch6) WITHOUT
+                // dragging the 20 MHz neighbors that share its control channel into spilling too.
+                var sightingWidth = bestWidth ?? 20;
+                var key = (bestChannel, sightingWidth);
+                graph.ExternalNeighbors[j][key] = graph.ExternalNeighbors[j].GetValueOrDefault(key) + bestWeight;
+
                 if (isDirect)
                 {
                     directCount++;
@@ -1585,29 +2033,12 @@ public class ChannelRecommendationService
             }
         }
 
-        // Merge propagated stress into each node's historical stress
+        // Store propagated stress in its OWN field - never merged into measured HistoricalStress.
+        // The stress penalty uses it as a soft estimate for channels this AP never sat on, but the
+        // ground-truth consumers (comfort anchor, measured floor's sibling lookup, observation
+        // confidence) read only the real HistoricalStress, so estimates can't masquerade as measured.
         foreach (var (nodeIdx, channels) in propagated)
-        {
-            var node = graph.Nodes[nodeIdx];
-            node.HistoricalStress ??= new Dictionary<int, (double, double, double)>();
-
-            foreach (var (ch, stress) in channels)
-            {
-                if (node.HistoricalStress.TryGetValue(ch, out var own))
-                {
-                    // AP has its own data for this channel - take the max
-                    node.HistoricalStress[ch] = (
-                        Math.Max(own.Utilization, stress.Util),
-                        Math.Max(own.Interference, stress.Interf),
-                        Math.Max(own.TxRetryPct, stress.TxRetry));
-                }
-                else
-                {
-                    // AP has no data for this channel - add the propagated data
-                    node.HistoricalStress[ch] = (stress.Util, stress.Interf, stress.TxRetry);
-                }
-            }
-        }
+            graph.Nodes[nodeIdx].PropagatedStress = channels;
     }
 
     private static void BuildScanChannelData(
@@ -1627,11 +2058,12 @@ public class ChannelRecommendationService
 
             foreach (var chInfo in scan.Channels)
             {
-                if (chInfo.Utilization.HasValue || chInfo.Interference.HasValue)
+                if (chInfo.Utilization.HasValue || chInfo.NoiseFloor.HasValue)
                 {
-                    graph.ScanChannelData[apIndex][chInfo.Channel] = (
-                        chInfo.Utilization ?? 0,
-                        chInfo.Interference ?? 0);
+                    // Key by (channel, width) so a channel's BW20 and BW160 readings coexist; the
+                    // scorer (ScanOverSpan) picks the right one for the operating width.
+                    var key = (chInfo.Channel, chInfo.Width ?? 20);
+                    graph.ScanChannelData[apIndex][key] = (chInfo.Utilization ?? 0, chInfo.NoiseFloor);
                 }
             }
         }
@@ -1861,9 +2293,10 @@ public class ChannelRecommendationService
         double penalty = 0;
         for (int i = 0; i < assignment.Length; i++)
         {
-            var ch = assignment[i].Channel;
-            // DFS range: 52-64 (UNII-2), 100-144 (UNII-2C)
-            if ((ch >= 52 && ch <= 64) || (ch >= 100 && ch <= 144))
+            // Span-aware: an 80/160 MHz block whose bonding span includes any DFS sub-channel is a
+            // DFS assignment even when its control channel isn't (e.g. 160 MHz at control ch36 spans
+            // 36-64, covering DFS 52-64). Uses the regulatory DFS set, matching the DFS badge.
+            if (IsDfsAssignment(band, assignment[i].Channel, assignment[i].Width, graph.DfsChannels))
             {
                 // Conservative confidence for now (no DFS event history available)
                 double confidence = 0.7;
@@ -1904,8 +2337,8 @@ public class ChannelRecommendationService
         // overlapping it - direct or triangulated from a sibling's scan - is real evidence, so its
         // measured load already drives the score and no friction applies.
         var span = ChannelSpanHelper.GetChannelSpan(band, assigned.Channel, assigned.Width);
-        bool haveEvidence = graph.ExternalLoad[apIndex].Keys
-            .Any(extCh => ChannelSpanHelper.SpansOverlap(span, (extCh, extCh)));
+        bool haveEvidence = ExternalContributors(graph, band, apIndex)
+            .Any(c => ChannelSpanHelper.SpansOverlap(span, c.Span));
         if (haveEvidence) return 0;
 
         return DfsDepartureFrictionPenalty;
@@ -2216,7 +2649,7 @@ public class ChannelRecommendationService
         }
 
         // Scan channel data per AP
-        sb.AppendLine("  Scan channel metrics (utilization/interference):");
+        sb.AppendLine("  Scan channel metrics (utilization / noise floor):");
         for (int i = 0; i < n; i++)
         {
             if (graph.ScanChannelData[i].Count == 0)
@@ -2225,8 +2658,8 @@ public class ChannelRecommendationService
                 continue;
             }
             var metrics = graph.ScanChannelData[i]
-                .OrderBy(kv => kv.Key)
-                .Select(kv => $"ch{kv.Key}=util:{kv.Value.Utilization}%/interf:{kv.Value.Interference}%");
+                .OrderBy(kv => kv.Key.Channel).ThenBy(kv => kv.Key.Width)
+                .Select(kv => $"ch{kv.Key.Channel}/{kv.Key.Width}=util:{kv.Value.Utilization}%/nf:{(kv.Value.NoiseFloor.HasValue ? kv.Value.NoiseFloor + "dBm" : "n/a")}");
             sb.AppendLine($"    {graph.Nodes[i].Name}: {string.Join(", ", metrics)}");
         }
 
@@ -2250,6 +2683,7 @@ public class ChannelRecommendationService
         var n = graph.Nodes.Count;
         if (n == 0) return;
 
+        var bandStress = GetBandStressMultiplier(band);
         var sb = new StringBuilder();
         sb.AppendLine($"[ChannelRec] === {phase}: Per-AP channel scores ({band}) ===");
         sb.AppendLine($"  Current assignment: {string.Join(", ", Enumerable.Range(0, n).Select(i => $"{graph.Nodes[i].Name}=ch{currentAssignment[i].Channel}"))}");
@@ -2285,60 +2719,41 @@ public class ChannelRecommendationService
                 }
 
                 var apSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
-                foreach (var (extCh, extW) in graph.ExternalLoad[i])
+                foreach (var (extSpan, extW) in ExternalContributors(graph, band, i))
                 {
-                    if (ChannelSpanHelper.SpansOverlap(apSpan, (extCh, extCh)))
+                    if (ChannelSpanHelper.SpansOverlap(apSpan, extSpan))
                         externalScore += extW;
                 }
 
-                if (graph.ScanChannelData[i].TryGetValue(ch, out var scanData))
-                {
-                    scanScore = scanData.Utilization * ScanUtilizationWeight
-                              + scanData.Interference * ScanInterferenceWeight;
-                }
+                // #2 measured floor: a candidate channel's congestion is raised to what the radio
+                // measured where that exceeds the neighbor-scan proxy (matches ScoreAp).
+                var measuredFloor = MeasuredCongestionLoad(graph, band, i, testAssignment);
+                if (measuredFloor > externalScore) externalScore = measuredFloor;
 
-                // Historical channel stress penalty
-                double stressScore = 0;
-                var testSpan = ChannelSpanHelper.GetChannelSpan(band, ch, currentAssignment[i].Width);
+                // Scan: measured utilization + noise floor, band-weighted, span-aggregated, with the
+                // current channel read cross-vantage (matches ScoreAp).
+                double scanUtil = 0, scanNoise = 0;
+                if (ScanReadingForScoring(graph, band, i, ch, currentAssignment[i].Width) is { } scanData)
+                {
+                    scanUtil = scanData.Utilization * ScanUtilizationWeight * bandStress;
+                    scanNoise = ScanNoiseFloorPenalty(scanData.NoiseFloor) * bandStress;
+                }
+                scanScore = scanUtil + scanNoise;
 
-                if (node.HistoricalStress != null && node.HistoricalStress.Count > 0)
-                {
-                    foreach (var (histCh, stress) in node.HistoricalStress)
-                    {
-                        if (stress.TxRetryPct < StressMinThreshold &&
-                            stress.Utilization < StressMinThreshold &&
-                            stress.Interference < StressMinThreshold)
-                            continue;
-                        var histSpan = ChannelSpanHelper.GetChannelSpan(band, histCh, node.CurrentWidth);
-                        if (ChannelSpanHelper.SpansOverlap(testSpan, histSpan))
-                        {
-                            stressScore += (stress.TxRetryPct / 100.0) * TxRetryStressWeight
-                                + (stress.Utilization / 100.0) * UtilizationStressWeight
-                                + (stress.Interference / 100.0) * InterferenceStressWeight;
-                        }
-                    }
-                }
-                else if (node.TxRetriesPct >= StressMinThreshold ||
-                    node.ChannelUtilization >= StressMinThreshold ||
-                    node.Interference >= StressMinThreshold)
-                {
-                    var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
-                    if (ChannelSpanHelper.SpansOverlap(currentSpan, testSpan))
-                    {
-                        stressScore = (node.TxRetriesPct / 100.0) * TxRetryStressWeight
-                                    + (node.ChannelUtilization / 100.0) * UtilizationStressWeight
-                                    + (node.Interference / 100.0) * InterferenceStressWeight;
-                    }
-                }
+                // Stress: reuse the real penalty so the breakdown reconciles with the score
+                // (measured historical stress un-scaled, neighbor-propagated fallback band-weighted).
+                var (histPenalty, fallbackPenalty) = ComputeStressPenalty(graph, band, i, testAssignment);
+                var stressScore = histPenalty + fallbackPenalty * bandStress;
 
                 // Unobserved channel uncertainty (confidence-weighted, matches ScoreAp/ScoreAssignment)
                 double unobservedPenalty = ComputeUnobservedPenalty(graph, band, i, testAssignment);
 
                 var total = internalScore + externalScore + scanScore + stressScore + unobservedPenalty;
                 var marker = ch == currentAssignment[i].Channel ? " <<<" : "";
-                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}(raw)" : "";
+                var scanStr = scanScore > 0 ? $" + scan={scanScore:F3}(util {scanUtil:F2}/nf {scanNoise:F2})" : "";
+                var stressStr = stressScore > 0 ? $" + stress={stressScore:F3}" : "";
                 var unobsStr = unobservedPenalty > 0 ? $" + unobs={unobservedPenalty:F3}" : "";
-                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3} + scan={scanScore:F3}{stressStr}{unobsStr} = {total:F3}{marker}");
+                sb.AppendLine($"    ch{ch,3}: internal={internalScore:F3} + external={externalScore:F3}{scanStr}{stressStr}{unobsStr} = {total:F3}{marker}");
             }
         }
 

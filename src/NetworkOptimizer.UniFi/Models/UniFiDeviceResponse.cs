@@ -1346,6 +1346,36 @@ public class ScanRadioEntry
     /// </summary>
     [JsonPropertyName("spectrum_table")]
     public List<SpectrumEntry>? SpectrumTable { get; set; }
+
+    /// <summary>Unix time (seconds) the spectrum_table was last populated.</summary>
+    [JsonPropertyName("spectrum_table_time")]
+    public long? SpectrumTableTime { get; set; }
+}
+
+/// <summary>
+/// Response item from GET /api/s/{site}/stat/spectrum-scan/{mac} - per-AP RF spectrum scan
+/// results (per-channel utilization/interference across each band), held from the AP's last scan.
+/// </summary>
+public class UniFiSpectrumScanResponse
+{
+    [JsonPropertyName("mac")]
+    public string Mac { get; set; } = string.Empty;
+
+    /// <summary>One entry per radio (radio = "ng"/"na"/"6e"), each with its own spectrum_table.</summary>
+    [JsonPropertyName("scans")]
+    public List<ScanRadioEntry>? Scans { get; set; }
+
+    /// <summary>State of the most recent quick-scan on this AP (whether one is still running).</summary>
+    [JsonPropertyName("quick_scan_state")]
+    public UniFiQuickScanState? QuickScanState { get; set; }
+}
+
+/// <summary>Quick-scan progress state from the spectrum-scan endpoint.</summary>
+public class UniFiQuickScanState
+{
+    /// <summary>True while a quick-scan is still in progress (results not yet final).</summary>
+    [JsonPropertyName("in_progress")]
+    public bool InProgress { get; set; }
 }
 
 /// <summary>
@@ -1372,10 +1402,18 @@ public class SpectrumEntry
     public int? Utilization { get; set; }
 
     /// <summary>
-    /// Interference level
+    /// Interference level (dBm noise/interference floor for the channel)
     /// </summary>
     [JsonPropertyName("interference")]
     public int? Interference { get; set; }
+
+    /// <summary>Number of other BSSIDs the scan detected on this channel.</summary>
+    [JsonPropertyName("other_bss_count")]
+    public int? OtherBssCount { get; set; }
+
+    /// <summary>Number of samples the scan collected for this channel (0 = stale/unsampled).</summary>
+    [JsonPropertyName("total_samples")]
+    public int? TotalSamples { get; set; }
 
     /// <summary>
     /// Whether this is a DFS channel

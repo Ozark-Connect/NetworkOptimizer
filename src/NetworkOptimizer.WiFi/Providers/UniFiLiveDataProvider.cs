@@ -26,6 +26,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     public string ProviderName => "UniFi Live";
     public bool SupportsHistoricalData => true; // Via stat/report endpoints
 
+    /// <inheritdoc />
+    public Task<bool> TriggerQuickScanAsync(string apMac, string bandCode, int bandwidthMhz, CancellationToken cancellationToken = default)
+        => _client.TriggerQuickScanAsync(apMac, bandCode, bandwidthMhz, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<bool> IsQuickScanInProgressAsync(string apMac, CancellationToken cancellationToken = default)
+    {
+        var scan = await _client.GetSpectrumScanAsync(apMac, cancellationToken);
+        return scan?.QuickScanState?.InProgress == true;
+    }
+
     public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         // Use UniFiDiscovery for centralized device classification (same as Audit and Speed Test)
@@ -755,6 +766,19 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 ?? ap.RadioTable?.Select(r => r.Radio).Distinct().ToList()
                 ?? new List<string>();
 
+            // Per-AP cached RF spectrum scan (per-channel utilization/interference across each band).
+            // This is the populated source - ap.ScanRadioTable in /stat/device is typically empty.
+            // A GET only; we never trigger a scan inline (see UniFiApiClient.TriggerQuickScanAsync).
+            UniFiSpectrumScanResponse? spectrumScan = null;
+            try
+            {
+                spectrumScan = await _client.GetSpectrumScanAsync(ap.Mac, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Spectrum scan fetch failed for AP {Mac}", ap.Mac);
+            }
+
             foreach (var bandCode in radioBands)
             {
                 var band = RadioBandExtensions.FromUniFiCode(bandCode);
@@ -768,8 +792,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     Neighbors = new List<NeighborNetwork>()
                 };
 
-                // Add spectrum data if available from scan_radio_table
-                var scanRadio = ap.ScanRadioTable?.FirstOrDefault(sr => sr.Radio == bandCode);
+                // Per-channel measured occupancy from the AP's last RF scan. Prefer the dedicated
+                // spectrum-scan endpoint (the populated source); fall back to scan_radio_table.
+                var scanRadio = spectrumScan?.Scans?.FirstOrDefault(sr => sr.Radio == bandCode)
+                    ?? ap.ScanRadioTable?.FirstOrDefault(sr => sr.Radio == bandCode);
                 if (scanRadio?.SpectrumTable != null)
                 {
                     foreach (var spectrum in scanRadio.SpectrumTable)
@@ -779,7 +805,12 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                             Channel = spectrum.Channel,
                             Width = spectrum.Width,
                             Utilization = spectrum.Utilization,
-                            Interference = spectrum.Interference,
+                            // The scan's "interference" is a dBm floor, not a percentage. Keep it out
+                            // of the percentage-based Interference field (the scorer treats that as
+                            // 0-100) and store it as the noise floor; NeighborCount carries the
+                            // detected BSSID count. The measured %-occupancy lives in Utilization.
+                            NoiseFloor = spectrum.Interference,
+                            NeighborCount = spectrum.OtherBssCount ?? 0,
                             IsDfs = spectrum.IsDfs ?? false,
                             DfsState = spectrum.DfsState
                         });
@@ -936,6 +967,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Timestamp = timestamp,
             Radios = new List<RadioSnapshot>(),
             Vaps = new List<VapSnapshot>(),
+            HasDedicatedScanRadio = ap.HasDedicatedScanRadio,
             IsMeshChild = isMeshChild,
             MeshParentMac = meshParentMac,
             MeshUplinkBand = meshUplinkBand,

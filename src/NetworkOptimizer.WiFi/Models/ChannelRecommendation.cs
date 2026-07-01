@@ -1,6 +1,16 @@
 namespace NetworkOptimizer.WiFi.Models;
 
 /// <summary>
+/// An (AP, band) that has no recent per-channel spectrum-scan measurement, so its channel
+/// recommendation falls back to the neighbor (external) scan. A quick-scan can fill it.
+/// <paramref name="HasDedicatedScanRadio"/> = the AP scans on a dedicated radio (no client impact);
+/// otherwise scanning briefly interrupts that band. <paramref name="IsMeshParent"/> = scanning this
+/// AP (when it lacks a dedicated scan radio) can also briefly drop devices meshed through it.
+/// </summary>
+public record SpectrumScanGap(
+    string ApMac, string ApName, RadioBand Band, string BandCode, bool HasDedicatedScanRadio, bool IsMeshParent);
+
+/// <summary>
 /// Per-AP channel recommendation: current vs recommended (channel, width) tuple.
 /// </summary>
 public class ApChannelRecommendation
@@ -57,6 +67,13 @@ public class ChannelPlan
     public int UnplacedApCount { get; set; }
     public bool HasScanData { get; set; }
     public bool HasNeighborNetworks { get; set; }
+
+    /// <summary>
+    /// True when we have per-channel spectrum measurements (utilization / noise floor) for this band,
+    /// so the recommendation is grounded in measured airtime and RF noise - not just neighbor scans or
+    /// internal AP interference - even when no neighbor networks were detected.
+    /// </summary>
+    public bool HasMeasuredChannelData { get; set; }
     public bool HasBuildingData { get; set; }
 
     /// <summary>
@@ -92,8 +109,19 @@ public class InterferenceGraph
     /// </summary>
     public double[,] DirectionalWeights { get; set; } = new double[0, 0];
 
-    /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = weight</summary>
+    /// <summary>Per-AP external load by channel number. ExternalLoad[apIndex][channel] = total weight</summary>
     public Dictionary<int, double>[] ExternalLoad { get; set; } = [];
+
+    /// <summary>
+    /// Per-AP external load pooled by (control channel, width). ExternalNeighbors[apIndex][(channel,
+    /// width)] = weight. Keeping weight separated by width lets the scorer model each neighbor's true
+    /// spectral footprint: a 40 MHz neighbor on 2.4 GHz ch11 steps on ch6, so its weight counts
+    /// against any candidate channel its span overlaps - WITHOUT dragging the 20 MHz neighbors that
+    /// share its control channel along with it (pooling everything to one width over-spilled them).
+    /// When empty (e.g. a unit test that sets only <see cref="ExternalLoad"/>), the scorer falls back
+    /// to treating each external-load channel as a 20 MHz point.
+    /// </summary>
+    public Dictionary<(int Channel, int Width), double>[] ExternalNeighbors { get; set; } = [];
 
     /// <summary>
     /// Per-AP set of channels with at least one direct neighbor observation.
@@ -102,8 +130,14 @@ public class InterferenceGraph
     /// </summary>
     public HashSet<int>[] DirectlyObservedChannels { get; set; } = [];
 
-    /// <summary>Per-AP channel scan metrics (utilization/interference). ScanChannelData[apIndex][channel] = (util, interf)</summary>
-    public Dictionary<int, (int Utilization, int Interference)>[] ScanChannelData { get; set; } = [];
+    /// <summary>
+    /// Per-AP channel scan metrics, keyed by (control channel, scan bandwidth MHz) so multiple-width
+    /// buckets for the same channel can coexist (e.g. a BW20 and a BW160 reading of ch36). Value =
+    /// (utilization %, noise floor dBm); NoiseFloor is null when the scan reported no reading, lower
+    /// (more negative) is cleaner. The scorer reads it via ScanOverSpan, which prefers an exact
+    /// operating-width bucket and otherwise aggregates the finest sub-channels across the span.
+    /// </summary>
+    public Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[] ScanChannelData { get; set; } = [];
 
     public List<MeshConstraint> MeshConstraints { get; set; } = new();
 
@@ -150,11 +184,21 @@ public class ApNode
     public double TxRetriesPct { get; set; }
 
     /// <summary>
-    /// Per-channel historical stress from 30-day metrics paired with channel change events.
+    /// Per-channel historical stress from 30-day metrics paired with channel change events. This is
+    /// the AP's OWN measured reality - "ground truth" for the channels it has actually sat on.
     /// Key = channel number, Value = (avg utilization %, avg interference %, avg TX retry %).
     /// Null if historical data is unavailable.
     /// </summary>
     public Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>? HistoricalStress { get; set; }
+
+    /// <summary>
+    /// Per-channel stress ESTIMATED from nearby APs' measurements (proximity-scaled, dampened) for
+    /// channels this AP has never sat on. Kept separate from <see cref="HistoricalStress"/> so the
+    /// scorer can use it as a soft estimate for the stress penalty WITHOUT it masquerading as this
+    /// AP's own measurement - the "ground-truth" consumers (comfort anchor, measured floor's sibling
+    /// lookup, observation confidence) read only the real <see cref="HistoricalStress"/>.
+    /// </summary>
+    public Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>? PropagatedStress { get; set; }
 
     /// <summary>Index of this AP's mesh group leader, or -1 if not in a mesh group</summary>
     public int MeshGroupLeader { get; set; } = -1;

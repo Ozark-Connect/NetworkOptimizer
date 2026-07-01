@@ -109,7 +109,9 @@
                     <button class="btn btn-sm btn-ghost" @onclick="() => { _showRecommendations = false; _channelPlans.Clear(); }"><span class="btn-label-full">Show Current Channels</span><span class="btn-label-compact">Show Current</span></button>
                 </div>
 
-                @if (!_channelDisclaimerDismissed)
+                @* Auto-hide once every scannable radio has a measurement (no gaps): the rec is then
+                   grounded in measured airtime/noise, not flying on the unreliable neighbor scan. *@
+                @if (!_channelDisclaimerDismissed && _scanGaps.Count > 0)
                 {
                     <div class="channel-disclaimer">
                         <div class="disclaimer-content">
@@ -123,6 +125,31 @@
                             </span>
                         </div>
                         <button class="disclaimer-dismiss-btn" @onclick="DismissChannelDisclaimerAsync">Got it</button>
+                    </div>
+                }
+
+                @if (_scanGaps.Count > 0)
+                {
+                    <div class="alert-info scan-gap-banner">
+                        <div class="scan-gap-text">
+                            <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio hasn't" : "radios haven't") been scanned recently.</strong>
+                            Without a measurement the optimizer infers those channels from neighboring
+                            networks instead of seeing them directly. A quick scan reads the real airtime
+                            and noise floor on each channel, so the recommendations reflect what's actually
+                            on the air - not a guess. @ScanDisruptionNote()
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
+                                data-tooltip="Runs a quick RF scan to measure these channels">
+                            @if (_scanningGaps)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                                <span>Scanning @_scanGaps.Count @(_scanGaps.Count == 1 ? "radio" : "radios")…</span>
+                            }
+                            else
+                            {
+                                <span>Run quick scan</span>
+                            }
+                        </button>
                     </div>
                 }
 
@@ -261,6 +288,14 @@
                             External neighbor networks are not factored in.
                         </div>
                     }
+                    else if (!plan.HasNeighborNetworks && plan.HasMeasuredChannelData)
+                    {
+                        <div class="recommendation-notice">
+                            No neighbor networks detected on this band, but measured channel occupancy and noise floor
+                            from RF scans are factored in - so these recommendations reflect real on-air conditions, not
+                            just internal AP interference.
+                        </div>
+                    }
                     else if (!plan.HasNeighborNetworks)
                     {
                         <div class="recommendation-notice">
@@ -274,12 +309,14 @@
                         <div class="recommendation-explainer-content">
                             <p>
                                 Most channel pickers just count nearby networks. This builds a physical model of your
-                                RF environment and solves for the channel plan that minimizes real interference:
+                                RF environment, measures what's actually on each channel, and solves for the channel
+                                plan that minimizes real interference:
                             </p>
                             <ul>
                                 <li><strong>Signal propagation</strong> - models how far each AP's signal actually reaches using your floor plan, wall materials, and per-radio antenna patterns, not distance alone.</li>
                                 <li><strong>Transmit-power aware</strong> - each AP's real EIRP is applied directionally, so a low-power AP correctly counts as a gentler neighbor than a full-power one.</li>
                                 <li><strong>Real contention, not raw signal</strong> - interference is measured against the CCA threshold (where radios actually defer), so barely-audible signals aren't over-counted.</li>
+                                <li><strong>Measured airtime and noise floor</strong> - reads each channel's actual utilization and RF noise floor from the radios' spectrum scans, so congestion and non-Wi-Fi interference (radar, microwaves, a noisy neighbor's gear) count even when no Wi-Fi network is visible there.</li>
                                 <li><strong>Neighboring networks</strong> - folds in UniFi's RF scan of networks you don't control, triangulated across all your APs for a fuller picture than any single AP sees.</li>
                                 <li><strong>30 days of history</strong> - per-channel utilization, interference, and TX-retry trends, so the plan reflects how channels behave over time, not one noisy snapshot.</li>
                                 <li><strong>Honest about the unknown</strong> - channels with no scan data are penalized for that uncertainty, so it won't push you onto an unseen channel unless your known channels are clearly worse.</li>
@@ -487,10 +524,10 @@
                                 </div>
                                 <div class="ap-col ap-width-col">@(radio.ChannelWidth ?? 20) MHz</div>
                                 <div class="ap-col ap-power-col">
-                                    <span class="power-value">@(radio.TxPower?.ToString() ?? "-")</span>
+                                    <EirpBar Radio="radio" Model="@ap.Model" />
                                     @if (!string.IsNullOrEmpty(radio.TxPowerMode))
                                     {
-                                        <span class="power-mode">(@radio.TxPowerMode)</span>
+                                        <span class="power-mode-below">@radio.TxPowerMode</span>
                                     }
                                 </div>
                                 <div class="ap-col ap-util-col">
@@ -876,10 +913,72 @@
             _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
             _showRecommendations = _channelPlans.Count > 0;
             AutoSelectBandWithRecommendations();
+            await LoadScanGapsAsync();
         }
         finally
         {
             _loadingRecommendations = false;
+            StateHasChanged();
+        }
+    }
+
+    // (AP, band) pairs whose recommendation falls back to neighbor scans because they have no recent
+    // per-channel spectrum measurement. A quick-scan fills them.
+    private List<SpectrumScanGap> _scanGaps = new();
+    private bool _scanningGaps;
+
+    // Disruption note tailored to the gapped APs' scan hardware: an AP with a dedicated scan radio
+    // measures without touching its serving radios (no client impact); without one, scanning briefly
+    // steps the serving radio off-channel and a mesh parent can drop the devices meshed through it.
+    private string ScanDisruptionNote()
+    {
+        var clean = _scanGaps.Count(g => g.HasDedicatedScanRadio);
+        var disruptive = _scanGaps.Count - clean;
+        var meshNote = _scanGaps.Any(g => g.IsMeshParent && !g.HasDedicatedScanRadio)
+            ? ", and may briefly drop devices meshed through an AP" : "";
+
+        if (disruptive == 0)
+            return "These scan on a dedicated radio, so running won't disrupt clients.";
+        if (clean == 0)
+            return $"Heads up: scanning briefly steps each radio off its channel - clients stay connected, "
+                 + $"but real-time traffic (video calls, gaming) can hiccup for a moment{meshNote}. "
+                 + "Much lighter than a full scan, but best run during low-usage times.";
+        return $"{clean} of these scan on a dedicated radio with no client impact; the other {disruptive} "
+             + $"briefly step their serving radio off-channel, so real-time traffic can hiccup{meshNote} - "
+             + "best run during low-usage times.";
+    }
+
+    private async Task LoadScanGapsAsync()
+    {
+        try
+        {
+            _scanGaps = await WiFiService.GetSpectrumScanGapsAsync();
+        }
+        catch
+        {
+            _scanGaps = new();
+        }
+    }
+
+    private async Task RunGapScans()
+    {
+        if (_scanningGaps || _scanGaps.Count == 0) return;
+
+        _scanningGaps = true;
+        StateHasChanged();
+        try
+        {
+            var targets = _scanGaps.Select(g => (g.ApMac, g.BandCode)).ToList();
+            await WiFiService.RunQuickScansAsync(targets);
+
+            // Re-run recommendations on the fresh spectrum data, then re-check what's still missing.
+            var options = new RecommendationOptions { DfsPreference = _dfsPreference };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            await LoadScanGapsAsync();
+        }
+        finally
+        {
+            _scanningGaps = false;
             StateHasChanged();
         }
     }

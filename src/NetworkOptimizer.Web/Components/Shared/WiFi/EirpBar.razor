@@ -1,0 +1,81 @@
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Data
+@using NetworkOptimizer.WiFi.Models
+
+@{
+    var maxEirp = GetMaxEirp(Model, Radio);
+    var txPowerPct = GetPowerPercentage(Radio.TxPower ?? 0, maxEirp);
+    var eirpPct = GetPowerPercentage(Radio.Eirp ?? Radio.TxPower ?? 0, maxEirp);
+    var powerClass = GetPowerClass(Radio);
+    var hasGain = Radio.AntennaGain.HasValue && Radio.AntennaGain > 0;
+}
+<div class="power-bar-container" data-tooltip="TX: @(Radio.TxPower ?? 0) dBm@(hasGain ? $" + {Radio.AntennaGain} dBi gain = {Radio.Eirp} dBm EIRP" : "") (max @maxEirp dBm EIRP)">
+    <div class="power-bar-stack">
+        <div class="power-bar-tx @powerClass" style="width: @txPowerPct%"></div>
+        @if (hasGain)
+        {
+            <div class="power-bar-gain @powerClass" style="width: @(eirpPct - txPowerPct)%"></div>
+        }
+    </div>
+    <span class="power-values">
+        <span class="power-tx">@(Radio.TxPower ?? 0)</span>
+        @if (hasGain)
+        {
+            <span class="power-eirp">→ @Radio.Eirp</span>
+        }
+        <span class="power-unit">dBm</span>
+    </span>
+</div>
+
+@code {
+    /// <summary>The radio whose TX power / EIRP to render.</summary>
+    [Parameter, EditorRequired] public RadioSnapshot Radio { get; set; } = default!;
+
+    /// <summary>AP model, used to resolve the catalog max EIRP for the bar scale.</summary>
+    [Parameter] public string Model { get; set; } = "";
+
+    /// <summary>
+    /// Get the max EIRP for a radio, using catalog data with the same clamping logic as ApMapService.
+    /// Falls back to the radio's own MaxTxPower + AntennaGain if catalog doesn't have the model.
+    /// </summary>
+    private int GetMaxEirp(string model, RadioSnapshot radio)
+    {
+        var bandKey = radio.Band.ToPropagationBand();
+        if (ApModelCatalog.TryGetBandDefaults(model, bandKey, out var catalogDefaults))
+        {
+            var (gain, maxTx, _) = ApModelCatalog.ResolveForMode(catalogDefaults, radio.AntennaMode);
+
+            // Use catalog max if UniFi reports higher (same 2 dBm tolerance as ApMapService)
+            var apiMax = radio.MaxTxPower ?? maxTx;
+            var clampedMax = (apiMax >= maxTx + 2) ? maxTx : apiMax;
+
+            // Use catalog gain if UniFi reports higher
+            var apiGain = radio.AntennaGain ?? gain;
+            var clampedGain = (apiGain >= gain + 2) ? gain : apiGain;
+
+            return clampedMax + clampedGain;
+        }
+
+        // Fallback: use whatever UniFi reports
+        var fallbackMax = radio.MaxTxPower ?? radio.TxPower ?? 20;
+        return fallbackMax + (radio.AntennaGain ?? 0);
+    }
+
+    private double GetPowerPercentage(int power, int maxEirp)
+    {
+        if (maxEirp <= 0) return 0;
+        return Math.Min(100, Math.Max(0, (double)power / maxEirp * 100));
+    }
+
+    private string GetPowerClass(RadioSnapshot radio)
+    {
+        var mode = radio.TxPowerMode?.ToLower() ?? "auto";
+        return mode switch
+        {
+            "high" => "power-high",
+            "medium" => "power-medium",
+            "low" => "power-low",
+            _ => "power-auto"
+        };
+    }
+}

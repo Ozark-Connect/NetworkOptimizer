@@ -605,6 +605,147 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// (AP, band) pairs that have no recent per-channel spectrum-scan measurement, so their channel
+    /// recommendation falls back to the neighbor (external) scan. A non-disruptive quick-scan fills
+    /// them (see <see cref="RunQuickScansAsync"/>). Derived from the same scan snapshot the
+    /// recommendation uses, so it reflects exactly what the engine is working with.
+    /// </summary>
+    public async Task<List<SpectrumScanGap>> GetSpectrumScanGapsAsync()
+    {
+        var scans = await GetChannelScanResultsAsync(
+            startTime: DateTimeOffset.UtcNow.AddHours(-ChannelRecommendationService.ScanLookbackHours));
+
+        var provider = CreateProvider();
+        var aps = await provider.GetAccessPointsAsync();
+        var apByMac = aps.ToDictionary(a => a.Mac, StringComparer.OrdinalIgnoreCase);
+
+        // Mesh (wireless-uplink) APs can't quick-scan without dropping their uplink, so the controller
+        // refuses - don't list gaps the user can never fill.
+        var meshChildMacs = aps.Where(a => a.IsMeshChild)
+            .Select(a => a.Mac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return scans
+            .Where(s => s.Channels.Count == 0 && !meshChildMacs.Contains(s.ApMac))
+            .Select(s =>
+            {
+                apByMac.TryGetValue(s.ApMac, out var ap);
+                var hasScanRadio = ap?.HasDedicatedScanRadio ?? false;
+                // A mesh parent only matters for the warning when it lacks a dedicated scan radio
+                // (then scanning its uplink band drops children; with a scan radio the uplink is safe).
+                var isMeshParent = (ap?.MeshChildren.Count ?? 0) > 0;
+                return new SpectrumScanGap(
+                    s.ApMac, s.ApName ?? s.ApMac, s.Band, s.Band.ToUniFiCode(), hasScanRadio, isMeshParent);
+            })
+            .ToList();
+    }
+
+    private const int QuickScanPollIntervalSeconds = 3;
+    private const int QuickScanPerBandTimeoutSeconds = 150;
+
+    /// <summary>
+    /// Trigger non-disruptive quick RF scans on the given (AP, band) targets, wait for them to
+    /// finish, then invalidate the scan cache so the next recommendation picks up the fresh
+    /// per-channel measurements. A quick-scan does NOT disconnect clients.
+    ///
+    /// A radio can only scan ONE band at a time, so an AP's bands are scanned SEQUENTIALLY (trigger,
+    /// wait for the AP to go idle, then the next band). Different APs scan CONCURRENTLY. Firing all of
+    /// an AP's bands at once makes all but one fail - that's why an unfiltered batch only ever filled
+    /// one gap per AP.
+    /// </summary>
+    public async Task RunQuickScansAsync(
+        IEnumerable<(string ApMac, string BandCode)> targets,
+        CancellationToken cancellationToken = default)
+    {
+        var list = targets.ToList();
+        if (list.Count == 0 || !_connectionService.IsConnected || _connectionService.Client == null)
+            return;
+
+        var provider = CreateProvider();
+
+        // Scan each band at the radio's CURRENT operating width so the radio doesn't reconfigure
+        // (less disruption) and the result buckets line up with the operating channel.
+        var widthByApBand = new Dictionary<(string Mac, string BandCode), int>();
+        foreach (var ap in await provider.GetAccessPointsAsync())
+            foreach (var radio in ap.Radios)
+                if (radio.ChannelWidth is int w)
+                    widthByApBand[(ap.Mac, radio.Band.ToUniFiCode())] = w;
+
+        var perApScans = list
+            .GroupBy(t => t.ApMac, StringComparer.OrdinalIgnoreCase)
+            .Select(g => ScanApBandsSequentiallyAsync(
+                provider, g.Key, g.Select(t => t.BandCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                widthByApBand, cancellationToken));
+        await Task.WhenAll(perApScans);
+
+        // Fresh scans are in - drop the cached snapshot so the next fetch re-reads the spectrum data.
+        _cachedScanResults = null;
+        _cachedScanResultsTimeKey = null;
+    }
+
+    /// <summary>
+    /// Scan one AP's bands one at a time, waiting for each to finish before starting the next, since
+    /// the radio can only scan a single band at a time. Different APs run this concurrently.
+    /// </summary>
+    private async Task ScanApBandsSequentiallyAsync(
+        UniFiLiveDataProvider provider, string apMac, List<string> bandCodes,
+        IReadOnlyDictionary<(string Mac, string BandCode), int> widthByApBand, CancellationToken cancellationToken)
+    {
+        foreach (var bandCode in bandCodes)
+        {
+            // Scan at the radio's current width (fall back to 20 MHz if unknown).
+            var bandwidthMhz = widthByApBand.TryGetValue((apMac, bandCode), out var w) ? w : 20;
+            try
+            {
+                if (!await provider.TriggerQuickScanAsync(apMac, bandCode, bandwidthMhz, cancellationToken))
+                    continue;
+                // Wait for THIS band to finish before starting the next on the same AP. If it doesn't
+                // finish in time, skip the AP's remaining bands rather than fire into a still-busy
+                // radio (which the controller rejects with api.err.QuickScanInProgress).
+                if (!await WaitForQuickScanIdleAsync(provider, apMac, cancellationToken))
+                {
+                    _logger.LogDebug(
+                        "Quick scan on {Mac} still running after {Timeout}s; skipping its remaining bands",
+                        apMac, QuickScanPerBandTimeoutSeconds);
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Quick scan failed for {Mac} band {Band}", apMac, bandCode);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Poll an AP until its quick-scan reports idle, so the next band on the same AP doesn't start
+    /// while this one is still running. Returns true when the AP went idle, false if it was still
+    /// in-progress at the timeout (caller should not start another band on it).
+    /// </summary>
+    private async Task<bool> WaitForQuickScanIdleAsync(
+        UniFiLiveDataProvider provider, string apMac, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(QuickScanPerBandTimeoutSeconds);
+        // Give the controller a moment to mark the scan in-progress before the first check.
+        await Task.Delay(TimeSpan.FromSeconds(QuickScanPollIntervalSeconds), cancellationToken);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                if (!await provider.IsQuickScanInProgressAsync(apMac, cancellationToken))
+                    return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Quick scan status poll failed for {Mac}", apMac);
+                return true; // can't tell - assume done rather than block the AP's other bands
+            }
+            await Task.Delay(TimeSpan.FromSeconds(QuickScanPollIntervalSeconds), cancellationToken);
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Record each fresh scan's neighbor sightings into the rolling per-(AP, band) history (and
     /// prune anything past the window). Called once per fresh scan fetch; does not modify the
     /// scans, so callers still get the raw live scan back.

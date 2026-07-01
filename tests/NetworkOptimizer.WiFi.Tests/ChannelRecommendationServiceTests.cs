@@ -672,11 +672,12 @@ public class ChannelRecommendationServiceTests
         // The reported case: a congested DFS AP, a non-DFS channel that a sibling scanned and found
         // clean (triangulated, not in this AP's own direct set). Triangulation is real evidence, so
         // the clean non-DFS channel should win - the engine must NOT floor or friction it into
-        // losing to a directly-observed-but-occupied DFS channel.
+        // losing to a directly-observed-but-occupied DFS channel. The current channel is loaded
+        // above the per-AP move threshold so the move routes through the normal per-AP path.
         var reg = StdUsRegulatory();
         var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
         var graph = SingleApGraph(52,
-            externalLoad: new() { { 52, 1.5 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
+            externalLoad: new() { { 52, 2.5 }, { 36, 0.2 } }, // ch52 directly heard busy; ch36 triangulated clean
             directlyObserved: new() { 52 },                   // ch36 NOT directly observed by this AP
             reg, options);
 
@@ -687,6 +688,384 @@ public class ChannelRecommendationServiceTests
             "a sibling-scanned clean channel is real evidence and beats a directly-observed occupied DFS channel");
         subject.IsCurrentDfsChannel.Should().BeTrue("ch52 (UNII-2) is a DFS channel");
         subject.IsRecommendedDfsChannel.Should().BeFalse("ch36 (UNII-1) is not a DFS channel");
+    }
+
+    [Fact]
+    public void Optimize_AltruisticRelocation_DoesNotMoveHealthyApWhenNoNeighborBenefits()
+    {
+        // The reported Mac case: two APs that share no spectrum (ch36 and ch149). The ch36 AP is
+        // healthy (below the per-AP move threshold) and a cleaner channel exists, but relocating it
+        // only lowers ITS OWN score - it cannot declutter the ch149 neighbor. The altruistic pass
+        // must NOT move it. Before the fix the gate measured total network score, which the mover's
+        // own drop inflates, so it relocated the AP onto an unshared channel for no one's benefit.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Mover", RadioBand.Band5GHz, 36, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Bystander", RadioBand.Band5GHz, 149, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        // Mover sits on a lightly-loaded ch36 with a clean, directly-observed non-DFS ch161 nearby.
+        graph.ExternalLoad[0] = new() { { 36, 0.8 } };
+        graph.DirectlyObservedChannels[0] = new() { 36, 161 };
+        // Bystander is healthy on ch149 and overlaps neither ch36 nor the mover's alternatives.
+        graph.ExternalLoad[1] = new() { { 149, 0.3 } };
+        graph.DirectlyObservedChannels[1] = new() { 149 };
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var mover = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01");
+        mover.RecommendedChannel.Should().Be(36,
+            "a healthy AP must not relocate when the move helps no neighbor - that just chases its own score");
+        mover.IsChanged.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Optimize_AltruisticRelocation_StillMovesHealthyApThatDecluttersCoChannelNeighbor()
+    {
+        // Regression guard for the legitimate altruistic path: a healthy AP that interferes with a
+        // co-channel neighbor SHOULD relocate, because the neighbor genuinely benefits. The neighbor
+        // suffers from the shared channel but stays below the move threshold, so it can't rescue
+        // itself - only the mover relocating helps it. The per-AP path won't move the mover either
+        // (it too is below the threshold); only the altruistic pass can, and it must still fire when
+        // the OTHER AP's score actually drops.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Mover", RadioBand.Band5GHz, 36, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Victim", RadioBand.Band5GHz, 36, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        // Asymmetric coupling: the mover blasts the victim (0.5 -> 1.5 co-channel pain, real but
+        // under the 2.0 move threshold so the victim can't escape on its own), but barely hears it
+        // back (0.1 -> 0.3), so the mover stays comfortably healthy on the shared channel.
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 0.5;
+        graph.DirectionalWeights[0, 1] = 0.5; // mover -> victim (strong)
+        graph.DirectionalWeights[1, 0] = 0.1; // victim -> mover (weak)
+        graph.ExternalLoad[0] = new() { { 36, 0.0 }, { 161, 0.0 } };
+        graph.DirectlyObservedChannels[0] = new() { 36, 161 };
+        graph.ExternalLoad[1] = new() { { 36, 0.0 } };
+        graph.DirectlyObservedChannels[1] = new() { 36 };
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var mover = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01");
+        var victim = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        mover.RecommendedChannel.Should().NotBe(36,
+            "the mover should relocate to declutter the co-channel victim that genuinely benefits");
+        victim.RecommendedChannel.Should().Be(36,
+            "the victim is below the move threshold and is decluttered by the mover leaving, not by moving itself");
+    }
+
+    [Fact]
+    public void ScoreAssignment_BlindApUnobservedChannel_FlooredAgainstTriangulatedLoad()
+    {
+        // Fix for the deceptive 0.0: an AP with NO direct scan data on the band (fully blind, only
+        // triangulated neighbor sightings) used to short-circuit the unobserved penalty to 0, so an
+        // unscanned channel read as a perfect 0.0 and won relocations. It must instead floor against
+        // the AP's known (triangulated) load so a blind channel carries real uncertainty.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(36,
+            externalLoad: new() { { 36, 0.2 } }, // a single triangulated sighting; nothing on ch100
+            directlyObserved: new(),             // fully blind - no direct scans on this band
+            reg, options);
+
+        var onUnobserved = _service.ScoreAssignment(graph, new[] { (100, 80) }, RadioBand.Band5GHz);
+
+        onUnobserved.Should().BeGreaterThan(0, "an unobserved channel must never score a deceptive 0.0");
+        onUnobserved.Should().BeApproximately(0.4, 0.05,
+            "a blind AP floors an unscanned channel at its triangulated load (0.2) x the 5 GHz uncertainty multiplier (2.0)");
+    }
+
+    [Fact]
+    public void Optimize_Crowded24GHz_SuppressesMarginalCollisionMove()
+    {
+        // In a saturated 2.4 GHz band, the optimizer was shoving a congested AP onto a neighbor's
+        // channel for a tiny net gain (the unobserved floor over-priced the one empty lane). The
+        // crowding friction must hold it put: a move that nets little once both co-channel victims
+        // are counted isn't worth the churn when the whole band is already busy.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 11, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        // Every channel is busy. ch1 is the least-bad, so the search wants to pile Downstairs onto
+        // Living Room's ch1 - a co-channel collision whose net site benefit is negative.
+        graph.ExternalLoad[0] = new() { { 1, 4.0 }, { 6, 8.0 }, { 11, 9.0 } };
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 4.0 }, { 6, 8.0 }, { 11, 9.0 } };
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(11,
+            "in a crowded 2.4 GHz band a move onto a neighbor's channel isn't worth the churn");
+        downstairs.RecommendedChannel.Should().NotBe(1, "it must not be shoved into a co-channel collision");
+    }
+
+    [Fact]
+    public void Optimize_Crowded24GHz_StillSpreadsClusteredAps()
+    {
+        // The crowding friction must not stop us spreading APs apart: three APs piled on ch1 hurt
+        // each other badly, and splitting them across 1/6/11 is a large net win (each resolved
+        // collision frees both victims), so it clears the crowded-band bar with room to spare.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "AP-2", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:03", "AP-3", RadioBand.Band2_4GHz, 1, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        for (int a = 0; a < 3; a++)
+            for (int b = 0; b < 3; b++)
+                if (a != b) { graph.InternalWeights[a, b] = 1.0; graph.DirectionalWeights[a, b] = 1.0; }
+        for (int a = 0; a < 3; a++)
+        {
+            graph.ExternalLoad[a] = new() { { 1, 2.0 }, { 6, 2.0 }, { 11, 2.0 } };
+            graph.DirectlyObservedChannels[a] = new() { 1, 6, 11 };
+        }
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var channels = plan.Recommendations.Select(r => r.RecommendedChannel).Distinct().ToList();
+        channels.Should().HaveCountGreaterThan(1,
+            "clustered APs must still be spread across 2.4 GHz channels despite the crowding friction");
+    }
+
+    [Fact]
+    public void ScoreAssignment_WideNeighbor_StepsOnAdjacentChannel()
+    {
+        // A 40 MHz neighbor on 2.4 GHz ch11 spectrally covers ch6 too (span 7-14 vs ch6's 4-8), so
+        // its load must count against a candidate ch6, not just its control channel. A 20 MHz
+        // neighbor on ch11 does not reach ch6. And crucially, 20 MHz neighbors that share the wide
+        // neighbor's control channel must NOT be dragged into spilling along with it.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP", RadioBand.Band2_4GHz, 11, width: 20)
+        };
+
+        InterferenceGraph Build(params (int Channel, int Width, double Weight)[] neighbors)
+        {
+            var g = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+            g.ExternalLoad[0] = new();
+            g.ExternalNeighbors[0] = new();
+            foreach (var (ch, w, weight) in neighbors)
+            {
+                g.ExternalLoad[0][ch] = g.ExternalLoad[0].GetValueOrDefault(ch) + weight;
+                g.ExternalNeighbors[0][(ch, w)] = g.ExternalNeighbors[0].GetValueOrDefault((ch, w)) + weight;
+            }
+            g.DirectlyObservedChannels[0] = new() { 11 };
+            return g;
+        }
+
+        var ch6Narrow = _service.ScoreAssignment(Build((11, 20, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        var ch6Wide = _service.ScoreAssignment(Build((11, 40, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+
+        ch6Wide.Should().BeGreaterThan(ch6Narrow,
+            "a 40 MHz neighbor on ch11 steps on ch6, so it raises ch6's score; a 20 MHz one does not");
+        (ch6Wide - ch6Narrow).Should().BeApproximately(1.0, 0.01,
+            "only the wide neighbor's weight reaches ch6 once spectral width is accounted for");
+
+        // The fix for the over-spill: a pile of 20 MHz neighbors on ch11 plus ONE 40 MHz neighbor
+        // there must spill only the 40 MHz neighbor's weight into ch6 - the 20 MHz weight stays put.
+        var ch6Mixed = _service.ScoreAssignment(
+            Build((11, 20, 5.0), (11, 40, 1.0)), new[] { (6, 20) }, RadioBand.Band2_4GHz);
+        (ch6Mixed - ch6Narrow).Should().BeApproximately(1.0, 0.01,
+            "only the 40 MHz neighbor (1.0) spills to ch6; the 5.0 of 20 MHz neighbors on ch11 do not");
+    }
+
+    [Fact]
+    public void ScoreAssignment_MeasuredFloor_RaisesUnderstatedCandidate_ButNeverDiscountsKnownBssids()
+    {
+        // The measured floor applies to CANDIDATE channels (a move-to). AP currently on ch36; we
+        // score it on the candidate ch40. Floor: the scan barely registers ch40 (0.5 proxy) but the
+        // radio measures it 50% busy, so congestion is RAISED to the measurement. Not a cap: a
+        // candidate with many KNOWN BSSIDs (proxy 8.0) that scans idle (5%) keeps its proxy -
+        // detected BSSIDs are real and the scan is only a reference.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(double externalLoad, int scanUtil)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 40, externalLoad } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (40, 80), (scanUtil, (int?)null) } };
+            return g;
+        }
+
+        var understated = _service.ScoreAssignment(Build(0.5, 50), new[] { (40, 80) }, RadioBand.Band5GHz);
+        var knownButIdle = _service.ScoreAssignment(Build(8.0, 5), new[] { (40, 80) }, RadioBand.Band5GHz);
+
+        understated.Should().BeGreaterThan(2.0,
+            "an under-stated candidate is floored up to the measured 50% airtime (~2.5 at the 0.05 scale), not left at the 0.5 proxy");
+        knownButIdle.Should().BeGreaterThan(7.0,
+            "the 8.0 of known BSSIDs is kept - a one-shot idle scan never discounts detected APs");
+    }
+
+    [Fact]
+    public void MeasuredFloor_AppliesToCandidateNotCurrentChannel_OwnUtilizationBiasRemoved()
+    {
+        // The own-scan utilization floor must NOT inflate the AP's CURRENT channel - its scan radio
+        // also hears its own serving traffic, which follows it anywhere. Same measured 60% util: on a
+        // candidate it floors the score up; on the current channel it does not.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int scanChannel)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 36, 0.5 }, { 40, 0.5 } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (scanChannel, 80), (60, (int?)null) } };
+            return g;
+        }
+
+        var current = _service.ScoreAssignment(Build(36), new[] { (36, 80) }, RadioBand.Band5GHz);
+        var candidate = _service.ScoreAssignment(Build(40), new[] { (40, 80) }, RadioBand.Band5GHz);
+
+        candidate.Should().BeGreaterThan(current + 1.5,
+            "60% measured util floors a candidate channel (~3.0) but not the current channel, whose airtime is the AP's own traffic");
+    }
+
+    [Fact]
+    public void ScoreAssignment_NoiseFloor_PenalizesNoisyChannelOverQuietOne()
+    {
+        // Two candidates, identical low utilization, differing only in measured noise floor: the
+        // noisy one (-50 dBm) must score worse than the pristine one (-95 dBm). Utilization alone
+        // would tie them - the noise floor is the RF-energy signal that breaks the tie.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int noiseFloor)
+        {
+            var g = SingleApGraph(36, externalLoad: new() { { 40, 0.5 } }, directlyObserved: new(), reg, options);
+            g.ScanChannelData[0] = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)> { { (40, 80), (5, (int?)noiseFloor) } };
+            return g;
+        }
+
+        var noisy = _service.ScoreAssignment(Build(-50), new[] { (40, 80) }, RadioBand.Band5GHz);
+        var quiet = _service.ScoreAssignment(Build(-95), new[] { (40, 80) }, RadioBand.Band5GHz);
+
+        noisy.Should().BeGreaterThan(quiet + 1.5,
+            "a high noise floor (RF energy that utilization misses) penalizes the channel even at equal airtime");
+    }
+
+    [Fact]
+    public void ScanOverSpan_AggregatesSubChannels_CatchesNoiseAnywhereInTheSpan()
+    {
+        // A 160 MHz channel's badness can sit on a non-control 20 MHz sub-channel. With BW20 buckets
+        // the scorer must aggregate across the whole span (noise floor = worst sub-channel), not read
+        // only the control bucket - else a clean control channel would hide a noisy bonded sub-channel.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+
+        InterferenceGraph Build(int noisySubChannel)
+        {
+            var g = SingleApGraph(100, externalLoad: new(), directlyObserved: new(), reg, options);
+            var scan = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>();
+            foreach (var ch in new[] { 36, 40, 44, 48, 52, 56, 60, 64 })
+                scan[(ch, 20)] = (0, ch == noisySubChannel ? -50 : -96);
+            g.ScanChannelData[0] = scan;
+            return g;
+        }
+
+        var noisyOnControl = _service.ScoreAssignment(Build(36), new[] { (36, 160) }, RadioBand.Band5GHz);
+        var noisyOnSubChannel = _service.ScoreAssignment(Build(56), new[] { (36, 160) }, RadioBand.Band5GHz);
+
+        noisyOnSubChannel.Should().BeApproximately(noisyOnControl, 0.01,
+            "noise floor aggregates as the worst sub-channel across the 160 span, so it's caught whether on the control channel or a bonded sub-channel");
+        noisyOnSubChannel.Should().BeGreaterThan(1.5, "a -50 dBm sub-channel meaningfully penalizes the 160 MHz channel");
+    }
+
+    [Fact]
+    public void CurrentChannel_ScoredFromSiblingVantage_NotSelfContaminatedReading()
+    {
+        // An AP's own scan of its CURRENT channel is contaminated by traffic that follows it (serving
+        // load / a mesh uplink). The scorer must read the current channel from a clean off-channel
+        // sibling instead. Here Subject (ch36) reads its own ch36 noisy (-40, self), but Sibling (on
+        // ch149, off ch36) sees ch36 clean (-90). Subject's score should reflect the clean -90.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Subject", RadioBand.Band5GHz, 36),
+            CreateAp("aa:bb:cc:dd:ee:02", "Sibling", RadioBand.Band5GHz, 149)
+        };
+        var assignment = new[] { (36, 80), (149, 80) };
+
+        var withSiblingView = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        withSiblingView.ScanChannelData[0] = new() { { (36, 80), (0, (int?)(-40)) } }; // self-contaminated
+        withSiblingView.ScanChannelData[1] = new() { { (36, 80), (0, (int?)(-90)) } }; // sibling's clean view of ch36
+        var crossVantage = _service.ScoreAssignment(withSiblingView, assignment, RadioBand.Band5GHz);
+
+        var noSiblingView = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, null, reg, options);
+        noSiblingView.ScanChannelData[0] = new() { { (36, 80), (0, (int?)(-40)) } }; // only the self read exists
+        var selfContaminated = _service.ScoreAssignment(noSiblingView, assignment, RadioBand.Band5GHz);
+
+        crossVantage.Should().BeLessThan(selfContaminated - 1.0,
+            "the current channel is scored from the sibling's clean -90 view; only when no sibling has a view does it fall back to the self-contaminated -40");
+    }
+
+    [Fact]
+    public void Optimize_RecommendedNetworkScore_NeverWorseThanCurrent()
+    {
+        // Invariant: the engine must never recommend a plan that RAISES (worsens) the network score.
+        // A per-AP fallback move can help the mover but collide with a sibling and worsen the network
+        // (the Front Yard ch1->ch6 case, where sum-of-ScoreAp called a net-worsening move "positive").
+        // The fallback's network-objective net check + the global guardrail must prevent that.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions();
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "A", RadioBand.Band2_4GHz, 1),
+            CreateAp("aa:bb:cc:dd:ee:02", "B", RadioBand.Band2_4GHz, 6),
+            CreateAp("aa:bb:cc:dd:ee:03", "C", RadioBand.Band2_4GHz, 11)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.ExternalLoad[0] = new() { { 1, 4.0 } };  // A's current channel is loaded - it wants to move
+        graph.ExternalLoad[1] = new() { { 6, 1.0 } };
+        graph.ExternalLoad[2] = new() { { 11, 1.0 } };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.RecommendedNetworkScore.Should().BeLessThanOrEqualTo(plan.CurrentNetworkScore + 1e-6,
+            "the engine must never recommend a plan that raises the network score");
+    }
+
+    [Fact]
+    public void Optimize_MeasuredComfortableCurrentChannel_NotChurnedForOwnBenefit()
+    {
+        // The reported class: the external neighbor scan inflates a channel that the AP's own radio
+        // measures as externally quiet (low 1d/7d interference). Without the measured-comfort anchor
+        // the optimizer moves the AP off it; with it, a lone AP (no sibling to declutter) stays put.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = SingleApGraph(52,
+            externalLoad: new() { { 52, 6.0 }, { 36, 0.0 } }, // scan says ch52 busy, ch36 clean
+            directlyObserved: new() { 52, 36 },
+            reg, options);
+        // ...but the radio measured ch52 at only 10% external interference (< the comfortable bar).
+        graph.Nodes[0].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 52, (15.0, 10.0, 2.0) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, reg, options);
+
+        var subject = plan.Recommendations.Single();
+        subject.RecommendedChannel.Should().Be(52,
+            "the radio measures ch52 as externally quiet, so it must not be churned off it on the neighbor scan alone");
+        subject.IsChanged.Should().BeFalse();
     }
 
     [Fact]

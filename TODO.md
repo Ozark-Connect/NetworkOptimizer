@@ -1,5 +1,53 @@
 # Network Optimizer - TODO / Future Enhancements
 
+## Channel Recommendation: Engine-Review Follow-ups (recalibration-sensitive)
+
+**PICK UP HERE next session.** Branch `bugfix/channelrec-altruism`. Everything below is TABLED for the
+current release - none are release-critical (the only finding that produced an actual invalid output,
+#4's net-worse recommendation, is fixed + guardrailed). These remaining items shift the recommendation
+DISTRIBUTION and the gate thresholds are calibrated to current behavior, so each needs a live
+before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind edit.
+
+**Already shipped on this branch (baseline, deployed to NAS + Mac):**
+- Measured floor #2 (candidate-only, proximity-weighted sibling, gate-scaled); propagated stress split
+  from measured `HistoricalStress`; DFS penalty span-aware; per-AP fallback baseline fix.
+- Spectrum-scan noise floor wired into scoring (mean-util / worst-noise, verified vs UniFi BW160);
+  scans run at the radio's live BW; `ScanChannelData` keyed by (channel, width) with span aggregation.
+- Cross-vantage: an AP's CURRENT channel is scored from the closest off-channel sibling, not its own
+  self-contaminated read (mesh/camera traffic that follows the AP).
+- Net-worse guardrail + fallback net-benefit on `ScoreAssignment` (finding #4, largely done).
+- Win 1: gap-aware quick-scan prompt (value-first copy, mesh APs excluded, warning tailored by
+  `HasDedicatedScanRadio` + mesh role); disclaimer auto-hides when no scan gaps.
+
+**Remaining engine findings (tabled):**
+
+- [~] **Inconsistent objective (sum-of-ScoreAp vs ScoreAssignment).** The search minimizes
+  `ScoreAssignment` (each internal pair counted once, symmetric). The auxiliary passes sum `ScoreAp`
+  deltas, which count each internal pair ~2x - so a move the search rejected can be re-approved on an
+  inconsistent yardstick. **Largely fixed:** the per-AP fallback now uses the `ScoreAssignment` delta
+  for its net-benefit check + selection, and a global guardrail drops any final plan whose network
+  score is worse than current (this hit live as a net-worse recommendation, Front Yard ch1->ch6).
+  Remaining (lower priority now, backstopped by the guardrail): the altruistic "others" and comfort
+  passes still use sum-of-`ScoreAp` internally - convert them too for cleanliness.
+- [ ] **Position-dependence in the post-passes.** Per-AP fallback, altruistic, crowding, and comfort
+  all loop in AP array order and mutate the plan in place, so earlier APs shift later APs' baselines.
+  The main search is most-constrained-first; the post-passes aren't. Fix: order them deterministically
+  by something meaningful (e.g. current score, most-constrained) and add a current-channel tiebreak
+  when candidates are near-tied (the greedy phase already does this).
+- [ ] **Global avg-improvement gate doesn't actually prevent churn.** When avg improvement <
+  threshold the plan reverts to current, but the per-AP fallback and altruistic passes then run on the
+  reverted plan and can still introduce moves. Decide intent: should "network not worth touching" be a
+  hard stop on all per-AP moves too? (Design call - confirm desired behavior before changing.)
+- [ ] **Threshold-cliff churn.** All the gates are hard cliffs evaluated against scores driven by the
+  rogue scan (a few dB of snapshot variance can flip a recommendation on/off between runs). Determinism
+  protects against algorithmic randomness, not input variance. Fix: hysteresis / a dead-band on the
+  move decision, or smoothing the external input over multiple snapshots. (Feature-sized.)
+- [ ] **Width double-discount.** In `BuildExternalLoad` a narrow neighbor inside a wider victim is
+  scaled by the width ratio (0.25x for 20-in-80) AND stored only on its narrow sub-channel - but in
+  OFDM a 20 MHz interferer makes the whole 80 MHz block CCA-busy. The common case is under-weighted.
+  Fix: a narrower-than-victim interferer should count against the full overlapping span without the
+  width-ratio discount. Shifts external magnitudes - re-validate.
+
 ## LAN Speed Test
 
 ### Path Analysis Enhancements
@@ -603,3 +651,58 @@ knows the swap is actually worse for util/interference. The "improvement" came a
 - [ ] When a candidate assignment matches a previously-tried combo, prefer measured outcome over inferred score
 - [ ] Down-weight (or flag) recommendations whose predicted gain rests mostly on propagated stress
 - [ ] Distinguish self-induced load from environmental interference - don't credit a move for escaping the AP's own traffic
+
+## Channel Recommendation: Spectrum-Scan UX (background / on-demand quick-scans)
+
+We now read per-channel measured occupancy from UniFi's `stat/spectrum-scan/{mac}` and can trigger
+scans via `cmd/devmgr` quick-scan (`UniFiApiClient.TriggerQuickScanAsync`). A quick-scan does NOT
+disconnect clients (the association stays up - only a FULL scan drops clients), BUT it briefly steps
+each radio off its channel, so real-time traffic (video calls, gaming, an active speed test) can
+hiccup for a moment - verified live (an iperf3 run died mid-scan; Wi-Fi stayed connected). It's also
+slow per band per AP, so we never run it inline with a recommendation. The recommender reads whatever
+scan results are cached; a band/AP with no recent scan falls back to the neighbor-scan (external)
+proxy. UX should be honest: "clients stay connected, but real-time traffic may briefly hiccup -
+best run during low-usage times" (NOT "won't disrupt"). Mesh/wireless-uplink APs can't quick-scan at
+all (controller refuses - it'd drop their uplink), so exclude them from gap prompts.
+
+Shared piece to build once: a "trigger -> poll `quick_scan_state.in_progress` until done -> read
+results -> re-run rec" helper. Expose the trigger through `IWiFiDataProvider` (it currently lives
+only on `UniFiApiClient`).
+
+- [x] **Win 1 (gap-aware prompt)** - DONE & shipped. Gap banner offers a one-click quick scan of the
+  gapped (AP, band)s (mesh APs excluded, per-AP-serial/cross-AP-parallel, scans at live BW), polls,
+  re-runs. Warning tailored by `HasDedicatedScanRadio` + mesh role; disclaimer auto-hides when no gaps.
+- [ ] **Win 2 (staleness + manual "Refresh measurements" button)** - can wait for a PATCH after this
+  minor release: there's a natural window between when people pick up the feature and when their scan
+  data goes stale, so no rush. Two parts:
+  1. *Staleness:* scan data currently never expires - the provider stamps `ScanTime = fetch-time`
+     (not the real scan time), so a days-old scan reads as fresh and never becomes a gap. Propagate the
+     real `spectrum_table_time` into `ChannelScanResult.ScanTime`, then treat an (AP, band) as a gap if
+     missing OR older than a threshold (~7 days). The gap banner then reappears on its own for stale
+     radios. Low effort, no recalibration risk.
+  2. *Manual refresh button* in the same banner area: stagger a quick-scan across all APs (reuse
+     `RunQuickScansAsync`), re-run when done. Harmless, cheap.
+- [ ] **Win 3 (scheduled off-peak sweep)** - background job that sweeps quick-scans across APs/bands
+  during low-utilization hours, determined from the 1d/7d historic stress we already compute. Stagger
+  ONE band at a time PER AP (parallel across APs - a radio scans one band at a time); never take the
+  whole site's airtime off-channel at once. Spectrum cache stays fresh, recommendations always
+  well-grounded, zero user action.
+  - **Scan-hardware-aware scheduling (use `HasDedicatedScanRadio`):** APs with a dedicated all-band
+    scan radio (verified: phy reports Band 1+2+4) scan with ZERO disruption to clients or mesh
+    uplinks - so scan those freely/immediately, anytime. Only serving-radio APs (no scan radio) need
+    the off-peak window. Mesh parents WITHOUT a scan radio are the most disruptive (scanning the uplink
+    band drops children) - schedule those most conservatively or skip their uplink band.
+- [ ] **Deep-analysis mode (premium, user-initiated)** - trigger fresh scans on ALL radios, wait,
+  then recommend on fully-measured data. Best accuracy, slow (minutes); distinct from the fast
+  everyday rec.
+- [ ] **Large-deployment UX / verbiage (> ~8 APs).** The gap prompt, manual refresh, and rec copy are
+  tuned for small sites. At higher AP counts revisit:
+  - *Scan flow:* running quick scans across many APs is slow even parallel-across-APs, and it currently
+    blocks the Blazor circuit with a spinner. Background it with real progress (per-AP/percent), or
+    batch and let the rec refresh incrementally.
+  - *Verbiage/counts:* "N radios haven't been scanned" and the gap banner read fine for 3-5 radios but
+    get unwieldy at 20+; consider summarizing ("most radios", grouped by AP, collapsible detail).
+  - *Rec table density* and "How This Works" at scale.
+  - *Perf (profile, don't assume):* the per-AP fallback recomputes `ScoreAssignment` per candidate and
+    `ScanReadingForScoring` loops siblings for current-channel reads - both negligible at small n but
+    worth checking on large sites before they bite.

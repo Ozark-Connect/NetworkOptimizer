@@ -3710,6 +3710,27 @@ select.form-control {
     gap: 1rem;
 }
 
+.scan-gap-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.scan-gap-banner .scan-gap-text {
+    flex: 1;
+    min-width: 12rem;
+}
+
+.scan-gap-banner .btn {
+    flex-shrink: 0;
+}
+
 .banner-icon {
     font-size: 1.5rem;
     background: rgba(255, 255, 255, 0.2);
@@ -10870,7 +10891,7 @@ a.path-hop.hop-clickable:hover {
 
 .aps-header {
     display: grid;
-    grid-template-columns: 2fr 0.8fr 0.8fr 1fr 1.2fr 0.8fr 0.6fr;
+    grid-template-columns: 2fr 0.8fr 0.8fr 200px 1.2fr 0.8fr 0.6fr;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
     background: var(--bg-tertiary);
@@ -10882,7 +10903,7 @@ a.path-hop.hop-clickable:hover {
 
 .aps-row {
     display: grid;
-    grid-template-columns: 2fr 0.8fr 0.8fr 1fr 1.2fr 0.8fr 0.6fr;
+    grid-template-columns: 2fr 0.8fr 0.8fr 200px 1.2fr 0.8fr 0.6fr;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
     border-top: 1px solid var(--border-color);
@@ -10896,6 +10917,21 @@ a.path-hop.hop-clickable:hover {
 
 .aps-row.clickable {
     cursor: pointer;
+}
+
+.aps-row .ap-power-col .power-bar-container {
+    max-width: 170px;
+    background: var(--bg-tertiary);
+}
+
+.aps-row .ap-power-col .power-mode-below {
+    display: block;
+    max-width: 170px;
+    text-align: center;
+    margin-top: 3px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: capitalize;
 }
 
 .ap-name-col {

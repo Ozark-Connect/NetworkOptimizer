@@ -112,33 +112,12 @@
                         <div class="radio-power-list">
                             @foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue).OrderBy(r => r.Band))
                             {
-                                var maxEirp = GetMaxEirp(ap.Model, radio);
-                                var txPowerPct = GetPowerPercentage(radio.TxPower ?? 0, maxEirp);
-                                var eirpPct = GetPowerPercentage(radio.Eirp ?? radio.TxPower ?? 0, maxEirp);
-                                var powerClass = GetPowerClass(radio);
-                                var hasGain = radio.AntennaGain.HasValue && radio.AntennaGain > 0;
                                 <div class="radio-power-item">
                                     <div class="radio-info">
                                         <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                                         <span class="radio-channel">Ch @radio.Channel</span>
                                     </div>
-                                    <div class="power-bar-container" data-tooltip="TX: @(radio.TxPower ?? 0) dBm@(hasGain ? $" + {radio.AntennaGain} dBi gain = {radio.Eirp} dBm EIRP" : "") (max @maxEirp dBm EIRP)">
-                                        <div class="power-bar-stack">
-                                            <div class="power-bar-tx @powerClass" style="width: @txPowerPct%"></div>
-                                            @if (hasGain)
-                                            {
-                                                <div class="power-bar-gain @powerClass" style="width: @(eirpPct - txPowerPct)%"></div>
-                                            }
-                                        </div>
-                                        <span class="power-values">
-                                            <span class="power-tx">@(radio.TxPower ?? 0)</span>
-                                            @if (hasGain)
-                                            {
-                                                <span class="power-eirp">→ @radio.Eirp</span>
-                                            }
-                                            <span class="power-unit">dBm</span>
-                                        </span>
-                                    </div>
+                                    <EirpBar Radio="radio" Model="@ap.Model" />
                                     <div class="power-mode">
                                         @(radio.TxPowerMode ?? "auto")
                                     </div>
@@ -482,51 +461,6 @@
                            !i.Title.Contains("Co-Channel"))
                 .ToList();
         }
-    }
-
-    /// <summary>
-    /// Get the max EIRP for a radio, using catalog data with the same clamping logic as ApMapService.
-    /// Falls back to the radio's own MaxTxPower + AntennaGain if catalog doesn't have the model.
-    /// </summary>
-    private int GetMaxEirp(string model, RadioSnapshot radio)
-    {
-        var bandKey = radio.Band.ToPropagationBand();
-        if (ApModelCatalog.TryGetBandDefaults(model, bandKey, out var catalogDefaults))
-        {
-            var (gain, maxTx, _) = ApModelCatalog.ResolveForMode(catalogDefaults, radio.AntennaMode);
-
-            // Use catalog max if UniFi reports higher (same 2 dBm tolerance as ApMapService)
-            var apiMax = radio.MaxTxPower ?? maxTx;
-            var clampedMax = (apiMax >= maxTx + 2) ? maxTx : apiMax;
-
-            // Use catalog gain if UniFi reports higher
-            var apiGain = radio.AntennaGain ?? gain;
-            var clampedGain = (apiGain >= gain + 2) ? gain : apiGain;
-
-            return clampedMax + clampedGain;
-        }
-
-        // Fallback: use whatever UniFi reports
-        var fallbackMax = radio.MaxTxPower ?? radio.TxPower ?? 20;
-        return fallbackMax + (radio.AntennaGain ?? 0);
-    }
-
-    private double GetPowerPercentage(int power, int maxEirp)
-    {
-        if (maxEirp <= 0) return 0;
-        return Math.Min(100, Math.Max(0, (double)power / maxEirp * 100));
-    }
-
-    private string GetPowerClass(RadioSnapshot radio)
-    {
-        var mode = radio.TxPowerMode?.ToLower() ?? "auto";
-        return mode switch
-        {
-            "high" => "power-high",
-            "medium" => "power-medium",
-            "low" => "power-low",
-            _ => "power-auto"
-        };
     }
 
     private string GetBandCssClass(RadioBand band) => band switch

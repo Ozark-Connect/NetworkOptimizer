@@ -2413,6 +2413,65 @@ public class UniFiApiClient : IDisposable
         return new List<UniFiRogueApResponse>();
     }
 
+    /// <summary>
+    /// GET /api/s/{site}/stat/spectrum-scan/{mac} - per-AP RF spectrum scan results held from the
+    /// AP's last scan (per-channel utilization % / interference dBm across each band). Returns null
+    /// if the AP has no cached scan or the call fails. Does NOT trigger a scan - see
+    /// <see cref="TriggerQuickScanAsync"/>.
+    /// </summary>
+    public async Task<UniFiSpectrumScanResponse?> GetSpectrumScanAsync(
+        string apMac,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiSpectrumScanResponse>>(
+            () => _httpClient!.GetAsync(BuildApiPath($"stat/spectrum-scan/{apMac}"), cancellationToken),
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+            return response.Data.FirstOrDefault();
+
+        _logger.LogDebug("No cached spectrum scan for AP {Mac}", apMac);
+        return null;
+    }
+
+    /// <summary>
+    /// POST /api/s/{site}/cmd/devmgr - trigger a quick RF spectrum scan on an AP's band. A quick
+    /// scan does NOT disconnect clients (unlike a full scan), but it still takes time per band, so
+    /// this is intended for background/scheduled refresh - never inline with a recommendation
+    /// request. Read the results later via <see cref="GetSpectrumScanAsync"/>.
+    /// </summary>
+    /// <param name="apMac">AP MAC address.</param>
+    /// <param name="band">UniFi band code: "ng" (2.4 GHz), "na" (5 GHz), "6e" (6 GHz).</param>
+    /// <param name="bandwidthMhz">Scan bandwidth in MHz (e.g. 20).</param>
+    public async Task<bool> TriggerQuickScanAsync(
+        string apMac,
+        string band,
+        int bandwidthMhz = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object>
+        {
+            ["mac"] = apMac,
+            ["scan-band"] = band,
+            ["scan-bw"] = bandwidthMhz,
+            ["cmd"] = "quick-scan"
+        };
+        var content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<object>>(
+            () => _httpClient!.PostAsync(BuildApiPath("cmd/devmgr"), content, cancellationToken),
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogDebug("Triggered quick scan on AP {Mac} band {Band}", apMac, band);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to trigger quick scan on AP {Mac} band {Band}", apMac, band);
+        return false;
+    }
+
     #endregion
 
     #region Threat Management APIs
