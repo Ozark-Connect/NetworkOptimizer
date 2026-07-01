@@ -695,3 +695,14 @@ only on `UniFiApiClient`).
 - [ ] **Deep-analysis mode (premium, user-initiated)** - trigger fresh scans on ALL radios, wait,
   then recommend on fully-measured data. Best accuracy, slow (minutes); distinct from the fast
   everyday rec.
+- [ ] **Large-deployment UX / verbiage (> ~8 APs).** The gap prompt, manual refresh, and rec copy are
+  tuned for small sites. At higher AP counts revisit:
+  - *Scan flow:* running quick scans across many APs is slow even parallel-across-APs, and it currently
+    blocks the Blazor circuit with a spinner. Background it with real progress (per-AP/percent), or
+    batch and let the rec refresh incrementally.
+  - *Verbiage/counts:* "N radios haven't been scanned" and the gap banner read fine for 3-5 radios but
+    get unwieldy at 20+; consider summarizing ("most radios", grouped by AP, collapsible detail).
+  - *Rec table density* and "How This Works" at scale.
+  - *Perf (profile, don't assume):* the per-AP fallback recomputes `ScoreAssignment` per candidate and
+    `ScanReadingForScoring` loops siblings for current-channel reads - both negligible at small n but
+    worth checking on large sites before they bite.
