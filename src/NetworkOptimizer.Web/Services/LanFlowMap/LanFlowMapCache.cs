@@ -70,6 +70,12 @@ public class LanFlowMapCache
 
     /// <summary>Cached InfluxDB results for historic playback, shared across scoped service instances.</summary>
     public HistoricDataCache? HistoricData { get; set; }
+
+    /// <summary>Earliest interface_counters timestamp - the floor of the playback timeline.</summary>
+    public DateTime? EarliestData { get; set; }
+
+    /// <summary>When <see cref="EarliestData"/> was last queried.</summary>
+    public DateTime EarliestDataAt { get; set; } = DateTime.MinValue;
 }
 
 public record HistoricDataCache(

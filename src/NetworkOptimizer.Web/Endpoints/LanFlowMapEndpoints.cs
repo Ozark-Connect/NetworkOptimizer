@@ -52,6 +52,13 @@ public static class LanFlowMapEndpoints
                 }
             });
 
+        app.MapGet("/api/monitoring/lan-flow-map/history/range",
+            async (LanFlowMapService svc, CancellationToken ct) =>
+            {
+                var earliest = await svc.GetHistoryStartAsync(ct);
+                return Results.Ok(new { earliest });
+            });
+
         app.MapGet("/api/monitoring/lan-flow-map/speed-tests",
             async (LanFlowMapService svc, DateTime? since, DateTime? until, CancellationToken ct) =>
             {

@@ -447,6 +447,33 @@ public class LanFlowMapService
     }
 
     /// <summary>
+    /// Earliest instant historic playback can reach - the first interface_counters point
+    /// in the primary bucket. It only moves forward slowly (retention trimming), so a
+    /// non-null answer is cached for an hour; null (no data yet) retries after 5 minutes
+    /// so a fresh monitoring setup picks up its timeline floor quickly.
+    /// </summary>
+    public async Task<DateTime?> GetHistoryStartAsync(CancellationToken ct = default)
+    {
+        var ttl = _cache.EarliestData == null ? TimeSpan.FromMinutes(5) : TimeSpan.FromHours(1);
+        if (DateTime.UtcNow - _cache.EarliestDataAt < ttl)
+            return _cache.EarliestData;
+        try
+        {
+            // Keep a known-good floor on transient failures (Influx restart,
+            // auth blip) - a null answer must not clobber the cached value.
+            var earliest = await _influx.QueryEarliestInterfaceDataAsync(ct);
+            if (earliest != null) _cache.EarliestData = earliest;
+            _cache.EarliestDataAt = DateTime.UtcNow;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Earliest-data query failed; keeping cached timeline floor");
+            _cache.EarliestDataAt = DateTime.UtcNow;
+        }
+        return _cache.EarliestData;
+    }
+
+    /// <summary>
     /// Historic snapshot for the timeline scrubber. Queries InfluxDB at the requested
     /// instant +/- a small window matching the fast-tier interval (5 s).
     /// </summary>

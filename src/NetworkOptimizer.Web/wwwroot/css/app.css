@@ -15411,16 +15411,60 @@ tr.stats-row-filtered {
     font-size: 0.78rem;
     color: var(--text-secondary);
 }
+.lan-flow-map-scrubber-track {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
 .lan-flow-map-scrubber-range {
     flex: 1;
     accent-color: var(--speed-download-color, #3385d6);
+}
+.lan-flow-map-scrubber-ticks {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 0;
+    bottom: 0;
+    pointer-events: none;
+}
+.lan-flow-map-scrubber-tick {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 1px;
+    height: 0.6rem;
+    background: rgba(255, 255, 255, 0.22);
+}
+.lan-flow-map-scrubber-window {
+    background: transparent;
+    border: 1px solid var(--border-color, #334155);
+    color: var(--text-secondary);
+    height: 1.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.72rem;
+    padding: 0 0.2rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.lan-flow-map-scrubber-window:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+.lan-flow-map-scrubber-window option {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+.lan-flow-map-scrubber-window option:disabled {
+    color: var(--text-muted);
 }
 /* Right label swaps between "Live" and a long locale datetime as the user
    scrubs; without a min-width the flex row reflows and the slider thumb
    jumps right under the cursor as it approaches the live edge. */
 .lan-flow-map-scrubber-row [data-role="right"] {
     display: inline-block;
-    min-width: 7.5rem;
+    min-width: min(7.5rem, 30vw);
     text-align: center;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -15849,6 +15893,9 @@ tr.stats-row-filtered {
     .lan-flow-map-speed-control {
         display: none;
     }
+    .lan-flow-map-scrubber-row [data-role="left"] {
+        display: none;
+    }
     .lan-flow-map-signal-hint {
         top: 0.5rem;
         max-width: calc(100% - 1rem);
@@ -15871,6 +15918,7 @@ tr.stats-row-filtered {
     position: relative;
 }
 .lan-flow-map-2d-stage {
+    position: relative;
     width: 100%;
     height: clamp(520px, 70vh, 820px);
 }
