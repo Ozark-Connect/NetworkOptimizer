@@ -2,20 +2,33 @@
 
 ## Channel Recommendation: Engine-Review Follow-ups (recalibration-sensitive)
 
-From the full engine review. The clear correctness bugs and the live measured-floor issues are
-already fixed and shipped (floor candidate-only + proximity-weighted + gate-scaled; propagated stress
-split from measured; noise floor wired in; DFS penalty span-aware; fallback baseline). These five
-remain. They all shift the recommendation DISTRIBUTION and the gate thresholds are calibrated to
-current behavior, so each needs a live before/after comparison on the NAS + Mac sites (and ideally a
-fleet sample) to land safely - not a blind edit.
+**PICK UP HERE next session.** Branch `bugfix/channelrec-altruism`. Everything below is TABLED for the
+current release - none are release-critical (the only finding that produced an actual invalid output,
+#4's net-worse recommendation, is fixed + guardrailed). These remaining items shift the recommendation
+DISTRIBUTION and the gate thresholds are calibrated to current behavior, so each needs a live
+before/after on the NAS + Mac sites (and ideally a fleet sample), not a blind edit.
 
-- [ ] **Inconsistent objective (sum-of-ScoreAp vs ScoreAssignment).** The search minimizes
-  `ScoreAssignment` (each internal pair counted once, symmetric). The auxiliary passes (per-AP
-  fallback net-benefit, altruistic "others", crowding friction, comfort "others") sum `ScoreAp`
-  deltas, which count each internal pair ~2x (directional both ways) - so a move the search rejected
-  can be re-approved by an auxiliary pass on an inconsistent yardstick. Fix: express the auxiliary
-  net/others measures as `ScoreAssignment`-deltas (or halve the internal contribution in the per-AP
-  sum), then re-tune MinApAbsoluteImprovement / MinApScoreToMove against the new scale.
+**Already shipped on this branch (baseline, deployed to NAS + Mac):**
+- Measured floor #2 (candidate-only, proximity-weighted sibling, gate-scaled); propagated stress split
+  from measured `HistoricalStress`; DFS penalty span-aware; per-AP fallback baseline fix.
+- Spectrum-scan noise floor wired into scoring (mean-util / worst-noise, verified vs UniFi BW160);
+  scans run at the radio's live BW; `ScanChannelData` keyed by (channel, width) with span aggregation.
+- Cross-vantage: an AP's CURRENT channel is scored from the closest off-channel sibling, not its own
+  self-contaminated read (mesh/camera traffic that follows the AP).
+- Net-worse guardrail + fallback net-benefit on `ScoreAssignment` (finding #4, largely done).
+- Win 1: gap-aware quick-scan prompt (value-first copy, mesh APs excluded, warning tailored by
+  `HasDedicatedScanRadio` + mesh role); disclaimer auto-hides when no scan gaps.
+
+**Remaining engine findings (tabled):**
+
+- [~] **Inconsistent objective (sum-of-ScoreAp vs ScoreAssignment).** The search minimizes
+  `ScoreAssignment` (each internal pair counted once, symmetric). The auxiliary passes sum `ScoreAp`
+  deltas, which count each internal pair ~2x - so a move the search rejected can be re-approved on an
+  inconsistent yardstick. **Largely fixed:** the per-AP fallback now uses the `ScoreAssignment` delta
+  for its net-benefit check + selection, and a global guardrail drops any final plan whose network
+  score is worse than current (this hit live as a net-worse recommendation, Front Yard ch1->ch6).
+  Remaining (lower priority now, backstopped by the guardrail): the altruistic "others" and comfort
+  passes still use sum-of-`ScoreAp` internally - convert them too for cleanliness.
 - [ ] **Position-dependence in the post-passes.** Per-AP fallback, altruistic, crowding, and comfort
   all loop in AP array order and mutate the plan in place, so earlier APs shift later APs' baselines.
   The main search is most-constrained-first; the post-passes aren't. Fix: order them deterministically
@@ -656,11 +669,17 @@ Shared piece to build once: a "trigger -> poll `quick_scan_state.in_progress` un
 results -> re-run rec" helper. Expose the trigger through `IWiFiDataProvider` (it currently lives
 only on `UniFiApiClient`).
 
-- [ ] **Win 1 (gap-aware prompt)** - on the recommendation page, when a band/AP has no recent
-  measurement (empty `ScanChannelData`; we already log the fallback), offer a one-click "run a quick
-  scan on [these APs/bands]?" that scans exactly the gaps, polls, and re-runs. *(In progress this session.)*
-- [ ] **Win 2 (manual "Refresh measurements" button)** - stagger a quick-scan across all APs for the
-  current band (or all bands), then re-run when done. Same async flow as Win 1, just "all" not "gaps".
+- [x] **Win 1 (gap-aware prompt)** - DONE & shipped. Gap banner offers a one-click quick scan of the
+  gapped (AP, band)s (mesh APs excluded, per-AP-serial/cross-AP-parallel, scans at live BW), polls,
+  re-runs. Warning tailored by `HasDedicatedScanRadio` + mesh role; disclaimer auto-hides when no gaps.
+- [ ] **NEXT: Win 2 (staleness + manual "Refresh measurements" button)** - two parts:
+  1. *Staleness:* scan data currently never expires - the provider stamps `ScanTime = fetch-time`
+     (not the real scan time), so a days-old scan reads as fresh and never becomes a gap. Propagate the
+     real `spectrum_table_time` into `ChannelScanResult.ScanTime`, then treat an (AP, band) as a gap if
+     missing OR older than a threshold (~7 days). The gap banner then reappears on its own for stale
+     radios. Low effort, no recalibration risk.
+  2. *Manual refresh button* in the same banner area: stagger a quick-scan across all APs (reuse
+     `RunQuickScansAsync`), re-run when done. Harmless, cheap.
 - [ ] **Win 3 (scheduled off-peak sweep)** - background job that sweeps quick-scans across APs/bands
   during low-utilization hours, determined from the 1d/7d historic stress we already compute. Stagger
   ONE band at a time PER AP (parallel across APs - a radio scans one band at a time); never take the

@@ -67,6 +67,13 @@ public class ChannelPlan
     public int UnplacedApCount { get; set; }
     public bool HasScanData { get; set; }
     public bool HasNeighborNetworks { get; set; }
+
+    /// <summary>
+    /// True when we have per-channel spectrum measurements (utilization / noise floor) for this band,
+    /// so the recommendation is grounded in measured airtime and RF noise - not just neighbor scans or
+    /// internal AP interference - even when no neighbor networks were detected.
+    /// </summary>
+    public bool HasMeasuredChannelData { get; set; }
     public bool HasBuildingData { get; set; }
 
     /// <summary>

@@ -528,6 +528,7 @@ public class ChannelRecommendationService
             UnplacedApCount = graph.Nodes.Count(node => !node.IsPlaced),
             HasScanData = graph.HasScanData,
             HasNeighborNetworks = graph.ExternalLoad.Any(d => d.Count > 0),
+            HasMeasuredChannelData = graph.ScanChannelData.Any(d => d.Count > 0),
             HasBuildingData = hasBuildingData,
             DfsAvoidanceNotPossible = graph.DfsAvoidanceFallback
         };
