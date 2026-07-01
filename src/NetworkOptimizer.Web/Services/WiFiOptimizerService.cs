@@ -676,7 +676,16 @@ public class WiFiOptimizerService
             .Select(g => ScanApBandsSequentiallyAsync(
                 provider, g.Key, g.Select(t => t.BandCode).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                 widthByApBand, cancellationToken));
-        await Task.WhenAll(perApScans);
+        try
+        {
+            await Task.WhenAll(perApScans);
+        }
+        catch (UniFiPermissionException ex)
+        {
+            // Insufficient UniFi role - re-throw as a UI-facing error so the user knows to fix
+            // permissions rather than retry. Nothing scanned, so the cache stays valid.
+            throw new ScanPermissionException(ex.Message);
+        }
 
         // Fresh scans are in - drop the cached snapshot so the next fetch re-reads the spectrum data.
         _cachedScanResults = null;
@@ -709,6 +718,12 @@ public class WiFiOptimizerService
                         apMac, QuickScanPerBandTimeoutSeconds);
                     break;
                 }
+            }
+            catch (UniFiPermissionException)
+            {
+                // Insufficient role affects every scan, not just this band - stop and let the caller
+                // surface it rather than swallowing it and hammering the controller with more 403s.
+                throw;
             }
             catch (Exception ex)
             {

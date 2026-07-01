@@ -191,6 +191,7 @@
                             <li>Copy the generated API key and paste it above - UniFi Network will only display it once, so make sure to copy it before dismissing the dialog</li>
                         </ol>
                         <p><strong>Note:</strong> API keys require a UniFi OS console (UDM, UCG, UDR, or UniFi OS Server). Legacy standalone Network Server installations without UniFi OS must use Local Account authentication.</p>
+                        <p>The key inherits the role of the account that creates it. To run the Channel Optimizer's on-demand RF spectrum scans, create it under an account with the Network: Site Admin role.</p>
                     </div>
                 </details>
             }
@@ -218,7 +219,7 @@
                             <li>Uncheck <strong>Use a Predefined Role</strong></li>
                             <li>Set permissions:
                                 <ul>
-                                    <li><strong>Network:</strong> View Only</li>
+                                    <li><strong>Network:</strong> Site Admin</li>
                                     <li><strong>Protect:</strong> View Only</li>
                                     <li><strong>User &amp; Account Management:</strong> None</li>
                                 </ul>
@@ -226,6 +227,7 @@
                             <li>Set a secure password and save</li>
                         </ol>
                         <p>Use this username and password in the fields above.</p>
+                        <p><strong>Why Site Admin?</strong> Network has no granular role between View Only and Site Admin, and the Channel Optimizer's on-demand RF spectrum scans need write access. View Only works for everything else, so pick it instead if you don't plan to run scans.</p>
                     </div>
                 </details>
             }
