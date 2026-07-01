@@ -1238,67 +1238,6 @@ from(bucket: ""{_bucket}"")
     }
 
     /// <summary>
-    /// Two-resolution variant of <see cref="QueryLatencyDetailByTargetTypeAsync"/> that reads
-    /// <c>rtt_avg_ms</c> at a COARSE aggregate while reading <c>loss_percent</c> AND <c>jitter_ms</c> at
-    /// a FINE aggregate, then merges the two grids per target. Only mean RTT is coarsened: it feeds the
-    /// 15-min congestion and 30-min step buckets and whole-window per-ASN medians, which don't need fine
-    /// resolution. Jitter stays FINE because mean-aggregating it dilutes the bursts that drive congestion
-    /// detection and the per-ASN P95 - coarsening it visibly under-scored the transit dimension on
-    /// transit-heavy sites. Loss stays fine for outage's 15-30 s buckets. On the merged series, coarse
-    /// rows carry only rtt_avg (null jitter/loss) and fine rows carry loss+jitter (null rtt_avg), so every
-    /// consumer filters by the field it reads (RttAvgMs.HasValue for congestion RTT/step, EffectiveJitterMs
-    /// for jitter, LossPercent.HasValue for outage / the loss pool) and the disjoint timestamps are
-    /// consumed cleanly. <c>rtt_max_ms</c> is NOT fetched for these types: its only use is the
-    /// EffectiveJitterMs fallback (rtt_max - rtt_avg) when jitter is absent, which can't be computed
-    /// against a coarse rtt_avg anyway - and jitter is essentially always present. Keeping rtt_max off
-    /// the coarse rows is also what prevents them from producing a stray coarse EffectiveJitter that
-    /// would contaminate the fine jitter stats. Used for Transit and InternetService; AccessIsp stays
-    /// fully fine (its RTT drives the loaded-latency delta).
-    /// </summary>
-    public async Task<Dictionary<string, List<LatencySeriesPoint>>> QueryLatencyDetailTieredByTargetTypeAsync(
-        MonitoringTargetType targetType,
-        DateTime from,
-        DateTime to,
-        TimeSpan coarseAggregate,
-        TimeSpan fineAggregate,
-        CancellationToken ct = default)
-    {
-        if (!IsConfigured) await ReconfigureAsync(ct);
-        if (!IsConfigured) return new Dictionary<string, List<LatencySeriesPoint>>();
-        var typeTag = targetType.ToString().ToLowerInvariant();
-        var typeFilter = targetType == MonitoringTargetType.InternetService
-            ? @"r.target_type == ""internetservice"" or r.target_type == ""wan"""
-            : $@"r.target_type == ""{typeTag}""";
-
-        string BuildFlux(string fieldFilter, TimeSpan window) => $@"
-from(bucket: ""{_bucket}"")
-  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
-  |> filter(fn: (r) => r._measurement == ""latency"")
-  |> filter(fn: (r) => {typeFilter})
-  |> filter(fn: (r) => {fieldFilter})
-  |> aggregateWindow(every: {ToFluxDuration(window)}, fn: mean, createEmpty: false)
-  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
-";
-        var coarseTask = QueryRawAsync(
-            BuildFlux(@"r._field == ""rtt_avg_ms""", coarseAggregate), ct);
-        var fineTask = QueryRawAsync(
-            BuildFlux(@"r._field == ""loss_percent"" or r._field == ""jitter_ms""", fineAggregate), ct);
-        await Task.WhenAll(coarseTask, fineTask);
-
-        var merged = ParseLatencyDetailCsv(await coarseTask);
-        foreach (var (target, finePoints) in ParseLatencyDetailCsv(await fineTask))
-        {
-            if (merged.TryGetValue(target, out var list)) list.AddRange(finePoints);
-            else merged[target] = finePoints;
-        }
-        // The two grids interleave (coarse RTT rows and fine loss/jitter rows at different instants), so
-        // re-sort each target by time - the detectors and per-ASN grading assume chronological order.
-        foreach (var list in merged.Values)
-            list.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return merged;
-    }
-
-    /// <summary>
     /// Per-window rtt/jitter/loss detail for a single target by its id - used to pull just the LAN
     /// gateway's loss for outage scoping without loading every fabric device's series.
     /// </summary>

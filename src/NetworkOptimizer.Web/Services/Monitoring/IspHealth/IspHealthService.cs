@@ -265,7 +265,6 @@ public class IspHealthService
         if (!_influx.IsConfigured && !await _influx.ReconfigureAsync(ct))
             return new ComputeOutcome(IspHealthStatus.NotConfigured, null, new List<AsnSeries>());
 
-        var perfSw = System.Diagnostics.Stopwatch.StartNew(); // TEMP ISPPERF
         AccessTechnology technology;
         List<MonitoringTarget> targets;
         // Enabled fabric (UniFi device) targets, used only to find the LAN gateway's monitoring
@@ -709,8 +708,6 @@ public class IspHealthService
         report.PhysicalLinkAmbiguous = physical.Ambiguous;
         _logger.LogDebug("ISP Health computed: {Score} ({Tech}), {Events} congestion events, {Shifts} path shifts",
             report.OverallScore, profile.DisplayName, congestionEvents.Count, pathShifts.Count);
-        _logger.LogInformation("TEMP ISPPERF window={Win:0}h total={Total}ms score={Score}", // TEMP ISPPERF
-            (windowEnd - windowStart).TotalHours, perfSw.ElapsedMilliseconds, report.OverallScore); // TEMP ISPPERF
         return new ComputeOutcome(IspHealthStatus.Ready, report, chartClusters);
     }
 
