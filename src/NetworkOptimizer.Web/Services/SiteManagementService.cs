@@ -17,27 +17,32 @@ public class SiteManagementService
     public const string DefaultSiteSlug = "main";
 
     private readonly ISiteRepository _siteRepository;
-    private readonly ISettingsRepository _settingsRepository;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly SiteDatabasePaths _dbPaths;
     private readonly ILogger<SiteManagementService> _logger;
 
     public SiteManagementService(
         ISiteRepository siteRepository,
-        ISettingsRepository settingsRepository,
+        IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
         SiteDatabasePaths dbPaths,
         ILogger<SiteManagementService> logger)
     {
         _siteRepository = siteRepository;
-        _settingsRepository = settingsRepository;
+        _mainDbFactory = mainDbFactory;
         _dbPaths = dbPaths;
         _logger = logger;
     }
 
-    /// <summary>Whether multi-site management is enabled on this instance.</summary>
+    /// <summary>
+    /// Whether multi-site management is enabled on this instance. The flag is
+    /// instance-wide, so it is read from the main database via the factory rather
+    /// than the scoped, site-routed context.
+    /// </summary>
     public async Task<bool> IsMultiSiteEnabledAsync()
     {
-        var value = await _settingsRepository.GetSystemSettingAsync(SystemSettingKeys.MultiSiteEnabled);
-        return bool.TryParse(value, out var enabled) && enabled;
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.MultiSiteEnabled);
+        return bool.TryParse(setting?.Value, out var enabled) && enabled;
     }
 
     /// <summary>
@@ -47,7 +52,19 @@ public class SiteManagementService
     /// </summary>
     public async Task SetMultiSiteEnabledAsync(bool enabled)
     {
-        await _settingsRepository.SaveSystemSettingAsync(SystemSettingKeys.MultiSiteEnabled, enabled.ToString());
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.MultiSiteEnabled);
+        if (setting == null)
+        {
+            db.SystemSettings.Add(new SystemSetting { Key = SystemSettingKeys.MultiSiteEnabled, Value = enabled.ToString() });
+        }
+        else
+        {
+            setting.Value = enabled.ToString();
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+
         if (enabled)
             await EnsureDefaultSiteAsync();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");

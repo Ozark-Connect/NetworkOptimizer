@@ -1,0 +1,70 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject SiteManagementService SiteManagement
+@inject SiteContextService SiteContext
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+
+@if (_enabled && _sites.Count > 0)
+{
+    <div class="site-switcher">
+        <button type="button" class="site-switcher-trigger" @onclick="ToggleDropdown" @onclick:stopPropagation="true">
+            <img src="/icons/sites.png" alt="" class="site-switcher-icon" />
+            <span class="site-switcher-name">@(_currentSite?.Name ?? "Site")</span>
+            <svg class="site-switcher-chevron @(_open ? "open" : "")" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+            </svg>
+        </button>
+
+        @if (_open)
+        {
+            <div class="site-switcher-backdrop" @onclick="CloseDropdown"></div>
+            <div class="site-switcher-menu">
+                @foreach (var site in _sites)
+                {
+                    <button type="button" class="site-switcher-item @(site.Slug == SiteContext.Slug ? "active" : "")"
+                            @onclick="() => SwitchToAsync(site)">
+                        <span class="site-switcher-item-name">@site.Name</span>
+                        <span class="site-switcher-item-slug">@site.Slug</span>
+                    </button>
+                }
+                <a class="site-switcher-all" href="/sites" @onclick="CloseDropdown">All sites</a>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _enabled;
+    private bool _open;
+    private List<Site> _sites = new();
+    private Site? _currentSite;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        if (!_enabled)
+            return;
+
+        _sites = await SiteManagement.GetSitesAsync();
+        _currentSite = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)
+            ?? _sites.FirstOrDefault(s => s.IsDefault);
+    }
+
+    private void ToggleDropdown() => _open = !_open;
+
+    private void CloseDropdown() => _open = false;
+
+    private async Task SwitchToAsync(Site site)
+    {
+        _open = false;
+        if (site.Slug == SiteContext.Slug)
+            return;
+
+        // Site context is cookie-based; switching requires a full reload so every
+        // scoped service resolves against the new site's database.
+        await JS.InvokeVoidAsync("eval",
+            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
+        NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+    }
+}

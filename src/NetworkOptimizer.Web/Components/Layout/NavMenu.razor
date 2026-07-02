@@ -1,4 +1,5 @@
 @inject NavigationManager NavigationManager
+@inject NetworkOptimizer.Web.Services.SiteManagementService SiteManagement
 @implements IDisposable
 
 <nav class="nav-menu">
@@ -9,6 +10,15 @@
                 <span class="nav-text">Dashboard</span>
             </NavLink>
         </li>
+        @if (_multiSiteEnabled)
+        {
+            <li class="nav-item" @onclick="HandleNavClick">
+                <NavLink class="nav-link" href="/sites">
+                    <img src="/icons/sites.png" alt="" class="nav-icon-img" />
+                    <span class="nav-text">Sites</span>
+                </NavLink>
+            </li>
+        }
         <li class="nav-item" @onclick="HandleNavClick">
             <NavLink class="nav-link" href="/monitoring">
                 <img src="/icons/port-scan.png" alt="" class="nav-icon-img" />
@@ -126,6 +136,13 @@
 @code {
     [Parameter]
     public Action? OnNavigate { get; set; }
+
+    private bool _multiSiteEnabled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+    }
 
     private void HandleNavClick()
     {

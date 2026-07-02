@@ -1,0 +1,38 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject SiteManagementService SiteManagement
+@inject NavigationManager NavigationManager
+
+@* Reusable multi-site summary card. Renders nothing until multi-site is enabled
+   and more than one site exists, so it can sit on the Dashboard unconditionally. *@
+@if (_sites.Count > 1)
+{
+    <div class="card sites-overview-card" @onclick="@(() => NavigationManager.NavigateTo("/sites"))">
+        <div class="sites-overview-stats">
+            <div class="sites-overview-stat">
+                <span class="sites-overview-value">@_sites.Count</span>
+                <span class="sites-overview-label">Sites</span>
+            </div>
+            <div class="sites-overview-stat">
+                <span class="sites-overview-value">@_sites.Count(s => s.Enabled)</span>
+                <span class="sites-overview-label">Enabled</span>
+            </div>
+            <div class="sites-overview-cta">
+                <span>Open site switcher</span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                </svg>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Site> _sites = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await SiteManagement.IsMultiSiteEnabledAsync())
+            _sites = await SiteManagement.GetSitesAsync();
+    }
+}

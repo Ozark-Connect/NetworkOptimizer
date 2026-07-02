@@ -1,0 +1,94 @@
+@page "/sites"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject SiteManagementService SiteManagement
+@inject SiteContextService SiteContext
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+
+<PageTitle>Sites - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Sites</h1>
+    <p class="page-description">Switch between managed sites</p>
+</div>
+
+@if (!_loaded)
+{
+    <div class="loading-container">
+        <div class="spinner"></div>
+    </div>
+}
+else if (!_enabled)
+{
+    <div class="empty-state">
+        <div class="empty-icon">
+            <img src="/icons/sites.png" alt="" />
+        </div>
+        <p>Multi-site management is not enabled on this instance.</p>
+        <a class="btn btn-primary" href="/settings?tab=multisite">Set Up Multi-Site</a>
+    </div>
+}
+else
+{
+    <SitesOverviewCard />
+
+    <div class="sites-grid">
+        @foreach (var site in _sites)
+        {
+            var isCurrent = site.Slug == SiteContext.Slug;
+            <div class="card site-card @(isCurrent ? "site-card-current" : "")" @onclick="() => SwitchToAsync(site)">
+                <div class="site-card-header">
+                    <span class="status-dot @(site.Enabled ? "online" : "offline")"></span>
+                    <h3 class="site-card-name">@site.Name</h3>
+                    @if (isCurrent)
+                    {
+                        <span class="status-badge status-connected">Current</span>
+                    }
+                </div>
+                <div class="site-card-meta">
+                    <span class="site-card-slug">@site.Slug</span>
+                    @if (site.IsDefault)
+                    {
+                        <span class="status-badge">Default</span>
+                    }
+                </div>
+                <div class="site-card-footer">
+                    <span class="site-card-created">Added @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                </div>
+            </div>
+        }
+
+        <div class="card site-card site-card-add" @onclick="@(() => NavigationManager.NavigateTo("/settings?tab=multisite"))">
+            <span class="site-card-add-plus">+</span>
+            <span>Add Site</span>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loaded;
+    private bool _enabled;
+    private List<Site> _sites = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        if (_enabled)
+            _sites = await SiteManagement.GetSitesAsync();
+        _loaded = true;
+    }
+
+    private async Task SwitchToAsync(Site site)
+    {
+        if (site.Slug == SiteContext.Slug)
+            return;
+
+        // Site context is cookie-based; a full reload re-resolves every scoped
+        // service against the selected site's database.
+        await JS.InvokeVoidAsync("eval",
+            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
+        NavigationManager.NavigateTo("/", forceLoad: true);
+    }
+}

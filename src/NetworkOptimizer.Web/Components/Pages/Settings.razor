@@ -2575,6 +2575,10 @@
             }
         </div>
         <div class="card-body">
+            @if (_multiSiteEnabled)
+            {
+                <SitesOverviewCard />
+            }
             <p class="section-description">
                 Manage multiple sites from this Network Optimizer instance. Each site gets its own
                 isolated database with per-site monitoring, speed testing, and UniFi Console connection

@@ -143,8 +143,10 @@ else
     dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer", "network_optimizer.db");
 }
 Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
-builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}")
+// Scoped DbContext routes to the current site's database via SiteContextService
+// (cookie-driven; scopes without an HTTP context resolve to the default site's main DB).
+builder.Services.AddDbContext<NetworkOptimizerDbContext>((sp, options) =>
+    options.UseSqlite($"Data Source={sp.GetRequiredService<SiteContextService>().DbPath}")
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 // Register DbContextFactory for singleton services (ClientSpeedTestService, Iperf3ServerService)
@@ -178,6 +180,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository,
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddScoped<SiteManagementService>();
+builder.Services.AddScoped<SiteContextService>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
@@ -613,6 +616,35 @@ using (var scope = app.Services.CreateScope())
     app.Logger.LogInformation("Applying database migrations...");
     db.Database.Migrate();
     app.Logger.LogInformation("Database migrations complete");
+
+    // Migrate every provisioned non-default site database: app upgrades can add
+    // migrations after a site DB was provisioned. This scope has no HTTP context,
+    // so `db` above is always the main database holding the site registry.
+    try
+    {
+        var sitePaths = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.SiteDatabasePaths>();
+        var siteRows = db.Sites.Where(s => !s.IsDefault).ToList();
+        foreach (var site in siteRows)
+        {
+            var siteDbPath = sitePaths.GetSiteDbPath(site.Slug, isDefault: false);
+            if (!File.Exists(siteDbPath))
+            {
+                app.Logger.LogWarning("Site {Slug} database missing at {Path}, skipping migration", site.Slug, siteDbPath);
+                continue;
+            }
+            var siteOptions = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
+                .UseSqlite($"Data Source={siteDbPath}")
+                .Options;
+            using var siteDb = new NetworkOptimizerDbContext(siteOptions);
+            siteDb.Database.Migrate();
+        }
+        if (siteRows.Count > 0)
+            app.Logger.LogInformation("Applied migrations to {Count} site database(s)", siteRows.Count);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Failed to migrate site databases");
+    }
 
     // FUSE/network filesystems (Unraid shfs, mergerfs, NFS, SMB) don't support the shared-memory
     // mmap that WAL mode requires, causing silent database corruption. Use DELETE mode instead.
