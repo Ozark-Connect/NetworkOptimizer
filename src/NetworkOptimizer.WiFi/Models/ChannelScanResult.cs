@@ -97,4 +97,12 @@ public class NeighborNetwork
 
     /// <summary>OUI (manufacturer) resolved from BSSID</summary>
     public string? Oui { get; set; }
+
+    /// <summary>
+    /// How much this sighting should count for, in (0, 1]. 1.0 = a live scan sighting.
+    /// Remembered sightings from the long-term neighbor memory enter with an age-decayed
+    /// confidence, scaling their interference weight down as they age - and they never
+    /// grant the full "directly observed" status a live sighting does.
+    /// </summary>
+    public double Confidence { get; set; } = 1.0;
 }

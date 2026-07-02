@@ -63,6 +63,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
+    public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -481,6 +482,14 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("ApChannelChanges");
             entity.HasIndex(e => new { e.ApMac, e.Band, e.ChangedAtUtc });
             entity.HasIndex(e => e.ChangedAtUtc);
+        });
+
+        // ApNeighborSighting configuration (long-term neighbor memory)
+        modelBuilder.Entity<ApNeighborSighting>(entity =>
+        {
+            entity.ToTable("ApNeighborSightings");
+            entity.HasIndex(e => new { e.ApMac, e.Band, e.Bssid, e.Channel }).IsUnique();
+            entity.HasIndex(e => e.LastSeenUtc);
         });
     }
 }

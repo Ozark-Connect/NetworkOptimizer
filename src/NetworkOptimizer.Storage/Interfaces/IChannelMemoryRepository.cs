@@ -25,6 +25,27 @@ public record ChannelOutcomeSample(
     double TxRetryPct);
 
 /// <summary>
+/// One observation of a neighbor network by an AP radio, for the long-term neighbor memory.
+/// </summary>
+/// <param name="ApMac">Observing AP MAC (lowercase, colon-separated)</param>
+/// <param name="Band">Radio band code - "ng" (2.4 GHz), "na" (5 GHz), "6e" (6 GHz)</param>
+/// <param name="Bssid">Neighbor BSSID (lowercase, colon-separated)</param>
+/// <param name="Channel">Control channel the neighbor was seen on</param>
+/// <param name="WidthMhz">Neighbor channel width in MHz; 0 when unknown</param>
+/// <param name="SignalDbm">Observed signal strength in dBm</param>
+/// <param name="SeenAtUtc">When the neighbor was seen (UTC)</param>
+/// <param name="Ssid">Neighbor SSID, if any</param>
+public record NeighborSightingSample(
+    string ApMac,
+    string Band,
+    string Bssid,
+    int Channel,
+    int WidthMhz,
+    int SignalDbm,
+    DateTime SeenAtUtc,
+    string? Ssid);
+
+/// <summary>
 /// Persistence for the Channel Recommendation engine's outcome memory: long-term
 /// per-(AP, band, channel, width) measured outcomes and the channel-change log used for
 /// metric attribution and soak-period suppression.
@@ -61,10 +82,21 @@ public interface IChannelMemoryRepository
     Task AddChangesAsync(IReadOnlyCollection<ApChannelChange> changes, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Delete outcome buckets and change records older than the retention window. The most
-    /// recent change record per (AP, band) is always kept - it carries the last known config.
+    /// Upsert neighbor sightings into their (AP, band, BSSID, channel) rows: LastSeen advances,
+    /// FirstSeen holds, signal keeps the strongest observed, width and SSID follow the newest
+    /// sighting that knows them.
     /// </summary>
-    Task PruneAsync(int retentionDays, CancellationToken cancellationToken = default);
+    Task UpsertNeighborSightingsAsync(IReadOnlyCollection<NeighborSightingSample> sightings, CancellationToken cancellationToken = default);
+
+    /// <summary>Get neighbor sightings last seen at or after the given UTC time.</summary>
+    Task<List<ApNeighborSighting>> GetNeighborSightingsSinceAsync(DateTime lastSeenSinceUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delete outcome buckets and change records older than the retention window, and neighbor
+    /// sightings unseen for longer than their (shorter) retention. The most recent change record
+    /// per (AP, band) is always kept - it carries the last known config.
+    /// </summary>
+    Task PruneAsync(int retentionDays, int neighborRetentionDays, CancellationToken cancellationToken = default);
 
     /// <summary>End of the window the collector last aggregated, or null if it has never run.</summary>
     Task<DateTime?> GetCollectionWatermarkAsync(CancellationToken cancellationToken = default);

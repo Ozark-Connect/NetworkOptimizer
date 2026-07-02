@@ -186,6 +186,40 @@ public class ChannelRecommendationServiceTests
         graph.ExternalLoad[0].Should().BeEmpty();
     }
 
+    [Fact]
+    public void BuildInterferenceGraph_RememberedNeighbor_WeightScaledByConfidence()
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "AP-1", RadioBand.Band5GHz, 36)
+        };
+
+        // Identical neighbors except confidence: the remembered one (0.5) must carry half
+        // the live one's weight, land in HistoricallyObservedChannels instead of
+        // DirectlyObservedChannels, and never grant the full "directly observed" status.
+        var scans = new List<ChannelScanResult>
+        {
+            new()
+            {
+                ApMac = "aa:bb:cc:dd:ee:01",
+                Band = RadioBand.Band5GHz,
+                Neighbors = new()
+                {
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:01", Channel = 36, Signal = -60, IsOwnNetwork = false },
+                    new NeighborNetwork { Bssid = "ff:ff:ff:00:00:02", Channel = 149, Signal = -60, IsOwnNetwork = false, Confidence = 0.5 }
+                }
+            }
+        };
+
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band5GHz, null, scans, null);
+
+        graph.ExternalLoad[0][149].Should().BeApproximately(graph.ExternalLoad[0][36] * 0.5, 0.001);
+        graph.DirectlyObservedChannels[0].Should().Contain(36);
+        graph.DirectlyObservedChannels[0].Should().NotContain(149);
+        graph.HistoricallyObservedChannels[0].Should().ContainKey(149)
+            .WhoseValue.Should().BeApproximately(0.5, 0.001);
+    }
+
     // --- Scoring ---
 
     [Fact]

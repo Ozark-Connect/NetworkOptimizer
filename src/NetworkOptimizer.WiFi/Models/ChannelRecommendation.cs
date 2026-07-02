@@ -144,6 +144,14 @@ public class InterferenceGraph
     public HashSet<int>[] DirectlyObservedChannels { get; set; } = [];
 
     /// <summary>
+    /// Per-AP channels this radio itself saw a neighbor on via the long-term neighbor memory
+    /// (a remembered sighting, not a live scan), mapped to the strongest such sighting's
+    /// age-decayed confidence. Real-but-dated evidence: it softens the unobserved-channel
+    /// uncertainty penalty at a reduced tier without granting a live sighting's full trust.
+    /// </summary>
+    public Dictionary<int, double>[] HistoricallyObservedChannels { get; set; } = [];
+
+    /// <summary>
     /// Per-AP channel scan metrics, keyed by (control channel, scan bandwidth MHz) so multiple-width
     /// buckets for the same channel can coexist (e.g. a BW20 and a BW160 reading of ch36). Value =
     /// (utilization %, noise floor dBm); NoiseFloor is null when the scan reported no reading, lower

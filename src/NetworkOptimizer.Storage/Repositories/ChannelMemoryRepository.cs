@@ -99,7 +99,75 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     }
 
     /// <inheritdoc />
-    public async Task PruneAsync(int retentionDays, CancellationToken cancellationToken = default)
+    public async Task UpsertNeighborSightingsAsync(
+        IReadOnlyCollection<NeighborSightingSample> sightings, CancellationToken cancellationToken = default)
+    {
+        if (sightings.Count == 0) return;
+
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+
+        // Group first: the same (AP, band, BSSID, channel) can occur multiple times in one
+        // batch, and two Adds for the same key would violate the unique index.
+        var grouped = sightings.GroupBy(s => (
+            ApMac: s.ApMac.ToLowerInvariant(),
+            s.Band,
+            Bssid: s.Bssid.ToLowerInvariant(),
+            s.Channel));
+
+        foreach (var group in grouped)
+        {
+            var key = group.Key;
+            var newest = group.OrderByDescending(s => s.SeenAtUtc).First();
+            var maxSignal = group.Max(s => s.SignalDbm);
+            var firstSeen = group.Min(s => s.SeenAtUtc);
+
+            var row = await db.ApNeighborSightings.FirstOrDefaultAsync(n =>
+                n.ApMac == key.ApMac && n.Band == key.Band &&
+                n.Bssid == key.Bssid && n.Channel == key.Channel, cancellationToken);
+
+            if (row == null)
+            {
+                db.ApNeighborSightings.Add(new ApNeighborSighting
+                {
+                    ApMac = key.ApMac,
+                    Band = key.Band,
+                    Bssid = key.Bssid,
+                    Channel = key.Channel,
+                    WidthMhz = newest.WidthMhz,
+                    SignalDbm = maxSignal,
+                    Ssid = newest.Ssid,
+                    FirstSeenUtc = firstSeen,
+                    LastSeenUtc = newest.SeenAtUtc
+                });
+                continue;
+            }
+
+            row.SignalDbm = Math.Max(row.SignalDbm, maxSignal);
+            if (newest.SeenAtUtc > row.LastSeenUtc)
+            {
+                row.LastSeenUtc = newest.SeenAtUtc;
+                if (newest.WidthMhz > 0) row.WidthMhz = newest.WidthMhz;
+                if (!string.IsNullOrEmpty(newest.Ssid)) row.Ssid = newest.Ssid;
+            }
+            if (firstSeen < row.FirstSeenUtc) row.FirstSeenUtc = firstSeen;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<ApNeighborSighting>> GetNeighborSightingsSinceAsync(
+        DateTime lastSeenSinceUtc, CancellationToken cancellationToken = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        return await db.ApNeighborSightings
+            .AsNoTracking()
+            .Where(n => n.LastSeenUtc >= lastSeenSinceUtc)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task PruneAsync(int retentionDays, int neighborRetentionDays, CancellationToken cancellationToken = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
         var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
@@ -115,9 +183,14 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
             .Where(c => c.ChangedAtUtc < cutoff && !keepIds.Contains(c.Id))
             .ExecuteDeleteAsync(cancellationToken);
 
-        if (outcomesPruned > 0 || changesPruned > 0)
-            _logger.LogDebug("Channel memory prune: removed {Outcomes} outcome buckets, {Changes} change records",
-                outcomesPruned, changesPruned);
+        var neighborCutoff = DateTime.UtcNow.AddDays(-neighborRetentionDays);
+        var sightingsPruned = await db.ApNeighborSightings
+            .Where(n => n.LastSeenUtc < neighborCutoff)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (outcomesPruned > 0 || changesPruned > 0 || sightingsPruned > 0)
+            _logger.LogDebug("Channel memory prune: removed {Outcomes} outcome buckets, {Changes} change records, {Sightings} neighbor sightings",
+                outcomesPruned, changesPruned, sightingsPruned);
     }
 
     /// <inheritdoc />

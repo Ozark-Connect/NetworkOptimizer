@@ -11,11 +11,12 @@ public static class ChannelMemoryHelper
 {
     /// <summary>
     /// How long a fresh channel change must soak before the optimizer may recommend hopping
-    /// back to a channel the radio just left. One week covers a full weekly usage cycle and
-    /// gives the outcome memory enough attributed samples to judge the new channel on
-    /// measured data instead of inference. Applies to every band.
+    /// back to a channel the radio just left. 16 hours is enough for real-world load
+    /// (including an evening peak, for changes applied during the day) to expose problems
+    /// with the new channel, without freezing the plan for days; a genuinely bad move
+    /// escapes earlier via the catastrophic-score gate. Applies to every band.
     /// </summary>
-    public static readonly TimeSpan SoakPeriod = TimeSpan.FromDays(7);
+    public static readonly TimeSpan SoakPeriod = TimeSpan.FromHours(16);
 
     /// <summary>
     /// Minimum effective (age-decayed) sample weight before a long-term outcome is trusted to
@@ -40,6 +41,36 @@ public static class ChannelMemoryHelper
     /// (and at three half-lives the decayed weight is nearly gone anyway).
     /// </summary>
     public static readonly TimeSpan LongTermOutcomeWindow = TimeSpan.FromDays(180);
+
+    /// <summary>
+    /// Half-life for aging remembered neighbor sightings - much shorter than the outcome
+    /// half-life because neighbor networks churn (APs move, get reconfigured, hotspots come
+    /// and go) far faster than a channel's aggregate character drifts.
+    /// </summary>
+    public static readonly TimeSpan NeighborHalfLife = TimeSpan.FromDays(14);
+
+    /// <summary>
+    /// How far back remembered neighbor sightings are read and merged: three half-lives,
+    /// where a sighting's confidence has decayed to 12.5% and it effectively no longer
+    /// speaks. Keeps the fetch and the decay cutoff in one place.
+    /// </summary>
+    public static readonly TimeSpan NeighborMemoryWindow = TimeSpan.FromDays(42);
+
+    /// <summary>
+    /// Minimum age-decayed confidence for a remembered sighting to be merged. 0.125 = three
+    /// half-lives, matching <see cref="NeighborMemoryWindow"/>.
+    /// </summary>
+    public const double MinNeighborConfidence = 0.125;
+
+    /// <summary>
+    /// Weakest neighbor signal worth persisting. A few dB below the CCA threshold (-82 dBm,
+    /// where radios actually defer) so borderline neighbors whose signal fluctuates aren't
+    /// forgotten, while genuine noise-floor sightings don't accumulate rows.
+    /// </summary>
+    public const int MinPersistedNeighborSignalDbm = -90;
+
+    /// <summary>How long a neighbor sighting row is kept after its last sighting.</summary>
+    public const int NeighborRetentionDays = 60;
 
     /// <summary>
     /// Determine which channel an AP was on at a given timestamp by walking the
@@ -164,5 +195,110 @@ public static class ChannelMemoryHelper
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// Fold remembered neighbor sightings into the pooled live scan results, so a serving
+    /// radio keeps neighbor evidence for channels it isn't currently on - once it moves, its
+    /// live scan forgets the old channel's neighborhood within the hour. Remembered neighbors
+    /// enter with an age-decayed <see cref="NeighborNetwork.Confidence"/> (half-life
+    /// <see cref="NeighborHalfLife"/>) so they count for less as they age, and are dropped
+    /// entirely below <see cref="MinNeighborConfidence"/>.
+    ///
+    /// A remembered sighting is suppressed when the live picture supersedes it: the BSSID is
+    /// currently seen on a DIFFERENT channel anywhere on the band (it moved - the old row is
+    /// obsolete for everyone), or the observing AP itself already sees it live (the live
+    /// sighting carries the same evidence at full confidence). A same-channel sighting from a
+    /// radio that can't currently hear the neighbor is kept - it is a real per-observer
+    /// vantage that triangulation from the live observer would understate.
+    ///
+    /// Sightings for (AP, band) pairs with no scan entry are ignored - a synthetic scan entry
+    /// would make the engine believe it has live scan data it doesn't have. Returns new scan
+    /// objects; the inputs are not mutated.
+    /// </summary>
+    /// <param name="pooledScans">Live scan results, already pooled over the rolling sighting window</param>
+    /// <param name="remembered">Persisted sightings for all APs and bands</param>
+    /// <param name="now">Current time (UTC), the reference for age decay</param>
+    public static List<ChannelScanResult> MergeRememberedNeighbors(
+        List<ChannelScanResult> pooledScans,
+        IReadOnlyCollection<RememberedNeighborSighting> remembered,
+        DateTimeOffset now)
+    {
+        if (remembered.Count == 0) return pooledScans;
+
+        // Live picture per band: which channels each BSSID is currently seen on, and which
+        // APs currently see it (for the same-observer suppression).
+        var liveChannels = new Dictionary<(RadioBand Band, string Bssid), HashSet<int>>();
+        var liveObservers = new HashSet<(RadioBand Band, string ApMac, string Bssid)>();
+        foreach (var scan in pooledScans)
+        {
+            var apKey = scan.ApMac.ToLowerInvariant();
+            foreach (var nb in scan.Neighbors)
+            {
+                if (string.IsNullOrEmpty(nb.Bssid)) continue;
+                var bssidKey = nb.Bssid.ToLowerInvariant();
+                if (!liveChannels.TryGetValue((scan.Band, bssidKey), out var channels))
+                {
+                    channels = new HashSet<int>();
+                    liveChannels[(scan.Band, bssidKey)] = channels;
+                }
+                channels.Add(nb.Channel);
+                liveObservers.Add((scan.Band, apKey, bssidKey));
+            }
+        }
+
+        var rememberedByRadio = remembered
+            .ToLookup(s => (s.Band, ApMac: s.ApMac.ToLowerInvariant()));
+
+        var mergedScans = new List<ChannelScanResult>(pooledScans.Count);
+        foreach (var scan in pooledScans)
+        {
+            var apKey = scan.ApMac.ToLowerInvariant();
+            List<NeighborNetwork>? added = null;
+
+            foreach (var sighting in rememberedByRadio[(scan.Band, apKey)])
+            {
+                var ageDays = Math.Max(0, (now - sighting.LastSeenAt).TotalDays);
+                var confidence = Math.Pow(0.5, ageDays / NeighborHalfLife.TotalDays);
+                if (confidence < MinNeighborConfidence) continue;
+
+                var bssidKey = sighting.Bssid.ToLowerInvariant();
+                if (liveChannels.TryGetValue((scan.Band, bssidKey), out var channels))
+                {
+                    if (!channels.Contains(sighting.Channel)) continue;
+                    if (liveObservers.Contains((scan.Band, apKey, bssidKey))) continue;
+                }
+
+                added ??= new List<NeighborNetwork>();
+                added.Add(new NeighborNetwork
+                {
+                    Ssid = sighting.Ssid ?? string.Empty,
+                    Bssid = sighting.Bssid,
+                    Channel = sighting.Channel,
+                    Width = sighting.WidthMhz > 0 ? sighting.WidthMhz : null,
+                    Signal = sighting.SignalDbm,
+                    LastSeen = sighting.LastSeenAt,
+                    Confidence = confidence
+                });
+            }
+
+            if (added == null)
+            {
+                mergedScans.Add(scan);
+                continue;
+            }
+
+            mergedScans.Add(new ChannelScanResult
+            {
+                ApMac = scan.ApMac,
+                ApName = scan.ApName,
+                Band = scan.Band,
+                ScanTime = scan.ScanTime,
+                Channels = scan.Channels,
+                Neighbors = scan.Neighbors.Concat(added).ToList()
+            });
+        }
+
+        return mergedScans;
     }
 }

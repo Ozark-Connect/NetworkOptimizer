@@ -122,6 +122,22 @@ public class ChannelMemoryCollectionService : BackgroundService
             return;
         }
 
+        // Neighbor memory first, in its own try/catch: sightings are upserts keyed by
+        // last-seen (no watermark involved), so a metrics failure below must not starve
+        // them and a sighting failure must not abort the metrics cycle.
+        try
+        {
+            await PersistNeighborSightingsAsync(wifiService, now, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Neighbor sighting persistence failed; will retry next cycle");
+        }
+
         // Events are fetched over the full lookback (not just the collection window) so the
         // attribution timeline knows which channel was live at the window's start. Both
         // fetches throw on failure: proceeding with silently-empty events would attribute
@@ -290,12 +306,53 @@ public class ChannelMemoryCollectionService : BackgroundService
         }
 
         await _repository.CommitCollectionAsync(samples, newChanges, collectEnd.UtcDateTime, cancellationToken);
-        await _repository.PruneAsync(RetentionDays, cancellationToken);
+        await _repository.PruneAsync(RetentionDays, ChannelMemoryHelper.NeighborRetentionDays, cancellationToken);
 
         _logger.LogDebug(
             "Channel memory collection: {Samples} samples across {Aps} APs, {Changes} new change records " +
             "(window {Start:MM/dd HH:mm} - {End:MM/dd HH:mm} UTC)",
             samples.Count, onlineAps.Count, newChanges.Count, start, collectEnd);
+    }
+
+    /// <summary>
+    /// Persist the current neighbor picture into the long-term neighbor memory. UniFi's
+    /// rogue/neighbor table only carries recently-seen networks, so each cycle upserts what
+    /// the console still remembers; rows for neighbors that stay invisible stop updating and
+    /// age out. Own-network BSSIDs are modeled internally by the engine and are not stored.
+    /// </summary>
+    private async Task PersistNeighborSightingsAsync(
+        WiFiOptimizerService wifiService, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var scans = await wifiService.GetChannelScanResultsAsync(startTime: now - MaxLookback);
+        if (scans.Count == 0) return;
+
+        var samples = new List<NeighborSightingSample>();
+        foreach (var scan in scans)
+        {
+            var bandCode = scan.Band.ToUniFiCode();
+            if (string.IsNullOrEmpty(bandCode)) continue;
+
+            foreach (var nb in scan.Neighbors)
+            {
+                if (string.IsNullOrEmpty(nb.Bssid) || nb.IsOwnNetwork) continue;
+                if (nb.Channel <= 0 || !nb.Signal.HasValue) continue;
+                if (nb.Signal.Value < ChannelMemoryHelper.MinPersistedNeighborSignalDbm) continue;
+
+                samples.Add(new NeighborSightingSample(
+                    scan.ApMac.ToLowerInvariant(),
+                    bandCode,
+                    nb.Bssid.ToLowerInvariant(),
+                    nb.Channel,
+                    nb.Width ?? 0,
+                    nb.Signal.Value,
+                    (nb.LastSeen ?? now).UtcDateTime,
+                    nb.Ssid));
+            }
+        }
+
+        if (samples.Count == 0) return;
+        await _repository.UpsertNeighborSightingsAsync(samples, cancellationToken);
+        _logger.LogDebug("Neighbor memory: upserted {Count} sightings", samples.Count);
     }
 
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;

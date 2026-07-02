@@ -259,6 +259,15 @@ public class ChannelRecommendationService
     private const double ScanCoverageConfidence = 0.80;
 
     /// <summary>
+    /// Observation confidence for a candidate channel this radio saw a neighbor on via the
+    /// long-term neighbor memory (a remembered sighting, not a live scan). Real evidence the
+    /// radio itself gathered, but dated - the neighborhood may have changed since - so it
+    /// ranks below every live tier. Scaled by the sighting's age-decayed confidence, so a
+    /// week-old memory softens the uncertainty penalty more than a month-old one. Tunable.
+    /// </summary>
+    private const double RememberedSightingConfidence = 0.6;
+
+    /// <summary>
     /// Minimum internal (propagation) weight for a resident sibling AP to count as an observer
     /// of a channel. Below this the sibling is too far to characterize this AP's RF environment.
     /// </summary>
@@ -323,6 +332,7 @@ public class ChannelRecommendationService
             ExternalLoad = new Dictionary<int, double>[n],
             ExternalNeighbors = new Dictionary<(int Channel, int Width), double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
+            HistoricallyObservedChannels = new Dictionary<int, double>[n],
             ScanChannelData = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[n],
             MeshConstraints = new List<MeshConstraint>(),
             DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
@@ -376,6 +386,7 @@ public class ChannelRecommendationService
             graph.ExternalLoad[i] = new Dictionary<int, double>();
             graph.ExternalNeighbors[i] = new Dictionary<(int Channel, int Width), double>();
             graph.DirectlyObservedChannels[i] = new HashSet<int>();
+            graph.HistoricallyObservedChannels[i] = new Dictionary<int, double>();
             graph.ScanChannelData[i] = new Dictionary<(int, int), (int, int?)>();
         }
 
@@ -1646,6 +1657,20 @@ public class ChannelRecommendationService
         if (graph.ScanChannelData[apIndex].Keys.Any(k => ChannelSpanHelper.SpansOverlap(apSpan, (k.Channel, k.Channel))))
             confidence = Math.Max(confidence, ScanCoverageConfidence);
 
+        // Remembered neighbor sighting: this radio itself saw the channel's neighborhood within
+        // the memory window - real evidence, decayed for age, at a reduced tier. Without this,
+        // remembered neighbors would paradoxically make a remembered channel score WORSE than a
+        // truly blind one (their load counts, plus the full uncertainty tax on top).
+        if (apIndex < graph.HistoricallyObservedChannels.Length &&
+            graph.HistoricallyObservedChannels[apIndex] is { Count: > 0 } histSightings)
+        {
+            foreach (var (histCh, sightingConf) in histSightings)
+            {
+                if (ChannelSpanHelper.SpansOverlap(apSpan, (histCh, histCh)))
+                    confidence = Math.Max(confidence, RememberedSightingConfidence * sightingConf);
+            }
+        }
+
         // Historic occupancy: we have measured airtime for this AP on an overlapping channel.
         if (node.HistoricalStress != null)
         {
@@ -1945,8 +1970,10 @@ public class ChannelRecommendationService
             macToIndex[bandAps[i].Mac] = i;
 
         // Phase 1: Pool all neighbor sightings by BSSID across all observers
-        // Each entry: (observerIndex, channel, width, signal)
-        var allNeighbors = new Dictionary<string, List<(int ObserverIndex, int Channel, int? Width, int Signal)>>(
+        // Each entry: (observerIndex, channel, width, signal, confidence). Confidence is 1.0
+        // for live scan sightings; remembered (long-term memory) sightings carry an
+        // age-decayed confidence that scales their weight down.
+        var allNeighbors = new Dictionary<string, List<(int ObserverIndex, int Channel, int? Width, int Signal, double Confidence)>>(
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var scan in scanResults.Where(s => s.Band == band))
@@ -1960,10 +1987,10 @@ public class ChannelRecommendationService
             {
                 if (!allNeighbors.TryGetValue(neighbor.Bssid, out var sightings))
                 {
-                    sightings = new List<(int, int, int?, int)>();
+                    sightings = new List<(int, int, int?, int, double)>();
                     allNeighbors[neighbor.Bssid] = sightings;
                 }
-                sightings.Add((observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value));
+                sightings.Add((observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value, neighbor.Confidence));
             }
         }
 
@@ -1981,10 +2008,11 @@ public class ChannelRecommendationService
                 bool isDirect = false;
                 int bestObserverIndex = -1;
                 double bestProximity = 0;
+                double bestConfidence = 1.0;
 
-                foreach (var (observerIndex, channel, width, signal) in sightings)
+                foreach (var (observerIndex, channel, width, signal, confidence) in sightings)
                 {
-                    var neighborWeight = ChannelSpanHelper.SignalToInterferenceWeight(signal);
+                    var neighborWeight = ChannelSpanHelper.SignalToInterferenceWeight(signal) * confidence;
                     double effectiveWeight;
                     double proximity = 0;
 
@@ -2013,6 +2041,7 @@ public class ChannelRecommendationService
                         isDirect = observerIndex == j;
                         bestObserverIndex = observerIndex;
                         bestProximity = proximity;
+                        bestConfidence = confidence;
                     }
                 }
 
@@ -2041,7 +2070,18 @@ public class ChannelRecommendationService
                 if (isDirect)
                 {
                     directCount++;
-                    graph.DirectlyObservedChannels[j].Add(bestChannel);
+                    // Only a LIVE direct sighting fully observes the channel; a remembered one
+                    // is real-but-dated evidence and lands in the reduced-confidence tier.
+                    if (bestConfidence >= 1.0)
+                    {
+                        graph.DirectlyObservedChannels[j].Add(bestChannel);
+                    }
+                    else if (j < graph.HistoricallyObservedChannels.Length &&
+                             graph.HistoricallyObservedChannels[j] is { } histObserved)
+                    {
+                        histObserved[bestChannel] = Math.Max(
+                            histObserved.GetValueOrDefault(bestChannel), bestConfidence);
+                    }
                 }
                 else
                 {

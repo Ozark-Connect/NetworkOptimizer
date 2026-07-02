@@ -122,7 +122,7 @@ public class ChannelMemoryRepositoryTests : IDisposable
             Sample(DateTime.UtcNow.AddDays(-1), channel: 6)
         });
 
-        await _repository.PruneAsync(retentionDays: 365);
+        await _repository.PruneAsync(retentionDays: 365, neighborRetentionDays: 60);
 
         var outcomes = await _repository.GetOutcomesSinceAsync(DateTime.UtcNow.AddDays(-500));
         outcomes.Should().HaveCount(1);
@@ -153,6 +153,63 @@ public class ChannelMemoryRepositoryTests : IDisposable
             .Which.SampleCount.Should().Be(2);
         (await _repository.GetChangesSinceAsync(DateTime.MinValue)).Should().ContainSingle();
         (await _repository.GetCollectionWatermarkAsync()).Should().Be(watermark);
+    }
+
+    private static NeighborSightingSample Sighting(
+        DateTime seenAt, string bssid = "11:22:33:44:55:66", int channel = 6,
+        string mac = "aa:bb:cc:dd:ee:01", string band = "ng",
+        int width = 20, int signal = -70, string? ssid = "Net") =>
+        new(mac, band, bssid, channel, width, signal, seenAt, ssid);
+
+    [Fact]
+    public async Task UpsertNeighborSightings_CreatesThenUpdatesRow()
+    {
+        var day1 = new DateTime(2026, 6, 20, 12, 0, 0, DateTimeKind.Utc);
+        var day2 = day1.AddDays(2);
+
+        await _repository.UpsertNeighborSightingsAsync(new[] { Sighting(day1, signal: -70) });
+        // Later, weaker sighting: LastSeen advances, signal keeps the strongest observed.
+        await _repository.UpsertNeighborSightingsAsync(new[] { Sighting(day2, signal: -78, width: 40) });
+
+        var rows = await _repository.GetNeighborSightingsSinceAsync(DateTime.MinValue);
+        var row = rows.Should().ContainSingle().Which;
+        row.FirstSeenUtc.Should().Be(day1);
+        row.LastSeenUtc.Should().Be(day2);
+        row.SignalDbm.Should().Be(-70, "the strongest observed signal is kept");
+        row.WidthMhz.Should().Be(40, "width follows the newest sighting");
+    }
+
+    [Fact]
+    public async Task UpsertNeighborSightings_SplitsRowsByChannel_AndDedupsWithinBatch()
+    {
+        var seen = new DateTime(2026, 6, 20, 12, 0, 0, DateTimeKind.Utc);
+
+        // Same key twice in one batch (must not violate the unique index) plus a second channel.
+        await _repository.UpsertNeighborSightingsAsync(new[]
+        {
+            Sighting(seen, channel: 6, signal: -75),
+            Sighting(seen.AddHours(1), channel: 6, signal: -68),
+            Sighting(seen, channel: 11)
+        });
+
+        var rows = await _repository.GetNeighborSightingsSinceAsync(DateTime.MinValue);
+        rows.Should().HaveCount(2);
+        rows.Single(r => r.Channel == 6).SignalDbm.Should().Be(-68);
+    }
+
+    [Fact]
+    public async Task Prune_RemovesSightingsUnseenPastRetention()
+    {
+        await _repository.UpsertNeighborSightingsAsync(new[]
+        {
+            Sighting(DateTime.UtcNow.AddDays(-90), bssid: "11:22:33:44:55:66"),
+            Sighting(DateTime.UtcNow.AddDays(-5), bssid: "22:33:44:55:66:77")
+        });
+
+        await _repository.PruneAsync(retentionDays: 365, neighborRetentionDays: 60);
+
+        var rows = await _repository.GetNeighborSightingsSinceAsync(DateTime.MinValue);
+        rows.Should().ContainSingle().Which.Bssid.Should().Be("22:33:44:55:66:77");
     }
 
     [Fact]

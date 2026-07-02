@@ -843,6 +843,49 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// Fold the persisted long-term neighbor memory into the pooled scan results (see
+    /// <see cref="ChannelMemoryHelper.MergeRememberedNeighbors"/>). Used by the channel
+    /// recommendation only; degrades gracefully to the live-only picture on any failure.
+    /// </summary>
+    private async Task<List<ChannelScanResult>> MergeRememberedNeighborsAsync(List<ChannelScanResult> pooled)
+    {
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var rows = await _channelMemoryRepository.GetNeighborSightingsSinceAsync(
+                now.UtcDateTime - ChannelMemoryHelper.NeighborMemoryWindow);
+            if (rows.Count == 0) return pooled;
+
+            var remembered = rows
+                .Select(r => new RememberedNeighborSighting(
+                    r.ApMac,
+                    RadioBandExtensions.FromUniFiCode(r.Band),
+                    r.Bssid,
+                    r.Channel,
+                    r.WidthMhz,
+                    r.SignalDbm,
+                    new DateTimeOffset(DateTime.SpecifyKind(r.LastSeenUtc, DateTimeKind.Utc)),
+                    r.Ssid))
+                .Where(s => s.Band != RadioBand.Unknown)
+                .ToList();
+
+            var merged = ChannelMemoryHelper.MergeRememberedNeighbors(pooled, remembered, now);
+
+            var addedCount = merged.Sum(s => s.Neighbors.Count) - pooled.Sum(s => s.Neighbors.Count);
+            if (addedCount > 0)
+                _logger.LogDebug(
+                    "[ChannelRec] neighbor memory added {Count} remembered sighting(s) beyond the live scan picture",
+                    addedCount);
+            return merged;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to merge remembered neighbor sightings");
+            return pooled;
+        }
+    }
+
+    /// <summary>
     /// Get regulatory channel availability data for the site's country.
     /// Cached for 30 minutes since regulatory data rarely changes.
     /// </summary>
@@ -1084,8 +1127,10 @@ public class WiFiOptimizerService
             var aps = apsTask.Result;
             var regulatoryData = regulatoryTask.Result;
             // Pool neighbor sightings across the rolling window so a single under-detecting scan
-            // can't flip marginal channel moves (the live RF Environment view still uses raw scans).
-            var scanResults = PoolNeighborSightings(scanTask.Result);
+            // can't flip marginal channel moves (the live RF Environment view still uses raw scans),
+            // then fold in the persisted neighbor memory so a serving radio keeps age-decayed
+            // neighbor evidence for channels it isn't currently on.
+            var scanResults = await MergeRememberedNeighborsAsync(PoolNeighborSightings(scanTask.Result));
 
             if (aps.Count == 0)
             {

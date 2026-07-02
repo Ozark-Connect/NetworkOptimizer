@@ -38,3 +38,26 @@ public record ChannelOutcomeBucket(
     double TxRetrySum,
     int SampleCount,
     DateTimeOffset LastSampleAt);
+
+/// <summary>
+/// One persisted neighbor sighting for an AP radio, storage-neutral so the engine project
+/// stays decoupled from the database layer. Lets a serving radio keep (age-decayed) neighbor
+/// evidence for channels it isn't currently on.
+/// </summary>
+/// <param name="ApMac">Observing AP MAC</param>
+/// <param name="Band">Radio band the neighbor was seen on</param>
+/// <param name="Bssid">Neighbor BSSID</param>
+/// <param name="Channel">Control channel the neighbor was seen on</param>
+/// <param name="WidthMhz">Neighbor channel width in MHz; 0 when unknown</param>
+/// <param name="SignalDbm">Strongest observed signal in dBm</param>
+/// <param name="LastSeenAt">Most recent sighting (UTC) - drives age decay</param>
+/// <param name="Ssid">Neighbor SSID, if any</param>
+public record RememberedNeighborSighting(
+    string ApMac,
+    RadioBand Band,
+    string Bssid,
+    int Channel,
+    int WidthMhz,
+    int SignalDbm,
+    DateTimeOffset LastSeenAt,
+    string? Ssid);
