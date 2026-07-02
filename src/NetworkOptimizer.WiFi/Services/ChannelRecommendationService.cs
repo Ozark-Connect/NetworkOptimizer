@@ -197,6 +197,17 @@ public class ChannelRecommendationService
     private const double CatastrophicAbsoluteScore = 4.0;
 
     /// <summary>
+    /// Measured airtime thresholds past which a freshly-changed channel counts as
+    /// catastrophically bad and the soak suppression is lifted. Anchored to the radio's own
+    /// time-averaged measurements (the comfort anchor's "genuinely usable" sits below 20%
+    /// external interference; 60%+ is a drowning channel; 40%+ TX retries means constant
+    /// collisions) - deliberately NOT the inferred score, which idle-neighbor external load
+    /// inflates past any absolute ceiling on dense bands. Tunable.
+    /// </summary>
+    private const double CatastrophicInterferencePct = 60.0;
+    private const double CatastrophicTxRetryPct = 40.0;
+
+    /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
     /// (Clear Channel Assessment) threshold: below -82 dBm, radios don't defer
     /// transmission so the neighbor causes no real co-channel interference.
@@ -499,9 +510,13 @@ public class ChannelRecommendationService
         // A mesh group moves as one (children mirror the leader's channel), so the LEADER's
         // candidates are gated by the union of the whole group's soaked channels - otherwise
         // the child-sync at the end would hop a soaking child straight back onto the channel
-        // it just left. A genuinely suffering group (any member's current score at the
-        // catastrophic ceiling) is exempt: soak prevents churn, not rescue. The current
-        // channel is never filtered, so the invalid-channel handling below is unaffected.
+        // it just left. A group that is MEASURABLY suffering on the new channel (any member's
+        // measured airtime past the catastrophic thresholds) is exempt: soak prevents churn,
+        // not rescue. The escape deliberately requires the radio's own measured stress rather
+        // than the inferred score - on a dense band the score is inflated by idle-neighbor
+        // external load and can sit permanently above any absolute ceiling, which would make
+        // soak a no-op exactly where it matters most. The current channel is never filtered,
+        // so the invalid-channel handling below is unaffected.
         var soakRemoved = new List<int>?[n];
         var soakEnds = new DateTimeOffset?[n];
         for (int i = 0; i < n; i++)
@@ -512,7 +527,7 @@ public class ChannelRecommendationService
 
             var soaked = new HashSet<int>(node.SoakInfo?.SoakedChannels ?? Enumerable.Empty<int>());
             var soakEnd = node.SoakInfo?.SoakEndsAt ?? DateTimeOffset.MinValue;
-            var worstGroupScore = currentApScores[i];
+            var sufferingIndex = IsCurrentChannelMeasurablySuffering(graph, band, i) ? i : -1;
             for (int j = 0; j < n; j++)
             {
                 if (j == i || graph.Nodes[j].MeshGroupLeader != i) continue;
@@ -521,16 +536,17 @@ public class ChannelRecommendationService
                     soaked.UnionWith(childSoak.SoakedChannels);
                     if (childSoak.SoakEndsAt > soakEnd) soakEnd = childSoak.SoakEndsAt;
                 }
-                worstGroupScore = Math.Max(worstGroupScore, currentApScores[j]);
+                if (sufferingIndex < 0 && IsCurrentChannelMeasurablySuffering(graph, band, j))
+                    sufferingIndex = j;
             }
             if (soaked.Count == 0) continue;
 
-            if (worstGroupScore >= CatastrophicAbsoluteScore)
+            if (sufferingIndex >= 0)
             {
                 _logger.LogDebug(
-                    "[ChannelRec] {ApName} {Band}: soak suppression lifted - current score {Score:F3} " +
-                    "in the mesh group is at the catastrophic ceiling, all channels stay in play",
-                    node.Name, band, worstGroupScore);
+                    "[ChannelRec] {ApName} {Band}: soak suppression lifted - {SufferingAp} measures " +
+                    "catastrophic airtime on its current channel, all channels stay in play",
+                    node.Name, band, graph.Nodes[sufferingIndex].Name);
                 continue;
             }
 
@@ -1456,6 +1472,32 @@ public class ChannelRecommendationService
             var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference < ComfortableInterferencePct;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the AP's own measured (1d/7d) record for its current channel shows
+    /// catastrophic airtime - external interference or TX retries past the catastrophic
+    /// thresholds. This is the soak-escape signal, and it reads measured ground truth ONLY:
+    /// never <see cref="ApNode.PropagatedStress"/> or the inferred score, both of which
+    /// idle-neighbor load inflates (on a dense 2.4 GHz band every AP's score can sit far
+    /// above any absolute ceiling forever, which would make soak a permanent no-op there).
+    /// No averaged data for the new channel yet (e.g. within the first hour after a change)
+    /// means no escape - the soak is short, and rescue can wait for evidence.
+    /// </summary>
+    private static bool IsCurrentChannelMeasurablySuffering(InterferenceGraph graph, RadioBand band, int apIndex)
+    {
+        var node = graph.Nodes[apIndex];
+        if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
+
+        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        foreach (var (histChannel, stress) in node.HistoricalStress)
+        {
+            var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
+                return stress.Interference >= CatastrophicInterferencePct ||
+                       stress.TxRetryPct >= CatastrophicTxRetryPct;
         }
         return false;
     }

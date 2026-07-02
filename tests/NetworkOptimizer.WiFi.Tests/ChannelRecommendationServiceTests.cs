@@ -1509,10 +1509,14 @@ public class ChannelRecommendationServiceTests
 
     /// <summary>
     /// A single 5 GHz AP with heavy measured stress on its current channel. Historical stress
-    /// of X% yields roughly X/100 * (3.0 + 1.5 + 1.0) on the current channel, so 60% lands
-    /// the score in the move window (2.0-4.0) and 90% lands it at the catastrophic ceiling.
+    /// of X% yields roughly X/100 * (3.0 + 1.5 + 1.0) on the current channel, so ~55% lands
+    /// the score in the move window (2.0-4.0) and 90% trips the measured catastrophic airtime
+    /// thresholds (interference >= 60% / TX retries >= 40%) that lift soak suppression.
+    /// <paramref name="txRetryPct"/> overrides the TX retry component so a test can sit in
+    /// the move window without crossing the retry threshold.
     /// </summary>
-    private InterferenceGraph BuildStressedSingleApGraph(double stressPct, ChannelSoakInfo? soak)
+    private InterferenceGraph BuildStressedSingleApGraph(
+        double stressPct, ChannelSoakInfo? soak, double? txRetryPct = null)
     {
         var aps = new List<AccessPointSnapshot>
         {
@@ -1520,7 +1524,7 @@ public class ChannelRecommendationServiceTests
         };
         var stress = new Dictionary<string, Dictionary<int, (double, double, double)>>
         {
-            ["aa:bb:cc:dd:ee:01"] = new() { [36] = (stressPct, stressPct, stressPct) }
+            ["aa:bb:cc:dd:ee:01"] = new() { [36] = (stressPct, stressPct, txRetryPct ?? stressPct) }
         };
         var soakInfo = soak != null
             ? new Dictionary<string, ChannelSoakInfo> { ["aa:bb:cc:dd:ee:01"] = soak }
@@ -1534,8 +1538,9 @@ public class ChannelRecommendationServiceTests
     public void Optimize_SoakedChannels_NotRecommended()
     {
         // Leave exactly one non-soaked escape channel; the stressed AP must move there and
-        // report what was suppressed.
-        var probeGraph = BuildStressedSingleApGraph(60, soak: null);
+        // report what was suppressed. 55% util/interference with 30% retries sits in the
+        // move window without tripping the measured catastrophic thresholds.
+        var probeGraph = BuildStressedSingleApGraph(55, soak: null, txRetryPct: 30);
         var validChannels = probeGraph.Nodes[0].ValidChannels;
         // The escape must not share ch36's bonding block, or the measured stress (applied by
         // span overlap) follows the AP there and no move clears the improvement gates.
@@ -1552,12 +1557,12 @@ public class ChannelRecommendationServiceTests
             SoakEndsAt = DateTimeOffset.UtcNow.AddDays(6)
         };
 
-        var graph = BuildStressedSingleApGraph(60, soak);
+        var graph = BuildStressedSingleApGraph(55, soak, txRetryPct: 30);
         var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
 
         var rec = plan.Recommendations[0];
-        rec.CurrentScore.Should().BeInRange(2.0, 4.0,
-            "the test relies on a stressed-but-not-catastrophic AP so suppression stays active");
+        rec.CurrentScore.Should().BeGreaterThanOrEqualTo(2.0,
+            "the test relies on an AP stressed enough to want a move");
         rec.IsChanged.Should().BeTrue("heavy measured stress on ch36 justifies a move");
         rec.RecommendedChannel.Should().Be(escapeChannel,
             "every other channel is soaking and must not be recommended");
@@ -1570,8 +1575,9 @@ public class ChannelRecommendationServiceTests
     [Fact]
     public void Optimize_SoakSuppression_LiftedForCatastrophicAp()
     {
-        // Soak EVERY alternative channel. A catastrophically suffering AP must still escape -
-        // soak prevents churn, not rescue.
+        // Soak EVERY alternative channel. An AP whose MEASURED airtime on the new channel is
+        // catastrophic (90% interference/retries) must still escape - soak prevents churn,
+        // not rescue.
         var probeGraph = BuildStressedSingleApGraph(90, soak: null);
         var soak = new ChannelSoakInfo
         {
@@ -1584,10 +1590,38 @@ public class ChannelRecommendationServiceTests
         var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
 
         var rec = plan.Recommendations[0];
-        rec.CurrentScore.Should().BeGreaterThanOrEqualTo(4.0,
-            "the test relies on a catastrophic current score to lift suppression");
-        rec.IsChanged.Should().BeTrue("a catastrophic AP must be allowed to leave despite soak");
+        rec.IsChanged.Should().BeTrue("a measurably suffering AP must be allowed to leave despite soak");
         rec.IsSoaking.Should().BeFalse("lifted suppression is not reported as active");
+    }
+
+    [Fact]
+    public void Optimize_SoakHolds_WhenScoreInflatedButMeasuredAirtimeFine()
+    {
+        // The dense-band failure mode the escape is anchored against: idle-neighbor external
+        // load can push the INFERRED score far past any absolute ceiling on every AP forever,
+        // while the radio's own measured airtime is fine. Soak must hold - an inferred-score
+        // escape would make soak a permanent no-op exactly where it matters most.
+        var probe = BuildStressedSingleApGraph(30, soak: null);
+        var soakedChannel = probe.Nodes[0].ValidChannels.First(ch => ch != 36);
+        var soak = new ChannelSoakInfo
+        {
+            SoakedChannels = new HashSet<int> { soakedChannel },
+            LastChangeAt = DateTimeOffset.UtcNow.AddHours(-2),
+            SoakEndsAt = DateTimeOffset.UtcNow.AddHours(14)
+        };
+
+        var graph = BuildStressedSingleApGraph(30, soak);
+        foreach (var ch in graph.Nodes[0].ValidChannels)
+            graph.ExternalLoad[0][ch] = 5.0;
+
+        var plan = _service.Optimize(graph, RadioBand.Band5GHz, null);
+
+        var rec = plan.Recommendations[0];
+        rec.CurrentScore.Should().BeGreaterThanOrEqualTo(4.0,
+            "the test relies on an inferred score past the old absolute ceiling");
+        rec.IsSoaking.Should().BeTrue(
+            "measured airtime is fine, so an inflated inferred score must not lift the soak");
+        rec.SoakSuppressedChannels.Should().Contain(soakedChannel);
     }
 
     [Fact]
@@ -1624,9 +1658,10 @@ public class ChannelRecommendationServiceTests
         // A mesh group moves as one: the leader is stressed enough to want a move, but the
         // CHILD is soaking on every alternative channel. The leader must stay put - otherwise
         // the child-sync would hop the child straight back onto a channel it just left.
+        // In the move window without tripping the measured catastrophic airtime thresholds.
         var leaderStress = new Dictionary<string, Dictionary<int, (double, double, double)>>
         {
-            ["aa:bb:cc:dd:ee:01"] = new() { [36] = (60d, 60d, 60d) }
+            ["aa:bb:cc:dd:ee:01"] = new() { [36] = (55d, 55d, 30d) }
         };
         List<AccessPointSnapshot> BuildAps() => new()
         {
