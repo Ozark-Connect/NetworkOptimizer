@@ -31,13 +31,11 @@ NetworkOptimizer.Web/
 │       ├── DeviceCard.razor       # Device status card component
 │       ├── SecurityScoreGauge.razor # Security score visualization
 │       ├── SqmStatusPanel.razor   # SQM status panel
-│       ├── AgentStatusTable.razor # Agent health table
 │       └── AlertsList.razor       # Alerts list component
 ├── Services/
 │   ├── DashboardService.cs        # Dashboard data aggregation
 │   ├── AuditService.cs            # Audit execution and results
-│   ├── SqmService.cs              # SQM operations
-│   └── AgentService.cs            # Agent management
+│   └── SqmService.cs              # SQM operations
 ├── wwwroot/
 │   ├── css/
 │   │   └── app.css                # Main stylesheet (dark mode)
@@ -190,7 +188,6 @@ All business logic is abstracted into service classes injected via DI:
 - `DashboardService` - Aggregates data from multiple sources
 - `AuditService` - Executes security audits
 - `SqmService` - Manages SQM operations
-- `AgentService` - Handles agent lifecycle
 
 ### Component Architecture
 Components follow Blazor best practices:

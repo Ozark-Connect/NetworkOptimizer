@@ -241,7 +241,6 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, N
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
-builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddScoped<SiteManagementService>();
@@ -497,7 +496,6 @@ builder.Services.AddScoped<WanSteerDeploymentService>();
 builder.Services.AddScoped<PerfTweaksDeploymentService>();
 builder.Services.AddSingleton<ModuleUpdateNotificationService>(); // caches module update state, computed once per startup post-connect
 builder.Services.AddScoped<MonitoringInterfaceDeploymentService>();
-builder.Services.AddScoped<AgentService>();
 
 // Register WiFi Optimizer rules and engine
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.IoTSsidSeparationRule>();
@@ -1013,17 +1011,6 @@ app.MapRazorComponents<App>()
 
 // Alert Engine API endpoints
 app.MapAlertEndpoints();
-
-// API endpoints for agent metrics ingestion
-app.MapPost("/api/metrics", async (HttpContext context) =>
-{
-    // TODO(agent-infrastructure): Implement metrics ingestion from agents.
-    // Requires: NetworkOptimizer.Agents package with gateway agent that pushes
-    // latency, bandwidth, and SQM stats. Metrics should be stored in SQLite
-    // time-series tables or optionally forwarded to external TSDB.
-    var metrics = await context.Request.ReadFromJsonAsync<Dictionary<string, object>>();
-    return Results.Ok(new { status = "accepted" });
-});
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 

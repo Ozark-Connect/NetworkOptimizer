@@ -685,8 +685,8 @@ public class SqmService : ISqmService
             return false;
         }
 
-        // TODO(agent-infrastructure): Deploy SQM via agent when infrastructure is ready.
-        // Requires: NetworkOptimizer.Agents package with SSH deployment capability.
+        // TODO(agent-infrastructure): Deploy SQM via the on-site agent once it
+        // grows SSH deployment capability.
         // Steps: 1) Generate scripts via NetworkOptimizer.Sqm.ScriptGenerator
         //        2) Push to gateway via agent SSH connection
         //        3) Verify tc qdisc installation and crontab entry

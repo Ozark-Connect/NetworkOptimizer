@@ -20,7 +20,6 @@
     <ProjectReference Include="..\NetworkOptimizer.Diagnostics\NetworkOptimizer.Diagnostics.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Sqm\NetworkOptimizer.Sqm.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Monitoring\NetworkOptimizer.Monitoring.csproj" />
-    <ProjectReference Include="..\NetworkOptimizer.Agents\NetworkOptimizer.Agents.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.AgentProtocol\NetworkOptimizer.AgentProtocol.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Reports\NetworkOptimizer.Reports.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.WiFi\NetworkOptimizer.WiFi.csproj" />
