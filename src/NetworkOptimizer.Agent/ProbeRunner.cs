@@ -17,13 +17,20 @@ namespace NetworkOptimizer.Agent;
 public sealed class ProbeRunner
 {
     private readonly Func<AgentMessage, bool> _send;
+    private readonly string? _defaultSourceIp;
     private readonly LocalProbeExecutor _executor = new(NullLogger<LocalProbeExecutor>.Instance);
     private readonly ConcurrentDictionary<string, DateTime> _lastProbed = new();
     private volatile IReadOnlyList<ProbeTargetSpec> _targets = [];
 
-    public ProbeRunner(Func<AgentMessage, bool> send)
+    /// <param name="defaultSourceIp">
+    /// Source address every probe binds to unless the target spec carries its
+    /// own. This is the probe-only multi-WAN deployment knob: the gateway
+    /// policy-routes this source IP out a specific WAN.
+    /// </param>
+    public ProbeRunner(Func<AgentMessage, bool> send, string? defaultSourceIp = null)
     {
         _send = send;
+        _defaultSourceIp = string.IsNullOrEmpty(defaultSourceIp) ? null : defaultSourceIp;
     }
 
     /// <summary>Replaces the target set. Full replacement, matching the ProbeConfig contract.</summary>
@@ -65,7 +72,7 @@ public sealed class ProbeRunner
                 spec.Address,
                 mode,
                 spec.Port > 0 ? spec.Port : null,
-                string.IsNullOrEmpty(spec.SourceIp) ? null : spec.SourceIp);
+                string.IsNullOrEmpty(spec.SourceIp) ? _defaultSourceIp : spec.SourceIp);
 
             var ping = await _executor.PingAsync(
                 target,

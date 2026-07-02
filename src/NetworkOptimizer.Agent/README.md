@@ -47,5 +47,30 @@ startup - enable multi-site, then restart the server once. Override the port
 with the `AgentTunnel__Port` environment variable on the server, or pin the
 full address with `"tunnelUrl"` in `agent.json`.
 
+## Probing
+
+Once connected, the server pushes the site's monitoring targets over the
+tunnel and the agent probes them (ICMP/TCP latency and loss, same engine and
+cadence as the server's own prober), streaming results back for storage.
+
+## Probe-only mode for multi-WAN monitoring
+
+To monitor a secondary WAN, run an additional agent instance with its own IP
+(LXC, Docker macvlan, or a small VM) and bind its probes to that IP:
+
+```json
+{
+  "serverUrl": "https://your-network-optimizer:8042",
+  "enrollmentToken": "noa_...",
+  "probeSourceIp": "192.0.2.50"
+}
+```
+
+Then policy-route `192.0.2.50` out the WAN you want measured on the gateway.
+Every probe binds to that source (`ping -I` on Linux), so its latency and loss
+reflect that WAN specifically. This works on the main site too - enroll the
+extra agent against the default site. Source binding needs the native ping
+binary, so probe-only agents should run on Linux or macOS.
+
 Secrets at rest: the server stores only SHA-256 hashes of tokens and keys. If
 `agent.json` is lost, disable the old agent row and enroll a new one.

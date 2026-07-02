@@ -90,7 +90,7 @@ while (!cts.IsCancellationRequested)
         // nowhere to go while the tunnel is down.
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
         var tunnel = new TunnelClient();
-        var probeRunner = new ProbeRunner(tunnel.TrySend);
+        var probeRunner = new ProbeRunner(tunnel.TrySend, config.ProbeSourceIp);
         tunnel.OnProbeConfig = probeRunner.UpdateConfig;
         var probeTask = probeRunner.RunAsync(connectionCts.Token);
         try
@@ -147,7 +147,8 @@ namespace NetworkOptimizer.Agent
         string? AgentKey,
         string? SiteSlug,
         bool IgnoreSslErrors,
-        string? TunnelUrl = null);
+        string? TunnelUrl = null,
+        string? ProbeSourceIp = null);
 
     public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);
 

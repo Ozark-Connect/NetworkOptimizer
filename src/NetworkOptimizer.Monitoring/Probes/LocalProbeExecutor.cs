@@ -144,8 +144,24 @@ public class LocalProbeExecutor : IProbeExecutor
         var waitArg = OperatingSystem.IsMacOS()
             ? $"-W {timeoutSeconds * 1000}"
             : $"-W {timeoutSeconds}";
+
+        // Source binding for multi-WAN probing: iputils -I takes an address or
+        // interface name; BSD ping wants -S for a source address and -b for an
+        // interface. The gateway PBRs the bound source out a specific WAN.
+        var sourceArg = "";
+        if (!string.IsNullOrEmpty(target.SourceInterface))
+        {
+            if (!IsSafeSourceValue(target.SourceInterface))
+                return Fail(target, safeCount, $"Invalid probe source '{target.SourceInterface}'");
+            sourceArg = OperatingSystem.IsMacOS()
+                ? System.Net.IPAddress.TryParse(target.SourceInterface, out _)
+                    ? $"-S {target.SourceInterface} "
+                    : $"-b {target.SourceInterface} "
+                : $"-I {target.SourceInterface} ";
+        }
+
         var psi = new ProcessStartInfo("ping",
-            $"-c {safeCount} -i {interval.ToString(System.Globalization.CultureInfo.InvariantCulture)} {waitArg} {target.Address}")
+            $"-c {safeCount} -i {interval.ToString(System.Globalization.CultureInfo.InvariantCulture)} {waitArg} {sourceArg}{target.Address}")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -191,6 +207,12 @@ public class LocalProbeExecutor : IProbeExecutor
 
     private async Task<PingProbeResult> ManagedPingAsync(ProbeTarget target, int count, TimeSpan timeout, CancellationToken ct)
     {
+        // .NET's Ping class cannot bind a source address; silently probing out
+        // the default route would attribute the wrong WAN's latency to this
+        // target, so fail loudly instead.
+        if (!string.IsNullOrEmpty(target.SourceInterface))
+            return Fail(target, count, "Source-bound probes need the native ping binary (Linux/macOS)");
+
         var timeoutMs = (int)timeout.TotalMilliseconds;
         var rtts = new List<double>();
         int received = 0;
@@ -269,6 +291,23 @@ public class LocalProbeExecutor : IProbeExecutor
         try
         {
             using var tcp = new TcpClient();
+            if (!string.IsNullOrEmpty(target.SourceInterface))
+            {
+                // TCP source binding only works with an address (SO_BINDTODEVICE
+                // for interface names needs CAP_NET_RAW; not worth it here).
+                if (!System.Net.IPAddress.TryParse(target.SourceInterface, out var sourceIp))
+                {
+                    return new TcpProbeResult
+                    {
+                        Target = target,
+                        Vantage = Vantage,
+                        Connected = false,
+                        ErrorMessage = $"TCP probes need an IP address as the probe source, got '{target.SourceInterface}'",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+                tcp.Client.Bind(new System.Net.IPEndPoint(sourceIp, 0));
+            }
             await tcp.ConnectAsync(target.Address, port, cts.Token);
             sw.Stop();
             return new TcpProbeResult
@@ -449,6 +488,23 @@ public class LocalProbeExecutor : IProbeExecutor
         var mean = v.Average();
         return Math.Sqrt(v.Sum(x => (x - mean) * (x - mean)) / v.Count);
     }
+
+    /// <summary>
+    /// The probe source goes into a process argument, so restrict it to the
+    /// characters valid in IPv4/IPv6 addresses and interface names.
+    /// </summary>
+    private static bool IsSafeSourceValue(string value) =>
+        value.Length <= 64 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or ':' or '-' or '_' or '%');
+
+    private PingProbeResult Fail(ProbeTarget target, int sent, string error) => new()
+    {
+        Target = target,
+        Vantage = Vantage,
+        Sent = sent,
+        Received = 0,
+        ErrorMessage = error,
+        Timestamp = DateTime.UtcNow
+    };
 
     private static (string exe, string args) ChooseTracerouteBinary()
     {
