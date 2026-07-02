@@ -1,0 +1,124 @@
+using Grpc.Core;
+using NetworkOptimizer.AgentProtocol;
+
+namespace NetworkOptimizer.Web.Services;
+
+/// <summary>
+/// Whether the agent tunnel listener is bound and on which port. Resolved once
+/// at startup (the listener needs a dedicated HTTP/2 Kestrel endpoint, so it
+/// cannot be toggled without a restart).
+/// </summary>
+public record AgentTunnelOptions(bool Enabled, int Port);
+
+/// <summary>
+/// Server side of the persistent agent tunnel (spec D3). Agents dial out and
+/// hold one bidirectional gRPC stream: the first inbound message must be an
+/// AgentHello carrying the agent key; after authentication the stream carries
+/// agent heartbeats and probe result batches inbound, and probe configuration
+/// pushes outbound via <see cref="AgentTunnelRegistry"/>.
+/// </summary>
+public class AgentTunnelService : AgentTunnel.AgentTunnelBase
+{
+    /// <summary>Heartbeat cadence handed to agents in the ServerHello.</summary>
+    public const int HeartbeatIntervalSeconds = 30;
+
+    private readonly AgentEnrollmentService _enrollment;
+    private readonly AgentTunnelRegistry _registry;
+    private readonly AgentProbeResultSink _probeResultSink;
+    private readonly ILogger<AgentTunnelService> _logger;
+
+    public AgentTunnelService(
+        AgentEnrollmentService enrollment,
+        AgentTunnelRegistry registry,
+        AgentProbeResultSink probeResultSink,
+        ILogger<AgentTunnelService> logger)
+    {
+        _enrollment = enrollment;
+        _registry = registry;
+        _probeResultSink = probeResultSink;
+        _logger = logger;
+    }
+
+    public override async Task Connect(
+        IAsyncStreamReader<AgentMessage> requestStream,
+        IServerStreamWriter<ServerMessage> responseStream,
+        ServerCallContext context)
+    {
+        var ct = context.CancellationToken;
+
+        if (!await requestStream.MoveNext(ct) || requestStream.Current.Hello is not { } hello)
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "First message must be a hello"));
+
+        var auth = await _enrollment.AuthenticateByKeyAsync(hello.AgentKey);
+        if (auth == null)
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid agent key"));
+
+        var (agent, siteSlug) = auth.Value;
+        await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version);
+
+        var connection = _registry.Register(agent.Id, siteSlug, agent.Name);
+        _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
+        try
+        {
+            await responseStream.WriteAsync(new ServerMessage
+            {
+                Hello = new ServerHello
+                {
+                    SiteSlug = siteSlug,
+                    AgentName = agent.Name,
+                    HeartbeatIntervalSeconds = HeartbeatIntervalSeconds,
+                }
+            }, ct);
+
+            // The response stream allows one writer at a time, so all outbound
+            // traffic funnels through the connection's channel and this pump.
+            var pumpTask = PumpOutboundAsync(connection, responseStream, ct);
+
+            await _probeResultSink.OnAgentConnectedAsync(connection, ct);
+
+            while (await requestStream.MoveNext(ct))
+            {
+                connection.LastMessageAt = DateTime.UtcNow;
+                var message = requestStream.Current;
+                switch (message.PayloadCase)
+                {
+                    case AgentMessage.PayloadOneofCase.Heartbeat:
+                        await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version);
+                        break;
+                    case AgentMessage.PayloadOneofCase.ProbeResults:
+                        await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
+                        break;
+                    default:
+                        _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
+                        break;
+                }
+            }
+
+            await pumpTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Agent went away or server is shutting down - normal teardown.
+        }
+        catch (IOException ex)
+        {
+            _logger.LogDebug(ex, "Agent {Id} tunnel dropped", agent.Id);
+        }
+        finally
+        {
+            _registry.Unregister(connection);
+            _logger.LogInformation("Agent {Name} (id {Id}) tunnel closed", agent.Name, agent.Id);
+        }
+    }
+
+    private static async Task PumpOutboundAsync(
+        AgentTunnelConnection connection,
+        IServerStreamWriter<ServerMessage> responseStream,
+        CancellationToken ct)
+    {
+        await foreach (var message in connection.Outbound.ReadAllAsync(ct))
+        {
+            await responseStream.WriteAsync(message, ct);
+        }
+    }
+}

@@ -108,6 +108,25 @@ public class AgentEnrollmentService
         return (true, key, site.Slug, null);
     }
 
+    /// <summary>
+    /// Resolves an agent key to its enabled agent and site slug. Used by the
+    /// tunnel to authenticate the first message on a new connection.
+    /// </summary>
+    public async Task<(SiteAgent Agent, string SiteSlug)?> AuthenticateByKeyAsync(string agentKey)
+    {
+        if (string.IsNullOrWhiteSpace(agentKey))
+            return null;
+
+        var keyHash = Hash(agentKey.Trim());
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var agent = await db.SiteAgents.AsNoTracking().FirstOrDefaultAsync(a => a.AgentKeyHash == keyHash);
+        if (agent == null || !agent.Enabled)
+            return null;
+
+        var site = await db.Sites.FindAsync(agent.SiteId);
+        return site == null ? null : (agent, site.Slug);
+    }
+
     /// <summary>Records a heartbeat for an enrolled agent, keyed by its agent key.</summary>
     public async Task<bool> HeartbeatAsync(string agentKey, string? version)
     {

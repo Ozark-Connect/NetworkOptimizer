@@ -172,6 +172,65 @@ builder.Services.AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(
 builder.Services.AddSingleton(new NetworkOptimizer.Storage.Services.SiteDatabasePaths(dbPath));
 builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.SiteDbContextFactory>();
 
+// ---- Multi-site agent tunnel listener ----
+// The agent tunnel is gRPC, which needs HTTP/2. The main port stays HTTP/1.1
+// (reverse proxies, browsers), so the tunnel gets its own cleartext HTTP/2
+// listener. Explicit Kestrel Listen calls override URL-based configuration,
+// so when the tunnel is active the main HTTP port(s) are re-bound explicitly
+// alongside it. Single-site installs never take this branch: no new port, no
+// binding changes. The flag is read with raw SQLite because Kestrel must be
+// configured before the service provider (and EF) exist.
+var agentTunnelPort = builder.Configuration.GetValue("AgentTunnel:Port", 8043);
+var agentTunnelEnabled = false;
+try
+{
+    if (File.Exists(dbPath))
+    {
+        using var flagConnection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+        flagConnection.Open();
+        using var flagCommand = flagConnection.CreateCommand();
+        flagCommand.CommandText = "SELECT Value FROM SystemSettings WHERE Key = @key";
+        flagCommand.Parameters.AddWithValue("@key", NetworkOptimizer.Storage.Models.SystemSettingKeys.MultiSiteEnabled);
+        agentTunnelEnabled = bool.TryParse(flagCommand.ExecuteScalar() as string, out var multiSiteFlag) && multiSiteFlag;
+    }
+}
+catch
+{
+    // Fresh install or pre-multi-site schema: tunnel stays off until enabled + restart.
+}
+
+if (agentTunnelEnabled)
+{
+    var mainBindings = StartupHelpers.ResolveHttpBindings();
+    if (mainBindings == null)
+    {
+        // Custom HTTPS or non-port URL configuration we can't safely re-bind.
+        Console.WriteLine("Agent tunnel disabled: ASPNETCORE_URLS contains bindings the tunnel listener cannot co-exist with (HTTPS or non-port URLs)");
+        agentTunnelEnabled = false;
+    }
+    else
+    {
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            foreach (var (host, port) in mainBindings)
+            {
+                if (host == "localhost")
+                    options.ListenLocalhost(port);
+                else if (System.Net.IPAddress.TryParse(host, out var ip))
+                    options.Listen(ip, port);
+                else
+                    options.ListenAnyIP(port);
+            }
+            options.ListenAnyIP(agentTunnelPort, listen =>
+                listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+        });
+    }
+}
+builder.Services.AddSingleton(new AgentTunnelOptions(agentTunnelEnabled, agentTunnelPort));
+builder.Services.AddGrpc();
+builder.Services.AddSingleton<AgentTunnelRegistry>();
+builder.Services.AddSingleton<AgentProbeResultSink>();
+
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISettingsRepository, NetworkOptimizer.Storage.Repositories.SettingsRepository>();
@@ -1708,6 +1767,9 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 // New API endpoints go in Endpoints/*.cs, not inline here.
 LanFlowMapEndpoints.Map(app);
 SiteAgentEndpoints.Map(app);
+// Agent tunnel (gRPC). Mapped unconditionally; it is only reachable when the
+// dedicated HTTP/2 listener is bound (multi-site enabled at startup).
+app.MapGrpcService<AgentTunnelService>();
 MonitoringChartEndpoints.Map(app);
 IspHealthEndpoints.Map(app);
 MonitoringInvestigateEndpoints.Map(app);
@@ -1854,6 +1916,51 @@ class DigestStateStoreAdapter(NetworkOptimizer.Storage.Interfaces.ISettingsRepos
 
 static partial class StartupHelpers
 {
+    /// <summary>
+    /// Resolves the plain-HTTP bindings the app would use today from
+    /// ASPNETCORE_URLS / ASPNETCORE_HTTP_PORTS (default http://*:8042), so the
+    /// agent tunnel listener can re-bind them explicitly alongside its own
+    /// HTTP/2 port. Returns null when the configuration contains anything we
+    /// cannot faithfully reproduce with Kestrel Listen calls (HTTPS, unix
+    /// sockets, malformed entries) - callers then leave binding untouched.
+    /// </summary>
+    internal static List<(string Host, int Port)>? ResolveHttpBindings()
+    {
+        var bindings = new List<(string Host, int Port)>();
+        var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+        var httpPorts = Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS");
+
+        if (!string.IsNullOrWhiteSpace(urls))
+        {
+            foreach (var url in urls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                var hostPort = url["http://".Length..].TrimEnd('/');
+                var colon = hostPort.LastIndexOf(':');
+                if (colon < 0 || !int.TryParse(hostPort[(colon + 1)..], out var port))
+                    return null;
+                var host = hostPort[..colon];
+                bindings.Add((host is "*" or "+" or "0.0.0.0" ? "*" : host, port));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(httpPorts))
+        {
+            foreach (var part in httpPorts.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(part, out var port))
+                    return null;
+                bindings.Add(("*", port));
+            }
+        }
+        else
+        {
+            bindings.Add(("*", 8042));
+        }
+
+        return bindings.Count > 0 ? bindings : null;
+    }
+
     internal static (bool isFuse, string filesystemType) DetectFilesystem(string filePath)
     {
         if (!OperatingSystem.IsLinux())

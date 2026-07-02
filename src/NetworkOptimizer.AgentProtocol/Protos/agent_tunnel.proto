@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+option csharp_namespace = "NetworkOptimizer.AgentProtocol";
+
+package networkoptimizer.agent.v1;
+
+// Persistent bidirectional tunnel between an on-site agent and the central
+// Network Optimizer server. The agent dials out (no inbound ports at the
+// remote site), authenticates with its agent key in the first message, then
+// the stream stays open for heartbeats, probe configuration pushes, and probe
+// result batches.
+service AgentTunnel {
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+message AgentMessage {
+  oneof payload {
+    AgentHello hello = 1;
+    AgentHeartbeat heartbeat = 2;
+    ProbeResultBatch probe_results = 3;
+  }
+}
+
+message ServerMessage {
+  oneof payload {
+    ServerHello hello = 1;
+    ProbeConfig probe_config = 2;
+  }
+}
+
+// First message on every connection. The server closes the stream with
+// UNAUTHENTICATED if the key does not resolve to an enabled, enrolled agent.
+message AgentHello {
+  string agent_key = 1;
+  string version = 2;
+}
+
+message ServerHello {
+  string site_slug = 1;
+  string agent_name = 2;
+  int32 heartbeat_interval_seconds = 3;
+}
+
+message AgentHeartbeat {
+  int64 timestamp_unix_ms = 1;
+}
+
+// Full replacement set of probe targets the agent should run. Sent right
+// after the hello exchange and again whenever the site's monitoring targets
+// change.
+message ProbeConfig {
+  repeated ProbeTargetSpec targets = 1;
+}
+
+message ProbeTargetSpec {
+  string target_id = 1;
+  string address = 2;
+  // icmp | tcp (matches ProbeMode on the server)
+  string probe_mode = 3;
+  // tcp probes only; 0 = unset
+  int32 port = 4;
+  int32 poll_interval_seconds = 5;
+  int32 ping_count = 6;
+  // Informational for agent logs; the server re-derives type at write time.
+  string target_type = 7;
+  // Optional source address to bind probes to (multi-WAN policy routing).
+  string source_ip = 8;
+}
+
+message ProbeResultBatch {
+  repeated ProbeResult results = 1;
+}
+
+message ProbeResult {
+  string target_id = 1;
+  int64 timestamp_unix_ms = 2;
+  bool success = 3;
+  int32 sent = 4;
+  int32 received = 5;
+  double loss_percent = 6;
+  optional double rtt_min_ms = 7;
+  optional double rtt_avg_ms = 8;
+  optional double rtt_max_ms = 9;
+  optional double jitter_ms = 10;
+}

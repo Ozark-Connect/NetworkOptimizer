@@ -62,7 +62,13 @@ if (string.IsNullOrEmpty(config.AgentKey))
 
     var enrollment = await response.Content.ReadFromJsonAsync<EnrollmentResponse>(AgentJson.Options)
         ?? throw new InvalidOperationException("Empty enrollment response");
-    config = config with { AgentKey = enrollment.AgentKey, SiteSlug = enrollment.SiteSlug, EnrollmentToken = null };
+    // The tunnel is a dedicated cleartext HTTP/2 port on the same host as the
+    // web UI, so derive its address from the server URL unless the config
+    // already pins one explicitly.
+    var tunnelUrl = config.TunnelUrl;
+    if (tunnelUrl == null && enrollment.TunnelPort is int tunnelPort)
+        tunnelUrl = $"http://{new Uri(config.ServerUrl).Host}:{tunnelPort}";
+    config = config with { AgentKey = enrollment.AgentKey, SiteSlug = enrollment.SiteSlug, EnrollmentToken = null, TunnelUrl = tunnelUrl };
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, AgentJson.WriteOptions));
     Console.WriteLine($"Enrolled for site '{config.SiteSlug}'. Agent key saved to {configPath}.");
 }
@@ -72,8 +78,29 @@ Console.WriteLine($"Agent v{version} running for site '{config.SiteSlug}' agains
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
+// Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
+// Online whenever the tunnel is unavailable (tunnel disabled server-side, an
+// older server, or a network drop between reconnect attempts).
 while (!cts.IsCancellationRequested)
 {
+    if (!string.IsNullOrEmpty(config.TunnelUrl))
+    {
+        try
+        {
+            var tunnel = new TunnelClient();
+            await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, config.IgnoreSslErrors, cts.Token);
+            Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
+        }
+        catch (OperationCanceledException)
+        {
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Tunnel error: {ex.Message}");
+        }
+    }
+
     try
     {
         var response = await http.PostAsJsonAsync("api/public/agents/heartbeats",
@@ -107,9 +134,10 @@ namespace NetworkOptimizer.Agent
         string? EnrollmentToken,
         string? AgentKey,
         string? SiteSlug,
-        bool IgnoreSslErrors);
+        bool IgnoreSslErrors,
+        string? TunnelUrl = null);
 
-    public record EnrollmentResponse(string AgentKey, string SiteSlug);
+    public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);
 
     public static class AgentJson
     {

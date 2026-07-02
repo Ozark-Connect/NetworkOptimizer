@@ -14,11 +14,11 @@ public static class SiteAgentEndpoints
 
     public static void Map(WebApplication app)
     {
-        app.MapPost("/api/public/agents/enrollments", async (EnrollmentRequest request, AgentEnrollmentService enrollment) =>
+        app.MapPost("/api/public/agents/enrollments", async (EnrollmentRequest request, AgentEnrollmentService enrollment, AgentTunnelOptions tunnel) =>
         {
             var (success, agentKey, siteSlug, error) = await enrollment.EnrollAsync(request.Token ?? "", request.Version);
             return success
-                ? Results.Ok(new { agentKey, siteSlug })
+                ? Results.Ok(new { agentKey, siteSlug, tunnelPort = tunnel.Enabled ? tunnel.Port : (int?)null })
                 : Results.BadRequest(new { error });
         });
 
