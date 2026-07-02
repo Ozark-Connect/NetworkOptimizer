@@ -197,15 +197,20 @@ public class ChannelRecommendationService
     private const double CatastrophicAbsoluteScore = 4.0;
 
     /// <summary>
-    /// Measured airtime thresholds past which a freshly-changed channel counts as
-    /// catastrophically bad and the soak suppression is lifted. Anchored to the radio's own
-    /// time-averaged measurements (the comfort anchor's "genuinely usable" sits below 20%
-    /// external interference; 60%+ is a drowning channel; 40%+ TX retries means constant
-    /// collisions) - deliberately NOT the inferred score, which idle-neighbor external load
-    /// inflates past any absolute ceiling on dense bands. Tunable.
+    /// Measured EXTERNAL interference (other networks' airtime) past which a freshly-changed
+    /// channel counts as catastrophically bad and the soak suppression is lifted. Anchored to
+    /// the radio's own time-averaged interference - the same ground-truth channel-quality
+    /// signal the comfort anchor uses (comfortable sits below 20%; 70% means the channel is
+    /// dominated by other networks and is genuinely a disaster worth breaking soak for).
+    ///
+    /// Deliberately NOT the inferred score (idle-neighbor external load inflates it past any
+    /// absolute ceiling on dense bands, which would make soak a permanent no-op there), and
+    /// deliberately NOT utilization or TX retries: both are contaminated by the AP's OWN
+    /// serving traffic, which follows the radio to any channel, so a busy AP would keep
+    /// escaping soak no matter where it moved - the exact self-induced false positive this
+    /// feature exists to avoid. Tunable.
     /// </summary>
-    private const double CatastrophicInterferencePct = 60.0;
-    private const double CatastrophicTxRetryPct = 40.0;
+    private const double CatastrophicInterferencePct = 70.0;
 
     /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
@@ -1477,14 +1482,15 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
-    /// Whether the AP's own measured (1d/7d) record for its current channel shows
-    /// catastrophic airtime - external interference or TX retries past the catastrophic
-    /// thresholds. This is the soak-escape signal, and it reads measured ground truth ONLY:
-    /// never <see cref="ApNode.PropagatedStress"/> or the inferred score, both of which
-    /// idle-neighbor load inflates (on a dense 2.4 GHz band every AP's score can sit far
-    /// above any absolute ceiling forever, which would make soak a permanent no-op there).
-    /// No averaged data for the new channel yet (e.g. within the first hour after a change)
-    /// means no escape - the soak is short, and rescue can wait for evidence.
+    /// Whether the AP's own measured (1d/7d) record for its current channel shows catastrophic
+    /// EXTERNAL interference - other networks' airtime past <see cref="CatastrophicInterferencePct"/>.
+    /// This is the soak-escape signal, and it reads measured ground truth ONLY: never
+    /// <see cref="ApNode.PropagatedStress"/> or the inferred score (idle-neighbor load inflates
+    /// both, so on a dense 2.4 GHz band every AP would sit above any absolute ceiling forever,
+    /// making soak a permanent no-op), and never utilization or TX retries (contaminated by the
+    /// AP's own serving traffic, which follows it to any channel). No averaged data for the new
+    /// channel yet (e.g. within the first hour after a change) means no escape - the soak is
+    /// short, and rescue can wait for evidence.
     /// </summary>
     private static bool IsCurrentChannelMeasurablySuffering(InterferenceGraph graph, RadioBand band, int apIndex)
     {
@@ -1496,8 +1502,7 @@ public class ChannelRecommendationService
         {
             var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
-                return stress.Interference >= CatastrophicInterferencePct ||
-                       stress.TxRetryPct >= CatastrophicTxRetryPct;
+                return stress.Interference >= CatastrophicInterferencePct;
         }
         return false;
     }
