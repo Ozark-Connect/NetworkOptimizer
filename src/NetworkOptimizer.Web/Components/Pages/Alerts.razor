@@ -13,6 +13,7 @@
 @inject IAlertRepository AlertRepository
 @inject IScheduleRepository ScheduleRepository
 @inject ScheduleService ScheduleService
+@inject SiteContextService SiteContext
 @inject ILogger<Alerts> Logger
 @inject NavigationManager NavigationManager
 @inject ISqmService SqmService
@@ -96,8 +97,8 @@
                             <div class="schedule-card-actions">
                                 <button class="btn btn-sm btn-secondary"
                                         @onclick="() => RunScheduleNow(auditTask)"
-                                        disabled="@(ScheduleService.IsTaskRunning(auditTask.Id))">
-                                    @if (ScheduleService.IsTaskRunning(auditTask.Id))
+                                        disabled="@(ScheduleService.IsTaskRunning(auditTask.Id, SiteContext.Slug))">
+                                    @if (ScheduleService.IsTaskRunning(auditTask.Id, SiteContext.Slug))
                                     {
                                         <span class="spinner spinner-sm"></span>
                                         <text>Running...</text>
@@ -190,8 +191,8 @@
                                 <div class="schedule-card-actions">
                                     <button class="btn btn-sm btn-secondary"
                                             @onclick="() => RunScheduleNow(task)"
-                                            disabled="@(ScheduleService.IsTaskRunning(task.Id))">
-                                        @if (ScheduleService.IsTaskRunning(task.Id))
+                                            disabled="@(ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))">
+                                        @if (ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))
                                         {
                                             <span class="spinner spinner-sm"></span>
                                             <text>Running...</text>
@@ -301,8 +302,8 @@
                             <div class="schedule-card-actions">
                                 <button class="btn btn-sm btn-secondary"
                                         @onclick="() => RunScheduleNow(task)"
-                                        disabled="@(ScheduleService.IsTaskRunning(task.Id))">
-                                    @if (ScheduleService.IsTaskRunning(task.Id))
+                                        disabled="@(ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))">
+                                    @if (ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))
                                     {
                                         <span class="spinner spinner-sm"></span>
                                         <text>Running...</text>
@@ -2636,7 +2637,7 @@
     {
         try
         {
-            var started = await ScheduleService.RunNowAsync(task.Id);
+            var started = await ScheduleService.RunNowAsync(task.Id, SiteContext.Slug);
             if (!started)
             {
                 _scheduleMessage = "Task is already running.";
@@ -2651,7 +2652,7 @@
             for (var i = 0; i < 120; i++) // up to 2 minutes
             {
                 await Task.Delay(1000);
-                if (!ScheduleService.IsTaskRunning(task.Id))
+                if (!ScheduleService.IsTaskRunning(task.Id, SiteContext.Slug))
                     break;
                 StateHasChanged(); // keep spinner visible
             }

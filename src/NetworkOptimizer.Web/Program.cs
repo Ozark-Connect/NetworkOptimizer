@@ -380,6 +380,9 @@ builder.Services.AddSingleton<NetworkOptimizer.Threats.Interfaces.IUniFiClientAc
 
 // Register Schedule services (scheduling engine for periodic audits, speed tests)
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IScheduleRepository, NetworkOptimizer.Storage.Repositories.ScheduleRepository>();
+// Site fan-out for the schedule loop: each enabled site's schedules run in a
+// scope pinned to that site's database and console connection.
+builder.Services.AddSingleton<NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext, ScheduleSiteContext>();
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.ScheduleService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>());
 

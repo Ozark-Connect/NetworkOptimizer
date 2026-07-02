@@ -3,6 +3,7 @@ using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Web.Services;
 
 namespace NetworkOptimizer.Web.Endpoints;
 
@@ -153,9 +154,9 @@ public static class AlertEndpoints
             return Results.Ok(existing);
         });
 
-        app.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService) =>
+        app.MapPost("/api/alerts/schedules/{id:int}/run", async (int id, ScheduleService scheduleService, SiteContextService siteContext) =>
         {
-            var started = await scheduleService.RunNowAsync(id);
+            var started = await scheduleService.RunNowAsync(id, siteContext.Slug);
             return started ? Results.Ok(new { started = true }) : Results.Conflict(new { error = "Task is already running or not found" });
         });
     }

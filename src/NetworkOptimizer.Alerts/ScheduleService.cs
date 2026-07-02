@@ -18,41 +18,72 @@ public class ScheduleService : BackgroundService
     private readonly ILogger<ScheduleService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAlertEventBus _alertEventBus;
+    private readonly IScheduleSiteContext? _siteContext;
 
-    // Track which tasks are currently executing (by task ID)
-    private readonly HashSet<int> _runningTasks = new();
+    // Track which tasks are currently executing. Task ids are per-site
+    // database sequences, so the key must carry the site too.
+    private readonly HashSet<(string SiteKey, int TaskId)> _runningTasks = new();
     private readonly object _runningLock = new();
 
     // Delegate types for task executors (resolved from DI in ExecuteTaskAsync)
-    // This avoids coupling to concrete service types in the Alerts project
+    // This avoids coupling to concrete service types in the Alerts project.
+    // Every executor receives the site key first so the host can route the
+    // work to that site's services and data.
 
     /// <summary>
     /// Delegate that the Web project registers to execute audit tasks.
-    /// Returns (success, summary, error).
+    /// Takes (siteKey) and returns (success, summary, error).
     /// </summary>
-    public Func<CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? AuditExecutor { get; set; }
+    public Func<string, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? AuditExecutor { get; set; }
 
     /// <summary>
     /// Delegate that the Web project registers to execute WAN speed test tasks.
-    /// Takes (taskId, targetId, targetConfig) and returns (success, summary, error).
+    /// Takes (siteKey, taskId, targetId, targetConfig) and returns (success, summary, error).
     /// The taskId allows the executor to update the schedule (e.g., reconcile stale WAN metadata).
     /// </summary>
-    public Func<int, string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? WanSpeedTestExecutor { get; set; }
+    public Func<string, int, string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? WanSpeedTestExecutor { get; set; }
 
     /// <summary>
     /// Delegate that the Web project registers to execute LAN speed test tasks.
-    /// Takes (targetId, targetConfig) and returns (success, summary, error).
+    /// Takes (siteKey, targetId, targetConfig) and returns (success, summary, error).
     /// </summary>
-    public Func<string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? LanSpeedTestExecutor { get; set; }
+    public Func<string, string?, string?, CancellationToken, Task<(bool Success, string? Summary, string? Error)>>? LanSpeedTestExecutor { get; set; }
 
     public ScheduleService(
         ILogger<ScheduleService> logger,
         IServiceScopeFactory scopeFactory,
-        IAlertEventBus alertEventBus)
+        IAlertEventBus alertEventBus,
+        IScheduleSiteContext? siteContext = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _alertEventBus = alertEventBus;
+        _siteContext = siteContext;
+    }
+
+    private string DefaultSiteKey => _siteContext?.DefaultKey ?? "";
+
+    private async Task<IReadOnlyList<string>> GetSiteKeysAsync(CancellationToken ct)
+    {
+        if (_siteContext == null)
+            return new[] { DefaultSiteKey };
+        try
+        {
+            var keys = await _siteContext.GetSiteKeysAsync(ct);
+            return keys.Count > 0 ? keys : new[] { DefaultSiteKey };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Site enumeration failed; evaluating the default site's schedules only");
+            return new[] { DefaultSiteKey };
+        }
+    }
+
+    private IServiceScope CreatePinnedScope(string siteKey)
+    {
+        var scope = _scopeFactory.CreateScope();
+        _siteContext?.PinScope(scope, siteKey);
+        return scope;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -98,7 +129,16 @@ public class ScheduleService : BackgroundService
 
     private async Task EvaluateSchedulesAsync(CancellationToken ct)
     {
-        using var scope = _scopeFactory.CreateScope();
+        foreach (var siteKey in await GetSiteKeysAsync(ct))
+        {
+            if (ct.IsCancellationRequested) break;
+            await EvaluateSiteSchedulesAsync(siteKey, ct);
+        }
+    }
+
+    private async Task EvaluateSiteSchedulesAsync(string siteKey, CancellationToken ct)
+    {
+        using var scope = CreatePinnedScope(siteKey);
         var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
 
         var enabledTasks = await repo.GetEnabledAsync(ct);
@@ -133,7 +173,7 @@ public class ScheduleService : BackgroundService
             }
 
             // Skip if already running
-            if (IsTaskRunning(task.Id))
+            if (IsTaskRunning(task.Id, siteKey))
                 continue;
 
             // Execute in background (don't block the evaluation loop)
@@ -150,7 +190,7 @@ public class ScheduleService : BackgroundService
             {
                 try
                 {
-                    await ExecuteScheduledTaskAsync(taskId, taskType, targetId, targetConfig, frequencyMinutes, startHour, startMinute, scheduledRunTime, ct);
+                    await ExecuteScheduledTaskAsync(siteKey, taskId, taskType, targetId, targetConfig, frequencyMinutes, startHour, startMinute, scheduledRunTime, ct);
                 }
                 catch (Exception ex)
                 {
@@ -160,29 +200,33 @@ public class ScheduleService : BackgroundService
         }
     }
 
-    private async Task ExecuteScheduledTaskAsync(int taskId, string taskType, string? targetId, string? targetConfig, int frequencyMinutes, int? startHour, int? startMinute, DateTime? scheduledRunTime, CancellationToken ct)
+    private async Task ExecuteScheduledTaskAsync(string siteKey, int taskId, string taskType, string? targetId, string? targetConfig, int frequencyMinutes, int? startHour, int? startMinute, DateTime? scheduledRunTime, CancellationToken ct)
     {
         lock (_runningLock)
         {
-            if (!_runningTasks.Add(taskId))
+            if (!_runningTasks.Add((siteKey, taskId)))
                 return; // Already running
         }
 
         var startTime = DateTime.UtcNow;
-        _logger.LogInformation("Executing scheduled task {TaskId} ({TaskType})", taskId, taskType);
+        _logger.LogInformation("Executing scheduled task {TaskId} ({TaskType}) for site {SiteKey}", taskId, taskType, siteKey);
+
+        // Site-qualify alert titles only when this isn't the default site, so
+        // single-site installs read exactly as before.
+        var siteSuffix = siteKey == DefaultSiteKey ? "" : $" (site {siteKey})";
 
         try
         {
             var (success, summary, error) = taskType switch
             {
                 "audit" => AuditExecutor != null
-                    ? await AuditExecutor(ct)
+                    ? await AuditExecutor(siteKey, ct)
                     : (false, null, "Audit executor not registered"),
                 "wan_speedtest" => WanSpeedTestExecutor != null
-                    ? await WanSpeedTestExecutor(taskId, targetId, targetConfig, ct)
+                    ? await WanSpeedTestExecutor(siteKey, taskId, targetId, targetConfig, ct)
                     : (false, null, "WAN speed test executor not registered"),
                 "lan_speedtest" => LanSpeedTestExecutor != null
-                    ? await LanSpeedTestExecutor(targetId, targetConfig, ct)
+                    ? await LanSpeedTestExecutor(siteKey, targetId, targetConfig, ct)
                     : (false, null, "LAN speed test executor not registered"),
                 _ => (false, (string?)null, $"Unknown task type: {taskType}")
             };
@@ -193,7 +237,7 @@ public class ScheduleService : BackgroundService
             // DB update - failure here shouldn't change the task's reported status
             try
             {
-                using var scope = _scopeFactory.CreateScope();
+                using var scope = CreatePinnedScope(siteKey);
                 var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
                 await repo.UpdateRunStatusAsync(taskId, startTime, nextRun, status, error, summary, ct);
             }
@@ -213,7 +257,7 @@ public class ScheduleService : BackgroundService
                     EventType = "schedule.task_completed",
                     Severity = AlertSeverity.Info,
                     Source = "schedule",
-                    Title = $"Scheduled {FormatTaskType(taskType)} completed",
+                    Title = $"Scheduled {FormatTaskType(taskType)} completed{siteSuffix}",
                     Message = summary ?? "Task completed successfully",
                     SourceUrl = "/alerts?tab=schedule"
                 });
@@ -225,7 +269,7 @@ public class ScheduleService : BackgroundService
                     EventType = "schedule.task_failed",
                     Severity = AlertSeverity.Error,
                     Source = "schedule",
-                    Title = $"Scheduled {FormatTaskType(taskType)} failed",
+                    Title = $"Scheduled {FormatTaskType(taskType)} failed{siteSuffix}",
                     Message = error ?? "Task failed with no error message",
                     SourceUrl = "/alerts?tab=schedule"
                 });
@@ -237,7 +281,7 @@ public class ScheduleService : BackgroundService
 
             try
             {
-                using var scope = _scopeFactory.CreateScope();
+                using var scope = CreatePinnedScope(siteKey);
                 var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
                 var nextRun = CalculateNextRun(frequencyMinutes, startHour, startMinute, scheduledRunTime);
                 await repo.UpdateRunStatusAsync(taskId, startTime, nextRun, "failed", ex.Message, null, ct);
@@ -254,7 +298,7 @@ public class ScheduleService : BackgroundService
                     EventType = "schedule.task_failed",
                     Severity = AlertSeverity.Error,
                     Source = "schedule",
-                    Title = $"Scheduled {FormatTaskType(taskType)} failed",
+                    Title = $"Scheduled {FormatTaskType(taskType)} failed{siteSuffix}",
                     Message = ex.Message,
                     SourceUrl = "/alerts?tab=schedule"
                 });
@@ -265,20 +309,23 @@ public class ScheduleService : BackgroundService
         {
             lock (_runningLock)
             {
-                _runningTasks.Remove(taskId);
+                _runningTasks.Remove((siteKey, taskId));
             }
         }
     }
 
     /// <summary>
     /// Trigger immediate execution of a scheduled task (Run Now button).
+    /// Callers in a site-aware host pass the site the task belongs to;
+    /// null means the default site.
     /// </summary>
-    public async Task<bool> RunNowAsync(int scheduledTaskId)
+    public async Task<bool> RunNowAsync(int scheduledTaskId, string? siteKey = null)
     {
-        if (IsTaskRunning(scheduledTaskId))
+        var key = siteKey ?? DefaultSiteKey;
+        if (IsTaskRunning(scheduledTaskId, key))
             return false;
 
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreatePinnedScope(key);
         var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
         var task = await repo.GetByIdAsync(scheduledTaskId);
         if (task == null)
@@ -288,7 +335,7 @@ public class ScheduleService : BackgroundService
         {
             try
             {
-                await ExecuteScheduledTaskAsync(task.Id, task.TaskType, task.TargetId, task.TargetConfig, task.FrequencyMinutes, task.CustomMorningHour, task.CustomMorningMinute, null, CancellationToken.None);
+                await ExecuteScheduledTaskAsync(key, task.Id, task.TaskType, task.TargetId, task.TargetConfig, task.FrequencyMinutes, task.CustomMorningHour, task.CustomMorningMinute, null, CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -300,13 +347,13 @@ public class ScheduleService : BackgroundService
     }
 
     /// <summary>
-    /// Check if a task is currently executing.
+    /// Check if a task is currently executing. Null site = the default site.
     /// </summary>
-    public bool IsTaskRunning(int scheduledTaskId)
+    public bool IsTaskRunning(int scheduledTaskId, string? siteKey = null)
     {
         lock (_runningLock)
         {
-            return _runningTasks.Contains(scheduledTaskId);
+            return _runningTasks.Contains((siteKey ?? DefaultSiteKey, scheduledTaskId));
         }
     }
 

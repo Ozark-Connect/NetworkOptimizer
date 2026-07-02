@@ -19,22 +19,26 @@ public static class ScheduleExecutorRegistration
 
         var scheduleService = app.Services.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>();
 
-        scheduleService.AuditExecutor = (ct) => ExecuteAuditAsync(app.Services, ct);
-        scheduleService.WanSpeedTestExecutor = (taskId, targetId, targetConfig, ct) =>
-            ExecuteWanSpeedTestAsync(app.Services, taskId, targetId, targetConfig, ct);
-        scheduleService.LanSpeedTestExecutor = (targetId, _, ct) =>
-            ExecuteLanSpeedTestAsync(app.Services, targetId, ct);
+        scheduleService.AuditExecutor = (siteKey, ct) => ExecuteAuditAsync(app.Services, siteKey, ct);
+        scheduleService.WanSpeedTestExecutor = (siteKey, taskId, targetId, targetConfig, ct) =>
+            ExecuteWanSpeedTestAsync(app.Services, siteKey, taskId, targetId, targetConfig, ct);
+        scheduleService.LanSpeedTestExecutor = (siteKey, targetId, _, ct) =>
+            ExecuteLanSpeedTestAsync(app.Services, siteKey, targetId, ct);
     }
 
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteAuditAsync(
-        IServiceProvider services, CancellationToken ct)
+        IServiceProvider services, string siteKey, CancellationToken ct)
     {
-        // Ensure console connection is fresh for scheduled audits (fingerprint cache expires after 24h)
-        var connService = services.GetRequiredService<SiteConnectionRegistry>().GetDefault();
+        // Ensure the site's console connection is fresh for scheduled audits
+        // (fingerprint cache expires after 24h)
+        var connService = services.GetRequiredService<SiteConnectionRegistry>().GetFor(siteKey);
         if (!connService.IsConnected)
             await connService.ReconnectAsync();
 
+        // Pin the scope so the audit pipeline (scoped repositories, scoped
+        // console forwarding) runs against this site's database and console.
         using var scope = services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteKey);
         var auditService = scope.ServiceProvider.GetRequiredService<AuditService>();
         if (auditService.IsRunning)
             return (false, null, "Audit is already running");
@@ -54,8 +58,14 @@ public static class ScheduleExecutorRegistration
     }
 
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteWanSpeedTestAsync(
-        IServiceProvider services, int taskId, string? targetId, string? targetConfig, CancellationToken ct)
+        IServiceProvider services, string siteKey, int taskId, string? targetId, string? targetConfig, CancellationToken ct)
     {
+        // The speed test services are still default-site singletons; running
+        // them for another site would test the wrong network and store to the
+        // wrong database. Fail with a clear message instead.
+        if (siteKey != SiteManagementService.DefaultSiteSlug)
+            return (false, null, "Scheduled WAN speed tests are not yet supported on non-default sites");
+
         try
         {
             // Parse config for test type, max mode, multi-WAN
@@ -152,8 +162,11 @@ public static class ScheduleExecutorRegistration
     }
 
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteLanSpeedTestAsync(
-        IServiceProvider services, string? targetId, CancellationToken ct)
+        IServiceProvider services, string siteKey, string? targetId, CancellationToken ct)
     {
+        if (siteKey != SiteManagementService.DefaultSiteSlug)
+            return (false, null, "Scheduled LAN speed tests are not yet supported on non-default sites");
+
         if (string.IsNullOrEmpty(targetId))
             return (false, null, "No target device specified");
 
