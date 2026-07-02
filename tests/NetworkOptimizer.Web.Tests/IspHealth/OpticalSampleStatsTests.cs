@@ -48,6 +48,63 @@ public class OpticalSampleStatsTests
     }
 
     [Fact]
+    public void FitCouplingSlope_recovers_a_known_slope()
+    {
+        // RX rides temperature at exactly 0.10 dB/C across a 20 C spread; the fit should recover it.
+        var samples = new List<(DateTime, double?, double?)>();
+        var t0 = T0;
+        foreach (var temp in new[] { 40.0, 44.0, 48.0, 52.0, 56.0, 60.0 })
+            for (var k = 0; k < 3; k++)
+            {
+                samples.Add((t0, (double?)(-22.0 + 0.10 * (temp - 50.0)), (double?)temp));
+                t0 = t0.AddMinutes(1);
+            }
+
+        OpticalSampleStats.FitCouplingSlope(samples).Should().BeApproximately(0.10, 0.005);
+    }
+
+    [Fact]
+    public void FitCouplingSlope_is_null_when_temperature_is_pinned()
+    {
+        // No temperature spread to fit against - the optic is thermally pinned, so no slope.
+        var samples = Enumerable.Range(0, 30)
+            .Select(i => (T0.AddMinutes(i), (double?)(-22.6 - (i % 4) * 0.05), (double?)44.0))
+            .ToList();
+
+        OpticalSampleStats.FitCouplingSlope(samples).Should().BeNull();
+    }
+
+    [Fact]
+    public void Detrend_normalizes_a_temperature_driven_dip()
+    {
+        // A single cooler poll reads RX low purely from the ~0.11 dB/C coupling (-23.4 dBm at 37 C vs
+        // -22.6 at 44 C). Detrended to the reference temperature it lands back at baseline, so it must
+        // NOT survive as the worst sample - a temperature swing is not an optical dip.
+        var samples = new List<(DateTime, double?, double?)>();
+        for (var i = 0; i < 11; i++) samples.Add((T0.AddMinutes(i), (double?)-22.6, (double?)44.0));
+        samples.Add((T0.AddMinutes(11), -23.4, 37.0));   // temp-driven dip on the coupling line
+
+        var stats = OpticalSampleStats.Compute(samples, couplingSlopeDbmPerC: 0.11);
+
+        stats.WorstDbm.Should().BeGreaterThan(-22.8);      // -23.4 normalized away, not the worst
+        stats.MedianDbm.Should().BeApproximately(-22.6, 0.05);
+    }
+
+    [Fact]
+    public void Detrend_keeps_a_real_optical_dip_at_flat_temperature()
+    {
+        // RX dives with temperature unchanged - detrending does nothing (temp == reference), so the
+        // real optical dip survives as the worst sample and drives scoring.
+        var samples = new List<(DateTime, double?, double?)>();
+        for (var i = 0; i < 11; i++) samples.Add((T0.AddMinutes(i), (double?)-22.6, (double?)44.0));
+        samples.Add((T0.AddMinutes(11), -25.0, 44.0));   // real dip, temperature flat
+
+        var stats = OpticalSampleStats.Compute(samples, couplingSlopeDbmPerC: 0.11);
+
+        stats.WorstDbm.Should().BeApproximately(-25.0, 0.01);
+    }
+
+    [Fact]
     public void Baseline_is_the_earliest_fifth_for_trend_detection()
     {
         // Earliest reads ~-19, drifting to ~-23: baseline should reflect the early ~-19, not the median.

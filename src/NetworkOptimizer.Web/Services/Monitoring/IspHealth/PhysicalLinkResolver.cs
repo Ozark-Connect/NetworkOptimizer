@@ -184,17 +184,29 @@ public class PhysicalLinkResolver
         };
     }
 
+    /// <summary>How far back to pull SFP DDM history to fit the temperature-vs-RX coupling slope. A
+    /// mostly pinned optic needs a wide window to catch the occasional temperature excursion that
+    /// gives the fit leverage. The scoring window (<=48h) is a subset of this, so one raw query serves
+    /// both - the 7-day pull is ~150 KB and returns in tens of milliseconds.</summary>
+    private static readonly TimeSpan CouplingFitHistory = TimeSpan.FromDays(7);
+
     private async Task<PhysicalLinkInput?> AssembleSfpAsync(
         Cand c, PhysicalMedium medium, bool isXgsPon, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
     {
-        // SFP DDM only: TimeSpan.Zero => RAW (un-aggregated) so glitchy stick reads stay isolated,
-        // with temperature passed through so OpticalSampleStats can reject the artifacts (RX + temp
-        // glitch together). Mean aggregation would smear a glitch into a bucket that defeats the filter.
-        var dict = await _influx.QuerySfpByModulesAsync(new[] { (c.Mac!, c.Port!) }, windowStart, windowEnd, TimeSpan.Zero, ct);
-        var pts = dict.Values.FirstOrDefault() ?? new();
-        var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList());
-        _logger.LogDebug("ISP Health physical: SFP {Key} - {N} samples, {Rej} DDM artifacts rejected, rxMed={Med} worst={Worst}",
-            c.Key, pts.Count, stats.RejectedArtifacts, stats.MedianDbm, stats.WorstDbm);
+        // SFP DDM only: TimeSpan.Zero => RAW (un-aggregated) so glitchy stick reads and temperature
+        // excursions stay isolated - mean aggregation would smear them into buckets that defeat both
+        // artifact rejection and the coupling fit. Pull the wider fit history in one query and score
+        // on the in-window subset.
+        var fitStart = windowEnd - CouplingFitHistory;
+        var dict = await _influx.QuerySfpByModulesAsync(new[] { (c.Mac!, c.Port!) }, fitStart, windowEnd, TimeSpan.Zero, ct);
+        var allPts = dict.Values.FirstOrDefault() ?? new();
+        var coupling = OpticalSampleStats.FitCouplingSlope(allPts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList());
+
+        var pts = allPts.Where(p => p.Time >= windowStart).ToList();
+        var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList(), coupling);
+        _logger.LogDebug("ISP Health physical: SFP {Key} - {N} window samples ({All} over {Days}d fit), {Rej} DDM artifacts rejected, coupling={Slope} dB/C, rxMed={Med} worst={Worst}",
+            c.Key, pts.Count, allPts.Count, CouplingFitHistory.TotalDays, stats.RejectedArtifacts,
+            coupling?.ToString("0.000") ?? "n/a", stats.MedianDbm, stats.WorstDbm);
 
         return new PhysicalLinkInput
         {
