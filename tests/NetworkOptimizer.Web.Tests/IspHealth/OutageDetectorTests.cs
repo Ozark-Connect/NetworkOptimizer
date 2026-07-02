@@ -372,6 +372,41 @@ public class OutageDetectorTests
     }
 
     [Fact]
+    public void Monitoring_gap_inside_a_dark_outage_stays_one_outage()
+    {
+        // The reported failure: one long LAN/gateway outage whose probe stream drops out for
+        // stretches mid-event (no samples at all - the agent couldn't record). The dark runs on
+        // either side of each data gap must read as ONE continuous outage: a monitoring gap is
+        // missing data, not an observed recovery, so it never actually ended. Before the fix each
+        // dark run became its own event, all snapping forward to the single true recovery instant
+        // and stacking up as overlapping duplicates.
+        var cadence = TimeSpan.FromSeconds(10);
+        var gapStart = OutStart.AddMinutes(3);
+        var gapEnd = OutStart.AddMinutes(7); // 4-minute no-data gap, well beyond OutageMaxGapSeconds
+        // Dark (100% loss) across the whole outage EXCEPT the data gap, where no samples exist at
+        // all; healthy (0% loss) outside the outage. Recovery is only ever observed at OutEnd.
+        List<LatencySample> WithDataGap()
+        {
+            var s = new List<LatencySample>();
+            for (var t = TestSeries.Start; t < TestSeries.Start + Window; t += cadence)
+            {
+                var inOutage = t >= OutStart && t < OutEnd;
+                if (inOutage && t >= gapStart && t < gapEnd) continue; // no sample recorded
+                s.Add(new LatencySample(t, 20, 20.5, 0.5, inOutage ? 100 : 0));
+            }
+            return s;
+        }
+        var internet1 = WithDataGap();
+        var internet2 = WithDataGap();
+
+        var events = OutageDetector.Detect(Triggers(internet1, internet2), System.Array.Empty<OutageDetector.Hop>(), Options);
+
+        events.Should().ContainSingle();
+        events[0].Start.Should().Be(OutStart);
+        events[0].End.Should().Be(OutEnd);
+    }
+
+    [Fact]
     public void Gap_longer_than_the_tolerance_stays_two_separate_outages()
     {
         // A long healthy stretch between two dark spans is a genuine recovery then a second

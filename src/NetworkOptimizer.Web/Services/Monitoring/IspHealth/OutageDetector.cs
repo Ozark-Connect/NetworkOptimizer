@@ -49,11 +49,12 @@ public static class OutageDetector
         var hopBuckets = hops.ToDictionary(h => h, h => BucketTargets(new[] { h.Series }, windowSize));
 
         // Contiguous runs of outage buckets (gap of one window ends a run), then coalesce
-        // runs separated by a short healthy gap (OutageMaxGapSeconds). One real outage dips
-        // below the dark-fraction gate for a bucket or two during staggered onset/recovery
-        // (targets go dark and heal at slightly different times) - without the coalesce that
-        // shatters it into several events. Sealing the gap before duration-filtering also lets
-        // two sub-min-duration runs straddling a blip add up to one qualifying outage.
+        // runs separated by a short healthy gap (OutageMaxGapSeconds) OR by a pure monitoring
+        // gap of any length (see the merge loop). One real outage dips below the dark-fraction
+        // gate for a bucket or two during staggered onset/recovery (targets go dark and heal at
+        // slightly different times) - without the coalesce that shatters it into several events.
+        // Sealing the gap before duration-filtering also lets two sub-min-duration runs straddling
+        // a blip add up to one qualifying outage.
         var runs = new List<(DateTime Start, DateTime End)>();
         for (var i = 0; i < outageBuckets.Count;)
         {
@@ -64,11 +65,29 @@ public static class OutageDetector
             i = j + 1;
         }
 
+        // Reporting buckets (enough targets to judge reachability) in time order, for the gap-
+        // continuity test below. A dark bucket is already inside a run, so a reporting bucket landing
+        // in the gap between two runs is by construction a NON-dark one - observed reachability.
+        var reportingBuckets = triggerByBucket
+            .Where(kv => kv.Value.Count >= options.OutageMinReportingTargets)
+            .Select(kv => kv.Key)
+            .OrderBy(t => t)
+            .ToList();
+
         var maxGap = TimeSpan.FromSeconds(options.OutageMaxGapSeconds);
         var merged = new List<(DateTime Start, DateTime End)>();
         foreach (var run in runs)
         {
-            if (merged.Count > 0 && run.Start - merged[^1].End <= maxGap)
+            // Coalesce this run into the previous outage when EITHER the healthy gap between them is
+            // brief (a staggered onset/recovery dip, per the comment above), OR nothing reachable was
+            // ever OBSERVED across the gap: a stretch with no adequately-reporting bucket is missing
+            // data, not a recovery, so an outage spanning it never actually ended. Without the second
+            // clause a long outage whose probe stream drops out mid-event (e.g. a LAN/gateway outage
+            // that stops the agent from recording anything) shatters into several runs that each snap
+            // forward to the one true recovery instant, surfacing as a stack of overlapping events.
+            if (merged.Count > 0
+                && (run.Start - merged[^1].End <= maxGap
+                    || !HasReportingBucketBetween(reportingBuckets, merged[^1].End, run.Start)))
                 merged[^1] = (merged[^1].Start, run.End);
             else
                 merged.Add(run);
@@ -266,6 +285,25 @@ public static class OutageDetector
 
     private static double DarkFraction(List<double> targetLosses, IspHealthOptions options) =>
         targetLosses.Count == 0 ? 0 : (double)targetLosses.Count(l => l >= options.OutageDarkLossPct) / targetLosses.Count;
+
+    /// <summary>
+    /// Whether any adequately-reporting trigger bucket falls in [afterInclusive, beforeExclusive).
+    /// Such a bucket reports enough targets to judge reachability yet isn't dark (dark buckets sit
+    /// inside the runs, never in the gap between them), so it is observed reachability - proof the
+    /// internet recovered between two dark runs. Its absence means the gap is a monitoring gap (no
+    /// data), which is missing evidence, not a recovery. <paramref name="reportingBuckets"/> is sorted.
+    /// </summary>
+    private static bool HasReportingBucketBetween(
+        List<DateTime> reportingBuckets, DateTime afterInclusive, DateTime beforeExclusive)
+    {
+        foreach (var t in reportingBuckets)
+        {
+            if (t < afterInclusive) continue;
+            if (t >= beforeExclusive) break;
+            return true;
+        }
+        return false;
+    }
 
     private static OutageEvent BuildEvent(
         DateTime start, DateTime end,
