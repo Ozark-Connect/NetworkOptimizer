@@ -1,0 +1,224 @@
+@using NetworkOptimizer.Core.Helpers
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject SiteManagementService SiteManagement
+@inject SiteConnectionRegistry SiteConnections
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+
+<div class="site-wizard">
+    @if (_step == 1)
+    {
+        <label class="form-label">Add Site <span class="form-help">(Step 1 of 3)</span></label>
+        <div class="form-group">
+            <div class="input-with-button">
+                <input type="text" class="form-control" @bind="_name" @bind:event="oninput"
+                       placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
+                        disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
+                    @if (_busy)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    else
+                    {
+                        <span>Create Site</span>
+                    }
+                </button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_name))
+            {
+                <small class="form-help">Site ID: <code>@StringUtilities.ToSlug(_name)</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
+            }
+        </div>
+    }
+    else if (_step == 2 && _site != null)
+    {
+        <label class="form-label">Connect the UniFi Console for @_site.Name <span class="form-help">(Step 2 of 3)</span></label>
+        <p class="section-description">
+            If this site's UniFi Console is reachable from this server (site-to-site VPN or a public address),
+            connect it now. You can also skip this and connect later from Settings after switching to the site.
+        </p>
+        <div class="form-group">
+            <label class="form-label">Console URL</label>
+            <input type="text" class="form-control" @bind="_consoleUrl" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+        </div>
+        <div class="form-group">
+            <label class="form-label">Authentication Method</label>
+            <div class="auth-method-toggle">
+                <label class="radio-label">
+                    <input type="radio" name="siteWizardAuth" checked="@(!_useApiKey)" @onchange="() => _useApiKey = false" />
+                    <span>Local Account</span>
+                </label>
+                <label class="radio-label">
+                    <input type="radio" name="siteWizardAuth" checked="@_useApiKey" @onchange="() => _useApiKey = true" />
+                    <span>API Key</span>
+                </label>
+            </div>
+        </div>
+        @if (!_useApiKey)
+        {
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" class="form-control" @bind="_username" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-control" @bind="_password" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label class="form-label">Network API Key</label>
+                <input type="password" class="form-control" @bind="_apiKey" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+            </div>
+        }
+        <div class="action-buttons">
+            <button type="button" class="btn btn-primary" @onclick="ConnectAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_consoleUrl))">
+                @if (_busy)
+                {
+                    <span class="spinner"></span>
+                    <span>Connecting...</span>
+                }
+                else
+                {
+                    <span>Connect &amp; Save</span>
+                }
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="() => _step = 3" disabled="@_busy">Skip for Now</button>
+        </div>
+    }
+    else if (_step == 3 && _site != null)
+    {
+        <label class="form-label">@_site.Name is ready <span class="form-help">(Step 3 of 3)</span></label>
+        <p class="section-description">
+            The site's database is provisioned@(_connected ? " and its UniFi Console is connected" : "").
+            Switch to the site to configure monitoring, speed tests, and everything else, exactly like a
+            single-site install. Agent deployment for remote monitoring will land here in a future update.
+        </p>
+        <div class="action-buttons">
+            <button type="button" class="btn btn-primary" @onclick="SwitchToSiteAsync">Switch to @_site.Name</button>
+            <button type="button" class="btn btn-secondary" @onclick="ResetAsync">Add Another Site</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <div class="alert alert-@_messageClass">@_message</div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnSitesChanged { get; set; }
+
+    private int _step = 1;
+    private bool _busy;
+    private Site? _site;
+    private string _name = "";
+    private string _message = "";
+    private string _messageClass = "";
+
+    private string _consoleUrl = "";
+    private bool _useApiKey;
+    private string _username = "";
+    private string _password = "";
+    private string _apiKey = "";
+    private bool _connected;
+
+    private async Task CreateSiteAsync()
+    {
+        _busy = true;
+        _message = "";
+        StateHasChanged();
+
+        try
+        {
+            _site = await SiteManagement.CreateSiteAsync(_name);
+            _step = 2;
+            _message = $"Site '{_site.Name}' created with ID '{_site.Slug}'";
+            _messageClass = "success";
+            await OnSitesChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Error creating site: {ex.Message}";
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (_site == null)
+            return;
+
+        _busy = true;
+        _message = "";
+        StateHasChanged();
+
+        try
+        {
+            var connection = SiteConnections.GetFor(_site.Slug);
+            var config = new UniFiConnectionConfig
+            {
+                ControllerUrl = _consoleUrl.Trim(),
+                Username = _username,
+                Password = _password,
+                ApiKey = _useApiKey ? _apiKey : null,
+            };
+
+            _connected = await connection.ConnectAsync(config);
+            if (_connected)
+            {
+                _message = "Console connected. Credentials saved to the site's database.";
+                _messageClass = "success";
+                _step = 3;
+                await OnSitesChanged.InvokeAsync();
+            }
+            else
+            {
+                _message = $"Connection failed: {connection.LastError ?? "unknown error"}";
+                _messageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _message = $"Connection failed: {ex.Message}";
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SwitchToSiteAsync()
+    {
+        if (_site == null)
+            return;
+
+        await JS.InvokeVoidAsync("eval",
+            $"document.cookie = '{SiteContextService.CookieName}={_site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
+        NavigationManager.NavigateTo("/", forceLoad: true);
+    }
+
+    private async Task ResetAsync()
+    {
+        _step = 1;
+        _site = null;
+        _name = "";
+        _consoleUrl = "";
+        _username = "";
+        _password = "";
+        _apiKey = "";
+        _useApiKey = false;
+        _connected = false;
+        _message = "";
+        await OnSitesChanged.InvokeAsync();
+    }
+}

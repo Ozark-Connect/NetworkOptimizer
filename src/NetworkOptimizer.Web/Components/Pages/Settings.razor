@@ -2626,28 +2626,7 @@
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Add Site</label>
-                    <div class="input-with-button">
-                        <input type="text" class="form-control" @bind="_newSiteName" @bind:event="oninput"
-                               placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                        <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSite"
-                                disabled="@(_creatingSite || string.IsNullOrWhiteSpace(_newSiteName))">
-                            @if (_creatingSite)
-                            {
-                                <span class="spinner"></span>
-                            }
-                            else
-                            {
-                                <span>Create Site</span>
-                            }
-                        </button>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(_newSiteName))
-                    {
-                        <small class="form-help">Site ID: <code>@SlugPreview</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
-                    }
-                </div>
+                <SiteSetupWizard OnSitesChanged="RefreshSites" />
             }
 
             @if (!string.IsNullOrEmpty(_multiSiteMessage))
@@ -2779,12 +2758,8 @@
     // Multi-Site
     private bool _multiSiteEnabled = false;
     private List<Site> _sites = new();
-    private string _newSiteName = "";
-    private bool _creatingSite = false;
     private string _multiSiteMessage = "";
     private string _multiSiteMessageClass = "";
-
-    private string SlugPreview => StringUtilities.ToSlug(_newSiteName);
 
     private async Task LoadMultiSiteSettings()
     {
@@ -2802,29 +2777,10 @@
             _sites = await SiteManagement.GetSitesAsync();
     }
 
-    private async Task CreateSite()
+    private async Task RefreshSites()
     {
-        _creatingSite = true;
-        _multiSiteMessage = "";
+        _sites = await SiteManagement.GetSitesAsync();
         StateHasChanged();
-
-        try
-        {
-            var site = await SiteManagement.CreateSiteAsync(_newSiteName);
-            _newSiteName = "";
-            _sites = await SiteManagement.GetSitesAsync();
-            _multiSiteMessage = $"Site '{site.Name}' created with ID '{site.Slug}'";
-            _multiSiteMessageClass = "success";
-        }
-        catch (Exception ex)
-        {
-            _multiSiteMessage = $"Error creating site: {ex.Message}";
-            _multiSiteMessageClass = "danger";
-        }
-        finally
-        {
-            _creatingSite = false;
-        }
     }
 
     // UniFi Controller
