@@ -3,9 +3,10 @@
 @using NetworkOptimizer.Web.Services
 @using Microsoft.EntityFrameworkCore
 @inject InfluxDbProvisioningService Provisioner
-@inject MonitoringInfluxClient InfluxClient
+@inject MonitoringInfluxRegistry InfluxRegistry
 @inject ICredentialProtectionService CredentialService
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject SiteContextService SiteContext
+@inject SiteDbContextFactory SiteDbFactory
 
 @switch (_state)
 {
@@ -343,13 +344,17 @@
                 throw new InvalidOperationException("Org has no ID");
 
             var settings = await GetOrCreateSettingsRowAsync();
-            var primaryName = string.IsNullOrWhiteSpace(settings.InfluxDbBucket) ? "network_monitoring" : settings.InfluxDbBucket;
-            var longtermName = string.IsNullOrWhiteSpace(settings.InfluxDbLongtermBucket) ? "network_monitoring_longterm" : settings.InfluxDbLongtermBucket;
+            // Non-default sites get slug-prefixed buckets in the shared org
+            // (decision D1) so per-site data never mixes; the default site
+            // keeps the unprefixed names existing installs already have.
+            var bucketPrefix = IsDefaultSite ? "" : $"{SiteContext.Slug}-";
+            var primaryName = string.IsNullOrWhiteSpace(settings.InfluxDbBucket) ? $"{bucketPrefix}network_monitoring" : settings.InfluxDbBucket;
+            var longtermName = string.IsNullOrWhiteSpace(settings.InfluxDbLongtermBucket) ? $"{bucketPrefix}network_monitoring_longterm" : settings.InfluxDbLongtermBucket;
             var bucketResult = await Provisioner.EnsureBucketsAsync(url, adminToken, org.Id, primaryName, longtermName);
 
             var scoped = await Provisioner.CreateScopedTokenAsync(url, adminToken, org.Id, bucketResult.PrimaryBucketId, bucketResult.LongtermBucketId);
 
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = CreateSiteDb();
             var row = await db.MonitoringSettings.FirstAsync();
             row.InfluxDbUrl = url;
             row.InfluxDbOrg = org.Name ?? string.Empty;
@@ -360,8 +365,9 @@
             await db.SaveChangesAsync();
             _adminToken = string.Empty; // drop the admin token explicitly
 
-            await InfluxClient.ReconfigureAsync();
-            await InfluxClient.CheckHealthAsync();
+            var influxClient = InfluxRegistry.GetFor(SiteContext.Slug);
+            await influxClient.ReconfigureAsync();
+            await influxClient.CheckHealthAsync();
 
             _state = Step.Done;
             if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
@@ -383,9 +389,16 @@
         if (OnDismissed.HasDelegate) await OnDismissed.InvokeAsync();
     }
 
+    private bool IsDefaultSite => SiteContext.Slug == SiteManagementService.DefaultSiteSlug;
+
+    // The wizard configures the CURRENT site's monitoring settings: the main
+    // database for the default site, the site's own database otherwise.
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        SiteDbFactory.CreateForSite(SiteContext.Slug, IsDefaultSite);
+
     private async Task<MonitoringSettings> GetOrCreateSettingsRowAsync()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var row = await db.MonitoringSettings.FirstOrDefaultAsync();
         if (row == null)
         {

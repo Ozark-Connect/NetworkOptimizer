@@ -15,18 +15,18 @@ namespace NetworkOptimizer.Web.Services;
 public class AgentProbeResultSink
 {
     private readonly SiteDbContextFactory _siteDbFactory;
-    private readonly MonitoringInfluxClient _influx;
+    private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly MonitoringLiveStats _liveStats;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStats liveStats,
         ILogger<AgentProbeResultSink> logger)
     {
         _siteDbFactory = siteDbFactory;
-        _influx = influx;
+        _influxRegistry = influxRegistry;
         _liveStats = liveStats;
         _logger = logger;
     }
@@ -93,6 +93,11 @@ public class AgentProbeResultSink
         // the latency measurement; stable across agent renames.
         var vantage = $"agent-{connection.AgentId}";
 
+        // Each site writes to its own buckets (decision D1); the site's client
+        // configures itself from that site's MonitoringSettings on first use.
+        var influx = _influxRegistry.GetFor(connection.SiteSlug);
+        if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
+
         foreach (var result in batch.Results)
         {
             if (!targets.TryGetValue(result.TargetId, out var target))
@@ -103,25 +108,25 @@ public class AgentProbeResultSink
 
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(result.TimestampUnixMs).UtcDateTime;
 
+            await influx.WriteLatencyAsync(
+                targetId: target.TargetId,
+                vantagePoint: vantage,
+                targetType: target.TargetType,
+                probeMode: target.ProbeMode,
+                rttMinMs: result.HasRttMinMs ? result.RttMinMs : null,
+                rttAvgMs: result.HasRttAvgMs ? result.RttAvgMs : null,
+                rttMaxMs: result.HasRttMaxMs ? result.RttMaxMs : null,
+                jitterMs: result.HasJitterMs ? result.JitterMs : null,
+                lossPercent: result.LossPercent,
+                success: result.Success,
+                sent: result.Sent,
+                received: result.Received,
+                timestamp: timestamp);
+
+            // Live stats back the default site's dashboards only; per-site live
+            // views come with the background fan-out work.
             if (isDefault)
             {
-                // Non-default sites need per-site Influx buckets (next milestone);
-                // until then only the default site's agent results land in Influx.
-                await _influx.WriteLatencyAsync(
-                    targetId: target.TargetId,
-                    vantagePoint: vantage,
-                    targetType: target.TargetType,
-                    probeMode: target.ProbeMode,
-                    rttMinMs: result.HasRttMinMs ? result.RttMinMs : null,
-                    rttAvgMs: result.HasRttAvgMs ? result.RttAvgMs : null,
-                    rttMaxMs: result.HasRttMaxMs ? result.RttMaxMs : null,
-                    jitterMs: result.HasJitterMs ? result.JitterMs : null,
-                    lossPercent: result.LossPercent,
-                    success: result.Success,
-                    sent: result.Sent,
-                    received: result.Received,
-                    timestamp: timestamp);
-
                 _liveStats.RecordTargetProbe(
                     target.TargetId,
                     result.HasRttAvgMs ? result.RttAvgMs : null,

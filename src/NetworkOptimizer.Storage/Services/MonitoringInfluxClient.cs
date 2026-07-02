@@ -45,14 +45,34 @@ public class MonitoringInfluxClient : IAsyncDisposable
     private bool _initialized;
     private string? _tokenHash;
 
+    private readonly SiteDbContextFactory? _siteDbFactory;
+    private readonly string? _siteSlug;
+
+    /// <param name="siteSlug">
+    /// Non-default site whose database holds this client's MonitoringSettings
+    /// (URL, token, slug-prefixed bucket names). Null/empty = the default
+    /// site, configured from the main database as before.
+    /// </param>
     public MonitoringInfluxClient(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         ICredentialProtectionService credentialProtection,
-        ILogger<MonitoringInfluxClient> logger)
+        ILogger<MonitoringInfluxClient> logger,
+        SiteDbContextFactory? siteDbFactory = null,
+        string? siteSlug = null)
     {
         _dbFactory = dbFactory;
         _credentialProtection = credentialProtection;
         _logger = logger;
+        _siteDbFactory = siteDbFactory;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? null : siteSlug;
+    }
+
+    /// <summary>Context for the database holding this client's settings row.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSettingsContextAsync(CancellationToken ct)
+    {
+        if (_siteSlug != null && _siteDbFactory != null)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
     }
 
     public string? CurrentUrl => _url;
@@ -67,7 +87,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
         await _configLock.WaitAsync(ct);
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSettingsContextAsync(ct);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
             if (settings == null)
             {
@@ -238,7 +258,7 @@ public class MonitoringInfluxClient : IAsyncDisposable
     {
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSettingsContextAsync(ct);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings == null) return;
             settings.InfluxDbReachable = reachable;
