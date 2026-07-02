@@ -11,7 +11,7 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    [Migration("20260702165407_AddSitesTable")]
+    [Migration("20260702172652_AddSitesTable")]
     partial class AddSitesTable
     {
         /// <inheritdoc />
@@ -391,6 +391,101 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("AgentConfigurations", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApChannelChange", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ApMac")
+                        .IsRequired()
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Band")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ChangedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("NewChannel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("NewWidthMhz")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PreviousChannel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PreviousWidthMhz")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChangedAtUtc");
+
+                    b.HasIndex("ApMac", "Band", "ChangedAtUtc");
+
+                    b.ToTable("ApChannelChanges", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApChannelOutcome", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ApMac")
+                        .IsRequired()
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Band")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("BucketDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Channel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("InterferenceSum")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("LastSampleUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("TxRetrySum")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("UtilizationSum")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("WidthMhz")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BucketDate");
+
+                    b.HasIndex("ApMac", "Band", "Channel", "WidthMhz", "BucketDate")
+                        .IsUnique();
+
+                    b.ToTable("ApChannelOutcomes", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApLocation", b =>
                 {
                     b.Property<int>("Id")
@@ -427,6 +522,59 @@ namespace NetworkOptimizer.Storage.Migrations
                         .IsUnique();
 
                     b.ToTable("ApLocations", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApNeighborSighting", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ApMac")
+                        .IsRequired()
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Band")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Bssid")
+                        .IsRequired()
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Channel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FirstSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SightingCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SignalDbm")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Ssid")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WidthMhz")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastSeenUtc");
+
+                    b.HasIndex("ApMac", "Band", "Bssid", "Channel")
+                        .IsUnique();
+
+                    b.ToTable("ApNeighborSightings", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.AuditResult", b =>
