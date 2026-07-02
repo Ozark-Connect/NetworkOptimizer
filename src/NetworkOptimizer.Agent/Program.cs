@@ -91,12 +91,15 @@ while (!cts.IsCancellationRequested)
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
         var tunnel = new TunnelClient();
         var probeRunner = new ProbeRunner(tunnel.TrySend, config.ProbeSourceIp);
+        var snmpRunner = new SnmpRunner(tunnel);
         var proxyHandler = new ProxyHandler(tunnel);
         tunnel.OnProbeConfig = probeRunner.UpdateConfig;
+        tunnel.OnSnmpConfig = snmpRunner.UpdateConfig;
         tunnel.OnProxyOpen = proxyHandler.HandleOpenAsync;
         tunnel.OnProxyData = proxyHandler.HandleDataAsync;
         tunnel.OnProxyClose = proxyHandler.HandleClose;
         var probeTask = probeRunner.RunAsync(connectionCts.Token);
+        var snmpTask = snmpRunner.RunAsync(connectionCts.Token);
         try
         {
             await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, config.IgnoreSslErrors, cts.Token);
@@ -113,7 +116,7 @@ while (!cts.IsCancellationRequested)
         finally
         {
             connectionCts.Cancel();
-            try { await probeTask; } catch (OperationCanceledException) { }
+            try { await Task.WhenAll(probeTask, snmpTask); } catch (OperationCanceledException) { }
         }
     }
 

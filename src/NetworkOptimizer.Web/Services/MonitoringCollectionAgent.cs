@@ -248,7 +248,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 // UniFi requires snmp_location or snmp_contact to be set for
                 // SNMP to be enabled on a device. Both empty/null = SNMP off.
-                if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
+                if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device))
                     return;
 
                 if (IsSnmpExcluded(mac))
@@ -685,7 +685,7 @@ public class MonitoringCollectionAgent : BackgroundService
             await _snmpGate.WaitAsync(ct);
             try
             {
-                if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
+                if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device))
                     return;
                 if (IsSnmpExcluded(NormalizeMac(device.Mac))) return;
                 var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
@@ -748,7 +748,7 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
-            var snmpOn = !string.IsNullOrEmpty(device.SnmpContact) || !string.IsNullOrEmpty(device.SnmpLocation);
+            var snmpOn = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
             var snmpExcl = IsSnmpExcluded(mac);
             var snmpActive = snmpOn && !snmpExcl;
 
@@ -929,7 +929,7 @@ public class MonitoringCollectionAgent : BackgroundService
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
         foreach (var device in devices)
         {
-            if (string.IsNullOrEmpty(device.SnmpLocation) && string.IsNullOrEmpty(device.SnmpContact))
+            if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device))
                 continue;
             if (IsSnmpExcluded(NormalizeMac(device.Mac))) continue;
             try
@@ -1583,7 +1583,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private (double? RateInBps, double? RateOutBps) WriteInterfaceCounters(UniFiDeviceResponse device, InterfaceMetrics iface, DateTime now)
     {
-        var ifName = string.IsNullOrEmpty(iface.Name) ? iface.Description : iface.Name;
+        var ifName = iface.MonitoredName;
         if (string.IsNullOrEmpty(ifName)) return (null, null);
         var mac = NormalizeMac(device.Mac);
 
@@ -1592,8 +1592,8 @@ public class MonitoringCollectionAgent : BackgroundService
         // (which would otherwise inject impossible terabit/sec spikes or poison the
         // baseline - see InterfaceRateCalculator).
         var key = $"{mac}/{ifName}";
-        bool hcCounters = iface.HighSpeed >= 1000 || iface.Speed >= 1_000_000_000;
-        long speedBps = iface.HighSpeed > 0 ? iface.HighSpeed * 1_000_000L : iface.Speed;
+        bool hcCounters = iface.UsesHcCounters;
+        long speedBps = iface.ResolvedSpeedBps;
 
         InterfaceRateCalculator.State? prevState =
             _counterCache.TryGetValue(key, out var cached) ? cached : null;
@@ -1842,16 +1842,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
             try
             {
-                var networks = await _connectionService.Client.GetNetworkConfigsAsync(ct);
-                var defaultLan = networks
-                    .Where(n => n.Purpose == "corporate" && n.Enabled)
-                    .OrderBy(n => n.Vlan ?? 0) // prefer no VLAN (0) first
-                    .FirstOrDefault();
-                string? ip = null;
-                if (!string.IsNullOrEmpty(defaultLan?.DhcpdGateway))
-                    ip = defaultLan!.DhcpdGateway;
-                else if (!string.IsNullOrEmpty(defaultLan?.IpSubnet))
-                    ip = defaultLan!.IpSubnet.Split('/')[0];
+                var ip = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(_connectionService.Client, ct);
 
                 _gatewayLanIp = ip;
                 _gatewayLanIpAt = DateTime.UtcNow;
@@ -1870,19 +1861,11 @@ public class MonitoringCollectionAgent : BackgroundService
     }
 
     /// <summary>
-    /// Poll address for a device (SNMP and fabric latency targets). For gateways,
-    /// swap UniFi's WAN public IP for the LAN-side gateway IP so the poll actually
-    /// reaches the device. All other device types use their raw IP from UniFi.
+    /// Poll address for a device (SNMP and fabric latency targets). Rule shared
+    /// with the agent-tunnel SNMP config push via SnmpDeviceRules.
     /// </summary>
-    private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp)
-    {
-        if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
-            && !string.IsNullOrEmpty(gatewayLanIp))
-        {
-            return gatewayLanIp;
-        }
-        return device.Ip;
-    }
+    private static string ResolveSnmpAddress(UniFiDeviceResponse device, string? gatewayLanIp) =>
+        Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp);
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
@@ -1900,9 +1883,8 @@ public class MonitoringCollectionAgent : BackgroundService
                 return _cachedDevices;
 
             var devices = await _connectionService.Client.GetDevicesAsync(ct);
-            var filtered = devices?.Where(d =>
-                d.Adopted && UniFiDeviceStateMap.IsOnline(d.State) && !string.IsNullOrEmpty(d.Ip) && !string.IsNullOrEmpty(d.Mac))
-                .ToList() ?? new List<UniFiDeviceResponse>();
+            var filtered = devices?.Where(Monitoring.SnmpDeviceRules.IsMonitorable).ToList()
+                ?? new List<UniFiDeviceResponse>();
             _cachedDevices = filtered;
             _cachedDevicesAt = DateTime.UtcNow;
 
@@ -2112,7 +2094,7 @@ public class MonitoringCollectionAgent : BackgroundService
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
-            var snmpEnabled = !string.IsNullOrEmpty(device.SnmpLocation) || !string.IsNullOrEmpty(device.SnmpContact);
+            var snmpEnabled = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
             var excluded = PeekSnmpExcluded(mac, out var excludedAt);
             var hasLastPolled = _snmpLastPolled.TryGetValue(mac, out var lastPolled);
             _snmpFailures.TryGetValue(mac, out var failures);

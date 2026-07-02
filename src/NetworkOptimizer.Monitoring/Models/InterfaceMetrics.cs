@@ -187,6 +187,25 @@ public class InterfaceMetrics
     public long TotalOutProblems => OutErrors + OutDiscards;
 
     /// <summary>
+    /// The name the monitoring pipeline stores this interface under: ifAlias
+    /// when present, ifDescr otherwise. Both the server's fast tier and the
+    /// on-site agent key counters by this, so it must never diverge.
+    /// </summary>
+    public string MonitoredName => string.IsNullOrEmpty(Name) ? Description : Name;
+
+    /// <summary>
+    /// Whether the poll should be treated as 64-bit high-capacity counters
+    /// (gigabit and above), which changes wrap handling in rate computation.
+    /// </summary>
+    public bool UsesHcCounters => HighSpeed >= 1000 || Speed >= 1_000_000_000;
+
+    /// <summary>
+    /// Link speed in bits per second, preferring ifHighSpeed (Mbps) which is
+    /// the only accurate source for 10G+ links where ifSpeed saturates.
+    /// </summary>
+    public long ResolvedSpeedBps => HighSpeed > 0 ? HighSpeed * 1_000_000L : Speed;
+
+    /// <summary>
     /// Whether this interface should be monitored (excludes virtual/internal interfaces)
     /// </summary>
     public bool ShouldMonitor()

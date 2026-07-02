@@ -108,6 +108,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.ProxyClose:
                         _proxy.OnProxyClose(message.ProxyClose);
                         break;
+                    case AgentMessage.PayloadOneofCase.SnmpResults:
+                        await _probeResultSink.RecordSnmpBatchAsync(connection, message.SnmpResults, ct);
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;
@@ -145,15 +148,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     }
 
     /// <summary>
-    /// Re-pushes the site's probe config every few minutes so monitoring
-    /// target edits reach connected agents without waiting for a reconnect.
+    /// Re-pushes the site's probe and SNMP configs every few minutes so
+    /// monitoring edits (targets, credentials, new devices) reach connected
+    /// agents without waiting for a reconnect.
     /// </summary>
     private async Task RefreshProbeConfigLoopAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromMinutes(5), ct);
-            await _probeResultSink.PushProbeConfigAsync(connection, ct);
+            await _probeResultSink.OnAgentConnectedAsync(connection, ct);
         }
     }
 

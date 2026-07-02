@@ -21,6 +21,7 @@ message AgentMessage {
     ProxyOpenResult proxy_open_result = 4;
     ProxyData proxy_data = 5;
     ProxyClose proxy_close = 6;
+    SnmpResultBatch snmp_results = 7;
   }
 }
 
@@ -31,6 +32,7 @@ message ServerMessage {
     ProxyOpen proxy_open = 3;
     ProxyData proxy_data = 4;
     ProxyClose proxy_close = 5;
+    SnmpConfig snmp_config = 6;
   }
 }
 
@@ -101,6 +103,70 @@ message ProbeTargetSpec {
 
 message ProbeResultBatch {
   repeated ProbeResult results = 1;
+}
+
+// ---- SNMP monitoring at the site ----
+// The server builds the config from the site's monitoring settings and its
+// console's device list, and pushes it over the tunnel; the agent polls the
+// devices locally and streams raw counters back. Rate computation and storage
+// happen server-side. Credentials ride the tunnel, which is expected to run
+// over a VPN or otherwise trusted link.
+
+message SnmpConfig {
+  bool enabled = 1;
+  string version = 2;   // v2c | v3
+  string community = 3; // v2c
+  string username = 4;  // v3
+  string auth_password = 5;
+  int32 fast_interval_seconds = 6;
+  int32 medium_interval_seconds = 7;
+  repeated SnmpDeviceSpec devices = 8;
+}
+
+message SnmpDeviceSpec {
+  string mac = 1;
+  string ip = 2;
+  string name = 3;
+  string device_type = 4; // gateway | switch | ap
+}
+
+message SnmpResultBatch {
+  repeated SnmpInterfaceSample interfaces = 1;
+  repeated SnmpDeviceHealthSample health = 2;
+}
+
+message SnmpInterfaceSample {
+  string device_mac = 1;
+  string if_name = 2;
+  string port_id = 3;
+  int64 in_octets = 4;
+  int64 out_octets = 5;
+  int64 speed_bps = 6;
+  bool hc_counters = 7;
+  int32 oper_status = 8;
+  int64 errors_in = 9;
+  int64 errors_out = 10;
+  int64 discards_in = 11;
+  int64 discards_out = 12;
+  int64 ucast_pkts_in = 13;
+  int64 ucast_pkts_out = 14;
+  int64 mcast_pkts_in = 15;
+  int64 mcast_pkts_out = 16;
+  int64 bcast_pkts_in = 17;
+  int64 bcast_pkts_out = 18;
+  int64 timestamp_unix_ms = 19;
+}
+
+message SnmpDeviceHealthSample {
+  string device_mac = 1;
+  string device_type = 2;
+  optional double cpu_percent = 3;
+  optional int64 memory_total_kb = 4;
+  optional int64 memory_used_kb = 5;
+  optional double memory_used_percent = 6;
+  optional double temperature_c = 7;
+  optional int64 uptime_seconds = 8;
+  int64 timestamp_unix_ms = 9;
 }
 
 message ProbeResult {

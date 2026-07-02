@@ -22,6 +22,9 @@ public sealed class TunnelClient
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
     public Action<ProbeConfig>? OnProbeConfig { get; set; }
 
+    /// <summary>Invoked whenever the server pushes a new SNMP monitoring configuration.</summary>
+    public Action<SnmpConfig>? OnSnmpConfig { get; set; }
+
     /// <summary>Server asks us to dial a site-local TCP endpoint.</summary>
     public Func<ProxyOpen, CancellationToken, Task>? OnProxyOpen { get; set; }
 
@@ -98,6 +101,9 @@ public sealed class TunnelClient
                     case ServerMessage.PayloadOneofCase.ProbeConfig:
                         Console.WriteLine($"Received probe config: {message.ProbeConfig.Targets.Count} target(s)");
                         OnProbeConfig?.Invoke(message.ProbeConfig);
+                        break;
+                    case ServerMessage.PayloadOneofCase.SnmpConfig:
+                        OnSnmpConfig?.Invoke(message.SnmpConfig);
                         break;
                     case ServerMessage.PayloadOneofCase.ProxyOpen:
                         // Fire and forget: the dial can take seconds and the
