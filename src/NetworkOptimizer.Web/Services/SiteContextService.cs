@@ -28,6 +28,13 @@ public class SiteContextService
     /// <summary>Slug of the site this scope operates on. Resolved once per scope.</summary>
     public string Slug => _slug ??= Resolve();
 
+    /// <summary>
+    /// Pins this scope to an explicit site, for scopes created outside an HTTP
+    /// request (per-site background fan-out, site-bound singletons). Must be
+    /// called before any scoped service resolves the DbContext.
+    /// </summary>
+    public void OverrideSite(string slug) => _slug = slug;
+
     /// <summary>True when this scope operates on the default site (the main database).</summary>
     public bool IsDefault => Slug == SiteManagementService.DefaultSiteSlug;
 

@@ -108,6 +108,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProte
 // Register UniFi connection service (singleton - maintains connection state)
 builder.Services.AddSingleton<UniFiConnectionService>();
 builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<UniFiConnectionService>());
+builder.Services.AddSingleton<SiteConnectionRegistry>();
 
 // Register Network Path Analyzer (singleton - uses caching)
 builder.Services.AddSingleton<INetworkPathAnalyzer, NetworkPathAnalyzer>();

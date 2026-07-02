@@ -64,15 +64,37 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public event Action? OnConnectionChanged;
 
-    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection)
+    /// <summary>
+    /// Slug of the site this connection instance is bound to. The DI-constructed
+    /// singleton is the default site; SiteConnectionRegistry creates additional
+    /// instances for other sites with their slug.
+    /// </summary>
+    public string SiteSlug { get; }
+
+    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _serviceProvider = serviceProvider;
         _credentialProtection = credentialProtection;
+        SiteSlug = siteSlug;
 
         // Start initialization in background (non-blocking)
         StartInitializationAsync();
+    }
+
+    /// <summary>
+    /// Creates a DI scope pinned to this instance's site so scoped services
+    /// (repositories, DbContext) hit this site's database. Scopes created by a
+    /// singleton have no HTTP context and would otherwise resolve to the
+    /// default site.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _serviceProvider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(SiteSlug);
+        return scope;
     }
 
     /// <summary>
@@ -107,7 +129,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
+            using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
             var settings = await repository.GetUniFiConnectionSettingsAsync();
@@ -237,7 +259,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return _settings;
         }
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         var settings = await repository.GetUniFiConnectionSettingsAsync();
@@ -426,7 +448,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _lastConnectedAt = DateTime.UtcNow;
 
                 // Update last connected timestamp in DB
-                using var scope = _serviceProvider.CreateScope();
+                using var scope = CreateSiteScope();
                 var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
                 var dbSettings = await repository.GetUniFiConnectionSettingsAsync();
                 if (dbSettings != null)
@@ -477,7 +499,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
+            using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
             var settings = await repository.GetUniFiConnectionSettingsAsync() ?? new UniFiConnectionSettings
@@ -767,7 +789,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// </summary>
     public async Task ClearCredentialsAsync()
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         var settings = await repository.GetUniFiConnectionSettingsAsync();
