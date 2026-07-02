@@ -226,6 +226,52 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Short_burst_straddling_a_bucket_boundary_stays_load_aware_despite_the_padded_window()
+    {
+        // A ~6 min access-wide burst (12:12-12:18) straddles the 15-min bucket boundary at 12:15, so both
+        // buckets fire and detection reports it over a padded 30-min window (12:00-12:30). WAN load is
+        // high only during the actual 6 min. Measured across the padded window the high-load fraction is
+        // ~0.2 (6 of 30 min), below the 0.5 coincidence bar - the pre-fix whole-window behavior wrongly
+        // read this self-inflicted blip as external congestion. Measured over the true RTT-excursion span
+        // it is 1.0, so it is correctly load-coincident and, being access-wide at the egress, Loaded
+        // Latency (SelfInflicted/suppressed).
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> Burst(double rtt = 5) => Flat(rtt).WithSegment(burstStart, burstEnd, rttMs: rtt + 25, jitterMs: 6);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, Burst()),
+            Hop(100, Border, Burst(), Bng),
+            Hop(100, Backhaul, Burst(), Bng, Border),
+            Hop(200, Transit, Burst(), Bng, Border, Backhaul),
+            Hop(300, DeadEnd, Burst(), Bng, Border),
+            Dest(DestCorridor, Burst(), Bng, Border, Backhaul, Transit),
+            Dest(DestControl, Burst(), Bng, Border)
+        };
+
+        // Load spans the whole padded window but is high only during the burst: ~0.2 across 12:00-12:30,
+        // 1.0 across the 12:12-12:18 excursion span.
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.9 : 0.1));
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        var self = events.Single(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        self.BottleneckHopIp.Should().Be(Bng);
+        self.LoadCoincident.Should().BeTrue();
+        self.Suppressed.Should().BeTrue();
+    }
+
+    [Fact]
     public void Line_wide_rise_is_loaded_latency_even_when_a_high_baseline_path_reads_clean_on_the_absolute_bar()
     {
         // The Jun 5 fix: a high-baseline/high-variance path drifts up ~1 ms with everything else but
