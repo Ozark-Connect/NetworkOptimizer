@@ -37,15 +37,26 @@ port-forwarded public address).
    an agent key via `POST /api/public/agents/enrollments`, writes the key,
    site slug, and tunnel address back into `agent.json`, and discards the
    token. It then holds a persistent gRPC tunnel to the server's agent tunnel
-   port (default 8043, cleartext HTTP/2 - run it over a VPN or trusted link),
-   heartbeating every 30 seconds; the Multi-Site tab and Sites page show it as
-   Online. If the tunnel is unreachable it falls back to
+   port (default 8043), heartbeating every 30 seconds; the Multi-Site tab and
+   Sites page show it as Online. If the tunnel is unreachable it falls back to
    `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
 
 The tunnel port only starts listening when multi-site is enabled at server
 startup - enable multi-site, then restart the server once. Override the port
 with the `AgentTunnel__Port` environment variable on the server, or pin the
 full address with `"tunnelUrl"` in `agent.json`.
+
+## Securing the tunnel
+
+The listener itself is cleartext HTTP/2, same as the web UI port: TLS belongs
+to the reverse proxy already fronting the central server. Over a site-to-site
+VPN, connect directly (`http://vpn-address:8043`). Without a VPN, publish the
+tunnel through the same reverse proxy as the web UI (it must speak gRPC -
+Caddy: `reverse_proxy h2c://127.0.0.1:8043`, nginx: `grpc_pass`) and set
+`"tunnelUrl": "https://agents.example.com"` in `agent.json`. Everything rides
+that one TLS session: heartbeats, probe and SNMP traffic (including SNMP
+credentials pushed to the agent), and proxied UniFi Console connections -
+which are additionally HTTPS end-to-end inside the tunnel.
 
 ## Probing
 
