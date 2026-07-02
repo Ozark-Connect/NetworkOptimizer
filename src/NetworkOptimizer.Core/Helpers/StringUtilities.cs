@@ -1,13 +1,24 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace NetworkOptimizer.Core.Helpers;
 
 /// <summary>
 /// Shared string manipulation utilities
 /// </summary>
-public static class StringUtilities
+public static partial class StringUtilities
 {
+    /// <summary>
+    /// Whether a value is a valid site slug as produced by <see cref="ToSlug"/>:
+    /// lowercase alphanumeric with inner hyphens, at most 64 characters.
+    /// </summary>
+    public static bool IsSlug(string? value) =>
+        !string.IsNullOrEmpty(value) && value.Length <= 64 && SlugRegex().IsMatch(value);
+
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]*$")]
+    private static partial Regex SlugRegex();
+
     /// <summary>
     /// Converts a display name to a URL-safe kebab-case slug: lowercase ASCII letters,
     /// digits, and single hyphens. Diacritics are stripped (e.g. "Café" becomes "cafe"),

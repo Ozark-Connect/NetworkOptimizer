@@ -51,7 +51,8 @@ public static class SpeedTestEndpoints
 
         // Public endpoint for external clients (OpenSpeedTest, iperf3) to submit results
         app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientSpeedTestService service,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory) =>
+            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory) =>
         {
             // OpenSpeedTest sends data as URL query params: d, u, p, j, dd, ud, ua
             var query = context.Request.Query;
@@ -98,11 +99,21 @@ public static class SpeedTestEndpoints
             // External server identifier (WAN speed tests from remote OpenSpeedTest servers)
             var externalServerId = GetValue("srv");
 
+            // Optional site slug (multi-site: one WAN speed test server serving many sites).
+            // Cross-origin posts carry no site cookie, so the slug rides as a parameter.
+            // Invalid or unprovisioned slugs fall back to the default site.
+            var siteSlug = GetValue("site")?.Trim().ToLowerInvariant();
+            if (!string.IsNullOrEmpty(siteSlug) &&
+                (!NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug) || !siteDbFactory.SiteDbExists(siteSlug)))
+            {
+                siteSlug = null;
+            }
+
             var clientIp = EndpointHelpers.GetClientIp(context);
 
             var result = await service.RecordOpenSpeedTestResultAsync(
                 clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-                latitude, longitude, locationAccuracy, duration, externalServerId);
+                latitude, longitude, locationAccuracy, duration, externalServerId, siteSlug);
 
             // Check if this is a new high score for download speed on this device
             // The "d" param from JS is always the client's download. Due to server perspective swap:
@@ -113,7 +124,9 @@ public static class SpeedTestEndpoints
             var isHighScore = false;
             try
             {
-                await using var db = await dbFactory.CreateDbContextAsync();
+                await using var db = siteSlug != null
+                    ? siteDbFactory.CreateForSite(siteSlug)
+                    : await dbFactory.CreateDbContextAsync();
                 var direction = result.Direction;
                 var deviceResults = db.Iperf3Results
                     .Where(r => r.DeviceHost == result.DeviceHost && r.Direction == direction && r.Success)

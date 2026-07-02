@@ -21,6 +21,8 @@ public class ClientSpeedTestService
     private readonly IConfiguration _configuration;
     private readonly IAlertEventBus? _alertEventBus;
 
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory? _siteDbFactory;
+
     public ClientSpeedTestService(
         ILogger<ClientSpeedTestService> logger,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -28,7 +30,8 @@ public class ClientSpeedTestService
         INetworkPathAnalyzer pathAnalyzer,
         ITopologySnapshotService snapshotService,
         IConfiguration configuration,
-        IAlertEventBus? alertEventBus = null)
+        IAlertEventBus? alertEventBus = null,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory? siteDbFactory = null)
     {
         _logger = logger;
         _dbFactory = dbFactory;
@@ -37,6 +40,7 @@ public class ClientSpeedTestService
         _snapshotService = snapshotService;
         _configuration = configuration;
         _alertEventBus = alertEventBus;
+        _siteDbFactory = siteDbFactory;
     }
 
     /// <summary>
@@ -55,7 +59,8 @@ public class ClientSpeedTestService
         double? longitude = null,
         int? locationAccuracy = null,
         int? durationSeconds = null,
-        string? externalServerId = null)
+        string? externalServerId = null,
+        string? siteSlug = null)
     {
         // Determine direction based on whether this came from an external server
         var isWan = !string.IsNullOrWhiteSpace(externalServerId);
@@ -91,6 +96,25 @@ public class ClientSpeedTestService
             Longitude = longitude,
             LocationAccuracyMeters = locationAccuracy
         };
+
+        // Results tagged with a non-default site slug go to that site's database.
+        // Background enrichment is skipped for them: path analysis and topology
+        // snapshots run against this instance's default-site console, which is
+        // the wrong network for a remote site's client.
+        if (!string.IsNullOrEmpty(siteSlug) && _siteDbFactory != null)
+        {
+            await using var siteDb = _siteDbFactory.CreateForSite(siteSlug);
+            siteDb.Iperf3Results.Add(result);
+            await siteDb.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Recorded OpenSpeedTest{Wan} result for site {Site}: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps{Server}",
+                isWan ? " WAN" : "", siteSlug, result.DeviceHost, result.DownloadMbps, result.UploadMbps,
+                isWan ? $" (server: {externalServerId})" : "");
+
+            await PublishSpeedTestAlertAsync(result);
+            return result;
+        }
 
         // Save immediately so client doesn't wait
         await using var db = await _dbFactory.CreateDbContextAsync();

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
@@ -10,7 +10,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Scopes without an HTTP context (background jobs, startup) resolve to the
 /// default site, preserving single-site behavior exactly.
 /// </summary>
-public partial class SiteContextService
+public class SiteContextService
 {
     /// <summary>Cookie carrying the selected site slug for this browser.</summary>
     public const string CookieName = "no-site";
@@ -42,12 +42,9 @@ public partial class SiteContextService
 
         // Validate against the slug alphabet and require a provisioned database so a
         // stale or tampered cookie can never route to an arbitrary path.
-        if (!SlugPattern().IsMatch(cookie) || !File.Exists(_dbPaths.GetSiteDbPath(cookie, isDefault: false)))
+        if (!StringUtilities.IsSlug(cookie) || !File.Exists(_dbPaths.GetSiteDbPath(cookie, isDefault: false)))
             return SiteManagementService.DefaultSiteSlug;
 
         return cookie;
     }
-
-    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,63}$")]
-    private static partial Regex SlugPattern();
 }

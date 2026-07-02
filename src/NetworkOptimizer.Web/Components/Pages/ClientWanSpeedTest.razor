@@ -7,6 +7,7 @@
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @inject ClientSpeedTestService ClientSpeedTestService
+@inject SiteContextService SiteContext
 @inject SystemSettingsService SettingsService
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
@@ -75,13 +76,13 @@
                             traffic goes from your device, out through your WAN, across the internet to the remote server, and back.
                         </p>
                         <div class="test-option-actions">
-                            <a href="@(_selectedServer?.Url)?Run" target="_blank" rel="opener" class="btn btn-primary">
+                            <a href="@ExternalRunUrl" target="_blank" rel="opener" class="btn btn-primary">
                                 Run WAN Speed Test
                             </a>
                             <span class="form-help">Opens in a new tab and auto-starts</span>
                         </div>
                         <div class="url-copy-row">
-                            <input type="text" class="url-display" value="@(_selectedServer?.Url)" readonly />
+                            <input type="text" class="url-display" value="@ExternalShareUrl" readonly />
                             <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
                                 <span class="copy-icon">📋</span>
                                 <span class="copy-check" style="display:none;">✓</span>
@@ -637,6 +638,10 @@
 
 @code {
     private List<ExternalSpeedTestServer> _servers = new();
+    // Non-default sites tag the external test URL so results post back to the right site's DB
+    private string ExternalRunUrl => $"{_selectedServer?.Url}?Run{(SiteContext.IsDefault ? "" : $"&site={SiteContext.Slug}")}";
+    private string ExternalShareUrl => $"{_selectedServer?.Url}{(SiteContext.IsDefault ? "" : $"?site={SiteContext.Slug}")}";
+
     private ExternalSpeedTestServer? _selectedServer;
     private int _selectedServerId;
     private bool _loading;

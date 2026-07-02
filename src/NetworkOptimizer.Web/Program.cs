@@ -165,6 +165,7 @@ builder.Services.AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(
 
 // Per-site database path resolution (main db doubles as the site registry and default site data)
 builder.Services.AddSingleton(new NetworkOptimizer.Storage.Services.SiteDatabasePaths(dbPath));
+builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.SiteDbContextFactory>();
 
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();

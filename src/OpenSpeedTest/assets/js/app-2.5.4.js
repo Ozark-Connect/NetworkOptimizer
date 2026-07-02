@@ -1035,6 +1035,11 @@ window.onload = function() {
             if (typeof externalServerId !== "undefined" && externalServerId && externalServerId !== "__EXTERNAL_SERVER_ID__") {
               saveTestData += "&srv=" + encodeURIComponent(externalServerId);
             }
+            // Multi-site: forward the site slug from the page URL (?site=slug) so the
+            // central server stores this result under the right site
+            if (getCommand.site) {
+              saveTestData += "&site=" + encodeURIComponent(getCommand.site);
+            }
             // Set initial results link to client speed test page (will be updated with result ID after save)
             if (typeof clientResultsUrl !== "undefined") {
               var circleSVG2 = document.getElementById("resultsData");
