@@ -89,7 +89,16 @@ public static class CongestionLocalizer
                 list.Add(s);
             }
 
-            var loadCoincident = LoadCoincident(window.Start, window.End, topology, options);
+            // Two arms, OR'd. The window-fraction test (LoadCoincident) catches SUSTAINED load that fills
+            // the event window. It misses a brief saturation inside a bucket-PADDED window (a ~5-min burst
+            // straddling a 15-min boundary reports over 30 min, so 5 min of real load averages below the
+            // bar). The nearest-hop arm recovers that: it samples load only at the ACCESS-layer hop's own
+            // elevated moments, which track local load, rather than the whole window or the deeper transit
+            // hops (those spike sporadically across a far wider span and smear the correlation). OR'ing a
+            // second arm onto the untouched first can only ADD load-coincidence, never remove it, so
+            // sustained events cannot regress.
+            var loadCoincident = LoadCoincident(window.Start, window.End, topology, options)
+                || LoadCoincidentAtNearestHop(elevatedSeries, window.Start, window.End, topology, options);
             var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
 
             // Each anchored path's RTT rise over its OWN baseline. Under load every path picks up a
@@ -480,6 +489,69 @@ public static class CongestionLocalizer
     }
 
     /// <summary>
+    /// Load-coincidence measured only at the NEAREST elevated hop's own excursion moments. The window
+    /// fraction dilutes a brief-but-real saturation across a bucket-padded window; this doesn't. The
+    /// nearest hop (lowest in-window baseline RTT = the access layer) is used because its elevation
+    /// tracks local load, whereas deeper transit hops spike sporadically across a much wider span and
+    /// drag the correlation down (observed: pooling all fired hops gave 0.45, the access hop alone 0.74).
+    /// A sample counts as elevated when its RTT clears the hop's own MAD-scaled bar (the detector's own
+    /// criterion, so a naturally noisy hop isn't tripped) OR its jitter rose (mirrors the propagation
+    /// test, catching jitter-driven events). Those moments are pooled into LoadWindowSeconds buckets, one
+    /// vote each, matched to the WAN utilization in the same bucket; coincident when the high-load share
+    /// clears CongestionLoadCoincidenceFraction. Unknown load never claims coincidence.
+    /// </summary>
+    private static bool LoadCoincidentAtNearestHop(
+        IReadOnlyList<AsnSeries> elevatedSeries, DateTime winStart, DateTime winEnd,
+        CongestionTopology topology, IspHealthOptions options)
+    {
+        var bucketTicks = TimeSpan.FromSeconds(Math.Max(1, options.LoadWindowSeconds)).Ticks;
+        var loadByBucket = new Dictionary<long, double>();
+        foreach (var l in topology.Load)
+            if (l.Utilization.HasValue)
+                loadByBucket[l.Time.Ticks / bucketTicks] = l.Utilization.Value;
+        if (loadByBucket.Count == 0) return false; // unknown load -> never claim self-inflicted
+
+        // Nearest / cleanest elevated hop = lowest in-window baseline RTT (the access layer).
+        AsnSeries? nearest = null;
+        var nearestBase = double.MaxValue;
+        foreach (var s in elevatedSeries)
+        {
+            var b = Index(s).BaselineRttMedian(Index(s).InWindowRtt(winStart, winEnd));
+            if (b.HasValue && b.Value < nearestBase) { nearestBase = b.Value; nearest = s; }
+        }
+        if (nearest == null) return false;
+
+        var ix = Index(nearest);
+        // MAD-scaled RTT bar, matching the detector's own elevation threshold, so a hop with a naturally
+        // wide baseline is judged against its own noise rather than a fixed absolute delta.
+        var rtts = nearest.Samples.Where(x => x.RttAvgMs.HasValue).Select(x => x.RttAvgMs!.Value).OrderBy(v => v).ToList();
+        var mad = 0.0;
+        if (rtts.Count > 0)
+        {
+            var med = rtts[rtts.Count / 2];
+            var devs = rtts.Select(v => Math.Abs(v - med)).OrderBy(v => v).ToList();
+            mad = devs[devs.Count / 2];
+        }
+        var rttThreshold = nearestBase + Math.Max(options.CongestionRttMinDeltaMs, options.CongestionRttDeltaFactor * mad);
+        var baseJit = ix.BaselineJitterMedian(ix.InWindowJitter(winStart, winEnd));
+
+        int high = 0, total = 0;
+        var counted = new HashSet<long>();
+        foreach (var ticks in ix.ExcursionTicks(winStart, winEnd, rttThreshold, baseJit,
+                     options.CongestionPropagationJitterFactor, options.CongestionPropagationJitterFloorMs))
+        {
+            var bucket = ticks / bucketTicks;
+            if (!counted.Add(bucket)) continue;               // one vote per load-window bucket
+            if (loadByBucket.TryGetValue(bucket, out var util))
+            {
+                total++;
+                if (util >= options.CongestionLoadHighFraction) high++;
+            }
+        }
+        return total > 0 && (double)high / total >= options.CongestionLoadCoincidenceFraction;
+    }
+
+    /// <summary>
     /// A softer "elevated in this window" test than firing a full congestion event, used for the
     /// propagation and clean-control checks so the localizer doesn't absolve a genuine bottleneck as
     /// control-plane noise just because nothing downstream fired its own event. A hop counts as
@@ -630,6 +702,28 @@ public static class CongestionLocalizer
 
         public List<double> InWindowRtt(DateTime start, DateTime end) => Collect(_rtt, start, end);
         public List<double> InWindowJitter(DateTime start, DateTime end) => Collect(_jit, start, end);
+
+        /// <summary>
+        /// Ticks of in-window samples elevated over this hop's OWN baseline - RTT above
+        /// <paramref name="rttThreshold"/>, OR (when <paramref name="baseJitter"/> is known) jitter above
+        /// baseline by both the ratio <paramref name="jitterFactor"/> and the absolute floor
+        /// <paramref name="jitterFloorMs"/> (mirrors the propagation test, so a jitter-driven event with
+        /// flat RTT still yields its elevated moments). The excursion timestamps, for matching against the
+        /// WAN load series.
+        /// </summary>
+        public IEnumerable<long> ExcursionTicks(DateTime start, DateTime end, double rttThreshold,
+            double? baseJitter, double jitterFactor, double jitterFloorMs)
+        {
+            var (lo, hi) = Range(start, end);
+            for (var i = lo; i < hi; i++)
+            {
+                var rttHot = _rtt[i].HasValue && _rtt[i]!.Value > rttThreshold;
+                var jitHot = _jit[i].HasValue && baseJitter.HasValue
+                    && _jit[i]!.Value > baseJitter.Value * jitterFactor
+                    && _jit[i]!.Value - baseJitter.Value >= jitterFloorMs;
+                if (rttHot || jitHot) yield return _ticks[i];
+            }
+        }
 
         public double? BaselineRttMedian(List<double> inWindow) => PercentileExcluding(_rttAsc, inWindow, 0.5);
         public double? BaselineRttPercentile(List<double> inWindow, double p) => PercentileExcluding(_rttAsc, inWindow, p);

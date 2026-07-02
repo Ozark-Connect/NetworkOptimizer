@@ -175,6 +175,82 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Brief_load_at_the_access_hop_registers_despite_a_wide_transit_hop_and_padded_window()
+    {
+        // The access hop bursts for ~6 min straddling the 15-min bucket boundary, so the event reports
+        // over a padded 30-min window. A deeper transit hop is elevated across the WHOLE window (its
+        // spikes miss the brief load), so the window-fraction test dilutes to ~0.2 and would read False.
+        // The nearest-hop arm samples load only at the ACCESS hop's own excursions (all under the load)
+        // and correctly registers it as load-coincident. Mirrors the real 14:45 event.
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> AccessBurst() => Flat(5).WithSegment(burstStart, burstEnd, rttMs: 30, jitterMs: 6);
+        // Deep transit hop elevated across the whole padded window - its excursions span it and mostly
+        // miss the 6-min load, so pooling/window-fraction is diluted below the bar.
+        List<LatencySample> WideTransit() => Flat(30).WithSegment(HumpStart, HumpStart.AddMinutes(30), rttMs: 35, jitterMs: 4);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, AccessBurst()),
+            Hop(100, Border, AccessBurst(), Bng),
+            Hop(200, Transit, WideTransit(), Bng, Border),
+            Dest(DestCorridor, AccessBurst(), Bng, Border, Transit)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.9 : 0.1)); // high only during the burst
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        events.Should().OnlyContain(e => e.LoadCoincident);
+    }
+
+    [Fact]
+    public void Brief_load_that_misses_the_access_hop_elevation_is_not_load_coincident()
+    {
+        // Same shape, but the load spike is EARLY (before the access burst) - the access hop rose when
+        // the line was NOT loaded. Neither arm should fire: window-fraction is diluted, and the nearest-
+        // hop arm sees low load at the access hop's excursion moments. Guards against a false positive.
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> AccessBurst() => Flat(5).WithSegment(burstStart, burstEnd, rttMs: 30, jitterMs: 6);
+        List<LatencySample> WideTransit() => Flat(30).WithSegment(HumpStart, HumpStart.AddMinutes(30), rttMs: 35, jitterMs: 4);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, AccessBurst()),
+            Hop(100, Border, AccessBurst(), Bng),
+            Hop(200, Transit, WideTransit(), Bng, Border),
+            Dest(DestCorridor, AccessBurst(), Bng, Border, Transit)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t < HumpStart.AddMinutes(6) ? 0.9 : 0.1)); // high early, NOT during the burst
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        events.Should().OnlyContain(e => !e.LoadCoincident);
+    }
+
+    [Fact]
     public void Dead_end_transit_is_unverifiable_and_not_merged_into_the_corridor_event()
     {
         var series = new List<AsnSeries>
