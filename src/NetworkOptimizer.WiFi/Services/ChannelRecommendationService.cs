@@ -197,6 +197,22 @@ public class ChannelRecommendationService
     private const double CatastrophicAbsoluteScore = 4.0;
 
     /// <summary>
+    /// Measured EXTERNAL interference (other networks' airtime) past which a freshly-changed
+    /// channel counts as catastrophically bad and the soak suppression is lifted. Anchored to
+    /// the radio's own time-averaged interference - the same ground-truth channel-quality
+    /// signal the comfort anchor uses (comfortable sits below 20%; 70% means the channel is
+    /// dominated by other networks and is genuinely a disaster worth breaking soak for).
+    ///
+    /// Deliberately NOT the inferred score (idle-neighbor external load inflates it past any
+    /// absolute ceiling on dense bands, which would make soak a permanent no-op there), and
+    /// deliberately NOT utilization or TX retries: both are contaminated by the AP's OWN
+    /// serving traffic, which follows the radio to any channel, so a busy AP would keep
+    /// escaping soak no matter where it moved - the exact self-induced false positive this
+    /// feature exists to avoid. Tunable.
+    /// </summary>
+    private const double CatastrophicInterferencePct = 70.0;
+
+    /// <summary>
     /// Minimum neighbor signal to count as external interference. Matches the CCA
     /// (Clear Channel Assessment) threshold: below -82 dBm, radios don't defer
     /// transmission so the neighbor causes no real co-channel interference.
@@ -259,6 +275,15 @@ public class ChannelRecommendationService
     private const double ScanCoverageConfidence = 0.80;
 
     /// <summary>
+    /// Observation confidence for a candidate channel this radio saw a neighbor on via the
+    /// long-term neighbor memory (a remembered sighting, not a live scan). Real evidence the
+    /// radio itself gathered, but dated - the neighborhood may have changed since - so it
+    /// ranks below every live tier. Scaled by the sighting's age-decayed confidence, so a
+    /// week-old memory softens the uncertainty penalty more than a month-old one. Tunable.
+    /// </summary>
+    private const double RememberedSightingConfidence = 0.6;
+
+    /// <summary>
     /// Minimum internal (propagation) weight for a resident sibling AP to count as an observer
     /// of a channel. Below this the sibling is too far to characterize this AP's RF environment.
     /// </summary>
@@ -304,7 +329,8 @@ public class ChannelRecommendationService
         List<ChannelScanResult>? scanResults,
         RegulatoryChannelData? regulatoryData,
         RecommendationOptions? options = null,
-        Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null)
+        Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
+        Dictionary<string, ChannelSoakInfo>? soakInfo = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -322,6 +348,7 @@ public class ChannelRecommendationService
             ExternalLoad = new Dictionary<int, double>[n],
             ExternalNeighbors = new Dictionary<(int Channel, int Width), double>[n],
             DirectlyObservedChannels = new HashSet<int>[n],
+            HistoricallyObservedChannels = new Dictionary<int, double>[n],
             ScanChannelData = new Dictionary<(int Channel, int Width), (int Utilization, int? NoiseFloor)>[n],
             MeshConstraints = new List<MeshConstraint>(),
             DfsChannels = new HashSet<int>(regulatoryData?.DfsChannels ?? [])
@@ -368,12 +395,14 @@ public class ChannelRecommendationService
                 ChannelUtilization = radio.ChannelUtilization ?? 0,
                 Interference = radio.Interference ?? 0,
                 TxRetriesPct = radio.TxRetriesPct ?? 0,
-                HistoricalStress = apHistStress
+                HistoricalStress = apHistStress,
+                SoakInfo = soakInfo?.GetValueOrDefault(macLower)
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
             graph.ExternalNeighbors[i] = new Dictionary<(int Channel, int Width), double>();
             graph.DirectlyObservedChannels[i] = new HashSet<int>();
+            graph.HistoricallyObservedChannels[i] = new Dictionary<int, double>();
             graph.ScanChannelData[i] = new Dictionary<(int, int), (int, int?)>();
         }
 
@@ -478,6 +507,74 @@ public class ChannelRecommendationService
         var currentApScores = new double[n];
         for (int i = 0; i < n; i++)
             currentApScores[i] = ScoreAp(graph, currentAssignment, i, band);
+
+        // Soak-period suppression: an AP whose channel changed recently keeps the new config
+        // long enough to measure it, so channels the radio just left are removed from its
+        // candidate set - the search, per-AP fallback and altruistic passes all iterate
+        // ValidChannels, so one filter covers every move-decision path. Applies to every band.
+        // A mesh group moves as one (children mirror the leader's channel), so the LEADER's
+        // candidates are gated by the union of the whole group's soaked channels - otherwise
+        // the child-sync at the end would hop a soaking child straight back onto the channel
+        // it just left. A group that is MEASURABLY suffering on the new channel (any member's
+        // measured airtime past the catastrophic thresholds) is exempt: soak prevents churn,
+        // not rescue. The escape deliberately requires the radio's own measured stress rather
+        // than the inferred score - on a dense band the score is inflated by idle-neighbor
+        // external load and can sit permanently above any absolute ceiling, which would make
+        // soak a no-op exactly where it matters most. The current channel is never filtered,
+        // so the invalid-channel handling below is unaffected.
+        var soakRemoved = new List<int>?[n];
+        var soakEnds = new DateTimeOffset?[n];
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            // Children have no independent move decision - their soak is enforced on the leader.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+
+            var soaked = new HashSet<int>(node.SoakInfo?.SoakedChannels ?? Enumerable.Empty<int>());
+            var soakEnd = node.SoakInfo?.SoakEndsAt ?? DateTimeOffset.MinValue;
+            var sufferingIndex = IsCurrentChannelMeasurablySuffering(graph, band, i) ? i : -1;
+            for (int j = 0; j < n; j++)
+            {
+                if (j == i || graph.Nodes[j].MeshGroupLeader != i) continue;
+                if (graph.Nodes[j].SoakInfo is { } childSoak)
+                {
+                    soaked.UnionWith(childSoak.SoakedChannels);
+                    if (childSoak.SoakEndsAt > soakEnd) soakEnd = childSoak.SoakEndsAt;
+                }
+                if (sufferingIndex < 0 && IsCurrentChannelMeasurablySuffering(graph, band, j))
+                    sufferingIndex = j;
+            }
+            if (soaked.Count == 0) continue;
+
+            if (sufferingIndex >= 0)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} {Band}: soak suppression lifted - {SufferingAp} measures " +
+                    "catastrophic airtime on its current channel, all channels stay in play",
+                    node.Name, band, graph.Nodes[sufferingIndex].Name);
+                continue;
+            }
+
+            var filtered = node.ValidChannels
+                .Where(ch => ch == node.CurrentChannel || !soaked.Contains(ch))
+                .ToArray();
+            if (filtered.Length == node.ValidChannels.Length) continue;
+            // An AP stuck on an invalid channel must move SOMEWHERE - if soak would empty its
+            // candidate set (current channel not valid, every valid channel recently left),
+            // leave the set alone rather than strand the search.
+            if (filtered.Length == 0) continue;
+
+            // Report only what was actually removed - a channel excluded for another reason
+            // (e.g. the user's DFS setting) must not be presented as merely soaking.
+            var removed = node.ValidChannels.Except(filtered).OrderBy(ch => ch).ToList();
+            _logger.LogDebug(
+                "[ChannelRec] {ApName} {Band}: soaking until {SoakEnd:MM/dd HH:mm} - excluding " +
+                "recently-left channel(s) [{Channels}] from candidates",
+                node.Name, band, soakEnd, string.Join(", ", removed));
+            node.ValidChannels = filtered;
+            soakRemoved[i] = removed;
+            soakEnds[i] = soakEnd;
+        }
 
         // Optimize
         (int Channel, int Width)[] bestAssignment;
@@ -611,7 +708,9 @@ public class ChannelRecommendationService
                 // Recommended DFS status is authoritatively recomputed against the final channel
                 // after reconciliation (the per-AP fallback, altruistic relocation and mesh sync
                 // can all rewrite the channel below). This initial value is the optimizer's raw pick.
-                IsRecommendedDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels)
+                IsRecommendedDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels),
+                SoakSuppressedChannels = soakRemoved[i] ?? new List<int>(),
+                SoakEndsAt = soakEnds[i]
             });
         }
 
@@ -1383,6 +1482,32 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
+    /// Whether the AP's own measured (1d/7d) record for its current channel shows catastrophic
+    /// EXTERNAL interference - other networks' airtime past <see cref="CatastrophicInterferencePct"/>.
+    /// This is the soak-escape signal, and it reads measured ground truth ONLY: never
+    /// <see cref="ApNode.PropagatedStress"/> or the inferred score (idle-neighbor load inflates
+    /// both, so on a dense 2.4 GHz band every AP would sit above any absolute ceiling forever,
+    /// making soak a permanent no-op), and never utilization or TX retries (contaminated by the
+    /// AP's own serving traffic, which follows it to any channel). No averaged data for the new
+    /// channel yet (e.g. within the first hour after a change) means no escape - the soak is
+    /// short, and rescue can wait for evidence.
+    /// </summary>
+    private static bool IsCurrentChannelMeasurablySuffering(InterferenceGraph graph, RadioBand band, int apIndex)
+    {
+        var node = graph.Nodes[apIndex];
+        if (node.HistoricalStress == null || node.HistoricalStress.Count == 0) return false;
+
+        var currentSpan = ChannelSpanHelper.GetChannelSpan(band, node.CurrentChannel, node.CurrentWidth);
+        foreach (var (histChannel, stress) in node.HistoricalStress)
+        {
+            var histSpan = ChannelSpanHelper.GetChannelSpan(band, histChannel, node.CurrentWidth);
+            if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
+                return stress.Interference >= CatastrophicInterferencePct;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Measured-congestion FLOOR (#2) for the AP's assigned channel, on the external-load scale. The
     /// rogue/neighbor scan only sees beaconing BSSIDs, so it can UNDER-state a channel that's
     /// genuinely busy (the inverted ch1 case: low scan weight, but high measured airtime from
@@ -1578,6 +1703,20 @@ public class ChannelRecommendationService
         // only partially resolves the uncertainty - the scan informs the move, it doesn't crown it.
         if (graph.ScanChannelData[apIndex].Keys.Any(k => ChannelSpanHelper.SpansOverlap(apSpan, (k.Channel, k.Channel))))
             confidence = Math.Max(confidence, ScanCoverageConfidence);
+
+        // Remembered neighbor sighting: this radio itself saw the channel's neighborhood within
+        // the memory window - real evidence, decayed for age, at a reduced tier. Without this,
+        // remembered neighbors would paradoxically make a remembered channel score WORSE than a
+        // truly blind one (their load counts, plus the full uncertainty tax on top).
+        if (apIndex < graph.HistoricallyObservedChannels.Length &&
+            graph.HistoricallyObservedChannels[apIndex] is { Count: > 0 } histSightings)
+        {
+            foreach (var (histCh, sightingConf) in histSightings)
+            {
+                if (ChannelSpanHelper.SpansOverlap(apSpan, (histCh, histCh)))
+                    confidence = Math.Max(confidence, RememberedSightingConfidence * sightingConf);
+            }
+        }
 
         // Historic occupancy: we have measured airtime for this AP on an overlapping channel.
         if (node.HistoricalStress != null)
@@ -1878,8 +2017,10 @@ public class ChannelRecommendationService
             macToIndex[bandAps[i].Mac] = i;
 
         // Phase 1: Pool all neighbor sightings by BSSID across all observers
-        // Each entry: (observerIndex, channel, width, signal)
-        var allNeighbors = new Dictionary<string, List<(int ObserverIndex, int Channel, int? Width, int Signal)>>(
+        // Each entry: (observerIndex, channel, width, signal, confidence). Confidence is 1.0
+        // for live scan sightings; remembered (long-term memory) sightings carry an
+        // age-decayed confidence that scales their weight down.
+        var allNeighbors = new Dictionary<string, List<(int ObserverIndex, int Channel, int? Width, int Signal, double Confidence)>>(
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var scan in scanResults.Where(s => s.Band == band))
@@ -1893,10 +2034,10 @@ public class ChannelRecommendationService
             {
                 if (!allNeighbors.TryGetValue(neighbor.Bssid, out var sightings))
                 {
-                    sightings = new List<(int, int, int?, int)>();
+                    sightings = new List<(int, int, int?, int, double)>();
                     allNeighbors[neighbor.Bssid] = sightings;
                 }
-                sightings.Add((observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value));
+                sightings.Add((observerIndex, neighbor.Channel, neighbor.Width, neighbor.Signal!.Value, neighbor.Confidence));
             }
         }
 
@@ -1914,10 +2055,11 @@ public class ChannelRecommendationService
                 bool isDirect = false;
                 int bestObserverIndex = -1;
                 double bestProximity = 0;
+                double bestConfidence = 1.0;
 
-                foreach (var (observerIndex, channel, width, signal) in sightings)
+                foreach (var (observerIndex, channel, width, signal, confidence) in sightings)
                 {
-                    var neighborWeight = ChannelSpanHelper.SignalToInterferenceWeight(signal);
+                    var neighborWeight = ChannelSpanHelper.SignalToInterferenceWeight(signal) * confidence;
                     double effectiveWeight;
                     double proximity = 0;
 
@@ -1946,6 +2088,7 @@ public class ChannelRecommendationService
                         isDirect = observerIndex == j;
                         bestObserverIndex = observerIndex;
                         bestProximity = proximity;
+                        bestConfidence = confidence;
                     }
                 }
 
@@ -1974,7 +2117,18 @@ public class ChannelRecommendationService
                 if (isDirect)
                 {
                     directCount++;
-                    graph.DirectlyObservedChannels[j].Add(bestChannel);
+                    // Only a LIVE direct sighting fully observes the channel; a remembered one
+                    // is real-but-dated evidence and lands in the reduced-confidence tier.
+                    if (bestConfidence >= 1.0)
+                    {
+                        graph.DirectlyObservedChannels[j].Add(bestChannel);
+                    }
+                    else if (j < graph.HistoricallyObservedChannels.Length &&
+                             graph.HistoricallyObservedChannels[j] is { } histObserved)
+                    {
+                        histObserved[bestChannel] = Math.Max(
+                            histObserved.GetValueOrDefault(bestChannel), bestConfidence);
+                    }
                 }
                 else
                 {

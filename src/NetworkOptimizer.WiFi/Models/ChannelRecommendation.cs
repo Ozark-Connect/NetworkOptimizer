@@ -39,6 +39,19 @@ public class ApChannelRecommendation
 
     /// <summary>Whether the recommended channel span is subject to DFS.</summary>
     public bool IsRecommendedDfsChannel { get; set; }
+
+    /// <summary>
+    /// Channels excluded from this AP's candidate set because the radio changed onto its
+    /// current channel recently and the abandoned config is still soaking. Empty when no
+    /// suppression was applied.
+    /// </summary>
+    public List<int> SoakSuppressedChannels { get; set; } = new();
+
+    /// <summary>When the active soak period ends (UTC); null when nothing is soaking.</summary>
+    public DateTimeOffset? SoakEndsAt { get; set; }
+
+    /// <summary>True when soak suppression narrowed this AP's candidate channels.</summary>
+    public bool IsSoaking => SoakSuppressedChannels.Count > 0;
 }
 
 /// <summary>
@@ -131,6 +144,14 @@ public class InterferenceGraph
     public HashSet<int>[] DirectlyObservedChannels { get; set; } = [];
 
     /// <summary>
+    /// Per-AP channels this radio itself saw a neighbor on via the long-term neighbor memory
+    /// (a remembered sighting, not a live scan), mapped to the strongest such sighting's
+    /// age-decayed confidence. Real-but-dated evidence: it softens the unobserved-channel
+    /// uncertainty penalty at a reduced tier without granting a live sighting's full trust.
+    /// </summary>
+    public Dictionary<int, double>[] HistoricallyObservedChannels { get; set; } = [];
+
+    /// <summary>
     /// Per-AP channel scan metrics, keyed by (control channel, scan bandwidth MHz) so multiple-width
     /// buckets for the same channel can coexist (e.g. a BW20 and a BW160 reading of ch36). Value =
     /// (utilization %, noise floor dBm); NoiseFloor is null when the scan reported no reading, lower
@@ -202,6 +223,13 @@ public class ApNode
 
     /// <summary>Index of this AP's mesh group leader, or -1 if not in a mesh group</summary>
     public int MeshGroupLeader { get; set; } = -1;
+
+    /// <summary>
+    /// Soak-period state for this radio: channels it recently moved off of, which the
+    /// optimizer must not hop back to while the new channel proves itself. Null when no
+    /// recent change is soaking.
+    /// </summary>
+    public ChannelSoakInfo? SoakInfo { get; set; }
 }
 
 /// <summary>

@@ -31,6 +31,7 @@ public class WiFiOptimizerService
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
+    private readonly NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository _channelMemoryRepository;
 
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
@@ -52,6 +53,7 @@ public class WiFiOptimizerService
         IServiceScopeFactory serviceScopeFactory,
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
+        NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository channelMemoryRepository,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
@@ -64,6 +66,7 @@ public class WiFiOptimizerService
         _serviceScopeFactory = serviceScopeFactory;
         _plannedApService = plannedApService;
         _channelRecommendationService = channelRecommendationService;
+        _channelMemoryRepository = channelMemoryRepository;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -840,6 +843,50 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// Fold the persisted long-term neighbor memory into the pooled scan results (see
+    /// <see cref="ChannelMemoryHelper.MergeRememberedNeighbors"/>). Used by the channel
+    /// recommendation only; degrades gracefully to the live-only picture on any failure.
+    /// </summary>
+    private async Task<List<ChannelScanResult>> MergeRememberedNeighborsAsync(List<ChannelScanResult> pooled)
+    {
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var rows = await _channelMemoryRepository.GetNeighborSightingsSinceAsync(
+                now.UtcDateTime - ChannelMemoryHelper.NeighborMemoryWindow);
+            if (rows.Count == 0) return pooled;
+
+            var remembered = rows
+                .Select(r => new RememberedNeighborSighting(
+                    r.ApMac,
+                    RadioBandExtensions.FromUniFiCode(r.Band),
+                    r.Bssid,
+                    r.Channel,
+                    r.WidthMhz,
+                    r.SignalDbm,
+                    r.SightingCount,
+                    new DateTimeOffset(DateTime.SpecifyKind(r.LastSeenUtc, DateTimeKind.Utc)),
+                    r.Ssid))
+                .Where(s => s.Band != RadioBand.Unknown)
+                .ToList();
+
+            var merged = ChannelMemoryHelper.MergeRememberedNeighbors(pooled, remembered, now);
+
+            var addedCount = merged.Sum(s => s.Neighbors.Count) - pooled.Sum(s => s.Neighbors.Count);
+            if (addedCount > 0)
+                _logger.LogDebug(
+                    "[ChannelRec] neighbor memory added {Count} remembered sighting(s) beyond the live scan picture",
+                    addedCount);
+            return merged;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to merge remembered neighbor sightings");
+            return pooled;
+        }
+    }
+
+    /// <summary>
     /// Get regulatory channel availability data for the site's country.
     /// Cached for 30 minutes since regulatory data rarely changes.
     /// </summary>
@@ -910,14 +957,20 @@ public class WiFiOptimizerService
     /// <summary>
     /// Get per-AP Wi-Fi metrics time series (filtered by AP MAC)
     /// </summary>
+    /// <param name="throwOnFailure">When true, disconnection or a fetch failure throws instead
+    /// of returning an empty list, so callers that must not confuse "no data" with "fetch
+    /// failed" (the outcome-memory collector) can abort without corrupting their state.</param>
     public async Task<List<WiFi.Models.SiteWiFiMetrics>> GetApMetricsAsync(
         string[] apMacs,
         DateTimeOffset start,
         DateTimeOffset end,
-        WiFi.MetricGranularity granularity = WiFi.MetricGranularity.FiveMinutes)
+        WiFi.MetricGranularity granularity = WiFi.MetricGranularity.FiveMinutes,
+        bool throwOnFailure = false)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
         {
+            if (throwOnFailure)
+                throw new InvalidOperationException("Not connected to UniFi Console");
             _logger.LogDebug("Cannot get AP metrics - not connected to UniFi");
             return new List<WiFi.Models.SiteWiFiMetrics>();
         }
@@ -926,10 +979,11 @@ public class WiFiOptimizerService
         {
             var provider = CreateProvider();
 
-            return await provider.GetApMetricsAsync(apMacs, start, end, granularity);
+            return await provider.GetApMetricsAsync(apMacs, start, end, granularity, throwOnFailure: throwOnFailure);
         }
         catch (Exception ex)
         {
+            if (throwOnFailure) throw;
             _logger.LogError(ex, "Failed to get AP metrics for {ApMacs}", string.Join(",", apMacs));
             return new List<WiFi.Models.SiteWiFiMetrics>();
         }
@@ -937,23 +991,31 @@ public class WiFiOptimizerService
 
     /// <summary>
     /// Get AP channel change events from the system log (v2 API).
-    /// Returns empty list on failure - never throws.
+    /// Returns empty list on failure unless <paramref name="throwOnFailure"/> is set - an empty
+    /// list is indistinguishable from "no channel changes", which is exactly wrong for callers
+    /// attributing metrics to a channel timeline.
     /// </summary>
     public async Task<List<WiFi.Models.ChannelChangeEvent>> GetChannelChangeEventsAsync(
         DateTimeOffset start,
         DateTimeOffset end,
-        string? apMac = null)
+        string? apMac = null,
+        bool throwOnFailure = false)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            if (throwOnFailure)
+                throw new InvalidOperationException("Not connected to UniFi Console");
             return new List<WiFi.Models.ChannelChangeEvent>();
+        }
 
         try
         {
             var provider = CreateProvider();
-            return await provider.GetChannelChangeEventsAsync(start, end, apMac);
+            return await provider.GetChannelChangeEventsAsync(start, end, apMac, throwOnFailure: throwOnFailure);
         }
         catch (Exception ex)
         {
+            if (throwOnFailure) throw;
             _logger.LogDebug(ex, "Failed to get channel change events");
             return new List<WiFi.Models.ChannelChangeEvent>();
         }
@@ -1066,8 +1128,10 @@ public class WiFiOptimizerService
             var aps = apsTask.Result;
             var regulatoryData = regulatoryTask.Result;
             // Pool neighbor sightings across the rolling window so a single under-detecting scan
-            // can't flip marginal channel moves (the live RF Environment view still uses raw scans).
-            var scanResults = PoolNeighborSightings(scanTask.Result);
+            // can't flip marginal channel moves (the live RF Environment view still uses raw scans),
+            // then fold in the persisted neighbor memory so a serving radio keeps age-decayed
+            // neighbor evidence for channels it isn't currently on.
+            var scanResults = await MergeRememberedNeighborsAsync(PoolNeighborSightings(scanTask.Result));
 
             if (aps.Count == 0)
             {
@@ -1115,8 +1179,9 @@ public class WiFiOptimizerService
                 _logger.LogDebug(ex, "Failed to load propagation data for channel recommendations");
             }
 
-            // Fetch 30-day historical radio stats paired with channel change events
-            var historicalStress = await GetHistoricalStressAsync(aps);
+            // Fetch historical radio stats paired with channel change events (UniFi metrics
+            // window + persisted long-term outcome memory) and soak-period state
+            var historicalContext = await GetHistoricalContextAsync(aps);
 
             // Generate recommendations for each band that has APs
             var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
@@ -1128,9 +1193,10 @@ public class WiFiOptimizerService
 
                 try
                 {
-                    var bandStress = historicalStress?.GetValueOrDefault(band);
+                    var bandStress = historicalContext?.Stress?.GetValueOrDefault(band);
+                    var bandSoak = historicalContext?.Soak.GetValueOrDefault(band);
                     var graph = _channelRecommendationService.BuildInterferenceGraph(
-                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress);
+                        aps, band, propCtx, scanResults, regulatoryData, options, bandStress, bandSoak);
 
                     var plan = _channelRecommendationService.Optimize(
                         graph, band, regulatoryData, options, hasBuildingData);
@@ -1152,45 +1218,76 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
-    /// Fetch per-AP historical radio stats (30 days, daily granularity) and pair with
-    /// channel change events to build per-channel stress maps. Returns stress data keyed
-    /// by band → AP MAC → channel → (avg util, avg interf, avg txRetry).
+    /// Historical inputs for the channel recommendation engine, built per run.
     /// </summary>
-    private async Task<Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>>?>
-        GetHistoricalStressAsync(List<AccessPointSnapshot> aps)
+    private sealed class HistoricalChannelContext
+    {
+        /// <summary>Per-channel measured stress keyed by band → AP MAC (lower) → channel.
+        /// Recent UniFi metrics merged with the persisted long-term outcome memory.</summary>
+        public Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>>? Stress { get; set; }
+
+        /// <summary>Soak-period state keyed by band → AP MAC (lower). An entry exists only
+        /// when the radio changed channels within the soak window.</summary>
+        public Dictionary<RadioBand, Dictionary<string, ChannelSoakInfo>> Soak { get; } = new();
+    }
+
+    /// <summary>
+    /// Build the engine's historical context: per-AP per-channel stress maps (7-day hourly +
+    /// 1-day 5-min UniFi metrics attributed to the channel actually live via change events,
+    /// extended with the persisted long-term outcome memory for channels the UniFi window no
+    /// longer covers) and soak-period state from recent channel changes (UniFi system log
+    /// plus the persisted change log).
+    /// </summary>
+    private async Task<HistoricalChannelContext?> GetHistoricalContextAsync(List<AccessPointSnapshot> aps)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return null;
 
+        var now = DateTimeOffset.UtcNow;
+        var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
+        if (onlineAps.Count == 0) return null;
+
+        var context = new HistoricalChannelContext();
+        var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+
+        // Fetch 7-day hourly + 1-day 5-min metrics and channel change events concurrently.
+        // A failure here must not sink the whole context - the outcome memory and persisted
+        // change log below can still provide stress and soak data.
+        (string Mac, List<SiteWiFiMetrics> Metrics, List<SiteWiFiMetrics> RecentMetrics, List<ChannelChangeEvent> Events)[]? allResults = null;
         try
         {
-            var end = DateTimeOffset.UtcNow;
-            var start = end.AddDays(-7);
-            var onlineAps = aps.Where(ap => ap.IsOnline).ToList();
-            if (onlineAps.Count == 0) return null;
-
-            // Fetch 7-day hourly + 1-day 5-min metrics and channel change events concurrently
-            var recentStart = end.AddDays(-1);
+            var start = now.AddDays(-7);
+            var recentStart = now.AddDays(-1);
             var tasks = onlineAps.Select(async ap =>
             {
                 var metricsTask = GetApMetricsAsync(
-                    new[] { ap.Mac }, start, end, MetricGranularity.Hourly);
+                    new[] { ap.Mac }, start, now, MetricGranularity.Hourly);
                 var recentMetricsTask = GetApMetricsAsync(
-                    new[] { ap.Mac }, recentStart, end, MetricGranularity.FiveMinutes);
-                var eventsTask = GetChannelChangeEventsAsync(start, end, ap.Mac);
+                    new[] { ap.Mac }, recentStart, now, MetricGranularity.FiveMinutes);
+                var eventsTask = GetChannelChangeEventsAsync(start, now, ap.Mac);
 
                 await Task.WhenAll(metricsTask, recentMetricsTask, eventsTask);
 
                 return (ap.Mac, Metrics: metricsTask.Result, RecentMetrics: recentMetricsTask.Result, Events: eventsTask.Result);
             });
 
-            var allResults = await Task.WhenAll(tasks);
+            allResults = await Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch historical stress metrics, continuing with outcome memory only");
+        }
 
-            var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+        if (allResults != null)
+        {
             var result = new Dictionary<RadioBand, Dictionary<string, Dictionary<int, (double, double, double)>>>();
             foreach (var band in bands)
                 result[band] = new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase);
 
+            // A failure in attribution/aggregation must not sink the whole context either -
+            // fall through with whatever stress was built plus the memory/soak sections below.
+            try
+            {
             foreach (var (mac, metrics, recentMetrics, events) in allResults)
             {
                 if (metrics.Count == 0) continue;
@@ -1222,7 +1319,10 @@ public class WiFiOptimizerService
                             !bandData.ChannelUtilization.HasValue)
                             continue;
 
-                        var channel = GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+                        var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+                        // An event parsed without PREVIOUS_CHANNEL yields channel 0 for samples
+                        // predating it - not a real channel, don't build stress for it.
+                        if (channel <= 0) continue;
                         if (!channelMetrics.ContainsKey(channel))
                             channelMetrics[channel] = new List<(double, double, double)>();
                         channelMetrics[channel].Add((
@@ -1239,7 +1339,7 @@ public class WiFiOptimizerService
                             !bandData.ChannelUtilization.HasValue)
                             continue;
 
-                        var channel = GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
+                        var channel = ChannelMemoryHelper.GetChannelAtTime(metric.Timestamp, bandEvents, radio.Channel!.Value);
                         if (channel == radio.Channel!.Value)
                         {
                             recentCurrentChannel.Add((
@@ -1287,37 +1387,132 @@ public class WiFiOptimizerService
                 }
             }
 
-            return result;
+            context.Stress = result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to attribute historical stress metrics, continuing with outcome memory only");
+            }
+        }
+
+        // Extend the recent stress with the persisted long-term outcome memory: channels an
+        // AP sat on weeks or months ago keep their measured ground truth instead of scoring
+        // as unknown once they age out of the UniFi metrics window. Recent data wins for
+        // channels it covers.
+        try
+        {
+            var outcomes = await _channelMemoryRepository.GetOutcomesSinceAsync(
+                now.UtcDateTime - ChannelMemoryHelper.LongTermOutcomeWindow);
+            if (outcomes.Count > 0)
+            {
+                var outcomeLookup = outcomes.ToLookup(o => (o.ApMac, o.Band));
+                context.Stress ??= bands.ToDictionary(
+                    b => b,
+                    _ => new Dictionary<string, Dictionary<int, (double, double, double)>>(StringComparer.OrdinalIgnoreCase));
+
+                foreach (var band in bands)
+                {
+                    var bandCode = band.ToUniFiCode();
+                    foreach (var ap in onlineAps)
+                    {
+                        var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+                        if (radio == null) continue;
+
+                        var macLower = ap.Mac.ToLowerInvariant();
+                        var buckets = outcomeLookup[(macLower, bandCode)]
+                            .Select(o => new ChannelOutcomeBucket(
+                                o.Channel, o.WidthMhz, o.UtilizationSum, o.InterferenceSum,
+                                o.TxRetrySum, o.SampleCount,
+                                new DateTimeOffset(DateTime.SpecifyKind(o.LastSampleUtc, DateTimeKind.Utc))))
+                            .ToList();
+                        if (buckets.Count == 0) continue;
+
+                        var recent = context.Stress[band].GetValueOrDefault(macLower);
+                        var merged = ChannelMemoryHelper.MergeLongTermOutcomes(
+                            recent, buckets, radio.ChannelWidth ?? 20, now);
+                        if (merged == null) continue;
+
+                        if (merged.Count > (recent?.Count ?? 0))
+                            _logger.LogDebug(
+                                "[ChannelRec] {ApName} {Band}: outcome memory added measured stress for " +
+                                "{Added} channel(s) beyond the UniFi metrics window",
+                                ap.Name, band, merged.Count - (recent?.Count ?? 0));
+                        context.Stress[band][macLower] = merged;
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to fetch historical stress metrics, falling back to snapshot");
-            return null;
+            _logger.LogDebug(ex, "Failed to merge long-term channel outcome memory");
         }
-    }
 
-    /// <summary>
-    /// Determine which channel an AP was on at a given timestamp by walking
-    /// the channel change event timeline backwards.
-    /// </summary>
-    private static int GetChannelAtTime(
-        DateTimeOffset timestamp,
-        List<ChannelChangeEvent> events,
-        int currentChannel)
-    {
-        // Walk events in reverse to find the most recent change before this timestamp
-        for (int i = events.Count - 1; i >= 0; i--)
+        // Soak-period state: channels a radio left within the soak window must not be
+        // recommended again yet. Union the UniFi system-log events with the persisted change
+        // log (which also catches changes UniFi's short retention has already dropped);
+        // BuildSoakInfo tolerates the duplicates the union produces.
+        try
         {
-            if (events[i].Timestamp <= timestamp)
-                return events[i].NewChannel;
+            List<Storage.Models.ApChannelChange> persistedChanges;
+            try
+            {
+                persistedChanges = await _channelMemoryRepository.GetChangesSinceAsync(
+                    now.UtcDateTime - ChannelMemoryHelper.SoakPeriod);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to load persisted channel changes for soak state");
+                persistedChanges = new List<Storage.Models.ApChannelChange>();
+            }
+
+            foreach (var band in bands)
+            {
+                var bandCode = band.ToUniFiCode();
+                var bandSoak = new Dictionary<string, ChannelSoakInfo>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var ap in onlineAps)
+                {
+                    var radio = ap.Radios.FirstOrDefault(r => r.Band == band && r.Channel.HasValue);
+                    if (radio == null) continue;
+
+                    var macLower = ap.Mac.ToLowerInvariant();
+                    var changeEvents = new List<ChannelChangeEvent>();
+
+                    if (allResults != null)
+                    {
+                        var apResult = allResults.FirstOrDefault(r =>
+                            r.Mac.Equals(ap.Mac, StringComparison.OrdinalIgnoreCase));
+                        if (apResult.Events != null)
+                            changeEvents.AddRange(apResult.Events.Where(e => e.Band == band));
+                    }
+
+                    changeEvents.AddRange(persistedChanges
+                        .Where(c => c.ApMac.Equals(macLower, StringComparison.OrdinalIgnoreCase) &&
+                                    c.Band == bandCode && c.PreviousChannel is > 0)
+                        .Select(c => new ChannelChangeEvent
+                        {
+                            Timestamp = new DateTimeOffset(DateTime.SpecifyKind(c.ChangedAtUtc, DateTimeKind.Utc)),
+                            ApMac = c.ApMac,
+                            Band = band,
+                            NewChannel = c.NewChannel,
+                            PreviousChannel = c.PreviousChannel!.Value
+                        }));
+
+                    var soak = ChannelMemoryHelper.BuildSoakInfo(changeEvents, radio.Channel!.Value, now);
+                    if (soak != null)
+                        bandSoak[macLower] = soak;
+                }
+
+                if (bandSoak.Count > 0)
+                    context.Soak[band] = bandSoak;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to build soak-period state");
         }
 
-        // Before any recorded change: use the first event's PreviousChannel if available
-        if (events.Count > 0)
-            return events[0].PreviousChannel;
-
-        // No change events at all: assume current channel
-        return currentChannel;
+        return context;
     }
 }
 

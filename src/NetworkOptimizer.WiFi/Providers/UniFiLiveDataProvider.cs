@@ -201,12 +201,17 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
     }
 
+    /// <param name="throwOnFailure">When true, a fetch/parse failure propagates instead of
+    /// returning an empty list - so callers that must distinguish "no data" from "fetch failed"
+    /// (e.g. the outcome-memory collector, which would otherwise misattribute or skip a window)
+    /// can abort cleanly.</param>
     public async Task<List<SiteWiFiMetrics>> GetApMetricsAsync(
         string[] apMacs,
         DateTimeOffset start,
         DateTimeOffset end,
         MetricGranularity granularity = MetricGranularity.FiveMinutes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool throwOnFailure = false)
     {
         var reportType = granularity switch
         {
@@ -253,6 +258,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
         catch (Exception ex)
         {
+            if (throwOnFailure) throw;
             _logger.LogWarning(ex, "Failed to fetch AP metrics report");
             return new List<SiteWiFiMetrics>();
         }
@@ -261,11 +267,15 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     /// <summary>
     /// Get AP channel change events from the v2 system log API.
     /// </summary>
+    /// <param name="throwOnFailure">When true, a fetch/parse failure propagates instead of
+    /// returning an empty list - an empty result is indistinguishable from "no changes", which
+    /// would silently misattribute samples for callers doing channel-timeline attribution.</param>
     public async Task<List<ChannelChangeEvent>> GetChannelChangeEventsAsync(
         DateTimeOffset start,
         DateTimeOffset end,
         string? apMac = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool throwOnFailure = false)
     {
         try
         {
@@ -285,6 +295,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
         catch (Exception ex)
         {
+            if (throwOnFailure) throw;
             _logger.LogWarning(ex, "Failed to fetch channel change events");
             return new List<ChannelChangeEvent>();
         }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetworkOptimizer.Storage.Models;
 
@@ -10,9 +11,11 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    partial class NetworkOptimizerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260701222603_AddChannelOutcomeMemory")]
+    partial class AddChannelOutcomeMemory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -519,59 +522,6 @@ namespace NetworkOptimizer.Storage.Migrations
                         .IsUnique();
 
                     b.ToTable("ApLocations", (string)null);
-                });
-
-            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ApNeighborSighting", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ApMac")
-                        .IsRequired()
-                        .HasMaxLength(17)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Band")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Bssid")
-                        .IsRequired()
-                        .HasMaxLength(17)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Channel")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("FirstSeenUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("LastSeenUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("SightingCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("SignalDbm")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Ssid")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("WidthMhz")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LastSeenUtc");
-
-                    b.HasIndex("ApMac", "Band", "Bssid", "Channel")
-                        .IsUnique();
-
-                    b.ToTable("ApNeighborSightings", (string)null);
                 });
 
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.AuditResult", b =>

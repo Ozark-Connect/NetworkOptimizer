@@ -456,6 +456,13 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>()
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.ChannelRecommendationService>();
 
+// Channel recommendation outcome memory: persistent store (factory-based, shared by the
+// singleton collector and scoped services) + background collector that attributes UniFi
+// radio metrics to the channel config that was live and maintains the change log.
+builder.Services.AddSingleton<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository, NetworkOptimizer.Storage.Repositories.ChannelMemoryRepository>();
+builder.Services.AddSingleton<ChannelMemoryCollectionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryCollectionService>());
+
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();
 

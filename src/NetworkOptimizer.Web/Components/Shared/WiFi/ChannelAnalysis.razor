@@ -226,6 +226,10 @@
                                         {
                                             <span class="mesh-link-badge" data-tooltip="Mesh uplink - shares channel with parent">Mesh</span>
                                         }
+                                        @if (rec.IsSoaking)
+                                        {
+                                            <span class="soak-badge" data-tooltip="@GetSoakTooltip(rec)">Soaking</span>
+                                        }
                                         @if (rec.IsUnplaced)
                                         {
                                             <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Not placed on floor plan - using estimated interference">?</span>
@@ -303,6 +307,15 @@
                             No neighbor networks detected on this band. Recommendations are based on internal AP interference only.
                         </div>
                     }
+                    @if (plan.Recommendations.Any(r => r.IsSoaking))
+                    {
+                        <div class="recommendation-notice">
+                            Some APs changed channels recently. The channels they just left are excluded from
+                            recommendations for a @(ChannelMemoryHelper.SoakPeriod.TotalHours.ToString("0"))-hour
+                            soak so the new channel can prove itself on measured data - this prevents
+                            ping-ponging between configs. Hover an AP's Soaking badge for details.
+                        </div>
+                    }
 
                     <!-- How This Works -->
                     <details class="recommendation-explainer">
@@ -318,8 +331,9 @@
                                 <li><strong>Transmit-power aware</strong> - each AP's real EIRP is applied directionally, so a low-power AP correctly counts as a gentler neighbor than a full-power one.</li>
                                 <li><strong>Real contention, not raw signal</strong> - interference is measured against the CCA threshold (where radios actually defer), so barely-audible signals aren't over-counted.</li>
                                 <li><strong>Measured airtime and noise floor</strong> - reads each channel's actual utilization and RF noise floor from the radios' spectrum scans, so congestion and non-Wi-Fi interference (radar, microwaves, a noisy neighbor's gear) count even when no Wi-Fi network is visible there.</li>
-                                <li><strong>Neighboring networks</strong> - folds in UniFi's RF scan of networks you don't control, triangulated across all your APs for a fuller picture than any single AP sees.</li>
+                                <li><strong>Neighboring networks</strong> - folds in UniFi's RF scan of networks you don't control, triangulated across all your APs for a fuller picture than any single AP sees. Neighbors are also remembered for weeks (counting for less as the sighting ages), so an AP without a dedicated scan radio keeps what it learned about a channel's neighborhood even after moving off that channel.</li>
                                 <li><strong>30 days of history</strong> - per-channel utilization, interference, and TX-retry trends, so the plan reflects how channels behave over time, not one noisy snapshot.</li>
+                                <li><strong>Long-term outcome memory</strong> - how channels you've actually run performed (utilization, interference, TX retries) is recorded and kept for months, so a previously-tried channel is judged on its measured record instead of estimates. After a channel change, the abandoned channel isn't re-suggested during a @(ChannelMemoryHelper.SoakPeriod.TotalHours.ToString("0"))-hour soak while the new one proves itself.</li>
                                 <li><strong>Honest about the unknown</strong> - channels with no scan data are penalized for that uncertainty, so it won't push you onto an unseen channel unless your known channels are clearly worse.</li>
                                 <li><strong>Whole-network and per-AP</strong> - minimizes total interference across the site, then checks each AP individually, only suggesting a move that genuinely helps and never wrecking one AP to slightly help another.</li>
                                 <li><strong>Mesh and DFS aware</strong> - mesh APs stay on their parent's channel; DFS channels are handled per your preference.</li>
@@ -1042,6 +1056,17 @@
     private static string FormatScore(double score) => score.ToString("F1");
 
     private static string FormatPercent(double pct) => pct.ToString("F0");
+
+    private static string GetSoakTooltip(ApChannelRecommendation rec)
+    {
+        var channels = string.Join(", ", rec.SoakSuppressedChannels);
+        var chLabel = rec.SoakSuppressedChannels.Count == 1 ? "Ch" : "Channels";
+        var until = rec.SoakEndsAt.HasValue
+            ? $" until {rec.SoakEndsAt.Value.ToLocalTime():MMM d h:mm tt}"
+            : "";
+        return $"Channel changed recently. {chLabel} {channels} won't be re-suggested{until} " +
+               "so the new channel can prove itself on measured data.";
+    }
 
     private static string GetScoreClass(double score) => score switch
     {
