@@ -41,6 +41,12 @@ public class ApNeighborSighting
     /// only reads clean when its remembered neighbor was consistently weak.</summary>
     public int SignalDbm { get; set; }
 
+    /// <summary>Number of collection cycles this neighbor has been seen on this channel.
+    /// Distinguishes a durable neighbor (seen cycle after cycle) from a one-off (a guest
+    /// hotspot, a device passing through) so a transient sighting can't accumulate into
+    /// phantom load. Scales the remembered sighting's confidence at recommendation time.</summary>
+    public int SightingCount { get; set; }
+
     /// <summary>Neighbor SSID at last sighting (may be empty for hidden networks)</summary>
     [MaxLength(64)]
     public string? Ssid { get; set; }

@@ -177,6 +177,7 @@ public class ChannelMemoryRepositoryTests : IDisposable
         row.LastSeenUtc.Should().Be(day2);
         row.SignalDbm.Should().Be(-70, "the strongest observed signal is kept");
         row.WidthMhz.Should().Be(40, "width follows the newest sighting");
+        row.SightingCount.Should().Be(2, "each upsert cycle increments the count once");
     }
 
     [Fact]
@@ -194,7 +195,9 @@ public class ChannelMemoryRepositoryTests : IDisposable
 
         var rows = await _repository.GetNeighborSightingsSinceAsync(DateTime.MinValue);
         rows.Should().HaveCount(2);
-        rows.Single(r => r.Channel == 6).SignalDbm.Should().Be(-68);
+        var ch6 = rows.Single(r => r.Channel == 6);
+        ch6.SignalDbm.Should().Be(-68);
+        ch6.SightingCount.Should().Be(1, "two samples in one cycle count as a single sighting");
     }
 
     [Fact]

@@ -136,12 +136,17 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
                     WidthMhz = newest.WidthMhz,
                     SignalDbm = maxSignal,
                     Ssid = newest.Ssid,
+                    SightingCount = 1,
                     FirstSeenUtc = firstSeen,
                     LastSeenUtc = newest.SeenAtUtc
                 });
                 continue;
             }
 
+            // One increment per upsert call: the collector runs this once per cycle with the
+            // current neighbor picture, so the count measures cycles-seen (the persistence
+            // signal), not how many samples happened to be in the batch.
+            row.SightingCount++;
             row.SignalDbm = Math.Max(row.SignalDbm, maxSignal);
             if (newest.SeenAtUtc > row.LastSeenUtc)
             {

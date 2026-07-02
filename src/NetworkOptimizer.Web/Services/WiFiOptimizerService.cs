@@ -864,6 +864,7 @@ public class WiFiOptimizerService
                     r.Channel,
                     r.WidthMhz,
                     r.SignalDbm,
+                    r.SightingCount,
                     new DateTimeOffset(DateTime.SpecifyKind(r.LastSeenUtc, DateTimeKind.Utc)),
                     r.Ssid))
                 .Where(s => s.Band != RadioBand.Unknown)

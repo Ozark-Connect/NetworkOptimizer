@@ -257,8 +257,9 @@ public class ChannelMemoryHelperTests
     };
 
     private static RememberedNeighborSighting Remembered(
-        string apMac, string bssid, int channel, DateTimeOffset lastSeen, int signal = -65) => new(
-            apMac, RadioBand.Band2_4GHz, bssid, channel, WidthMhz: 20, signal, lastSeen, Ssid: "Net");
+        string apMac, string bssid, int channel, DateTimeOffset lastSeen, int signal = -65,
+        int sightingCount = 10) => new(
+            apMac, RadioBand.Band2_4GHz, bssid, channel, WidthMhz: 20, signal, sightingCount, lastSeen, Ssid: "Net");
 
     [Fact]
     public void MergeRememberedNeighbors_AddsUnseenNeighbor_WithDecayedConfidence()
@@ -277,6 +278,58 @@ public class ChannelMemoryHelperTests
         nb.Channel.Should().Be(11);
         nb.Confidence.Should().BeApproximately(0.5, 0.001, "one half-life halves the confidence");
         scans[0].Neighbors.Should().BeEmpty("the input scan must not be mutated");
+    }
+
+    [Fact]
+    public void MergeRememberedNeighbors_TransientSighting_ScaledDownByPersistence()
+    {
+        // Seen only once (a one-off): confidence is scaled by 1/MinSightings even though the
+        // sighting is fresh, so a transient neighbor can't accumulate into full phantom load.
+        var scans = new List<ChannelScanResult> { Scan("aa:bb:cc:dd:ee:01") };
+        var remembered = new[]
+        {
+            Remembered("aa:bb:cc:dd:ee:01", "11:22:33:44:55:66", channel: 11,
+                lastSeen: Now, sightingCount: 1)
+        };
+
+        var merged = ChannelMemoryHelper.MergeRememberedNeighbors(scans, remembered, Now);
+
+        var expected = 1.0 / ChannelMemoryHelper.MinNeighborSightingsForFullWeight;
+        merged.Single().Neighbors.Single().Confidence.Should().BeApproximately(expected, 0.001);
+    }
+
+    [Fact]
+    public void MergeRememberedNeighbors_DurableSighting_FullPersistence()
+    {
+        // Seen well past the full-weight threshold and fresh: confidence is the age decay
+        // (1.0) with no persistence penalty.
+        var scans = new List<ChannelScanResult> { Scan("aa:bb:cc:dd:ee:01") };
+        var remembered = new[]
+        {
+            Remembered("aa:bb:cc:dd:ee:01", "11:22:33:44:55:66", channel: 11,
+                lastSeen: Now, sightingCount: ChannelMemoryHelper.MinNeighborSightingsForFullWeight + 5)
+        };
+
+        var merged = ChannelMemoryHelper.MergeRememberedNeighbors(scans, remembered, Now);
+
+        merged.Single().Neighbors.Single().Confidence.Should().BeApproximately(1.0, 0.001);
+    }
+
+    [Fact]
+    public void MergeRememberedNeighbors_TransientAndAged_DroppedBelowFloor()
+    {
+        // One-off (persistence 1/3) AND two age half-lives old (0.25): combined confidence
+        // 0.083 falls below the 0.125 floor, so a stale transient is dropped entirely.
+        var scans = new List<ChannelScanResult> { Scan("aa:bb:cc:dd:ee:01") };
+        var remembered = new[]
+        {
+            Remembered("aa:bb:cc:dd:ee:01", "11:22:33:44:55:66", channel: 11,
+                lastSeen: Now - ChannelMemoryHelper.NeighborHalfLife * 2, sightingCount: 1)
+        };
+
+        var merged = ChannelMemoryHelper.MergeRememberedNeighbors(scans, remembered, Now);
+
+        merged.Single().Neighbors.Should().BeEmpty();
     }
 
     [Fact]

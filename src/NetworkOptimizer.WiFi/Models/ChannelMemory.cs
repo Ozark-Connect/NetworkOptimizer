@@ -50,6 +50,7 @@ public record ChannelOutcomeBucket(
 /// <param name="Channel">Control channel the neighbor was seen on</param>
 /// <param name="WidthMhz">Neighbor channel width in MHz; 0 when unknown</param>
 /// <param name="SignalDbm">Strongest observed signal in dBm</param>
+/// <param name="SightingCount">Collection cycles this neighbor has been seen - the persistence signal</param>
 /// <param name="LastSeenAt">Most recent sighting (UTC) - drives age decay</param>
 /// <param name="Ssid">Neighbor SSID, if any</param>
 public record RememberedNeighborSighting(
@@ -59,5 +60,6 @@ public record RememberedNeighborSighting(
     int Channel,
     int WidthMhz,
     int SignalDbm,
+    int SightingCount,
     DateTimeOffset LastSeenAt,
     string? Ssid);

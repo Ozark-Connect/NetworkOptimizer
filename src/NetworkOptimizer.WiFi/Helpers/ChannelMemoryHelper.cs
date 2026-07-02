@@ -57,10 +57,20 @@ public static class ChannelMemoryHelper
     public static readonly TimeSpan NeighborMemoryWindow = TimeSpan.FromDays(42);
 
     /// <summary>
-    /// Minimum age-decayed confidence for a remembered sighting to be merged. 0.125 = three
-    /// half-lives, matching <see cref="NeighborMemoryWindow"/>.
+    /// Minimum (age × persistence) confidence for a remembered sighting to be merged. 0.125 =
+    /// three age half-lives at full persistence, matching <see cref="NeighborMemoryWindow"/>.
     /// </summary>
     public const double MinNeighborConfidence = 0.125;
+
+    /// <summary>
+    /// Sighting count at which a remembered neighbor is trusted at full weight. Collection runs
+    /// every few hours, so ~3 sightings means the neighbor has been seen consistently rather
+    /// than as a one-off (a guest hotspot, a device passing through, a neighbor since departed).
+    /// Below it, confidence - and thus both the neighbor's interference weight and the
+    /// observation credit it grants - scales down proportionally, so transient sightings can't
+    /// accumulate into phantom load on a channel. Tunable.
+    /// </summary>
+    public const int MinNeighborSightingsForFullWeight = 3;
 
     /// <summary>
     /// Weakest neighbor signal worth persisting. A few dB below the CCA threshold (-82 dBm,
@@ -258,8 +268,13 @@ public static class ChannelMemoryHelper
 
             foreach (var sighting in rememberedByRadio[(scan.Band, apKey)])
             {
+                // Confidence combines recency (age half-life) with persistence (how many
+                // cycles the neighbor has actually been seen). A durable neighbor counts at
+                // full recency weight; a one-off is scaled down so it can't inflate a channel.
                 var ageDays = Math.Max(0, (now - sighting.LastSeenAt).TotalDays);
-                var confidence = Math.Pow(0.5, ageDays / NeighborHalfLife.TotalDays);
+                var ageDecay = Math.Pow(0.5, ageDays / NeighborHalfLife.TotalDays);
+                var persistence = Math.Min(1.0, (double)sighting.SightingCount / MinNeighborSightingsForFullWeight);
+                var confidence = ageDecay * persistence;
                 if (confidence < MinNeighborConfidence) continue;
 
                 var bssidKey = sighting.Bssid.ToLowerInvariant();
