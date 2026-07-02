@@ -2864,10 +2864,12 @@
 
     private int AgentCount(int siteId) => AgentsFor(siteId).Count;
 
-    private void ToggleAgents(int siteId)
+    private async Task ToggleAgents(int siteId)
     {
         _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
         _newAgentToken = null;
+        if (_expandedSiteId != null)
+            await LoadAgentsAsync();
     }
 
     private async Task CreateAgent(Site site)
