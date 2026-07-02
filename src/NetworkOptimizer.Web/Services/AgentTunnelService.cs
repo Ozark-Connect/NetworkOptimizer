@@ -58,6 +58,13 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
 
         var connection = _registry.Register(agent.Id, siteSlug, agent.Name);
         _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
+
+        // The pump and refresh loops must stop when the read loop ends for any
+        // reason, including a graceful agent close (which does not cancel the
+        // call's own token).
+        using var streamCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task? pumpTask = null;
+        Task? refreshTask = null;
         try
         {
             await responseStream.WriteAsync(new ServerMessage
@@ -72,7 +79,8 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
 
             // The response stream allows one writer at a time, so all outbound
             // traffic funnels through the connection's channel and this pump.
-            var pumpTask = PumpOutboundAsync(connection, responseStream, ct);
+            pumpTask = PumpOutboundAsync(connection, responseStream, streamCts.Token);
+            refreshTask = RefreshProbeConfigLoopAsync(connection, streamCts.Token);
 
             await _probeResultSink.OnAgentConnectedAsync(connection, ct);
 
@@ -93,8 +101,6 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                 }
             }
-
-            await pumpTask;
         }
         catch (OperationCanceledException)
         {
@@ -107,6 +113,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         finally
         {
             _registry.Unregister(connection);
+            streamCts.Cancel();
+            await AwaitQuietlyAsync(pumpTask);
+            await AwaitQuietlyAsync(refreshTask);
             _logger.LogInformation("Agent {Name} (id {Id}) tunnel closed", agent.Name, agent.Id);
         }
     }
@@ -120,5 +129,26 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         {
             await responseStream.WriteAsync(message, ct);
         }
+    }
+
+    /// <summary>
+    /// Re-pushes the site's probe config every few minutes so monitoring
+    /// target edits reach connected agents without waiting for a reconnect.
+    /// </summary>
+    private async Task RefreshProbeConfigLoopAsync(AgentTunnelConnection connection, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5), ct);
+            await _probeResultSink.PushProbeConfigAsync(connection, ct);
+        }
+    }
+
+    private static async Task AwaitQuietlyAsync(Task? task)
+    {
+        if (task == null) return;
+        try { await task; }
+        catch (OperationCanceledException) { }
+        catch (IOException) { }
     }
 }

@@ -85,9 +85,16 @@ while (!cts.IsCancellationRequested)
 {
     if (!string.IsNullOrEmpty(config.TunnelUrl))
     {
+        // The probe runner lives and dies with its tunnel connection: the
+        // server re-pushes probe config on every connect, and results have
+        // nowhere to go while the tunnel is down.
+        using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+        var tunnel = new TunnelClient();
+        var probeRunner = new ProbeRunner(tunnel.TrySend);
+        tunnel.OnProbeConfig = probeRunner.UpdateConfig;
+        var probeTask = probeRunner.RunAsync(connectionCts.Token);
         try
         {
-            var tunnel = new TunnelClient();
             await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, config.IgnoreSslErrors, cts.Token);
             Console.Error.WriteLine("Tunnel closed by server, reconnecting...");
         }
@@ -98,6 +105,11 @@ while (!cts.IsCancellationRequested)
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Tunnel error: {ex.Message}");
+        }
+        finally
+        {
+            connectionCts.Cancel();
+            try { await probeTask; } catch (OperationCanceledException) { }
         }
     }
 

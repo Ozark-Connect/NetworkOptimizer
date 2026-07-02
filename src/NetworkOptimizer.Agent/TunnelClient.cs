@@ -18,7 +18,7 @@ public sealed class TunnelClient
         new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest });
 
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
-    public Action<ProbeConfig>? OnProbeConfig { get; init; }
+    public Action<ProbeConfig>? OnProbeConfig { get; set; }
 
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
