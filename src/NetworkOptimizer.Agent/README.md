@@ -1,8 +1,7 @@
 # Network Optimizer On-Site Agent
 
 Runs at a remote site and reports back to a central Network Optimizer server.
-Current capabilities: enrollment and heartbeat. Planned (see
-`research/multi-site/multi-site-spec.md`): SNMP monitoring, latency/loss probes
+Current capabilities: enrollment and heartbeat. Planned: SNMP monitoring, latency/loss probes
 with per-WAN source IP binding, LAN speed test serving (iperf3 + OpenSpeedTest),
 and an outbound gRPC tunnel that can proxy SSH and UniFi Console access.
 
