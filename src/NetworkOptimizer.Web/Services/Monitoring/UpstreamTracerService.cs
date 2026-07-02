@@ -86,7 +86,7 @@ public class UpstreamTracerService
     private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false, bool EndpointIsTransitHop = false);
 
     public UpstreamTracerService(
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         IGatewaySshService gatewaySsh,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
@@ -96,7 +96,7 @@ public class UpstreamTracerService
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _gatewaySsh = gatewaySsh;
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;

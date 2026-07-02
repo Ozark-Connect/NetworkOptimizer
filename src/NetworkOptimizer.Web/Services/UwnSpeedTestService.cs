@@ -39,14 +39,14 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         INetworkPathAnalyzer pathAnalyzer,
         IConfiguration configuration,
         Iperf3ServerService iperf3ServerService,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         IGatewaySshService gatewaySsh,
         IServiceScopeFactory scopeFactory,
         IAlertEventBus? alertEventBus = null)
         : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus)
     {
         _configuration = configuration;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _gatewaySsh = gatewaySsh;
         _scopeFactory = scopeFactory;
     }

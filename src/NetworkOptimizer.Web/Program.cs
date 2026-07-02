@@ -105,10 +105,14 @@ builder.Services.AddSingleton<IFileVersionProvider, NetworkOptimizer.Web.Service
 // Register credential protection service (singleton - shared encryption key)
 builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProtectionService, NetworkOptimizer.Storage.Services.CredentialProtectionService>();
 
-// Register UniFi connection service (singleton - maintains connection state)
-builder.Services.AddSingleton<UniFiConnectionService>();
-builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<UniFiConnectionService>());
+// All UniFi console connections live in SiteConnectionRegistry, one long-lived
+// instance per site. Scoped resolution (components, request handlers, per-site
+// scopes) forwards to the current site's instance; singletons and background
+// code inject the registry directly.
 builder.Services.AddSingleton<SiteConnectionRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<SiteConnectionRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
+builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<SiteConnectionRegistry>().GetDefault());
 
 // Register Network Path Analyzer (singleton - uses caching)
 builder.Services.AddSingleton<INetworkPathAnalyzer, NetworkPathAnalyzer>();

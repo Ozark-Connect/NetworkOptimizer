@@ -30,7 +30,7 @@ public static class ScheduleExecutorRegistration
         IServiceProvider services, CancellationToken ct)
     {
         // Ensure console connection is fresh for scheduled audits (fingerprint cache expires after 24h)
-        var connService = services.GetRequiredService<UniFiConnectionService>();
+        var connService = services.GetRequiredService<SiteConnectionRegistry>().GetDefault();
         if (!connService.IsConnected)
             await connService.ReconnectAsync();
 
@@ -164,7 +164,7 @@ public static class ScheduleExecutorRegistration
         // Fall back to UniFi-discovered devices if not found in manual config
         if (device == null)
         {
-            var connService = services.GetRequiredService<UniFiConnectionService>();
+            var connService = services.GetRequiredService<SiteConnectionRegistry>().GetDefault();
             try
             {
                 var discovered = await connService.GetDiscoveredDevicesAsync(ct);

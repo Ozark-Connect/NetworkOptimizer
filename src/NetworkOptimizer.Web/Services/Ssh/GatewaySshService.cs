@@ -26,13 +26,13 @@ public class GatewaySshService : IGatewaySshService
         IServiceProvider serviceProvider,
         SshClientService sshClient,
         ICredentialProtectionService credentialProtection,
-        UniFiConnectionService connectionService)
+        SiteConnectionRegistry siteConnections)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshClient = sshClient;
         _credentialProtection = credentialProtection;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
     }
 
     /// <inheritdoc />

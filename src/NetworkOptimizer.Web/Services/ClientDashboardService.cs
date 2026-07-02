@@ -49,7 +49,7 @@ public class ClientDashboardService
     public ClientDashboardService(
         ILogger<ClientDashboardService> logger,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         INetworkPathAnalyzer pathAnalyzer,
         ClientSpeedTestService speedTestService,
         IConfiguration configuration,
@@ -57,7 +57,7 @@ public class ClientDashboardService
     {
         _logger = logger;
         _dbFactory = dbFactory;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _pathAnalyzer = pathAnalyzer;
         _speedTestService = speedTestService;
         _configuration = configuration;

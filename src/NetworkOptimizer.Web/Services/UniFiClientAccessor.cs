@@ -11,9 +11,9 @@ public class UniFiClientAccessor : IUniFiClientAccessor
 {
     private readonly UniFiConnectionService _connectionService;
 
-    public UniFiClientAccessor(UniFiConnectionService connectionService)
+    public UniFiClientAccessor(SiteConnectionRegistry siteConnections)
     {
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
     }
 
     public UniFiApiClient? Client => _connectionService.Client;

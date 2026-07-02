@@ -36,7 +36,7 @@ public class CellularModemService : ICellularModemService
         ILogger<CellularModemService> logger,
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         MonitoringInfluxClient influx,
         ICredentialProtectionService credentialProtection,
         NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator alertEvaluator,
@@ -45,7 +45,7 @@ public class CellularModemService : ICellularModemService
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _influx = influx;
         _credentialProtection = credentialProtection;
         _alertEvaluator = alertEvaluator;

@@ -46,12 +46,12 @@ public class ChannelMemoryCollectionService : BackgroundService
     public ChannelMemoryCollectionService(
         IServiceScopeFactory scopeFactory,
         IChannelMemoryRepository repository,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         ILogger<ChannelMemoryCollectionService> logger)
     {
         _scopeFactory = scopeFactory;
         _repository = repository;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _logger = logger;
     }
 

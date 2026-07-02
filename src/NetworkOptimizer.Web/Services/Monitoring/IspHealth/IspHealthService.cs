@@ -56,13 +56,13 @@ public class IspHealthService
     public IspHealthService(
         MonitoringInfluxClient influx,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         PhysicalLinkResolver physicalLinkResolver,
         ILogger<IspHealthService> logger)
     {
         _influx = influx;
         _dbFactory = dbFactory;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _physicalLinkResolver = physicalLinkResolver;
         _logger = logger;
     }

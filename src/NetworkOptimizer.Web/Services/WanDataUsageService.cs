@@ -35,12 +35,12 @@ public class WanDataUsageService : BackgroundService
 
     public WanDataUsageService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         IAlertEventBus alertEventBus,
         ILogger<WanDataUsageService> logger)
     {
         _dbFactory = dbFactory;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _alertEventBus = alertEventBus;
         _logger = logger;
     }

@@ -1124,6 +1124,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     public void Dispose()
     {
+        // Instances are owned by SiteConnectionRegistry but handed out through a
+        // scoped forwarding registration, so the container calls Dispose whenever a
+        // request/circuit scope ends. Only the registry may tear down the shared
+        // connection, via DisposeOwned.
+    }
+
+    internal void DisposeOwned()
+    {
         _client?.Dispose();
     }
 }

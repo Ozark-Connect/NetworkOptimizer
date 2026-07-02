@@ -37,11 +37,11 @@ public sealed class ModuleUpdateNotificationService : IDisposable
 
     public ModuleUpdateNotificationService(
         IServiceScopeFactory scopeFactory,
-        UniFiConnectionService connection,
+        SiteConnectionRegistry siteConnections,
         ILogger<ModuleUpdateNotificationService> logger)
     {
         _scopeFactory = scopeFactory;
-        _connection = connection;
+        _connection = siteConnections.GetDefault();
         _logger = logger;
         _connection.OnConnectionChanged += HandleConnectionChanged;
         // If the Console is already connected when this singleton is first resolved,

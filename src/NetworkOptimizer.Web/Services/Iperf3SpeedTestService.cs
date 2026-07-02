@@ -47,7 +47,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         UniFiSshService sshService,
         SystemSettingsService settingsService,
         INetworkPathAnalyzer pathAnalyzer,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         ITopologySnapshotService snapshotService,
         IAlertEventBus? alertEventBus = null)
     {
@@ -57,7 +57,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         _sshService = sshService;
         _settingsService = settingsService;
         _pathAnalyzer = pathAnalyzer;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _snapshotService = snapshotService;
         _alertEventBus = alertEventBus;
     }

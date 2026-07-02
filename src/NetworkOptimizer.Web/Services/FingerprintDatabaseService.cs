@@ -19,10 +19,10 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
 
     public FingerprintDatabaseService(
         ILogger<FingerprintDatabaseService> logger,
-        UniFiConnectionService connectionService)
+        SiteConnectionRegistry siteConnections)
     {
         _logger = logger;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
     }
 
     /// <summary>

@@ -26,7 +26,7 @@ public class ClientSpeedTestService
     public ClientSpeedTestService(
         ILogger<ClientSpeedTestService> logger,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        UniFiConnectionService connectionService,
+        SiteConnectionRegistry siteConnections,
         INetworkPathAnalyzer pathAnalyzer,
         ITopologySnapshotService snapshotService,
         IConfiguration configuration,
@@ -35,7 +35,7 @@ public class ClientSpeedTestService
     {
         _logger = logger;
         _dbFactory = dbFactory;
-        _connectionService = connectionService;
+        _connectionService = siteConnections.GetDefault();
         _pathAnalyzer = pathAnalyzer;
         _snapshotService = snapshotService;
         _configuration = configuration;
