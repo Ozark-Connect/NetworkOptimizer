@@ -16,6 +16,9 @@ public class AgentEnrollmentService
     /// <summary>Agents reporting within this window count as online.</summary>
     public static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(2);
 
+    /// <summary>Unused enrollment tokens stop working after this long.</summary>
+    public static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(24);
+
     private const string TokenPrefix = "noa_";
     private const string KeyPrefix = "noak_";
 
@@ -85,6 +88,8 @@ public class AgentEnrollmentService
             return (false, null, null, "Invalid enrollment token");
         if (agent.EnrolledAt != null)
             return (false, null, null, "Enrollment token already used");
+        if (agent.TokenCreatedAt == null || DateTime.UtcNow - agent.TokenCreatedAt > TokenLifetime)
+            return (false, null, null, "Enrollment token expired - generate a new one");
 
         var site = await db.Sites.FindAsync(agent.SiteId);
         if (site == null)

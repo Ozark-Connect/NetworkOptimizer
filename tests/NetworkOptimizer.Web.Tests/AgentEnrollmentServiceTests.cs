@@ -81,6 +81,24 @@ public class AgentEnrollmentServiceTests
     }
 
     [Fact]
+    public async Task Enroll_RejectsExpiredToken()
+    {
+        var siteId = await SeedSiteAsync();
+        var (agent, token) = await _service.CreateAgentAsync(siteId, "Primary");
+
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = await db.SiteAgents.FindAsync(agent.Id);
+            row!.TokenCreatedAt = DateTime.UtcNow - AgentEnrollmentService.TokenLifetime - TimeSpan.FromMinutes(1);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await _service.EnrollAsync(token, null);
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("expired");
+    }
+
+    [Fact]
     public async Task Enroll_RejectsUnknownAndDisabledTokens()
     {
         var siteId = await SeedSiteAsync();
