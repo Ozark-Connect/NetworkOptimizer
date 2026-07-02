@@ -21,7 +21,7 @@ public class AgentProbeResultSink
 {
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly MonitoringInfluxRegistry _influxRegistry;
-    private readonly MonitoringLiveStats _liveStats;
+    private readonly MonitoringLiveStatsRegistry _liveStatsRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<AgentProbeResultSink> _logger;
@@ -33,14 +33,14 @@ public class AgentProbeResultSink
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry influxRegistry,
-        MonitoringLiveStats liveStats,
+        MonitoringLiveStatsRegistry liveStatsRegistry,
         SiteConnectionRegistry siteConnections,
         ICredentialProtectionService credentialProtection,
         ILogger<AgentProbeResultSink> logger)
     {
         _siteDbFactory = siteDbFactory;
         _influxRegistry = influxRegistry;
-        _liveStats = liveStats;
+        _liveStatsRegistry = liveStatsRegistry;
         _siteConnections = siteConnections;
         _credentialProtection = credentialProtection;
         _logger = logger;
@@ -182,7 +182,7 @@ public class AgentProbeResultSink
 
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
-        if (!influx.IsConfigured) return;
+        var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
 
         foreach (var sample in batch.Interfaces)
         {
@@ -193,6 +193,35 @@ public class AgentProbeResultSink
             var calc = InterfaceRateCalculator.Compute(
                 prevState, sample.InOctets, sample.OutOctets, timestamp, sample.HcCounters, sample.SpeedBps);
             _counterCache[key] = calc.NewState;
+
+            // Mirror into the site's live caches the same way the local fast
+            // tier does, so the site's Live View port table and map refresh
+            // from memory.
+            if (calc.RateInBps.HasValue && calc.RateOutBps.HasValue)
+                liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp);
+            liveStats.RecordPortStats(new MonitoringInfluxClient.PortStatsPoint
+            {
+                DeviceMac = sample.DeviceMac,
+                IfName = sample.IfName,
+                PortId = sample.PortId,
+                OperStatus = sample.OperStatus,
+                SpeedBps = sample.SpeedBps > 0 ? sample.SpeedBps : null,
+                RateInBps = calc.RateInBps,
+                RateOutBps = calc.RateOutBps,
+                BytesIn = sample.InOctets,
+                BytesOut = sample.OutOctets,
+                UcastPktsIn = sample.UcastPktsIn,
+                UcastPktsOut = sample.UcastPktsOut,
+                McastPktsIn = sample.McastPktsIn,
+                McastPktsOut = sample.McastPktsOut,
+                BcastPktsIn = sample.BcastPktsIn,
+                BcastPktsOut = sample.BcastPktsOut,
+                ErrorsIn = sample.ErrorsIn,
+                ErrorsOut = sample.ErrorsOut,
+                DiscardsIn = sample.DiscardsIn,
+                DiscardsOut = sample.DiscardsOut,
+                Time = timestamp,
+            });
 
             await influx.WriteInterfaceCountersAsync(
                 deviceMac: sample.DeviceMac,
@@ -221,6 +250,7 @@ public class AgentProbeResultSink
 
         foreach (var health in batch.Health)
         {
+            var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(health.TimestampUnixMs).UtcDateTime;
             await influx.WriteDeviceHealthAsync(
                 deviceMac: health.DeviceMac,
                 deviceType: string.IsNullOrEmpty(health.DeviceType) ? "unknown" : health.DeviceType,
@@ -230,7 +260,15 @@ public class AgentProbeResultSink
                 memoryUsedPercent: health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null,
                 temperatureC: health.HasTemperatureC ? health.TemperatureC : null,
                 uptimeSeconds: health.HasUptimeSeconds ? health.UptimeSeconds : null,
-                timestamp: DateTimeOffset.FromUnixTimeMilliseconds(health.TimestampUnixMs).UtcDateTime);
+                timestamp: timestamp);
+
+            liveStats.RecordHealth(
+                health.DeviceMac,
+                health.HasCpuPercent ? health.CpuPercent : null,
+                health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null,
+                health.HasTemperatureC ? health.TemperatureC : null,
+                health.HasUptimeSeconds ? health.UptimeSeconds : null,
+                timestamp);
         }
     }
 
@@ -254,6 +292,7 @@ public class AgentProbeResultSink
         // configures itself from that site's MonitoringSettings on first use.
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
+        var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
 
         foreach (var result in batch.Results)
         {
@@ -280,17 +319,22 @@ public class AgentProbeResultSink
                 received: result.Received,
                 timestamp: timestamp);
 
-            // Live stats back the default site's dashboards only; per-site live
-            // views come with the background fan-out work.
-            if (isDefault)
+            // The site's live caches mirror what the local latency tier
+            // records: fabric probes surface on that device's card, and every
+            // target's latest result feeds the targets table.
+            if (target.TargetType == MonitoringTargetType.Fabric && !string.IsNullOrEmpty(target.DeviceMac))
             {
-                _liveStats.RecordTargetProbe(
-                    target.TargetId,
+                liveStats.RecordLatency(target.DeviceMac,
                     result.HasRttAvgMs ? result.RttAvgMs : null,
                     result.LossPercent,
-                    result.Success,
                     timestamp);
             }
+            liveStats.RecordTargetProbe(
+                target.TargetId,
+                result.HasRttAvgMs ? result.RttAvgMs : null,
+                result.LossPercent,
+                result.Success,
+                timestamp);
 
             if (result.Success)
                 target.LastVerified = timestamp;

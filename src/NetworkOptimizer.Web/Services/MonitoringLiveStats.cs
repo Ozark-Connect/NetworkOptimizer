@@ -25,11 +25,30 @@ public class MonitoringLiveStats
     private static readonly TimeSpan TargetCacheTtl = TimeSpan.FromSeconds(30);
     private readonly Lock _targetCacheLock = new();
 
+    private readonly SiteDbContextFactory? _siteDbFactory;
+    private readonly string? _siteSlug;
+
+    /// <param name="siteSlug">
+    /// Non-default site whose database backs the target lookups. Null/empty =
+    /// the default site, reading from the main database as before.
+    /// </param>
     public MonitoringLiveStats(ILogger<MonitoringLiveStats> logger,
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory)
+        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        SiteDbContextFactory? siteDbFactory = null,
+        string? siteSlug = null)
     {
         _logger = logger;
         _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? null : siteSlug;
+    }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSiteContextAsync(CancellationToken ct)
+    {
+        if (_siteSlug != null && _siteDbFactory != null)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
     }
 
     private readonly ConcurrentDictionary<string, DeviceLiveStats> _stats = new();
@@ -301,7 +320,7 @@ public class MonitoringLiveStats
                 return _ispTransitTargets;
         }
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteContextAsync(ct);
         var targets = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.Enabled
                 && (t.TargetType == MonitoringTargetType.AccessIsp

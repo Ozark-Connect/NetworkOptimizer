@@ -450,7 +450,12 @@ builder.Services.AddScoped<SnmpDetectionService>();
 builder.Services.AddSingleton<MonitoringInfluxRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringInfluxRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
-builder.Services.AddSingleton<MonitoringLiveStats>();
+// Per-site live monitoring caches, same forwarding shape: pages/endpoints get
+// the current site's instance, singleton collectors pin the default, and the
+// agent result sink records into the owning site's instance.
+builder.Services.AddSingleton<MonitoringLiveStatsRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringLiveStatsRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.PhysicalLinkResolver>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthService>();

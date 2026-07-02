@@ -71,7 +71,7 @@ public class MonitoringCollectionAgent : BackgroundService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteConnectionRegistry siteConnections,
         MonitoringInfluxRegistry influxRegistry,
-        MonitoringLiveStats liveStats,
+        MonitoringLiveStatsRegistry liveStatsRegistry,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
         NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator alertEvaluator,
@@ -83,7 +83,7 @@ public class MonitoringCollectionAgent : BackgroundService
         _dbFactory = dbFactory;
         _connectionService = siteConnections.GetDefault();
         _influx = influxRegistry.GetDefault();
-        _liveStats = liveStats;
+        _liveStats = liveStatsRegistry.GetDefault();
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         _alertEvaluator = alertEvaluator;
