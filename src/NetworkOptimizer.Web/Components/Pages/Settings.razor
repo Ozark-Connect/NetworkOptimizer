@@ -2668,7 +2668,11 @@
                                                 {
                                                     <div class="alert alert-success">
                                                         Enrollment token: <code>@_newAgentToken</code><br />
-                                                        Copy it now - it is shown only once. The on-site agent uses it to enroll with this server.
+                                                        Copy it now - it is shown only once. On the site's agent box, build the agent
+                                                        (<code>dotnet publish src/NetworkOptimizer.Agent -c Release</code>), create an
+                                                        <code>agent.json</code> with <code>serverUrl</code> (this server's address as reachable
+                                                        from that site) and <code>enrollmentToken</code>, then run the binary. It enrolls once
+                                                        and appears here as Online.
                                                     </div>
                                                 }
                                             </td>
