@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Services
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
+@inject SiteConnectionRegistry SiteConnections
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
@@ -24,7 +25,10 @@
                 {
                     <button type="button" class="site-switcher-item @(site.Slug == SiteContext.Slug ? "active" : "")"
                             @onclick="() => SwitchToAsync(site)">
-                        <span class="site-switcher-item-name">@site.Name</span>
+                        <span class="site-switcher-item-name">
+                            <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")"></span>
+                            @site.Name
+                        </span>
                         <span class="site-switcher-item-slug">@site.Slug</span>
                     </button>
                 }

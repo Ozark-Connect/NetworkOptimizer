@@ -4,6 +4,7 @@
 @using NetworkOptimizer.Web.Services
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
+@inject SiteConnectionRegistry SiteConnections
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
@@ -40,7 +41,7 @@ else
             var isCurrent = site.Slug == SiteContext.Slug;
             <div class="card site-card @(isCurrent ? "site-card-current" : "")" @onclick="() => SwitchToAsync(site)">
                 <div class="site-card-header">
-                    <span class="status-dot @(site.Enabled ? "online" : "offline")"></span>
+                    <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")" data-tooltip="@(SiteConnections.GetFor(site.Slug).IsConnected ? "Console connected" : "Console not connected")"></span>
                     <h3 class="site-card-name">@site.Name</h3>
                     @if (isCurrent)
                     {
