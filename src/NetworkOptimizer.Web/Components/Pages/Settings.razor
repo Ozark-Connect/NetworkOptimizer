@@ -30,6 +30,7 @@
 @inject NetworkOptimizer.Storage.Services.ICredentialProtectionService CredentialService
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
+@inject SiteManagementService SiteManagement
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
@@ -2568,14 +2569,87 @@
     <div class="card settings-tab-multisite" id="multi-site">
         <div class="card-header">
             <h2 class="card-title">Multi-Site Management</h2>
-            <span class="status-badge">Coming Soon</span>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge status-connected">Enabled</span>
+            }
         </div>
         <div class="card-body">
             <p class="section-description">
-                Manage multiple sites from this Network Optimizer instance: per-site monitoring,
-                speed testing, and UniFi Console connections, with an on-site agent for remote sites.
-                Site setup and agent deployment will live on this tab as the feature rolls out.
+                Manage multiple sites from this Network Optimizer instance. Each site gets its own
+                isolated database with per-site monitoring, speed testing, and UniFi Console connection
+                settings. Most installs manage a single network and can leave this off.
             </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
+                    <span>Enable multi-site management</span>
+                </label>
+            </div>
+
+            @if (_multiSiteEnabled)
+            {
+                <div class="form-group">
+                    <label class="form-label">Sites</label>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Site ID</th>
+                                    <th class="hide-mobile">Created</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var site in _sites)
+                                {
+                                    <tr>
+                                        <td>@site.Name</td>
+                                        <td><code>@site.Slug</code></td>
+                                        <td class="hide-mobile">@site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                                        <td>
+                                            @if (site.IsDefault)
+                                            {
+                                                <span class="status-badge">Default</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Add Site</label>
+                    <div class="input-with-button">
+                        <input type="text" class="form-control" @bind="_newSiteName" @bind:event="oninput"
+                               placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSite"
+                                disabled="@(_creatingSite || string.IsNullOrWhiteSpace(_newSiteName))">
+                            @if (_creatingSite)
+                            {
+                                <span class="spinner"></span>
+                            }
+                            else
+                            {
+                                <span>Create Site</span>
+                            }
+                        </button>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_newSiteName))
+                    {
+                        <small class="form-help">Site ID: <code>@SlugPreview</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_multiSiteMessage))
+            {
+                <div class="alert alert-@_multiSiteMessageClass">@_multiSiteMessage</div>
+            }
         </div>
     </div>
 </div>
@@ -2696,6 +2770,57 @@
                     setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
                 }
             })();");
+    }
+
+    // Multi-Site
+    private bool _multiSiteEnabled = false;
+    private List<Site> _sites = new();
+    private string _newSiteName = "";
+    private bool _creatingSite = false;
+    private string _multiSiteMessage = "";
+    private string _multiSiteMessageClass = "";
+
+    private string SlugPreview => StringUtilities.ToSlug(_newSiteName);
+
+    private async Task LoadMultiSiteSettings()
+    {
+        _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
+        if (_multiSiteEnabled)
+            _sites = await SiteManagement.GetSitesAsync();
+    }
+
+    private async Task OnMultiSiteEnabledChanged(ChangeEventArgs e)
+    {
+        _multiSiteEnabled = e.Value is true;
+        _multiSiteMessage = "";
+        await SiteManagement.SetMultiSiteEnabledAsync(_multiSiteEnabled);
+        if (_multiSiteEnabled)
+            _sites = await SiteManagement.GetSitesAsync();
+    }
+
+    private async Task CreateSite()
+    {
+        _creatingSite = true;
+        _multiSiteMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var site = await SiteManagement.CreateSiteAsync(_newSiteName);
+            _newSiteName = "";
+            _sites = await SiteManagement.GetSitesAsync();
+            _multiSiteMessage = $"Site '{site.Name}' created with ID '{site.Slug}'";
+            _multiSiteMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _multiSiteMessage = $"Error creating site: {ex.Message}";
+            _multiSiteMessageClass = "danger";
+        }
+        finally
+        {
+            _creatingSite = false;
+        }
     }
 
     // UniFi Controller
@@ -3017,6 +3142,7 @@
         await LoadThreatSettings();
         await LoadMonitoringSettings();
         await LoadMapboxToken();
+        await LoadMultiSiteSettings();
     }
 
     private async Task LoadIperf3Settings()

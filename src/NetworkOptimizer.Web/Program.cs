@@ -161,6 +161,9 @@ var factoryOptions = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
 builder.Services.AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(
     new NetworkOptimizer.Storage.Models.NetworkOptimizerDbContextFactory(factoryOptions));
 
+// Per-site database path resolution (main db doubles as the site registry and default site data)
+builder.Services.AddSingleton(new NetworkOptimizer.Storage.Services.SiteDatabasePaths(dbPath));
+
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISettingsRepository, NetworkOptimizer.Storage.Repositories.SettingsRepository>();
@@ -173,6 +176,8 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestReposit
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
+builder.Services.AddScoped<SiteManagementService>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();

@@ -64,10 +64,17 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
+    public DbSet<Site> Sites { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Site>(entity =>
+        {
+            entity.ToTable("Sites");
+            entity.HasIndex(e => e.Slug).IsUnique();
+        });
 
         // AuditResult configuration
         modelBuilder.Entity<AuditResult>(entity =>

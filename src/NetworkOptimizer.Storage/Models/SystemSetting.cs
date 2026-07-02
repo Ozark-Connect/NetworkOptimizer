@@ -37,6 +37,9 @@ public static class SystemSettingKeys
     public const string Iperf3LocalVersion = "iperf3.local_version";
     public const string Iperf3LocalLastChecked = "iperf3.local_last_checked";
 
+    // Multi-site management
+    public const string MultiSiteEnabled = "multisite.enabled";
+
     // UI preferences (legacy - no longer used)
     public const string SponsorshipBannerDismissed = "ui.sponsorship_banner_dismissed";
 
