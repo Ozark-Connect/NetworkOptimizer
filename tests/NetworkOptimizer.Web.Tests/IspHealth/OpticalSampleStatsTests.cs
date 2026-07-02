@@ -105,6 +105,36 @@ public class OpticalSampleStatsTests
     }
 
     [Fact]
+    public void ComputeTx_spike_rejects_a_temperature_artifact_read()
+    {
+        // Steady 3.0 dBm TX plus one 3.9 dBm read on a garbage temperature (34 C below median): the
+        // spike must be the clean 3.0, not the glitch, so a lone bad read can't trip the high-TX rule.
+        var samples = new List<(DateTime, double?, double?)>();
+        for (var i = 0; i < 12; i++) samples.Add((T0.AddMinutes(i), (double?)3.0, (double?)44.0));
+        samples.Add((T0.AddMinutes(12), 3.9, 10.0));   // artifact: temp jump rides the same bad read
+
+        var (median, spike) = OpticalSampleStats.ComputeTx(samples);
+
+        median.Should().BeApproximately(3.0, 0.01);
+        spike.Should().BeApproximately(3.0, 0.01);      // 3.9 glitch discarded
+    }
+
+    [Fact]
+    public void ComputeTx_spike_keeps_a_real_high_tx_at_normal_temperature()
+    {
+        // A genuinely hot transmit sample at a normal temperature is not an artifact - it must survive
+        // as the spike so the transmit-power-high rule can grade it, while the median stays typical.
+        var samples = new List<(DateTime, double?, double?)>();
+        for (var i = 0; i < 12; i++) samples.Add((T0.AddMinutes(i), (double?)3.0, (double?)44.0));
+        samples.Add((T0.AddMinutes(12), 4.5, 44.0));   // real hot read, temperature normal
+
+        var (median, spike) = OpticalSampleStats.ComputeTx(samples);
+
+        median.Should().BeApproximately(3.0, 0.05);
+        spike.Should().BeApproximately(4.5, 0.01);
+    }
+
+    [Fact]
     public void Baseline_is_the_earliest_fifth_for_trend_detection()
     {
         // Earliest reads ~-19, drifting to ~-23: baseline should reflect the early ~-19, not the median.

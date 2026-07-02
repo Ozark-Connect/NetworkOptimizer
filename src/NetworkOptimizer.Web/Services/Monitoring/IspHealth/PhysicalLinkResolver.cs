@@ -204,9 +204,13 @@ public class PhysicalLinkResolver
 
         var pts = allPts.Where(p => p.Time >= windowStart).ToList();
         var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, p.TemperatureC)).ToList(), coupling);
-        _logger.LogDebug("ISP Health physical: SFP {Key} - {N} window samples ({All} over {Days}d fit), {Rej} DDM artifacts rejected, coupling={Slope} dB/C, rxMed={Med} worst={Worst}",
+        // TX over the whole window: median for the displayed level, highest clean sample for the
+        // transmit-power-high rule (the spike). A lone DDM glitch rides the temperature-jump read that
+        // ComputeTx already discards, so it skews neither.
+        var tx = OpticalSampleStats.ComputeTx(pts.Select(p => (p.Time, p.TxPowerDbm, p.TemperatureC)).ToList());
+        _logger.LogDebug("ISP Health physical: SFP {Key} - {N} window samples ({All} over {Days}d fit), {Rej} DDM artifacts rejected, coupling={Slope} dB/C, rxMed={Med} worst={Worst}, txMed={TxMed} spike={TxSpike}",
             c.Key, pts.Count, allPts.Count, CouplingFitHistory.TotalDays, stats.RejectedArtifacts,
-            coupling?.ToString("0.000") ?? "n/a", stats.MedianDbm, stats.WorstDbm);
+            coupling?.ToString("0.000") ?? "n/a", stats.MedianDbm, stats.WorstDbm, tx.MedianDbm, tx.SpikeDbm);
 
         return new PhysicalLinkInput
         {
@@ -215,10 +219,8 @@ public class PhysicalLinkResolver
             RxPowerMedianDbm = stats.MedianDbm,
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
-            // Window median TX, not the latest sample: DDM TX is near-constant on a PON ONU but throws
-            // the occasional lone glitch, and the median shrugs it off (a stray high read can't skew the
-            // display or falsely trip the transmit-power-high cap the way the latest reading could).
-            TxPowerDbm = Median(pts.Where(p => p.TxPowerDbm.HasValue).Select(p => p.TxPowerDbm!.Value).ToList()),
+            TxPowerDbm = tx.MedianDbm,
+            TxPowerSpikeDbm = tx.SpikeDbm,
             IsXgsPon = isXgsPon,
             WindowDays = (windowEnd - windowStart).TotalDays
         };
@@ -233,6 +235,7 @@ public class PhysicalLinkResolver
         var dict = await _influx.QueryOntAsync(windowStart, windowEnd, ontId.ToString(), TimeSpan.Zero, ct);
         var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
         var stats = OpticalSampleStats.Compute(pts.Select(p => (p.Time, p.RxPowerDbm, (double?)null)).ToList());
+        var ontTx = OpticalSampleStats.ComputeTx(pts.Select(p => (p.Time, p.TxPowerDbm, (double?)null)).ToList());
         var live = _ontMonitor.GetCachedStats(ontId);
         var fecTotal = TotalIncrements(pts.Select(p => p.FecErrors).ToList());
         var bipTotal = TotalIncrements(pts.Select(p => p.BipErrors).ToList());
@@ -247,7 +250,12 @@ public class PhysicalLinkResolver
             RxPowerMedianDbm = stats.MedianDbm,
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
-            TxPowerDbm = live?.TxPowerDbm ?? pts.LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
+            // TX over the whole window, not one poll: median for the displayed level, highest sample for
+            // the transmit-power-high rule. Fall back to the live poll only when the window has no TX
+            // history yet (a freshly-added ONT). No temperature is passed, so nothing is rejected -
+            // external ONT firmware doesn't have the DDM read-glitch problem.
+            TxPowerDbm = ontTx.MedianDbm ?? live?.TxPowerDbm,
+            TxPowerSpikeDbm = ontTx.SpikeDbm ?? live?.TxPowerDbm,
             PonOperational = operational,
             IsXgsPon = isXgsPon,
             FecErrorsTotal = fecTotal,

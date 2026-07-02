@@ -173,14 +173,19 @@ public static class PhysicalLinkScorer
         var txHigh = isPon
             ? (input.IsXgsPon ? PonThresholds.XgsPonTxPowerHighDbm : PonThresholds.PonTxPowerHighDbm)
             : PonThresholds.AeTxPowerHighDbm;
-        if (input.TxPowerDbm is double tx && tx > txHigh)
+        // Grade the TX SPIKE (highest clean sample), the transmit counterpart of the RX worst - a real
+        // or sustained hot laser trips it, a lone glitch (already artifact-rejected) can't. "Peaked at"
+        // when only the spike is over; "is" when the typical (median) level is over too, so the copy
+        // matches what the displayed median TX shows.
+        if (input.TxPowerSpikeDbm is double txSpike && txSpike > txHigh)
         {
             score = Math.Min(score, 75);
+            var sustained = input.TxPowerDbm is double txMed && txMed > txHigh;
             issues.Add(new IspHealthIssue
             {
                 Severity = IspIssueSeverity.Warning,
                 Title = $"{label}: transmit power high",
-                Description = $"{input.SourceName} transmit optical power is {tx.ToString("0.0", CultureInfo.InvariantCulture)} dBm, above the {txHigh:0} dBm threshold.",
+                Description = $"{input.SourceName} transmit optical power {(sustained ? "is" : "peaked at")} {txSpike.ToString("0.0", CultureInfo.InvariantCulture)} dBm, above the {txHigh:0} dBm threshold.",
                 Recommendation = "A consistently high TX can indicate the laser is compensating for path loss; inspect the optical path."
             });
         }
@@ -221,13 +226,18 @@ public static class PhysicalLinkScorer
             : rxText;
         // Note only TRANSIENT events the displayed RX/TX don't reveal: a receive-power dip (worst
         // sample >0.5 dB below the median, where the worst-cap engaged - artifacts are already
-        // discarded so this is genuine), a link interruption (not in O5), a developing drop (trend
-        // vs baseline), or an FEC/BIP error burst. Steady marginal/hot RX or TX show in the values.
+        // discarded so this is genuine), a transmit-power spike (highest sample over the threshold
+        // while the displayed median TX is not - a sustained hot TX shows in the value instead), a link
+        // interruption (not in O5), a developing drop (trend vs baseline), or an FEC/BIP error burst.
+        // Steady marginal/hot RX or TX show in the values.
+        var txSpikeTransient = input.TxPowerSpikeDbm is double ts && ts > txHigh
+                               && !(input.TxPowerDbm is double tm && tm > txHigh);
         var transientAnomaly =
             (input.RxPowerWorstDbm is double worstDip && rx.Value - worstDip > 0.5)
             || input.PonOperational == false
             || (isPon && input.RxPowerBaselineDbm is double baseDrop && rx.Value <= baseDrop - PonTrendDropDbm)
-            || errorsHigh;
+            || errorsHigh
+            || txSpikeTransient;
         var desc = $"{label} optical receive power scored on margin to the receiver floor"
                    + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".")
                    + (transientAnomaly ? AnomalyNote : "");

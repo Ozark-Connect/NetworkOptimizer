@@ -15,7 +15,7 @@ public class PhysicalLinkScorerTests
 
     private static PhysicalLinkResult ScorePon(double rx, double? worst = null, double? baseline = null,
         bool? operational = null, double? tx = null, bool isXgsPon = false,
-        long? fecTotal = null, long? bipTotal = null, double windowDays = 2.0) =>
+        long? fecTotal = null, long? bipTotal = null, double windowDays = 2.0, double? txSpike = null) =>
         PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
             Medium = PhysicalMedium.Pon,
@@ -25,6 +25,7 @@ public class PhysicalLinkScorerTests
             RxPowerBaselineDbm = baseline,
             PonOperational = operational,
             TxPowerDbm = tx,
+            TxPowerSpikeDbm = txSpike ?? tx,   // default: a steady TX (spike == median)
             IsXgsPon = isXgsPon,
             FecErrorsTotal = fecTotal,
             BipErrorsTotal = bipTotal,
@@ -176,9 +177,31 @@ public class PhysicalLinkScorerTests
     [Fact]
     public void Pon_high_tx_power_caps_and_warns()
     {
-        var result = ScorePon(-22.0, tx: 6.0);   // above PonTxPowerHighDbm (4.0)
+        var result = ScorePon(-22.0, tx: 6.0);   // sustained TX above PonTxPowerHighDbm (4.0)
         result.Factor.Score.Should().BeLessThanOrEqualTo(75);
         result.Issues.Should().Contain(i => i.Title.Contains("transmit power high"));
+        // Sustained (median over threshold): "is", and no transient anomaly note.
+        result.Factor.Description.Should().NotContain("anomaly");
+    }
+
+    [Fact]
+    public void Pon_transient_tx_spike_caps_warns_and_notes_anomaly()
+    {
+        // Displayed (median) TX is normal but the window's highest clean sample spiked over the
+        // threshold - the rule grades the spike, and the note explains the value doesn't show it.
+        var result = ScorePon(-22.0, tx: 3.0, txSpike: 6.0);
+        result.Factor.Score.Should().BeLessThanOrEqualTo(75);
+        result.Issues.Should().Contain(i => i.Title.Contains("transmit power high")
+                                            && i.Description.Contains("peaked at"));
+        result.Factor.Description.Should().Contain("anomaly");
+    }
+
+    [Fact]
+    public void Pon_normal_tx_spike_does_not_warn()
+    {
+        // A spike still under the threshold must not trip the rule.
+        var result = ScorePon(-22.0, tx: 3.0, txSpike: 3.8);
+        result.Issues.Should().NotContain(i => i.Title.Contains("transmit power high"));
     }
 
     [Fact]
@@ -187,7 +210,8 @@ public class PhysicalLinkScorerTests
         // +7 dBm ONU TX flags on GPON (>+4) but is normal on XGS-PON (<+8), which transmits hotter.
         PhysicalLinkResult Tx7(bool xgs) => PhysicalLinkScorer.Score(new PhysicalLinkInput
         {
-            Medium = PhysicalMedium.Pon, SourceName = "ONT", RxPowerMedianDbm = -20.0, TxPowerDbm = 7.0, IsXgsPon = xgs
+            Medium = PhysicalMedium.Pon, SourceName = "ONT", RxPowerMedianDbm = -20.0,
+            TxPowerDbm = 7.0, TxPowerSpikeDbm = 7.0, IsXgsPon = xgs
         }, null, Weight);
 
         Tx7(false).Issues.Should().Contain(i => i.Title.Contains("transmit power high"));

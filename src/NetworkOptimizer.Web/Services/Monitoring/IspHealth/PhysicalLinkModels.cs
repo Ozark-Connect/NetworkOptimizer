@@ -40,8 +40,14 @@ public class PhysicalLinkInput
     /// <summary>Earliest-window median receive power, the baseline the trend check compares against.</summary>
     public double? RxPowerBaselineDbm { get; init; }
 
-    /// <summary>Transmit optical power (dBm); penalized only above the category high threshold.</summary>
+    /// <summary>Median transmit optical power over the window (dBm) - the typical level, shown in the
+    /// factor value. Not the scoring input: the transmit-power-high rule grades the spike below.</summary>
     public double? TxPowerDbm { get; init; }
+
+    /// <summary>Highest CLEAN transmit optical power in the window (dBm), the spike the transmit-power-high
+    /// rule grades - the transmit counterpart of <see cref="RxPowerWorstDbm"/>. Artifact reads are
+    /// dropped first so a lone DDM glitch can't trip the rule; a real or sustained hot laser still does.</summary>
+    public double? TxPowerSpikeDbm { get; init; }
 
     /// <summary>O5 (Operation) state graded across the window from the link-status series: true when
     /// every reported state was Operation, false when the link broke out of O5 at least once (a hard

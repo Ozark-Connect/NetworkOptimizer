@@ -112,6 +112,29 @@ public static class OpticalSampleStats
         return new RxStats(Median(clean), clean.Count > 0 ? clean.Min() : null, Baseline(clean), clean.Count, rejected);
     }
 
+    /// <summary>
+    /// Robust transmit-power summary for the transmit-power-high rule: the window median (the typical
+    /// level, for display) and the highest CLEAN sample (the spike the rule grades), after dropping the
+    /// same hard temperature-jump reads that corrupt RX - a lone DDM glitch rides that bad read, so it
+    /// can't inflate the spike. TX is NOT temperature-detrended: it is a near-constant laser output set
+    /// by ranging, not a margin-graded receive level. Samples missing temperature can't be judged and
+    /// are kept; a null spike/median means no TX was reported.
+    /// </summary>
+    public static (double? MedianDbm, double? SpikeDbm) ComputeTx(IReadOnlyList<(DateTime Time, double? Tx, double? Temp)> samples)
+    {
+        var medianTemp = Median(samples.Where(s => s.Temp.HasValue).Select(s => s.Temp!.Value).ToList());
+
+        var clean = new List<double>();
+        foreach (var s in samples)
+        {
+            if (s.Tx is not double tx) continue;
+            if (medianTemp is double mt && s.Temp is double t && Math.Abs(t - mt) > DdmTempArtifactDeltaC) continue;
+            clean.Add(tx);
+        }
+
+        return (Median(clean), clean.Count > 0 ? clean.Max() : (double?)null);
+    }
+
     internal static double? Median(List<double> values)
     {
         if (values.Count == 0) return null;
