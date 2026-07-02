@@ -387,6 +387,19 @@ a:hover {
     margin-bottom: 1.5rem;
 }
 
+.settings-tabbed > .card {
+    display: none;
+}
+
+.settings-tabbed.active-connection > .settings-tab-connection,
+.settings-tabbed.active-monitoring > .settings-tab-monitoring,
+.settings-tabbed.active-speedtests > .settings-tab-speedtests,
+.settings-tabbed.active-security > .settings-tab-security,
+.settings-tabbed.active-application > .settings-tab-application,
+.settings-tabbed.active-multisite > .settings-tab-multisite {
+    display: block;
+}
+
 .wan-live-chart-card {
     margin-bottom: 0;
 }

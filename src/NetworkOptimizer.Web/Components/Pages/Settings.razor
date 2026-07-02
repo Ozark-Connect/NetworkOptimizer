@@ -45,9 +45,40 @@
     <p class="page-description">Configure Network Optimizer connections and preferences</p>
 </div>
 
-<div class="settings-container">
+<div class="wifi-view-tabs-wrapper">
+    <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-left" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: -200, behavior: 'smooth'})">&#8249;</button>
+    <div class="wifi-view-tabs">
+        <button class="wifi-view-tab @(_activeTab == "connection" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("connection"))">
+            Connection
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "monitoring" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("monitoring"))">
+            Monitoring
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "speedtests" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("speedtests"))">
+            Speed Tests
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "security" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("security"))">
+            Security &amp; Alerts
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("application"))">
+            Application
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("multisite"))">
+            Multi-Site
+        </button>
+    </div>
+    <button class="wifi-tabs-scroll-btn wifi-tabs-scroll-right" onclick="this.parentElement.querySelector('.wifi-view-tabs').scrollBy({left: 200, behavior: 'smooth'})">&#8250;</button>
+</div>
+
+<div class="settings-container settings-tabbed active-@_activeTab">
     <!-- 1. UniFi Console Connection -->
-    <div class="card">
+    <div class="card settings-tab-connection" id="console-connection">
         <div class="card-header">
             <h2 class="card-title">UniFi Console (Controller) Connection</h2>
             <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
@@ -234,7 +265,7 @@
     </div>
 
     <!-- 2. Admin Password -->
-    <div class="card" id="admin-password">
+    <div class="card settings-tab-application" id="admin-password">
         <div class="card-header">
             <h2 class="card-title">Admin Password</h2>
             <span class="status-badge status-@(adminPasswordSource == AdminPasswordSource.None ? "disconnected" : "connected")">
@@ -309,7 +340,7 @@
     </div>
 
     <!-- 3. Gateway SSH -->
-    <div class="card" id="gateway-ssh">
+    <div class="card settings-tab-connection" id="gateway-ssh">
         <div class="card-header">
             <h2 class="card-title">Gateway SSH (Optional)</h2>
             <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
@@ -475,7 +506,7 @@
     </div>
 
     <!-- 4. Device SSH -->
-    <div class="card" id="device-ssh">
+    <div class="card settings-tab-connection" id="device-ssh">
         <div class="card-header">
             <h2 class="card-title">Device SSH (Optional)</h2>
             <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
@@ -583,8 +614,161 @@
         </div>
     </div>
 
+    <!-- Monitoring Configuration -->
+    <div class="card settings-tab-monitoring" id="monitoring">
+        <div class="card-header">
+            <h2 class="card-title">Monitoring</h2>
+            @if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV2c || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV3Only || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Working)
+            {
+                <span class="status-badge status-connected">@(_monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV2c ? "v2c" : _monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")</span>
+            }
+            else if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Disabled)
+            {
+                <span class="status-badge status-disconnected">Disabled</span>
+            }
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Network Optimizer collects per-port SNMP counters and per-device health to
+                drive the dashboard's live device cards, the upcoming diagnostic views, and
+                the 3D LAN map. SNMP credentials are read directly from your UniFi Console,
+                so you don't need to copy them by hand. InfluxDB stores the time-series data;
+                use your existing instance if you already run one.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">SNMP Status</label>
+                <div class="form-value">
+                    @switch (_monitoringSettings?.SnmpDetectionState)
+                    {
+                        case SnmpDetectionState.EnabledV2c:
+                            <span class="status-indicator status-active"></span>
+                            <span>Configured (v2c)</span>
+                            break;
+                        case SnmpDetectionState.EnabledV3Only:
+                            <span class="status-indicator status-active"></span>
+                            <span>Configured (v3)</span>
+                            break;
+                        case SnmpDetectionState.Working:
+                            <span class="status-indicator status-active"></span>
+                            <span>Active</span>
+                            break;
+                        case SnmpDetectionState.PollFailing:
+                            <span class="status-indicator status-danger"></span>
+                            <span>Poll failures</span>
+                            break;
+                        case SnmpDetectionState.Disabled:
+                            <span class="status-indicator status-inactive"></span>
+                            <span>SNMP not enabled on UniFi Console</span>
+                            break;
+                        default:
+                            <span class="status-indicator status-inactive"></span>
+                            <span>Not checked</span>
+                            break;
+                    }
+                </div>
+            </div>
+
+            @if (_monitoringSettings?.LastSnmpDetection != null)
+            {
+                <div class="form-group">
+                    <label class="form-label">Last Detected</label>
+                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToString("g")</div>
+                </div>
+            }
+
+            <h3 style="margin-top: 1.5rem;">InfluxDB</h3>
+            <p class="section-description">
+                Time-series storage for monitoring data. If you don't already run InfluxDB,
+                the easiest path is the setup helper on the
+                <a href="/monitoring">Monitoring</a> page; it'll detect what's available,
+                install InfluxDB if needed, and provision the buckets and an API token for
+                you. If you already run InfluxDB 2.x, point this at it; the
+                bucket names below are NO-specific so they can't collide with other data.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB Status</label>
+                <div class="form-value">
+                    @if (_monitoringSettings?.InfluxDbReachable == true)
+                    {
+                        <span class="status-indicator status-active"></span>
+                        <span>Connected</span>
+                    }
+                    else if (_monitoringSettings?.InfluxDbReachable == false)
+                    {
+                        <span class="status-indicator status-danger"></span>
+                        <span>@(_monitoringSettings?.LastInfluxDbError ?? "Not reachable")</span>
+                    }
+                    else
+                    {
+                        <span class="status-indicator status-inactive"></span>
+                        <span>Not configured</span>
+                    }
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">InfluxDB URL</label>
+                <input type="text" class="form-control" @bind="_influxUrl" placeholder="http://localhost:8086" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">API Token</label>
+                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Organization</label>
+                <input type="text" class="form-control" @bind="_influxOrg" placeholder="network-optimizer" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Primary Bucket</label>
+                <input type="text" class="form-control" @bind="_influxBucket" placeholder="network_monitoring" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Long-term Bucket</label>
+                <input type="text" class="form-control" @bind="_influxLongtermBucket" placeholder="network_monitoring_longterm" />
+            </div>
+
+            <div class="action-buttons" style="margin-top: 1rem;">
+                <button class="btn btn-secondary" @onclick="RedetectSnmp" disabled="@_redetectingSnmp">
+                    @if (_redetectingSnmp)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Detecting...</span>
+                    }
+                    else
+                    {
+                        <span>Re-detect SNMP</span>
+                    }
+                </button>
+                <button class="btn btn-primary" @onclick="SaveInfluxSettings" disabled="@_savingInflux">
+                    @if (_savingInflux)
+                    {
+                        <span class="spinner-sm"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save &amp; Test InfluxDB</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_monitoringMessage))
+            {
+                <div class="alert alert-@_monitoringMessageClass" style="margin-top: 1rem;">
+                    @_monitoringMessage
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- 5. Adaptive SQM Monitor -->
-    <div class="card" id="sqm-monitor">
+    <div class="card settings-tab-monitoring" id="sqm-monitor">
         <div class="card-header">
             <h2 class="card-title">Adaptive SQM Monitor (Optional)</h2>
             <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
@@ -636,7 +820,7 @@
     </div>
 
     <!-- 6. Cellular Modem -->
-    <div class="card" id="cellular-modem">
+    <div class="card settings-tab-monitoring" id="cellular-modem">
         <div class="card-header">
             <h2 class="card-title">Cellular Modem (5G/LTE)</h2>
             <span class="status-badge status-@modemStatus.ToLower()">@modemStatus</span>
@@ -937,7 +1121,7 @@
     </div>
 
     <!-- Cable Modem Monitoring -->
-    <div class="card" id="cable-modem">
+    <div class="card settings-tab-monitoring" id="cable-modem">
         <div class="card-header">
             <h2 class="card-title">Cable Modem Monitoring</h2>
             <span class="status-badge status-@_cmStatus.ToLower()">@_cmStatus</span>
@@ -1110,7 +1294,7 @@
     </div>
 
     <!-- ONT Device Monitoring -->
-    <div class="card" id="ont-monitoring">
+    <div class="card settings-tab-monitoring" id="ont-monitoring">
         <div class="card-header">
             <h2 class="card-title">ONT Device Monitoring</h2>
             <span class="status-badge status-@_ontStatus.ToLower()">@_ontStatus</span>
@@ -1282,7 +1466,7 @@
     </div>
 
     <!-- 7. Speed Test Settings -->
-    <div class="card" id="speed-test-settings">
+    <div class="card settings-tab-speedtests" id="speed-test-settings">
         <div class="card-header">
             <h2 class="card-title">Speed Test Settings</h2>
         </div>
@@ -1336,7 +1520,7 @@
     </div>
 
     <!-- 8. External Speed Test Servers -->
-    <div class="card" id="external-speedtest-settings">
+    <div class="card settings-tab-speedtests" id="external-speedtest-settings">
         <div class="card-header">
             <h2 class="card-title">External Speed Test Servers</h2>
         </div>
@@ -1541,7 +1725,7 @@
     *@
 
     <!-- 10. Application Settings -->
-    <div class="card">
+    <div class="card settings-tab-application" id="application-settings">
         <div class="card-header">
             <h2 class="card-title">Application Settings</h2>
         </div>
@@ -1560,7 +1744,7 @@
     </div>
 
     <!-- 11. Security Audit -->
-    <div class="card" id="security-audit">
+    <div class="card settings-tab-security" id="security-audit">
         <div class="card-header">
             <h2 class="card-title">Security Audit</h2>
         </div>
@@ -1671,7 +1855,7 @@
     </div>
 
     <!-- Alert Channels Configuration -->
-    <div class="card" id="alert-channels">
+    <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
             <h2 class="card-title">Alert Channels</h2>
             @if (alertChannels?.Count > 0)
@@ -1953,7 +2137,7 @@
     </div>
 
     <!-- Threat Intelligence Configuration -->
-    <div class="card" id="threat-intelligence">
+    <div class="card settings-tab-security" id="threat-intelligence">
         <div class="card-header">
             <h2 class="card-title">Threat Intelligence</h2>
         </div>
@@ -2061,7 +2245,7 @@
     </div>
 
     <!-- CrowdSec CTI Configuration -->
-    <div class="card" id="crowdsec">
+    <div class="card settings-tab-security" id="crowdsec">
         <div class="card-header">
             <h2 class="card-title">CrowdSec CTI</h2>
             @if (crowdsecEnabled)
@@ -2142,161 +2326,8 @@
         </div>
     </div>
 
-    <!-- Monitoring Configuration -->
-    <div class="card" id="monitoring">
-        <div class="card-header">
-            <h2 class="card-title">Monitoring</h2>
-            @if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV2c || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.EnabledV3Only || _monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Working)
-            {
-                <span class="status-badge status-connected">@(_monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV2c ? "v2c" : _monitoringSettings.SnmpDetectionState == SnmpDetectionState.EnabledV3Only ? "v3" : "Active")</span>
-            }
-            else if (_monitoringSettings?.SnmpDetectionState == SnmpDetectionState.Disabled)
-            {
-                <span class="status-badge status-disconnected">Disabled</span>
-            }
-        </div>
-        <div class="card-body">
-            <p class="section-description">
-                Network Optimizer collects per-port SNMP counters and per-device health to
-                drive the dashboard's live device cards, the upcoming diagnostic views, and
-                the 3D LAN map. SNMP credentials are read directly from your UniFi Console,
-                so you don't need to copy them by hand. InfluxDB stores the time-series data;
-                use your existing instance if you already run one.
-            </p>
-
-            <div class="form-group">
-                <label class="form-label">SNMP Status</label>
-                <div class="form-value">
-                    @switch (_monitoringSettings?.SnmpDetectionState)
-                    {
-                        case SnmpDetectionState.EnabledV2c:
-                            <span class="status-indicator status-active"></span>
-                            <span>Configured (v2c)</span>
-                            break;
-                        case SnmpDetectionState.EnabledV3Only:
-                            <span class="status-indicator status-active"></span>
-                            <span>Configured (v3)</span>
-                            break;
-                        case SnmpDetectionState.Working:
-                            <span class="status-indicator status-active"></span>
-                            <span>Active</span>
-                            break;
-                        case SnmpDetectionState.PollFailing:
-                            <span class="status-indicator status-danger"></span>
-                            <span>Poll failures</span>
-                            break;
-                        case SnmpDetectionState.Disabled:
-                            <span class="status-indicator status-inactive"></span>
-                            <span>SNMP not enabled on UniFi Console</span>
-                            break;
-                        default:
-                            <span class="status-indicator status-inactive"></span>
-                            <span>Not checked</span>
-                            break;
-                    }
-                </div>
-            </div>
-
-            @if (_monitoringSettings?.LastSnmpDetection != null)
-            {
-                <div class="form-group">
-                    <label class="form-label">Last Detected</label>
-                    <div class="form-value">@_monitoringSettings.LastSnmpDetection.Value.ToString("g")</div>
-                </div>
-            }
-
-            <h3 style="margin-top: 1.5rem;">InfluxDB</h3>
-            <p class="section-description">
-                Time-series storage for monitoring data. If you don't already run InfluxDB,
-                the easiest path is the setup helper on the
-                <a href="/monitoring">Monitoring</a> page; it'll detect what's available,
-                install InfluxDB if needed, and provision the buckets and an API token for
-                you. If you already run InfluxDB 2.x, point this at it; the
-                bucket names below are NO-specific so they can't collide with other data.
-            </p>
-
-            <div class="form-group">
-                <label class="form-label">InfluxDB Status</label>
-                <div class="form-value">
-                    @if (_monitoringSettings?.InfluxDbReachable == true)
-                    {
-                        <span class="status-indicator status-active"></span>
-                        <span>Connected</span>
-                    }
-                    else if (_monitoringSettings?.InfluxDbReachable == false)
-                    {
-                        <span class="status-indicator status-danger"></span>
-                        <span>@(_monitoringSettings?.LastInfluxDbError ?? "Not reachable")</span>
-                    }
-                    else
-                    {
-                        <span class="status-indicator status-inactive"></span>
-                        <span>Not configured</span>
-                    }
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">InfluxDB URL</label>
-                <input type="text" class="form-control" @bind="_influxUrl" placeholder="http://localhost:8086" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">API Token</label>
-                <input type="password" class="form-control" @bind="_influxToken" placeholder="@(_influxTokenIsSet ? "(saved, leave blank to keep)" : "Paste an InfluxDB API token")" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Organization</label>
-                <input type="text" class="form-control" @bind="_influxOrg" placeholder="network-optimizer" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Primary Bucket</label>
-                <input type="text" class="form-control" @bind="_influxBucket" placeholder="network_monitoring" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Long-term Bucket</label>
-                <input type="text" class="form-control" @bind="_influxLongtermBucket" placeholder="network_monitoring_longterm" />
-            </div>
-
-            <div class="action-buttons" style="margin-top: 1rem;">
-                <button class="btn btn-secondary" @onclick="RedetectSnmp" disabled="@_redetectingSnmp">
-                    @if (_redetectingSnmp)
-                    {
-                        <span class="spinner-sm"></span>
-                        <span>Detecting...</span>
-                    }
-                    else
-                    {
-                        <span>Re-detect SNMP</span>
-                    }
-                </button>
-                <button class="btn btn-primary" @onclick="SaveInfluxSettings" disabled="@_savingInflux">
-                    @if (_savingInflux)
-                    {
-                        <span class="spinner-sm"></span>
-                        <span>Saving...</span>
-                    }
-                    else
-                    {
-                        <span>Save &amp; Test InfluxDB</span>
-                    }
-                </button>
-            </div>
-
-            @if (!string.IsNullOrEmpty(_monitoringMessage))
-            {
-                <div class="alert alert-@_monitoringMessageClass" style="margin-top: 1rem;">
-                    @_monitoringMessage
-                </div>
-            }
-        </div>
-    </div>
-
     <!-- 12. UI / Display Settings -->
-    <div class="card">
+    <div class="card settings-tab-application" id="ui-display">
         <div class="card-header">
             <h2 class="card-title">UI / Display Settings</h2>
         </div>
@@ -2312,7 +2343,7 @@
     </div>
 
     <!-- 13. Map / Satellite -->
-    <div class="card" id="map">
+    <div class="card settings-tab-application" id="map">
         <div class="card-header">
             <h2 class="card-title">Satellite Imagery</h2>
             <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "")">
@@ -2365,7 +2396,7 @@
     </div>
 
     <!-- 14. Data Management -->
-    <div class="card">
+    <div class="card settings-tab-application" id="data-management">
         <div class="card-header">
             <h2 class="card-title">Data Management</h2>
         </div>
@@ -2532,6 +2563,21 @@
             </div>
         </div>
     </div>
+
+    <!-- Multi-Site -->
+    <div class="card settings-tab-multisite" id="multi-site">
+        <div class="card-header">
+            <h2 class="card-title">Multi-Site Management</h2>
+            <span class="status-badge">Coming Soon</span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Manage multiple sites from this Network Optimizer instance: per-site monitoring,
+                speed testing, and UniFi Console connections, with an on-site agent for remote sites.
+                Site setup and agent deployment will live on this tab as the feature rolls out.
+            </p>
+        </div>
+    </div>
 </div>
 
 <SponsorshipBanner AlwaysShow="true" />
@@ -2553,6 +2599,105 @@
 </style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? TabParam { get; set; }
+
+    private string _activeTab = "connection";
+    private string? _lastTabParam;
+
+    private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "connection", "monitoring", "speedtests", "security", "application", "multisite"
+    };
+
+    // Maps card anchors (used by /settings#... deep links across the app) to their tab
+    // so those links keep working: activate the tab, then scroll to and highlight the card.
+    private static readonly Dictionary<string, string> AnchorTabMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["console-connection"] = "connection",
+        ["gateway-ssh"] = "connection",
+        ["device-ssh"] = "connection",
+        ["monitoring"] = "monitoring",
+        ["sqm-monitor"] = "monitoring",
+        ["cellular-modem"] = "monitoring",
+        ["cable-modem"] = "monitoring",
+        ["ont-monitoring"] = "monitoring",
+        ["speed-test-settings"] = "speedtests",
+        ["external-speedtest-settings"] = "speedtests",
+        ["security-audit"] = "security",
+        ["alert-channels"] = "security",
+        ["threat-intelligence"] = "security",
+        ["maxmind"] = "security",
+        ["crowdsec"] = "security",
+        ["admin-password"] = "application",
+        ["application-settings"] = "application",
+        ["ui-display"] = "application",
+        ["map"] = "application",
+        ["data-management"] = "application",
+        ["multi-site"] = "multisite",
+    };
+
+    private static string ResolveTab(string? param) =>
+        param != null && ValidTabs.Contains(param) ? param.ToLowerInvariant() : "connection";
+
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+        NavigationManager.NavigateTo("/settings?tab=" + tab, forceLoad: false, replace: false);
+        _lastTabParam = tab;
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Handle query param changes when already on this page (Blazor reuses the component)
+        if (TabParam != _lastTabParam && _lastTabParam != null)
+        {
+            var newTab = ResolveTab(TabParam);
+            if (newTab != _activeTab)
+            {
+                _activeTab = newTab;
+                StateHasChanged();
+            }
+        }
+        _lastTabParam = TabParam;
+    }
+
+    private async Task HandleFragmentNavigationAsync()
+    {
+        // The fragment is not part of the HTTP request, so it is only readable client-side.
+        var hash = await JS.InvokeAsync<string>("eval", "window.location.hash");
+        if (string.IsNullOrEmpty(hash))
+            return;
+
+        var anchor = hash.TrimStart('#');
+        if (anchor.Equals("unifi-ssh", StringComparison.OrdinalIgnoreCase))
+            anchor = "device-ssh";
+        if (!AnchorTabMap.TryGetValue(anchor, out var tab))
+            return;
+
+        if (_activeTab != tab)
+        {
+            _activeTab = tab;
+            StateHasChanged();
+        }
+
+        // Let the tab panel render before scrolling; same scroll-and-highlight
+        // pattern as the Monitoring page.
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('" + anchor + @"');
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    el.style.transition = 'outline-color 0.3s';
+                    el.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    el.style.outlineOffset = '4px';
+                    el.style.borderRadius = '12px';
+                    setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+            })();");
+    }
+
     // UniFi Controller
     private string controllerUrl = "https://192.168.1.1";
     private string controllerUsername = "";
@@ -2825,6 +2970,7 @@
         {
             _kioskMode = await JS.InvokeAsync<bool>("getKioskMode");
             StateHasChanged();
+            await HandleFragmentNavigationAsync();
         }
     }
 
@@ -2836,6 +2982,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _activeTab = ResolveTab(TabParam);
+        _lastTabParam = TabParam;
+
         // Load saved configuration if available
         if (ConnectionService.CurrentConfig != null)
         {
