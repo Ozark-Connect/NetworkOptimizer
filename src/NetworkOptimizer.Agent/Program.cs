@@ -78,6 +78,25 @@ Console.WriteLine($"Agent v{version} running for site '{config.SiteSlug}' agains
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
+// LAN speed test serving (independent of the tunnel - site clients hit the
+// agent directly; results relay to the central server with the site slug).
+SpeedTestServer? speedTestServer = null;
+Task? iperf3Task = null;
+if (config.LanSpeedTest)
+{
+    try
+    {
+        speedTestServer = SpeedTestServer.Create(config.ServerUrl, config.SiteSlug ?? "", config.LanSpeedTestPort, config.IgnoreSslErrors);
+        speedTestServer.Start();
+        Console.WriteLine($"LAN speed test page listening on port {config.LanSpeedTestPort}");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Speed test server failed to start: {ex.Message}");
+    }
+    iperf3Task = Iperf3Runner.RunAsync(cts.Token);
+}
+
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
 // Online whenever the tunnel is unavailable (tunnel disabled server-side, an
 // older server, or a network drop between reconnect attempts).
@@ -142,6 +161,13 @@ while (!cts.IsCancellationRequested)
     catch (OperationCanceledException) { break; }
 }
 
+if (speedTestServer != null)
+    await speedTestServer.DisposeAsync();
+if (iperf3Task != null)
+{
+    try { await iperf3Task; } catch (OperationCanceledException) { }
+}
+
 Console.WriteLine("Agent stopped");
 return 0;
 
@@ -155,7 +181,9 @@ namespace NetworkOptimizer.Agent
         string? SiteSlug,
         bool IgnoreSslErrors,
         string? TunnelUrl = null,
-        string? ProbeSourceIp = null);
+        string? ProbeSourceIp = null,
+        bool LanSpeedTest = false,
+        int LanSpeedTestPort = 3000);
 
     public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);
 

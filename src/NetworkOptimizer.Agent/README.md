@@ -1,10 +1,11 @@
 # Network Optimizer On-Site Agent
 
 Runs at a remote site and reports back to a central Network Optimizer server.
-Current capabilities: enrollment, a persistent outbound gRPC tunnel with REST
-heartbeat fallback. Planned: SNMP monitoring, latency/loss probes with per-WAN
-source IP binding, LAN speed test serving (iperf3 + OpenSpeedTest), and SSH /
-UniFi Console proxying over the tunnel.
+Capabilities: enrollment, a persistent outbound gRPC tunnel with REST
+heartbeat fallback, latency/loss probing (with per-WAN source IP binding),
+SNMP monitoring relay, UniFi Console proxying over the tunnel, and LAN speed
+test serving (OpenSpeedTest page + iperf3). Planned: SSH proxying over the
+tunnel.
 
 ## Build
 
@@ -63,6 +64,16 @@ which are additionally HTTPS end-to-end inside the tunnel.
 Once connected, the server pushes the site's monitoring targets over the
 tunnel and the agent probes them (ICMP/TCP latency and loss, same engine and
 cadence as the server's own prober), streaming results back for storage.
+
+## LAN speed test serving
+
+Set `"lanSpeedTest": true` (optionally `"lanSpeedTestPort"`, default 3000) and
+the agent hosts the embedded OpenSpeedTest page for the site's clients.
+Download/upload endpoints are served by the agent itself; results are relayed
+to the central server tagged with the site slug and the client's real IP, so
+they land in the site's own database with no CORS or exposure of the central
+server to browsers required. If an `iperf3` binary is on the agent's PATH, an
+iperf3 server (port 5201) runs alongside for wired/CLI throughput tests.
 
 ## Probe-only mode for multi-WAN monitoring
 

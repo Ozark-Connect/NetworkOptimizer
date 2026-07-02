@@ -10,15 +10,26 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifiers>linux-x64;linux-arm64;win-x64;osx-arm64</RuntimeIdentifiers>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\NetworkOptimizer.AgentProtocol\NetworkOptimizer.AgentProtocol.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Monitoring\NetworkOptimizer.Monitoring.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Grpc.Net.Client" Version="2.80.0" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.7" />
+  </ItemGroup>
+
+  <!-- The OpenSpeedTest page ships inside the agent so it can serve LAN speed
+       tests at the site. config.js is generated at runtime (results relay to
+       the central server with the site slug), so the template is excluded. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\OpenSpeedTest\index.html" Link="SpeedTestSite\index.html" />
+    <EmbeddedResource Include="..\OpenSpeedTest\assets\**" Exclude="..\OpenSpeedTest\assets\js\config.js" Link="SpeedTestSite\assets\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>
