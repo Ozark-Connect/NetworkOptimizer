@@ -215,7 +215,10 @@ public class PhysicalLinkResolver
             RxPowerMedianDbm = stats.MedianDbm,
             RxPowerWorstDbm = stats.WorstDbm,
             RxPowerBaselineDbm = stats.BaselineDbm,
-            TxPowerDbm = pts.OrderBy(p => p.Time).LastOrDefault(p => p.TxPowerDbm.HasValue)?.TxPowerDbm,
+            // Window median TX, not the latest sample: DDM TX is near-constant on a PON ONU but throws
+            // the occasional lone glitch, and the median shrugs it off (a stray high read can't skew the
+            // display or falsely trip the transmit-power-high cap the way the latest reading could).
+            TxPowerDbm = Median(pts.Where(p => p.TxPowerDbm.HasValue).Select(p => p.TxPowerDbm!.Value).ToList()),
             IsXgsPon = isXgsPon,
             WindowDays = (windowEnd - windowStart).TotalDays
         };
