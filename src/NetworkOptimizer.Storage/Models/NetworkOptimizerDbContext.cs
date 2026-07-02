@@ -61,6 +61,8 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<OntConfiguration> OntConfigurations { get; set; }
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
+    public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
+    public DbSet<ApChannelChange> ApChannelChanges { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -463,6 +465,22 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("CustomOidConfigurations");
             entity.HasIndex(e => e.DeviceMac);
             entity.HasIndex(e => new { e.DeviceMac, e.Oid }).IsUnique();
+        });
+
+        // ApChannelOutcome configuration (channel recommendation outcome memory)
+        modelBuilder.Entity<ApChannelOutcome>(entity =>
+        {
+            entity.ToTable("ApChannelOutcomes");
+            entity.HasIndex(e => new { e.ApMac, e.Band, e.Channel, e.WidthMhz, e.BucketDate }).IsUnique();
+            entity.HasIndex(e => e.BucketDate);
+        });
+
+        // ApChannelChange configuration (persisted channel-change log)
+        modelBuilder.Entity<ApChannelChange>(entity =>
+        {
+            entity.ToTable("ApChannelChanges");
+            entity.HasIndex(e => new { e.ApMac, e.Band, e.ChangedAtUtc });
+            entity.HasIndex(e => e.ChangedAtUtc);
         });
     }
 }

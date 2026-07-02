@@ -304,7 +304,8 @@ public class ChannelRecommendationService
         List<ChannelScanResult>? scanResults,
         RegulatoryChannelData? regulatoryData,
         RecommendationOptions? options = null,
-        Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null)
+        Dictionary<string, Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>>? historicalStress = null,
+        Dictionary<string, ChannelSoakInfo>? soakInfo = null)
     {
         var opts = options ?? new RecommendationOptions();
 
@@ -368,7 +369,8 @@ public class ChannelRecommendationService
                 ChannelUtilization = radio.ChannelUtilization ?? 0,
                 Interference = radio.Interference ?? 0,
                 TxRetriesPct = radio.TxRetriesPct ?? 0,
-                HistoricalStress = apHistStress
+                HistoricalStress = apHistStress,
+                SoakInfo = soakInfo?.GetValueOrDefault(macLower)
             });
 
             graph.ExternalLoad[i] = new Dictionary<int, double>();
@@ -478,6 +480,69 @@ public class ChannelRecommendationService
         var currentApScores = new double[n];
         for (int i = 0; i < n; i++)
             currentApScores[i] = ScoreAp(graph, currentAssignment, i, band);
+
+        // Soak-period suppression: an AP whose channel changed recently keeps the new config
+        // long enough to measure it, so channels the radio just left are removed from its
+        // candidate set - the search, per-AP fallback and altruistic passes all iterate
+        // ValidChannels, so one filter covers every move-decision path. Applies to every band.
+        // A mesh group moves as one (children mirror the leader's channel), so the LEADER's
+        // candidates are gated by the union of the whole group's soaked channels - otherwise
+        // the child-sync at the end would hop a soaking child straight back onto the channel
+        // it just left. A genuinely suffering group (any member's current score at the
+        // catastrophic ceiling) is exempt: soak prevents churn, not rescue. The current
+        // channel is never filtered, so the invalid-channel handling below is unaffected.
+        var soakRemoved = new List<int>?[n];
+        var soakEnds = new DateTimeOffset?[n];
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            // Children have no independent move decision - their soak is enforced on the leader.
+            if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+
+            var soaked = new HashSet<int>(node.SoakInfo?.SoakedChannels ?? Enumerable.Empty<int>());
+            var soakEnd = node.SoakInfo?.SoakEndsAt ?? DateTimeOffset.MinValue;
+            var worstGroupScore = currentApScores[i];
+            for (int j = 0; j < n; j++)
+            {
+                if (j == i || graph.Nodes[j].MeshGroupLeader != i) continue;
+                if (graph.Nodes[j].SoakInfo is { } childSoak)
+                {
+                    soaked.UnionWith(childSoak.SoakedChannels);
+                    if (childSoak.SoakEndsAt > soakEnd) soakEnd = childSoak.SoakEndsAt;
+                }
+                worstGroupScore = Math.Max(worstGroupScore, currentApScores[j]);
+            }
+            if (soaked.Count == 0) continue;
+
+            if (worstGroupScore >= CatastrophicAbsoluteScore)
+            {
+                _logger.LogDebug(
+                    "[ChannelRec] {ApName} {Band}: soak suppression lifted - current score {Score:F3} " +
+                    "in the mesh group is at the catastrophic ceiling, all channels stay in play",
+                    node.Name, band, worstGroupScore);
+                continue;
+            }
+
+            var filtered = node.ValidChannels
+                .Where(ch => ch == node.CurrentChannel || !soaked.Contains(ch))
+                .ToArray();
+            if (filtered.Length == node.ValidChannels.Length) continue;
+            // An AP stuck on an invalid channel must move SOMEWHERE - if soak would empty its
+            // candidate set (current channel not valid, every valid channel recently left),
+            // leave the set alone rather than strand the search.
+            if (filtered.Length == 0) continue;
+
+            // Report only what was actually removed - a channel excluded for another reason
+            // (e.g. the user's DFS setting) must not be presented as merely soaking.
+            var removed = node.ValidChannels.Except(filtered).OrderBy(ch => ch).ToList();
+            _logger.LogDebug(
+                "[ChannelRec] {ApName} {Band}: soaking until {SoakEnd:MM/dd HH:mm} - excluding " +
+                "recently-left channel(s) [{Channels}] from candidates",
+                node.Name, band, soakEnd, string.Join(", ", removed));
+            node.ValidChannels = filtered;
+            soakRemoved[i] = removed;
+            soakEnds[i] = soakEnd;
+        }
 
         // Optimize
         (int Channel, int Width)[] bestAssignment;
@@ -611,7 +676,9 @@ public class ChannelRecommendationService
                 // Recommended DFS status is authoritatively recomputed against the final channel
                 // after reconciliation (the per-AP fallback, altruistic relocation and mesh sync
                 // can all rewrite the channel below). This initial value is the optimizer's raw pick.
-                IsRecommendedDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels)
+                IsRecommendedDfsChannel = IsDfsAssignment(band, recommendedChannel, recommendedWidth, graph.DfsChannels),
+                SoakSuppressedChannels = soakRemoved[i] ?? new List<int>(),
+                SoakEndsAt = soakEnds[i]
             });
         }
 

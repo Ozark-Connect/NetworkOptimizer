@@ -68,4 +68,7 @@ public static class SystemSettingKeys
 
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
+
+    // Channel outcome memory: end of the window the collector last aggregated (UTC, round-trip format)
+    public const string ChannelMemoryCollectionWatermark = "wifi.channel_memory_watermark";
 }

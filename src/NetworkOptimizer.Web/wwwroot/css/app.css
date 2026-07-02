@@ -11129,6 +11129,16 @@ a.path-hop.hop-clickable:hover {
     margin-left: 0.5rem;
 }
 
+.soak-badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.125rem 0.5rem;
+    background: rgba(43, 168, 154, 0.15);
+    color: #2ba89a;
+    border-radius: 3px;
+    margin-left: 0.5rem;
+}
+
 /* Recommend Best Channels button - accent gradient matching Cleanest Channels box */
 .btn-recommend {
     background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
