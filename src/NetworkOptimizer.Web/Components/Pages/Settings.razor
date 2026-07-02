@@ -31,6 +31,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject SiteManagementService SiteManagement
+@inject AgentEnrollmentService AgentEnrollment
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
@@ -2604,6 +2605,7 @@
                                     <th>Site ID</th>
                                     <th class="hide-mobile">Created</th>
                                     <th></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2619,7 +2621,59 @@
                                                 <span class="status-badge">Default</span>
                                             }
                                         </td>
+                                        <td>
+                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
+                                                Agents (@AgentCount(site.Id))
+                                            </button>
+                                        </td>
                                     </tr>
+                                    @if (_expandedSiteId == site.Id)
+                                    {
+                                        <tr>
+                                            <td colspan="5">
+                                                @foreach (var agent in AgentsFor(site.Id))
+                                                {
+                                                    <div class="site-agent-row">
+                                                        <span class="status-dot @(AgentEnrollmentService.IsOnline(agent.LastSeenAt) ? "online" : "offline")"></span>
+                                                        <span>@agent.Name</span>
+                                                        <span class="site-agent-status">
+                                                            @if (!agent.Enabled)
+                                                            {
+                                                                <text>Disabled</text>
+                                                            }
+                                                            else if (agent.EnrolledAt == null)
+                                                            {
+                                                                <text>Awaiting enrollment</text>
+                                                            }
+                                                            else if (AgentEnrollmentService.IsOnline(agent.LastSeenAt))
+                                                            {
+                                                                <text>Online@(agent.LastVersion != null ? $" - v{agent.LastVersion}" : "")</text>
+                                                            }
+                                                            else
+                                                            {
+                                                                <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
+                                                            }
+                                                        </span>
+                                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(agent)">
+                                                            @(agent.Enabled ? "Disable" : "Enable")
+                                                        </button>
+                                                    </div>
+                                                }
+                                                <div class="site-agent-actions">
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
+                                                        New Agent Token
+                                                    </button>
+                                                </div>
+                                                @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
+                                                {
+                                                    <div class="alert alert-success">
+                                                        Enrollment token: <code>@_newAgentToken</code><br />
+                                                        Copy it now - it is shown only once. The on-site agent uses it to enroll with this server.
+                                                    </div>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -2765,7 +2819,10 @@
     {
         _multiSiteEnabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (_multiSiteEnabled)
+        {
             _sites = await SiteManagement.GetSitesAsync();
+            await LoadAgentsAsync();
+        }
     }
 
     private async Task OnMultiSiteEnabledChanged(ChangeEventArgs e)
@@ -2780,7 +2837,55 @@
     private async Task RefreshSites()
     {
         _sites = await SiteManagement.GetSitesAsync();
+        await LoadAgentsAsync();
         StateHasChanged();
+    }
+
+    // Site agents (registry data, keyed by site id)
+    private Dictionary<int, List<SiteAgent>> _agentsBySite = new();
+    private int? _expandedSiteId;
+    private bool _creatingAgent;
+    private string? _newAgentToken;
+    private int? _newAgentTokenSiteId;
+
+    private async Task LoadAgentsAsync()
+    {
+        _agentsBySite = (await AgentEnrollment.GetAllAgentsAsync())
+            .GroupBy(a => a.SiteId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.CreatedAt).ToList());
+    }
+
+    private List<SiteAgent> AgentsFor(int siteId) =>
+        _agentsBySite.TryGetValue(siteId, out var agents) ? agents : new List<SiteAgent>();
+
+    private int AgentCount(int siteId) => AgentsFor(siteId).Count;
+
+    private void ToggleAgents(int siteId)
+    {
+        _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
+        _newAgentToken = null;
+    }
+
+    private async Task CreateAgent(Site site)
+    {
+        _creatingAgent = true;
+        try
+        {
+            var (agent, token) = await AgentEnrollment.CreateAgentAsync(site.Id, $"Agent {AgentCount(site.Id) + 1}");
+            _newAgentToken = token;
+            _newAgentTokenSiteId = site.Id;
+            await LoadAgentsAsync();
+        }
+        finally
+        {
+            _creatingAgent = false;
+        }
+    }
+
+    private async Task ToggleAgentEnabled(SiteAgent agent)
+    {
+        await AgentEnrollment.SetEnabledAsync(agent.Id, !agent.Enabled);
+        await LoadAgentsAsync();
     }
 
     // UniFi Controller

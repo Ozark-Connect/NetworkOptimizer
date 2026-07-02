@@ -17467,3 +17467,20 @@ body.kiosk-mode .status-indicators {
         display: none;
     }
 }
+
+.site-agent-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0;
+}
+
+.site-agent-status {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    flex: 1;
+}
+
+.site-agent-actions {
+    margin-top: 0.5rem;
+}

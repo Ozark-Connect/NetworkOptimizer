@@ -187,6 +187,7 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, 
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddScoped<SiteContextService>();
+builder.Services.AddSingleton<AgentEnrollmentService>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
@@ -1706,6 +1707,7 @@ app.MapDelete("/api/config/backups/pending", (ConfigTransferService service) =>
 
 // New API endpoints go in Endpoints/*.cs, not inline here.
 LanFlowMapEndpoints.Map(app);
+SiteAgentEndpoints.Map(app);
 MonitoringChartEndpoints.Map(app);
 IspHealthEndpoints.Map(app);
 MonitoringInvestigateEndpoints.Map(app);

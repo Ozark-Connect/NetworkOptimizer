@@ -65,6 +65,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
     public DbSet<Site> Sites { get; set; }
+    public DbSet<SiteAgent> SiteAgents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -74,6 +75,14 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("Sites");
             entity.HasIndex(e => e.Slug).IsUnique();
+        });
+
+        modelBuilder.Entity<SiteAgent>(entity =>
+        {
+            entity.ToTable("SiteAgents");
+            entity.HasIndex(e => e.SiteId);
+            entity.HasIndex(e => e.EnrollmentTokenHash);
+            entity.HasIndex(e => e.AgentKeyHash);
         });
 
         // AuditResult configuration
