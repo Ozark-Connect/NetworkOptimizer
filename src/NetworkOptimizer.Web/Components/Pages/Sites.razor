@@ -5,6 +5,7 @@
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
+@inject AgentEnrollmentService AgentEnrollment
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
@@ -57,6 +58,10 @@ else
                 </div>
                 <div class="site-card-footer">
                     <span class="site-card-created">Added @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                    @if (AgentCount(site.Id) > 0)
+                    {
+                        <span class="site-card-agents">@OnlineAgentCount(site.Id)/@AgentCount(site.Id) agents online</span>
+                    }
                 </div>
             </div>
         }
@@ -72,14 +77,23 @@ else
     private bool _loaded;
     private bool _enabled;
     private List<Site> _sites = new();
+    private List<SiteAgent> _agents = new();
 
     protected override async Task OnInitializedAsync()
     {
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (_enabled)
+        {
             _sites = await SiteManagement.GetSitesAsync();
+            _agents = await AgentEnrollment.GetAllAgentsAsync();
+        }
         _loaded = true;
     }
+
+    private int AgentCount(int siteId) => _agents.Count(a => a.SiteId == siteId);
+
+    private int OnlineAgentCount(int siteId) =>
+        _agents.Count(a => a.SiteId == siteId && AgentEnrollmentService.IsOnline(a.LastSeenAt));
 
     private async Task SwitchToAsync(Site site)
     {

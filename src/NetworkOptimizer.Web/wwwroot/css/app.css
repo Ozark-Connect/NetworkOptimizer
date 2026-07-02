@@ -17376,6 +17376,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-card-footer {
+    display: flex;
     margin-top: 0.75rem;
     color: var(--text-secondary);
     font-size: 0.8rem;
@@ -17483,4 +17484,9 @@ body.kiosk-mode .status-indicators {
 
 .site-agent-actions {
     margin-top: 0.5rem;
+}
+
+.site-card-agents {
+    margin-left: auto;
+    color: var(--text-secondary);
 }
