@@ -34,13 +34,13 @@ public sealed class CableModemMonitorService : IDisposable
         IServiceScopeFactory scopeFactory,
         IEnumerable<ICableModemProvider> providers,
         ICredentialProtectionService credentialProtection,
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator alertEvaluator,
         ILogger<CableModemMonitorService> logger)
     {
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
-        _influx = influx;
+        _influx = influxRegistry.GetDefault();
         _alertEvaluator = alertEvaluator;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);

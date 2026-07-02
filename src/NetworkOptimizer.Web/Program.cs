@@ -443,11 +443,13 @@ builder.Services.AddAuthorization();
 
 // Monitoring subsystem
 builder.Services.AddScoped<SnmpDetectionService>();
-builder.Services.AddSingleton<MonitoringInfluxClient>();
-// Per-site Influx clients (D1: bucket-per-site). Default site = the singleton
-// above; non-default sites get lazily created clients bound to their own
-// database's MonitoringSettings.
+// Per-site Influx clients (D1: bucket-per-site) live in the registry - the
+// default site's included. Scoped resolution forwards to the current site's
+// client so chart endpoints and pages read that site's buckets; singleton
+// consumers inject the registry and pin GetDefault().
 builder.Services.AddSingleton<MonitoringInfluxRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringInfluxRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<MonitoringLiveStats>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.PhysicalLinkResolver>();

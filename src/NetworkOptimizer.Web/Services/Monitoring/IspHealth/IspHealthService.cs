@@ -54,13 +54,13 @@ public class IspHealthService
     private volatile int _configuredWindowHours;
 
     public IspHealthService(
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteConnectionRegistry siteConnections,
         PhysicalLinkResolver physicalLinkResolver,
         ILogger<IspHealthService> logger)
     {
-        _influx = influx;
+        _influx = influxRegistry.GetDefault();
         _dbFactory = dbFactory;
         _connectionService = siteConnections.GetDefault();
         _physicalLinkResolver = physicalLinkResolver;

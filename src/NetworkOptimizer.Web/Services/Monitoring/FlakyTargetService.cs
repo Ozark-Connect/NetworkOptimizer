@@ -22,11 +22,11 @@ public class FlakyTargetService
 
     public FlakyTargetService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         ILogger<FlakyTargetService> logger)
     {
         _dbFactory = dbFactory;
-        _influx = influx;
+        _influx = influxRegistry.GetDefault();
         _logger = logger;
     }
 

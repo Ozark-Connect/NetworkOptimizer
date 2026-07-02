@@ -5,11 +5,12 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Per-site InfluxDB clients (decision D1: bucket-per-site in one org). The
-/// default site keeps the DI singleton <see cref="MonitoringInfluxClient"/>
-/// configured from the main database; non-default sites get lazily created
-/// clients configured from their own site database, whose MonitoringSettings
-/// carry slug-prefixed bucket names. Same ownership pattern as
-/// SiteConnectionRegistry: the registry creates and disposes what it creates.
+/// registry owns every instance, including the default site's: scoped
+/// resolution of MonitoringInfluxClient forwards to the current site's client,
+/// so chart endpoints and pages read the right site's buckets transparently;
+/// singleton consumers (collection agent, modem monitors, ISP health) inject
+/// the registry and pin GetDefault(). Same ownership pattern as
+/// SiteConnectionRegistry: the registry disposes what it creates.
 /// </summary>
 public class MonitoringInfluxRegistry : IAsyncDisposable
 {
@@ -23,14 +24,14 @@ public class MonitoringInfluxRegistry : IAsyncDisposable
 
     /// <summary>The Influx client for a site, created on first use.</summary>
     public MonitoringInfluxClient GetFor(string slug) =>
-        slug == SiteManagementService.DefaultSiteSlug
-            ? GetDefault()
-            : _clients.GetOrAdd(slug, s =>
-                ActivatorUtilities.CreateInstance<MonitoringInfluxClient>(_serviceProvider, s));
+        _clients.GetOrAdd(slug, s => ActivatorUtilities.CreateInstance<MonitoringInfluxClient>(
+            _serviceProvider,
+            // Empty slug = the default client, configured from the main
+            // database with the unprefixed bucket names.
+            s == SiteManagementService.DefaultSiteSlug ? "" : s));
 
-    /// <summary>The default site's client (the existing DI singleton).</summary>
-    public MonitoringInfluxClient GetDefault() =>
-        _serviceProvider.GetRequiredService<MonitoringInfluxClient>();
+    /// <summary>The default site's client.</summary>
+    public MonitoringInfluxClient GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
     public async ValueTask DisposeAsync()
     {

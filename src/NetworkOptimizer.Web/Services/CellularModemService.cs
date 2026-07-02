@@ -37,7 +37,7 @@ public class CellularModemService : ICellularModemService
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
         SiteConnectionRegistry siteConnections,
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         ICredentialProtectionService credentialProtection,
         NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator alertEvaluator,
         IEnumerable<ICellularModemProvider> providers)
@@ -46,7 +46,7 @@ public class CellularModemService : ICellularModemService
         _serviceProvider = serviceProvider;
         _sshService = sshService;
         _connectionService = siteConnections.GetDefault();
-        _influx = influx;
+        _influx = influxRegistry.GetDefault();
         _credentialProtection = credentialProtection;
         _alertEvaluator = alertEvaluator;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);

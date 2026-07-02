@@ -31,13 +31,13 @@ public class OntMonitorService : IDisposable
         IServiceScopeFactory scopeFactory,
         IEnumerable<IOntProvider> providers,
         ICredentialProtectionService credentialProtection,
-        MonitoringInfluxClient influx,
+        MonitoringInfluxRegistry influxRegistry,
         NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator alertEvaluator,
         ILogger<OntMonitorService> logger)
     {
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
-        _influx = influx;
+        _influx = influxRegistry.GetDefault();
         _alertEvaluator = alertEvaluator;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
