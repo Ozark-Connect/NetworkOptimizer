@@ -89,16 +89,18 @@ public static class CongestionLocalizer
                 list.Add(s);
             }
 
-            // Load-coincidence samples WAN utilization at the moments the path was ACTUALLY elevated
-            // (RTT or jitter excursions over each fired member's own baseline), not averaged across the
-            // bucket-padded event window. Detection buckets to CongestionBucketMinutes and requires a
-            // 30-min minimum, so a brief burst straddling a bucket boundary is reported over a window
-            // several times its true span; averaging load across that idle padding drags a genuine
-            // concurrent saturation below the coincidence bar and a self-inflicted access blip misreads
-            // as external congestion. Sampling the elevated moments is a no-op for a genuinely long event
-            // (its excursions fill the window) and robust to a stray off-event excursion (one vote among
-            // many) - see LoadCoincident.
-            var loadCoincident = LoadCoincident(elevatedSeries, window.Start, window.End, topology, options);
+            // The cluster's MAGNITUDE tests (RTT rise, clean-control, line-wide, uniformity, and WAN
+            // load-coincidence) key on the actual elevation span, not the bucket-padded event window (see
+            // ElevationSpan). Detection buckets to CongestionBucketMinutes and requires a 30-min minimum,
+            // so a brief burst straddling a bucket boundary is reported over a window several times its
+            // true span. Averaging magnitude (or load) across that padding drags a median rise back to
+            // baseline and a genuine concurrent saturation below the coincidence bar, so a self-inflicted
+            // access blip misreads as a scored external hop bottleneck. For a genuinely long event the
+            // excursions fill the window, so the span equals the window and every test below is unchanged;
+            // only bucket-padded short bursts tighten. Reach tests (IsElevated / propagation) stay on the
+            // full window - they already fire on sparse excursions and are not diluted.
+            var (elevStart, elevEnd) = ElevationSpan(elevatedSeries, window.Start, window.End, options);
+            var loadCoincident = LoadCoincident(elevStart, elevEnd, topology, options);
             var anchoredWithData = anchored.Where(s => HasDataInWindow(s, window.Start, window.End)).ToList();
 
             // Each anchored path's RTT rise over its OWN baseline. Under load every path picks up a
@@ -109,7 +111,7 @@ public static class CongestionLocalizer
                 // that slice) is read off a precomputed sorted array by value-exclusion, so this is
                 // identical to the prior full-scan + sort but far cheaper. See SeriesIndex.
                 var ix = Index(s);
-                var inW = ix.InWindowRtt(window.Start, window.End);
+                var inW = ix.InWindowRtt(elevStart, elevEnd);
                 var im = SeriesStats.Median(inW);
                 var bm = ix.BaselineRttMedian(inW);
                 return im.HasValue && bm.HasValue ? Math.Max(0, im.Value - bm.Value) : 0;
@@ -131,7 +133,7 @@ public static class CongestionLocalizer
             // under load. The robust median-shift test keys on "did everything drift up together": the
             // fraction of anchored paths (with data) whose in-window median rose above baseline.
             var lineWideUnderLoad = anchoredWithData.Count > 0
-                && anchoredWithData.Count(s => RoseInWindow(s, window.Start, window.End, options))
+                && anchoredWithData.Count(s => RoseInWindow(s, elevStart, elevEnd, options))
                     >= anchoredWithData.Count * options.CongestionLineWideRiseFraction;
 
             // SHARED-INCIDENT COLLAPSE (narrow exception; the per-hop separation below is the default
@@ -479,52 +481,40 @@ public static class CongestionLocalizer
     }
 
     /// <summary>
-    /// True when the WAN was heavily loaded DURING the actual elevation. Instead of averaging load over
-    /// the whole (bucket-padded) event window - which lets the idle padding around a brief burst dilute a
-    /// real concurrent saturation below the bar - it samples load only at the moments a fired member was
-    /// elevated: each in-window sample whose RTT exceeds its own baseline (median + CongestionRttMinDeltaMs)
-    /// OR whose jitter is up over baseline (the jitter arm mirrors the propagation test, so jitter-driven
-    /// events with flat RTT still count). Those moments are pooled into LoadWindowSeconds buckets (one vote
-    /// per bucket, deduped across members) and matched to the WAN utilization sample in the same bucket;
-    /// the event is load-coincident when at least CongestionLoadCoincidenceFraction of them were at or
-    /// above CongestionLoadHighFraction. This is a no-op for a genuinely long event (its excursions fill
-    /// the window) and robust to a stray off-event excursion (one vote among many). Unknown load (no
-    /// expected speeds, so no utilization) never claims coincidence.
+    /// The [earliest, latest] time within the event window where a fired member's RTT actually exceeded
+    /// its own baseline (baseline median + <see cref="IspHealthOptions.CongestionRttMinDeltaMs"/>).
+    /// Detection buckets to <see cref="IspHealthOptions.CongestionBucketMinutes"/> and requires
+    /// <see cref="IspHealthOptions.CongestionMinDurationMinutes"/>, so a brief burst straddling a bucket
+    /// boundary is reported over a window several times its true span. The load-coincidence test keys on
+    /// this tighter span so bucket padding cannot dilute a genuine concurrent WAN saturation below the
+    /// bar. For a genuinely long event the excursions fill the window, so the span equals the window and
+    /// the test is unchanged. Falls back to the full window when no member shows a clear RTT excursion
+    /// (e.g. a purely jitter-driven event), preserving the prior whole-window behavior there.
     /// </summary>
-    private static bool LoadCoincident(
-        IReadOnlyList<AsnSeries> elevatedSeries, DateTime winStart, DateTime winEnd,
-        CongestionTopology topology, IspHealthOptions options)
+    private static (DateTime Start, DateTime End) ElevationSpan(
+        IReadOnlyList<AsnSeries> elevatedSeries, DateTime winStart, DateTime winEnd, IspHealthOptions options)
     {
-        var bucketTicks = TimeSpan.FromSeconds(Math.Max(1, options.LoadWindowSeconds)).Ticks;
-        // WAN utilization indexed by load-window bucket, so an elevated moment reads the load at its time.
-        var loadByBucket = new Dictionary<long, double>();
-        foreach (var l in topology.Load)
-            if (l.Utilization.HasValue)
-                loadByBucket[l.Time.Ticks / bucketTicks] = l.Utilization.Value;
-        if (loadByBucket.Count == 0) return false; // unknown load -> never claim self-inflicted
-
-        int high = 0, total = 0;
-        var counted = new HashSet<long>();
+        DateTime? lo = null, hi = null;
         foreach (var s in elevatedSeries)
         {
             var ix = Index(s);
-            var baseRtt = ix.BaselineRttMedian(ix.InWindowRtt(winStart, winEnd));
-            var baseJit = ix.BaselineJitterMedian(ix.InWindowJitter(winStart, winEnd));
-            var rttThreshold = baseRtt.HasValue ? baseRtt.Value + options.CongestionRttMinDeltaMs : double.PositiveInfinity;
-            foreach (var ticks in ix.ExcursionTicks(winStart, winEnd, rttThreshold,
-                         baseJit, options.CongestionPropagationJitterFactor, options.CongestionPropagationJitterFloorMs))
-            {
-                var bucket = ticks / bucketTicks;
-                if (!counted.Add(bucket)) continue;               // one vote per load-window bucket
-                if (loadByBucket.TryGetValue(bucket, out var util))
-                {
-                    total++;
-                    if (util >= options.CongestionLoadHighFraction) high++;
-                }
-            }
+            var baseMed = ix.BaselineRttMedian(ix.InWindowRtt(winStart, winEnd));
+            if (!baseMed.HasValue) continue;
+            var (eLo, eHi) = ix.RttExcursionSpan(winStart, winEnd, baseMed.Value + options.CongestionRttMinDeltaMs);
+            if (eLo.HasValue && (lo is null || eLo.Value < lo.Value)) lo = eLo;
+            if (eHi.HasValue && (hi is null || eHi.Value > hi.Value)) hi = eHi;
         }
-        if (total == 0) return false;
-        return (double)high / total >= options.CongestionLoadCoincidenceFraction;
+        return lo.HasValue && hi.HasValue ? (lo.Value, hi.Value) : (winStart, winEnd);
+    }
+
+    private static bool LoadCoincident(DateTime start, DateTime end, CongestionTopology topology, IspHealthOptions options)
+    {
+        var inWindow = topology.Load
+            .Where(l => l.Time >= start && l.Time <= end && l.Utilization.HasValue)
+            .ToList();
+        if (inWindow.Count == 0) return false; // unknown load -> never claim self-inflicted
+        var high = inWindow.Count(l => l.Utilization!.Value >= options.CongestionLoadHighFraction);
+        return (double)high / inWindow.Count >= options.CongestionLoadCoincidenceFraction;
     }
 
     /// <summary>
@@ -680,25 +670,22 @@ public static class CongestionLocalizer
         public List<double> InWindowJitter(DateTime start, DateTime end) => Collect(_jit, start, end);
 
         /// <summary>
-        /// Ticks of in-window samples that are elevated over this hop's OWN baseline - RTT above
-        /// <paramref name="rttThreshold"/>, OR (when <paramref name="baseJitter"/> is known) jitter above
-        /// baseline by both the ratio <paramref name="jitterFactor"/> and the absolute floor
-        /// <paramref name="jitterFloorMs"/> (the jitter arm mirrors the propagation test, so a jitter-driven
-        /// event with flat RTT still yields its elevated moments). The timestamps of the congestion
-        /// excursion, for matching against the WAN load series.
+        /// [earliest, latest] in-window sample time whose RTT exceeds <paramref name="threshold"/> (the
+        /// congestion excursion span). (null, null) when no in-window sample clears it. Reconstructed as
+        /// UTC ticks; callers compare by ticks, so the DateTimeKind is immaterial.
         /// </summary>
-        public IEnumerable<long> ExcursionTicks(DateTime start, DateTime end, double rttThreshold,
-            double? baseJitter, double jitterFactor, double jitterFloorMs)
+        public (DateTime? Lo, DateTime? Hi) RttExcursionSpan(DateTime start, DateTime end, double threshold)
         {
             var (lo, hi) = Range(start, end);
+            long? first = null, last = null;
             for (var i = lo; i < hi; i++)
-            {
-                var rttHot = _rtt[i].HasValue && _rtt[i]!.Value > rttThreshold;
-                var jitHot = _jit[i].HasValue && baseJitter.HasValue
-                    && _jit[i]!.Value > baseJitter.Value * jitterFactor
-                    && _jit[i]!.Value - baseJitter.Value >= jitterFloorMs;
-                if (rttHot || jitHot) yield return _ticks[i];
-            }
+                if (_rtt[i].HasValue && _rtt[i]!.Value > threshold)
+                {
+                    first ??= _ticks[i];
+                    last = _ticks[i];
+                }
+            return (first.HasValue ? new DateTime(first.Value, DateTimeKind.Utc) : null,
+                    last.HasValue ? new DateTime(last.Value, DateTimeKind.Utc) : null);
         }
 
         public double? BaselineRttMedian(List<double> inWindow) => PercentileExcluding(_rttAsc, inWindow, 0.5);

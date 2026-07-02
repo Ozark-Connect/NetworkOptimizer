@@ -228,12 +228,13 @@ public class CongestionLocalizerTests
     [Fact]
     public void Short_burst_straddling_a_bucket_boundary_stays_load_aware_despite_the_padded_window()
     {
-        // A ~6 min burst (12:12-12:18) straddles the 15-min bucket boundary at 12:15, so both buckets fire
-        // and detection reports it over a padded 30-min window (12:00-12:30). WAN load is high only during
-        // the actual 6 min. Averaged across the padded window the high-load fraction is ~0.2 (6 of 30 min),
-        // below the 0.5 coincidence bar - the pre-fix whole-window behavior wrongly read this as external
-        // congestion. Sampling load only at the elevated moments (the burst) it is 1.0, so the event is
-        // correctly load-coincident and carries the "under heavy WAN load" attribution.
+        // A ~6 min access-wide burst (12:12-12:18) straddles the 15-min bucket boundary at 12:15, so both
+        // buckets fire and detection reports it over a padded 30-min window (12:00-12:30). WAN load is
+        // high only during the actual 6 min. Measured across the padded window the high-load fraction is
+        // ~0.2 (6 of 30 min), below the 0.5 coincidence bar - the pre-fix whole-window behavior wrongly
+        // read this self-inflicted blip as external congestion. Measured over the true RTT-excursion span
+        // it is 1.0, so it is correctly load-coincident and, being access-wide at the egress, Loaded
+        // Latency (SelfInflicted/suppressed).
         var burstStart = HumpStart.AddMinutes(12);
         var burstEnd = HumpStart.AddMinutes(18);
         List<LatencySample> Burst(double rtt = 5) => Flat(rtt).WithSegment(burstStart, burstEnd, rttMs: rtt + 25, jitterMs: 6);
@@ -250,7 +251,7 @@ public class CongestionLocalizerTests
         };
 
         // Load spans the whole padded window but is high only during the burst: ~0.2 across 12:00-12:30,
-        // 1.0 across the 12:12-12:18 elevated moments.
+        // 1.0 across the 12:12-12:18 excursion span.
         var load = new List<(DateTime, double?)>();
         for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
             load.Add((t, t >= burstStart && t < burstEnd ? 0.9 : 0.1));
@@ -264,9 +265,10 @@ public class CongestionLocalizerTests
 
         var events = CongestionLocalizer.Localize(series, topo, Options);
 
-        var evt = events.Single(e => e.BottleneckHopIp == Bng);
-        evt.LoadCoincident.Should().BeTrue();
-        evt.AttributionReason.Should().Contain("heavy WAN load");
+        var self = events.Single(e => e.Disposition == CongestionDisposition.SelfInflicted);
+        self.BottleneckHopIp.Should().Be(Bng);
+        self.LoadCoincident.Should().BeTrue();
+        self.Suppressed.Should().BeTrue();
     }
 
     [Fact]
