@@ -18,6 +18,9 @@ message AgentMessage {
     AgentHello hello = 1;
     AgentHeartbeat heartbeat = 2;
     ProbeResultBatch probe_results = 3;
+    ProxyOpenResult proxy_open_result = 4;
+    ProxyData proxy_data = 5;
+    ProxyClose proxy_close = 6;
   }
 }
 
@@ -25,7 +28,36 @@ message ServerMessage {
   oneof payload {
     ServerHello hello = 1;
     ProbeConfig probe_config = 2;
+    ProxyOpen proxy_open = 3;
+    ProxyData proxy_data = 4;
+    ProxyClose proxy_close = 5;
   }
+}
+
+// ---- TCP proxying (SSH / UniFi Console reach into the site) ----
+// The server multiplexes raw TCP connections over the tunnel: ProxyOpen asks
+// the agent to dial a site-local host:port, then ProxyData frames flow both
+// ways under a server-assigned connection id until either side closes.
+
+message ProxyOpen {
+  int64 connection_id = 1;
+  string host = 2;
+  int32 port = 3;
+}
+
+message ProxyOpenResult {
+  int64 connection_id = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+message ProxyData {
+  int64 connection_id = 1;
+  bytes data = 2;
+}
+
+message ProxyClose {
+  int64 connection_id = 1;
 }
 
 // First message on every connection. The server closes the stream with

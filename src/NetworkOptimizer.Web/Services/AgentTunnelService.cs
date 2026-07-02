@@ -25,17 +25,20 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly AgentEnrollmentService _enrollment;
     private readonly AgentTunnelRegistry _registry;
     private readonly AgentProbeResultSink _probeResultSink;
+    private readonly AgentTunnelProxyService _proxy;
     private readonly ILogger<AgentTunnelService> _logger;
 
     public AgentTunnelService(
         AgentEnrollmentService enrollment,
         AgentTunnelRegistry registry,
         AgentProbeResultSink probeResultSink,
+        AgentTunnelProxyService proxy,
         ILogger<AgentTunnelService> logger)
     {
         _enrollment = enrollment;
         _registry = registry;
         _probeResultSink = probeResultSink;
+        _proxy = proxy;
         _logger = logger;
     }
 
@@ -96,6 +99,15 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.ProbeResults:
                         await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
                         break;
+                    case AgentMessage.PayloadOneofCase.ProxyOpenResult:
+                        _proxy.OnProxyOpenResult(message.ProxyOpenResult);
+                        break;
+                    case AgentMessage.PayloadOneofCase.ProxyData:
+                        await _proxy.OnProxyDataAsync(message.ProxyData, ct);
+                        break;
+                    case AgentMessage.PayloadOneofCase.ProxyClose:
+                        _proxy.OnProxyClose(message.ProxyClose);
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;
@@ -113,6 +125,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         finally
         {
             _registry.Unregister(connection);
+            _proxy.OnAgentDisconnected(connection);
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);

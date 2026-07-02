@@ -91,7 +91,11 @@ while (!cts.IsCancellationRequested)
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
         var tunnel = new TunnelClient();
         var probeRunner = new ProbeRunner(tunnel.TrySend, config.ProbeSourceIp);
+        var proxyHandler = new ProxyHandler(tunnel);
         tunnel.OnProbeConfig = probeRunner.UpdateConfig;
+        tunnel.OnProxyOpen = proxyHandler.HandleOpenAsync;
+        tunnel.OnProxyData = proxyHandler.HandleDataAsync;
+        tunnel.OnProxyClose = proxyHandler.HandleClose;
         var probeTask = probeRunner.RunAsync(connectionCts.Token);
         try
         {

@@ -14,14 +14,39 @@ namespace NetworkOptimizer.Agent;
 /// </summary>
 public sealed class TunnelClient
 {
+    // Wait (not drop) when full: proxied byte streams ride this channel and a
+    // dropped frame would corrupt them.
     private readonly Channel<AgentMessage> _outbound = Channel.CreateBounded<AgentMessage>(
-        new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest });
+        new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.Wait });
 
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
     public Action<ProbeConfig>? OnProbeConfig { get; set; }
 
+    /// <summary>Server asks us to dial a site-local TCP endpoint.</summary>
+    public Func<ProxyOpen, CancellationToken, Task>? OnProxyOpen { get; set; }
+
+    /// <summary>Server-to-site bytes for an open proxied connection.</summary>
+    public Func<ProxyData, CancellationToken, Task>? OnProxyData { get; set; }
+
+    /// <summary>Server closed a proxied connection.</summary>
+    public Action<ProxyClose>? OnProxyClose { get; set; }
+
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
+
+    /// <summary>Queues with backpressure. False once the tunnel is torn down.</summary>
+    public async ValueTask<bool> SendAsync(AgentMessage message, CancellationToken ct)
+    {
+        try
+        {
+            await _outbound.Writer.WriteAsync(message, ct);
+            return true;
+        }
+        catch (ChannelClosedException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Connects and runs the tunnel until it drops or <paramref name="ct"/> is
@@ -68,16 +93,32 @@ public sealed class TunnelClient
             while (await call.ResponseStream.MoveNext(ct))
             {
                 var message = call.ResponseStream.Current;
-                if (message.ProbeConfig is { } probeConfig)
+                switch (message.PayloadCase)
                 {
-                    Console.WriteLine($"Received probe config: {probeConfig.Targets.Count} target(s)");
-                    OnProbeConfig?.Invoke(probeConfig);
+                    case ServerMessage.PayloadOneofCase.ProbeConfig:
+                        Console.WriteLine($"Received probe config: {message.ProbeConfig.Targets.Count} target(s)");
+                        OnProbeConfig?.Invoke(message.ProbeConfig);
+                        break;
+                    case ServerMessage.PayloadOneofCase.ProxyOpen:
+                        // Fire and forget: the dial can take seconds and the
+                        // server won't send data for this id until we answer.
+                        if (OnProxyOpen is { } openHandler)
+                            _ = openHandler(message.ProxyOpen, linked.Token);
+                        break;
+                    case ServerMessage.PayloadOneofCase.ProxyData:
+                        if (OnProxyData is { } dataHandler)
+                            await dataHandler(message.ProxyData, linked.Token);
+                        break;
+                    case ServerMessage.PayloadOneofCase.ProxyClose:
+                        OnProxyClose?.Invoke(message.ProxyClose);
+                        break;
                 }
             }
         }
         finally
         {
             linked.Cancel();
+            _outbound.Writer.TryComplete();
             try { await Task.WhenAll(pumpTask, heartbeatTask); } catch (OperationCanceledException) { }
         }
     }

@@ -97,6 +97,44 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         return scope;
     }
 
+    /// <summary>Per-site setting key: reach this site's console through its agent tunnel.</summary>
+    public const string ConsoleViaAgentKey = "console.via_agent";
+
+    /// <summary>Whether this site's console is configured to be reached through its agent tunnel.</summary>
+    public async Task<bool> IsConsoleViaAgentAsync()
+    {
+        try
+        {
+            using var scope = CreateSiteScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var setting = await db.SystemSettings.FindAsync(ConsoleViaAgentKey);
+            return bool.TryParse(setting?.Value, out var enabled) && enabled;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// When the site's console is reached through its agent tunnel, rewrites
+    /// the controller URL to the loopback proxy endpoint that forwards over
+    /// the tunnel. Callers must also force ignore-SSL for proxied connections:
+    /// the console's certificate can never match 127.0.0.1.
+    /// </summary>
+    private string ResolveControllerUrl(string controllerUrl, bool viaAgent)
+    {
+        if (!viaAgent) return controllerUrl;
+        var proxy = _serviceProvider.GetService<AgentTunnelProxyService>();
+        if (proxy == null || !Uri.TryCreate(controllerUrl, UriKind.Absolute, out var uri))
+            return controllerUrl;
+        var port = uri.IsDefaultPort ? (uri.Scheme == Uri.UriSchemeHttps ? 443 : 80) : uri.Port;
+        var localPort = proxy.GetOrCreateEndpoint(SiteSlug, uri.Host, port);
+        _logger.LogInformation("Console for site {Slug} routed via agent tunnel (127.0.0.1:{LocalPort} -> {Host}:{Port})",
+            SiteSlug, localPort, uri.Host, port);
+        return $"{uri.Scheme}://127.0.0.1:{localPort}";
+    }
+
     /// <summary>
     /// Starts the async initialization without blocking the constructor.
     /// Uses double-checked locking to ensure initialization runs only once.
@@ -307,14 +345,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _lastError = null;
 
             // Create new client
+            var viaAgent = await IsConsoleViaAgentAsync();
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             _client = new UniFiApiClient(
                 clientLogger,
-                config.ControllerUrl,
+                ResolveControllerUrl(config.ControllerUrl, viaAgent),
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors,
+                config.IgnoreControllerSSLErrors || viaAgent,
                 config.ApiKey
             );
 
@@ -418,14 +457,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _lastError = null;
 
             // Create new client
+            var viaAgent = await IsConsoleViaAgentAsync();
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             _client = new UniFiApiClient(
                 clientLogger,
-                config.ControllerUrl,
+                ResolveControllerUrl(config.ControllerUrl, viaAgent),
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors,
+                config.IgnoreControllerSSLErrors || viaAgent,
                 config.ApiKey
             );
 
@@ -604,14 +644,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         UniFiApiClient? testClient = null;
         try
         {
+            var viaAgent = await IsConsoleViaAgentAsync();
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             testClient = new UniFiApiClient(
                 clientLogger,
-                config.ControllerUrl,
+                ResolveControllerUrl(config.ControllerUrl, viaAgent),
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors,
+                config.IgnoreControllerSSLErrors || viaAgent,
                 config.ApiKey
             );
 
@@ -671,14 +712,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         UniFiApiClient? testClient = null;
         try
         {
+            var viaAgent = await IsConsoleViaAgentAsync();
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             testClient = new UniFiApiClient(
                 clientLogger,
-                config.ControllerUrl,
+                ResolveControllerUrl(config.ControllerUrl, viaAgent),
                 config.Username,
                 config.Password,
                 config.Site,
-                config.IgnoreControllerSSLErrors,
+                config.IgnoreControllerSSLErrors || viaAgent,
                 config.ApiKey
             );
 

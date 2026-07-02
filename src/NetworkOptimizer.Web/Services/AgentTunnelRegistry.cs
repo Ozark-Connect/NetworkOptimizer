@@ -59,8 +59,12 @@ public class AgentTunnelRegistry
 /// <summary>One live agent tunnel. Created by the registry, drained by the tunnel handler.</summary>
 public sealed class AgentTunnelConnection
 {
+    // Wait (not drop) when full: proxy byte streams ride this channel, and
+    // dropping a frame would corrupt them. Proxy senders use SendAsync for
+    // real backpressure; TrySend (config pushes) may fail when the channel is
+    // full or completed, which is fine - the periodic refresh retries.
     private readonly Channel<ServerMessage> _outbound = Channel.CreateBounded<ServerMessage>(
-        new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest });
+        new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.Wait });
 
     internal AgentTunnelConnection(int agentId, string siteSlug, string agentName)
     {
@@ -81,6 +85,20 @@ public sealed class AgentTunnelConnection
     internal ChannelReader<ServerMessage> Outbound => _outbound.Reader;
 
     internal bool TrySend(ServerMessage message) => _outbound.Writer.TryWrite(message);
+
+    /// <summary>Queues with backpressure. False once the connection is torn down.</summary>
+    internal async ValueTask<bool> SendAsync(ServerMessage message, CancellationToken ct)
+    {
+        try
+        {
+            await _outbound.Writer.WriteAsync(message, ct);
+            return true;
+        }
+        catch (ChannelClosedException)
+        {
+            return false;
+        }
+    }
 
     internal void Complete() => _outbound.Writer.TryComplete();
 }

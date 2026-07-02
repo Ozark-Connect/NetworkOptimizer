@@ -230,6 +230,7 @@ builder.Services.AddSingleton(new AgentTunnelOptions(agentTunnelEnabled, agentTu
 builder.Services.AddGrpc();
 builder.Services.AddSingleton<AgentTunnelRegistry>();
 builder.Services.AddSingleton<AgentProbeResultSink>();
+builder.Services.AddSingleton<AgentTunnelProxyService>();
 
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();

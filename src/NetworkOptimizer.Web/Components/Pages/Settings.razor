@@ -33,6 +33,7 @@
 @inject SiteManagementService SiteManagement
 @inject AgentEnrollmentService AgentEnrollment
 @inject AgentTunnelRegistry TunnelRegistry
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
@@ -2665,6 +2666,15 @@
                                                         New Agent Token
                                                     </button>
                                                 </div>
+                                                @if (!site.IsDefault)
+                                                {
+                                                    <label class="site-agent-console-toggle">
+                                                        <input type="checkbox" checked="@ConsoleViaAgent(site.Id)"
+                                                               @onchange="e => ToggleConsoleViaAgent(site, (bool)e.Value!)" />
+                                                        Reach this site's UniFi Console through the agent tunnel - no VPN or
+                                                        port-forward to the console needed. Applies on the next connect.
+                                                    </label>
+                                                }
                                                 @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
                                                 {
                                                     <div class="alert alert-success">
@@ -2870,7 +2880,41 @@
         _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
         _newAgentToken = null;
         if (_expandedSiteId != null)
+        {
             await LoadAgentsAsync();
+            var site = _sites.FirstOrDefault(s => s.Id == siteId);
+            if (site != null)
+                await LoadConsoleViaAgentAsync(site);
+        }
+    }
+
+    // Per-site "console via agent tunnel" flag, stored in the site's own database
+    private readonly Dictionary<int, bool> _consoleViaAgent = new();
+
+    private bool ConsoleViaAgent(int siteId) => _consoleViaAgent.TryGetValue(siteId, out var enabled) && enabled;
+
+    private async Task LoadConsoleViaAgentAsync(Site site)
+    {
+        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+        var setting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleViaAgentKey);
+        _consoleViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
+    }
+
+    private async Task ToggleConsoleViaAgent(Site site, bool value)
+    {
+        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+        var setting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleViaAgentKey);
+        if (setting == null)
+        {
+            db.SystemSettings.Add(new SystemSetting { Key = UniFiConnectionService.ConsoleViaAgentKey, Value = value.ToString() });
+        }
+        else
+        {
+            setting.Value = value.ToString();
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+        _consoleViaAgent[site.Id] = value;
     }
 
     private async Task CreateAgent(Site site)

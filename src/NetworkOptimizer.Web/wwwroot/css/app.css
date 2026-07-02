@@ -17486,6 +17486,20 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
+.site-agent-console-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.site-agent-console-toggle input {
+    margin-top: 0.15rem;
+}
+
 .site-card-agents {
     margin-left: auto;
     color: var(--text-secondary);
