@@ -95,21 +95,7 @@ public class ChannelMemoryCollectionService : BackgroundService
             return;
         }
 
-        // UniFi stamps hourly report rows at interval START, so a row is only complete once
-        // the next hour begins. Collect strictly whole hours: the window ends at the last
-        // hour boundary, and the watermark records that boundary - rows in [start, collectEnd)
-        // are aggregated exactly once, and the in-progress hour is picked up complete next cycle.
         var now = DateTimeOffset.UtcNow;
-        var collectEnd = new DateTimeOffset(
-            now.UtcDateTime.Date.AddHours(now.UtcDateTime.Hour), TimeSpan.Zero);
-        var earliest = collectEnd - MaxLookback;
-        var watermark = await _repository.GetCollectionWatermarkAsync(cancellationToken);
-        var start = watermark.HasValue && watermark.Value > earliest.UtcDateTime
-            ? new DateTimeOffset(DateTime.SpecifyKind(watermark.Value, DateTimeKind.Utc))
-            : earliest;
-
-        if (collectEnd <= start)
-            return;
 
         using var scope = _scopeFactory.CreateScope();
         var wifiService = scope.ServiceProvider.GetRequiredService<WiFiOptimizerService>();
@@ -122,9 +108,10 @@ public class ChannelMemoryCollectionService : BackgroundService
             return;
         }
 
-        // Neighbor memory first, in its own try/catch: sightings are upserts keyed by
-        // last-seen (no watermark involved), so a metrics failure below must not starve
-        // them and a sighting failure must not abort the metrics cycle.
+        // Neighbor memory first, in its own try/catch and BEFORE the watermark early-return:
+        // sightings are upserts keyed by last-seen (no watermark involved), so they must run
+        // every cycle even when no new whole hour of metrics exists yet, a metrics failure
+        // below must not starve them, and a sighting failure must not abort the metrics cycle.
         try
         {
             await PersistNeighborSightingsAsync(wifiService, now, cancellationToken);
@@ -137,6 +124,21 @@ public class ChannelMemoryCollectionService : BackgroundService
         {
             _logger.LogDebug(ex, "Neighbor sighting persistence failed; will retry next cycle");
         }
+
+        // UniFi stamps hourly report rows at interval START, so a row is only complete once
+        // the next hour begins. Collect strictly whole hours: the window ends at the last
+        // hour boundary, and the watermark records that boundary - rows in [start, collectEnd)
+        // are aggregated exactly once, and the in-progress hour is picked up complete next cycle.
+        var collectEnd = new DateTimeOffset(
+            now.UtcDateTime.Date.AddHours(now.UtcDateTime.Hour), TimeSpan.Zero);
+        var earliest = collectEnd - MaxLookback;
+        var watermark = await _repository.GetCollectionWatermarkAsync(cancellationToken);
+        var start = watermark.HasValue && watermark.Value > earliest.UtcDateTime
+            ? new DateTimeOffset(DateTime.SpecifyKind(watermark.Value, DateTimeKind.Utc))
+            : earliest;
+
+        if (collectEnd <= start)
+            return;
 
         // Events are fetched over the full lookback (not just the collection window) so the
         // attribution timeline knows which channel was live at the window's start. Both
