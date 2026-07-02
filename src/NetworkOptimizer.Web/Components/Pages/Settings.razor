@@ -32,6 +32,7 @@
 @inject NavigationManager NavigationManager
 @inject SiteManagementService SiteManagement
 @inject AgentEnrollmentService AgentEnrollment
+@inject AgentTunnelRegistry TunnelRegistry
 @inject SnmpDetectionService SnmpDetection
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
@@ -2647,7 +2648,7 @@
                                                             }
                                                             else if (AgentEnrollmentService.IsOnline(agent.LastSeenAt))
                                                             {
-                                                                <text>Online@(agent.LastVersion != null ? $" - v{agent.LastVersion}" : "")</text>
+                                                                <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{agent.LastVersion}" : "")</text>
                                                             }
                                                             else
                                                             {
