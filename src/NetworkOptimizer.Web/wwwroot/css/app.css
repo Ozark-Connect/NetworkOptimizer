@@ -17434,6 +17434,15 @@ body.kiosk-mode .status-indicators {
     background: var(--bg-tertiary);
 }
 
+.site-card-console {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .sites-overview-card.sites-overview-static {
     cursor: default;
 }

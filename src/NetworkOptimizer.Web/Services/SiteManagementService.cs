@@ -70,6 +70,28 @@ public class SiteManagementService
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
     }
 
+    /// <summary>
+    /// Sites permitted under the BSL Additional Use Grant (personal,
+    /// non-commercial use on up to three sites). A future licensing / unlock-key
+    /// scheme will raise this - <see cref="GetSiteLimitAsync"/> is the single
+    /// place that decision hooks into.
+    /// </summary>
+    public const int FreeSiteLimit = 3;
+
+    /// <summary>
+    /// The effective maximum number of sites for this instance. Today it is
+    /// always <see cref="FreeSiteLimit"/>; the future unlock key raises it here.
+    /// </summary>
+    public Task<int> GetSiteLimitAsync() => Task.FromResult(FreeSiteLimit);
+
+    /// <summary>How many more sites may be created before hitting the limit.</summary>
+    public async Task<int> RemainingSiteSlotsAsync()
+    {
+        var limit = await GetSiteLimitAsync();
+        var count = (await GetSitesAsync()).Count;
+        return Math.Max(0, limit - count);
+    }
+
     /// <summary>Gets all registered sites.</summary>
     public Task<List<Site>> GetSitesAsync() => _siteRepository.GetAllAsync();
 
@@ -93,6 +115,12 @@ public class SiteManagementService
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Site name is required", nameof(name));
+
+        var limit = await GetSiteLimitAsync();
+        if ((await _siteRepository.GetAllAsync()).Count >= limit)
+            throw new InvalidOperationException(
+                $"This instance is limited to {limit} sites under the current license. " +
+                "Remove a site, or unlock more, to add another.");
 
         var slug = await GenerateUniqueSlugAsync(name);
         var site = new Site { Slug = slug, Name = name.Trim() };

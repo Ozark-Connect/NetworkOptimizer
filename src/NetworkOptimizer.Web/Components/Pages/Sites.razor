@@ -1,11 +1,13 @@
 @page "/sites"
 @rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
 @inject AgentEnrollmentService AgentEnrollment
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
@@ -56,6 +58,10 @@ else
                         <span class="status-badge status-connected">Current</span>
                     }
                 </div>
+                @if (ConsoleHost(site.Id) is { Length: > 0 } host)
+                {
+                    <div class="site-card-console" data-tooltip="UniFi Console this site connects to">@host</div>
+                }
                 <div class="site-card-meta">
                     <span class="site-card-slug">@site.Slug</span>
                     @if (site.IsDefault)
@@ -88,6 +94,7 @@ else
     private bool _enabled;
     private List<Site> _sites = new();
     private List<SiteAgent> _agents = new();
+    private readonly Dictionary<int, string?> _consoleHosts = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -96,8 +103,38 @@ else
         {
             _sites = await SiteManagement.GetSitesAsync();
             _agents = await AgentEnrollment.GetAllAgentsAsync();
+            await LoadConsoleHostsAsync();
         }
         _loaded = true;
+    }
+
+    // Each site's UniFi Console host, read from its own database, shown under the
+    // site name so people can orient themselves and catch a wrong console before
+    // switching into it.
+    private async Task LoadConsoleHostsAsync()
+    {
+        foreach (var site in _sites)
+        {
+            try
+            {
+                await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+                var settings = await db.UniFiConnectionSettings.AsNoTracking().FirstOrDefaultAsync();
+                _consoleHosts[site.Id] = ExtractHost(settings?.ControllerUrl);
+            }
+            catch
+            {
+                _consoleHosts[site.Id] = null;
+            }
+        }
+    }
+
+    private string? ConsoleHost(int siteId) => _consoleHosts.TryGetValue(siteId, out var host) ? host : null;
+
+    private static string? ExtractHost(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+        return Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) ? uri.Host : url.Trim();
     }
 
     private int AgentCount(int siteId) => _agents.Count(a => a.SiteId == siteId);

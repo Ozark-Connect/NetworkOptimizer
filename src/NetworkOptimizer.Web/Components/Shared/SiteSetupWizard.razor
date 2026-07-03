@@ -12,27 +12,38 @@
     @if (_step == 1)
     {
         <label class="form-label">Add Site <span class="form-help">(Step 1 of 4)</span></label>
-        <div class="form-group">
-            <div class="input-with-button">
-                <input type="text" class="form-control" @bind="_name" @bind:event="oninput"
-                       placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
-                        disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
-                    @if (_busy)
-                    {
-                        <span class="spinner"></span>
-                    }
-                    else
-                    {
-                        <span>Create Site</span>
-                    }
-                </button>
+        @if (_remainingSlots <= 0)
+        {
+            <p class="section-description">
+                You've reached the @SiteManagementService.FreeSiteLimit-site limit for this license
+                (personal, non-commercial use). Remove a site to add another, or contact
+                <a href="mailto:tj@ozarkconnect.net">tj@@ozarkconnect.net</a> about licensing for more sites.
+            </p>
+        }
+        else
+        {
+            <div class="form-group">
+                <div class="input-with-button">
+                    <input type="text" class="form-control" @bind="_name" @bind:event="oninput"
+                           placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
+                            disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
+                        @if (_busy)
+                        {
+                            <span class="spinner"></span>
+                        }
+                        else
+                        {
+                            <span>Create Site</span>
+                        }
+                    </button>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_name))
+                {
+                    <small class="form-help">Site ID: <code>@StringUtilities.ToSlug(_name)</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
+                }
             </div>
-            @if (!string.IsNullOrWhiteSpace(_name))
-            {
-                <small class="form-help">Site ID: <code>@StringUtilities.ToSlug(_name)</code> - permanent identifier used for the site's database file, InfluxDB buckets, and agent configuration.</small>
-            }
-        </div>
+        }
     }
     else if (_step == 2 && _site != null)
     {
@@ -173,6 +184,12 @@
 @code {
     [Parameter]
     public EventCallback OnSitesChanged { get; set; }
+
+    private int _remainingSlots = int.MaxValue;
+
+    protected override async Task OnInitializedAsync() => await RefreshLimitAsync();
+
+    private async Task RefreshLimitAsync() => _remainingSlots = await SiteManagement.RemainingSiteSlotsAsync();
 
     private int _step = 1;
     private bool _busy;
@@ -354,6 +371,7 @@
 
     private async Task ResetAsync()
     {
+        await RefreshLimitAsync();
         _step = 1;
         _site = null;
         _name = "";
