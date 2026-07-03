@@ -177,6 +177,33 @@ public class SiteManagementService
             .Options;
         await using var db = new NetworkOptimizerDbContext(options);
         await db.Database.MigrateAsync();
+
+        // Seed the Alerts & Schedule defaults so a new site matches the main site instead
+        // of showing blank lists (matches the startup seed for the main + existing sites).
+        var existingPatterns = await db.AlertRules.Select(r => r.EventTypePattern).ToListAsync();
+        var missingRules = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults()
+            .Where(r => !existingPatterns.Contains(r.EventTypePattern))
+            .ToList();
+        if (missingRules.Count > 0)
+        {
+            db.AlertRules.AddRange(missingRules);
+            await db.SaveChangesAsync();
+        }
+
+        if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !await db.ScheduledTasks.AnyAsync())
+        {
+            db.ScheduledTasks.Add(new NetworkOptimizer.Alerts.Models.ScheduledTask
+            {
+                TaskType = "audit",
+                Name = "Security Audit",
+                Enabled = true,
+                FrequencyMinutes = 720, // 12 hours
+                NextRunAt = NetworkOptimizer.Alerts.ScheduleService.CalculateNextRun(720),
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
         _logger.LogInformation("Provisioned site database for {Slug} at {Path}", slug, dbPath);
     }
 }

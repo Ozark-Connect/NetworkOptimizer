@@ -799,6 +799,34 @@ using (var scope = app.Services.CreateScope())
                 .Options;
             using var siteDb = new NetworkOptimizerDbContext(siteOptions);
             siteDb.Database.Migrate();
+
+            // Seed the Alerts & Schedule defaults into each site's DB too, so secondary
+            // sites match the main site instead of showing blank lists. The main-DB seed
+            // below only covers the default site.
+            var siteMissingRules = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults()
+                .Where(r => !siteDb.AlertRules.Select(x => x.EventTypePattern).Contains(r.EventTypePattern))
+                .ToList();
+            if (siteMissingRules.Count > 0)
+            {
+                siteDb.AlertRules.AddRange(siteMissingRules);
+                siteDb.SaveChanges();
+                app.Logger.LogInformation("Seeded {Count} alert rule(s) for site {Slug}", siteMissingRules.Count, site.Slug);
+            }
+
+            if (NetworkOptimizer.Core.FeatureFlags.SchedulingEnabled && !siteDb.ScheduledTasks.Any())
+            {
+                siteDb.ScheduledTasks.Add(new NetworkOptimizer.Alerts.Models.ScheduledTask
+                {
+                    TaskType = "audit",
+                    Name = "Security Audit",
+                    Enabled = true,
+                    FrequencyMinutes = 720, // 12 hours
+                    NextRunAt = NetworkOptimizer.Alerts.ScheduleService.CalculateNextRun(720),
+                    CreatedAt = DateTime.UtcNow
+                });
+                siteDb.SaveChanges();
+                app.Logger.LogInformation("Seeded default scheduled tasks for site {Slug}", site.Slug);
+            }
         }
         if (siteRows.Count > 0)
             app.Logger.LogInformation("Applied migrations to {Count} site database(s)", siteRows.Count);
