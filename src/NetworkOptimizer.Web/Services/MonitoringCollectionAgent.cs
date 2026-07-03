@@ -29,10 +29,20 @@ namespace NetworkOptimizer.Web.Services;
 ///
 /// Credentials come from MonitoringSettings (populated by SnmpDetectionService); the agent
 /// itself never stores them independently.
+///
+/// One instance exists per site, owned by <see cref="MonitoringCollectionRegistry"/>.
+/// A non-default instance reads settings, targets, and relational rows from its own
+/// site's database and writes to that site's Influx buckets, console connection, and
+/// live-stats cache. When the site has a connected on-site agent, the tunnel relay
+/// already covers latency probing and SNMP polling from inside that network, so the
+/// local loops skip those and keep only the console-API-driven work (WiFi client
+/// snapshots, SFP DDM, API health fallback, fabric target reconciliation).
 /// </summary>
 public class MonitoringCollectionAgent : BackgroundService
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
+    private readonly AgentTunnelRegistry _tunnelRegistry;
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringLiveStats _liveStats;
@@ -43,6 +53,8 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator _deviceHealthAlertEvaluator;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MonitoringCollectionAgent> _logger;
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
 
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
@@ -69,6 +81,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
     public MonitoringCollectionAgent(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        SiteDbContextFactory siteDbFactory,
+        AgentTunnelRegistry tunnelRegistry,
         SiteConnectionRegistry siteConnections,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
@@ -78,12 +92,17 @@ public class MonitoringCollectionAgent : BackgroundService
         NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator sfpAlertEvaluator,
         NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator deviceHealthAlertEvaluator,
         ILoggerFactory loggerFactory,
-        ILogger<MonitoringCollectionAgent> logger)
+        ILogger<MonitoringCollectionAgent> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _dbFactory = dbFactory;
-        _connectionService = siteConnections.GetDefault();
-        _influx = influxRegistry.GetDefault();
-        _liveStats = liveStatsRegistry.GetDefault();
+        _siteDbFactory = siteDbFactory;
+        _tunnelRegistry = tunnelRegistry;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _connectionService = siteConnections.GetFor(_siteSlug);
+        _influx = influxRegistry.GetFor(_siteSlug);
+        _liveStats = liveStatsRegistry.GetFor(_siteSlug);
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
         _alertEvaluator = alertEvaluator;
@@ -93,9 +112,27 @@ public class MonitoringCollectionAgent : BackgroundService
         _logger = logger;
     }
 
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSiteDbAsync(CancellationToken ct)
+    {
+        if (!_isDefault)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
+    }
+
+    /// <summary>
+    /// Whether a connected on-site agent is collecting for this site right now. The
+    /// tunnel relay handles latency probing and SNMP polling from inside the site's
+    /// network (where the server often has no reach), so the local loops for those
+    /// paths stand down while an agent is connected. Never true for the default site:
+    /// its agents are additional vantage points, not replacements for local collection.
+    /// </summary>
+    private bool AgentCoversCollection() =>
+        !_isDefault && _tunnelRegistry.GetForSite(_siteSlug).Count > 0;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Monitoring collection agent starting");
+        _logger.LogInformation("Monitoring collection agent starting (site {Site})", _siteSlug);
 
         // Seed default targets on startup so the latency tier has something to probe even
         // before the upstream wizard runs. Safe to call repeatedly — only inserts if absent.
@@ -135,7 +172,7 @@ public class MonitoringCollectionAgent : BackgroundService
             stoppingToken);
 
         await Task.WhenAll(fastTask, mediumTask, slowTask, latencyTask, healthTask, wifiTask);
-        _logger.LogInformation("Monitoring collection agent stopped");
+        _logger.LogInformation("Monitoring collection agent stopped (site {Site})", _siteSlug);
     }
 
     private TimeSpan GetFastInterval(MonitoringSettings s) =>
@@ -181,7 +218,7 @@ public class MonitoringCollectionAgent : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Monitoring {Tier} tier collection failed", tierName);
+                _logger.LogError(ex, "Monitoring {Tier} tier collection failed (site {Site})", tierName, _siteSlug);
                 interval = TimeSpan.FromSeconds(30);
             }
 
@@ -194,7 +231,7 @@ public class MonitoringCollectionAgent : BackgroundService
     {
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSiteDbAsync(ct);
             return await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
         }
         catch (Exception ex)
@@ -219,6 +256,10 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task FastTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {
+        // A connected on-site agent streams interface counters over the tunnel; polling
+        // the same devices from here would double-write (and usually can't reach them).
+        if (AgentCoversCollection()) return;
+
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
@@ -672,6 +713,20 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
+        // With an on-site agent connected, SNMP health arrives over the tunnel relay.
+        // The local pass keeps only the UniFi-API fallback below, restricted to devices
+        // the agent's SNMP runner won't cover (those without SNMP enabled).
+        var agentCovers = AgentCoversCollection();
+        if (agentCovers)
+        {
+            if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
+            await CollectApiHealthFallbackAsync(settings, devices,
+                snmpHealthHits: new ConcurrentDictionary<string, bool>(),
+                snmpTempHits: new ConcurrentDictionary<string, bool>(),
+                snmpHandledElsewhere: true);
+            return;
+        }
+
         var poller = GetOrBuildPoller(settings);
         if (poller == null) return;
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
@@ -725,11 +780,17 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (customOids.TryGetValue(NormalizeMac(device.Mac), out var deviceCustomOids))
                     await PollCustomOidsAsync(poller, device.Mac, DescribeDeviceType(device.DeviceType), ip, deviceCustomOids, ct);
 
-                await _deviceHealthAlertEvaluator.EvaluateAsync(
-                    device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
-                    cpu, memPct,
-                    temperatureC: temp,
-                    tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
+                // Default site only until the alert evaluators split per site: the
+                // singleton evaluators key state by device MAC / target id, which
+                // can collide across sites.
+                if (_isDefault)
+                {
+                    await _deviceHealthAlertEvaluator.EvaluateAsync(
+                        device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
+                        cpu, memPct,
+                        temperatureC: temp,
+                        tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
+                }
             }
             catch (Exception ex)
             {
@@ -740,15 +801,32 @@ public class MonitoringCollectionAgent : BackgroundService
         });
         await Task.WhenAll(deviceTasks);
 
-        // UniFi API health pass: supplements or replaces SNMP health data.
-        // Non-SNMP devices: full fallback (CPU, mem, temp, uptime).
-        // SNMP devices: fill in gaps only (e.g., temperature on switches where
-        // SNMP doesn't report temp but UniFi API does).
+        await CollectApiHealthFallbackAsync(settings, devices, snmpHealthHits, snmpTempHits,
+            snmpHandledElsewhere: false);
+    }
+
+    /// <summary>
+    /// UniFi API health pass: supplements or replaces SNMP health data.
+    /// Non-SNMP devices: full fallback (CPU, mem, temp, uptime).
+    /// SNMP devices: fill in gaps only (e.g., temperature on switches where
+    /// SNMP doesn't report temp but UniFi API does).
+    /// With <paramref name="snmpHandledElsewhere"/> (site has a connected agent
+    /// relaying SNMP), SNMP-enabled devices are skipped entirely - the relay
+    /// writes their health - and only devices the agent can't poll get API data.
+    /// </summary>
+    private async Task CollectApiHealthFallbackAsync(
+        MonitoringSettings settings,
+        List<UniFiDeviceResponse> devices,
+        ConcurrentDictionary<string, bool> snmpHealthHits,
+        ConcurrentDictionary<string, bool> snmpTempHits,
+        bool snmpHandledElsewhere)
+    {
         var now = DateTime.UtcNow;
         foreach (var device in devices)
         {
             var mac = NormalizeMac(device.Mac);
             var snmpOn = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
+            if (snmpHandledElsewhere && snmpOn) continue;
             var snmpExcl = IsSnmpExcluded(mac);
             var snmpActive = snmpOn && !snmpExcl;
 
@@ -798,11 +876,14 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
 
-                await _deviceHealthAlertEvaluator.EvaluateAsync(
-                    device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
-                    cpu, mem,
-                    temperatureC: temp,
-                    tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
+                if (_isDefault)
+                {
+                    await _deviceHealthAlertEvaluator.EvaluateAsync(
+                        device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
+                        cpu, mem,
+                        temperatureC: temp,
+                        tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
+                }
             }
             catch (Exception ex)
             {
@@ -869,21 +950,30 @@ public class MonitoringCollectionAgent : BackgroundService
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0) return;
 
+        // The SFP collection below reads UniFi port_table DDM values, so it works over
+        // any reachable console connection (tunnel-proxied included). The SNMP interface
+        // walk further down needs direct SNMP reach, which a connected agent already
+        // provides from inside the site - skip the local copy in that case.
+        var agentCovers = AgentCoversCollection();
+
         // Network config (cached ~5 min) feeds the WireGuard / OpenVPN / honeypot /
         // bridge interface labels resolved below. Best-effort: a fetch failure just
         // means those families fall back to their raw ifname.
         IReadOnlyList<NetworkInfo> networkConfigs = Array.Empty<NetworkInfo>();
-        try { networkConfigs = await _connectionService.GetNetworksAsync(ct); }
-        catch (Exception ex) { _logger.LogDebug(ex, "networkconf fetch for interface labels failed"); }
+        if (!agentCovers)
+        {
+            try { networkConfigs = await _connectionService.GetNetworksAsync(ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "networkconf fetch for interface labels failed"); }
+        }
 
-        var poller = GetOrBuildPoller(settings);
-        if (poller == null) return;
+        var poller = agentCovers ? null : GetOrBuildPoller(settings);
+        if (poller == null && !agentCovers) return;
 
         if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
 
         // Reconcile InterfaceNameMap: stable device_mac+ifName → friendly name from UniFi
         // (per spec 3.7).
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
         var existingMaps = await db.InterfaceNameMaps.ToDictionaryAsync(
             m => (m.DeviceMac, m.IfName), m => m, ct);
         var existingSfps = await db.MonitoredSfps.ToDictionaryAsync(
@@ -898,9 +988,10 @@ public class MonitoringCollectionAgent : BackgroundService
         }
 
         // SFP threshold evaluation: check DDM values against alert thresholds
-        // (per-category, user-configurable with built-in fallbacks).
+        // (per-category, user-configurable with built-in fallbacks). Default site
+        // only until the alert evaluators split per site.
         var sfpThresholds = NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds.FromSettings(settings);
-        foreach (var device in devices)
+        foreach (var device in _isDefault ? devices : Enumerable.Empty<UniFiDeviceResponse>())
         {
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
             var sfpMac = NormalizeMac(device.Mac);
@@ -926,8 +1017,8 @@ public class MonitoringCollectionAgent : BackgroundService
             }
         }
 
-        var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
-        foreach (var device in devices)
+        var gatewayLanIp = agentCovers ? null : await ResolveGatewayLanIpAsync(ct);
+        foreach (var device in agentCovers ? Enumerable.Empty<UniFiDeviceResponse>() : devices)
         {
             if (!Monitoring.SnmpDeviceRules.HasSnmpEnabled(device))
                 continue;
@@ -936,7 +1027,7 @@ public class MonitoringCollectionAgent : BackgroundService
             {
                 var pollIp = ResolveSnmpAddress(device, gatewayLanIp);
                 if (!IPAddress.TryParse(pollIp, out var ip)) continue;
-                var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
+                var interfaces = await poller!.GetInterfaceMetricsAsync(ip, device.Name);
                 if (interfaces.Count == 0)
                 {
                     NoteSnmpFailure(NormalizeMac(device.Mac));
@@ -1319,9 +1410,15 @@ public class MonitoringCollectionAgent : BackgroundService
         // Reconcile fabric targets with the live device list — gateways, switches, and APs
         // should each have a `fabric` target on their management IP (spec 5.4). New devices
         // add a target; deleted devices leave their targets untouched (history preserved).
+        // This runs even when an agent covers the site: the reconciled targets are what
+        // the tunnel pushes to the agent for probing from inside the network.
         await ReconcileFabricTargetsAsync(ct);
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        // Probing itself stands down while an agent is connected - RTT measured from the
+        // central server would be the WAN path, not the site's own fabric/WAN view.
+        if (AgentCoversCollection()) return;
+
+        await using var db = await CreateSiteDbAsync(ct);
         var targets = await db.MonitoringTargets
             .AsNoTracking()
             .Where(t => t.Enabled)
@@ -1395,8 +1492,13 @@ public class MonitoringCollectionAgent : BackgroundService
 
             // State-change evaluation: publish AlertEvents on up→down, down→up, and
             // sustained packet loss transitions. Cheap, in-memory state machine.
-            try { await _alertEvaluator.EvaluateAsync(target, ping, ct); }
-            catch (Exception ex) { _logger.LogDebug(ex, "Alert evaluator failed for target {Target}", target.TargetId); }
+            // Default site only until the alert evaluators split per site: the singleton
+            // keys state by target id, and ids like "wan-cloudflare-1111" repeat per site.
+            if (_isDefault)
+            {
+                try { await _alertEvaluator.EvaluateAsync(target, ping, ct); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Alert evaluator failed for target {Target}", target.TargetId); }
+            }
 
             if (ping.Success)
             {
@@ -1404,7 +1506,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 // the wizard's re-validation (spec 5.5).
                 try
                 {
-                    await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                    await using var db = await CreateSiteDbAsync(ct);
                     var row = await db.MonitoringTargets.FindAsync(new object[] { target.Id }, ct);
                     if (row != null)
                     {
@@ -1430,7 +1532,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task SeedDefaultTargetsAsync(CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
         var existing = await db.MonitoringTargets.AsNoTracking()
             .Select(t => t.TargetId).ToListAsync(ct);
         var existingSet = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
@@ -1492,7 +1594,7 @@ public class MonitoringCollectionAgent : BackgroundService
         // below also migrates existing targets seeded with the WAN IP.
         var gatewayLanIp = await ResolveGatewayLanIpAsync(ct);
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
         var existingByTargetId = await db.MonitoringTargets
             .Where(t => t.TargetType == MonitoringTargetType.Fabric)
             .ToDictionaryAsync(t => t.TargetId, ct);
@@ -2128,7 +2230,7 @@ public class MonitoringCollectionAgent : BackgroundService
 
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSiteDbAsync(ct);
             var all = await db.CustomOidConfigurations
                 .Where(c => c.Enabled)
                 .ToListAsync(ct);
@@ -2172,7 +2274,7 @@ public class MonitoringCollectionAgent : BackgroundService
                 {
                     if (ifNameByIdx == null)
                     {
-                        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+                        await using var db = await CreateSiteDbAsync(ct);
                         var mac = NormalizeMac(deviceMac);
                         ifNameByIdx = await db.InterfaceNameMaps
                             .Where(m => m.DeviceMac == mac && m.IfIndex != null)
