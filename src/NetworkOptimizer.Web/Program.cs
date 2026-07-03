@@ -540,8 +540,13 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringCollectionRegis
 // Re-runs upstream tracer discovery every 7 days; flips a review flag on diff.
 builder.Services.AddHostedService<NetworkOptimizer.Web.Services.Monitoring.UpstreamRediscoveryService>();
 // 3D LAN flow map (spec 5.7) - composes topology + live + historic feeds for the JS layer.
-// Cache is Singleton (TTL-based topology); service is Scoped so it can consume scoped deps.
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache>();
+// Per-site map cache: the registry owns one LanFlowMapCache per site and scoped
+// forwarding hands each request the current site's instance, so a secondary
+// site's rebuild can no longer overwrite the main site's map snapshot. Service
+// is Scoped so it can consume scoped deps.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCacheRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapService>();
 
 // Register application services (scoped per request/circuit)

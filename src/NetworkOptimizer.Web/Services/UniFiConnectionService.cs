@@ -542,6 +542,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _isConnected = true;
                 _lastConnectedAt = DateTime.UtcNow;
 
+                // Cache the console's display name on auto-reconnect too, so the
+                // Sites listing shows it without a manual Connect/Test.
+                await RefreshConsoleNameAsync();
+
                 // Update last connected timestamp in DB
                 using var scope = CreateSiteScope();
                 var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
