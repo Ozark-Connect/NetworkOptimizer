@@ -29,14 +29,14 @@ public class PhysicalLinkResolver
     public PhysicalLinkResolver(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         MonitoringInfluxRegistry influxRegistry,
-        CableModemMonitorService cmMonitor,
+        ModemMonitorRegistry modemMonitors,
         OntMonitorService ontMonitor,
         CellularModemService cellularMonitor,
         ILogger<PhysicalLinkResolver> logger)
     {
         _dbFactory = dbFactory;
         _influx = influxRegistry.GetDefault();
-        _cmMonitor = cmMonitor;
+        _cmMonitor = modemMonitors.GetDefault().CableModem;
         _ontMonitor = ontMonitor;
         _cellularMonitor = cellularMonitor;
         _logger = logger;

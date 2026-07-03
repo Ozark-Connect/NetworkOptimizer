@@ -9,19 +9,26 @@ using NetworkOptimizer.Storage.Services;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Singleton service that polls configured cable modems on a timer,
-/// caches the latest stats, and writes time-series data to InfluxDB.
-/// Mirrors the CellularModemService pattern.
+/// Polls configured cable modems on a timer, caches the latest stats, and
+/// writes time-series data to InfluxDB. Mirrors the CellularModemService
+/// pattern. One instance exists per site, owned by
+/// <see cref="ModemMonitorRegistry"/>: configurations, stats, and alerts all
+/// belong to that site, and status page scrapes route through the site's
+/// agent tunnel when its devices are reached that way. The registry flips
+/// <see cref="Active"/> as sites are enabled and disabled; only active
+/// instances poll.
 /// </summary>
 public sealed class CableModemMonitorService : IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICredentialProtectionService _credentialProtection;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly MonitoringInfluxClient _influx;
     private readonly NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator _alertEvaluator;
     private readonly ILogger<CableModemMonitorService> _logger;
     private readonly Dictionary<string, ICableModemProvider> _providers;
     private readonly Timer _pollingTimer;
+    private readonly string _siteSlug;
 
     private readonly ConcurrentDictionary<int, CableModemStats> _statsCache = new();
     private volatile bool _hasPrimedOnce;
@@ -30,18 +37,30 @@ public sealed class CableModemMonitorService : IDisposable
 
     private bool _isPolling;
 
+    /// <summary>
+    /// Whether the timer-driven poll loop runs. The registry keeps the default
+    /// site's instance always active and toggles non-default instances with
+    /// their site's Enabled flag. Manual polls from the UI work regardless.
+    /// </summary>
+    public bool Active { get; set; }
+
     public CableModemMonitorService(
         IServiceScopeFactory scopeFactory,
         IEnumerable<ICableModemProvider> providers,
         ICredentialProtectionService credentialProtection,
+        SiteTunnelRouting tunnelRouting,
         MonitoringInfluxRegistry influxRegistry,
-        NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator alertEvaluator,
-        ILogger<CableModemMonitorService> logger)
+        MonitoringAlertRegistry alertRegistry,
+        ILogger<CableModemMonitorService> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
-        _influx = influxRegistry.GetDefault();
-        _alertEvaluator = alertEvaluator;
+        _tunnelRouting = tunnelRouting;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        Active = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _influx = influxRegistry.GetFor(_siteSlug);
+        _alertEvaluator = alertRegistry.GetFor(_siteSlug).CableModem;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
@@ -51,6 +70,17 @@ public sealed class CableModemMonitorService : IDisposable
             null,
             TimeSpan.FromSeconds(5),
             TimeSpan.FromSeconds(60));
+    }
+
+    /// <summary>
+    /// Creates a DI scope pinned to this instance's site so scoped services
+    /// (repositories, DbContext) hit this site's database.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _scopeFactory.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+        return scope;
     }
 
     /// <summary>
@@ -96,7 +126,7 @@ public sealed class CableModemMonitorService : IDisposable
 
         var isNew = config.Id == 0;
 
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         await repo.SaveCmConfigurationAsync(config);
 
@@ -109,7 +139,7 @@ public sealed class CableModemMonitorService : IDisposable
     /// </summary>
     public async Task<List<CmConfiguration>> GetConfigsAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         return await repo.GetCmConfigurationsAsync();
     }
@@ -119,7 +149,7 @@ public sealed class CableModemMonitorService : IDisposable
     /// </summary>
     public async Task DeleteCmAsync(int id)
     {
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         await repo.DeleteCmConfigurationAsync(id);
 
@@ -137,12 +167,13 @@ public sealed class CableModemMonitorService : IDisposable
         if (provider == null)
             return (false, $"No provider registered for '{config.Provider}'");
 
-        var context = ToContext(config);
+        var context = await ToContextAsync(config);
         return await provider.TestConnectionAsync(context);
     }
 
     private async Task PollAllAsync()
     {
+        if (!Active) return;
         if (_isPolling)
         {
             _logger.LogDebug("CM PollAllAsync skipped - already polling");
@@ -155,7 +186,7 @@ public sealed class CableModemMonitorService : IDisposable
             var forceAll = !_hasPrimedOnce;
             _logger.LogDebug("CM PollAllAsync starting (forceAll={ForceAll})", forceAll);
 
-            using var scope = _scopeFactory.CreateScope();
+            using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
             var configs = await repo.GetEnabledCmConfigurationsAsync();
             _logger.LogDebug("CM PollAllAsync found {Count} enabled configs", configs.Count);
@@ -193,7 +224,7 @@ public sealed class CableModemMonitorService : IDisposable
             return;
         }
 
-        var context = ToContext(config);
+        var context = await ToContextAsync(config);
 
         try
         {
@@ -232,7 +263,7 @@ public sealed class CableModemMonitorService : IDisposable
         return null;
     }
 
-    private CmPollContext ToContext(CmConfiguration config)
+    private async Task<CmPollContext> ToContextAsync(CmConfiguration config)
     {
         string? password = null;
         if (!string.IsNullOrEmpty(config.Password))
@@ -241,12 +272,17 @@ public sealed class CableModemMonitorService : IDisposable
             catch { password = config.Password; }
         }
 
+        // Status page scrapes reach agent sites through the tunnel proxy: the
+        // provider's HTTP client dials a loopback endpoint that the agent
+        // forwards to the modem inside the site's network.
+        var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
+
         return new CmPollContext
         {
             Id = config.Id,
             Name = config.Name,
-            Host = config.Host,
-            Port = config.Port,
+            Host = host,
+            Port = port,
             Username = config.Username,
             Password = password,
             StatusPagePath = config.StatusPagePath,
@@ -257,7 +293,7 @@ public sealed class CableModemMonitorService : IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
+            using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
             var config = await repo.GetCmConfigurationAsync(id);
             if (config != null)
@@ -278,7 +314,7 @@ public sealed class CableModemMonitorService : IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
+            using var scope = CreateSiteScope();
             var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
             var config = await repo.GetCmConfigurationAsync(id);
             if (config != null)
@@ -296,7 +332,7 @@ public sealed class CableModemMonitorService : IDisposable
 
     private async Task<CmConfiguration?> GetConfigAsync(int id)
     {
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repo = scope.ServiceProvider.GetRequiredService<ICmRepository>();
         return await repo.GetCmConfigurationAsync(id);
     }

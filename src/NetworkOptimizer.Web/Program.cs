@@ -289,13 +289,20 @@ builder.Services.AddSingleton<ICellularModemProvider, QuectelAtModemProvider>();
 // Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
 builder.Services.AddSingleton<CellularModemService>();
 
-// Register Cable Modem providers and service
+// Register Cable Modem providers (stateless scrapers, shared across sites).
+// The monitor itself is per site through ModemMonitorRegistry: configurations,
+// stats, and alerts belong to each site's own database and buckets, and the
+// registry activates instances as sites are enabled. Scoped resolution
+// forwards to the current site's monitor.
 builder.Services.AddSingleton<ICableModemProvider, NetgearCmProvider>();
 builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHttpProvider>();
 builder.Services.AddSingleton<ICableModemProvider, ArrisSurfboardHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, MotorolaHnapProvider>();
 builder.Services.AddSingleton<ICableModemProvider, XfinityGatewayProvider>();
-builder.Services.AddSingleton<CableModemMonitorService>();
+builder.Services.AddSingleton<ModemMonitorRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ModemMonitorRegistry>());
+builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).CableModem);
 
 // Register External ONT providers and service
 builder.Services.AddSingleton<IOntProvider, AttGatewayOntProvider>();
@@ -507,7 +514,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolu
 // each site gets its own bundle. Local collection loops and the agent tunnel sink
 // both evaluate through the owning site's instances.
 builder.Services.AddSingleton<MonitoringAlertRegistry>();
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator>();
+// (CableModemAlertEvaluator is per site via MonitoringAlertRegistry; ONT and
+// cellular evaluators move there as their monitors split per site.)
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
@@ -884,9 +892,9 @@ app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
 
 // Eagerly resolve device monitor services so their poll timers start at app launch,
 // not on first page load. Without this, polling doesn't begin until a user visits
-// a page that injects the service.
+// a page that injects the service. (Cable modem monitors start via the
+// ModemMonitorRegistry hosted service.)
 app.Services.GetRequiredService<CellularModemService>();
-app.Services.GetRequiredService<CableModemMonitorService>();
 app.Services.GetRequiredService<OntMonitorService>();
 
 // Configure the HTTP request pipeline

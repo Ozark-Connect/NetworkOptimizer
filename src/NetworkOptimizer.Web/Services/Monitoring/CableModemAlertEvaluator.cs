@@ -30,11 +30,21 @@ public class CableModemAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<CableModemAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, CmAlertState> _states = new();
+    private readonly string _siteSuffix;
 
-    public CableModemAlertEvaluator(IAlertEventBus eventBus, ILogger<CableModemAlertEvaluator> logger)
+    /// <param name="siteSlug">
+    /// Site this instance evaluates for (one instance per site, owned by
+    /// <see cref="MonitoringAlertRegistry"/> - CM ids are per-site database
+    /// sequences, so state must not be shared). Non-default sites get their
+    /// slug appended to alert titles.
+    /// </param>
+    public CableModemAlertEvaluator(IAlertEventBus eventBus, ILogger<CableModemAlertEvaluator> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
+            ? "" : $" (site {siteSlug})";
     }
 
     public async ValueTask EvaluateAsync(
@@ -75,7 +85,7 @@ public class CableModemAlertEvaluator
                 EventType = "cable_modem.ds_snr_low",
                 Source = "cable_modem",
                 Severity = AlertSeverity.Warning,
-                Title = $"{cmName} downstream SNR low",
+                Title = $"{cmName} downstream SNR low{_siteSuffix}",
                 Message = $"Cable modem {cmName} downstream SNR averaged {snr:0.#} dB, below the {DsSnrLowDb} dB threshold. Below 30 dB is typically service-affecting.",
                 MetricValue = snr,
                 ThresholdValue = DsSnrLowDb,
@@ -110,7 +120,7 @@ public class CableModemAlertEvaluator
                 EventType = "cable_modem.ds_power_out_of_range",
                 Source = "cable_modem",
                 Severity = AlertSeverity.Warning,
-                Title = $"{cmName} downstream power {direction}",
+                Title = $"{cmName} downstream power {direction}{_siteSuffix}",
                 Message = $"Cable modem {cmName} downstream power averaged {power:0.#} dBmV, outside the {DsPowerLowDbmv} to {DsPowerHighDbmv} dBmV DOCSIS operating range.",
                 MetricValue = power,
                 ThresholdValue = power < DsPowerLowDbmv ? DsPowerLowDbmv : DsPowerHighDbmv,
@@ -142,7 +152,7 @@ public class CableModemAlertEvaluator
                 EventType = "cable_modem.us_power_high",
                 Source = "cable_modem",
                 Severity = AlertSeverity.Warning,
-                Title = $"{cmName} upstream power high",
+                Title = $"{cmName} upstream power high{_siteSuffix}",
                 Message = $"Cable modem {cmName} upstream power averaged {power:0.#} dBmV, above {UsPowerHighDbmv} dBmV. The modem is compensating for poor return path signal.",
                 MetricValue = power,
                 ThresholdValue = UsPowerHighDbmv,
@@ -170,7 +180,7 @@ public class CableModemAlertEvaluator
             EventType = "cable_modem.uncorrectable_errors",
             Source = "cable_modem",
             Severity = AlertSeverity.Warning,
-            Title = $"{cmName} uncorrectable errors",
+            Title = $"{cmName} uncorrectable errors{_siteSuffix}",
             Message = $"Cable modem {cmName} had {delta:N0} uncorrectable FEC errors since the last poll, exceeding the {UncorrectablesDeltaThreshold} threshold.",
             MetricValue = delta,
             ThresholdValue = UncorrectablesDeltaThreshold,
@@ -205,7 +215,7 @@ public class CableModemAlertEvaluator
                 EventType = "cable_modem.channel_loss",
                 Source = "cable_modem",
                 Severity = AlertSeverity.Warning,
-                Title = $"{cmName} downstream channels lost",
+                Title = $"{cmName} downstream channels lost{_siteSuffix}",
                 Message = $"Cable modem {cmName} dropped from {state.MaxLockedDsChannels} to {lockedDsChannels} locked downstream channels ({drop} lost).",
                 MetricValue = lockedDsChannels,
                 ThresholdValue = state.MaxLockedDsChannels,
