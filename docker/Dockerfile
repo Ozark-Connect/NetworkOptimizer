@@ -19,7 +19,7 @@ COPY ["src/NetworkOptimizer.Audit/NetworkOptimizer.Audit.csproj", "src/NetworkOp
 COPY ["src/NetworkOptimizer.Sqm/NetworkOptimizer.Sqm.csproj", "src/NetworkOptimizer.Sqm/"]
 COPY ["src/NetworkOptimizer.Monitoring/NetworkOptimizer.Monitoring.csproj", "src/NetworkOptimizer.Monitoring/"]
 COPY ["src/NetworkOptimizer.Storage/NetworkOptimizer.Storage.csproj", "src/NetworkOptimizer.Storage/"]
-COPY ["src/NetworkOptimizer.Agents/NetworkOptimizer.Agents.csproj", "src/NetworkOptimizer.Agents/"]
+COPY ["src/NetworkOptimizer.AgentProtocol/NetworkOptimizer.AgentProtocol.csproj", "src/NetworkOptimizer.AgentProtocol/"]
 COPY ["src/NetworkOptimizer.Reports/NetworkOptimizer.Reports.csproj", "src/NetworkOptimizer.Reports/"]
 COPY ["src/NetworkOptimizer.Diagnostics/NetworkOptimizer.Diagnostics.csproj", "src/NetworkOptimizer.Diagnostics/"]
 COPY ["src/NetworkOptimizer.WiFi/NetworkOptimizer.WiFi.csproj", "src/NetworkOptimizer.WiFi/"]
