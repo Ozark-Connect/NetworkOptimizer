@@ -51,7 +51,7 @@ public class ClientDashboardService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         SiteConnectionRegistry siteConnections,
         INetworkPathAnalyzer pathAnalyzer,
-        ClientSpeedTestService speedTestService,
+        SpeedTestServiceRegistry speedTestRegistry,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory)
     {
@@ -59,7 +59,7 @@ public class ClientDashboardService
         _dbFactory = dbFactory;
         _connectionService = siteConnections.GetDefault();
         _pathAnalyzer = pathAnalyzer;
-        _speedTestService = speedTestService;
+        _speedTestService = speedTestRegistry.GetDefault().ClientSpeedTest;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
     }

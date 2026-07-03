@@ -24,11 +24,13 @@ public class Iperf3ServerService : BackgroundService
 
     public Iperf3ServerService(
         ILogger<Iperf3ServerService> logger,
-        ClientSpeedTestService clientSpeedTestService,
+        SpeedTestServiceRegistry speedTestRegistry,
         IConfiguration configuration)
     {
         _logger = logger;
-        _clientSpeedTestService = clientSpeedTestService;
+        // The local iperf3 server lives on the default site's network; agent sites
+        // run their own iperf3 next to the agent (results relayed with their slug).
+        _clientSpeedTestService = speedTestRegistry.GetDefault().ClientSpeedTest;
         _configuration = configuration;
     }
 

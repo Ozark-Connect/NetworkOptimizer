@@ -50,7 +50,8 @@ public static class SpeedTestEndpoints
         // --- Client Speed Test (OpenSpeedTest / WAN) ---
 
         // Public endpoint for external clients (OpenSpeedTest, iperf3) to submit results
-        app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientSpeedTestService service,
+        app.MapPost("/api/public/speedtest/results", async (HttpContext context,
+            SpeedTestServiceRegistry speedTestRegistry,
             IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory) =>
         {
@@ -111,9 +112,15 @@ public static class SpeedTestEndpoints
 
             var clientIp = EndpointHelpers.GetClientIp(context);
 
+            // The owning site's service instance stores to that site's database and
+            // enriches against that site's console. Cross-origin posts carry no site
+            // cookie, so the slug parameter picks the instance here.
+            var service = speedTestRegistry
+                .GetFor(siteSlug ?? SiteManagementService.DefaultSiteSlug)
+                .ClientSpeedTest;
             var result = await service.RecordOpenSpeedTestResultAsync(
                 clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
-                latitude, longitude, locationAccuracy, duration, externalServerId, siteSlug);
+                latitude, longitude, locationAccuracy, duration, externalServerId);
 
             // Check if this is a new high score for download speed on this device
             // The "d" param from JS is always the client's download. Due to server perspective swap:
@@ -169,9 +176,22 @@ public static class SpeedTestEndpoints
 
         // Public endpoint for capturing topology snapshots during speed tests
         // Called by OpenSpeedTest ~3 seconds into a test to capture wireless rates mid-test
-        app.MapPost("/api/public/speedtest/topology-snapshots", async (HttpContext context, ITopologySnapshotService snapshotService) =>
+        app.MapPost("/api/public/speedtest/topology-snapshots", (HttpContext context,
+            SpeedTestServiceRegistry speedTestRegistry,
+            NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory) =>
         {
             var clientIp = EndpointHelpers.GetClientIp(context);
+
+            // Same optional site routing as the results endpoint: a slug-tagged test
+            // captures the snapshot from that site's console.
+            var siteSlug = context.Request.Query["site"].ToString().Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(siteSlug)
+                || !NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug)
+                || !siteDbFactory.SiteDbExists(siteSlug))
+            {
+                siteSlug = SiteManagementService.DefaultSiteSlug;
+            }
+            var snapshotService = speedTestRegistry.GetFor(siteSlug).Snapshots;
 
             // Fire-and-forget - capture snapshot asynchronously, don't block response
             _ = snapshotService.CaptureSnapshotAsync(clientIp);

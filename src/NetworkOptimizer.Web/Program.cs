@@ -115,7 +115,12 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<SiteConnectionRegistry>()
 builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<SiteConnectionRegistry>().GetDefault());
 
 // Register Network Path Analyzer (singleton - uses caching)
-builder.Services.AddSingleton<INetworkPathAnalyzer, NetworkPathAnalyzer>();
+// Default site's path analyzer, owned by the speed test registry so the whole
+// enrichment family (analyzer, snapshots, client speed test) shares one topology
+// cache per site. Singleton consumers keep injecting the interface and get the
+// default site's instance; per-site consumers resolve through the registry.
+builder.Services.AddSingleton<INetworkPathAnalyzer>(sp =>
+    sp.GetRequiredService<SpeedTestServiceRegistry>().GetDefault().PathAnalyzer);
 
 // Register audit engine and analyzers
 builder.Services.AddTransient<VlanAnalyzer>();
@@ -297,8 +302,13 @@ builder.Services.AddSingleton<Iperf3SpeedTestService>();
 // Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
 builder.Services.AddSingleton<GatewaySpeedTestService>();
 
-// Register Client Speed Test service (singleton - receives browser/iperf3 client results)
-builder.Services.AddSingleton<ClientSpeedTestService>();
+// Client Speed Test per site: the registry owns one enrichment bundle per site
+// (path analyzer + topology snapshots + client speed test service). Scoped
+// resolution forwards to the current site's instance so pages show that site's
+// results; the public results endpoint routes by slug parameter.
+builder.Services.AddSingleton<SpeedTestServiceRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).ClientSpeedTest);
 
 // Register Client Dashboard service (singleton - signal polling, trace tracking)
 builder.Services.AddSingleton<ClientDashboardService>();
@@ -310,8 +320,10 @@ builder.Services.AddSingleton<UwnSpeedTestService>();
 // Register Gateway WAN Speed Test service (singleton - gateway-direct WAN speed tests via SSH)
 builder.Services.AddSingleton<GatewayWanSpeedTestService>();
 
-// Register Topology Snapshot service (singleton - captures wireless rate snapshots during speed tests)
-builder.Services.AddSingleton<TopologySnapshotService>();
+// Topology Snapshot service: default site's instance comes from the speed test
+// registry (per-site instances capture against their own site's console).
+builder.Services.AddSingleton<TopologySnapshotService>(sp =>
+    sp.GetRequiredService<SpeedTestServiceRegistry>().GetDefault().Snapshots);
 builder.Services.AddSingleton<ITopologySnapshotService>(sp => sp.GetRequiredService<TopologySnapshotService>());
 
 // Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
