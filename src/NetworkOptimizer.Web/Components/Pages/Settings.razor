@@ -47,6 +47,10 @@
 
 <div class="page-header">
     <h1>Settings</h1>
+    @if (_multiSiteEnabled && !string.IsNullOrEmpty(_currentSiteName))
+    {
+        <span class="status-badge site-context-badge" data-tooltip="These settings apply to the selected site">@_currentSiteName</span>
+    }
     <p class="page-description">Configure Network Optimizer connections and preferences</p>
 </div>
 
@@ -69,10 +73,13 @@
                 @onclick="@(() => SetActiveTab("security"))">
             Security &amp; Alerts
         </button>
-        <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("application"))">
-            Application
-        </button>
+        @if (SiteContext.IsDefault)
+        {
+            <button class="wifi-view-tab @(_activeTab == "application" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("application"))">
+                Application
+            </button>
+        }
         <button class="wifi-view-tab @(_activeTab == "multisite" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("multisite"))">
             Multi-Site
@@ -1737,6 +1744,9 @@
     </div>
     *@
 
+    @* Instance-wide settings below are only shown on the main site. *@
+    @if (SiteContext.IsDefault)
+    {
     <!-- 10. Application Settings -->
     <div class="card settings-tab-application" id="application-settings">
         <div class="card-header">
@@ -1755,6 +1765,7 @@
             </div>
         </div>
     </div>
+    }
 
     <!-- 11. Security Audit -->
     <div class="card settings-tab-security" id="security-audit">
@@ -1867,6 +1878,8 @@
         </div>
     </div>
 
+    @if (SiteContext.IsDefault)
+    {
     <!-- Alert Channels Configuration -->
     <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
@@ -2148,6 +2161,7 @@
             }
         </div>
     </div>
+    }
 
     <!-- Threat Intelligence Configuration -->
     <div class="card settings-tab-security" id="threat-intelligence">
@@ -2257,6 +2271,8 @@
         </div>
     </div>
 
+    @if (SiteContext.IsDefault)
+    {
     <!-- CrowdSec CTI Configuration -->
     <div class="card settings-tab-security" id="crowdsec">
         <div class="card-header">
@@ -2576,6 +2592,7 @@
             </div>
         </div>
     </div>
+    }
 
     <!-- Multi-Site -->
     <div class="card settings-tab-multisite" id="multi-site">
@@ -3055,6 +3072,7 @@
     private bool ignoreControllerSSLErrors = true;
     private string controllerStatus = "Disconnected";
     private bool _currentSiteConsoleViaAgent;
+    private string? _currentSiteName;
     private bool testingController = false;
     private string controllerMessage = "";
     private string controllerMessageClass = "";
@@ -3366,6 +3384,13 @@
         await LoadMonitoringSettings();
         await LoadMapboxToken();
         await LoadMultiSiteSettings();
+
+        if (_multiSiteEnabled)
+            _currentSiteName = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)?.Name ?? SiteContext.Slug;
+
+        // The Application tab is main-site only; never leave a managed site parked on it.
+        if (_activeTab == "application" && !SiteContext.IsDefault)
+            _activeTab = "connection";
     }
 
     private async Task LoadIperf3Settings()

@@ -17565,6 +17565,12 @@ body.kiosk-mode .status-indicators {
     white-space: nowrap;
 }
 
+.site-context-badge {
+    background: var(--primary-color);
+    color: #fff;
+    align-self: center;
+}
+
 .checkbox-toggle {
     display: flex;
     align-items: flex-start;
