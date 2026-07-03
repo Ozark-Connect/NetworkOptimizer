@@ -162,8 +162,11 @@ public class GatewayWanSpeedTestService
             if (string.IsNullOrEmpty(settings.Host) || !settings.HasCredentials)
                 return (false, "Gateway SSH not configured");
 
-            // Get connection info for SFTP upload
-            var connection = GetConnectionInfo(settings);
+            // Connection info for the SFTP upload, with decrypted credentials and any
+            // agent-tunnel routing applied by the site's gateway SSH service.
+            var connection = await _gatewaySsh.GetConnectionInfoAsync();
+            if (connection == null)
+                return (false, "Gateway SSH not configured");
 
             _logger.LogInformation("Deploying uwnspeedtest binary to gateway {Host}", settings.Host);
             await _sshClient.UploadBinaryAsync(connection, localPath, RemoteBinaryPath, ct);
@@ -785,19 +788,6 @@ public class GatewayWanSpeedTestService
         {
             _logger.LogWarning(ex, "Failed to analyze path for gateway WAN speed test result {Id}", resultId);
         }
-    }
-
-    private SshConnectionInfo GetConnectionInfo(GatewaySshSettings settings)
-    {
-        // Use the credential protection service to decrypt the password
-        using var scope = _serviceProvider.CreateScope();
-        var credProtection = scope.ServiceProvider.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialProtectionService>();
-
-        string? decryptedPassword = null;
-        if (!string.IsNullOrEmpty(settings.Password))
-            decryptedPassword = credProtection.Decrypt(settings.Password);
-
-        return SshConnectionInfo.FromGatewaySettings(settings, decryptedPassword);
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()

@@ -2674,6 +2674,13 @@
                                                         Reach this site's UniFi Console through the agent tunnel - no VPN or
                                                         port-forward to the console needed. Applies on the next connect.
                                                     </label>
+                                                    <label class="site-agent-console-toggle">
+                                                        <input type="checkbox" checked="@SshViaAgent(site.Id)"
+                                                               @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
+                                                        Reach this site's SSH (gateway and devices) through the agent tunnel.
+                                                        Enables gateway WAN speed tests and SSH-based features without VPN.
+                                                        Applies within a minute.
+                                                    </label>
                                                 }
                                                 @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
                                                 {
@@ -2884,7 +2891,10 @@
             await LoadAgentsAsync();
             var site = _sites.FirstOrDefault(s => s.Id == siteId);
             if (site != null)
+            {
                 await LoadConsoleViaAgentAsync(site);
+                await LoadSshViaAgentAsync(site);
+            }
         }
     }
 
@@ -2915,6 +2925,35 @@
         }
         await db.SaveChangesAsync();
         _consoleViaAgent[site.Id] = value;
+    }
+
+    // Per-site "SSH via agent tunnel" flag (gateway + device SSH), stored in the site's own database
+    private readonly Dictionary<int, bool> _sshViaAgent = new();
+
+    private bool SshViaAgent(int siteId) => _sshViaAgent.TryGetValue(siteId, out var enabled) && enabled;
+
+    private async Task LoadSshViaAgentAsync(Site site)
+    {
+        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+        var setting = await db.SystemSettings.FindAsync(NetworkOptimizer.Web.Services.Ssh.GatewaySshService.SshViaAgentKey);
+        _sshViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
+    }
+
+    private async Task ToggleSshViaAgent(Site site, bool value)
+    {
+        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+        var setting = await db.SystemSettings.FindAsync(NetworkOptimizer.Web.Services.Ssh.GatewaySshService.SshViaAgentKey);
+        if (setting == null)
+        {
+            db.SystemSettings.Add(new SystemSetting { Key = NetworkOptimizer.Web.Services.Ssh.GatewaySshService.SshViaAgentKey, Value = value.ToString() });
+        }
+        else
+        {
+            setting.Value = value.ToString();
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+        _sshViaAgent[site.Id] = value;
     }
 
     private async Task CreateAgent(Site site)

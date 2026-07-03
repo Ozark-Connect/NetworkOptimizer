@@ -50,4 +50,11 @@ public interface IGatewaySshService
         string command,
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ready-to-use connection info for direct SSH.NET operations (SFTP uploads),
+    /// with decrypted credentials and any agent-tunnel routing applied.
+    /// Null when gateway SSH is disabled or not configured.
+    /// </summary>
+    Task<SshConnectionInfo?> GetConnectionInfoAsync();
 }
