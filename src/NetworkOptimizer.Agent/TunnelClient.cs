@@ -68,10 +68,12 @@ public sealed class TunnelClient
 
         var handler = new SocketsHttpHandler
         {
-            // Keep the long-lived stream alive across NAT/firewall idle timeouts.
-            KeepAlivePingDelay = TimeSpan.FromSeconds(60),
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
-            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+            // No HTTP/2 keepalive pings: reverse proxies in front of the server do
+            // not reliably ACK client pings, so the ping timeout tore down a healthy
+            // tunnel every ~90s (KeepAlivePingDelay 60s + KeepAlivePingTimeout 30s).
+            // The application heartbeat (~30s, agent -> server) keeps NAT/firewall
+            // state warm instead.
+            EnableMultipleHttp2Connections = true,
         };
         if (ignoreSslErrors)
         {
