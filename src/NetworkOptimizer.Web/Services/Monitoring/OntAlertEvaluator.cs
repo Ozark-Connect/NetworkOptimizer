@@ -20,11 +20,21 @@ public class OntAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<OntAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<int, OntAlertState> _states = new();
+    private readonly string _siteSuffix;
 
-    public OntAlertEvaluator(IAlertEventBus eventBus, ILogger<OntAlertEvaluator> logger)
+    /// <param name="siteSlug">
+    /// Site this instance evaluates for (one instance per site, owned by
+    /// <see cref="MonitoringAlertRegistry"/> - ONT ids are per-site database
+    /// sequences, so state must not be shared). Non-default sites get their
+    /// slug appended to alert titles.
+    /// </param>
+    public OntAlertEvaluator(IAlertEventBus eventBus, ILogger<OntAlertEvaluator> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
+            ? "" : $" (site {siteSlug})";
     }
 
     public async ValueTask EvaluateAsync(
@@ -63,7 +73,7 @@ public class OntAlertEvaluator
                 EventType = "ont.rx_power_low",
                 Source = "ont",
                 Severity = AlertSeverity.Warning,
-                Title = $"{ontName} RX power low",
+                Title = $"{ontName} RX power low{_siteSuffix}",
                 Message = $"ONT {ontName} optical RX power {rxPower:0.##} dBm is below {RxPowerLowDbm} dBm threshold.",
                 DeviceName = ontName,
                 MetricValue = rxPower,
@@ -98,7 +108,7 @@ public class OntAlertEvaluator
                 EventType = "ont.pon_link_down",
                 Source = "ont",
                 Severity = AlertSeverity.Error,
-                Title = $"{ontName} PON link down",
+                Title = $"{ontName} PON link down{_siteSuffix}",
                 Message = $"ONT {ontName} PON link is down (state: {ponLinkStatus}).",
                 DeviceName = ontName,
                 SourceUrl = "/monitoring?tab=ont",
@@ -133,7 +143,7 @@ public class OntAlertEvaluator
                     EventType = "ont.fec_errors",
                     Source = "ont",
                     Severity = AlertSeverity.Warning,
-                    Title = $"{ontName} FEC error spike",
+                    Title = $"{ontName} FEC error spike{_siteSuffix}",
                     Message = $"ONT {ontName} had {delta:N0} FEC errors since last poll (threshold: {FecErrorDeltaThreshold:N0}).",
                     DeviceName = ontName,
                     MetricValue = delta,

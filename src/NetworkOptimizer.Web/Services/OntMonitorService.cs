@@ -10,14 +10,20 @@ using NetworkOptimizer.Storage.Services;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Singleton service that polls external ONT (Optical Network Terminal) devices on a timer.
+/// Polls external ONT (Optical Network Terminal) devices on a timer.
 /// Analogous to CellularModemService but for fiber optics monitoring.
-/// Resolves the appropriate IOntProvider per configuration and caches results in memory.
+/// Resolves the appropriate IOntProvider per configuration and caches results
+/// in memory. One instance exists per site, owned by
+/// <see cref="ModemMonitorRegistry"/>: configurations, stats, and alerts all
+/// belong to that site, and status scrapes route through the site's agent
+/// tunnel when its devices are reached that way. The registry flips
+/// <see cref="Active"/> as sites are enabled and disabled.
 /// </summary>
 public class OntMonitorService : IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ICredentialProtectionService _credentialProtection;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly MonitoringInfluxClient _influx;
     private readonly NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator _alertEvaluator;
     private readonly ILogger<OntMonitorService> _logger;
@@ -26,24 +32,48 @@ public class OntMonitorService : IDisposable
     private volatile bool _hasPrimedOnce;
     private readonly Timer _pollTimer;
     private bool _isPolling;
+    private readonly string _siteSlug;
+
+    /// <summary>
+    /// Whether the timer-driven poll loop runs. The registry keeps the default
+    /// site's instance always active and toggles non-default instances with
+    /// their site's Enabled flag. Manual polls from the UI work regardless.
+    /// </summary>
+    public bool Active { get; set; }
 
     public OntMonitorService(
         IServiceScopeFactory scopeFactory,
         IEnumerable<IOntProvider> providers,
         ICredentialProtectionService credentialProtection,
+        SiteTunnelRouting tunnelRouting,
         MonitoringInfluxRegistry influxRegistry,
-        NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator alertEvaluator,
-        ILogger<OntMonitorService> logger)
+        MonitoringAlertRegistry alertRegistry,
+        ILogger<OntMonitorService> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _scopeFactory = scopeFactory;
         _credentialProtection = credentialProtection;
-        _influx = influxRegistry.GetDefault();
-        _alertEvaluator = alertEvaluator;
+        _tunnelRouting = tunnelRouting;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        Active = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _influx = influxRegistry.GetFor(_siteSlug);
+        _alertEvaluator = alertRegistry.GetFor(_siteSlug).Ont;
         _logger = logger;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
         // Prime poll 5 s after startup so dashboard has data; then check every 60 s
         _pollTimer = new Timer(_ => _ = PollAllAsync(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(60));
+    }
+
+    /// <summary>
+    /// Creates a DI scope pinned to this instance's site so scoped services
+    /// (repositories, DbContext) hit this site's database.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _scopeFactory.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+        return scope;
     }
 
     /// <summary>
@@ -67,7 +97,7 @@ public class OntMonitorService : IDisposable
     /// </summary>
     public async Task<List<OntConfiguration>> GetConfigsAsync()
     {
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         return await repository.GetOntConfigurationsAsync();
     }
@@ -77,7 +107,7 @@ public class OntMonitorService : IDisposable
     /// </summary>
     public async Task<OntStats?> PollOntAsync(int ontId)
     {
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
 
         var config = await repository.GetOntConfigurationAsync(ontId);
@@ -102,7 +132,7 @@ public class OntMonitorService : IDisposable
 
         var isNew = config.Id == 0;
 
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         await repository.SaveOntConfigurationAsync(config);
 
@@ -115,7 +145,7 @@ public class OntMonitorService : IDisposable
     /// </summary>
     public async Task DeleteOntAsync(int id)
     {
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
         await repository.DeleteOntConfigurationAsync(id);
         _statsCache.TryRemove(id, out _);
@@ -131,12 +161,13 @@ public class OntMonitorService : IDisposable
         if (provider == null)
             return (false, $"No provider registered for '{config.Provider}'");
 
-        var context = ToContext(config);
+        var context = await ToContextAsync(config);
         return await provider.TestConnectionAsync(context);
     }
 
     private async Task PollAllAsync()
     {
+        if (!Active) return;
         if (_isPolling)
         {
             _logger.LogDebug("ONT PollAllAsync skipped - already polling");
@@ -149,7 +180,7 @@ public class OntMonitorService : IDisposable
             var forceAll = !_hasPrimedOnce;
             _logger.LogDebug("ONT PollAllAsync starting (forceAll={ForceAll})", forceAll);
 
-            using var scope = _scopeFactory.CreateScope();
+            using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IOntRepository>();
             var configs = await repository.GetEnabledOntConfigurationsAsync();
             _logger.LogDebug("ONT PollAllAsync found {Count} enabled configs", configs.Count);
@@ -187,7 +218,7 @@ public class OntMonitorService : IDisposable
             return null;
         }
 
-        var context = ToContext(config);
+        var context = await ToContextAsync(config);
 
         try
         {
@@ -283,7 +314,7 @@ public class OntMonitorService : IDisposable
         return null;
     }
 
-    private OntPollContext ToContext(OntConfiguration config)
+    private async Task<OntPollContext> ToContextAsync(OntConfiguration config)
     {
         string? password = null;
         if (!string.IsNullOrEmpty(config.Password))
@@ -292,12 +323,16 @@ public class OntMonitorService : IDisposable
             catch { password = config.Password; }
         }
 
+        // HTTP and SSH scrapes alike reach agent sites through the tunnel proxy
+        // (raw TCP by host:port), so remote ONTs need no VPN routing.
+        var (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, config.Host, config.Port);
+
         return new OntPollContext
         {
             Id = config.Id,
             Name = config.Name,
-            Host = config.Host,
-            Port = config.Port,
+            Host = host,
+            Port = port,
             Username = string.IsNullOrEmpty(config.Username) ? null : config.Username,
             Password = password,
             PrivateKeyPath = string.IsNullOrEmpty(config.PrivateKeyPath) ? null : config.PrivateKeyPath,

@@ -30,14 +30,13 @@ public class PhysicalLinkResolver
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         MonitoringInfluxRegistry influxRegistry,
         ModemMonitorRegistry modemMonitors,
-        OntMonitorService ontMonitor,
         CellularModemService cellularMonitor,
         ILogger<PhysicalLinkResolver> logger)
     {
         _dbFactory = dbFactory;
         _influx = influxRegistry.GetDefault();
         _cmMonitor = modemMonitors.GetDefault().CableModem;
-        _ontMonitor = ontMonitor;
+        _ontMonitor = modemMonitors.GetDefault().Ont;
         _cellularMonitor = cellularMonitor;
         _logger = logger;
     }

@@ -304,13 +304,16 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ModemMonitorRegist
 builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).CableModem);
 
-// Register External ONT providers and service
+// Register External ONT providers (stateless scrapers, shared across sites).
+// The monitor itself is per site through ModemMonitorRegistry, like the cable
+// modem monitor above.
 builder.Services.AddSingleton<IOntProvider, AttGatewayOntProvider>();
 builder.Services.AddSingleton<IOntProvider, RealtekOntProvider>();
 builder.Services.AddSingleton<IOntProvider, Lantiq8311OntProvider>();
 builder.Services.AddSingleton<IOntProvider, QuantumQ1000kOntProvider>();
 builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
-builder.Services.AddSingleton<OntMonitorService>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Ont);
 
 // LAN iperf3 speed test per site (registry-owned): devices, credentials, and
 // results live in that site's database; tests run against that site's devices.
@@ -514,9 +517,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolu
 // each site gets its own bundle. Local collection loops and the agent tunnel sink
 // both evaluate through the owning site's instances.
 builder.Services.AddSingleton<MonitoringAlertRegistry>();
-// (CableModemAlertEvaluator is per site via MonitoringAlertRegistry; ONT and
-// cellular evaluators move there as their monitors split per site.)
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator>();
+// (CableModem and ONT alert evaluators are per site via MonitoringAlertRegistry;
+// the cellular evaluator moves there as its monitor splits per site.)
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
 builder.Services.AddScoped<InfluxDbProvisioningService>();
@@ -892,10 +894,9 @@ app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
 
 // Eagerly resolve device monitor services so their poll timers start at app launch,
 // not on first page load. Without this, polling doesn't begin until a user visits
-// a page that injects the service. (Cable modem monitors start via the
+// a page that injects the service. (Cable modem and ONT monitors start via the
 // ModemMonitorRegistry hosted service.)
 app.Services.GetRequiredService<CellularModemService>();
-app.Services.GetRequiredService<OntMonitorService>();
 
 // Configure the HTTP request pipeline
 if (!app.Environment.IsDevelopment())

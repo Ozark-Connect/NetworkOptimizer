@@ -21,7 +21,8 @@ public class MonitoringAlertRegistry
         MonitoringAlertEvaluator Targets,
         DeviceHealthAlertEvaluator DeviceHealth,
         SfpAlertEvaluator Sfp,
-        CableModemAlertEvaluator CableModem);
+        CableModemAlertEvaluator CableModem,
+        OntAlertEvaluator Ont);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, SiteAlertEvaluators> _instances = new();
@@ -37,7 +38,8 @@ public class MonitoringAlertRegistry
             ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s),
             ActivatorUtilities.CreateInstance<DeviceHealthAlertEvaluator>(_serviceProvider, s),
             ActivatorUtilities.CreateInstance<SfpAlertEvaluator>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s)));
+            ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s),
+            ActivatorUtilities.CreateInstance<OntAlertEvaluator>(_serviceProvider, s)));
 
     /// <summary>The default site's evaluators.</summary>
     public SiteAlertEvaluators GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);

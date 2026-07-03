@@ -19,7 +19,8 @@ public class ModemMonitorRegistry : BackgroundService
 {
     /// <summary>One site's modem monitors.</summary>
     public sealed record SiteModemMonitors(
-        CableModemMonitorService CableModem);
+        CableModemMonitorService CableModem,
+        OntMonitorService Ont);
 
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(30);
 
@@ -45,7 +46,8 @@ public class ModemMonitorRegistry : BackgroundService
     /// </summary>
     public SiteModemMonitors GetFor(string slug) =>
         _instances.GetOrAdd(slug, s => new SiteModemMonitors(
-            ActivatorUtilities.CreateInstance<CableModemMonitorService>(_serviceProvider, s)));
+            ActivatorUtilities.CreateInstance<CableModemMonitorService>(_serviceProvider, s),
+            ActivatorUtilities.CreateInstance<OntMonitorService>(_serviceProvider, s)));
 
     /// <summary>The default site's modem monitors.</summary>
     public SiteModemMonitors GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
@@ -76,7 +78,10 @@ public class ModemMonitorRegistry : BackgroundService
         }
 
         foreach (var bundle in _instances.Values)
+        {
             bundle.CableModem.Dispose();
+            bundle.Ont.Dispose();
+        }
     }
 
     private async Task ReconcileAsync(CancellationToken ct)
@@ -118,6 +123,11 @@ public class ModemMonitorRegistry : BackgroundService
         {
             bundle.CableModem.Active = active;
             _logger.LogInformation("Cable modem monitoring {State} for a site", active ? "activated" : "deactivated");
+        }
+        if (bundle.Ont.Active != active)
+        {
+            bundle.Ont.Active = active;
+            _logger.LogInformation("External ONT monitoring {State} for a site", active ? "activated" : "deactivated");
         }
     }
 }
