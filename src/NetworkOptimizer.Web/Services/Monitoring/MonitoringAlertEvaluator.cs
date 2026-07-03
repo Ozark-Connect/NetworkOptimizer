@@ -31,11 +31,21 @@ public class MonitoringAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<MonitoringAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, TargetAlertState> _states = new();
+    private readonly string _siteSuffix;
 
-    public MonitoringAlertEvaluator(IAlertEventBus eventBus, ILogger<MonitoringAlertEvaluator> logger)
+    /// <param name="siteSlug">
+    /// Site this instance evaluates for (one instance per site, owned by
+    /// <see cref="MonitoringAlertRegistry"/> - target ids repeat across sites, so
+    /// state must not be shared). Non-default sites get their slug appended to
+    /// alert titles; the default site reads exactly as before.
+    /// </param>
+    public MonitoringAlertEvaluator(IAlertEventBus eventBus, ILogger<MonitoringAlertEvaluator> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
+            ? "" : $" (site {siteSlug})";
     }
 
     public async ValueTask EvaluateAsync(MonitoringTarget target, PingProbeResult result, CancellationToken ct = default)
@@ -87,12 +97,12 @@ public class MonitoringAlertEvaluator
         }
     }
 
-    private static AlertEvent BuildOfflineEvent(MonitoringTarget target) => new()
+    private AlertEvent BuildOfflineEvent(MonitoringTarget target) => new()
     {
         EventType = "monitoring.target_offline",
         Source = "monitoring",
         Severity = TargetSeverity(target.TargetType, isOffline: true),
-        Title = $"{target.Name} is offline",
+        Title = $"{target.Name} is offline{_siteSuffix}",
         Message = $"Monitoring target {target.Name} ({target.Address}) failed {FailuresToDeclareOffline} consecutive {target.ProbeMode.ToString().ToUpperInvariant()} probes.",
         DeviceId = target.DeviceMac,
         DeviceName = target.Name,
@@ -107,12 +117,12 @@ public class MonitoringAlertEvaluator
         }
     };
 
-    private static AlertEvent BuildRecoveredEvent(MonitoringTarget target, PingProbeResult result) => new()
+    private AlertEvent BuildRecoveredEvent(MonitoringTarget target, PingProbeResult result) => new()
     {
         EventType = "monitoring.target_recovered",
         Source = "monitoring",
         Severity = AlertSeverity.Info,
-        Title = $"{target.Name} is back online",
+        Title = $"{target.Name} is back online{_siteSuffix}",
         Message = $"Monitoring target {target.Name} ({target.Address}) recovered after {SuccessesToDeclareRecovered} consecutive successful probes. RTT {result.RttAvgMs:0.#} ms.",
         DeviceId = target.DeviceMac,
         DeviceName = target.Name,
@@ -127,12 +137,12 @@ public class MonitoringAlertEvaluator
         }
     };
 
-    private static AlertEvent BuildSustainedLossEvent(MonitoringTarget target, double avgLossPercent) => new()
+    private AlertEvent BuildSustainedLossEvent(MonitoringTarget target, double avgLossPercent) => new()
     {
         EventType = "monitoring.target_sustained_loss",
         Source = "monitoring",
         Severity = TargetSeverity(target.TargetType, isOffline: false),
-        Title = $"{target.Name} packet loss",
+        Title = $"{target.Name} packet loss{_siteSuffix}",
         Message = $"Monitoring target {target.Name} ({target.Address}) averaged {avgLossPercent:0.#}% packet loss over the last {LossWindowSize} probes.",
         DeviceId = target.DeviceMac,
         DeviceName = target.Name,

@@ -61,12 +61,9 @@ public class MonitoringCollectionAgent : BackgroundService
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
     private readonly ConcurrentDictionary<int, DateTime> _targetLastProbed = new();
 
-    // SNMP gating. We only poll devices UniFi reports as SNMP-enabled, so repeated
-    // failures likely mean a transient outage (firmware upgrade, reboot) rather than
-    // "device doesn't speak SNMP". Short exclusion avoids hammering unresponsive
-    // devices while covering a typical ~3 min firmware upgrade cycle.
-    private readonly ConcurrentDictionary<string, int> _snmpFailures = new();
-    private readonly ConcurrentDictionary<string, DateTime> _snmpExcluded = new();
+    // SNMP failure counting + temporary exclusion (see SnmpFailureTracker for the
+    // rationale). Keyed by normalized device MAC.
+    private readonly SnmpFailureTracker _snmpFailures = new();
     // Last successful SNMP poll per device (normalized MAC -> UTC). Drives the
     // "last polled" column and "not yet polled" state on the Setup dashboard.
     private readonly ConcurrentDictionary<string, DateTime> _snmpLastPolled = new();
@@ -75,8 +72,6 @@ public class MonitoringCollectionAgent : BackgroundService
     private Dictionary<string, List<CustomOidConfiguration>> _customOidsByDevice = new();
     private DateTime _customOidsLoadedAt = DateTime.MinValue;
     private static readonly TimeSpan CustomOidsCacheTtl = TimeSpan.FromSeconds(30);
-    private const int SnmpFailureThreshold = 5;
-    private static readonly TimeSpan SnmpExclusionDuration = TimeSpan.FromMinutes(5);
     private readonly SemaphoreSlim _snmpGate = new(8);
 
     public MonitoringCollectionAgent(
@@ -88,9 +83,7 @@ public class MonitoringCollectionAgent : BackgroundService
         MonitoringLiveStatsRegistry liveStatsRegistry,
         ICredentialProtectionService credentialProtection,
         LocalProbeExecutor localProbe,
-        NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator alertEvaluator,
-        NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator sfpAlertEvaluator,
-        NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator deviceHealthAlertEvaluator,
+        MonitoringAlertRegistry alertRegistry,
         ILoggerFactory loggerFactory,
         ILogger<MonitoringCollectionAgent> logger,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -105,9 +98,10 @@ public class MonitoringCollectionAgent : BackgroundService
         _liveStats = liveStatsRegistry.GetFor(_siteSlug);
         _credentialProtection = credentialProtection;
         _localProbe = localProbe;
-        _alertEvaluator = alertEvaluator;
-        _sfpAlertEvaluator = sfpAlertEvaluator;
-        _deviceHealthAlertEvaluator = deviceHealthAlertEvaluator;
+        var evaluators = alertRegistry.GetFor(_siteSlug);
+        _alertEvaluator = evaluators.Targets;
+        _sfpAlertEvaluator = evaluators.Sfp;
+        _deviceHealthAlertEvaluator = evaluators.DeviceHealth;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -341,7 +335,7 @@ public class MonitoringCollectionAgent : BackgroundService
                         // fabric I/O total - ShouldMonitor() already strips loopback,
                         // tunnels and bridges, so the surviving interfaces are
                         // physical ports.
-                        _snmpFailures.TryRemove(mac, out _);
+                        _snmpFailures.NoteSuccess(mac);
                         _snmpLastPolled[mac] = now;
                         if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Switch
                             || device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
@@ -780,17 +774,11 @@ public class MonitoringCollectionAgent : BackgroundService
                 if (customOids.TryGetValue(NormalizeMac(device.Mac), out var deviceCustomOids))
                     await PollCustomOidsAsync(poller, device.Mac, DescribeDeviceType(device.DeviceType), ip, deviceCustomOids, ct);
 
-                // Default site only until the alert evaluators split per site: the
-                // singleton evaluators key state by device MAC / target id, which
-                // can collide across sites.
-                if (_isDefault)
-                {
-                    await _deviceHealthAlertEvaluator.EvaluateAsync(
-                        device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
-                        cpu, memPct,
-                        temperatureC: temp,
-                        tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
-                }
+                await _deviceHealthAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
+                    cpu, memPct,
+                    temperatureC: temp,
+                    tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
             }
             catch (Exception ex)
             {
@@ -876,14 +864,11 @@ public class MonitoringCollectionAgent : BackgroundService
 
                 _liveStats.RecordHealth(device.Mac, cpu, mem, temp, uptime, now);
 
-                if (_isDefault)
-                {
-                    await _deviceHealthAlertEvaluator.EvaluateAsync(
-                        device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
-                        cpu, mem,
-                        temperatureC: temp,
-                        tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
-                }
+                await _deviceHealthAlertEvaluator.EvaluateAsync(
+                    device.Mac, device.Name, DescribeDeviceType(device.DeviceType),
+                    cpu, mem,
+                    temperatureC: temp,
+                    tempHighThresholdC: ResolveTempThreshold(settings, device.DeviceType));
             }
             catch (Exception ex)
             {
@@ -988,10 +973,9 @@ public class MonitoringCollectionAgent : BackgroundService
         }
 
         // SFP threshold evaluation: check DDM values against alert thresholds
-        // (per-category, user-configurable with built-in fallbacks). Default site
-        // only until the alert evaluators split per site.
+        // (per-category, user-configurable with built-in fallbacks).
         var sfpThresholds = NetworkOptimizer.Web.Services.Monitoring.SfpDdmThresholds.FromSettings(settings);
-        foreach (var device in _isDefault ? devices : Enumerable.Empty<UniFiDeviceResponse>())
+        foreach (var device in devices)
         {
             if (device.PortTable == null || device.PortTable.Count == 0) continue;
             var sfpMac = NormalizeMac(device.Mac);
@@ -1492,13 +1476,8 @@ public class MonitoringCollectionAgent : BackgroundService
 
             // State-change evaluation: publish AlertEvents on up→down, down→up, and
             // sustained packet loss transitions. Cheap, in-memory state machine.
-            // Default site only until the alert evaluators split per site: the singleton
-            // keys state by target id, and ids like "wan-cloudflare-1111" repeat per site.
-            if (_isDefault)
-            {
-                try { await _alertEvaluator.EvaluateAsync(target, ping, ct); }
-                catch (Exception ex) { _logger.LogDebug(ex, "Alert evaluator failed for target {Target}", target.TargetId); }
-            }
+            try { await _alertEvaluator.EvaluateAsync(target, ping, ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Alert evaluator failed for target {Target}", target.TargetId); }
 
             if (ping.Success)
             {
@@ -2143,45 +2122,24 @@ public class MonitoringCollectionAgent : BackgroundService
     /// </summary>
     private void NoteSnmpFailure(string normalizedMac)
     {
-        if (string.IsNullOrEmpty(normalizedMac)) return;
-        if (IsSnmpExcluded(normalizedMac)) return;
-
-        var count = _snmpFailures.AddOrUpdate(normalizedMac, 1, (_, prev) => prev + 1);
-        if (count < SnmpFailureThreshold) return;
-
-        if (_snmpExcluded.TryAdd(normalizedMac, DateTime.UtcNow))
+        if (_snmpFailures.NoteFailure(normalizedMac))
         {
             _logger.LogWarning(
-                "Excluding {Mac} from SNMP polling for {Duration} - {Count} consecutive failures. Will retry automatically.",
-                normalizedMac, SnmpExclusionDuration, count);
+                "Excluding {Mac} from SNMP polling for {Duration} - consecutive failures hit the threshold. Will retry automatically.",
+                normalizedMac, _snmpFailures.ExclusionDuration);
         }
     }
 
     private bool IsSnmpExcluded(string normalizedMac)
     {
-        if (!_snmpExcluded.TryGetValue(normalizedMac, out var excludedAt)) return false;
-        if (DateTime.UtcNow - excludedAt < SnmpExclusionDuration) return true;
-        _snmpExcluded.TryRemove(normalizedMac, out _);
-        _snmpFailures.TryRemove(normalizedMac, out _);
-        _logger.LogInformation("SNMP exclusion expired for {Mac}, resuming polling", normalizedMac);
-        return false;
+        var excluded = _snmpFailures.IsExcluded(normalizedMac, out var justExpired);
+        if (justExpired)
+            _logger.LogInformation("SNMP exclusion expired for {Mac}, resuming polling", normalizedMac);
+        return excluded;
     }
 
     /// <summary>Tells the dashboard which devices were dropped from SNMP polling.</summary>
-    public IReadOnlyCollection<string> GetSnmpExcludedDevices() => _snmpExcluded.Keys.ToList();
-
-    /// <summary>
-    /// Read-only check of whether a device is currently excluded, without the
-    /// expiry side effect <see cref="IsSnmpExcluded"/> performs. Safe to call from
-    /// the UI thread when assembling the Setup dashboard.
-    /// </summary>
-    private bool PeekSnmpExcluded(string normalizedMac, out DateTime excludedAt)
-    {
-        if (_snmpExcluded.TryGetValue(normalizedMac, out excludedAt))
-            return DateTime.UtcNow - excludedAt < SnmpExclusionDuration;
-        excludedAt = default;
-        return false;
-    }
+    public IReadOnlyCollection<string> GetSnmpExcludedDevices() => _snmpFailures.ExcludedKeys;
 
     /// <summary>
     /// Per-device SNMP polling status for the Monitoring → Setup dashboard. Uses the
@@ -2197,9 +2155,9 @@ public class MonitoringCollectionAgent : BackgroundService
         {
             var mac = NormalizeMac(device.Mac);
             var snmpEnabled = Monitoring.SnmpDeviceRules.HasSnmpEnabled(device);
-            var excluded = PeekSnmpExcluded(mac, out var excludedAt);
+            var excluded = _snmpFailures.PeekExcluded(mac, out var excludedAt);
             var hasLastPolled = _snmpLastPolled.TryGetValue(mac, out var lastPolled);
-            _snmpFailures.TryGetValue(mac, out var failures);
+            var failures = _snmpFailures.GetFailureCount(mac);
 
             SnmpPollState state;
             if (!snmpEnabled) state = SnmpPollState.SnmpDisabled;

@@ -18,11 +18,20 @@ public class SfpAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<SfpAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, SfpAlertState> _states = new();
+    private readonly string _siteSuffix;
 
-    public SfpAlertEvaluator(IAlertEventBus eventBus, ILogger<SfpAlertEvaluator> logger)
+    /// <param name="siteSlug">
+    /// Site this instance evaluates for (one instance per site, owned by
+    /// <see cref="MonitoringAlertRegistry"/>). Non-default sites get their slug
+    /// appended to alert titles; the default site reads exactly as before.
+    /// </param>
+    public SfpAlertEvaluator(IAlertEventBus eventBus, ILogger<SfpAlertEvaluator> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
+            ? "" : $" (site {siteSlug})";
     }
 
     public async ValueTask EvaluateAsync(
@@ -127,7 +136,7 @@ public class SfpAlertEvaluator
             EventType = eventType,
             Source = "monitoring",
             Severity = AlertSeverity.Warning,
-            Title = title,
+            Title = $"{title}{_siteSuffix}",
             Message = message,
             DeviceId = deviceMac,
             DeviceName = deviceName,

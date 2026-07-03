@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring;
+using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -23,6 +24,7 @@ public class AgentProbeResultSink
     private readonly MonitoringInfluxRegistry _influxRegistry;
     private readonly MonitoringLiveStatsRegistry _liveStatsRegistry;
     private readonly SiteConnectionRegistry _siteConnections;
+    private readonly MonitoringAlertRegistry _alertRegistry;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<AgentProbeResultSink> _logger;
 
@@ -30,11 +32,17 @@ public class AgentProbeResultSink
     // "slug/deviceMac/ifName" - same rate computation as the local fast tier.
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
 
+    // Device display names per site (slug -> normalized MAC -> name), captured from
+    // the device list each SNMP config push assembles. Health samples relayed by the
+    // agent carry only the MAC; this gives their alerts a human-readable label.
+    private readonly ConcurrentDictionary<string, Dictionary<string, string>> _deviceNamesBySite = new();
+
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry influxRegistry,
         MonitoringLiveStatsRegistry liveStatsRegistry,
         SiteConnectionRegistry siteConnections,
+        MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
         ILogger<AgentProbeResultSink> logger)
     {
@@ -42,6 +50,7 @@ public class AgentProbeResultSink
         _influxRegistry = influxRegistry;
         _liveStatsRegistry = liveStatsRegistry;
         _siteConnections = siteConnections;
+        _alertRegistry = alertRegistry;
         _credentialProtection = credentialProtection;
         _logger = logger;
     }
@@ -142,6 +151,7 @@ public class AgentProbeResultSink
                     try { gatewayLanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(siteConnection.Client, ct); }
                     catch (Exception ex) { _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug}", connection.SiteSlug); }
 
+                    var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var device in devices.Where(d =>
                                  Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
                     {
@@ -152,7 +162,10 @@ public class AgentProbeResultSink
                             Name = device.Name ?? "",
                             DeviceType = device.DeviceType.ToString().ToLowerInvariant(),
                         });
+                        if (!string.IsNullOrEmpty(device.Name))
+                            names[NormalizeMac(device.Mac)] = device.Name;
                     }
+                    _deviceNamesBySite[connection.SiteSlug] = names;
                 }
                 if (config.Devices.Count == 0)
                     config.Enabled = false;
@@ -183,6 +196,23 @@ public class AgentProbeResultSink
         var influx = _influxRegistry.GetFor(connection.SiteSlug);
         if (!influx.IsConfigured) await influx.ReconfigureAsync(ct);
         var liveStats = _liveStatsRegistry.GetFor(connection.SiteSlug);
+
+        // Temperature thresholds for health alerting come from the site's own
+        // MonitoringSettings, same as the local medium tier.
+        MonitoringSettings? settings = null;
+        if (batch.Health.Count > 0)
+        {
+            try
+            {
+                var isDefaultSite = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+                await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefaultSite);
+                settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to load MonitoringSettings for site {Slug} health alerting", connection.SiteSlug);
+            }
+        }
 
         foreach (var sample in batch.Interfaces)
         {
@@ -269,6 +299,29 @@ public class AgentProbeResultSink
                 health.HasTemperatureC ? health.TemperatureC : null,
                 health.HasUptimeSeconds ? health.UptimeSeconds : null,
                 timestamp);
+
+            // Threshold evaluation through the site's own evaluator instance, same
+            // state machine the local medium tier runs. The name cache captured on
+            // config push gives the alert a device label instead of a bare MAC.
+            try
+            {
+                string? deviceName = null;
+                if (_deviceNamesBySite.TryGetValue(connection.SiteSlug, out var names))
+                    names.TryGetValue(NormalizeMac(health.DeviceMac), out deviceName);
+                var isGateway = string.Equals(health.DeviceType, "gateway", StringComparison.OrdinalIgnoreCase);
+                await _alertRegistry.GetFor(connection.SiteSlug).DeviceHealth.EvaluateAsync(
+                    health.DeviceMac, deviceName, health.DeviceType,
+                    health.HasCpuPercent ? health.CpuPercent : null,
+                    health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null,
+                    temperatureC: health.HasTemperatureC ? health.TemperatureC : null,
+                    tempHighThresholdC: isGateway ? settings?.GatewayTempHighC : settings?.SwitchTempHighC,
+                    ct: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Device health alert evaluation failed for {Mac} (site {Slug})",
+                    health.DeviceMac, connection.SiteSlug);
+            }
         }
     }
 
@@ -336,10 +389,38 @@ public class AgentProbeResultSink
                 result.Success,
                 timestamp);
 
+            // State-change alerting through the site's own evaluator, exactly like
+            // the local latency tier: up→down, down→up, sustained loss. The relayed
+            // sample is rebuilt into the probe result shape the evaluator consumes.
+            try
+            {
+                var ping = new PingProbeResult
+                {
+                    Target = new ProbeTarget(target.Address, target.ProbeMode, target.Port),
+                    Vantage = new ProbeVantage(vantage, VantageKind.Server),
+                    Sent = result.Sent,
+                    Received = result.Received,
+                    Timestamp = timestamp,
+                    RttMinMs = result.HasRttMinMs ? result.RttMinMs : null,
+                    RttAvgMs = result.HasRttAvgMs ? result.RttAvgMs : null,
+                    RttMaxMs = result.HasRttMaxMs ? result.RttMaxMs : null,
+                    JitterMs = result.HasJitterMs ? result.JitterMs : null,
+                };
+                await _alertRegistry.GetFor(connection.SiteSlug).Targets.EvaluateAsync(target, ping, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Alert evaluator failed for relayed target {Target} (site {Slug})",
+                    target.TargetId, connection.SiteSlug);
+            }
+
             if (result.Success)
                 target.LastVerified = timestamp;
         }
 
         await db.SaveChangesAsync(ct);
     }
+
+    private static string NormalizeMac(string mac) =>
+        string.IsNullOrEmpty(mac) ? string.Empty : mac.ToLowerInvariant().Replace('-', ':');
 }

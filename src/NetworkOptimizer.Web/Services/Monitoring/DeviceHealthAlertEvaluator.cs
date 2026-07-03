@@ -32,11 +32,20 @@ public class DeviceHealthAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<DeviceHealthAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<string, DeviceHealthState> _states = new();
+    private readonly string _siteSuffix;
 
-    public DeviceHealthAlertEvaluator(IAlertEventBus eventBus, ILogger<DeviceHealthAlertEvaluator> logger)
+    /// <param name="siteSlug">
+    /// Site this instance evaluates for (one instance per site, owned by
+    /// <see cref="MonitoringAlertRegistry"/>). Non-default sites get their slug
+    /// appended to alert titles; the default site reads exactly as before.
+    /// </param>
+    public DeviceHealthAlertEvaluator(IAlertEventBus eventBus, ILogger<DeviceHealthAlertEvaluator> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
+            ? "" : $" (site {siteSlug})";
     }
 
     public async ValueTask EvaluateAsync(
@@ -74,7 +83,7 @@ public class DeviceHealthAlertEvaluator
                         EventType = "device.gateway_high_cpu",
                         Source = "device",
                         Severity = AlertSeverity.Warning,
-                        Title = $"{label} CPU usage high",
+                        Title = $"{label} CPU usage high{_siteSuffix}",
                         Message = $"Gateway {label} CPU averaged {avg:0.#}% over the last {CpuWindowSize} samples, exceeding the {CpuHighThresholdPercent}% threshold.",
                         DeviceId = deviceMac,
                         DeviceName = deviceName,
@@ -109,7 +118,7 @@ public class DeviceHealthAlertEvaluator
                     EventType = "device.gateway_high_memory",
                     Source = "device",
                     Severity = AlertSeverity.Warning,
-                    Title = $"{label} memory usage high",
+                    Title = $"{label} memory usage high{_siteSuffix}",
                     Message = $"Gateway {label} memory usage at {memoryUsedPercent.Value:0.#}%, exceeding the {MemoryHighThresholdPercent}% threshold.",
                     DeviceId = deviceMac,
                     DeviceName = deviceName,
@@ -147,7 +156,7 @@ public class DeviceHealthAlertEvaluator
                     EventType = "device.high_temperature",
                     Source = "device",
                     Severity = AlertSeverity.Warning,
-                    Title = $"{label} temperature high",
+                    Title = $"{label} temperature high{_siteSuffix}",
                     Message = $"{typeLabel} {label} temperature at {temperatureC.Value:0.#} C, exceeding the {threshold:0.#} C threshold.",
                     DeviceId = deviceMac,
                     DeviceName = deviceName,

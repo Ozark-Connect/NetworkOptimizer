@@ -20,6 +20,11 @@ public sealed class SnmpRunner
     private SnmpPoller? _poller;
     private string _pollerKey = "";
 
+    // Failure counting + temporary exclusion, same tracker (and thresholds) the
+    // server's collection loops use, so a rebooting device isn't hammered from
+    // the agent either. Keyed by device MAC.
+    private readonly SnmpFailureTracker _failures = new();
+
     public SnmpRunner(TunnelClient tunnel)
     {
         _tunnel = tunnel;
@@ -48,7 +53,15 @@ public sealed class SnmpRunner
                 await ForEachDeviceAsync(config, async device =>
                 {
                     if (!IPAddress.TryParse(device.Ip, out var ip)) return;
-                    var interfaces = await poller.GetInterfaceMetricsAsync(ip, device.Name);
+                    if (IsExcluded(device)) return;
+                    var interfaces = await PollCountingFailures(device,
+                        () => poller.GetInterfaceMetricsAsync(ip, device.Name));
+                    if (interfaces.Count == 0)
+                    {
+                        NoteFailure(device);
+                        return;
+                    }
+                    _failures.NoteSuccess(device.Mac);
                     var batch = new SnmpResultBatch();
                     var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     foreach (var iface in interfaces.Where(i => i.ShouldMonitor()))
@@ -99,8 +112,15 @@ public sealed class SnmpRunner
                 await ForEachDeviceAsync(config, async device =>
                 {
                     if (!IPAddress.TryParse(device.Ip, out var ip)) return;
-                    var metrics = await poller.GetDeviceMetricsAsync(ip, device.Name);
-                    if (!metrics.IsReachable) return;
+                    if (IsExcluded(device)) return;
+                    var metrics = await PollCountingFailures(device,
+                        () => poller.GetDeviceMetricsAsync(ip, device.Name));
+                    if (!metrics.IsReachable)
+                    {
+                        NoteFailure(device);
+                        return;
+                    }
+                    _failures.NoteSuccess(device.Mac);
 
                     var sample = new SnmpDeviceHealthSample
                     {
@@ -127,6 +147,37 @@ public sealed class SnmpRunner
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, config?.MediumIntervalSeconds ?? 30)), ct);
         }
     }
+
+    /// <summary>Runs a poll call, counting any thrown failure before rethrowing.</summary>
+    private async Task<T> PollCountingFailures<T>(SnmpDeviceSpec device, Func<Task<T>> poll)
+    {
+        try
+        {
+            return await poll();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            NoteFailure(device);
+            throw;
+        }
+    }
+
+    private bool IsExcluded(SnmpDeviceSpec device)
+    {
+        var excluded = _failures.IsExcluded(device.Mac, out var justExpired);
+        if (justExpired)
+            Console.WriteLine($"SNMP exclusion expired for {Label(device)}, resuming polling");
+        return excluded;
+    }
+
+    private void NoteFailure(SnmpDeviceSpec device)
+    {
+        if (_failures.NoteFailure(device.Mac))
+            Console.WriteLine($"Excluding {Label(device)} from SNMP polling for {SnmpFailureTracker.DefaultExclusionDuration.TotalMinutes:0} min after repeated failures");
+    }
+
+    private static string Label(SnmpDeviceSpec device) =>
+        string.IsNullOrEmpty(device.Name) ? device.Mac : device.Name;
 
     private static async Task ForEachDeviceAsync(SnmpConfig config, Func<SnmpDeviceSpec, Task> body, CancellationToken ct)
     {

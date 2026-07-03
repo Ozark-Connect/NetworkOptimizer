@@ -465,9 +465,11 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.MonitoringAlertEvaluator>();
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.SfpAlertEvaluator>();
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.DeviceHealthAlertEvaluator>();
+// Per-site monitoring alert evaluators (target offline / device health / SFP DDM):
+// in-memory state machines keyed by target id / MAC, which repeat across sites, so
+// each site gets its own bundle. Local collection loops and the agent tunnel sink
+// both evaluate through the owning site's instances.
+builder.Services.AddSingleton<MonitoringAlertRegistry>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CableModemAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.OntAlertEvaluator>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator>();
