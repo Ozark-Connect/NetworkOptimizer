@@ -436,8 +436,13 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.ScheduleService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.ScheduleService>());
 
 // Register WAN Data Usage tracking service (singleton - polls WAN counters, calculates billing cycle usage)
-builder.Services.AddSingleton<WanDataUsageService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<WanDataUsageService>());
+// WAN data usage tracking is per site: the registry owns one WanDataUsageService per
+// site (its console + its DB), the default starting with the app and non-default sites
+// reconciled in. Scoped resolution forwards to the current site's collector.
+builder.Services.AddSingleton<WanDataUsageRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WanDataUsageRegistry>());
+builder.Services.AddScoped(sp => sp.GetRequiredService<WanDataUsageRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
@@ -569,7 +574,10 @@ builder.Services.AddScoped<ISqmService, SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<WanSteerDeploymentService>();
 builder.Services.AddScoped<PerfTweaksDeploymentService>();
-builder.Services.AddSingleton<ModuleUpdateNotificationService>(); // caches module update state, computed once per startup post-connect
+// Per site: the update banner reflects the current site's gateway module deployment
+// state. Scoped so each site's Perf Tweaks / WAN Steering status is its own; a circuit
+// is session-lived, so the compute still runs about once per session.
+builder.Services.AddScoped<ModuleUpdateNotificationService>();
 builder.Services.AddScoped<MonitoringInterfaceDeploymentService>();
 
 // Register WiFi Optimizer rules and engine
@@ -614,9 +622,16 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.ChannelRecommendati
 // Channel recommendation outcome memory: persistent store (factory-based, shared by the
 // singleton collector and scoped services) + background collector that attributes UniFi
 // radio metrics to the channel config that was live and maintains the change log.
-builder.Services.AddSingleton<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository, NetworkOptimizer.Storage.Repositories.ChannelMemoryRepository>();
-builder.Services.AddSingleton<ChannelMemoryCollectionService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryCollectionService>());
+// Channel memory (channel history + neighbor sightings) is per site. The repository is
+// scoped so web consumers (WiFiOptimizerService) read the current site's data; the
+// collector runs one per-site instance via ChannelMemoryRegistry.
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository>(sp =>
+    ActivatorUtilities.CreateInstance<NetworkOptimizer.Storage.Repositories.ChannelMemoryRepository>(
+        sp,
+        sp.GetRequiredService<SiteContextService>().Slug,
+        sp.GetRequiredService<SiteContextService>().IsDefault));
+builder.Services.AddSingleton<ChannelMemoryRegistry>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMemoryRegistry>());
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations
 builder.Services.AddApexCharts();

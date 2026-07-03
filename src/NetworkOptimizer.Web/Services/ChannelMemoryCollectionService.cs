@@ -42,18 +42,28 @@ public class ChannelMemoryCollectionService : BackgroundService
     private readonly IChannelMemoryRepository _repository;
     private readonly UniFiConnectionService _connectionService;
     private readonly ILogger<ChannelMemoryCollectionService> _logger;
+    private readonly string _siteSlug;
 
     public ChannelMemoryCollectionService(
+        IServiceProvider serviceProvider,
         IServiceScopeFactory scopeFactory,
-        IChannelMemoryRepository repository,
         SiteConnectionRegistry siteConnections,
-        ILogger<ChannelMemoryCollectionService> logger)
+        ILogger<ChannelMemoryCollectionService> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _scopeFactory = scopeFactory;
-        _repository = repository;
-        _connectionService = siteConnections.GetDefault();
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        var isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _connectionService = siteConnections.GetFor(_siteSlug);
+        // Build this site's own repository (per-site DB); DI's forwarded repository would
+        // resolve to the default site inside the background scope (no ambient HttpContext).
+        _repository = ActivatorUtilities.CreateInstance<NetworkOptimizer.Storage.Repositories.ChannelMemoryRepository>(
+            serviceProvider, _siteSlug, isDefault);
         _logger = logger;
     }
+
+    /// <summary>No-op: ChannelMemoryRegistry owns start/stop for each site's collector.</summary>
+    public override void Dispose() { }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -98,6 +108,9 @@ public class ChannelMemoryCollectionService : BackgroundService
         var now = DateTimeOffset.UtcNow;
 
         using var scope = _scopeFactory.CreateScope();
+        // Pin the scope to this collector's site so WiFiOptimizerService (and everything it
+        // resolves) targets this site's console/DB, not the default site's.
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
         var wifiService = scope.ServiceProvider.GetRequiredService<WiFiOptimizerService>();
 
         var aps = await wifiService.GetAccessPointsAsync();

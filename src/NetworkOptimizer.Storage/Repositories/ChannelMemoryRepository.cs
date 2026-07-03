@@ -7,20 +7,38 @@ namespace NetworkOptimizer.Storage.Repositories;
 
 /// <summary>
 /// SQLite-backed store for the Channel Recommendation engine's outcome memory.
-/// Factory-based (not scoped-context) so both the singleton background collector and
-/// scoped web services can share one registration.
+/// Per-site: channel history/neighbor sightings are per-site rows. Constructed with the
+/// owning site's slug (default site uses the main database, non-default sites their own),
+/// so the per-site background collector and the scoped web services each read their site.
 /// </summary>
 public class ChannelMemoryRepository : IChannelMemoryRepository
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly Services.SiteDbContextFactory _siteDbFactory;
     private readonly ILogger<ChannelMemoryRepository> _logger;
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
 
     public ChannelMemoryRepository(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        ILogger<ChannelMemoryRepository> logger)
+        Services.SiteDbContextFactory siteDbFactory,
+        ILogger<ChannelMemoryRepository> logger,
+        string siteSlug = "",
+        bool isDefault = true)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _siteDbFactory = siteDbFactory ?? throw new ArgumentNullException(nameof(siteDbFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _siteSlug = siteSlug ?? string.Empty;
+        _isDefault = isDefault;
+    }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSiteDb(CancellationToken ctok)
+    {
+        if (!_isDefault)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ctok);
     }
 
     /// <inheritdoc />
@@ -29,7 +47,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     {
         if (samples.Count == 0) return;
 
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         await UpsertSamplesCoreAsync(db, samples, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -41,7 +59,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
         DateTime watermarkUtc,
         CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
 
         await UpsertSamplesCoreAsync(db, samples, cancellationToken);
         AddChangesCore(db, changes);
@@ -55,7 +73,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     public async Task<List<ApChannelOutcome>> GetOutcomesSinceAsync(
         DateTime sinceUtc, CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         return await db.ApChannelOutcomes
             .AsNoTracking()
             .Where(o => o.BucketDate >= sinceUtc.Date)
@@ -66,7 +84,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     public async Task<List<ApChannelChange>> GetChangesSinceAsync(
         DateTime sinceUtc, CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         return await db.ApChannelChanges
             .AsNoTracking()
             .Where(c => c.ChangedAtUtc >= sinceUtc)
@@ -78,7 +96,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     /// <inheritdoc />
     public async Task<List<ApChannelChange>> GetLatestConfigsAsync(CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         var latestIds = await QueryLatestChangeIdsAsync(db, cancellationToken);
 
         return await db.ApChannelChanges
@@ -93,7 +111,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     {
         if (changes.Count == 0) return;
 
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         AddChangesCore(db, changes);
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -104,7 +122,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     {
         if (sightings.Count == 0) return;
 
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
 
         // Group first: the same (AP, band, BSSID, channel) can occur multiple times in one
         // batch, and two Adds for the same key would violate the unique index.
@@ -164,7 +182,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     public async Task<List<ApNeighborSighting>> GetNeighborSightingsSinceAsync(
         DateTime lastSeenSinceUtc, CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         return await db.ApNeighborSightings
             .AsNoTracking()
             .Where(n => n.LastSeenUtc >= lastSeenSinceUtc)
@@ -174,7 +192,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     /// <inheritdoc />
     public async Task PruneAsync(int retentionDays, int neighborRetentionDays, CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
 
         var outcomesPruned = await db.ApChannelOutcomes
@@ -201,7 +219,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     /// <inheritdoc />
     public async Task<DateTime?> GetCollectionWatermarkAsync(CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         var setting = await db.SystemSettings
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Key == SystemSettingKeys.ChannelMemoryCollectionWatermark, cancellationToken);
@@ -215,7 +233,7 @@ public class ChannelMemoryRepository : IChannelMemoryRepository
     /// <inheritdoc />
     public async Task SetCollectionWatermarkAsync(DateTime watermarkUtc, CancellationToken cancellationToken = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = await CreateSiteDb(cancellationToken);
         await SetWatermarkCoreAsync(db, watermarkUtc, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }

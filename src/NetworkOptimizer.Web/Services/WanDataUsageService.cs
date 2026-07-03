@@ -12,9 +12,12 @@ namespace NetworkOptimizer.Web.Services;
 public class WanDataUsageService : BackgroundService
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly UniFiConnectionService _connectionService;
     private readonly IAlertEventBus _alertEventBus;
     private readonly ILogger<WanDataUsageService> _logger;
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(24);
@@ -35,15 +38,35 @@ public class WanDataUsageService : BackgroundService
 
     public WanDataUsageService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         SiteConnectionRegistry siteConnections,
         IAlertEventBus alertEventBus,
-        ILogger<WanDataUsageService> logger)
+        ILogger<WanDataUsageService> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _dbFactory = dbFactory;
-        _connectionService = siteConnections.GetDefault();
+        _siteDbFactory = siteDbFactory;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _connectionService = siteConnections.GetFor(_siteSlug);
         _alertEventBus = alertEventBus;
         _logger = logger;
     }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSiteDb(CancellationToken ct = default)
+    {
+        if (!_isDefault)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
+    }
+
+    /// <summary>
+    /// No-op. WanDataUsageRegistry owns start/stop; the scoped forwarding registration
+    /// would otherwise let the DI container dispose (and cancel the stopping token of)
+    /// this site's collector at every request scope end.
+    /// </summary>
+    public override void Dispose() { }
 
     /// <summary>
     /// Returns the most recently computed usage summaries for all tracked WANs.
@@ -52,7 +75,7 @@ public class WanDataUsageService : BackgroundService
     public async Task<List<WanUsageSummary>> GetCurrentUsageAsync(CancellationToken ct = default)
     {
         // Always calculate fresh from DB - it's cheap (small table, indexed)
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDb(ct);
         var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync(ct);
         if (configs.Count == 0)
             return [];
@@ -102,7 +125,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task<List<WanDataUsageHistory>> GetUsageHistoryAsync(string? wanKey = null, CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDb(ct);
         var query = db.WanDataUsageHistory.AsNoTracking();
         if (!string.IsNullOrEmpty(wanKey))
             query = query.Where(h => h.WanKey == wanKey);
@@ -117,7 +140,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task<List<WanDataUsageConfig>> GetAllConfigsAsync()
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = await CreateSiteDb();
         return await db.WanDataUsageConfigs.ToListAsync();
     }
 
@@ -126,7 +149,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task<WanDataUsageConfig> SaveConfigAsync(WanDataUsageConfig config)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = await CreateSiteDb();
         var existing = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == config.WanKey);
 
         if (existing != null)
@@ -186,7 +209,7 @@ public class WanDataUsageService : BackgroundService
         await _pollLock.WaitAsync();
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync();
+            await using var db = await CreateSiteDb();
             var config = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == wanKey);
             if (config == null || config.ResetMode != DataUsageResetMode.Manual)
                 return;
@@ -244,7 +267,7 @@ public class WanDataUsageService : BackgroundService
     /// </summary>
     public async Task DeleteConfigAsync(string wanKey)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = await CreateSiteDb();
         var config = await db.WanDataUsageConfigs.FirstOrDefaultAsync(c => c.WanKey == wanKey);
         if (config != null)
         {
@@ -318,7 +341,7 @@ public class WanDataUsageService : BackgroundService
 
     private async Task PollAndRecordAsync(CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDb(ct);
         var configs = await db.WanDataUsageConfigs.Where(c => c.Enabled).ToListAsync(ct);
 
         if (configs.Count == 0)
