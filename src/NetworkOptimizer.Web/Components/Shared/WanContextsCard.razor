@@ -7,7 +7,7 @@
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
         <h2 class="card-title">Multi-WAN contexts</h2>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="card-header-right">
             @if (WanContexts.Count > 0)
             {
                 <span class="status-badge status-active" @onclick:stopPropagation="true">@WanContexts.Count configured</span>
@@ -33,10 +33,10 @@
                 <thead>
                     <tr>
                         <th>Name</th>
-                        <th>Description</th>
+                        <th class="hide-mobile">Description</th>
                         <th>Probe source IP</th>
                         <th>Assigned agent</th>
-                        <th>Targets</th>
+                        <th class="hide-mobile">Targets</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -45,10 +45,10 @@
                     {
                         <tr>
                             <td><code>@wc.Name</code></td>
-                            <td>@(string.IsNullOrEmpty(wc.Description) ? "-" : wc.Description)</td>
+                            <td class="hide-mobile">@(string.IsNullOrEmpty(wc.Description) ? "-" : wc.Description)</td>
                             <td>@(string.IsNullOrEmpty(wc.ProbeSourceIp) ? "-" : wc.ProbeSourceIp)</td>
                             <td>@AgentLabel(wc.AgentId)</td>
-                            <td>@_targetCounts.GetValueOrDefault(wc.Id)</td>
+                            <td class="hide-mobile">@_targetCounts.GetValueOrDefault(wc.Id)</td>
                             <td style="white-space: nowrap;">
                                 <button class="btn btn-sm btn-danger"
                                         @onclick="() => DeleteContextAsync(wc.Id)"
@@ -65,23 +65,23 @@
 
         @if (_showAdd)
         {
-            <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
-                        <input type="text" class="custom-range-input" @bind="_newName" placeholder="backup-wan" style="width: 150px;" />
+            <div class="inline-add-form">
+                <div class="inline-add-form-row">
+                    <div class="inline-add-form-field">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="custom-range-input" @bind="_newName" placeholder="backup-wan" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Description</label>
-                        <input type="text" class="custom-range-input" @bind="_newDescription" placeholder="optional" style="width: 180px;" />
+                    <div class="inline-add-form-field">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="custom-range-input" @bind="_newDescription" placeholder="optional" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe source IP</label>
-                        <input type="text" class="custom-range-input" @bind="_newSourceIp" placeholder="optional" style="width: 140px;" />
+                    <div class="inline-add-form-field">
+                        <label class="form-label">Probe source IP</label>
+                        <input type="text" class="custom-range-input" @bind="_newSourceIp" placeholder="optional" />
                     </div>
-                    <div>
-                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Assigned agent</label>
-                        <select class="cadence-select" style="width: 160px;" @bind="_newAgentId">
+                    <div class="inline-add-form-field">
+                        <label class="form-label">Assigned agent</label>
+                        <select class="cadence-select" @bind="_newAgentId">
                             <option value="">None (probe locally)</option>
                             @foreach (var agent in _agents)
                             {
@@ -89,7 +89,7 @@
                             }
                         </select>
                     </div>
-                    <div style="display: flex; gap: 0.5rem;">
+                    <div class="inline-add-form-actions">
                         <button class="btn btn-sm btn-primary" @onclick="AddContextAsync" disabled="@_adding">
                             @if (_adding) { <span class="spinner-sm"></span> } else { <span>Add</span> }
                         </button>
@@ -103,7 +103,7 @@
                 </p>
                 @if (!string.IsNullOrEmpty(_addError))
                 {
-                    <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addError</p>
+                    <p class="form-error">@_addError</p>
                 }
             </div>
         }

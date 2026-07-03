@@ -2668,13 +2668,13 @@
                                                 </div>
                                                 @if (!site.IsDefault)
                                                 {
-                                                    <label class="site-agent-console-toggle">
+                                                    <label class="checkbox-toggle">
                                                         <input type="checkbox" checked="@ConsoleViaAgent(site.Id)"
                                                                @onchange="e => ToggleConsoleViaAgent(site, (bool)e.Value!)" />
                                                         Reach this site's UniFi Console through the agent tunnel - no VPN or
                                                         port-forward to the console needed. Applies on the next connect.
                                                     </label>
-                                                    <label class="site-agent-console-toggle">
+                                                    <label class="checkbox-toggle">
                                                         <input type="checkbox" checked="@SshViaAgent(site.Id)"
                                                                @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
                                                         Reach this site's devices through the agent tunnel: SSH to the gateway

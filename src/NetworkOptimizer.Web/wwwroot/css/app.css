@@ -17486,7 +17486,7 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
-.site-agent-console-toggle {
+.checkbox-toggle {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
@@ -17496,8 +17496,71 @@ body.kiosk-mode .status-indicators {
     cursor: pointer;
 }
 
-.site-agent-console-toggle input {
+.checkbox-toggle input {
     margin-top: 0.15rem;
+}
+
+.site-wizard pre {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    overflow-x: auto;
+}
+
+.inline-add-form {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.inline-add-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+}
+
+.inline-add-form-field {
+    flex: 1 1 150px;
+    min-width: 0;
+}
+
+.inline-add-form-field label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.8rem;
+}
+
+.inline-add-form-field input,
+.inline-add-form-field select {
+    width: 100%;
+}
+
+.inline-add-form-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.form-error {
+    color: var(--danger-color);
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+    .inline-add-form-field {
+        flex-basis: 100%;
+    }
+
+    .inline-add-form-actions {
+        flex-basis: 100%;
+    }
+
+    .inline-add-form-actions .btn {
+        flex: 1;
+    }
 }
 
 .site-card-agents {
