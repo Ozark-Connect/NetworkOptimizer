@@ -153,6 +153,11 @@ public class ConfigTransferService
                     await sourceStream.CopyToAsync(dbStream);
                 }
 
+                // Add per-site databases (multi-site installs). Single-site installs
+                // have no sites/ directory, so this is a no-op and the archive is
+                // byte-identical to the pre-multi-site format.
+                await AddSiteDatabasesToArchiveAsync(archive, type);
+
                 // Add credential key if it exists
                 var credKeyPath = Path.Combine(_dataDirectory, ".credential_key");
                 if (File.Exists(credKeyPath))
@@ -326,7 +331,7 @@ public class ConfigTransferService
             if (_pendingPreview.ExportType == "SettingsOnly")
             {
                 _logger.LogDebug("Settings-only import: preserving existing history tables");
-                await PreserveHistoryAsync(importedDbPath);
+                await PreserveHistoryAsync(importedDbPath, Path.Combine(_dataDirectory, "network_optimizer.db"));
                 var afterHistorySize = new FileInfo(importedDbPath).Length;
                 _logger.LogDebug("DB after history preservation: {Size} bytes (was {OriginalSize})", afterHistorySize, importedDbSize);
             }
@@ -351,6 +356,11 @@ public class ConfigTransferService
             }
             File.Copy(importedDbPath, targetDbPath, overwrite: true);
             _logger.LogDebug("DB replaced successfully");
+
+            // Restore per-site databases from the archive (multi-site installs). Sites
+            // present on this machine but absent from the archive are left untouched;
+            // the archive is additive, never destructive.
+            await RestoreSiteDatabasesAsync(stagingDir);
 
             // Replace credential key
             var importedKeyPath = Path.Combine(stagingDir, ".credential_key");
@@ -489,9 +499,97 @@ public class ConfigTransferService
         await vacuumCmd.ExecuteNonQueryAsync();
     }
 
-    private async Task PreserveHistoryAsync(string importedDbPath)
+    /// <summary>
+    /// Directory holding the per-site databases (one subfolder per non-default site).
+    /// Mirrors <see cref="SiteDatabasePaths"/>; the default site lives in the main DB.
+    /// </summary>
+    private string SitesRoot => Path.Combine(_dataDirectory, "sites");
+
+    /// <summary>
+    /// Adds every non-default site's database to the archive under
+    /// sites/{slug}/network_optimizer.db, using the same VACUUM INTO snapshot + optional
+    /// history pruning as the main database. No-op when there are no site databases.
+    /// </summary>
+    private async Task AddSiteDatabasesToArchiveAsync(ZipArchive archive, ExportType type)
     {
-        var currentDbPath = Path.Combine(_dataDirectory, "network_optimizer.db");
+        if (!Directory.Exists(SitesRoot)) return;
+
+        foreach (var siteDir in Directory.GetDirectories(SitesRoot))
+        {
+            var slug = Path.GetFileName(siteDir);
+            var siteDbPath = Path.Combine(siteDir, "network_optimizer.db");
+            if (!File.Exists(siteDbPath)) continue;
+
+            var tempCopy = Path.Combine(_tempDirectory, $"export-site-{slug}-{Guid.NewGuid()}.db");
+            try
+            {
+                await VacuumIntoAsync(siteDbPath, tempCopy);
+                if (type == ExportType.SettingsOnly)
+                    await PruneHistoryTablesAsync(tempCopy);
+
+                var entry = archive.CreateEntry($"sites/{slug}/network_optimizer.db");
+                await using var entryStream = entry.Open();
+                await using var fileStream = File.OpenRead(tempCopy);
+                await fileStream.CopyToAsync(entryStream);
+                _logger.LogDebug("Added site DB to archive: {Slug} ({Size} bytes)", slug, new FileInfo(tempCopy).Length);
+            }
+            finally
+            {
+                try { File.Delete(tempCopy); } catch { /* ignore */ }
+                try { File.Delete(tempCopy + "-wal"); } catch { /* ignore */ }
+                try { File.Delete(tempCopy + "-shm"); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Restores per-site databases from the staging directory. For settings-only imports,
+    /// existing per-site history is preserved (attach + copy) exactly as for the main DB.
+    /// Sites absent from the archive are left untouched.
+    /// </summary>
+    private async Task RestoreSiteDatabasesAsync(string stagingDir)
+    {
+        var stagedSitesRoot = Path.Combine(stagingDir, "sites");
+        if (!Directory.Exists(stagedSitesRoot)) return;
+
+        foreach (var siteDir in Directory.GetDirectories(stagedSitesRoot))
+        {
+            var slug = Path.GetFileName(siteDir);
+            var importedDbPath = Path.Combine(siteDir, "network_optimizer.db");
+            if (!File.Exists(importedDbPath)) continue;
+
+            var targetDir = Path.Combine(SitesRoot, slug);
+            var targetDbPath = Path.Combine(targetDir, "network_optimizer.db");
+
+            // Settings-only: fold this machine's existing per-site history back into the
+            // imported DB before it replaces the live file. Skip when the site is new here.
+            if (_pendingPreview?.ExportType == "SettingsOnly" && File.Exists(targetDbPath))
+                await PreserveHistoryAsync(importedDbPath, targetDbPath);
+
+            Directory.CreateDirectory(targetDir);
+            try { File.Delete(targetDbPath + "-wal"); } catch { /* ignore */ }
+            try { File.Delete(targetDbPath + "-shm"); } catch { /* ignore */ }
+            File.Copy(importedDbPath, targetDbPath, overwrite: true);
+            _logger.LogDebug("Restored site DB: {Slug}", slug);
+        }
+    }
+
+    private static async Task VacuumIntoAsync(string sourceDbPath, string destPath)
+    {
+        var dest = destPath.Replace('\\', '/');
+        await using var conn = new SqliteConnection($"Data Source={sourceDbPath}");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "VACUUM INTO @path";
+        var param = cmd.CreateParameter();
+        param.ParameterName = "@path";
+        param.Value = dest;
+        cmd.Parameters.Add(param);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task PreserveHistoryAsync(string importedDbPath, string currentDbPath)
+    {
         _logger.LogDebug("Preserving history: attaching current DB {CurrentDb} to imported DB {ImportedDb}",
             currentDbPath, importedDbPath);
         var connStr = $"Data Source={importedDbPath}";

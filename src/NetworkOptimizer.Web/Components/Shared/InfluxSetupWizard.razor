@@ -52,7 +52,7 @@
   influxdb:2</code></pre>
                         <p><strong>macOS</strong>: <code>brew install influxdb@2 && brew services start influxdb@2</code></p>
                         <p><strong>Other</strong>: see the <a href="https://docs.influxdata.com/influxdb/v2/install/" target="_blank" rel="noopener">InfluxDB install docs</a>.</p>
-                        <p>Once it's running, finish the initial setup at <code>http://localhost:8086</code> to create an admin user and an all-access API token, then come back here.</p>
+                        <p>Once it's running, finish the initial setup at <code>http://localhost:8086</code> to create an admin user and an All Access API Token, then come back here.</p>
                     </div>
                 </details>
 
@@ -83,13 +83,13 @@
                 @if (_siteMode)
                 {
                     <p class="section-description">
-                        This site stores its monitoring data in the shared InfluxDB
-                        (org <code>@_sharedOrgName</code>) using site-specific buckets:
-                        <code>@SitePrimaryBucket</code> and <code>@SiteLongtermBucket</code>.
-                        Provide an <strong>all-access API token</strong> once so we can
+                        This site stores its monitoring data in the shared InfluxDB, in the
+                        <strong>@_sharedOrgName</strong> Organization, using site-specific
+                        buckets: <code>@SitePrimaryBucket</code> and <code>@SiteLongtermBucket</code>.
+                        Provide an <strong>All Access API Token</strong> once so we can
                         create those buckets and upgrade the shared connection token to
                         cover them. After this, adding more sites needs no token.
-                        <strong>Your all-access token is held in memory only for this
+                        <strong>Your All Access API Token is held in memory only for this
                         request and discarded immediately after, it's never saved to
                         disk.</strong>
                     </p>
@@ -97,18 +97,18 @@
                 else
                 {
                     <p class="section-description">
-                        Provide an <strong>all-access API token</strong> for the InfluxDB org
+                        Provide an <strong>All Access API Token</strong> for the InfluxDB org
                         you want Network Optimizer's data to live in. We'll use it just for
                         this setup, to create the two NO buckets in that org and mint a
-                        least-privilege token for ongoing use. <strong>Your all-access token
-                        is held in memory only for this request and discarded immediately
-                        after, it's never saved to disk.</strong>
+                        least-privilege token for ongoing use. <strong>Your All Access API
+                        Token is held in memory only for this request and discarded
+                        immediately after, it's never saved to disk.</strong>
                     </p>
                 }
 
                 <div class="form-group">
-                    <label class="form-label">All-access API token</label>
-                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB all-access token" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <label class="form-label">All Access API Token</label>
+                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 @if (_state == Step.PickOrg)
@@ -118,7 +118,7 @@
                         {
                             <label class="form-label">Which org should Network Optimizer use?</label>
                             <div class="alert alert-warning">
-                                No orgs are visible to this token. Use an all-access token
+                                No orgs are visible to this token. Use an All Access API Token
                                 scoped to your target org, or an operator token.
                             </div>
                         }
@@ -388,7 +388,7 @@
             var orgId = await Provisioner.TryResolveOrgIdAsync(url, adminToken, _sharedOrgName);
             if (string.IsNullOrEmpty(orgId))
             {
-                _message = $"This token can't see the shared org '{_sharedOrgName}'. Use an all-access token for that org.";
+                _message = $"This token can't see the shared org '{_sharedOrgName}'. Use an All Access API Token for that org.";
                 _messageClass = "danger";
                 return;
             }
