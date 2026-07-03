@@ -97,11 +97,11 @@
         @if (!_wantAgent && _agentToken == null)
         {
             <p class="section-description">
-                An agent runs at the site and dials out to this server, so the site's devices are
-                monitored without inbound access to the site. You want one when the site is not
-                reachable over a VPN - and for cable modem / ONT status, which management IPs make
-                impractical over VPN either way. Skip it if this server reaches the whole site
-                directly and there are no modems to watch.
+                An agent runs at the site and dials out to this server - no inbound access to the
+                site needed. It's what powers this site's network monitoring (SNMP, device stats,
+                Live View), ISP Health, LAN speed tests, and cable modem / ONT status from here.
+                Set one up unless this server already reaches the whole site over a VPN - and even
+                then, modem/ONT management IPs usually make an agent the cleaner path.
             </p>
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="() => _wantAgent = true">Set Up an Agent</button>
