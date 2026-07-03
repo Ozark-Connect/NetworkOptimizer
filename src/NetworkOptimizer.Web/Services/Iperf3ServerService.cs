@@ -12,7 +12,7 @@ namespace NetworkOptimizer.Web.Services;
 public class Iperf3ServerService : BackgroundService
 {
     private readonly ILogger<Iperf3ServerService> _logger;
-    private readonly ClientSpeedTestService _clientSpeedTestService;
+    private readonly SpeedTestServiceRegistry _speedTestRegistry;
     private readonly IConfiguration _configuration;
 
     private Process? _iperf3Process;
@@ -28,11 +28,23 @@ public class Iperf3ServerService : BackgroundService
         IConfiguration configuration)
     {
         _logger = logger;
-        // The local iperf3 server lives on the default site's network; agent sites
-        // run their own iperf3 next to the agent (results relayed with their slug).
-        _clientSpeedTestService = speedTestRegistry.GetDefault().ClientSpeedTest;
+        // Keep the registry, not the resolved client service: resolving
+        // GetDefault() here would build the default speed-test bundle during
+        // construction, and that bundle's UwnSpeedTestService depends back on
+        // this service (via WanSpeedTestServiceBase) - a constructor cycle that
+        // deadlocks host startup. The client service is fetched lazily at the
+        // one use site, by which point this singleton is fully constructed and
+        // the bundle resolves it without re-entering the constructor.
+        _speedTestRegistry = speedTestRegistry;
         _configuration = configuration;
     }
+
+    /// <summary>
+    /// The default site's client speed test service, resolved on demand. The
+    /// local iperf3 server lives on the default site's network; agent sites run
+    /// their own iperf3 next to the agent (results relayed with their slug).
+    /// </summary>
+    private ClientSpeedTestService ClientSpeedTest => _speedTestRegistry.GetDefault().ClientSpeedTest;
 
     /// <summary>
     /// Whether the iperf3 server is currently running
@@ -420,7 +432,7 @@ public class Iperf3ServerService : BackgroundService
             // Only record if we got meaningful data
             if (fromDeviceBps > 0 || toDeviceBps > 0)
             {
-                await _clientSpeedTestService.RecordIperf3ClientResultAsync(
+                await ClientSpeedTest.RecordIperf3ClientResultAsync(
                     clientIp,
                     fromDeviceBps,   // DownloadBitsPerSecond = From Device
                     toDeviceBps,     // UploadBitsPerSecond = To Device
