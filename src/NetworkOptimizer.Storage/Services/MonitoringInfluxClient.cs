@@ -2496,7 +2496,19 @@ from(bucket: ""{_longtermBucket}"")
         }
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// No-op. Instances are owned by MonitoringInfluxRegistry but handed out
+    /// through a scoped forwarding registration, so the DI container calls
+    /// DisposeAsync whenever a request/circuit scope ends. Disposing here would
+    /// tear down the shared client (its config/flush semaphores) out from under
+    /// the collection agent, ISP Health, and chart reads - every subsequent call
+    /// then throws ObjectDisposedException. Only the registry may tear it down,
+    /// via DisposeOwnedAsync. Mirrors UniFiConnectionService.Dispose/DisposeOwned.
+    /// </summary>
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    /// <summary>Real teardown, invoked only by the owning registry at app shutdown.</summary>
+    public async ValueTask DisposeOwnedAsync()
     {
         if (_disposed) return;
         _disposed = true;

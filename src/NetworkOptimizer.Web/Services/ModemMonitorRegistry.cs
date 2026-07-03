@@ -98,9 +98,9 @@ public class ModemMonitorRegistry : BackgroundService
 
         foreach (var bundle in _instances.Values)
         {
-            bundle.CableModem.Dispose();
-            bundle.Ont.Dispose();
-            bundle.Cellular.Dispose();
+            bundle.CableModem.DisposeOwned();
+            bundle.Ont.DisposeOwned();
+            bundle.Cellular.DisposeOwned();
         }
     }
 

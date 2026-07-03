@@ -339,7 +339,15 @@ public class OntMonitorService : IDisposable
         };
     }
 
-    public void Dispose()
+    /// <summary>
+    /// No-op. Owned by ModemMonitorRegistry but scope-forwarded, so the DI
+    /// container calls Dispose at request/circuit scope end. Only the registry
+    /// tears it down, via DisposeOwned. Mirrors UniFiConnectionService.
+    /// </summary>
+    public void Dispose() { }
+
+    /// <summary>Real teardown, invoked only by the owning registry.</summary>
+    internal void DisposeOwned()
     {
         _pollTimer.Dispose();
     }

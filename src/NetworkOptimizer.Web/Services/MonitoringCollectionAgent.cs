@@ -124,6 +124,16 @@ public class MonitoringCollectionAgent : BackgroundService
     private bool AgentCoversCollection() =>
         !_isDefault && _tunnelRegistry.GetForSite(_siteSlug).Count > 0;
 
+    /// <summary>
+    /// No-op. Owned by MonitoringCollectionRegistry (started/stopped via
+    /// Start/StopAsync), but handed to components through a scoped forwarding
+    /// registration - so the DI container would otherwise call Dispose at every
+    /// request/circuit scope end, and BackgroundService.Dispose cancels the
+    /// stopping token, silently killing this site's collection loops. The
+    /// registry owns the real lifecycle.
+    /// </summary>
+    public override void Dispose() { }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Monitoring collection agent starting (site {Site})", _siteSlug);

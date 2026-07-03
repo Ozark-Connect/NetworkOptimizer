@@ -35,8 +35,10 @@ public class MonitoringInfluxRegistry : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // The clients' own DisposeAsync is a no-op (they're scope-forwarded and must
+        // survive request/circuit scope disposal); the registry owns real teardown.
         foreach (var client in _clients.Values)
-            await client.DisposeAsync();
+            await client.DisposeOwnedAsync();
         _clients.Clear();
         GC.SuppressFinalize(this);
     }
