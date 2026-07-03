@@ -362,6 +362,27 @@ a:hover {
     margin-left: auto;
 }
 
+.page-header-icon-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.page-header-icon-link:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.page-header-icon-link svg {
+    width: 20px;
+    height: 20px;
+}
+
 .page-description {
     color: var(--text-secondary);
     font-size: 0.875rem;
@@ -17411,6 +17432,14 @@ body.kiosk-mode .status-indicators {
 
 .sites-overview-card:hover {
     background: var(--bg-tertiary);
+}
+
+.sites-overview-card.sites-overview-static {
+    cursor: default;
+}
+
+.sites-overview-card.sites-overview-static:hover {
+    background: var(--bg-card);
 }
 
 .sites-overview-stats {

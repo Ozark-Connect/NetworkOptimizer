@@ -144,25 +144,7 @@
         }
         else
         {
-            <div class="alert alert-success">
-                Enrollment token: <code>@_agentToken</code><br />
-                Copy it now - it is shown only once and expires in 24 hours if unused.
-            </div>
-            <p class="section-description">
-                On the site's agent box, build the agent
-                (<code>dotnet publish src/NetworkOptimizer.Agent -c Release</code>) and create
-                <code>agent.json</code> next to the binary:
-            </p>
-            <pre><code>@AgentJsonSnippet()</code></pre>
-            <p class="form-hint">
-                <code>serverUrl</code> must be this server's HTTPS address as reachable from the site
-                (the agent refuses plain HTTP). Over a VPN, use the VPN address of the reverse proxy.
-                Without a VPN, expose the reverse proxy to the internet - on a UniFi gateway at this
-                server's site: UniFi Network &gt; Settings &gt; Policy Table &gt; Port Forwarding,
-                forwarding the reverse proxy's HTTPS port (usually 443/TCP). The tunnel rides the same
-                proxy: set <code>tunnelUrl</code> to the HTTPS address it publishes for the tunnel
-                (see the agent README).
-            </p>
+            <AgentInstallInstructions Token="@_agentToken" LanSpeedTest="_featureLanSpeedTest" />
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="() => _step = 4">Continue</button>
             </div>
@@ -351,18 +333,6 @@
             setting.Value = value;
             setting.UpdatedAt = DateTime.UtcNow;
         }
-    }
-
-    private string AgentJsonSnippet()
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.Append("{\n");
-        sb.Append("  \"serverUrl\": \"https://this-server-address\",\n");
-        sb.Append($"  \"enrollmentToken\": \"{_agentToken}\"");
-        if (_featureLanSpeedTest)
-            sb.Append(",\n  \"lanSpeedTest\": true");
-        sb.Append("\n}");
-        return sb.ToString();
     }
 
     private async Task SwitchToSiteAsync()

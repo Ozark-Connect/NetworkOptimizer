@@ -1,0 +1,94 @@
+@using System.Text
+@inject AgentServerUrlProvider AgentServerUrl
+
+@* Agent enrollment token plus how to stand the agent up, shared by the site
+   wizard and the Multi-Site settings panel. Released builds get the published
+   Docker one-liner as the primary path; only a source build (detected via
+   AppVersionInfo) shows build-from-source directions. Both fill in the
+   configured central server URL so nothing is hand-typed. *@
+
+<div class="alert alert-success">
+    Enrollment token: <code>@Token</code><br />
+    Copy it now - it is shown only once and expires in 24 hours if unused.
+</div>
+
+@if (string.IsNullOrWhiteSpace(ServerUrl))
+{
+    <p class="form-hint">
+        This server's reverse-proxied HTTPS address isn't set (<code>REVERSE_PROXIED_HOST_NAME</code>), so
+        the command below shows a placeholder. Set it so agents have an address to dial back to - the same
+        host serves the app and the agent tunnel.
+    </p>
+}
+
+@if (AppVersionInfo.IsSourceBuild)
+{
+    <p class="section-description">
+        This is a source build, so build the agent from source and drop an <code>agent.json</code> next to
+        the binary:
+    </p>
+    <pre><code>dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64</code></pre>
+    <pre><code>@AgentJsonSnippet()</code></pre>
+    <p class="form-hint">
+        <code>serverUrl</code> is this server's HTTPS address as reachable from the site - over a VPN or
+        site-to-site VPN, or a public address (the agent refuses plain HTTP). The gRPC tunnel rides that
+        same reverse proxy, so <code>tunnelUrl</code> is the same URL. If the site can't already reach this
+        server over a VPN, expose the reverse proxy - on a UniFi gateway at this server's site: UniFi
+        Network &gt; Settings &gt; Policy Table &gt; Port Forwarding, forwarding the reverse proxy's HTTPS
+        port (usually 443/TCP).
+    </p>
+}
+else
+{
+    <p class="section-description">On the site's agent box (Docker required), run:</p>
+    <pre><code>@DockerOneLiner()</code></pre>
+    <p class="form-hint">
+        This pulls the agent image and its compose template, writes the config, and starts it. The agent
+        dials out to <code>@ServerDisplay</code> over HTTPS only - no inbound access to the site needed.
+        That URL just has to be reachable from the site: over a VPN or site-to-site VPN, or a public
+        address. If it isn't reachable over a VPN, expose this server's reverse proxy - on a UniFi gateway
+        at this server's site: UniFi Network &gt; Settings &gt; Policy Table &gt; Port Forwarding (usually
+        443/TCP).
+    </p>
+}
+
+@code {
+    /// <summary>The one-time enrollment token shown to the operator.</summary>
+    [Parameter, EditorRequired]
+    public string Token { get; set; } = "";
+
+    /// <summary>Whether the agent should also host the LAN speed test server at the site.</summary>
+    [Parameter]
+    public bool LanSpeedTest { get; set; }
+
+    /// <summary>The agent-facing HTTPS base URL, derived from REVERSE_PROXIED_HOST_NAME.</summary>
+    private string? ServerUrl => AgentServerUrl.Url;
+
+    private string ServerDisplay => string.IsNullOrWhiteSpace(ServerUrl) ? "this server" : ServerUrl!.TrimEnd('/');
+
+    private string ServerValue => string.IsNullOrWhiteSpace(ServerUrl) ? "https://your-network-optimizer" : ServerUrl!.TrimEnd('/');
+
+    private string AgentJsonSnippet()
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\n");
+        sb.Append($"  \"serverUrl\": \"{ServerValue}\",\n");
+        sb.Append($"  \"tunnelUrl\": \"{ServerValue}\",\n");
+        sb.Append($"  \"enrollmentToken\": \"{Token}\"");
+        if (LanSpeedTest)
+            sb.Append(",\n  \"lanSpeedTest\": true");
+        sb.Append("\n}");
+        return sb.ToString();
+    }
+
+    private string DockerOneLiner()
+    {
+        var sb = new StringBuilder();
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install.sh | bash -s -- \\\n");
+        sb.Append($"  --server \"{ServerValue}\" \\\n");
+        sb.Append($"  --token \"{Token}\"");
+        if (LanSpeedTest)
+            sb.Append(" \\\n  --lan-speed-test");
+        return sb.ToString();
+    }
+}

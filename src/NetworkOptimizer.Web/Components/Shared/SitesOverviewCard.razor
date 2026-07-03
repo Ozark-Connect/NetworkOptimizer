@@ -8,7 +8,7 @@
    and more than one site exists, so it can sit on the Dashboard unconditionally. *@
 @if (_sites.Count > 1)
 {
-    <div class="card sites-overview-card" @onclick="@(() => NavigationManager.NavigateTo("/sites"))">
+    <div class="card sites-overview-card @(LinkToSwitcher ? "" : "sites-overview-static")" @onclick="HandleCardClick">
         <div class="sites-overview-stats">
             <div class="sites-overview-stat">
                 <span class="sites-overview-value">@_sites.Count</span>
@@ -26,19 +26,36 @@
                 <span class="sites-overview-value">@_agents.Count(a => AgentEnrollmentService.IsOnline(a.LastSeenAt))</span>
                 <span class="sites-overview-label">Agents Online</span>
             </div>
-            <div class="sites-overview-cta">
-                <span>Open site switcher</span>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
-                </svg>
-            </div>
+            @if (LinkToSwitcher)
+            {
+                <div class="sites-overview-cta">
+                    <span>Open site switcher</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+            }
         </div>
     </div>
 }
 
 @code {
+    /// <summary>
+    /// When true (default) the card links through to the /sites switcher and shows
+    /// the "Open site switcher" call to action. The /sites page itself passes false
+    /// so it stays a plain summary rather than a link back to itself.
+    /// </summary>
+    [Parameter]
+    public bool LinkToSwitcher { get; set; } = true;
+
     private List<Site> _sites = new();
     private List<SiteAgent> _agents = new();
+
+    private void HandleCardClick()
+    {
+        if (LinkToSwitcher)
+            NavigationManager.NavigateTo("/sites");
+    }
 
     protected override async Task OnInitializedAsync()
     {

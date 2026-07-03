@@ -72,14 +72,10 @@
         </main>
 
         <footer class="app-footer">
-            @{
-                var infoVersion = Assembly.GetExecutingAssembly().GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-                var baseVersion = infoVersion is not null ? System.Text.RegularExpressions.Regex.Match(infoVersion, @"^\d+\.\d+\.\d+").Value : null;
-            }
             <p>&copy; 2026 Ozark Connect - Network Optimizer
-                @if (baseVersion is { Length: > 0 } bv && !bv.StartsWith("0.0.0"))
+                @if (AppVersionInfo.ReleaseVersion is { } releaseVersion)
                 {
-                    <a href="https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v@(bv)" target="_blank" rel="noopener">v@(infoVersion)</a>
+                    <a href="https://github.com/Ozark-Connect/NetworkOptimizer/releases/tag/v@(releaseVersion)" target="_blank" rel="noopener">v@(AppVersionInfo.Informational)</a>
                 }
                 else
                 {
