@@ -3,13 +3,15 @@
 @using NetworkOptimizer.Web.Services
 @inject SiteManagementService SiteManagement
 @inject SiteConnectionRegistry SiteConnections
+@inject AgentEnrollmentService AgentEnrollment
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
 <div class="site-wizard">
     @if (_step == 1)
     {
-        <label class="form-label">Add Site <span class="form-help">(Step 1 of 3)</span></label>
+        <label class="form-label">Add Site <span class="form-help">(Step 1 of 4)</span></label>
         <div class="form-group">
             <div class="input-with-button">
                 <input type="text" class="form-control" @bind="_name" @bind:event="oninput"
@@ -34,7 +36,7 @@
     }
     else if (_step == 2 && _site != null)
     {
-        <label class="form-label">Connect the UniFi Console for @_site.Name <span class="form-help">(Step 2 of 3)</span></label>
+        <label class="form-label">Connect the UniFi Console for @_site.Name <span class="form-help">(Step 2 of 4)</span></label>
         <p class="section-description">
             If this site's UniFi Console is reachable from this server (site-to-site VPN or a public address),
             connect it now. You can also skip this and connect later from Settings after switching to the site.
@@ -91,11 +93,88 @@
     }
     else if (_step == 3 && _site != null)
     {
-        <label class="form-label">@_site.Name is ready <span class="form-help">(Step 3 of 3)</span></label>
+        <label class="form-label">On-site agent for @_site.Name <span class="form-help">(Step 3 of 4)</span></label>
+        @if (!_wantAgent && _agentToken == null)
+        {
+            <p class="section-description">
+                An agent runs at the site and dials out to this server, so the site's devices are
+                monitored without inbound access to the site. You want one when the site is not
+                reachable over a VPN - and for cable modem / ONT status, which management IPs make
+                impractical over VPN either way. Skip it if this server reaches the whole site
+                directly and there are no modems to watch.
+            </p>
+            <div class="action-buttons">
+                <button type="button" class="btn btn-primary" @onclick="() => _wantAgent = true">Set Up an Agent</button>
+                <button type="button" class="btn btn-secondary" @onclick="() => _step = 4">No Agent Needed</button>
+            </div>
+        }
+        else if (_agentToken == null)
+        {
+            <p class="section-description">Choose what the agent does at the site:</p>
+            <label class="site-agent-console-toggle">
+                <input type="checkbox" checked disabled />
+                <strong>Site monitoring</strong> - reaches the site's devices for SNMP polling,
+                latency/loss probing, and modem/ONT status pages. Always on; it's what the agent is for.
+            </label>
+            <label class="site-agent-console-toggle">
+                <input type="checkbox" @bind="_featureLanSpeedTest" />
+                <strong>LAN speed test server</strong>
+                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients">?</span>
+                - lets the site's clients run speed tests against the agent.
+            </label>
+            <label class="site-agent-console-toggle">
+                <input type="checkbox" @bind="_featureProxy" />
+                <strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
+                gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
+                tests, deployments, and modem monitoring with no VPN.
+            </label>
+            <div class="action-buttons">
+                <button type="button" class="btn btn-primary" @onclick="CreateAgentAsync" disabled="@_busy">
+                    @if (_busy)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    else
+                    {
+                        <span>Create Agent Token</span>
+                    }
+                </button>
+                <button type="button" class="btn btn-secondary" @onclick="() => { _wantAgent = false; _step = 4; }" disabled="@_busy">Skip</button>
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-success">
+                Enrollment token: <code>@_agentToken</code><br />
+                Copy it now - it is shown only once and expires in 24 hours if unused.
+            </div>
+            <p class="section-description">
+                On the site's agent box, build the agent
+                (<code>dotnet publish src/NetworkOptimizer.Agent -c Release</code>) and create
+                <code>agent.json</code> next to the binary:
+            </p>
+            <pre><code>@AgentJsonSnippet()</code></pre>
+            <p class="form-hint">
+                <code>serverUrl</code> must be this server's HTTPS address as reachable from the site
+                (the agent refuses plain HTTP). Over a VPN, use the VPN address of the reverse proxy.
+                Without a VPN, expose the reverse proxy to the internet - on a UniFi gateway at this
+                server's site: UniFi Network &gt; Settings &gt; Policy Table &gt; Port Forwarding,
+                forwarding the reverse proxy's HTTPS port (usually 443/TCP). The tunnel rides the same
+                proxy: set <code>tunnelUrl</code> to the HTTPS address it publishes for the tunnel
+                (see the agent README).
+            </p>
+            <div class="action-buttons">
+                <button type="button" class="btn btn-primary" @onclick="() => _step = 4">Continue</button>
+            </div>
+        }
+    }
+    else if (_step == 4 && _site != null)
+    {
+        <label class="form-label">@_site.Name is ready <span class="form-help">(Step 4 of 4)</span></label>
         <p class="section-description">
-            The site's database is provisioned@(_connected ? " and its UniFi Console is connected" : "").
+            The site's database is provisioned@(_connected ? ", its UniFi Console is connected" : "")@(_agentToken != null ? ", and its agent token is issued" : "").
             Switch to the site to configure monitoring, speed tests, and everything else, exactly like a
-            single-site install. Agent deployment for remote monitoring will land here in a future update.
+            single-site install.
         </p>
         <div class="action-buttons">
             <button type="button" class="btn btn-primary" @onclick="SwitchToSiteAsync">Switch to @_site.Name</button>
@@ -126,6 +205,11 @@
     private string _password = "";
     private string _apiKey = "";
     private bool _connected;
+
+    private bool _wantAgent;
+    private string? _agentToken;
+    private bool _featureLanSpeedTest;
+    private bool _featureProxy;
 
     private async Task CreateSiteAsync()
     {
@@ -197,6 +281,70 @@
         }
     }
 
+    private async Task CreateAgentAsync()
+    {
+        if (_site == null)
+            return;
+
+        _busy = true;
+        _message = "";
+        StateHasChanged();
+
+        try
+        {
+            var (_, token) = await AgentEnrollment.CreateAgentAsync(_site.Id, "Agent 1");
+            _agentToken = token;
+
+            if (_featureProxy)
+            {
+                // Same per-site flags the Multi-Site panel toggles expose: console
+                // and device reach through the agent tunnel, stored in the site's
+                // own database.
+                await using var db = SiteDb.CreateForSite(_site.Slug, _site.IsDefault);
+                UpsertSetting(db, UniFiConnectionService.ConsoleViaAgentKey, "True");
+                UpsertSetting(db, SiteTunnelRouting.DevicesViaAgentKey, "True");
+                await db.SaveChangesAsync();
+            }
+
+            await OnSitesChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = $"Failed to create agent: {ex.Message}";
+            _messageClass = "danger";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static void UpsertSetting(NetworkOptimizerDbContext db, string key, string value)
+    {
+        var setting = db.SystemSettings.Find(key);
+        if (setting == null)
+        {
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value });
+        }
+        else
+        {
+            setting.Value = value;
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    private string AgentJsonSnippet()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("{\n");
+        sb.Append("  \"serverUrl\": \"https://this-server-address\",\n");
+        sb.Append($"  \"enrollmentToken\": \"{_agentToken}\"");
+        if (_featureLanSpeedTest)
+            sb.Append(",\n  \"lanSpeedTest\": true");
+        sb.Append("\n}");
+        return sb.ToString();
+    }
+
     private async Task SwitchToSiteAsync()
     {
         if (_site == null)
@@ -218,6 +366,10 @@
         _apiKey = "";
         _useApiKey = false;
         _connected = false;
+        _wantAgent = false;
+        _agentToken = null;
+        _featureLanSpeedTest = false;
+        _featureProxy = false;
         _message = "";
         await OnSitesChanged.InvokeAsync();
     }
