@@ -24,18 +24,35 @@
 @if (AppVersionInfo.IsSourceBuild)
 {
     <p class="section-description">
-        This is a source build, so build the agent from source and drop an <code>agent.json</code> next to
-        the binary:
+        This is a source build, so build the agent from source and run the single self-contained binary on
+        the site box - nothing else needs to be installed there.
     </p>
-    <pre><code>dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64</code></pre>
-    <pre><code>@AgentJsonSnippet()</code></pre>
+    <ol class="agent-steps">
+        <li>
+            Build for the box's architecture (<code>linux-arm64</code> for a Pi or ARM box):
+            <pre><code>dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64</code></pre>
+            The binary lands at
+            <code>src/NetworkOptimizer.Agent/bin/Release/net10.0/linux-x64/publish/NetworkOptimizer.Agent</code>.
+        </li>
+        <li>
+            Create <code>agent.json</code> next to the binary:
+            <pre><code>@AgentJsonSnippet()</code></pre>
+        </li>
+        <li>
+            Copy the <code>NetworkOptimizer.Agent</code> binary and <code>agent.json</code> to the box and run
+            it - it enrolls, writes its key back into <code>agent.json</code>, and holds the tunnel:
+            <pre><code>chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent</code></pre>
+            Once it shows Online here, run it from a systemd service so it survives reboots (see the
+            deployment guide).
+        </li>
+    </ol>
     <p class="form-hint">
-        <code>serverUrl</code> is this server's HTTPS address as reachable from the site - over a VPN or
-        site-to-site VPN, or a public address (the agent refuses plain HTTP). The gRPC tunnel rides that
-        same reverse proxy, so <code>tunnelUrl</code> is the same URL. If the site can't already reach this
-        server over a VPN, expose the reverse proxy - on a UniFi gateway at this server's site: UniFi
-        Network &gt; Settings &gt; Policy Table &gt; Port Forwarding, forwarding the reverse proxy's HTTPS
-        port (usually 443/TCP).
+        <code>serverUrl</code> and <code>tunnelUrl</code> are this server's HTTPS address as reachable from
+        the site - over a VPN or site-to-site VPN, or a public address (the agent refuses plain HTTP). The
+        gRPC tunnel rides that same reverse proxy on this one host, so the proxy must route the agent-tunnel
+        gRPC path to it; see the deployment guide. If the site can't reach this server over a VPN, expose the
+        reverse proxy - on a UniFi gateway at this server's site: UniFi Network &gt; Settings &gt; Policy
+        Table &gt; Port Forwarding (usually 443/TCP).
     </p>
 }
 else
