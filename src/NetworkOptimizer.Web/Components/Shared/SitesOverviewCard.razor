@@ -5,36 +5,40 @@
 @inject NavigationManager NavigationManager
 
 @* Reusable multi-site summary card. Renders nothing until multi-site is enabled
-   and more than one site exists, so it can sit on the Dashboard unconditionally. *@
+   and more than one site exists, so it can sit on the Dashboard unconditionally.
+   Uses the monitoring stat-tile design language (centered value over label). *@
 @if (_sites.Count > 1)
 {
     <div class="card sites-overview-card @(LinkToSwitcher ? "" : "sites-overview-static")" @onclick="HandleCardClick">
-        <div class="sites-overview-stats">
-            <div class="sites-overview-stat">
-                <span class="sites-overview-value">@_sites.Count</span>
-                <span class="sites-overview-label">Sites</span>
-            </div>
-            <div class="sites-overview-stat">
-                <span class="sites-overview-value">@_sites.Count(s => s.Enabled)</span>
-                <span class="sites-overview-label">Enabled</span>
-            </div>
-            <div class="sites-overview-stat">
-                <span class="sites-overview-value">@_agents.Count(a => a.EnrolledAt != null)</span>
-                <span class="sites-overview-label">Agents</span>
-            </div>
-            <div class="sites-overview-stat">
-                <span class="sites-overview-value">@_agents.Count(a => AgentEnrollmentService.IsOnline(a.LastSeenAt))</span>
-                <span class="sites-overview-label">Agents Online</span>
-            </div>
+        <div class="sites-overview-header">
+            <h3 class="sites-overview-heading">Sites</h3>
             @if (LinkToSwitcher)
             {
-                <div class="sites-overview-cta">
-                    <span>Open site switcher</span>
+                <span class="sites-overview-cta">
+                    Open site switcher
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
                     </svg>
-                </div>
+                </span>
             }
+        </div>
+        <div class="sites-overview-tiles">
+            <div class="monitoring-stat-card">
+                <div class="stat-value sv-teal">@_sites.Count</div>
+                <div class="stat-label">Sites</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value sv-green">@_sites.Count(s => s.Enabled)</div>
+                <div class="stat-label">Enabled</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value">@EnrolledAgents</div>
+                <div class="stat-label">Agents</div>
+            </div>
+            <div class="monitoring-stat-card">
+                <div class="stat-value @(OnlineAgents > 0 ? "sv-green" : "sv-muted")">@OnlineAgents</div>
+                <div class="stat-label">Agents Online</div>
+            </div>
         </div>
     </div>
 }
@@ -50,6 +54,9 @@
 
     private List<Site> _sites = new();
     private List<SiteAgent> _agents = new();
+
+    private int EnrolledAgents => _agents.Count(a => a.EnrolledAt != null);
+    private int OnlineAgents => _agents.Count(a => AgentEnrollmentService.IsOnline(a.LastSeenAt));
 
     private void HandleCardClick()
     {

@@ -287,6 +287,10 @@
     <div class="card settings-tab-application" id="admin-password">
         <div class="card-header">
             <h2 class="card-title">Admin Password</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
             <span class="status-badge status-@(adminPasswordSource == AdminPasswordSource.None ? "disconnected" : "connected")">
                 @GetAdminPasswordSourceLabel()
             </span>
@@ -1751,6 +1755,10 @@
     <div class="card settings-tab-application" id="application-settings">
         <div class="card-header">
             <h2 class="card-title">Application Settings</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <div class="form-group">
@@ -1884,6 +1892,10 @@
     <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
             <h2 class="card-title">Alert Channels</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
             @if (alertChannels?.Count > 0)
             {
                 <span class="status-badge status-active">@alertChannels.Count configured</span>
@@ -2277,6 +2289,10 @@
     <div class="card settings-tab-security" id="crowdsec">
         <div class="card-header">
             <h2 class="card-title">CrowdSec CTI</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
             @if (crowdsecEnabled)
             {
                 <span class="status-badge status-active">Enabled</span>
@@ -2359,6 +2375,10 @@
     <div class="card settings-tab-application" id="ui-display">
         <div class="card-header">
             <h2 class="card-title">UI / Display Settings</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <div class="form-group">
@@ -2375,6 +2395,10 @@
     <div class="card settings-tab-application" id="map">
         <div class="card-header">
             <h2 class="card-title">Satellite Imagery</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
             <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "")">
                 @(!string.IsNullOrEmpty(_mapboxToken) ? "Mapbox (commercial)" : "Esri (non-commercial)")
             </span>
@@ -2428,6 +2452,10 @@
     <div class="card settings-tab-application" id="data-management">
         <div class="card-header">
             <h2 class="card-title">Data Management</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <div class="data-actions">
@@ -2643,7 +2671,30 @@
                                 @foreach (var site in _sites)
                                 {
                                     <tr>
-                                        <td>@site.Name</td>
+                                        <td>
+                                            @if (_editingSiteId == site.Id)
+                                            {
+                                                <div class="site-name-edit">
+                                                    <input type="text" class="form-control" @bind="_editSiteName" @bind:event="oninput"
+                                                           @onkeydown="@(e => SiteNameEditKey(e, site))" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveSiteName(site)"
+                                                            disabled="@string.IsNullOrWhiteSpace(_editSiteName)">Save</button>
+                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="CancelSiteNameEdit">Cancel</button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="site-name-cell">
+                                                    <span>@site.Name</span>
+                                                    <button type="button" class="site-name-edit-btn" data-tooltip="Rename site"
+                                                            aria-label="Rename site" @onclick="() => StartSiteNameEdit(site)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                        </svg>
+                                                    </button>
+                                                </span>
+                                            }
+                                        </td>
                                         <td><code>@site.Slug</code></td>
                                         <td class="hide-mobile">@(site.IsDefault ? "" : site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy"))</td>
                                         <td>
@@ -2937,6 +2988,47 @@
         _sites = await SiteManagement.GetSitesAsync();
         await LoadAgentsAsync();
         StateHasChanged();
+    }
+
+    // Inline site rename (the slug/Site ID stays immutable).
+    private int? _editingSiteId;
+    private string _editSiteName = "";
+
+    private void StartSiteNameEdit(Site site)
+    {
+        _editingSiteId = site.Id;
+        _editSiteName = site.Name;
+    }
+
+    private void CancelSiteNameEdit()
+    {
+        _editingSiteId = null;
+        _editSiteName = "";
+    }
+
+    private async Task SaveSiteName(Site site)
+    {
+        var name = _editSiteName?.Trim();
+        if (string.IsNullOrWhiteSpace(name) || name == site.Name)
+        {
+            CancelSiteNameEdit();
+            return;
+        }
+        site.Name = name;
+        await SiteManagement.UpdateSiteAsync(site);
+        _editingSiteId = null;
+        _editSiteName = "";
+        _sites = await SiteManagement.GetSitesAsync();
+        if (site.Slug == SiteContext.Slug)
+            _currentSiteName = name; // keep the header badge in sync
+    }
+
+    private async Task SiteNameEditKey(KeyboardEventArgs e, Site site)
+    {
+        if (e.Key == "Enter")
+            await SaveSiteName(site);
+        else if (e.Key == "Escape")
+            CancelSiteNameEdit();
     }
 
     // Site agents (registry data, keyed by site id)
