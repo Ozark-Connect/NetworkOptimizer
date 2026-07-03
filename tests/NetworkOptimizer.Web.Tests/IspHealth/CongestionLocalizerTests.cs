@@ -175,6 +175,138 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Brief_load_at_the_access_hop_registers_despite_a_wide_transit_hop_and_padded_window()
+    {
+        // The access hop bursts for ~6 min straddling the 15-min bucket boundary, so the event reports
+        // over a padded 30-min window. A deeper transit hop is elevated across the WHOLE window (its
+        // spikes miss the brief load), so the window-fraction test dilutes to ~0.2 and would read False.
+        // The nearest-hop arm samples load only at the ACCESS hop's own excursions (all under the load)
+        // and correctly registers it as load-coincident. Mirrors the real 14:45 event.
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> AccessBurst() => Flat(5).WithSegment(burstStart, burstEnd, rttMs: 30, jitterMs: 6);
+        // Deep transit hop elevated across the whole padded window - its excursions span it and mostly
+        // miss the 6-min load, so pooling/window-fraction is diluted below the bar.
+        List<LatencySample> WideTransit() => Flat(30).WithSegment(HumpStart, HumpStart.AddMinutes(30), rttMs: 35, jitterMs: 4);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, AccessBurst()),
+            Hop(100, Border, AccessBurst(), Bng),
+            Hop(200, Transit, WideTransit(), Bng, Border),
+            Dest(DestCorridor, AccessBurst(), Bng, Border, Transit)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t >= burstStart && t < burstEnd ? 0.9 : 0.1)); // high only during the burst
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        events.Should().OnlyContain(e => e.LoadCoincident);
+    }
+
+    [Fact]
+    public void Brief_load_that_misses_the_access_hop_elevation_is_not_load_coincident()
+    {
+        // Same shape, but the load spike is EARLY (before the access burst) - the access hop rose when
+        // the line was NOT loaded. Neither arm should fire: window-fraction is diluted, and the nearest-
+        // hop arm sees low load at the access hop's excursion moments. Guards against a false positive.
+        var burstStart = HumpStart.AddMinutes(12);
+        var burstEnd = HumpStart.AddMinutes(18);
+        List<LatencySample> AccessBurst() => Flat(5).WithSegment(burstStart, burstEnd, rttMs: 30, jitterMs: 6);
+        List<LatencySample> WideTransit() => Flat(30).WithSegment(HumpStart, HumpStart.AddMinutes(30), rttMs: 35, jitterMs: 4);
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, AccessBurst()),
+            Hop(100, Border, AccessBurst(), Bng),
+            Hop(200, Transit, WideTransit(), Bng, Border),
+            Dest(DestCorridor, AccessBurst(), Bng, Border, Transit)
+        };
+
+        var load = new List<(DateTime, double?)>();
+        for (var t = HumpStart; t < HumpStart.AddMinutes(30); t = t.AddMinutes(1))
+            load.Add((t, t < HumpStart.AddMinutes(6) ? 0.9 : 0.1)); // high early, NOT during the burst
+        var topo = new CongestionTopology
+        {
+            AccessEgressHopIps = new HashSet<string>(new[] { Bng }, StringComparer.OrdinalIgnoreCase),
+            HopNumberByIp = HopNumbers,
+            Load = load,
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        events.Should().OnlyContain(e => !e.LoadCoincident);
+    }
+
+    [Fact]
+    public void Named_bottleneck_that_did_not_fire_reports_its_own_rise_not_a_deeper_member()
+    {
+        // The access hop is elevated only briefly (excursions inside one bucket -> no fired 30-min event),
+        // so it's the DERIVED bottleneck; a deeper hop fired with a small near-baseline delta. The row must
+        // report the named access hop's OWN rise (from its samples), not the deeper member's numbers.
+        var burstStart = HumpStart.AddMinutes(3);
+        var burstEnd = HumpStart.AddMinutes(9);   // 6 min, one bucket -> no fired event, but IsElevated
+        var accessShortBurst = Flat(3).WithSegment(burstStart, burstEnd, rttMs: 20, jitterMs: 6);
+        var deepSmall = Flat(10).WithSegment(HumpStart, HumpStart.AddMinutes(45), rttMs: 13, jitterMs: 3); // fires, small delta
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, accessShortBurst),
+            Hop(200, Transit, deepSmall, Bng),
+            Dest(DestCorridor, deepSmall, Bng, Transit)   // downstream witness -> propagated (Confirmed)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var e = events.Single(x => x.BottleneckHopIp == Bng);
+        e.BaselineRttMs.Should().BeApproximately(3, 2);          // the access hop's baseline, not the deep hop's ~10
+        e.PeakRttMs.Should().BeGreaterThan(e.BaselineRttMs + 3); // shows a real rise, not a ~0 delta
+    }
+
+    [Fact]
+    public void Burst_event_reports_the_spike_magnitude_not_the_bucket_median()
+    {
+        // An intermittent-spike ("burst") event: RTT/jitter medians stay near baseline, only sporadic
+        // samples spike. The detector reports peak as the bucket MEDIAN, which hides the spikes, so the
+        // row would show a ~0 delta. The row must report the spike magnitude (sample p90 RTT / max jitter).
+        // Uses an off-trace-map target (unlocalized, identity == null) - e.g. a speedtest / endpoint target.
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 2, jitterMs: 0.3)
+            .Select((s, i) => s.Time >= HumpStart && s.Time < HumpStart.AddMinutes(45) && i % 3 == 0
+                ? new LatencySample(s.Time, 8, 8 + 5, 5, 0)   // sporadic spike: RTT 8 ms, jitter 5 ms
+                : s)
+            .ToList();
+        var series = new List<AsnSeries>
+        {
+            new() { AsnNumber = 500, AsnName = "AS500", TargetIds = { "203.0.113.9" }, Samples = samples, HopIps = { "203.0.113.9" } }
+        };
+        var topo = new CongestionTopology
+        {
+            HopNumberByIp = HopNumbers,
+            Load = new List<(DateTime, double?)>(),
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        var e = events[0];
+        e.PeakRttMs.Should().BeGreaterThan(5);      // reflects the ~8 ms spike, not the ~2 ms bucket median
+        e.PeakJitterMs.Should().BeGreaterThan(2);   // reflects the ~5 ms jitter spike, not the flat median
+    }
+
+    [Fact]
     public void Dead_end_transit_is_unverifiable_and_not_merged_into_the_corridor_event()
     {
         var series = new List<AsnSeries>
