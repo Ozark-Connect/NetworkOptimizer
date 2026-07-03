@@ -7,6 +7,9 @@ namespace NetworkOptimizer.Web.Services.Ssh;
 /// <summary>
 /// Service for SSH operations on the UniFi gateway/UDM.
 /// Uses SSH.NET via SshClientService for cross-platform support.
+/// One instance exists per site, owned by <see cref="GatewaySshRegistry"/>: settings
+/// come from that site's database and the gateway-host fallback from that site's
+/// console connection, so commands land on the right gateway.
 /// </summary>
 public class GatewaySshService : IGatewaySshService
 {
@@ -15,6 +18,7 @@ public class GatewaySshService : IGatewaySshService
     private readonly SshClientService _sshClient;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly UniFiConnectionService _connectionService;
+    private readonly string _siteSlug;
 
     // Cache the settings to avoid repeated DB queries
     private GatewaySshSettings? _cachedSettings;
@@ -26,13 +30,26 @@ public class GatewaySshService : IGatewaySshService
         IServiceProvider serviceProvider,
         SshClientService sshClient,
         ICredentialProtectionService credentialProtection,
-        SiteConnectionRegistry siteConnections)
+        SiteConnectionRegistry siteConnections,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshClient = sshClient;
         _credentialProtection = credentialProtection;
-        _connectionService = siteConnections.GetDefault();
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _connectionService = siteConnections.GetFor(_siteSlug);
+    }
+
+    /// <summary>
+    /// Creates a DI scope pinned to this instance's site so scoped services
+    /// (repositories, DbContext) hit this site's database.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _serviceProvider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+        return scope;
     }
 
     /// <inheritdoc />
@@ -44,7 +61,7 @@ public class GatewaySshService : IGatewaySshService
             return _cachedSettings;
         }
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
 
         var settings = await repository.GetGatewaySshSettingsAsync();
@@ -76,7 +93,7 @@ public class GatewaySshService : IGatewaySshService
     /// <inheritdoc />
     public async Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
 
         settings.UpdatedAt = DateTime.UtcNow;

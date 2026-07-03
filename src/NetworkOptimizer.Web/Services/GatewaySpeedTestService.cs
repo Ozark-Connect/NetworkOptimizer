@@ -28,13 +28,13 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     public GatewaySpeedTestService(
         ILogger<GatewaySpeedTestService> logger,
         IServiceProvider serviceProvider,
-        IGatewaySshService gatewaySsh,
+        GatewaySshRegistry gatewaySshRegistry,
         SystemSettingsService systemSettings,
         INetworkPathAnalyzer pathAnalyzer)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _gatewaySsh = gatewaySsh;
+        _gatewaySsh = gatewaySshRegistry.GetDefault();
         _systemSettings = systemSettings;
         _pathAnalyzer = pathAnalyzer;
     }

@@ -40,14 +40,14 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         IConfiguration configuration,
         Iperf3ServerService iperf3ServerService,
         SiteConnectionRegistry siteConnections,
-        IGatewaySshService gatewaySsh,
+        GatewaySshRegistry gatewaySshRegistry,
         IServiceScopeFactory scopeFactory,
         IAlertEventBus? alertEventBus = null)
         : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus)
     {
         _configuration = configuration;
         _connectionService = siteConnections.GetDefault();
-        _gatewaySsh = gatewaySsh;
+        _gatewaySsh = gatewaySshRegistry.GetDefault();
         _scopeFactory = scopeFactory;
     }
 

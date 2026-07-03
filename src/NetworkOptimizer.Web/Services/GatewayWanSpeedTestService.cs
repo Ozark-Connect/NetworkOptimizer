@@ -54,14 +54,14 @@ public class GatewayWanSpeedTestService
 
     public GatewayWanSpeedTestService(
         ILogger<GatewayWanSpeedTestService> logger,
-        IGatewaySshService gatewaySsh,
+        GatewaySshRegistry gatewaySshRegistry,
         SshClientService sshClient,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         INetworkPathAnalyzer pathAnalyzer,
         IServiceProvider serviceProvider)
     {
         _logger = logger;
-        _gatewaySsh = gatewaySsh;
+        _gatewaySsh = gatewaySshRegistry.GetDefault();
         _sshClient = sshClient;
         _dbFactory = dbFactory;
         _pathAnalyzer = pathAnalyzer;

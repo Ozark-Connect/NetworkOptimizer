@@ -25,10 +25,10 @@ public class UdmBootService : IUdmBootService
     private readonly ILogger<UdmBootService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
 
-    public UdmBootService(ILogger<UdmBootService> logger, IGatewaySshService gatewaySsh)
+    public UdmBootService(ILogger<UdmBootService> logger, GatewaySshRegistry gatewaySshRegistry)
     {
         _logger = logger;
-        _gatewaySsh = gatewaySsh;
+        _gatewaySsh = gatewaySshRegistry.GetDefault();
     }
 
     public async Task<bool> IsInstalledAsync()

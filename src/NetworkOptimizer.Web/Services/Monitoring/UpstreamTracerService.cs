@@ -87,7 +87,7 @@ public class UpstreamTracerService
 
     public UpstreamTracerService(
         SiteConnectionRegistry siteConnections,
-        IGatewaySshService gatewaySsh,
+        GatewaySshRegistry gatewaySshRegistry,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
         LocalProbeExecutor localProbe,
@@ -97,7 +97,7 @@ public class UpstreamTracerService
         ILogger<UpstreamTracerService> logger)
     {
         _connectionService = siteConnections.GetDefault();
-        _gatewaySsh = gatewaySsh;
+        _gatewaySsh = gatewaySshRegistry.GetDefault();
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;
         _localProbe = localProbe;

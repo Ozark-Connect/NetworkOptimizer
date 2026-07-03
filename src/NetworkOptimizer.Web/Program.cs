@@ -251,8 +251,13 @@ builder.Services.AddSingleton<AgentEnrollmentService>();
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
 
-// Register Gateway SSH service (singleton - SSH access to UniFi gateway/UDM)
-builder.Services.AddSingleton<IGatewaySshService, GatewaySshService>();
+// Gateway SSH per site: the registry owns one GatewaySshService per site (settings
+// from that site's DB, host fallback from that site's console). Scoped resolution of
+// IGatewaySshService forwards to the current site's instance; singleton consumers
+// inject the registry and pin GetDefault() or GetFor(slug).
+builder.Services.AddSingleton<GatewaySshRegistry>();
+builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
 // Register udm-boot installer (singleton - shared gateway boot-script infrastructure
 // used by Adaptive SQM, Monitoring Interfaces, etc.)
