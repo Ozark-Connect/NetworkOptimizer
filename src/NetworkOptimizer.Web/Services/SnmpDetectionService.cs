@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -34,6 +33,8 @@ public class SnmpDetectionService
 {
     private readonly UniFiConnectionService _connectionService;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly ILogger<SnmpDetectionService> _logger;
     private static readonly SemaphoreSlim _settingsLock = new(1, 1);
@@ -41,13 +42,32 @@ public class SnmpDetectionService
     public SnmpDetectionService(
         UniFiConnectionService connectionService,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
         ICredentialProtectionService credentialProtection,
         ILogger<SnmpDetectionService> logger)
     {
         _connectionService = connectionService;
         _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _credentialProtection = credentialProtection;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Context for the current site's database. Detection runs against the scoped
+    /// (current-site) console connection, so its results MUST land in that same
+    /// site's MonitoringSettings row. Writing to the main database from a secondary
+    /// site's context overwrites the main site's SNMP credentials with the secondary
+    /// console's - the main poller then sends every request with the wrong community,
+    /// which devices silently drop, and all SNMP collection times out.
+    /// </summary>
+    private async Task<NetworkOptimizerDbContext> CreateDbAsync(CancellationToken ct)
+    {
+        if (!_siteContext.IsDefault)
+            return _siteDbFactory.CreateForSite(_siteContext.Slug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
     }
 
     public async Task<SnmpDetectionResult> DetectSnmpSettingsAsync(int maxRetries = 3, CancellationToken ct = default)
@@ -158,7 +178,7 @@ public class SnmpDetectionService
         await _settingsLock.WaitAsync(ct);
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateDbAsync(ct);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings != null) return settings;
 
@@ -178,7 +198,7 @@ public class SnmpDetectionService
         await _settingsLock.WaitAsync(ct);
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateDbAsync(ct);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings == null)
             {
@@ -186,29 +206,29 @@ public class SnmpDetectionService
                 db.MonitoringSettings.Add(settings);
             }
 
-        settings.SnmpDetectionState = result.DetectionState;
-        settings.LastSnmpDetection = DateTime.UtcNow;
+            settings.SnmpDetectionState = result.DetectionState;
+            settings.LastSnmpDetection = DateTime.UtcNow;
 
-        if (result.DetectionState == SnmpDetectionState.EnabledV2c)
-        {
-            settings.SnmpVersion = SnmpVersionSetting.V2c;
-            settings.SnmpCommunity = _credentialProtection.Encrypt(result.Community!);
-            if (!string.IsNullOrEmpty(result.V3Username))
+            if (result.DetectionState == SnmpDetectionState.EnabledV2c)
             {
+                settings.SnmpVersion = SnmpVersionSetting.V2c;
+                settings.SnmpCommunity = _credentialProtection.Encrypt(result.Community!);
+                if (!string.IsNullOrEmpty(result.V3Username))
+                {
+                    settings.SnmpV3Username = result.V3Username;
+                    settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
+                        ? _credentialProtection.Encrypt(result.V3Password)
+                        : null;
+                }
+            }
+            else if (result.DetectionState == SnmpDetectionState.EnabledV3Only)
+            {
+                settings.SnmpVersion = SnmpVersionSetting.V3;
                 settings.SnmpV3Username = result.V3Username;
                 settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
                     ? _credentialProtection.Encrypt(result.V3Password)
                     : null;
             }
-        }
-        else if (result.DetectionState == SnmpDetectionState.EnabledV3Only)
-        {
-            settings.SnmpVersion = SnmpVersionSetting.V3;
-            settings.SnmpV3Username = result.V3Username;
-            settings.SnmpV3AuthPassword = !string.IsNullOrEmpty(result.V3Password)
-                ? _credentialProtection.Encrypt(result.V3Password)
-                : null;
-        }
 
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
