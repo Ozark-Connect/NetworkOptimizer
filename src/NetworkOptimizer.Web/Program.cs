@@ -507,8 +507,12 @@ builder.Services.AddSingleton<MonitoringLiveStatsRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<MonitoringLiveStatsRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummaryCache>();
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.PhysicalLinkResolver>();
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthService>();
+// ISP Health is per site: the registry owns one IspHealthService (with its own
+// PhysicalLinkResolver, report cache, and compute state) per site; scoped
+// resolution forwards to the current site's instance.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();

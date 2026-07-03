@@ -24,9 +24,12 @@ public class IspHealthService
 
     private readonly MonitoringInfluxClient _influx;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
     private readonly UniFiConnectionService _connectionService;
     private readonly PhysicalLinkResolver _physicalLinkResolver;
     private readonly ILogger<IspHealthService> _logger;
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
     private readonly IspHealthOptions _options = new();
     private const int MaxCustomWindowHours = 720;  // 30-day cap on the date/time filter, matching the UI
     private readonly SemaphoreSlim _computeLock = new(1, 1);
@@ -56,15 +59,28 @@ public class IspHealthService
     public IspHealthService(
         MonitoringInfluxRegistry influxRegistry,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        SiteDbContextFactory siteDbFactory,
         SiteConnectionRegistry siteConnections,
         PhysicalLinkResolver physicalLinkResolver,
-        ILogger<IspHealthService> logger)
+        ILogger<IspHealthService> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
-        _influx = influxRegistry.GetDefault();
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _influx = influxRegistry.GetFor(_siteSlug);
         _dbFactory = dbFactory;
-        _connectionService = siteConnections.GetDefault();
+        _siteDbFactory = siteDbFactory;
+        _connectionService = siteConnections.GetFor(_siteSlug);
         _physicalLinkResolver = physicalLinkResolver;
         _logger = logger;
+    }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSiteDbAsync(CancellationToken ct)
+    {
+        if (!_isDefault)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
     }
 
     /// <summary>
@@ -74,7 +90,7 @@ public class IspHealthService
     /// </summary>
     public async Task SetPhysicalLinkSourceAsync(string? sourceKey, CancellationToken ct = default)
     {
-        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        await using (var db = await CreateSiteDbAsync(ct))
         {
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings == null) return;
@@ -96,7 +112,7 @@ public class IspHealthService
     /// </summary>
     public async Task SetAccessTechnologyAsync(AccessTechnology technology, CancellationToken ct = default)
     {
-        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        await using (var db = await CreateSiteDbAsync(ct))
         {
             // Primary WAN context, wan-first like the reader's ordering - but NOT filtered to
             // non-Unknown: setting it when it is currently unset is the whole point. Create it if
@@ -293,7 +309,7 @@ public class IspHealthService
     {
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSiteDbAsync(ct);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
             var hours = settings?.IspHealthScoreWindowHours ?? _options.ScoreWindowHours;
             return hours >= _options.MinDataHours ? hours : _options.ScoreWindowHours;
@@ -401,7 +417,7 @@ public class IspHealthService
         // (the trace map landed post-launch), where the caller falls back to RTT.
         Dictionary<string, int> hopNumberByTargetId;
         bool hopOrderKnown;
-        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        await using (var db = await CreateSiteDbAsync(ct))
         {
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
             if (settings == null || !settings.Enabled)
@@ -988,7 +1004,7 @@ public class IspHealthService
     /// </summary>
     public async Task<List<string>> GetLossPoolTargetIdsAsync(CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
         var targets = await db.MonitoringTargets.AsNoTracking()
             .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
                 || t.TargetType == MonitoringTargetType.Transit
@@ -1032,7 +1048,7 @@ public class IspHealthService
 
         if (down == null || up == null)
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSiteDbAsync(ct);
             var sqmWan = await db.SqmWanConfigurations.AsNoTracking()
                 .OrderBy(c => c.WanNumber)
                 .FirstOrDefaultAsync(ct);
@@ -1062,7 +1078,7 @@ public class IspHealthService
     {
         if (string.IsNullOrEmpty(primaryWanInterface)) return new List<(DateTime, DateTime)>();
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
         var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
             .Where(c => c.Enabled)
             .ToListAsync(ct);
@@ -1116,7 +1132,7 @@ public class IspHealthService
     private async Task<bool> IsAdaptiveSqmEnabledAsync(string? primaryWanInterface, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(primaryWanInterface)) return false;
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateSiteDbAsync(ct);
         var sqmConfigs = await db.SqmWanConfigurations.AsNoTracking()
             .Where(c => c.Enabled)
             .ToListAsync(ct);
@@ -1138,7 +1154,7 @@ public class IspHealthService
             // yields a recent capacity number. Bounded above by windowEnd for historical windows.
             var fallbackStart = windowEnd.AddDays(-_options.SpeedTestFallbackDays);
             var since = windowStart < fallbackStart ? windowStart : fallbackStart;
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateSiteDbAsync(ct);
             var results = await db.Iperf3Results.AsNoTracking()
                 .Where(r => r.Success
                     && r.TestTime >= since

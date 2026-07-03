@@ -27,6 +27,8 @@ public class LanFlowMapService
     private readonly ApMapService _apMap;
     private readonly LanFlowMapCache _cache;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LanFlowMapService> _logger;
 
@@ -39,6 +41,8 @@ public class LanFlowMapService
         ApMapService apMap,
         LanFlowMapCache cache,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
         ILoggerFactory loggerFactory,
         ILogger<LanFlowMapService> logger)
     {
@@ -50,9 +54,19 @@ public class LanFlowMapService
         _apMap = apMap;
         _cache = cache;
         _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Context for the current site's database. Placements, monitored SFPs, and
+    /// interface name maps are per-site rows; reading them through the main-DB
+    /// factory painted the main site's map objects onto secondary sites.
+    /// </summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>
     /// Returns a fresh snapshot or the cached one if still inside the TTL. Browsers
@@ -80,7 +94,7 @@ public class LanFlowMapService
         var markers = await _apMap.GetApMapMarkersAsync();
 
         // Load non-AP device placements (switches, gateways) from the same table.
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var allLocations = await db.ApLocations.ToListAsync(ct);
         var apMacs = new HashSet<string>(
             markers.Select(m => m.Mac.ToLowerInvariant()),
@@ -1025,7 +1039,7 @@ public class LanFlowMapService
         var result = new List<LanBuilding>();
         try
         {
-            using var db = await _dbFactory.CreateDbContextAsync(ct);
+            using var db = CreateSiteDb();
             var buildings = await db.Buildings.Include(b => b.Floors).ToListAsync(ct);
 
             var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -1821,7 +1835,7 @@ public class LanFlowMapService
         int limitPerKind = 5,
         CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = CreateSiteDb();
 
         // Group by WAN so secondary WANs aren't crowded out by frequent
         // primary WAN tests. Take limitPerKind per group.
@@ -1913,7 +1927,7 @@ public class LanFlowMapService
 
     private async Task<Dictionary<(string mac, int port), InterfaceNameMap>> LoadInterfaceNameMaps(CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = CreateSiteDb();
         var maps = await db.InterfaceNameMaps.AsNoTracking().ToListAsync(ct);
         var dict = new Dictionary<(string, int), InterfaceNameMap>();
         foreach (var m in maps)

@@ -4,7 +4,8 @@
 @using NetworkOptimizer.Web.Services
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject UniFiConnectionService ConnectionService
 @inject OntMonitorService ExternalOntService
 
@@ -359,7 +360,9 @@ else
         _isLoading = true;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            // Monitored SFPs and fabric targets are per-site rows; the main-DB factory
+            // showed the main site's ONT vendor/model on every site's card.
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             _monitoredOnts = await db.MonitoredSfps.AsNoTracking()
                 .Where(s => s.IsMonitoredOnt && s.Category != SfpCategory.Standard)
                 .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)

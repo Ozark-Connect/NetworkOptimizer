@@ -14,31 +14,49 @@ namespace NetworkOptimizer.Web.Services.Monitoring.IspHealth;
 ///
 /// Matching is conservative: a single in-medium candidate is used automatically; multiple
 /// candidates require the user's persisted pick (<see cref="MonitoringSettings.PhysicalLinkSourceKey"/>)
-/// and otherwise surface as an ambiguity the panel resolves with a dropdown. Registered as a
-/// singleton (all monitor services and the InfluxDB client are singletons).
+/// and otherwise surface as an ambiguity the panel resolves with a dropdown. One instance
+/// exists per site, created alongside its site's <see cref="IspHealthService"/> by
+/// <see cref="IspHealthRegistry"/> (the monitor services and the InfluxDB client it uses
+/// are that site's instances).
 /// </summary>
 public class PhysicalLinkResolver
 {
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
     private readonly MonitoringInfluxClient _influx;
     private readonly CableModemMonitorService _cmMonitor;
     private readonly OntMonitorService _ontMonitor;
     private readonly CellularModemService _cellularMonitor;
     private readonly ILogger<PhysicalLinkResolver> _logger;
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
 
     public PhysicalLinkResolver(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        SiteDbContextFactory siteDbFactory,
         MonitoringInfluxRegistry influxRegistry,
         ModemMonitorRegistry modemMonitors,
-        ILogger<PhysicalLinkResolver> logger)
+        ILogger<PhysicalLinkResolver> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _dbFactory = dbFactory;
-        _influx = influxRegistry.GetDefault();
-        var defaultMonitors = modemMonitors.GetDefault();
-        _cmMonitor = defaultMonitors.CableModem;
-        _ontMonitor = defaultMonitors.Ont;
-        _cellularMonitor = defaultMonitors.Cellular;
+        _siteDbFactory = siteDbFactory;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _influx = influxRegistry.GetFor(_siteSlug);
+        var monitors = modemMonitors.GetFor(_siteSlug);
+        _cmMonitor = monitors.CableModem;
+        _ontMonitor = monitors.Ont;
+        _cellularMonitor = monitors.Cellular;
         _logger = logger;
+    }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateSiteDbAsync(CancellationToken ct)
+    {
+        if (!_isDefault)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return await _dbFactory.CreateDbContextAsync(ct);
     }
 
     /// <summary>One matched/selectable physical source.</summary>
@@ -49,7 +67,7 @@ public class PhysicalLinkResolver
     {
         MonitoringSettings? settings;
         List<Cand> candidates;
-        await using (var db = await _dbFactory.CreateDbContextAsync(ct))
+        await using (var db = await CreateSiteDbAsync(ct))
         {
             settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
             candidates = await EnumerateCandidatesAsync(db, tech, ct);

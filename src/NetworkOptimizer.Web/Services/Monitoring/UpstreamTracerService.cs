@@ -92,7 +92,7 @@ public class UpstreamTracerService
         AsnResolutionService asnResolution,
         LocalProbeExecutor localProbe,
         IServiceScopeFactory scopeFactory,
-        IspHealth.IspHealthService ispHealth,
+        IspHealth.IspHealthRegistry ispHealthRegistry,
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
@@ -102,7 +102,9 @@ public class UpstreamTracerService
         _asnResolution = asnResolution;
         _localProbe = localProbe;
         _scopeFactory = scopeFactory;
-        _ispHealth = ispHealth;
+        // Default-site instance, matching this service's default-pinned console
+        // and gateway SSH dependencies (upstream tracing is main-site-only today).
+        _ispHealth = ispHealthRegistry.GetDefault();
         _ouiDb = ouiDb;
         _logger = logger;
     }

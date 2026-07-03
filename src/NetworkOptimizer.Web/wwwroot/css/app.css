@@ -17333,7 +17333,7 @@ body.kiosk-mode .status-indicators {
 
 .site-switcher-all {
     display: block;
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0.75rem 0.25rem;
     margin-top: 0.25rem;
     border-top: 1px solid var(--bg-tertiary);
     color: var(--primary-hover);

@@ -14,14 +14,31 @@ public class ApMapService
 {
     private readonly WiFiOptimizerService _wifiService;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly ILogger<ApMapService> _logger;
 
-    public ApMapService(WiFiOptimizerService wifiService, IDbContextFactory<NetworkOptimizerDbContext> dbFactory, ILogger<ApMapService> logger)
+    public ApMapService(
+        WiFiOptimizerService wifiService,
+        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
+        ILogger<ApMapService> logger)
     {
         _wifiService = wifiService;
         _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Context for the current site's database. AP/device placements are per-site
+    /// rows; the main-DB factory would paint the main site's markers onto every
+    /// site's map.
+    /// </summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>
     /// Load AP map markers by joining UniFi AP snapshots with saved DB locations.
@@ -30,7 +47,7 @@ public class ApMapService
     {
         var aps = await _wifiService.GetAccessPointsAsync();
 
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var savedLocations = await db.ApLocations.ToListAsync();
         var locationsByMac = savedLocations.ToDictionary(l => l.ApMac.ToLowerInvariant(), l => l);
 
@@ -92,7 +109,7 @@ public class ApMapService
     {
         var normalizedMac = mac.ToLowerInvariant();
 
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
         if (existing != null)
         {
@@ -122,7 +139,7 @@ public class ApMapService
     {
         var normalizedMac = mac.ToLowerInvariant();
 
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
         if (existing != null)
         {
@@ -139,7 +156,7 @@ public class ApMapService
     {
         var normalizedMac = mac.ToLowerInvariant();
 
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
         if (existing != null)
         {
@@ -156,7 +173,7 @@ public class ApMapService
     {
         var normalizedMac = mac.ToLowerInvariant();
 
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
         if (existing != null)
         {

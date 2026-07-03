@@ -19,7 +19,6 @@
 @inject UniFiConnectionService ConnectionService
 @inject MonitoringInfluxClient InfluxClient
 @inject MonitoringLiveStats LiveStats
-@inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject SiteContextService SiteCtx
 @inject Microsoft.JSInterop.IJSRuntime JS
@@ -1523,7 +1522,25 @@ else
 
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
-        LoadInfluxStateFromSettings(settings);
+        if (SiteCtx.IsDefault)
+        {
+            LoadInfluxStateFromSettings(settings);
+        }
+        else
+        {
+            // The InfluxDB connection is instance-wide (only bucket names differ per
+            // site), so a secondary site's Setup tab reflects the shared connection
+            // state from the main database instead of prompting for its own setup.
+            _monitoringEnabled = settings.Enabled;
+            await using (var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
+            {
+                var shared = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
+                _influxConfigured = !string.IsNullOrEmpty(shared?.InfluxDbToken)
+                    && !string.IsNullOrEmpty(shared?.InfluxDbUrl);
+                _influxReachable = shared?.InfluxDbReachable;
+                _influxError = shared?.LastInfluxDbError;
+            }
+        }
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
         LoadSfpThresholdInputs(settings);
@@ -1593,7 +1610,7 @@ else
 
     private async Task ResetInfluxSetup()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
+        await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
         if (settings != null)
         {
@@ -1663,7 +1680,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
                 ?? new MonitoringSettings();
             if (settings.Id == 0) db.MonitoringSettings.Add(settings);
@@ -1717,7 +1734,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
                 ?? new MonitoringSettings();
             if (settings.Id == 0) db.MonitoringSettings.Add(settings);
@@ -1748,7 +1765,7 @@ else
         StateHasChanged();
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync()
                 ?? new MonitoringSettings();
             if (settings.Id == 0) db.MonitoringSettings.Add(settings);
@@ -1942,7 +1959,7 @@ else
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var needsReview = await db.MonitoringSettings
                 .Select(s => s.UpstreamDiscoveryNeedsReview)
                 .FirstOrDefaultAsync();

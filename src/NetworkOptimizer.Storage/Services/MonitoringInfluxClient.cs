@@ -89,6 +89,32 @@ public class MonitoringInfluxClient : IAsyncDisposable
         {
             await using var db = await CreateSettingsContextAsync(ct);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+
+            // The InfluxDB connection is instance-wide: non-default sites share the
+            // main site's server, org, and token, differing only in bucket names
+            // (site-slug prefix). When this site's row carries no Influx config of
+            // its own, derive the client from the main row. A site row with a full
+            // Influx config (wizard run on that site) still takes precedence.
+            if (_siteSlug != null && !HasInfluxConfig(settings))
+            {
+                await using var mainDb = await _dbFactory.CreateDbContextAsync(ct);
+                var main = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+                if (HasInfluxConfig(main))
+                {
+                    var derived = new MonitoringSettings
+                    {
+                        InfluxDbUrl = main!.InfluxDbUrl,
+                        InfluxDbToken = main.InfluxDbToken,
+                        InfluxDbOrg = main.InfluxDbOrg,
+                        InfluxDbBucket = $"{_siteSlug}-{main.InfluxDbBucket}",
+                        InfluxDbLongtermBucket = string.IsNullOrWhiteSpace(main.InfluxDbLongtermBucket)
+                            ? string.Empty
+                            : $"{_siteSlug}-{main.InfluxDbLongtermBucket}"
+                    };
+                    return await ApplyConfigAsync(derived, ct);
+                }
+            }
+
             if (settings == null)
             {
                 _logger.LogDebug("MonitoringSettings row not yet created; InfluxDB client not configured");
@@ -103,6 +129,13 @@ public class MonitoringInfluxClient : IAsyncDisposable
             _configLock.Release();
         }
     }
+
+    private static bool HasInfluxConfig(MonitoringSettings? settings) =>
+        settings != null
+        && !string.IsNullOrWhiteSpace(settings.InfluxDbUrl)
+        && !string.IsNullOrWhiteSpace(settings.InfluxDbToken)
+        && !string.IsNullOrWhiteSpace(settings.InfluxDbOrg)
+        && !string.IsNullOrWhiteSpace(settings.InfluxDbBucket);
 
     private async Task<bool> ApplyConfigAsync(MonitoringSettings settings, CancellationToken ct)
     {
