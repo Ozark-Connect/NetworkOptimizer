@@ -126,7 +126,7 @@
                 <input type="checkbox" @bind="_featureProxy" />
                 <span><strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
                     gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
-                    tests, deployments, and modem monitoring with no VPN.</span>
+                    tests, deployments, and modem / ONT monitoring with no VPN.</span>
             </label>
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="CreateAgentAsync" disabled="@_busy">
@@ -210,6 +210,26 @@
     private string? _agentToken;
     private bool _featureLanSpeedTest;
     private bool _featureProxy;
+
+    /// <summary>
+    /// Re-enters the wizard at the agent step (step 3) for a site that already
+    /// exists, landing on the feature selection so a site whose agent was never
+    /// finished can be set up without recreating the site. Called by the
+    /// Multi-Site settings panel when an agent is not fully enrolled.
+    /// </summary>
+    public void StartAgentSetupFor(Site site)
+    {
+        _site = site;
+        _connected = SiteConnections.GetFor(site.Slug).IsConnected;
+        _step = 3;
+        _wantAgent = true;
+        _agentToken = null;
+        _featureLanSpeedTest = false;
+        _featureProxy = false;
+        _message = "";
+        _messageClass = "";
+        StateHasChanged();
+    }
 
     private async Task CreateSiteAsync()
     {

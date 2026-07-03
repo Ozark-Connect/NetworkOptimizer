@@ -2662,7 +2662,13 @@
                                                     </div>
                                                 }
                                                 <div class="site-agent-actions">
-                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
+                                                    @if (!site.IsDefault && NeedsAgentSetup(site.Id))
+                                                    {
+                                                        <button type="button" class="btn btn-primary btn-sm" @onclick="() => StartAgentSetup(site)">
+                                                            @(AgentCount(site.Id) > 0 ? "Finish agent setup" : "Set up agent")
+                                                        </button>
+                                                    }
+                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
                                                         New Agent Token
                                                     </button>
                                                 </div>
@@ -2679,7 +2685,7 @@
                                                                @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
                                                         Reach this site's devices through the agent tunnel: SSH to the gateway
                                                         and devices, plus modem and ONT status pages. Enables gateway WAN speed
-                                                        tests, LAN speed tests, and modem monitoring without VPN. Applies within
+                                                        tests, LAN speed tests, and modem / ONT monitoring without VPN. Applies within
                                                         a minute.
                                                     </label>
                                                 }
@@ -2714,7 +2720,9 @@
                     </div>
                 </div>
 
-                <SiteSetupWizard OnSitesChanged="RefreshSites" />
+                <div id="site-agent-setup">
+                    <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
+                </div>
             }
 
             @if (!string.IsNullOrEmpty(_multiSiteMessage))
@@ -2881,6 +2889,24 @@
     private bool _creatingAgent;
     private string? _newAgentToken;
     private int? _newAgentTokenSiteId;
+    private SiteSetupWizard? _setupWizard;
+
+    // A site still needs agent setup until one of its agents has enrolled;
+    // pending (never-enrolled) tokens don't count. Drives the "Set up agent" /
+    // "Finish agent setup" button that drops back into the wizard's agent step.
+    private bool NeedsAgentSetup(int siteId) => !AgentsFor(siteId).Any(a => a.EnrolledAt != null);
+
+    private async Task StartAgentSetup(Site site)
+    {
+        _setupWizard?.StartAgentSetupFor(site);
+        // Let the wizard render at the agent step, then bring it into view.
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('site-agent-setup');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            })();");
+    }
 
     private async Task LoadAgentsAsync()
     {
