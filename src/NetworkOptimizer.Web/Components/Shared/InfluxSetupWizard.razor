@@ -80,14 +80,31 @@
                 </span>
             </div>
             <div class="card-body">
-                <p class="section-description">
-                    Provide an <strong>all-access API token</strong> for the InfluxDB org
-                    you want Network Optimizer's data to live in. We'll use it just for
-                    this setup, to create the two NO buckets in that org and mint a
-                    least-privilege token for ongoing use. <strong>Your all-access token
-                    is held in memory only for this request and discarded immediately
-                    after, it's never saved to disk.</strong>
-                </p>
+                @if (_siteMode)
+                {
+                    <p class="section-description">
+                        This site stores its monitoring data in the shared InfluxDB
+                        (org <code>@_sharedOrgName</code>) using site-specific buckets:
+                        <code>@(SiteContext.Slug)-network_monitoring</code> and
+                        <code>@(SiteContext.Slug)-network_monitoring_longterm</code>.
+                        Provide an <strong>all-access API token</strong> once to create
+                        those buckets and mint a least-privilege token for this site's
+                        ongoing use. <strong>Your all-access token is held in memory only
+                        for this request and discarded immediately after, it's never
+                        saved to disk.</strong>
+                    </p>
+                }
+                else
+                {
+                    <p class="section-description">
+                        Provide an <strong>all-access API token</strong> for the InfluxDB org
+                        you want Network Optimizer's data to live in. We'll use it just for
+                        this setup, to create the two NO buckets in that org and mint a
+                        least-privilege token for ongoing use. <strong>Your all-access token
+                        is held in memory only for this request and discarded immediately
+                        after, it's never saved to disk.</strong>
+                    </p>
+                }
 
                 <div class="form-group">
                     <label class="form-label">All-access API token</label>
@@ -144,7 +161,10 @@
                 }
 
                 <div class="action-buttons">
-                    <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
+                    @if (!_siteMode)
+                    {
+                        <button class="btn btn-secondary" @onclick="DetectAgainAsync" disabled="@_busy">Use a different URL</button>
+                    }
                     <button class="btn btn-primary" @onclick="OnPrimaryActionAsync"
                             disabled="@(_busy || !CanPrimaryAction)">
                         @if (_busy) { <span class="spinner-sm"></span> <span>@PrimaryBusyLabel</span> }
@@ -198,6 +218,14 @@
     private string? _message;
     private string _messageClass = "info";
 
+    // Site mode: a secondary site whose main site already has InfluxDB configured.
+    // The URL and org are inherited from the shared connection, so the flow shrinks
+    // to a single step: paste an all-access token, create this site's prefixed
+    // buckets, mint a scoped token for them, and drop the all-access token.
+    private bool _siteMode;
+    private string _sharedUrl = string.Empty;
+    private string _sharedOrgName = string.Empty;
+
     // Primary action is two-stage: first press validates the token and loads orgs
     // (the user has to see and pick one, we never auto-pick). Second press, once an
     // org is selected, provisions the buckets and mints the scoped token.
@@ -212,13 +240,20 @@
     }
 
     private string PrimaryLabel =>
-        _state != Step.PickOrg ? "List orgs" : "Provision buckets and token";
+        _siteMode ? "Create site buckets"
+        : _state != Step.PickOrg ? "List orgs" : "Provision buckets and token";
 
     private string PrimaryBusyLabel =>
-        _state != Step.PickOrg ? "Loading orgs..." : "Provisioning...";
+        _siteMode ? "Provisioning..."
+        : _state != Step.PickOrg ? "Loading orgs..." : "Provisioning...";
 
     private async Task OnPrimaryActionAsync()
     {
+        if (_siteMode)
+        {
+            await ProvisionSiteAsync();
+            return;
+        }
         if (_state != Step.PickOrg)
         {
             await ValidateTokenAsync();
@@ -229,7 +264,88 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await DetectAgainAsync();
+        if (!IsDefaultSite)
+            await TryEnterSiteModeAsync();
+        if (!_siteMode)
+            await DetectAgainAsync();
+    }
+
+    /// <summary>
+    /// Enters site mode when the main site's shared InfluxDB connection is already
+    /// configured: skip URL detection and org selection, probe the shared URL, and
+    /// go straight to the token step. Falls back to the full flow (and returns with
+    /// <see cref="_siteMode"/> false) when the main site has no Influx config yet.
+    /// </summary>
+    private async Task TryEnterSiteModeAsync()
+    {
+        await using var mainDb = SiteDbFactory.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true);
+        var shared = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
+        if (shared == null
+            || string.IsNullOrWhiteSpace(shared.InfluxDbUrl)
+            || string.IsNullOrWhiteSpace(shared.InfluxDbOrg))
+            return;
+
+        _siteMode = true;
+        _sharedUrl = shared.InfluxDbUrl.Trim();
+        _sharedOrgName = shared.InfluxDbOrg.Trim();
+        _state = Step.Detecting;
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            _probe = await Provisioner.ProbeAsync(_sharedUrl);
+            _state = _probe.Reachable ? Step.UrlFound : Step.UrlNotFound;
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Site-mode provisioning in one press: validate the all-access token, resolve
+    /// the shared org by name, create this site's prefixed buckets, mint the scoped
+    /// token, and save it to the site's row. <see cref="ProvisionAsync"/> clears the
+    /// all-access token from memory on success.
+    /// </summary>
+    private async Task ProvisionSiteAsync()
+    {
+        if (_probe == null || string.IsNullOrEmpty(_probe.Url)) return;
+        _busy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            var adminToken = _adminToken.Trim();
+            var validation = await Provisioner.ValidateAdminTokenAsync(_probe.Url, adminToken);
+            if (!validation.Valid)
+            {
+                _message = validation.Error ?? "Token validation failed";
+                _messageClass = "danger";
+                return;
+            }
+            _authedAs = validation.UserName;
+
+            var orgs = await Provisioner.ListOrgsAsync(_probe.Url, adminToken);
+            var org = orgs.FirstOrDefault(o =>
+                string.Equals(o.Name, _sharedOrgName, StringComparison.OrdinalIgnoreCase));
+            if (org == null || string.IsNullOrEmpty(org.Id))
+            {
+                _message = $"This token can't see the shared org '{_sharedOrgName}'. Use an all-access token for that org.";
+                _messageClass = "danger";
+                return;
+            }
+
+            _orgs = orgs.ToList();
+            _selectedOrgId = org.Id;
+            await ProvisionAsync();
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
     }
 
     private async Task DetectAgainAsync()
