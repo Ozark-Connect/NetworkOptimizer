@@ -281,14 +281,12 @@ builder.Services.AddSingleton<UniFiSshRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<UniFiSshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
-// Register cellular modem providers (one per supported vendor transport).
-// CellularModemService resolves the right provider per ModemConfiguration.
-builder.Services.AddSingleton<ICellularModemProvider, QmicliModemProvider>();
-builder.Services.AddSingleton<ICellularModemProvider, NetgearNighthawkHotspotProvider>();
-builder.Services.AddSingleton<ICellularModemProvider, QuectelAtModemProvider>();
-
-// Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
-builder.Services.AddSingleton<CellularModemService>();
+// Cellular modem monitoring is per site through ModemMonitorRegistry, which
+// builds each site's provider set (qmicli with the site's device SSH; HTTP and
+// per-modem-SSH providers are context-driven). Scoped resolution forwards to
+// the current site's monitor.
+builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Cellular);
 
 // Register Cable Modem providers (stateless scrapers, shared across sites).
 // The monitor itself is per site through ModemMonitorRegistry: configurations,
@@ -518,9 +516,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolu
 // each site gets its own bundle. Local collection loops and the agent tunnel sink
 // both evaluate through the owning site's instances.
 builder.Services.AddSingleton<MonitoringAlertRegistry>();
-// (CableModem and ONT alert evaluators are per site via MonitoringAlertRegistry;
-// the cellular evaluator moves there as its monitor splits per site.)
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator>();
+// (The cable modem, ONT, and cellular alert evaluators are per site via
+// MonitoringAlertRegistry.)
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
 builder.Services.AddScoped<InfluxDbProvisioningService>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
@@ -893,11 +890,8 @@ app.RegisterScheduleExecutors();
 // Clean up any leftover config transfer temp files from previous sessions
 app.Services.GetRequiredService<ConfigTransferService>().CleanupTempFiles();
 
-// Eagerly resolve device monitor services so their poll timers start at app launch,
-// not on first page load. Without this, polling doesn't begin until a user visits
-// a page that injects the service. (Cable modem and ONT monitors start via the
-// ModemMonitorRegistry hosted service.)
-app.Services.GetRequiredService<CellularModemService>();
+// Device monitor poll timers (cable modem, ONT, cellular) start at app launch
+// via the ModemMonitorRegistry hosted service - no eager resolution needed.
 
 // Configure the HTTP request pipeline
 if (!app.Environment.IsDevelopment())

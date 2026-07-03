@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Monitoring.Providers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.CellularModemProviders;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -20,7 +22,8 @@ public class ModemMonitorRegistry : BackgroundService
     /// <summary>One site's modem monitors.</summary>
     public sealed record SiteModemMonitors(
         CableModemMonitorService CableModem,
-        OntMonitorService Ont);
+        OntMonitorService Ont,
+        CellularModemService Cellular);
 
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(30);
 
@@ -45,9 +48,25 @@ public class ModemMonitorRegistry : BackgroundService
     /// pass confirms their site is enabled.
     /// </summary>
     public SiteModemMonitors GetFor(string slug) =>
-        _instances.GetOrAdd(slug, s => new SiteModemMonitors(
-            ActivatorUtilities.CreateInstance<CableModemMonitorService>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<OntMonitorService>(_serviceProvider, s)));
+        _instances.GetOrAdd(slug, s =>
+        {
+            // The cellular provider set is built per site: the qmicli provider
+            // carries the site's device SSH service (which applies tunnel routing
+            // itself); the HTTP and per-modem-SSH providers are context-driven,
+            // so fresh instances per site are cheap and uniform.
+            var siteSsh = _serviceProvider.GetRequiredService<UniFiSshRegistry>().GetFor(s);
+            var cellularProviders = new List<ICellularModemProvider>
+            {
+                ActivatorUtilities.CreateInstance<QmicliModemProvider>(_serviceProvider, siteSsh),
+                ActivatorUtilities.CreateInstance<NetgearNighthawkHotspotProvider>(_serviceProvider),
+                ActivatorUtilities.CreateInstance<QuectelAtModemProvider>(_serviceProvider),
+            };
+            return new SiteModemMonitors(
+                ActivatorUtilities.CreateInstance<CableModemMonitorService>(_serviceProvider, s),
+                ActivatorUtilities.CreateInstance<OntMonitorService>(_serviceProvider, s),
+                ActivatorUtilities.CreateInstance<CellularModemService>(
+                    _serviceProvider, s, siteSsh, (IEnumerable<ICellularModemProvider>)cellularProviders));
+        });
 
     /// <summary>The default site's modem monitors.</summary>
     public SiteModemMonitors GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
@@ -81,6 +100,7 @@ public class ModemMonitorRegistry : BackgroundService
         {
             bundle.CableModem.Dispose();
             bundle.Ont.Dispose();
+            bundle.Cellular.Dispose();
         }
     }
 
@@ -128,6 +148,11 @@ public class ModemMonitorRegistry : BackgroundService
         {
             bundle.Ont.Active = active;
             _logger.LogInformation("External ONT monitoring {State} for a site", active ? "activated" : "deactivated");
+        }
+        if (bundle.Cellular.Active != active)
+        {
+            bundle.Cellular.Active = active;
+            _logger.LogInformation("Cellular modem monitoring {State} for a site", active ? "activated" : "deactivated");
         }
     }
 }

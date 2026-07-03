@@ -12,7 +12,12 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for polling cellular modem stats.
 /// Delegates the per-vendor poll mechanics to an ICellularModemProvider
 /// resolved by ProviderKey; this class owns the timer, cache, persistence
-/// glue, and UniFi auto-discovery.
+/// glue, and UniFi auto-discovery. One instance exists per site, owned by
+/// <see cref="ModemMonitorRegistry"/>: configurations, stats, discovery, and
+/// alerts all belong to that site (the registry builds the provider set with
+/// the site's device SSH service, and HTTP/per-modem-SSH polls route through
+/// the site's agent tunnel when its devices are reached that way). The
+/// registry flips <see cref="Active"/> as sites are enabled and disabled.
 /// </summary>
 public class CellularModemService : ICellularModemService
 {
@@ -20,6 +25,7 @@ public class CellularModemService : ICellularModemService
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshService _sshService;
     private readonly UniFiConnectionService _connectionService;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly MonitoringInfluxClient _influx;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly Dictionary<string, ICellularModemProvider> _providers;
@@ -29,26 +35,39 @@ public class CellularModemService : ICellularModemService
     private CellularModemStats? _lastStats;
     private readonly Dictionary<int, CellularModemStats> _statsCache = new();
     private bool _isPolling;
+    private readonly string _siteSlug;
 
     private const string DefaultProviderKey = "qmicli";
+
+    /// <summary>
+    /// Whether the timer-driven poll loop runs. The registry keeps the default
+    /// site's instance always active and toggles non-default instances with
+    /// their site's Enabled flag. Manual polls from the UI work regardless.
+    /// </summary>
+    public bool Active { get; set; }
 
     public CellularModemService(
         ILogger<CellularModemService> logger,
         IServiceProvider serviceProvider,
-        UniFiSshRegistry uniFiSshRegistry,
+        UniFiSshService sshService,
         SiteConnectionRegistry siteConnections,
+        SiteTunnelRouting tunnelRouting,
         MonitoringInfluxRegistry influxRegistry,
+        MonitoringAlertRegistry alertRegistry,
         ICredentialProtectionService credentialProtection,
-        NetworkOptimizer.Web.Services.Monitoring.CellularAlertEvaluator alertEvaluator,
-        IEnumerable<ICellularModemProvider> providers)
+        IEnumerable<ICellularModemProvider> providers,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _sshService = uniFiSshRegistry.GetDefault();
-        _connectionService = siteConnections.GetDefault();
-        _influx = influxRegistry.GetDefault();
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        Active = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _sshService = sshService;
+        _connectionService = siteConnections.GetFor(_siteSlug);
+        _tunnelRouting = tunnelRouting;
+        _influx = influxRegistry.GetFor(_siteSlug);
         _credentialProtection = credentialProtection;
-        _alertEvaluator = alertEvaluator;
+        _alertEvaluator = alertRegistry.GetFor(_siteSlug).Cellular;
         _providers = providers.ToDictionary(p => p.ProviderKey, StringComparer.OrdinalIgnoreCase);
 
         if (!_providers.ContainsKey(DefaultProviderKey))
@@ -61,6 +80,17 @@ public class CellularModemService : ICellularModemService
 
         // Start polling timer (checks every minute, but respects per-modem intervals)
         _pollingTimer = new Timer(state => _ = PollAllModemsAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1));
+    }
+
+    /// <summary>
+    /// Creates a DI scope pinned to this instance's site so scoped services
+    /// (repositories, DbContext) hit this site's database.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _serviceProvider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+        return scope;
     }
 
     /// <summary>
@@ -169,11 +199,11 @@ public class CellularModemService : ICellularModemService
         var provider = ResolveProvider(modem);
         if (provider == null) return null;
 
-        var context = ToPollContext(modem);
+        var context = await ToPollContextAsync(modem);
         return await provider.PollAsync(context);
     }
 
-    private ModemPollContext ToPollContext(ModemConfiguration modem)
+    private async Task<ModemPollContext> ToPollContextAsync(ModemConfiguration modem)
     {
         string? password = null;
         if (!string.IsNullOrEmpty(modem.Password))
@@ -182,12 +212,20 @@ public class CellularModemService : ICellularModemService
             catch { password = modem.Password; }
         }
 
+        // HTTP and per-modem-SSH providers reach agent sites through the tunnel
+        // proxy. Shared-SSH (qmicli) providers are left alone: their transport is
+        // the site's UniFiSshService, which applies the same routing itself -
+        // rewriting here too would proxy the proxy.
+        var (host, port) = (modem.Host, modem.Port);
+        if (!RequiresSharedSsh(modem))
+            (host, port) = await _tunnelRouting.RouteAsync(_siteSlug, modem.Host, modem.Port);
+
         return new ModemPollContext
         {
             Id = modem.Id,
             Name = modem.Name,
-            Host = modem.Host,
-            Port = modem.Port,
+            Host = host,
+            Port = port,
             Username = string.IsNullOrEmpty(modem.Username) ? null : modem.Username,
             Password = password,
             PrivateKeyPath = string.IsNullOrEmpty(modem.PrivateKeyPath) ? null : modem.PrivateKeyPath,
@@ -207,7 +245,7 @@ public class CellularModemService : ICellularModemService
         if (provider == null)
             return (false, $"No provider registered for '{modem.Provider}'");
 
-        var context = ToPollContext(modem);
+        var context = await ToPollContextAsync(modem);
         return await provider.TestConnectionAsync(context);
     }
 
@@ -258,7 +296,7 @@ public class CellularModemService : ICellularModemService
     /// </summary>
     public async Task<List<ModemConfiguration>> GetModemsAsync()
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         return await repository.GetModemConfigurationsAsync();
     }
@@ -276,7 +314,7 @@ public class CellularModemService : ICellularModemService
 
         var isNew = config.Id == 0;
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         await repository.SaveModemConfigurationAsync(config);
 
@@ -291,7 +329,7 @@ public class CellularModemService : ICellularModemService
     /// </summary>
     public async Task DeleteModemAsync(int id)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
         await repository.DeleteModemConfigurationAsync(id);
 
@@ -304,6 +342,7 @@ public class CellularModemService : ICellularModemService
 
     private async Task PollAllModemsAsync()
     {
+        if (!Active) return;
         if (_isPolling) return;
 
         try
@@ -318,7 +357,7 @@ public class CellularModemService : ICellularModemService
 
             // Only poll configured and enabled modems (not auto-discovered ones)
             // Auto-discovered modems must be added to config before they're polled
-            using var scope = _serviceProvider.CreateScope();
+            using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
 
             var modems = await repository.GetEnabledModemConfigurationsAsync();
@@ -353,7 +392,7 @@ public class CellularModemService : ICellularModemService
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
+            using var scope = CreateSiteScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
 
             var config = await repository.GetModemConfigurationAsync(modemId);

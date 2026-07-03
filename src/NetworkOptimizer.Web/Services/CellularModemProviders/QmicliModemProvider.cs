@@ -21,12 +21,15 @@ public sealed class QmicliModemProvider : ICellularModemProvider
     private readonly ILogger<QmicliModemProvider> _logger;
     private readonly UniFiSshService _sshService;
 
+    // Created per site by ModemMonitorRegistry with that site's device SSH
+    // service, so qmicli commands reach the site's modem host (tunnel-routed
+    // when the site's devices are reached via agent).
     public QmicliModemProvider(
         ILogger<QmicliModemProvider> logger,
-        UniFiSshRegistry uniFiSshRegistry)
+        UniFiSshService sshService)
     {
         _logger = logger;
-        _sshService = uniFiSshRegistry.GetDefault();
+        _sshService = sshService;
     }
 
     /// <inheritdoc/>

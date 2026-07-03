@@ -21,11 +21,21 @@ public class CellularAlertEvaluator
     private readonly IAlertEventBus _eventBus;
     private readonly ILogger<CellularAlertEvaluator> _logger;
     private readonly ConcurrentDictionary<int, CellularAlertState> _states = new();
+    private readonly string _siteSuffix;
 
-    public CellularAlertEvaluator(IAlertEventBus eventBus, ILogger<CellularAlertEvaluator> logger)
+    /// <param name="siteSlug">
+    /// Site this instance evaluates for (one instance per site, owned by
+    /// <see cref="MonitoringAlertRegistry"/> - modem ids are per-site database
+    /// sequences, so state must not be shared). Non-default sites get their
+    /// slug appended to alert titles.
+    /// </param>
+    public CellularAlertEvaluator(IAlertEventBus eventBus, ILogger<CellularAlertEvaluator> logger,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _eventBus = eventBus;
         _logger = logger;
+        _siteSuffix = string.IsNullOrEmpty(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug
+            ? "" : $" (site {siteSlug})";
     }
 
     public async ValueTask EvaluateAsync(
@@ -54,7 +64,7 @@ public class CellularAlertEvaluator
                 EventType = "cellular.signal_poor",
                 Source = "cellular",
                 Severity = AlertSeverity.Warning,
-                Title = $"{modemName} signal quality poor",
+                Title = $"{modemName} signal quality poor{_siteSuffix}",
                 Message = $"Cellular modem {modemName} signal quality dropped to {signalQuality}/100, below the {SignalPoorThreshold} threshold.",
                 DeviceName = modemName,
                 MetricValue = signalQuality,
@@ -102,7 +112,7 @@ public class CellularAlertEvaluator
                     EventType = "cellular.network_downgrade",
                     Source = "cellular",
                     Severity = AlertSeverity.Warning,
-                    Title = $"{modemName} network downgraded",
+                    Title = $"{modemName} network downgraded{_siteSuffix}",
                     Message = $"Cellular modem {modemName} dropped from {previousMode} to {currentMode}.",
                     DeviceName = modemName,
                     SourceUrl = "/monitoring?tab=cellular",
@@ -138,7 +148,7 @@ public class CellularAlertEvaluator
                 EventType = "cellular.roaming",
                 Source = "cellular",
                 Severity = AlertSeverity.Warning,
-                Title = $"{modemName} is roaming",
+                Title = $"{modemName} is roaming{_siteSuffix}",
                 Message = $"Cellular modem {modemName} entered roaming state. This may indicate loss of primary carrier coverage or incur additional charges.",
                 DeviceName = modemName,
                 SourceUrl = "/monitoring?tab=cellular",
