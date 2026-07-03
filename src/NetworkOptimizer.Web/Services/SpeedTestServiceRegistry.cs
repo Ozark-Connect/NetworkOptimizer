@@ -22,7 +22,8 @@ public class SpeedTestServiceRegistry
         TopologySnapshotService Snapshots,
         ClientSpeedTestService ClientSpeedTest,
         GatewayWanSpeedTestService GatewayWan,
-        UwnSpeedTestService Uwn);
+        UwnSpeedTestService Uwn,
+        Iperf3SpeedTestService LanSpeedTest);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -56,7 +57,9 @@ public class SpeedTestServiceRegistry
             // binary is refused for them (it measures this server's own WAN).
             var uwn = ActivatorUtilities.CreateInstance<UwnSpeedTestService>(
                 _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer);
-            return new SiteSpeedTestServices(pathAnalyzer, snapshots, clientSpeedTest, gatewayWan, uwn);
+            var lanSpeedTest = ActivatorUtilities.CreateInstance<Iperf3SpeedTestService>(
+                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer, (ITopologySnapshotService)snapshots);
+            return new SiteSpeedTestServices(pathAnalyzer, snapshots, clientSpeedTest, gatewayWan, uwn, lanSpeedTest);
         });
 
     /// <summary>The default site's speed test bundle.</summary>

@@ -301,8 +301,11 @@ builder.Services.AddSingleton<IOntProvider, QuantumQ1000kOntProvider>();
 builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
 builder.Services.AddSingleton<OntMonitorService>();
 
-// Register iperf3 Speed Test service (singleton - tracks running tests, uses UniFiSshService)
-builder.Services.AddSingleton<Iperf3SpeedTestService>();
+// LAN iperf3 speed test per site (registry-owned): devices, credentials, and
+// results live in that site's database; tests run against that site's devices.
+// Scoped resolution forwards to the current site's instance.
+builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).LanSpeedTest);
 
 // Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
 builder.Services.AddSingleton<GatewaySpeedTestService>();

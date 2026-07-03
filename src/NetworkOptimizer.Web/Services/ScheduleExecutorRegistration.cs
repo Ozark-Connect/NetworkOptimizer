@@ -180,20 +180,20 @@ public static class ScheduleExecutorRegistration
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteLanSpeedTestAsync(
         IServiceProvider services, string siteKey, string? targetId, CancellationToken ct)
     {
-        if (siteKey != SiteManagementService.DefaultSiteSlug)
-            return (false, null, "Scheduled LAN speed tests are not yet supported on non-default sites");
-
         if (string.IsNullOrEmpty(targetId))
             return (false, null, "No target device specified");
 
-        var lanService = services.GetRequiredService<Iperf3SpeedTestService>();
+        // The site's own LAN speed test instance: its devices, SSH credentials, and
+        // results, with tests reaching the site over VPN or the agent tunnel.
+        var lanService = services.GetRequiredService<SpeedTestServiceRegistry>()
+            .GetFor(siteKey).LanSpeedTest;
         var devices = await lanService.GetDevicesAsync();
         var device = devices.FirstOrDefault(d => d.Host == targetId);
 
         // Fall back to UniFi-discovered devices if not found in manual config
         if (device == null)
         {
-            var connService = services.GetRequiredService<SiteConnectionRegistry>().GetDefault();
+            var connService = services.GetRequiredService<SiteConnectionRegistry>().GetFor(siteKey);
             try
             {
                 var discovered = await connService.GetDiscoveredDevicesAsync(ct);
