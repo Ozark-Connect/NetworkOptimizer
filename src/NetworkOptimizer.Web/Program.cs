@@ -313,9 +313,13 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>
 // Register Client Dashboard service (singleton - signal polling, trace tracking)
 builder.Services.AddSingleton<ClientDashboardService>();
 
-// Register WAN Speed Test services (singletons - server-side and gateway-direct WAN speed tests)
+// Register WAN Speed Test services. Cloudflare stays a default-site singleton
+// (legacy history only). UWN is per site through the registry: non-default
+// instances serve that site's result history; runs stay default-only (the
+// local binary measures this server's own WAN).
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
-builder.Services.AddSingleton<UwnSpeedTestService>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Uwn);
 
 // Gateway WAN Speed Test per site (registry-owned): the test runs on that site's
 // gateway via its own SSH settings and stores to that site's database. Scoped

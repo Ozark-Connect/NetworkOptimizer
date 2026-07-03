@@ -42,13 +42,26 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         SiteConnectionRegistry siteConnections,
         GatewaySshRegistry gatewaySshRegistry,
         IServiceScopeFactory scopeFactory,
-        IAlertEventBus? alertEventBus = null)
-        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus)
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        IAlertEventBus? alertEventBus = null,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
+        : base(dbFactory, pathAnalyzer, logger, iperf3ServerService, alertEventBus, siteDbFactory, siteSlug)
     {
         _configuration = configuration;
-        _connectionService = siteConnections.GetDefault();
-        _gatewaySsh = gatewaySshRegistry.GetDefault();
+        _connectionService = siteConnections.GetFor(SiteSlug);
+        _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
+    }
+
+    /// <summary>
+    /// Scope pinned to this instance's site so scoped services (SQM WAN lookup)
+    /// resolve that site's database and console.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _scopeFactory.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(SiteSlug);
+        return scope;
     }
 
     protected override async Task<Iperf3Result?> RunTestCoreAsync(
@@ -236,7 +249,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
                 // are actually active on the gateway. The network config's "enabled"
                 // field is unreliable - UniFi reports disabled WANs as enabled=true.
                 HashSet<string>? activeWanGroups = null;
-                using (var scope = _scopeFactory.CreateScope())
+                using (var scope = CreateSiteScope())
                 {
                     var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
                     var activeWans = await sqmService.GetWanInterfacesFromControllerAsync();
@@ -355,7 +368,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             // Get interface→group mapping from SqmService (scoped)
             Dictionary<string, (string? Group, string Name)> ifToWan;
             List<string> wanIfaceNames;
-            using (var scope = _scopeFactory.CreateScope())
+            using (var scope = CreateSiteScope())
             {
                 var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
                 var wanInterfaces = await sqmService.GetWanInterfacesFromControllerAsync();

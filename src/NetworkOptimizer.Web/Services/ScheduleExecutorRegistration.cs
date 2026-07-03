@@ -125,7 +125,8 @@ public static class ScheduleExecutorRegistration
                 if (siteKey != SiteManagementService.DefaultSiteSlug)
                     return (false, null, "Server-side WAN speed tests measure this server's own WAN and are not available for other sites. Use a gateway test instead.");
 
-                var serverService = services.GetRequiredService<UwnSpeedTestService>();
+                var serverService = services.GetRequiredService<SpeedTestServiceRegistry>()
+                    .GetDefault().Uwn;
                 if (serverService.IsRunning)
                     return (false, null, "WAN speed test is already running");
                 result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);
