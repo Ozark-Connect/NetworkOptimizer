@@ -258,6 +258,74 @@ public class InfluxDbProvisioningService
         return new ScopedTokenResult { TokenId = auth.Id ?? string.Empty, Token = auth.Token };
     }
 
+    /// <summary>
+    /// Resolve an org's ID by name using an arbitrary token. Returns null if the
+    /// token can't list orgs (e.g. a per-bucket scoped token returns 401/403) or the
+    /// named org isn't visible. Used to test whether the shared token is capable of
+    /// bucket management before deciding to prompt for an all-access token.
+    /// </summary>
+    public async Task<string?> TryResolveOrgIdAsync(string url, string token, string orgName, CancellationToken ct = default)
+    {
+        try
+        {
+            using var http = _httpClientFactory.CreateClient();
+            var request = new HttpRequestMessage(HttpMethod.Get, NormalizeUrl(url) + "/api/v2/orgs");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Token", token);
+            using var response = await http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            var body = await response.Content.ReadAsStringAsync(ct);
+            var list = JsonSerializer.Deserialize<InfluxOrgList>(body, SerializerOptions);
+            return list?.Orgs?.FirstOrDefault(o =>
+                string.Equals(o.Name, orgName, StringComparison.OrdinalIgnoreCase))?.Id;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Mint an authorization scoped to read+write on ALL buckets in the org, plus read
+    /// on the org itself so the holder can resolve the org ID to create new buckets.
+    /// This becomes the single shared credential once an install goes multi-site: it can
+    /// create and write every site's buckets. Broader than the per-bucket token from
+    /// <see cref="CreateScopedTokenAsync"/>, far narrower than an all-access token
+    /// (no users, tasks, dashboards, other-org access). The read:orgs grant is scoped to
+    /// the specific org ID - an org-wide read:orgs exceeds what a normal all-access token
+    /// holds and InfluxDB refuses to mint it.
+    /// </summary>
+    public async Task<ScopedTokenResult> CreateOrgScopedTokenAsync(
+        string url,
+        string adminToken,
+        string orgId,
+        string description = "Network Optimizer (org-scoped: read+write + create buckets)",
+        CancellationToken ct = default)
+    {
+        using var http = _httpClientFactory.CreateClient();
+        var permissions = new object[]
+        {
+            new { action = "read", resource = new { type = "orgs", id = orgId } },
+            new { action = "read", resource = new { type = "buckets", orgID = orgId } },
+            new { action = "write", resource = new { type = "buckets", orgID = orgId } },
+        };
+        var request = new HttpRequestMessage(HttpMethod.Post, NormalizeUrl(url) + "/api/v2/authorizations")
+        {
+            Content = JsonContent(new { orgID = orgId, description, permissions })
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Token", adminToken);
+        using var response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errBody = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException($"Create org-scoped token failed: HTTP {(int)response.StatusCode}: {errBody}");
+        }
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var auth = JsonSerializer.Deserialize<InfluxAuthorization>(body, SerializerOptions);
+        if (auth == null || string.IsNullOrEmpty(auth.Token))
+            throw new InvalidOperationException("Token created but response could not be parsed");
+        return new ScopedTokenResult { TokenId = auth.Id ?? string.Empty, Token = auth.Token };
+    }
+
     private static StringContent JsonContent(object payload) =>
         new(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 

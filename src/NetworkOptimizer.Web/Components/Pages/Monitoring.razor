@@ -1522,25 +1522,7 @@ else
 
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
-        if (SiteCtx.IsDefault)
-        {
-            LoadInfluxStateFromSettings(settings);
-        }
-        else
-        {
-            // The InfluxDB connection is instance-wide (only bucket names differ per
-            // site), so a secondary site's Setup tab reflects the shared connection
-            // state from the main database instead of prompting for its own setup.
-            _monitoringEnabled = settings.Enabled;
-            await using (var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
-            {
-                var shared = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
-                _influxConfigured = !string.IsNullOrEmpty(shared?.InfluxDbToken)
-                    && !string.IsNullOrEmpty(shared?.InfluxDbUrl);
-                _influxReachable = shared?.InfluxDbReachable;
-                _influxError = shared?.LastInfluxDbError;
-            }
-        }
+        await RefreshInfluxStateAsync(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
         LoadSfpThresholdInputs(settings);
@@ -1636,11 +1618,48 @@ else
     private async Task OnInfluxProvisioned()
     {
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
-        LoadInfluxStateFromSettings(settings);
-        var health = await InfluxClient.CheckHealthAsync();
-        _influxReachable = health.Reachable;
-        _influxError = health.Error;
+        await RefreshInfluxStateAsync(settings);
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Populates the Setup tab's InfluxDB status. The default site reads its own row
+    /// directly. A secondary site inherits the shared server/org/token from main and
+    /// only differs in bucket names, so "configured" means main has a shared connection
+    /// to derive from, and reachability is this site's own client hitting its own
+    /// (slug-prefixed) buckets - never main's stored status, which would otherwise show
+    /// a misleading "Connected" before this site's buckets exist.
+    /// </summary>
+    private async Task RefreshInfluxStateAsync(MonitoringSettings settings)
+    {
+        if (SiteCtx.IsDefault)
+        {
+            LoadInfluxStateFromSettings(settings);
+            return;
+        }
+
+        _monitoringEnabled = settings.Enabled;
+
+        bool sharedConnection;
+        await using (var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
+        {
+            var shared = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync();
+            sharedConnection = !string.IsNullOrEmpty(shared?.InfluxDbToken)
+                && !string.IsNullOrEmpty(shared?.InfluxDbUrl);
+        }
+
+        _influxConfigured = sharedConnection;
+        if (sharedConnection)
+        {
+            var health = await InfluxClient.CheckHealthAsync();
+            _influxReachable = health.Reachable;
+            _influxError = health.Error;
+        }
+        else
+        {
+            _influxReachable = null;
+            _influxError = null;
+        }
     }
 
     private double? _switchTempThresholdInput;
