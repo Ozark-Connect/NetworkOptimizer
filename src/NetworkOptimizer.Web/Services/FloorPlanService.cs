@@ -8,20 +8,33 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class FloorPlanService
 {
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly ILogger<FloorPlanService> _logger;
     private readonly string _floorPlanDirectory;
 
-    public FloorPlanService(IDbContextFactory<NetworkOptimizerDbContext> dbFactory, ILogger<FloorPlanService> logger)
+    public FloorPlanService(
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
+        ILogger<FloorPlanService> logger)
     {
-        _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _logger = logger;
-        _floorPlanDirectory = GetFloorPlanDirectory();
+        _floorPlanDirectory = GetFloorPlanDirectory(_siteContext.Slug, _siteContext.IsDefault);
         Directory.CreateDirectory(_floorPlanDirectory);
-        _logger.LogInformation("Floor plan storage directory: {Directory}", _floorPlanDirectory);
+        _logger.LogDebug("Floor plan storage directory: {Directory}", _floorPlanDirectory);
     }
 
-    private static string GetFloorPlanDirectory()
+    /// <summary>
+    /// Context for the current site's database. Buildings, floor plans, and their
+    /// images are per-site rows; the main-DB factory would show the main site's
+    /// buildings on every site's WiFi optimizer / floor plan / heatmap.
+    /// </summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
+
+    private static string GetFloorPlanDirectory(string slug, bool isDefault)
     {
         var isDocker = string.Equals(
             Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
@@ -44,14 +57,18 @@ public class FloorPlanService
                 "NetworkOptimizer");
         }
 
-        return Path.Combine(baseDataPath, "floor-plans");
+        // Building/floor IDs autoincrement per-site, so image files would collide across
+        // sites under one shared folder. The default site keeps the original unprefixed
+        // path (existing installs); secondary sites nest under their slug.
+        var root = Path.Combine(baseDataPath, "floor-plans");
+        return isDefault ? root : Path.Combine(root, slug);
     }
 
     // --- Building CRUD ---
 
     public async Task<List<Building>> GetBuildingsAsync()
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         return await db.Buildings
             .Include(b => b.Floors).ThenInclude(f => f.Images)
             .OrderBy(b => b.Name).ToListAsync();
@@ -59,13 +76,13 @@ public class FloorPlanService
 
     public async Task<Building?> GetBuildingAsync(int id)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         return await db.Buildings.Include(b => b.Floors).FirstOrDefaultAsync(b => b.Id == id);
     }
 
     public async Task<Building> CreateBuildingAsync(string name, double centerLat, double centerLng)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var building = new Building
         {
             Name = name,
@@ -80,7 +97,7 @@ public class FloorPlanService
 
     public async Task<Building?> UpdateBuildingAsync(int id, string name, double centerLat, double centerLng)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var building = await db.Buildings.FindAsync(id);
         if (building == null) return null;
 
@@ -93,7 +110,7 @@ public class FloorPlanService
 
     public async Task<bool> DeleteBuildingAsync(int id)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var building = await db.Buildings
             .Include(b => b.Floors).ThenInclude(f => f.Images)
             .FirstOrDefaultAsync(b => b.Id == id);
@@ -124,7 +141,7 @@ public class FloorPlanService
 
     public async Task<List<FloorPlan>> GetFloorsAsync(int buildingId)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         return await db.FloorPlans
             .Where(f => f.BuildingId == buildingId)
             .OrderBy(f => f.FloorNumber)
@@ -133,14 +150,14 @@ public class FloorPlanService
 
     public async Task<FloorPlan?> GetFloorAsync(int floorId)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         return await db.FloorPlans.FindAsync(floorId);
     }
 
     public async Task<FloorPlan> CreateFloorAsync(int buildingId, int floorNumber, string label,
         double swLat, double swLng, double neLat, double neLng, string floorMaterial = "floor_wood")
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var floor = new FloorPlan
         {
             BuildingId = buildingId,
@@ -163,7 +180,7 @@ public class FloorPlanService
         double? neLat = null, double? neLng = null, double? opacity = null, string? wallsJson = null,
         string? label = null, string? floorMaterial = null)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var floor = await db.FloorPlans.FindAsync(floorId);
         if (floor == null) return null;
 
@@ -183,7 +200,7 @@ public class FloorPlanService
 
     public async Task<bool> DeleteFloorAsync(int floorId)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var floor = await db.FloorPlans.Include(f => f.Images).FirstOrDefaultAsync(f => f.Id == floorId);
         if (floor == null) return false;
 
@@ -201,7 +218,7 @@ public class FloorPlanService
 
     public async Task SaveFloorImageAsync(int floorId, Stream imageStream)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var floor = await db.FloorPlans.FindAsync(floorId);
         if (floor == null) return;
 
@@ -245,7 +262,7 @@ public class FloorPlanService
 
     public async Task<List<FloorPlanImage>> GetFloorImagesAsync(int floorPlanId)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         return await db.FloorPlanImages
             .Where(i => i.FloorPlanId == floorPlanId)
             .OrderBy(i => i.SortOrder)
@@ -254,14 +271,14 @@ public class FloorPlanService
 
     public async Task<FloorPlanImage?> GetFloorImageAsync(int imageId)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         return await db.FloorPlanImages.FindAsync(imageId);
     }
 
     public async Task<FloorPlanImage> CreateFloorImageAsync(int floorPlanId, Stream imageStream,
         double swLat, double swLng, double neLat, double neLng, string label = "")
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var floor = await db.FloorPlans.FindAsync(floorPlanId);
         if (floor == null) throw new ArgumentException("Floor not found", nameof(floorPlanId));
 
@@ -318,7 +335,7 @@ public class FloorPlanService
         double? neLat = null, double? neLng = null, double? opacity = null, double? rotationDeg = null,
         string? cropJson = null, string? label = null)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var image = await db.FloorPlanImages.FindAsync(imageId);
         if (image == null) return null;
 
@@ -338,7 +355,7 @@ public class FloorPlanService
 
     public async Task<bool> DeleteFloorImageAsync(int imageId)
     {
-        using var db = await _dbFactory.CreateDbContextAsync();
+        using var db = CreateSiteDb();
         var image = await db.FloorPlanImages.FindAsync(imageId);
         if (image == null) return false;
 

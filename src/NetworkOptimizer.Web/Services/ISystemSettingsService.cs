@@ -28,6 +28,23 @@ public interface ISystemSettingsService
     Task SetAsync(string key, string? value);
 
     /// <summary>
+    /// Gets a GLOBAL (instance-wide) setting from the main database, regardless of the
+    /// current site. Use for values shared across all sites (Mapbox token, CrowdSec
+    /// config, iperf3 preferences, live-map order). <see cref="GetAsync"/> routes to the
+    /// current site's database, which is wrong for shared keys on a secondary site.
+    /// </summary>
+    Task<string?> GetGlobalAsync(string key);
+
+    /// <summary>Sets a GLOBAL (instance-wide) setting in the main database.</summary>
+    Task SetGlobalAsync(string key, string? value);
+
+    /// <summary>Gets a GLOBAL setting as int with default (see <see cref="GetGlobalAsync"/>).</summary>
+    Task<int> GetGlobalIntAsync(string key, int defaultValue);
+
+    /// <summary>Sets a GLOBAL setting as int (see <see cref="SetGlobalAsync"/>).</summary>
+    Task SetGlobalIntAsync(string key, int value);
+
+    /// <summary>
     /// Sets a setting value as an integer.
     /// </summary>
     /// <param name="key">The setting key.</param>

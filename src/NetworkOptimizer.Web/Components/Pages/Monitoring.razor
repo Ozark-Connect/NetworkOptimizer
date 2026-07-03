@@ -1535,7 +1535,7 @@ else
         var cellConfigs = await CellularModemService.GetModemsAsync();
         _cellularHasDevices = cellConfigs.Count > 0;
 
-        _mapOrder2dFirst = await SystemSettings.GetAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
+        _mapOrder2dFirst = await SystemSettings.GetGlobalAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
         var dashLayout = await DashboardLayout.GetLayoutAsync();
         _liveViewOnDashboard = dashLayout.Cards.Any(c => c.Id == DashboardCards.LiveView && c.Visible);
 
@@ -2580,7 +2580,7 @@ else
     private async Task SwapMapOrderAsync()
     {
         _mapOrder2dFirst = !_mapOrder2dFirst;
-        await SystemSettings.SetAsync(SystemSettingKeys.MonitoringLiveMapOrder,
+        await SystemSettings.SetGlobalAsync(SystemSettingKeys.MonitoringLiveMapOrder,
             _mapOrder2dFirst ? "2d-first" : null);
         await JS.InvokeVoidAsync("eval", "window.location.replace('/monitoring?tab=live');");
     }

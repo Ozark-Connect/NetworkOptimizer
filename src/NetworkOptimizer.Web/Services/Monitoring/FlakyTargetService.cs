@@ -13,22 +13,30 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 ///
 /// Computed on demand (Live View banner + Network Performance panel initial loads) - never polled.
 /// Reuses the existing per-target loss query; adds no Influx measurements.
+/// Scoped per site: the injected <see cref="MonitoringInfluxClient"/> forwards to the current
+/// site's Influx client, and the target pool is read from that site's own database.
 /// </summary>
 public class FlakyTargetService
 {
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly MonitoringInfluxClient _influx;
     private readonly ILogger<FlakyTargetService> _logger;
 
     public FlakyTargetService(
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        MonitoringInfluxRegistry influxRegistry,
+        SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
+        MonitoringInfluxClient influx,
         ILogger<FlakyTargetService> logger)
     {
-        _dbFactory = dbFactory;
-        _influx = influxRegistry.GetDefault();
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
+        _influx = influx;
         _logger = logger;
     }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private NetworkOptimizerDbContext CreateSiteDb() => _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>Lookback window; we use all available data up to this, never require it.</summary>
     private const int LookbackHours = 48;
@@ -68,7 +76,7 @@ public class FlakyTargetService
         List<MonitoringTarget> pool;
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = CreateSiteDb();
             pool = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled && (t.TargetType == MonitoringTargetType.AccessIsp
                     || t.TargetType == MonitoringTargetType.Transit

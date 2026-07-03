@@ -7,6 +7,8 @@ namespace NetworkOptimizer.Web.Services;
 /// available parent. The parent set is decided by UniFi Network (Auto, or a constrained/pinned
 /// parent); this service never chooses the parent - it only prompts the scan and reports the
 /// before/after link. On-demand, re-runnable, idempotent.
+/// Scoped per site: the injected <see cref="UniFiSshService"/> forwards to the current site's
+/// device SSH credentials, so the scan runs against the right site's AP.
 /// </summary>
 public class MeshOptimizationService
 {
@@ -29,9 +31,9 @@ public class MeshOptimizationService
     /// </summary>
     private static readonly Regex ValidStaIface = new(@"^vwiresta\d+$", RegexOptions.Compiled);
 
-    public MeshOptimizationService(UniFiSshRegistry uniFiSshRegistry, ILogger<MeshOptimizationService> logger)
+    public MeshOptimizationService(UniFiSshService ssh, ILogger<MeshOptimizationService> logger)
     {
-        _ssh = uniFiSshRegistry.GetDefault();
+        _ssh = ssh;
         _logger = logger;
     }
 

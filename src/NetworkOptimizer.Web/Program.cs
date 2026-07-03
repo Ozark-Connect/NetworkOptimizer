@@ -321,8 +321,9 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
 builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).LanSpeedTest);
 
-// Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
-builder.Services.AddSingleton<GatewaySpeedTestService>();
+// Register Gateway Speed Test service (scoped - forwards to the current site's
+// gateway SSH and database; gateway iperf3 tests with separate SSH creds)
+builder.Services.AddScoped<GatewaySpeedTestService>();
 
 // Client Speed Test per site: the registry owns one enrichment bundle per site
 // (path analyzer + topology snapshots + client speed test service). Scoped
@@ -332,8 +333,9 @@ builder.Services.AddSingleton<SpeedTestServiceRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).ClientSpeedTest);
 
-// Register Client Dashboard service (singleton - signal polling, trace tracking)
-builder.Services.AddSingleton<ClientDashboardService>();
+// Register Client Dashboard service (scoped - forwards to the current site's
+// connection, speed test service, and database; signal polling, trace tracking)
+builder.Services.AddScoped<ClientDashboardService>();
 
 // Register WAN Speed Test services. Cloudflare stays a default-site singleton
 // (legacy history only). UWN is per site through the registry: non-default
@@ -513,7 +515,8 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.WanSummar
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.IspHealth.IspHealthRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
+// Scoped - forwards to the current site's Influx client and database.
+builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService>();
 builder.Services.AddScoped<NetworkOptimizer.Web.Services.Monitoring.MonitoringPathView>();
 builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService>();
 // Per-site monitoring alert evaluators (target offline / device health / SFP DDM):
@@ -559,7 +562,7 @@ builder.Services.AddScoped<DashboardLayoutService>();
 builder.Services.AddScoped<PullToRefreshState>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
-builder.Services.AddSingleton<PdfStorageService>(); // Singleton - manages PDF report file storage
+builder.Services.AddScoped<PdfStorageService>(); // Scoped - namespaces PDF storage by the current site's slug
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
 builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
 builder.Services.AddScoped<ISqmService, SqmService>();
@@ -593,12 +596,16 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WideChannelWidthRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddScoped<WiFiOptimizerService>();
-// Mesh backhaul re-scan (Optimize Mesh button); stateless, uses UniFiSshService singleton.
-builder.Services.AddSingleton<MeshOptimizationService>();
+// Mesh backhaul re-scan (Optimize Mesh button); scoped - forwards to the current
+// site's UniFiSshService.
+builder.Services.AddScoped<MeshOptimizationService>();
 builder.Services.AddScoped<ApMapService>();
-builder.Services.AddSingleton<FloorPlanService>();
-builder.Services.AddSingleton<HeatmapDataCache>();
-builder.Services.AddSingleton<PlannedApService>();
+// Per-site: buildings, floor plans, planned APs, and their heatmap cache are
+// per-site data. Scoped so each site's WiFi optimizer / floor plan / heatmap reads
+// its own data (consumers - WiFiOptimizerService, floor-plan endpoints - are scoped).
+builder.Services.AddScoped<FloorPlanService>();
+builder.Services.AddScoped<HeatmapDataCache>();
+builder.Services.AddScoped<PlannedApService>();
 builder.Services.AddSingleton<ConfigTransferService>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Data.AntennaPatternLoader>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Services.PropagationService>();
