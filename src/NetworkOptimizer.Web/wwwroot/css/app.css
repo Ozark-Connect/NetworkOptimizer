@@ -17425,13 +17425,8 @@ body.kiosk-mode .status-indicators {
 }
 
 .sites-overview-card {
-    cursor: pointer;
     padding: 1rem 1.25rem;
     margin-bottom: 1.5rem;
-}
-
-.sites-overview-card:hover {
-    background: var(--bg-tertiary);
 }
 
 .site-card-console {
@@ -17472,14 +17467,6 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0;
 }
 
-.sites-overview-card.sites-overview-static {
-    cursor: default;
-}
-
-.sites-overview-card.sites-overview-static:hover {
-    background: var(--bg-card);
-}
-
 .sites-overview-header {
     display: flex;
     align-items: center;
@@ -17505,6 +17492,7 @@ body.kiosk-mode .status-indicators {
     flex: 1 1 90px;
     min-height: 0 !important;
     border-bottom-width: 3px;
+    background: var(--bg-tertiary);
 }
 
 .sites-overview-tiles .sites-tile-teal { border-bottom-color: #2ba89a; }

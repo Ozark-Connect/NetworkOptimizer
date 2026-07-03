@@ -9,7 +9,7 @@
    Uses the monitoring stat-tile design language (centered value over label). *@
 @if (_sites.Count > 1)
 {
-    <div class="card sites-overview-card @(LinkToSwitcher ? "" : "sites-overview-static")" @onclick="HandleCardClick">
+    <div class="card sites-overview-card @(LinkToSwitcher ? "clickable-card" : "")" @onclick="HandleCardClick">
         <div class="sites-overview-header">
             <h3 class="sites-overview-heading">Sites</h3>
             @if (LinkToSwitcher)

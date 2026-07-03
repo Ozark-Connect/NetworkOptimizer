@@ -60,6 +60,30 @@ public class AgentProbeResultSink
     {
         await PushProbeConfigAsync(connection, ct);
         await PushSnmpConfigAsync(connection, ct);
+
+        // This site's console reaches the UniFi console THROUGH this agent tunnel.
+        // On startup / after an agent restart the console auto-connect can run
+        // before the tunnel is up, exhaust its short retry window, and stay
+        // disconnected until a manual reconnect. Now that the tunnel is up,
+        // reconnect it - fire-and-forget so we never block the tunnel read loop.
+        _ = ReconnectConsoleIfViaAgentAsync(connection.SiteSlug);
+    }
+
+    private async Task ReconnectConsoleIfViaAgentAsync(string siteSlug)
+    {
+        try
+        {
+            var connection = _siteConnections.GetFor(siteSlug);
+            if (connection.IsConnected || !await connection.IsConsoleViaAgentAsync())
+                return;
+            _logger.LogInformation(
+                "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", siteSlug);
+            await connection.ReconnectAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Console reconnect on agent connect failed for site {Slug}", siteSlug);
+        }
     }
 
     /// <summary>
