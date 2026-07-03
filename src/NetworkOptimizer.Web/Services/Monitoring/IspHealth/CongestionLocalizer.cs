@@ -441,16 +441,41 @@ public static class CongestionLocalizer
         (DateTime Start, DateTime End) window,
         IspHealthOptions options)
     {
-        // Metrics come from the culprit hop when it has its own elevation, else the worst member.
-        var metricSource = identity != null
+        // Metrics come from the culprit hop when it fired its own event, else the worst member (for span)
+        // - but see the magnitude fallback below when the named hop itself didn't fire.
+        var identityFired = identity != null
             && eventsBySeries.TryGetValue(identity, out var idEvents)
-            && idEvents.Any(e => Overlaps(e.Start, e.End, window.Start, window.End))
-            ? new List<AsnSeries> { identity }
-            : members;
+            && idEvents.Any(e => Overlaps(e.Start, e.End, window.Start, window.End));
+        var metricSource = identityFired ? new List<AsnSeries> { identity! } : members;
         var sourceEvents = metricSource
             .SelectMany(m => eventsBySeries[m].Where(e => Overlaps(e.Start, e.End, window.Start, window.End)))
             .ToList();
         var worst = sourceEvents.OrderByDescending(e => e.PeakRttMs - e.BaselineRttMs).First();
+
+        // When the named bottleneck hop DIDN'T fire its own event (a brief burst under the 30-min bar, so
+        // it's only the derived bottleneck), its magnitudes aren't in sourceEvents and the worst member is
+        // a deeper hop whose burst-event peak sits near baseline - the row would report a near-zero delta
+        // on the wrong hop. Compute the named hop's OWN in-window magnitudes from its samples instead
+        // (baseline median -> p90 RTT, median -> max jitter), mirroring BuildSharedIncident's fallback, so
+        // the row shows the named hop's real rise.
+        double baseRtt, peakRtt, baseJit, peakJit;
+        if (!identityFired && identity != null)
+        {
+            var ix = Index(identity);
+            var inR = ix.InWindowRtt(window.Start, window.End);
+            var inJ = ix.InWindowJitter(window.Start, window.End);
+            baseRtt = ix.BaselineRttMedian(inR) ?? 0;
+            peakRtt = inR.Count > 0 ? SeriesStats.Percentile(inR, 0.90) ?? baseRtt : baseRtt;
+            baseJit = ix.BaselineJitterMedian(inJ) ?? 0;
+            peakJit = inJ.Count > 0 ? inJ.Max() : baseJit;
+        }
+        else
+        {
+            baseRtt = worst.BaselineRttMs;
+            peakRtt = worst.PeakRttMs;
+            baseJit = worst.BaselineJitterMs;
+            peakJit = worst.PeakJitterMs;
+        }
         // The penalized ASN/targets are the bottleneck hop when localized; downstream victims
         // are excluded. An unlocalized event has no single culprit, so it keeps the full set.
         var id = identity != null ? new List<AsnSeries> { identity } : members;
@@ -471,10 +496,10 @@ public static class CongestionLocalizer
             AsnNumbers = id.Select(m => m.AsnNumber).Distinct().ToList(),
             AsnNames = id.Select(m => m.AsnName ?? $"AS{m.AsnNumber}").Distinct().ToList(),
             TargetIds = id.SelectMany(m => m.TargetIds).Distinct().ToList(),
-            BaselineRttMs = worst.BaselineRttMs,
-            PeakRttMs = worst.PeakRttMs,
-            BaselineJitterMs = worst.BaselineJitterMs,
-            PeakJitterMs = worst.PeakJitterMs
+            BaselineRttMs = baseRtt,
+            PeakRttMs = peakRtt,
+            BaselineJitterMs = baseJit,
+            PeakJitterMs = peakJit
         };
     }
 

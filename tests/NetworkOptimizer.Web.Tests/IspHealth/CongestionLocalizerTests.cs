@@ -251,6 +251,31 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Named_bottleneck_that_did_not_fire_reports_its_own_rise_not_a_deeper_member()
+    {
+        // The access hop is elevated only briefly (excursions inside one bucket -> no fired 30-min event),
+        // so it's the DERIVED bottleneck; a deeper hop fired with a small near-baseline delta. The row must
+        // report the named access hop's OWN rise (from its samples), not the deeper member's numbers.
+        var burstStart = HumpStart.AddMinutes(3);
+        var burstEnd = HumpStart.AddMinutes(9);   // 6 min, one bucket -> no fired event, but IsElevated
+        var accessShortBurst = Flat(3).WithSegment(burstStart, burstEnd, rttMs: 20, jitterMs: 6);
+        var deepSmall = Flat(10).WithSegment(HumpStart, HumpStart.AddMinutes(45), rttMs: 13, jitterMs: 3); // fires, small delta
+
+        var series = new List<AsnSeries>
+        {
+            Hop(100, Bng, accessShortBurst),
+            Hop(200, Transit, deepSmall, Bng),
+            Dest(DestCorridor, deepSmall, Bng, Transit)   // downstream witness -> propagated (Confirmed)
+        };
+
+        var events = CongestionLocalizer.Localize(series, Topo(load: false), Options);
+
+        var e = events.Single(x => x.BottleneckHopIp == Bng);
+        e.BaselineRttMs.Should().BeApproximately(3, 2);          // the access hop's baseline, not the deep hop's ~10
+        e.PeakRttMs.Should().BeGreaterThan(e.BaselineRttMs + 3); // shows a real rise, not a ~0 delta
+    }
+
+    [Fact]
     public void Dead_end_transit_is_unverifiable_and_not_merged_into_the_corridor_event()
     {
         var series = new List<AsnSeries>
