@@ -10,9 +10,11 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class DiagnosticsService
 {
-    private const string CacheKeyLastResult = "DiagnosticsService_LastResult";
-    private const string CacheKeyLastRunTime = "DiagnosticsService_LastRunTime";
-    private const string CacheKeyIsRunning = "DiagnosticsService_IsRunning";
+    // Scoped per site so the app-wide cache never shows one site's diagnostics
+    // (trunk consistency, AP lock, etc.) after switching to another site.
+    private string CacheKeyLastResult => $"DiagnosticsService_LastResult:{_siteContext.Slug}";
+    private string CacheKeyLastRunTime => $"DiagnosticsService_LastRunTime:{_siteContext.Slug}";
+    private string CacheKeyIsRunning => $"DiagnosticsService_IsRunning:{_siteContext.Slug}";
 
     private readonly ILogger<DiagnosticsService> _logger;
     private readonly UniFiConnectionService _connectionService;
@@ -20,6 +22,7 @@ public class DiagnosticsService
     private readonly IeeeOuiDatabase _ieeeOuiDb;
     private readonly IMemoryCache _cache;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly SiteContextService _siteContext;
 
     public DiagnosticsService(
         ILogger<DiagnosticsService> logger,
@@ -27,8 +30,10 @@ public class DiagnosticsService
         FingerprintDatabaseService fingerprintService,
         IeeeOuiDatabase ieeeOuiDb,
         IMemoryCache cache,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        SiteContextService siteContext)
     {
+        _siteContext = siteContext;
         _logger = logger;
         _connectionService = connectionService;
         _fingerprintService = fingerprintService;
