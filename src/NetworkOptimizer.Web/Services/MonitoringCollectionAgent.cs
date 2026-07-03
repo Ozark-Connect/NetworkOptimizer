@@ -1407,15 +1407,26 @@ public class MonitoringCollectionAgent : BackgroundService
             .AsNoTracking()
             .Where(t => t.Enabled)
             .ToListAsync(ct);
+        var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
         var now = DateTime.UtcNow;
-        var dueTargets = targets.Where(t => IsDue(t, now)).ToList();
+        var dueTargets = new List<(MonitoringTarget Target, WanContext? WanContext)>();
+        foreach (var target in targets.Where(t => IsDue(t, now)))
+        {
+            var context = target.WanContextId is int contextId && contextsById.TryGetValue(contextId, out var c)
+                ? c : null;
+            // Targets in an agent-assigned WAN context are probed by that agent
+            // (which sits behind the right WAN); probing them from here would
+            // measure the wrong path.
+            if (context?.AgentId != null) continue;
+            dueTargets.Add((target, context));
+        }
         if (dueTargets.Count == 0) return;
 
         // Probe in parallel but bounded so we don't fan out to dozens of pings at once on a
         // dense fabric. 8 concurrent is well under what the local executor can handle.
         using var concurrency = new SemaphoreSlim(8);
-        var tasks = dueTargets.Select(t => ProbeTargetAsync(t, concurrency, ct));
+        var tasks = dueTargets.Select(x => ProbeTargetAsync(x.Target, x.WanContext, concurrency, ct));
         await Task.WhenAll(tasks);
     }
 
@@ -1426,14 +1437,17 @@ public class MonitoringCollectionAgent : BackgroundService
         return now - last >= interval;
     }
 
-    private async Task ProbeTargetAsync(MonitoringTarget target, SemaphoreSlim concurrency, CancellationToken ct)
+    private async Task ProbeTargetAsync(MonitoringTarget target, WanContext? wanContext, SemaphoreSlim concurrency, CancellationToken ct)
     {
         await concurrency.WaitAsync(ct);
         try
         {
             _targetLastProbed[target.Id] = DateTime.UtcNow;
 
-            var probeTarget = new ProbeTarget(target.Address, target.ProbeMode, target.Port);
+            // A WAN context's probe source IP rides into the probe (ping -I / TCP
+            // socket bind); the gateway policy-routes that source out the WAN
+            // being measured.
+            var probeTarget = new ProbeTarget(target.Address, target.ProbeMode, target.Port, wanContext?.ProbeSourceIp);
             var vantage = string.IsNullOrEmpty(target.VantagePoint) ? "server" : target.VantagePoint;
             // MVP: only server-side probes. Per-device SSH vantages come with the SSH
             // toolbox device picker (planned next).
@@ -1461,7 +1475,8 @@ public class MonitoringCollectionAgent : BackgroundService
                 success: ping.Success,
                 sent: ping.Sent,
                 received: ping.Received,
-                timestamp: ping.Timestamp);
+                timestamp: ping.Timestamp,
+                wanContext: wanContext?.Name);
 
             // Surface fabric probe results on the dashboard's device cards (5.6). Other
             // target types (WAN, transit) feed cloud nodes on the 3D map; the per-device

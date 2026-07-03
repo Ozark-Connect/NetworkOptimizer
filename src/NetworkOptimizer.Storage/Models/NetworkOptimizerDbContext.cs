@@ -65,6 +65,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<ApChannelChange> ApChannelChanges { get; set; }
     public DbSet<ApNeighborSighting> ApNeighborSightings { get; set; }
     public DbSet<Site> Sites { get; set; }
+    public DbSet<WanContext> WanContexts { get; set; }
     public DbSet<SiteAgent> SiteAgents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

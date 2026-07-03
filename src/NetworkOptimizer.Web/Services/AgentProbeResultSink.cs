@@ -77,10 +77,19 @@ public class AgentProbeResultSink
                 .AsNoTracking()
                 .Where(t => t.Enabled)
                 .ToListAsync(ct);
+            var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
             var config = new ProbeConfig();
             foreach (var target in targets)
             {
+                // Targets in an agent-assigned WAN context go only to that agent
+                // (typically a probe-only instance bound behind the right WAN);
+                // unassigned targets go to every agent as extra vantage points.
+                if (target.WanContextId is int contextId
+                    && contextsById.TryGetValue(contextId, out var context)
+                    && context.AgentId is int assignedAgent
+                    && assignedAgent != connection.AgentId)
+                    continue;
                 config.Targets.Add(new ProbeTargetSpec
                 {
                     TargetId = target.TargetId,
@@ -336,6 +345,7 @@ public class AgentProbeResultSink
         var targets = await db.MonitoringTargets
             .Where(t => ids.Contains(t.TargetId))
             .ToDictionaryAsync(t => t.TargetId, ct);
+        var contextsById = await db.WanContexts.AsNoTracking().ToDictionaryAsync(c => c.Id, ct);
 
         // Distinguishes agent probes from the server's own "server" vantage in
         // the latency measurement; stable across agent renames.
@@ -356,6 +366,8 @@ public class AgentProbeResultSink
             }
 
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(result.TimestampUnixMs).UtcDateTime;
+            var wanContext = target.WanContextId is int contextId && contextsById.TryGetValue(contextId, out var context)
+                ? context.Name : null;
 
             await influx.WriteLatencyAsync(
                 targetId: target.TargetId,
@@ -370,7 +382,8 @@ public class AgentProbeResultSink
                 success: result.Success,
                 sent: result.Sent,
                 received: result.Received,
-                timestamp: timestamp);
+                timestamp: timestamp,
+                wanContext: wanContext);
 
             // The site's live caches mirror what the local latency tier
             // records: fabric probes surface on that device's card, and every

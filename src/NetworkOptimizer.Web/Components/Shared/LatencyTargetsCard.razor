@@ -1,7 +1,8 @@
 @using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
 @inject MonitoringLiveStats LiveStats
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService AsnResolution
 
 <div class="card">
@@ -41,6 +42,10 @@
                         <th>Type</th>
                         <th>Target</th>
                         <th>Address</th>
+                        @if (WanContexts.Count > 0)
+                        {
+                            <th>WAN</th>
+                        }
                         <th>Interval</th>
                         <th>Latest</th>
                         <th>Last verified</th>
@@ -59,6 +64,19 @@
                             </td>
                             <td>@t.Name</td>
                             <td><code>@t.Address</code></td>
+                            @if (WanContexts.Count > 0)
+                            {
+                                <td>
+                                    <select class="cadence-select"
+                                            @onchange="(e) => UpdateWanContextAsync(t.Id, e)">
+                                        <option value="" selected="@(t.WanContextId == null)">Primary</option>
+                                        @foreach (var wc in WanContexts)
+                                        {
+                                            <option value="@wc.Id" selected="@(t.WanContextId == wc.Id)">@wc.Name</option>
+                                        }
+                                    </select>
+                                </td>
+                            }
                             <td>
                                 @{ var currentInterval = t.PollIntervalSeconds; }
                                 <select class="cadence-select"
@@ -204,8 +222,18 @@
     [Parameter, EditorRequired]
     public List<MonitoringTarget> Targets { get; set; } = new();
 
+    /// <summary>
+    /// The site's multi-WAN monitoring contexts. When empty (the common single-WAN
+    /// case) the WAN column and picker stay hidden and the table reads as before.
+    /// </summary>
+    [Parameter]
+    public List<WanContext> WanContexts { get; set; } = new();
+
     [Parameter]
     public EventCallback OnTargetsChanged { get; set; }
+
+    // Targets are per-site data: route through the current site's database.
+    private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
 
     private bool _collapsed = true;
     private bool _showAddTarget;
@@ -224,7 +252,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = CreateDb();
             var row = await db.MonitoringTargets.FindAsync(targetId);
             if (row == null) return;
             row.Enabled = !row.Enabled;
@@ -238,7 +266,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = CreateDb();
             var row = await db.MonitoringTargets.FindAsync(targetId);
             if (row == null) return;
             db.MonitoringTargets.Remove(row);
@@ -253,10 +281,26 @@
         if (!int.TryParse(e.Value?.ToString(), out var interval)) return;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = CreateDb();
             var row = await db.MonitoringTargets.FindAsync(targetId);
             if (row == null) return;
             row.PollIntervalSeconds = interval;
+            await db.SaveChangesAsync();
+            await OnTargetsChanged.InvokeAsync();
+        }
+        catch { }
+    }
+
+    private async Task UpdateWanContextAsync(int targetId, ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        int? contextId = int.TryParse(raw, out var parsed) ? parsed : null;
+        try
+        {
+            await using var db = CreateDb();
+            var row = await db.MonitoringTargets.FindAsync(targetId);
+            if (row == null) return;
+            row.WanContextId = contextId;
             await db.SaveChangesAsync();
             await OnTargetsChanged.InvokeAsync();
         }
@@ -329,7 +373,7 @@
                 ? (DiscoveryMethod?)DiscoveryMethod.UserProvided
                 : null;
 
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = CreateDb();
             db.MonitoringTargets.Add(new MonitoringTarget
             {
                 TargetId = targetId,

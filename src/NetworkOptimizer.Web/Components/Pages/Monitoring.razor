@@ -20,6 +20,8 @@
 @inject MonitoringInfluxClient InfluxClient
 @inject MonitoringLiveStats LiveStats
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
@@ -437,7 +439,11 @@ else
         </div>
 
         <div style="margin-top: 1.5rem;">
-            <LatencyTargetsCard Targets="_targets" OnTargetsChanged="OnTargetsChanged" />
+            <LatencyTargetsCard Targets="_targets" WanContexts="_wanContexts" OnTargetsChanged="OnTargetsChanged" />
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+            <WanContextsCard WanContexts="_wanContexts" OnChanged="OnTargetsChanged" />
         </div>
     }
 
@@ -1342,6 +1348,7 @@ else
     private bool _togglingEnable;
     private bool _showInfluxWizard;
     private List<MonitoringTarget> _targets = new();
+    private List<WanContext> _wanContexts = new();
     private List<MonitoredSfp> _monitoredSfps = new();
     private List<MonitoredSfp> _allSfps = new();
     private Dictionary<string, string> _deviceIpByMac = new();
@@ -1966,9 +1973,12 @@ else
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            // Targets, SFPs, and WAN contexts are per-site data: read the current
+            // site's database, not the main-DB factory.
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             _targets = await db.MonitoringTargets.AsNoTracking()
                 .OrderBy(t => t.TargetType).ThenBy(t => t.Name).ToListAsync();
+            _wanContexts = await db.WanContexts.AsNoTracking().OrderBy(c => c.Name).ToListAsync();
             _allSfps = await db.MonitoredSfps.AsNoTracking().ToListAsync();
             _monitoredSfps = _allSfps.Where(s => s.IsMonitoredOnt).ToList();
 
@@ -1995,6 +2005,7 @@ else
         catch
         {
             _targets = new List<MonitoringTarget>();
+            _wanContexts = new List<WanContext>();
             _allSfps = new List<MonitoredSfp>();
             _monitoredSfps = new List<MonitoredSfp>();
         }

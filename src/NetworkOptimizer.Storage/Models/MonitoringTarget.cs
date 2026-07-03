@@ -96,6 +96,13 @@ public class MonitoringTarget
     [MaxLength(50)]
     public string? WanInterface { get; set; }
 
+    /// <summary>
+    /// Multi-WAN monitoring context this target belongs to (loose reference to
+    /// <see cref="WanContext.Id"/> in the same site database). Null = the
+    /// implicit primary context: probed as always, no `wan` tag on its points.
+    /// </summary>
+    public int? WanContextId { get; set; }
+
     [MaxLength(255)]
     public string? PtrHostname { get; set; }
 

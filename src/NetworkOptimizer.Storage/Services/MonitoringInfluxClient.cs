@@ -415,7 +415,8 @@ public class MonitoringInfluxClient : IAsyncDisposable
         bool success,
         int sent,
         int received,
-        DateTime timestamp)
+        DateTime timestamp,
+        string? wanContext = null)
     {
         if (!IsConfigured) return Task.CompletedTask;
         var point = PointData.Measurement("latency")
@@ -436,6 +437,9 @@ public class MonitoringInfluxClient : IAsyncDisposable
         if (rttAvgMs.HasValue) point = point.Field("rtt_avg_ms", rttAvgMs.Value);
         if (rttMaxMs.HasValue) point = point.Field("rtt_max_ms", rttMaxMs.Value);
         if (jitterMs.HasValue) point = point.Field("jitter_ms", jitterMs.Value);
+        // Multi-WAN context tag, emitted only for non-default contexts so the
+        // schema stays additive-only: single-WAN installs never see it.
+        if (!string.IsNullOrEmpty(wanContext)) point = point.Tag("wan", wanContext);
 
         Enqueue(point, longterm: false);
         return Task.CompletedTask;

@@ -1,0 +1,272 @@
+@using Microsoft.EntityFrameworkCore
+@using NetworkOptimizer.Storage.Models
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
+@inject IDbContextFactory<NetworkOptimizerDbContext> MainDbFactory
+
+<div class="card">
+    <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
+        <h2 class="card-title">Multi-WAN contexts</h2>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            @if (WanContexts.Count > 0)
+            {
+                <span class="status-badge status-active" @onclick:stopPropagation="true">@WanContexts.Count configured</span>
+            }
+            <span class="issue-type-chevron">@(_collapsed ? "▼" : "▲")</span>
+        </div>
+    </div>
+    <div class="expand-wrapper @(!_collapsed ? "expanded" : "")">
+        <div class="expand-content">
+    <div class="card-body">
+        <p class="section-description">
+            Monitor a secondary WAN by giving its targets their own context. The primary WAN
+            needs no context - targets without one behave exactly as before. A context either
+            binds local probes to a source IP (policy-route that IP out the WAN on the gateway)
+            or assigns its targets to a probe-only agent behind that WAN. Latency points from a
+            context carry a <code>wan</code> tag with the context's name.
+        </p>
+
+        @if (WanContexts.Count > 0)
+        {
+            <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Probe source IP</th>
+                        <th>Assigned agent</th>
+                        <th>Targets</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var wc in WanContexts)
+                    {
+                        <tr>
+                            <td><code>@wc.Name</code></td>
+                            <td>@(string.IsNullOrEmpty(wc.Description) ? "-" : wc.Description)</td>
+                            <td>@(string.IsNullOrEmpty(wc.ProbeSourceIp) ? "-" : wc.ProbeSourceIp)</td>
+                            <td>@AgentLabel(wc.AgentId)</td>
+                            <td>@_targetCounts.GetValueOrDefault(wc.Id)</td>
+                            <td style="white-space: nowrap;">
+                                <button class="btn btn-sm btn-danger"
+                                        @onclick="() => DeleteContextAsync(wc.Id)"
+                                        title="Remove this context (its targets move back to the primary WAN)">
+                                    Remove
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+
+        @if (_showAdd)
+        {
+            <div class="add-target-form" style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end;">
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Name</label>
+                        <input type="text" class="custom-range-input" @bind="_newName" placeholder="backup-wan" style="width: 150px;" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Description</label>
+                        <input type="text" class="custom-range-input" @bind="_newDescription" placeholder="optional" style="width: 180px;" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Probe source IP</label>
+                        <input type="text" class="custom-range-input" @bind="_newSourceIp" placeholder="optional" style="width: 140px;" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="margin-bottom: 0.25rem; font-size: 0.8rem;">Assigned agent</label>
+                        <select class="cadence-select" style="width: 160px;" @bind="_newAgentId">
+                            <option value="">None (probe locally)</option>
+                            @foreach (var agent in _agents)
+                            {
+                                <option value="@agent.Id">@agent.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-sm btn-primary" @onclick="AddContextAsync" disabled="@_adding">
+                            @if (_adding) { <span class="spinner-sm"></span> } else { <span>Add</span> }
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="() => _showAdd = false">Cancel</button>
+                    </div>
+                </div>
+                <p class="form-hint" style="margin-top: 0.5rem;">
+                    Give a source IP for local probing (the gateway must policy-route it out this
+                    WAN), or assign a probe-only agent bound behind the WAN - not both. Assigned
+                    targets are probed only by that agent.
+                </p>
+                @if (!string.IsNullOrEmpty(_addError))
+                {
+                    <p style="color: var(--danger-color); margin-top: 0.5rem; font-size: 0.85rem;">@_addError</p>
+                }
+            </div>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;" @onclick="ShowAddAsync">
+                + Add WAN context
+            </button>
+        }
+    </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public List<WanContext> WanContexts { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private bool _collapsed = true;
+    private bool _showAdd;
+    private bool _adding;
+    private string _newName = "";
+    private string _newDescription = "";
+    private string _newSourceIp = "";
+    private string _newAgentId = "";
+    private string? _addError;
+    private List<SiteAgent> _agents = new();
+    private Dictionary<int, int> _targetCounts = new();
+
+    // WAN contexts are per-site data: route through the current site's database.
+    private NetworkOptimizerDbContext CreateDb() => SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+
+    private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    protected override async Task OnInitializedAsync() => await LoadAgentsAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            await using var db = CreateDb();
+            _targetCounts = await db.MonitoringTargets.AsNoTracking()
+                .Where(t => t.WanContextId != null)
+                .GroupBy(t => t.WanContextId!.Value)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.Key, g => g.Count);
+        }
+        catch { _targetCounts = new(); }
+    }
+
+    private async Task ShowAddAsync()
+    {
+        await LoadAgentsAsync();
+        _showAdd = true;
+    }
+
+    /// <summary>
+    /// Enrolled agents for the current site, from the main registry database
+    /// (agents are registry data; only the loose AgentId lands in the site DB).
+    /// </summary>
+    private async Task LoadAgentsAsync()
+    {
+        try
+        {
+            await using var mainDb = await MainDbFactory.CreateDbContextAsync();
+            var site = await mainDb.Sites.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Slug == SiteCtx.Slug);
+            _agents = site == null
+                ? new List<SiteAgent>()
+                : await mainDb.SiteAgents.AsNoTracking()
+                    .Where(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null)
+                    .OrderBy(a => a.Name)
+                    .ToListAsync();
+        }
+        catch { _agents = new(); }
+    }
+
+    private string AgentLabel(int? agentId)
+    {
+        if (agentId == null) return "-";
+        var agent = _agents.FirstOrDefault(a => a.Id == agentId.Value);
+        return agent?.Name ?? $"agent {agentId}";
+    }
+
+    private async Task AddContextAsync()
+    {
+        _addError = null;
+        var name = _newName.Trim();
+        if (string.IsNullOrEmpty(name) || name.Length > 100)
+        {
+            _addError = "A name up to 100 characters is required.";
+            return;
+        }
+        if (WanContexts.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _addError = "A context with that name already exists.";
+            return;
+        }
+        var sourceIp = _newSourceIp.Trim();
+        if (!string.IsNullOrEmpty(sourceIp) && !System.Net.IPAddress.TryParse(sourceIp, out _))
+        {
+            _addError = "Probe source IP must be a valid IP address.";
+            return;
+        }
+        int? agentId = int.TryParse(_newAgentId, out var parsedAgent) ? parsedAgent : null;
+        if (agentId != null && !string.IsNullOrEmpty(sourceIp))
+        {
+            _addError = "Use either a probe source IP or an assigned agent, not both.";
+            return;
+        }
+
+        _adding = true;
+        try
+        {
+            await using var db = CreateDb();
+            db.WanContexts.Add(new WanContext
+            {
+                Name = name,
+                Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim(),
+                ProbeSourceIp = string.IsNullOrEmpty(sourceIp) ? null : sourceIp,
+                AgentId = agentId,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+
+            _showAdd = false;
+            _newName = "";
+            _newDescription = "";
+            _newSourceIp = "";
+            _newAgentId = "";
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _addError = $"Failed to add context: {ex.Message}";
+        }
+        finally
+        {
+            _adding = false;
+        }
+    }
+
+    private async Task DeleteContextAsync(int contextId)
+    {
+        try
+        {
+            await using var db = CreateDb();
+            var row = await db.WanContexts.FindAsync(contextId);
+            if (row == null) return;
+            // The reference is loose (no FK): move the context's targets back to
+            // the primary WAN before removing it.
+            var assigned = await db.MonitoringTargets
+                .Where(t => t.WanContextId == contextId)
+                .ToListAsync();
+            foreach (var target in assigned)
+                target.WanContextId = null;
+            db.WanContexts.Remove(row);
+            await db.SaveChangesAsync();
+            await OnChanged.InvokeAsync();
+        }
+        catch { }
+    }
+}
