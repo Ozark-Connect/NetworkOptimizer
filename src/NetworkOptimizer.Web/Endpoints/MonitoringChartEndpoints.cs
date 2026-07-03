@@ -167,7 +167,8 @@ public static class MonitoringChartEndpoints
 
         app.MapGet("/api/monitoring/chart-data", async (
             MonitoringInfluxClient influx,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             string? category,
             int? rangeHours,
             DateTime? from,
@@ -198,7 +199,7 @@ public static class MonitoringChartEndpoints
             // Target names come from SQLite; time-series data from InfluxDB via
             // the target_type tag (indexed, ~10ms) instead of contains() on
             // target_id set (full scan, ~400ms+).
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == targetType && t.Enabled
                     && (t.AsnNumber == null || !WellKnownAsns.NonTransitInfrastructure.Contains(t.AsnNumber.Value)))

@@ -3,7 +3,8 @@
 @using NetworkOptimizer.Web.Services.Monitoring
 @implements IDisposable
 @inject UpstreamTracerService Tracer
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject IJSRuntime JS
 @inject NetworkOptimizer.Web.Services.LanFlowMap.LanFlowMapCache FlowMapCache
 
@@ -370,7 +371,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
             _needsReview = settings?.UpstreamDiscoveryNeedsReview == true;
             _lastReviewCheck = DateTime.UtcNow;

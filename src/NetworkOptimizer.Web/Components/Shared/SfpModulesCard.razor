@@ -1,7 +1,8 @@
 @using NetworkOptimizer.Storage.Models
 @using Microsoft.EntityFrameworkCore
 @inject MonitoringLiveStats LiveStats
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject Microsoft.JSInterop.IJSRuntime JS
 
 @if (AllSfps.Count > 0)
@@ -211,7 +212,7 @@ else
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var row = await db.MonitoredSfps.FindAsync(sfpId);
             if (row == null) return;
             row.IsMonitoredOnt = monitored;
@@ -226,7 +227,7 @@ else
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var row = await db.MonitoredSfps.FindAsync(sfpId);
             if (row == null) return;
             row.Category = category;

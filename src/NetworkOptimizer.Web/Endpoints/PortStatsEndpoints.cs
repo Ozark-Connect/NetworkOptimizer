@@ -33,7 +33,8 @@ public static class PortStatsEndpoints
         app.MapGet("/api/monitoring/port-stats", async (
             MonitoringInfluxClient influx,
             MonitoringLiveStats liveStats,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             string? macs,
             DateTime? at,
             CancellationToken ct) =>
@@ -49,7 +50,7 @@ public static class PortStatsEndpoints
                 ? await influx.QueryPortStatsAsync(filterMacs, at.Value.ToUniversalTime(), ct)
                 : liveStats.GetPortStatsSnapshot(filterMacs);
 
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
 
             // Device display name + type ("ap" / "switch" / "gateway") from the fabric
             // monitoring targets, matching how the device health chart resolves names.

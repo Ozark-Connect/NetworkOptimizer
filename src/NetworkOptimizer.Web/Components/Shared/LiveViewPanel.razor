@@ -5,7 +5,9 @@
 @using NetworkOptimizer.Core.Enums
 @implements IDisposable
 @inject MonitoringLiveStats LiveStats
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
+@inject MonitoringInfluxClient InfluxClient
 @inject UniFiConnectionService ConnectionService
 @inject IspHealthService IspHealthService
 @inject IJSRuntime JS
@@ -275,11 +277,22 @@ else
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            // Per-site: read this site's own MonitoringSettings/targets, and gate on the
+            // current site's (derived) InfluxDB client being configured rather than the
+            // site row's token/url - a secondary site's row has no token of its own
+            // (it derives the shared connection from main), so checking the row would
+            // wrongly report the Live View as unconfigured.
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
-            if (settings == null || !settings.Enabled
-                || string.IsNullOrEmpty(settings.InfluxDbToken)
-                || string.IsNullOrEmpty(settings.InfluxDbUrl))
+            if (settings == null || !settings.Enabled)
+            {
+                _ready = false;
+                return;
+            }
+
+            if (!InfluxClient.IsConfigured)
+                await InfluxClient.ReconfigureAsync();
+            if (!InfluxClient.IsConfigured)
             {
                 _ready = false;
                 return;

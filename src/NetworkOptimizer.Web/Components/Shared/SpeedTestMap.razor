@@ -621,7 +621,7 @@
                 await Task.Delay(100);
             }
 
-            var _mapboxToken = await SystemSettings.GetAsync(SystemSettingKeys.MapboxApiKey) ?? "";
+            var _mapboxToken = await SystemSettings.GetGlobalAsync(SystemSettingKeys.MapboxApiKey) ?? "";
 
             // Initialize the map using inline JS
             await JS.InvokeVoidAsync("eval", $@"

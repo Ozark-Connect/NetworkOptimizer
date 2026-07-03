@@ -11,12 +11,13 @@ public static class MonitoringInvestigateEndpoints
     {
         app.MapGet("/api/monitoring/investigate/packet-loss", async (
             MonitoringInfluxClient influx,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             DateTime? before,
             DateTime? after,
             CancellationToken ct) =>
         {
-            await using var dbForIds = await dbFactory.CreateDbContextAsync(ct);
+            await using var dbForIds = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var enabledIds = await dbForIds.MonitoringTargets.AsNoTracking()
                 .Where(t => t.Enabled)
                 .Select(t => t.TargetId)
@@ -29,7 +30,7 @@ public static class MonitoringInvestigateEndpoints
             string? targetName = null;
             if (!string.IsNullOrEmpty(result.TargetId))
             {
-                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
                 targetName = await db.MonitoringTargets.AsNoTracking()
                     .Where(t => t.TargetId == result.TargetId)
                     .Select(t => t.Name)

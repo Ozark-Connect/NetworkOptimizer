@@ -11,7 +11,8 @@ public static class DeviceHealthChartEndpoints
     {
         app.MapGet("/api/monitoring/device-health-chart", async (
             MonitoringInfluxClient influx,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
@@ -30,7 +31,7 @@ public static class DeviceHealthChartEndpoints
                 queryFrom = hours == 0 ? queryTo.AddMinutes(-15) : queryTo.AddHours(-hours);
             }
 
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var targets = await db.MonitoringTargets.AsNoTracking()
                 .Where(t => t.TargetType == MonitoringTargetType.Fabric)
                 .OrderBy(t => t.Name)

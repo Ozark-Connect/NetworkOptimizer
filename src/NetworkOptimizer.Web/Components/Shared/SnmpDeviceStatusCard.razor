@@ -6,7 +6,8 @@
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Services
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject UniFiConnectionService ConnectionService
 @inject ICredentialProtectionService CredentialProtection
 @inject ILoggerFactory LoggerFactory
@@ -253,7 +254,7 @@
         bool anyCustomOids;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             anyCustomOids = await db.CustomOidConfigurations.AnyAsync();
         }
         catch
@@ -300,7 +301,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             _customOids = await db.CustomOidConfigurations
                 .Where(c => c.DeviceMac == mac)
                 .OrderBy(c => c.FieldName)
@@ -350,7 +351,7 @@
 
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
             if (settings == null)
             {
@@ -408,7 +409,7 @@
 
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var now = DateTime.UtcNow;
             db.CustomOidConfigurations.Add(new CustomOidConfiguration
             {
@@ -443,7 +444,7 @@
 
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var entry = await db.CustomOidConfigurations.FindAsync(id);
             if (entry != null)
             {

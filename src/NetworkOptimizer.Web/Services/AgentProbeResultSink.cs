@@ -66,23 +66,30 @@ public class AgentProbeResultSink
         // before the tunnel is up, exhaust its short retry window, and stay
         // disconnected until a manual reconnect. Now that the tunnel is up,
         // reconnect it - fire-and-forget so we never block the tunnel read loop.
-        _ = ReconnectConsoleIfViaAgentAsync(connection.SiteSlug);
+        _ = ReconnectConsoleIfViaAgentAsync(connection);
     }
 
-    private async Task ReconnectConsoleIfViaAgentAsync(string siteSlug)
+    private async Task ReconnectConsoleIfViaAgentAsync(AgentTunnelConnection connection)
     {
         try
         {
-            var connection = _siteConnections.GetFor(siteSlug);
-            if (connection.IsConnected || !await connection.IsConsoleViaAgentAsync())
+            var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
+            if (siteConnection.IsConnected || !await siteConnection.IsConsoleViaAgentAsync())
                 return;
             _logger.LogInformation(
-                "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", siteSlug);
-            await connection.ReconnectAsync();
+                "Agent tunnel up for site {Slug}; reconnecting its console via the tunnel", connection.SiteSlug);
+            await siteConnection.ReconnectAsync();
+
+            // The initial SNMP push in OnAgentConnectedAsync was deferred because the
+            // console wasn't connected yet (it reaches the console through this same
+            // tunnel). Now that it's up, re-push so the agent gets the full device list
+            // immediately instead of waiting for the next periodic refresh.
+            if (siteConnection.IsConnected)
+                await PushSnmpConfigAsync(connection, CancellationToken.None);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Console reconnect on agent connect failed for site {Slug}", siteSlug);
+            _logger.LogDebug(ex, "Console reconnect on agent connect failed for site {Slug}", connection.SiteSlug);
         }
     }
 
@@ -177,29 +184,42 @@ public class AgentProbeResultSink
             if (config.Enabled)
             {
                 var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
-                if (siteConnection.IsConnected && siteConnection.Client != null)
+                if (!siteConnection.IsConnected || siteConnection.Client == null)
                 {
-                    var devices = await siteConnection.Client.GetDevicesAsync(ct) ?? new();
-                    string? gatewayLanIp = null;
-                    try { gatewayLanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(siteConnection.Client, ct); }
-                    catch (Exception ex) { _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug}", connection.SiteSlug); }
-
-                    var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var device in devices.Where(d =>
-                                 Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
-                    {
-                        config.Devices.Add(new SnmpDeviceSpec
-                        {
-                            Mac = device.Mac,
-                            Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
-                            Name = device.Name ?? "",
-                            DeviceType = device.DeviceType.ToString().ToLowerInvariant(),
-                        });
-                        if (!string.IsNullOrEmpty(device.Name))
-                            names[NormalizeMac(device.Mac)] = device.Name;
-                    }
-                    _deviceNamesBySite[connection.SiteSlug] = names;
+                    // SNMP is enabled in settings, but the site's console isn't connected
+                    // yet - on an agent-routed site it reconnects THROUGH this same tunnel
+                    // moments after this callback. We can't enumerate devices now, so skip
+                    // this push rather than sending Enabled=false, which would stop the
+                    // agent's SNMP polling. ReconnectConsoleIfViaAgentAsync re-pushes the
+                    // full config once the console is up.
+                    _logger.LogDebug(
+                        "SNMP enabled for site {Slug} but its console isn't connected yet; deferring SNMP config push",
+                        connection.SiteSlug);
+                    return;
                 }
+
+                var devices = await siteConnection.Client.GetDevicesAsync(ct) ?? new();
+                string? gatewayLanIp = null;
+                try { gatewayLanIp = await Monitoring.SnmpDeviceRules.ResolveGatewayLanIpAsync(siteConnection.Client, ct); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Gateway LAN IP resolution failed for site {Slug}", connection.SiteSlug); }
+
+                var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var device in devices.Where(d =>
+                             Monitoring.SnmpDeviceRules.IsMonitorable(d) && Monitoring.SnmpDeviceRules.HasSnmpEnabled(d)))
+                {
+                    config.Devices.Add(new SnmpDeviceSpec
+                    {
+                        Mac = device.Mac,
+                        Ip = Monitoring.SnmpDeviceRules.ResolvePollAddress(device, gatewayLanIp),
+                        Name = device.Name ?? "",
+                        DeviceType = device.DeviceType.ToString().ToLowerInvariant(),
+                    });
+                    if (!string.IsNullOrEmpty(device.Name))
+                        names[NormalizeMac(device.Mac)] = device.Name;
+                }
+                _deviceNamesBySite[connection.SiteSlug] = names;
+
+                // Console is up but the site genuinely has no SNMP-enabled devices.
                 if (config.Devices.Count == 0)
                     config.Enabled = false;
             }

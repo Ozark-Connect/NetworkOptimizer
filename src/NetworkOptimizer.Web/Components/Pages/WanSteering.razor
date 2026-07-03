@@ -2,7 +2,8 @@
 @implements IDisposable
 @inject WanSteerDeploymentService DeployService
 @inject UniFiConnectionService ConnectionService
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 @inject IGatewaySshService GatewaySshService
 @inject ILogger<WanSteering> Logger
 @inject PullToRefreshState PtrState
@@ -587,7 +588,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             _rules = await db.WanSteerTrafficClasses
                 .OrderBy(r => r.SortOrder)
                 .ToListAsync();
@@ -752,7 +753,7 @@
 
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
 
             if (_editingRuleId == 0)
             {
@@ -804,7 +805,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
             if (entity != null)
             {
@@ -831,7 +832,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var entity = await db.WanSteerTrafficClasses.FindAsync(rule.Id);
             if (entity != null)
             {
@@ -867,7 +868,7 @@
     {
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var entityA = await db.WanSteerTrafficClasses.FindAsync(a.Id);
             var entityB = await db.WanSteerTrafficClasses.FindAsync(b.Id);
             if (entityA != null && entityB != null)

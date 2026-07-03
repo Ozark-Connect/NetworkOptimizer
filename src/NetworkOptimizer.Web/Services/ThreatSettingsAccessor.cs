@@ -8,21 +8,30 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Provides access to threat-related SystemSettings, implementing the interface
 /// defined in the Threats project to avoid circular references with Storage.
+///
+/// Threat/CTI settings (CrowdSec API key + daily quota) are instance-wide, so this
+/// reads and writes the MAIN database via the context factory - NOT a site-scoped
+/// context. A scoped context would resolve to the current site's database, so
+/// browsing the threat dashboard on a secondary site would read that site's own
+/// empty SystemSettings row and report CrowdSec as unconfigured.
 /// </summary>
 public class ThreatSettingsAccessor : IThreatSettingsAccessor
 {
-    private readonly NetworkOptimizerDbContext _context;
+    private readonly IDbContextFactory<NetworkOptimizerDbContext> _mainDbFactory;
     private readonly ICredentialProtectionService _credentialService;
 
-    public ThreatSettingsAccessor(NetworkOptimizerDbContext context, ICredentialProtectionService credentialService)
+    public ThreatSettingsAccessor(
+        IDbContextFactory<NetworkOptimizerDbContext> mainDbFactory,
+        ICredentialProtectionService credentialService)
     {
-        _context = context;
+        _mainDbFactory = mainDbFactory;
         _credentialService = credentialService;
     }
 
     public async Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default)
     {
-        var setting = await _context.SystemSettings.FindAsync([key], cancellationToken);
+        await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+        var setting = await db.SystemSettings.FindAsync([key], cancellationToken);
         return setting?.Value;
     }
 
@@ -36,15 +45,16 @@ public class ThreatSettingsAccessor : IThreatSettingsAccessor
 
     public async Task SaveSettingAsync(string key, string value, CancellationToken cancellationToken = default)
     {
-        var setting = await _context.SystemSettings.FindAsync([key], cancellationToken);
+        await using var db = await _mainDbFactory.CreateDbContextAsync(cancellationToken);
+        var setting = await db.SystemSettings.FindAsync([key], cancellationToken);
         if (setting != null)
         {
             setting.Value = value;
         }
         else
         {
-            _context.SystemSettings.Add(new SystemSetting { Key = key, Value = value });
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value });
         }
-        await _context.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
     }
 }

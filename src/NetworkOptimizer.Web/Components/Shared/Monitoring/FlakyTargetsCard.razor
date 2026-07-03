@@ -2,7 +2,8 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Services.Monitoring
 @inject FlakyTargetService FlakyTargets
-@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
+@inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
+@inject SiteContextService SiteCtx
 
 @* Issue #849: flaky-target advisory. Hidden entirely when there are no candidates. Uses the
    standard collapsible-card convention (card-header-collapsible + issue-type-chevron + expand-wrapper). *@
@@ -124,7 +125,7 @@
 
     private async Task SetEnabledFalseAsync(IReadOnlyCollection<int> ids)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
+        await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
         var rows = await db.MonitoringTargets.Where(t => ids.Contains(t.Id)).ToListAsync();
         foreach (var row in rows) row.Enabled = false;
         await db.SaveChangesAsync();

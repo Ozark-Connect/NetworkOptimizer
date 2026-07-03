@@ -57,6 +57,39 @@ public class SystemSettingsService : ISystemSettingsService
     }
 
     /// <summary>
+    /// Get a GLOBAL (instance-wide) setting from the MAIN database, regardless of the
+    /// current site. <see cref="GetAsync"/> routes to the current site's database, which
+    /// is correct for genuinely per-site keys but wrong for values shared across all
+    /// sites (Mapbox token, CrowdSec config): on a secondary site those would read that
+    /// site's own empty SystemSettings row. Callers for shared keys must use this.
+    /// </summary>
+    public async Task<string?> GetGlobalAsync(string key)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var setting = await db.SystemSettings.FindAsync(key);
+        return setting?.Value;
+    }
+
+    /// <summary>
+    /// Set a GLOBAL (instance-wide) setting in the MAIN database, regardless of the
+    /// current site. Pair with <see cref="GetGlobalAsync"/> for shared keys.
+    /// </summary>
+    public async Task SetGlobalAsync(string key, string? value)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var setting = await db.SystemSettings.FindAsync(key);
+        if (setting == null)
+            db.SystemSettings.Add(new SystemSetting { Key = key, Value = value });
+        else
+            setting.Value = value;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
     /// Get a setting value as int with default
     /// </summary>
     public async Task<int> GetIntAsync(string key, int defaultValue)

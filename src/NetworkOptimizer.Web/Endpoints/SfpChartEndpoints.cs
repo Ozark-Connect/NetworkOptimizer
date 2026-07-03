@@ -11,7 +11,8 @@ public static class SfpChartEndpoints
     {
         app.MapGet("/api/monitoring/sfp-chart", async (
             MonitoringInfluxClient influx,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             int? rangeHours,
             DateTime? from,
             DateTime? to,
@@ -30,7 +31,7 @@ public static class SfpChartEndpoints
                 queryFrom = hours == 0 ? queryTo.AddMinutes(-15) : queryTo.AddHours(-hours);
             }
 
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var sfps = await db.MonitoredSfps.AsNoTracking()
                 .Where(s => s.IsMonitoredOnt)
                 .OrderBy(s => s.DeviceMac).ThenBy(s => s.PortName)

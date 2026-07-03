@@ -172,7 +172,7 @@ public class MonitoringPathView
         IReadOnlyList<WanSummary> structure;
         try
         {
-            structure = await _wanCache.GetOrBuildAsync(BuildWansAsync, WanStructureTtl, ct);
+            structure = await _wanCache.GetOrBuildAsync(_siteContext.Slug, BuildWansAsync, WanStructureTtl, ct);
         }
         catch (Exception ex)
         {

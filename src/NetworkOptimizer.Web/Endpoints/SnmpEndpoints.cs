@@ -14,7 +14,8 @@ public static class SnmpEndpoints
         app.MapPost("/api/monitoring/snmp/oid-check", async (
             TestOidRequest request,
             UniFiConnectionService connectionService,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             ICredentialProtectionService credentialProtection,
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
@@ -22,7 +23,7 @@ public static class SnmpEndpoints
             if (string.IsNullOrWhiteSpace(request.DeviceMac) || string.IsNullOrWhiteSpace(request.Oid))
                 return Results.BadRequest(new TestOidResponse { ErrorMessage = "Device MAC and OID are required." });
 
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings == null)
                 return Results.BadRequest(new TestOidResponse { ErrorMessage = "Monitoring not configured." });
@@ -58,10 +59,11 @@ public static class SnmpEndpoints
 
         app.MapGet("/api/monitoring/snmp/custom-oids/{deviceMac}", async (
             string deviceMac,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             CancellationToken ct) =>
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var oids = await db.CustomOidConfigurations
                 .Where(c => c.DeviceMac == deviceMac)
                 .OrderBy(c => c.FieldName)
@@ -81,7 +83,8 @@ public static class SnmpEndpoints
 
         app.MapPost("/api/monitoring/snmp/custom-oids", async (
             SaveCustomOidRequest request,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceMac) ||
@@ -89,7 +92,7 @@ public static class SnmpEndpoints
                 string.IsNullOrWhiteSpace(request.FieldName))
                 return Results.BadRequest("DeviceMac, Oid, and FieldName are required.");
 
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var now = DateTime.UtcNow;
 
             if (request.Id > 0)
@@ -127,10 +130,11 @@ public static class SnmpEndpoints
 
         app.MapDelete("/api/monitoring/snmp/custom-oids/{id:int}", async (
             int id,
-            IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+            SiteDbContextFactory siteDbFactory,
+            SiteContextService siteContext,
             CancellationToken ct) =>
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var entry = await db.CustomOidConfigurations.FindAsync(new object[] { id }, ct);
             if (entry == null) return Results.NotFound();
 

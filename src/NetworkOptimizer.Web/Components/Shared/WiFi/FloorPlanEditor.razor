@@ -1836,7 +1836,7 @@
             }
         }
 
-        var mapboxToken = await SystemSettings.GetAsync(SystemSettingKeys.MapboxApiKey) ?? "";
+        var mapboxToken = await SystemSettings.GetGlobalAsync(SystemSettingKeys.MapboxApiKey) ?? "";
         await JS.InvokeVoidAsync("fpEditor.initMap", _mapId, centerLat, centerLng, zoom, mapboxToken);
         await JS.InvokeVoidAsync("fpEditor.setDotNetRef", _dotNetRef);
         _mapInitialized = true;
