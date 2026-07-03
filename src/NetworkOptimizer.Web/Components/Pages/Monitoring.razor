@@ -1648,15 +1648,21 @@ else
                 && !string.IsNullOrEmpty(shared?.InfluxDbUrl);
         }
 
-        _influxConfigured = sharedConnection;
+        // A secondary site counts as configured only once its own buckets are reachable
+        // on the shared InfluxDB. Until then report not-configured so the Setup tab drops
+        // straight into the wizard - which creates this site's buckets (silently when the
+        // shared token is already org-scoped, otherwise prompting for one all-access token)
+        // - rather than showing a misleading "Unreachable" with a Re-run Setup button.
         if (sharedConnection)
         {
             var health = await InfluxClient.CheckHealthAsync();
-            _influxReachable = health.Reachable;
-            _influxError = health.Error;
+            _influxConfigured = health.Reachable;
+            _influxReachable = health.Reachable ? true : null;
+            _influxError = null;
         }
         else
         {
+            _influxConfigured = false;
             _influxReachable = null;
             _influxError = null;
         }
