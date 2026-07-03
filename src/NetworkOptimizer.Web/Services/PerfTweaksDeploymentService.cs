@@ -12,7 +12,8 @@ public class PerfTweaksDeploymentService
 {
     private readonly ILogger<PerfTweaksDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly SqmDeploymentService _sqmDeployment;
 
     private const string OnBootDir = "/data/on_boot.d";
@@ -57,14 +58,25 @@ public class PerfTweaksDeploymentService
     public PerfTweaksDeploymentService(
         ILogger<PerfTweaksDeploymentService> logger,
         IGatewaySshService gatewaySsh,
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
         SqmDeploymentService sqmDeployment)
     {
         _logger = logger;
         _gatewaySsh = gatewaySsh;
-        _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _sqmDeployment = sqmDeployment;
     }
+
+    /// <summary>
+    /// Context for the current site's database. Performance Tweaks deployment state
+    /// (PerfTweakSettings) is per-site - it tracks what's installed on that site's
+    /// gateway - so the main-DB factory would show the main site's installed state
+    /// (e.g. the SGMII+ patch) on every site.
+    /// </summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     private Task<(bool success, string output)> RunCommandAsync(string command, TimeSpan? timeout = null)
         => _gatewaySsh.RunCommandAsync(command, timeout);
@@ -383,7 +395,7 @@ public class PerfTweaksDeploymentService
             }
 
             // Load manually-deployed state from DB and adjust health checks
-            await using var db = await _dbFactory.CreateDbContextAsync();
+            await using var db = CreateSiteDb();
             var manualTweaks = await db.PerfTweakSettings.ToListAsync();
             foreach (var manual in manualTweaks.Where(m => m.IsManuallyDeployed))
             {
@@ -704,7 +716,7 @@ public class PerfTweaksDeploymentService
             var result = await RunCommandAsync(removeCmd, TimeSpan.FromMinutes(5));
 
             // Clear manual flag
-            await using var db = await _dbFactory.CreateDbContextAsync();
+            await using var db = CreateSiteDb();
             var setting = await db.PerfTweakSettings.FirstOrDefaultAsync(s => s.TweakId == tweakId);
             if (setting != null)
             {
@@ -726,7 +738,7 @@ public class PerfTweaksDeploymentService
 
     public async Task SetManuallyDeployedAsync(string tweakId, bool isManual)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var setting = await db.PerfTweakSettings.FirstOrDefaultAsync(s => s.TweakId == tweakId);
 
         if (isManual)
@@ -754,7 +766,7 @@ public class PerfTweaksDeploymentService
 
     private async Task PersistDeployedStateAsync(string tweakId)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var existing = await db.PerfTweakSettings.FirstOrDefaultAsync(s => s.TweakId == tweakId);
         if (existing == null)
         {

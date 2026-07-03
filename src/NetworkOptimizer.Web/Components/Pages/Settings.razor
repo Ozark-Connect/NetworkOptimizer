@@ -93,11 +93,13 @@
     <div class="card settings-tab-connection" id="console-connection">
         <div class="card-header">
             <h2 class="card-title">UniFi Console (Controller) Connection</h2>
-            @if (_currentSiteConsoleViaAgent)
-            {
-                <span class="status-badge" data-tooltip="This site's console is reached through its on-site agent tunnel, not a direct connection from this server">Via Site Agent</span>
-            }
-            <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
+            <div class="card-header-badges">
+                @if (_currentSiteConsoleViaAgent)
+                {
+                    <span class="status-badge badge-agent" data-tooltip="This site's console is reached through its on-site agent tunnel, not a direct connection from this server">Via Site Agent</span>
+                }
+                <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
+            </div>
         </div>
         <div class="card-body">
             <div class="form-group">
@@ -367,9 +369,15 @@
     <div class="card settings-tab-connection" id="gateway-ssh">
         <div class="card-header">
             <h2 class="card-title">Gateway SSH (Optional)</h2>
-            <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
-                @(gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
-            </span>
+            <div class="card-header-badges">
+                @if (_currentSiteSshViaAgent)
+                {
+                    <span class="status-badge badge-agent" data-tooltip="This site's SSH connections are made through its on-site agent tunnel, not directly from this server">Via Site Agent</span>
+                }
+                <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
+                    @(gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
+                </span>
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -533,9 +541,15 @@
     <div class="card settings-tab-connection" id="device-ssh">
         <div class="card-header">
             <h2 class="card-title">Device SSH (Optional)</h2>
-            <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
-                @(sshSettings?.Enabled == true ? "Configured" : "Not Configured")
-            </span>
+            <div class="card-header-badges">
+                @if (_currentSiteSshViaAgent)
+                {
+                    <span class="status-badge badge-agent" data-tooltip="This site's SSH connections are made through its on-site agent tunnel, not directly from this server">Via Site Agent</span>
+                }
+                <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
+                    @(sshSettings?.Enabled == true ? "Configured" : "Not Configured")
+                </span>
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -3201,6 +3215,7 @@
     private bool ignoreControllerSSLErrors = true;
     private string controllerStatus = "Disconnected";
     private bool _currentSiteConsoleViaAgent;
+    private bool _currentSiteSshViaAgent;
     private string? _currentSiteName;
     private bool testingController = false;
     private string controllerMessage = "";
@@ -3496,6 +3511,11 @@
         hasControllerPassword = !string.IsNullOrEmpty(connectionSettings.Password);
         hasControllerApiKey = connectionSettings.HasApiKey;
         _currentSiteConsoleViaAgent = await ConnectionService.IsConsoleViaAgentAsync();
+        await using (var sshAgentDb = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault))
+        {
+            var sshAgentSetting = await sshAgentDb.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
+            _currentSiteSshViaAgent = bool.TryParse(sshAgentSetting?.Value, out var sshViaAgent) && sshViaAgent;
+        }
 
         UpdateControllerStatus();
         await LoadGatewaySettings();

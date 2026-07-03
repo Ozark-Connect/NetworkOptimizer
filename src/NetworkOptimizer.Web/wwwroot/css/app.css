@@ -2107,6 +2107,17 @@ a.stat-card-link:active {
     color: var(--warning-color);
 }
 
+.status-badge.badge-agent {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-secondary);
+}
+
+.card-header-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 /* Buttons - Three colors only: primary (blue), secondary (grey), danger (red) */
 .btn {
     display: inline-flex;
