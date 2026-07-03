@@ -67,15 +67,15 @@ restart the server once.
 ### Run as a service (systemd)
 
 ```ini
-# /etc/systemd/system/no-agent.service
+# /etc/systemd/system/netopt-agent.service
 [Unit]
 Description=Network Optimizer Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/opt/no-agent
-ExecStart=/opt/no-agent/NetworkOptimizer.Agent
+WorkingDirectory=/opt/netopt-agent
+ExecStart=/opt/netopt-agent/NetworkOptimizer.Agent
 Restart=always
 RestartSec=5
 
@@ -84,8 +84,8 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now no-agent
-journalctl -u no-agent -f
+sudo systemctl enable --now netopt-agent
+journalctl -u netopt-agent -f
 ```
 
 ## Reverse proxy
@@ -159,9 +159,9 @@ tools needed on the box:
 dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64   # or linux-arm64
 
 scp src/NetworkOptimizer.Agent/bin/Release/net10.0/linux-x64/publish/NetworkOptimizer.Agent \
-    agent.json user@sitebox:/opt/no-agent/
+    agent.json user@sitebox:/opt/netopt-agent/
 
-ssh user@sitebox 'cd /opt/no-agent && chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent'
+ssh user@sitebox 'cd /opt/netopt-agent && chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent'
 ```
 
 Run it in the foreground first to watch enrollment and the tunnel connect, then

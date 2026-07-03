@@ -17443,14 +17443,33 @@ body.kiosk-mode .status-indicators {
     white-space: nowrap;
 }
 
-.agent-steps {
+.agent-install pre {
+    background: var(--bg-primary);
+    padding: 0.75rem;
+    border-radius: 6px;
+    overflow-x: auto;
     margin: 0.5rem 0 0;
-    padding-left: 1.25rem;
+    font-size: 0.8125rem;
 }
 
-.agent-steps li {
-    margin-bottom: 0.75rem;
+.agent-install code {
+    font-size: 0.8125rem;
+}
+
+.agent-install .agent-steps {
+    margin: 0.5rem 0 0;
+    padding-left: 1.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
     line-height: 1.5;
+}
+
+.agent-install .agent-steps li {
+    margin-bottom: 1.25rem;
+}
+
+.agent-install .agent-steps li:last-child {
+    margin-bottom: 0;
 }
 
 .sites-overview-card.sites-overview-static {
