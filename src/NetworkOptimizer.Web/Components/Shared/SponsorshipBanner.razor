@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @inject ISponsorshipService SponsorshipService
+@inject SiteContextService SiteContext
 
 @if (_showThankYou)
 {
@@ -98,6 +99,11 @@ else if (_nag != null)
 
     private async Task LoadNagAsync()
     {
+        // The sponsorship nag is a primary-site concern only - never nag while
+        // viewing a managed (non-default) site, including the Settings preview.
+        if (!SiteContext.IsDefault)
+            return;
+
         try
         {
             _nag = await SponsorshipService.GetCurrentNagAsync(AlwaysShow);

@@ -294,8 +294,15 @@
 
         try
         {
-            var (_, token) = await AgentEnrollment.CreateAgentAsync(_site.Id, "Agent 1");
-            _agentToken = token;
+            // Reuse the site's not-yet-enrolled agent if one exists (re-entering
+            // setup should refresh its token, not stack up duplicate agents);
+            // only create a row when the site has none.
+            var existing = await AgentEnrollment.GetAgentsForSiteAsync(_site.Id);
+            var pending = existing.FirstOrDefault(a => a.EnrolledAt == null);
+            _agentToken = pending != null
+                ? await AgentEnrollment.ReissueTokenAsync(pending.Id)
+                : null;
+            _agentToken ??= (await AgentEnrollment.CreateAgentAsync(_site.Id, "Agent")).Token;
 
             if (_featureProxy)
             {

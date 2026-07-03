@@ -73,6 +73,41 @@ public class AgentEnrollmentService
     }
 
     /// <summary>
+    /// Issues a fresh one-time enrollment token for an existing agent that has
+    /// not enrolled yet, so re-entering setup for a site reuses the same agent
+    /// row instead of piling up duplicates. Returns null if the agent is gone or
+    /// already enrolled.
+    /// </summary>
+    public async Task<string?> ReissueTokenAsync(int agentId)
+    {
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var agent = await db.SiteAgents.FindAsync(agentId);
+        if (agent == null || agent.EnrolledAt != null)
+            return null;
+
+        var token = TokenPrefix + Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        agent.EnrollmentTokenHash = Hash(token);
+        agent.TokenCreatedAt = DateTime.UtcNow;
+        agent.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Reissued enrollment token for agent {Name} (id {Id})", agent.Name, agent.Id);
+        return token;
+    }
+
+    /// <summary>Removes an agent registration entirely (its token/key stop working).</summary>
+    public async Task DeleteAgentAsync(int agentId)
+    {
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var agent = await db.SiteAgents.FindAsync(agentId);
+        if (agent == null)
+            return;
+
+        db.SiteAgents.Remove(agent);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Removed agent {Name} (id {Id}) for site {SiteId}", agent.Name, agent.Id, agent.SiteId);
+    }
+
+    /// <summary>
     /// Exchanges a one-time enrollment token for a long-lived agent key.
     /// Returns the raw key and the site slug the agent should operate under.
     /// </summary>

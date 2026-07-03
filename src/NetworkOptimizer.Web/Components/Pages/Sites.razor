@@ -64,7 +64,10 @@ else
                     }
                 </div>
                 <div class="site-card-footer">
-                    <span class="site-card-created">Added @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                    @if (!site.IsDefault)
+                    {
+                        <span class="site-card-created">Added @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                    }
                     @if (AgentCount(site.Id) > 0)
                     {
                         <span class="site-card-agents">@OnlineAgentCount(site.Id)/@AgentCount(site.Id) agents online</span>
