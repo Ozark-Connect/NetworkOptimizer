@@ -168,6 +168,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         }
     }
 
+    /// <summary>Whether an on-site agent tunnel is currently connected for this site.</summary>
+    private bool IsAgentOnline()
+    {
+        var registry = _serviceProvider.GetService<AgentTunnelRegistry>();
+        return registry != null && registry.GetForSite(SiteSlug).Count > 0;
+    }
+
     /// <summary>
     /// When the site's console is reached through its agent tunnel, rewrites
     /// the controller URL to the loopback proxy endpoint that forwards over
@@ -235,7 +242,22 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 if (settings.RememberCredentials && settings.HasCredentials)
                 {
                     await Task.Delay(1000); // Brief wait for app startup
-                    await ConnectWithSettingsAsync(settings);
+
+                    // If this site's console is reached through its agent tunnel and no
+                    // agent has connected yet, defer: dialing the loopback proxy with no
+                    // agent behind it fails with a spurious SSL/EOF error on the dashboard.
+                    // OnAgentConnectedAsync establishes the console connection as soon as
+                    // the tunnel comes up (often 20-30s after startup).
+                    if (await IsConsoleViaAgentAsync() && !IsAgentOnline())
+                    {
+                        _logger.LogInformation(
+                            "Console for site {Slug} routes via its agent tunnel, which isn't connected yet; deferring connect until the agent comes online",
+                            SiteSlug);
+                    }
+                    else
+                    {
+                        await ConnectWithSettingsAsync(settings);
+                    }
                 }
             }
         }

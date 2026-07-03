@@ -83,15 +83,15 @@
                 @if (_siteMode)
                 {
                     <p class="section-description">
-                        This site stores its monitoring data in the shared InfluxDB, in the
-                        <strong>@_sharedOrgName</strong> Organization, using site-specific
-                        buckets: <code>@SitePrimaryBucket</code> and <code>@SiteLongtermBucket</code>.
-                        Provide an <strong>All Access API Token</strong> once so we can
-                        create those buckets and upgrade the shared connection token to
-                        cover them. After this, adding more sites needs no token.
-                        <strong>Your All Access API Token is held in memory only for this
-                        request and discarded immediately after, it's never saved to
-                        disk.</strong>
+                        This site will store its monitoring data in the shared InfluxDB,
+                        using site-specific buckets: <code>@SitePrimaryBucket</code> and
+                        <code>@SiteLongtermBucket</code>. Provide an
+                        <strong>All Access API Token</strong> in the
+                        <strong>@_sharedOrgName</strong> Organization so we can create those
+                        buckets and upgrade the shared connection token to cover them. After
+                        this, adding more sites needs no token. <strong>Your All Access API
+                        Token is held in memory only for this request and discarded
+                        immediately after, it's never saved to disk.</strong>
                     </p>
                 }
                 else
