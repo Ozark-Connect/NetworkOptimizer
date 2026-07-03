@@ -17497,7 +17497,25 @@ body.kiosk-mode .status-indicators {
 }
 
 .checkbox-toggle input {
-    margin-top: 0.15rem;
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.checkbox-toggle > span {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.5;
+}
+
+.form-hint {
+    margin-top: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
+.site-wizard .action-buttons {
+    margin-top: 1.25rem;
 }
 
 .site-wizard pre {

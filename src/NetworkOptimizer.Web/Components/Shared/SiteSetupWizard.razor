@@ -113,20 +113,20 @@
             <p class="section-description">Choose what the agent does at the site:</p>
             <label class="checkbox-toggle">
                 <input type="checkbox" checked disabled />
-                <strong>Site monitoring</strong> - reaches the site's devices for SNMP polling,
-                latency/loss probing, and modem/ONT status pages. Always on; it's what the agent is for.
+                <span><strong>Site monitoring</strong> - reaches the site's devices for SNMP polling,
+                    latency/loss probing, and modem/ONT status pages. Always on; it's what the agent is for.</span>
             </label>
             <label class="checkbox-toggle">
                 <input type="checkbox" @bind="_featureLanSpeedTest" />
-                <strong>LAN speed test server</strong>
-                <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients">?</span>
-                - lets the site's clients run speed tests against the agent.
+                <span><strong>LAN speed test server</strong>
+                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients">?</span>
+                    - lets the site's clients run speed tests against the agent.</span>
             </label>
             <label class="checkbox-toggle">
                 <input type="checkbox" @bind="_featureProxy" />
-                <strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
-                gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
-                tests, deployments, and modem monitoring with no VPN.
+                <span><strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
+                    gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
+                    tests, deployments, and modem monitoring with no VPN.</span>
             </label>
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="CreateAgentAsync" disabled="@_busy">
