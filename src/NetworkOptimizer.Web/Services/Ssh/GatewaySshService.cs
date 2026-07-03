@@ -53,55 +53,15 @@ public class GatewaySshService : IGatewaySshService
     }
 
     /// <summary>
-    /// Per-site setting key: reach this site's SSH targets (gateway and devices)
-    /// through its agent tunnel. Same shape as the console-via-agent flag.
-    /// </summary>
-    public const string SshViaAgentKey = "ssh.via_agent";
-
-    // The via-agent flag is read per command; cache it briefly so frequent SSH
-    // callers (probes, deployments) don't hit SQLite on every invocation.
-    private bool? _cachedViaAgent;
-    private DateTime _viaAgentCacheTime = DateTime.MinValue;
-    private static readonly TimeSpan ViaAgentCacheExpiry = TimeSpan.FromMinutes(1);
-
-    /// <summary>Whether this site's SSH is configured to be reached through its agent tunnel.</summary>
-    public async Task<bool> IsSshViaAgentAsync()
-    {
-        // The default site is this server's own network - the tunnel never applies.
-        if (_siteSlug == SiteManagementService.DefaultSiteSlug) return false;
-        if (_cachedViaAgent.HasValue && DateTime.UtcNow - _viaAgentCacheTime < ViaAgentCacheExpiry)
-            return _cachedViaAgent.Value;
-        try
-        {
-            using var scope = CreateSiteScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-            var setting = await db.SystemSettings.FindAsync(SshViaAgentKey);
-            var enabled = bool.TryParse(setting?.Value, out var value) && value;
-            _cachedViaAgent = enabled;
-            _viaAgentCacheTime = DateTime.UtcNow;
-            return enabled;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Routes a connection through the site's agent tunnel when the site is
-    /// configured for SSH via agent: SSH.NET then dials a loopback proxy port
-    /// that the agent forwards to the real host inside the site's network.
+    /// Routes a connection through the site's agent tunnel when the site's devices
+    /// are reached via agent: SSH.NET then dials a loopback proxy port that the
+    /// agent forwards to the real host inside the site's network.
     /// </summary>
     private async Task<SshConnectionInfo> MaybeRouteViaAgentAsync(SshConnectionInfo connection)
     {
-        if (!await IsSshViaAgentAsync()) return connection;
-        var proxy = _serviceProvider.GetService<AgentTunnelProxyService>();
-        if (proxy == null) return connection;
-        var localPort = proxy.GetOrCreateEndpoint(_siteSlug, connection.Host, connection.Port);
-        _logger.LogDebug("SSH to {Host}:{Port} (site {Slug}) routed via agent tunnel (127.0.0.1:{LocalPort})",
-            connection.Host, connection.Port, _siteSlug, localPort);
-        connection.Host = "127.0.0.1";
-        connection.Port = localPort;
+        var routing = _serviceProvider.GetService<SiteTunnelRouting>();
+        if (routing == null) return connection;
+        (connection.Host, connection.Port) = await routing.RouteAsync(_siteSlug, connection.Host, connection.Port);
         return connection;
     }
 

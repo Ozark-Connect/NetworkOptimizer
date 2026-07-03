@@ -2677,9 +2677,10 @@
                                                     <label class="site-agent-console-toggle">
                                                         <input type="checkbox" checked="@SshViaAgent(site.Id)"
                                                                @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
-                                                        Reach this site's SSH (gateway and devices) through the agent tunnel.
-                                                        Enables gateway WAN speed tests and SSH-based features without VPN.
-                                                        Applies within a minute.
+                                                        Reach this site's devices through the agent tunnel: SSH to the gateway
+                                                        and devices, plus modem and ONT status pages. Enables gateway WAN speed
+                                                        tests, LAN speed tests, and modem monitoring without VPN. Applies within
+                                                        a minute.
                                                     </label>
                                                 }
                                                 @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
@@ -2935,17 +2936,17 @@
     private async Task LoadSshViaAgentAsync(Site site)
     {
         await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(NetworkOptimizer.Web.Services.Ssh.GatewaySshService.SshViaAgentKey);
+        var setting = await db.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
         _sshViaAgent[site.Id] = bool.TryParse(setting?.Value, out var enabled) && enabled;
     }
 
     private async Task ToggleSshViaAgent(Site site, bool value)
     {
         await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
-        var setting = await db.SystemSettings.FindAsync(NetworkOptimizer.Web.Services.Ssh.GatewaySshService.SshViaAgentKey);
+        var setting = await db.SystemSettings.FindAsync(SiteTunnelRouting.DevicesViaAgentKey);
         if (setting == null)
         {
-            db.SystemSettings.Add(new SystemSetting { Key = NetworkOptimizer.Web.Services.Ssh.GatewaySshService.SshViaAgentKey, Value = value.ToString() });
+            db.SystemSettings.Add(new SystemSetting { Key = SiteTunnelRouting.DevicesViaAgentKey, Value = value.ToString() });
         }
         else
         {

@@ -260,6 +260,10 @@ builder.Services.AddSingleton<SshClientService>();
 // from that site's DB, host fallback from that site's console). Scoped resolution of
 // IGatewaySshService forwards to the current site's instance; singleton consumers
 // inject the registry and pin GetDefault() or GetFor(slug).
+// Shared per-site tunnel routing for device endpoints (SSH, modem/ONT status
+// pages): consults the site's devices.via_agent flag and rewrites host:port to
+// an agent tunnel proxy endpoint when enabled.
+builder.Services.AddSingleton<SiteTunnelRouting>();
 builder.Services.AddSingleton<GatewaySshRegistry>();
 builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
