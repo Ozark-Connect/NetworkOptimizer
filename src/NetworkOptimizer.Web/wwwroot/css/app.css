@@ -17503,19 +17503,18 @@ body.kiosk-mode .status-indicators {
 
 .sites-overview-tiles .monitoring-stat-card {
     flex: 1 1 90px;
+    min-height: 0 !important;
+    border-bottom-width: 3px;
 }
 
-.sites-overview-tiles .stat-value.sv-teal {
-    color: #2ba89a;
-}
-
-.sites-overview-tiles .stat-value.sv-green {
-    color: var(--success-color);
-}
-
-.sites-overview-tiles .stat-value.sv-muted {
-    color: var(--text-muted);
-}
+.sites-overview-tiles .sites-tile-teal { border-bottom-color: #2ba89a; }
+.sites-overview-tiles .sites-tile-teal .stat-value { color: #2ba89a; }
+.sites-overview-tiles .sites-tile-emerald { border-bottom-color: #10b981; }
+.sites-overview-tiles .sites-tile-emerald .stat-value { color: #10b981; }
+.sites-overview-tiles .sites-tile-blue { border-bottom-color: #3b82f6; }
+.sites-overview-tiles .sites-tile-blue .stat-value { color: #3b82f6; }
+.sites-overview-tiles .sites-tile-purple { border-bottom-color: #a78bfa; }
+.sites-overview-tiles .sites-tile-purple .stat-value { color: #a78bfa; }
 
 .sites-overview-cta {
     margin-left: auto;

@@ -23,20 +23,20 @@
             }
         </div>
         <div class="sites-overview-tiles">
-            <div class="monitoring-stat-card">
-                <div class="stat-value sv-teal">@_sites.Count</div>
+            <div class="monitoring-stat-card sites-tile sites-tile-teal">
+                <div class="stat-value">@_sites.Count</div>
                 <div class="stat-label">Sites</div>
             </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value sv-green">@_sites.Count(s => s.Enabled)</div>
+            <div class="monitoring-stat-card sites-tile sites-tile-emerald">
+                <div class="stat-value">@_sites.Count(s => s.Enabled)</div>
                 <div class="stat-label">Enabled</div>
             </div>
-            <div class="monitoring-stat-card">
+            <div class="monitoring-stat-card sites-tile sites-tile-blue">
                 <div class="stat-value">@EnrolledAgents</div>
                 <div class="stat-label">Agents</div>
             </div>
-            <div class="monitoring-stat-card">
-                <div class="stat-value @(OnlineAgents > 0 ? "sv-green" : "sv-muted")">@OnlineAgents</div>
+            <div class="monitoring-stat-card sites-tile sites-tile-purple">
+                <div class="stat-value">@OnlineAgents</div>
                 <div class="stat-label">Agents Online</div>
             </div>
         </div>

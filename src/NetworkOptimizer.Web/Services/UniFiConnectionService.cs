@@ -100,6 +100,58 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// <summary>Per-site setting key: reach this site's console through its agent tunnel.</summary>
     public const string ConsoleViaAgentKey = "console.via_agent";
 
+    /// <summary>Per-site setting key: the UniFi Console's display name (system.name).</summary>
+    public const string ConsoleNameKey = "console.name";
+
+    /// <summary>
+    /// Fetches the console's display name from the controller and caches it in the
+    /// current site's database so the Sites listing and wizard can show it without
+    /// a live call. Best-effort: failures leave the previous value untouched.
+    /// </summary>
+    private async Task RefreshConsoleNameAsync()
+    {
+        try
+        {
+            if (_client == null)
+                return;
+            var name = await _client.GetConsoleNameAsync();
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+
+            using var scope = CreateSiteScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var setting = await db.SystemSettings.FindAsync(ConsoleNameKey);
+            if (setting == null)
+                db.SystemSettings.Add(new SystemSetting { Key = ConsoleNameKey, Value = name.Trim() });
+            else
+            {
+                setting.Value = name.Trim();
+                setting.UpdatedAt = DateTime.UtcNow;
+            }
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to refresh console name");
+        }
+    }
+
+    /// <summary>The cached UniFi Console display name for this site, if known.</summary>
+    public async Task<string?> GetCachedConsoleNameAsync()
+    {
+        try
+        {
+            using var scope = CreateSiteScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var setting = await db.SystemSettings.FindAsync(ConsoleNameKey);
+            return string.IsNullOrWhiteSpace(setting?.Value) ? null : setting.Value;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Whether this site's console is configured to be reached through its agent tunnel.</summary>
     public async Task<bool> IsConsoleViaAgentAsync()
     {
@@ -378,6 +430,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
                 // Save configuration to database
                 await SaveSettingsAsync(config);
+
+                // Cache the console's display name for the Sites listing / wizard.
+                await RefreshConsoleNameAsync();
 
                 // Clear cached data from previous connection/site
                 ClearCaches();

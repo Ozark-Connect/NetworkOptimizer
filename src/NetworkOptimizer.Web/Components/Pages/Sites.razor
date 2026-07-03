@@ -118,6 +118,13 @@ else
             try
             {
                 await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+                // Prefer the real UniFi Console name; fall back to the console host.
+                var nameSetting = await db.SystemSettings.FindAsync(UniFiConnectionService.ConsoleNameKey);
+                if (!string.IsNullOrWhiteSpace(nameSetting?.Value))
+                {
+                    _consoleHosts[site.Id] = nameSetting.Value;
+                    continue;
+                }
                 var settings = await db.UniFiConnectionSettings.AsNoTracking().FirstOrDefaultAsync();
                 _consoleHosts[site.Id] = ExtractHost(settings?.ControllerUrl);
             }

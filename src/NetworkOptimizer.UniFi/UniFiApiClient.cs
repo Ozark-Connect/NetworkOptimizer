@@ -503,6 +503,34 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/info - the console's display name (system.name), e.g. "[Console] Home".
+    /// Uses the shared V2 path builder so it is correct for UniFi OS and self-hosted alike.
+    /// </summary>
+    public async Task<string?> GetConsoleNameAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient!.GetAsync(BuildV2ApiPath("info"), cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return null;
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("system", out var system)
+                && system.TryGetProperty("name", out var name))
+            {
+                var value = name.GetString();
+                return string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch console name from v2/api/info");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Detects whether this is a UniFi OS device (UDM/UCG) or standalone controller
     /// by trying the /proxy/network path first (more common for modern deployments)
     /// </summary>

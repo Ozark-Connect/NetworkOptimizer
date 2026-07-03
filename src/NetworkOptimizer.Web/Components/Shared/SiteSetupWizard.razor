@@ -204,6 +204,7 @@
     private string _password = "";
     private string _apiKey = "";
     private bool _connected;
+    private string? _consoleName;
 
     private bool _wantAgent;
     private string? _agentToken;
@@ -278,7 +279,10 @@
             _connected = await connection.ConnectAsync(config);
             if (_connected)
             {
-                _message = "Console connected. Credentials saved to the site's database.";
+                _consoleName = await connection.GetCachedConsoleNameAsync();
+                _message = string.IsNullOrWhiteSpace(_consoleName)
+                    ? "Console connected. Credentials saved to the site's database."
+                    : $"Connected to {_consoleName}. Credentials saved to the site's database.";
                 _messageClass = "success";
                 _step = 3;
                 await OnSitesChanged.InvokeAsync();

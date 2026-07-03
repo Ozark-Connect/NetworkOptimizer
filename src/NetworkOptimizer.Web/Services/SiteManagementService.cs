@@ -92,8 +92,12 @@ public class SiteManagementService
         return Math.Max(0, limit - count);
     }
 
-    /// <summary>Gets all registered sites.</summary>
-    public Task<List<Site>> GetSitesAsync() => _siteRepository.GetAllAsync();
+    /// <summary>Gets all registered sites, with the default (main) site always first.</summary>
+    public async Task<List<Site>> GetSitesAsync()
+    {
+        var sites = await _siteRepository.GetAllAsync();
+        return sites.OrderByDescending(s => s.IsDefault).ToList();
+    }
 
     /// <summary>Updates a site's mutable fields (name, enabled, sort order, notes).</summary>
     public Task UpdateSiteAsync(Site site) => _siteRepository.UpdateAsync(site);
