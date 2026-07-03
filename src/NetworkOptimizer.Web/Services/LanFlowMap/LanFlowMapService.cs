@@ -19,7 +19,10 @@ namespace NetworkOptimizer.Web.Services.LanFlowMap;
 /// </summary>
 public class LanFlowMapService
 {
-    private readonly IUniFiClientProvider _connection;
+    // Scoped, per-site console connection (NOT the default-pinned IUniFiClientProvider
+    // singleton) so the map's device/topology source is the current site's console,
+    // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
+    private readonly UniFiConnectionService _connection;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly MonitoringLiveStats _liveStats;
     private readonly MonitoringInfluxClient _influx;
@@ -33,7 +36,7 @@ public class LanFlowMapService
     private readonly ILogger<LanFlowMapService> _logger;
 
     public LanFlowMapService(
-        IUniFiClientProvider connection,
+        UniFiConnectionService connection,
         INetworkPathAnalyzer pathAnalyzer,
         MonitoringLiveStats liveStats,
         MonitoringInfluxClient influx,

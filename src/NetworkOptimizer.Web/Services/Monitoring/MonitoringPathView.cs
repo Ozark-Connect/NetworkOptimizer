@@ -22,7 +22,8 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class MonitoringPathView
 {
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly UniFiConnectionService _connectionService;
     private readonly MonitoringLiveStats _liveStats;
     private readonly WanSummaryCache _wanCache;
@@ -31,18 +32,28 @@ public class MonitoringPathView
     private static readonly TimeSpan WanStructureTtl = TimeSpan.FromSeconds(30);
 
     public MonitoringPathView(
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
         UniFiConnectionService connectionService,
         MonitoringLiveStats liveStats,
         WanSummaryCache wanCache,
         ILogger<MonitoringPathView> logger)
     {
-        _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _connectionService = connectionService;
         _liveStats = liveStats;
         _wanCache = wanCache;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Context for the current site's database. MonitoringSettings, MonitoringTargets and
+    /// WanDiscoveryContexts are per-site rows; the main-DB factory would render the main
+    /// site's WAN clouds and access-ISP hops on every site's LAN flow map.
+    /// </summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>
     /// Returns the cloud graph for one WAN's upstream rendering. Pass null for the
@@ -51,7 +62,7 @@ public class MonitoringPathView
     /// </summary>
     public async Task<UpstreamPathSnapshot> GetUpstreamPathAsync(string? wanInterface = null, CancellationToken ct = default)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = CreateSiteDb();
         var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
         // Resolve the WAN to inspect; default to the first uplink port on the gateway.
