@@ -2614,12 +2614,28 @@
                 settings. Most installs manage a single network and can leave this off.
             </p>
 
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
-                    <span>Enable multi-site management</span>
-                </label>
-            </div>
+            @if (_multiSiteEnabled && _sites.Count > 1)
+            {
+                <div class="form-group">
+                    <div class="alert alert-warning">
+                        Multi-site management is <strong>enabled</strong> with @_sites.Count sites. Turning it off
+                        hides every managed site and returns to single-site mode (no site data is deleted). Do this
+                        from the main site, and only on purpose.
+                    </div>
+                    <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
+                        Disable multi-site management
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked="@_multiSiteEnabled" @onchange="OnMultiSiteEnabledChanged" />
+                        <span>Enable multi-site management</span>
+                    </label>
+                </div>
+            }
 
             @if (_multiSiteEnabled)
             {
@@ -2888,11 +2904,40 @@
 
     private async Task OnMultiSiteEnabledChanged(ChangeEventArgs e)
     {
-        _multiSiteEnabled = e.Value is true;
+        var enabling = e.Value is true;
+        if (!enabling && !await ConfirmDisableMultiSiteAsync())
+        {
+            // Revert the checkbox - disabling is a deliberate, confirmed action.
+            _multiSiteEnabled = true;
+            StateHasChanged();
+            return;
+        }
+
         _multiSiteMessage = "";
+        _multiSiteEnabled = enabling;
         await SiteManagement.SetMultiSiteEnabledAsync(_multiSiteEnabled);
         if (_multiSiteEnabled)
             _sites = await SiteManagement.GetSitesAsync();
+    }
+
+    // Disabling multi-site hides every managed site - never a casual one-click.
+    private async Task DisableMultiSiteAsync()
+    {
+        if (!await ConfirmDisableMultiSiteAsync())
+            return;
+
+        _multiSiteMessage = "";
+        _multiSiteEnabled = false;
+        await SiteManagement.SetMultiSiteEnabledAsync(false);
+        StateHasChanged();
+    }
+
+    private async Task<bool> ConfirmDisableMultiSiteAsync()
+    {
+        var count = _sites.Count;
+        return await JS.InvokeAsync<bool>("confirm",
+            $"Disable multi-site management? This hides all {count} site(s) and returns to single-site mode. " +
+            "No site data is deleted and you can re-enable it later. Continue?");
     }
 
     private async Task RefreshSites()
