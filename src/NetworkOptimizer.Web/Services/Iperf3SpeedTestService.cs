@@ -44,7 +44,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         ILogger<Iperf3SpeedTestService> logger,
         IServiceProvider serviceProvider,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        UniFiSshService sshService,
+        UniFiSshRegistry uniFiSshRegistry,
         SystemSettingsService settingsService,
         INetworkPathAnalyzer pathAnalyzer,
         SiteConnectionRegistry siteConnections,
@@ -54,7 +54,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         _logger = logger;
         _serviceProvider = serviceProvider;
         _dbFactory = dbFactory;
-        _sshService = sshService;
+        _sshService = uniFiSshRegistry.GetDefault();
         _settingsService = settingsService;
         _pathAnalyzer = pathAnalyzer;
         _connectionService = siteConnections.GetDefault();

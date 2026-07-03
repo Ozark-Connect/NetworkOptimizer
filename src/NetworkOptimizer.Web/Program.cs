@@ -268,8 +268,13 @@ builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<Gatew
 // used by Adaptive SQM, Monitoring Interfaces, etc.)
 builder.Services.AddSingleton<IUdmBootService, UdmBootService>();
 
-// Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
-builder.Services.AddSingleton<UniFiSshService>();
+// Device SSH per site: the registry owns one UniFiSshService per site (shared
+// device credentials + per-device configs from that site's DB). Scoped resolution
+// forwards to the current site's instance; singleton consumers inject the
+// registry and pin GetDefault() or GetFor(slug).
+builder.Services.AddSingleton<UniFiSshRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<UniFiSshRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
 // Register cellular modem providers (one per supported vendor transport).
 // CellularModemService resolves the right provider per ModemConfiguration.

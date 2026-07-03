@@ -29,9 +29,9 @@ public class MeshOptimizationService
     /// </summary>
     private static readonly Regex ValidStaIface = new(@"^vwiresta\d+$", RegexOptions.Compiled);
 
-    public MeshOptimizationService(UniFiSshService ssh, ILogger<MeshOptimizationService> logger)
+    public MeshOptimizationService(UniFiSshRegistry uniFiSshRegistry, ILogger<MeshOptimizationService> logger)
     {
-        _ssh = ssh;
+        _ssh = uniFiSshRegistry.GetDefault();
         _logger = logger;
     }
 

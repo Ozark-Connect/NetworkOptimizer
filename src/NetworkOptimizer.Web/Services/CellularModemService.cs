@@ -35,7 +35,7 @@ public class CellularModemService : ICellularModemService
     public CellularModemService(
         ILogger<CellularModemService> logger,
         IServiceProvider serviceProvider,
-        UniFiSshService sshService,
+        UniFiSshRegistry uniFiSshRegistry,
         SiteConnectionRegistry siteConnections,
         MonitoringInfluxRegistry influxRegistry,
         ICredentialProtectionService credentialProtection,
@@ -44,7 +44,7 @@ public class CellularModemService : ICellularModemService
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _sshService = sshService;
+        _sshService = uniFiSshRegistry.GetDefault();
         _connectionService = siteConnections.GetDefault();
         _influx = influxRegistry.GetDefault();
         _credentialProtection = credentialProtection;

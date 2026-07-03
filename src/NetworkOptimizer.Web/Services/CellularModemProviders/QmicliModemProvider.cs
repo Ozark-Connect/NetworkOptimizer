@@ -23,10 +23,10 @@ public sealed class QmicliModemProvider : ICellularModemProvider
 
     public QmicliModemProvider(
         ILogger<QmicliModemProvider> logger,
-        UniFiSshService sshService)
+        UniFiSshRegistry uniFiSshRegistry)
     {
         _logger = logger;
-        _sshService = sshService;
+        _sshService = uniFiSshRegistry.GetDefault();
     }
 
     /// <inheritdoc/>

@@ -9,6 +9,8 @@ namespace NetworkOptimizer.Web.Services;
 /// Service for managing shared SSH credentials and executing SSH commands on UniFi devices.
 /// All UniFi network devices (APs, switches) share the same SSH credentials.
 /// Uses SSH.NET via SshClientService for cross-platform support.
+/// One instance exists per site, owned by <see cref="UniFiSshRegistry"/>: credentials
+/// and device configurations come from that site's own database.
 /// </summary>
 public class UniFiSshService : IUniFiSshService
 {
@@ -16,6 +18,7 @@ public class UniFiSshService : IUniFiSshService
     private readonly IServiceProvider _serviceProvider;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly SshClientService _sshClient;
+    private readonly string _siteSlug;
 
     // Cache the settings to avoid repeated DB queries
     private UniFiSshSettings? _cachedSettings;
@@ -26,12 +29,25 @@ public class UniFiSshService : IUniFiSshService
         ILogger<UniFiSshService> logger,
         IServiceProvider serviceProvider,
         ICredentialProtectionService credentialProtection,
-        SshClientService sshClient)
+        SshClientService sshClient,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _credentialProtection = credentialProtection;
         _sshClient = sshClient;
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+    }
+
+    /// <summary>
+    /// Creates a DI scope pinned to this instance's site so scoped services
+    /// (repositories, DbContext) hit this site's database.
+    /// </summary>
+    private IServiceScope CreateSiteScope()
+    {
+        var scope = _serviceProvider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+        return scope;
     }
 
     /// <summary>
@@ -45,7 +61,7 @@ public class UniFiSshService : IUniFiSshService
             return _cachedSettings;
         }
 
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         var settings = await repository.GetUniFiSshSettingsAsync();
@@ -75,7 +91,7 @@ public class UniFiSshService : IUniFiSshService
     /// </summary>
     public async Task<UniFiSshSettings> SaveSettingsAsync(UniFiSshSettings settings)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         settings.UpdatedAt = DateTime.UtcNow;
@@ -288,7 +304,7 @@ public class UniFiSshService : IUniFiSshService
     /// </summary>
     public async Task<List<DeviceSshConfiguration>> GetDevicesAsync()
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
         return await repository.GetDeviceSshConfigurationsAsync();
     }
@@ -298,7 +314,7 @@ public class UniFiSshService : IUniFiSshService
     /// </summary>
     public async Task<DeviceSshConfiguration> SaveDeviceAsync(DeviceSshConfiguration device)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         // Encrypt password if provided and not already encrypted
@@ -316,7 +332,7 @@ public class UniFiSshService : IUniFiSshService
     /// </summary>
     public async Task DeleteDeviceAsync(int id)
     {
-        using var scope = _serviceProvider.CreateScope();
+        using var scope = CreateSiteScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
         await repository.DeleteDeviceSshConfigurationAsync(id);
     }
