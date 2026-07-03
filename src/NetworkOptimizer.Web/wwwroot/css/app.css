@@ -17556,6 +17556,15 @@ body.kiosk-mode .status-indicators {
     margin-top: 0.5rem;
 }
 
+.agent-status-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
 .checkbox-toggle {
     display: flex;
     align-items: flex-start;

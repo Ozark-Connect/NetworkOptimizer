@@ -10,6 +10,7 @@
 @using NetworkOptimizer.UniFi.Models
 @using Microsoft.EntityFrameworkCore
 @inject UniFiConnectionService ConnectionService
+@inject SiteContextService SiteContext
 @inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
 @inject ISpeedTestRepository SpeedTestRepository
@@ -85,6 +86,10 @@
     <div class="card settings-tab-connection" id="console-connection">
         <div class="card-header">
             <h2 class="card-title">UniFi Console (Controller) Connection</h2>
+            @if (_currentSiteConsoleViaAgent)
+            {
+                <span class="status-badge" data-tooltip="This site's console is reached through its on-site agent tunnel, not a direct connection from this server">Via Site Agent</span>
+            }
             <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
         </div>
         <div class="card-body">
@@ -268,6 +273,9 @@
         </div>
     </div>
 
+    @* Admin login is instance-wide, so the password is only managed on the main site. *@
+    @if (SiteContext.IsDefault)
+    {
     <!-- 2. Admin Password -->
     <div class="card settings-tab-application" id="admin-password">
         <div class="card-header">
@@ -342,6 +350,7 @@
             }
         </div>
     </div>
+    }
 
     <!-- 3. Gateway SSH -->
     <div class="card settings-tab-connection" id="gateway-ssh">
@@ -2622,10 +2631,18 @@
                                             {
                                                 <span class="status-badge">Default</span>
                                             }
+                                            else
+                                            {
+                                                var agentStatus = SiteAgentStatus(site.Id);
+                                                <span class="agent-status-inline" data-tooltip="@agentStatus.Tooltip">
+                                                    <span class="status-dot @agentStatus.Dot"></span>
+                                                    @agentStatus.Label
+                                                </span>
+                                            }
                                         </td>
                                         <td>
                                             <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
-                                                Agents (@AgentCount(site.Id))
+                                                Configuration
                                             </button>
                                         </td>
                                     </tr>
@@ -2905,6 +2922,19 @@
 
     private int AgentCount(int siteId) => AgentsFor(siteId).Count;
 
+    // At-a-glance agent state for a site's row in the Sites table.
+    private (string Dot, string Label, string Tooltip) SiteAgentStatus(int siteId)
+    {
+        var agents = AgentsFor(siteId);
+        if (agents.Count == 0)
+            return ("offline", "No agent", "No agent set up for this site");
+        if (agents.Any(a => a.Enabled && a.EnrolledAt != null && AgentEnrollmentService.IsOnline(a.LastSeenAt)))
+            return ("online", "Online", "An agent is enrolled and connected");
+        if (agents.Any(a => a.EnrolledAt != null))
+            return ("offline", "Offline", "An agent is enrolled but not currently connected");
+        return ("offline", "Awaiting", "Enrollment token created; waiting for the agent to enroll");
+    }
+
     private async Task ToggleAgents(int siteId)
     {
         _expandedSiteId = _expandedSiteId == siteId ? null : siteId;
@@ -3024,6 +3054,7 @@
     private bool rememberCredentials = true;
     private bool ignoreControllerSSLErrors = true;
     private string controllerStatus = "Disconnected";
+    private bool _currentSiteConsoleViaAgent;
     private bool testingController = false;
     private string controllerMessage = "";
     private string controllerMessageClass = "";
@@ -3317,6 +3348,7 @@
         var connectionSettings = await ConnectionService.GetSettingsAsync();
         hasControllerPassword = !string.IsNullOrEmpty(connectionSettings.Password);
         hasControllerApiKey = connectionSettings.HasApiKey;
+        _currentSiteConsoleViaAgent = await ConnectionService.IsConsoleViaAgentAsync();
 
         UpdateControllerStatus();
         await LoadGatewaySettings();
