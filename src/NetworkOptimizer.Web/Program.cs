@@ -268,9 +268,10 @@ builder.Services.AddSingleton<GatewaySshRegistry>();
 builder.Services.AddScoped<IGatewaySshService>(sp => sp.GetRequiredService<GatewaySshRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 
-// Register udm-boot installer (singleton - shared gateway boot-script infrastructure
-// used by Adaptive SQM, Monitoring Interfaces, etc.)
-builder.Services.AddSingleton<IUdmBootService, UdmBootService>();
+// Register udm-boot installer (scoped - shared gateway boot-script infrastructure
+// used by Adaptive SQM, Monitoring Interfaces, etc.; follows the current site's
+// gateway SSH so deployments persist on the right gateway)
+builder.Services.AddScoped<IUdmBootService, UdmBootService>();
 
 // Device SSH per site: the registry owns one UniFiSshService per site (shared
 // device credentials + per-device configs from that site's DB). Scoped resolution

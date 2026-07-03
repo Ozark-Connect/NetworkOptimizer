@@ -25,10 +25,12 @@ public class UdmBootService : IUdmBootService
     private readonly ILogger<UdmBootService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
 
-    public UdmBootService(ILogger<UdmBootService> logger, GatewaySshRegistry gatewaySshRegistry)
+    // Scoped: the injected gateway SSH service is the current site's instance,
+    // so boot scripts install on the gateway of the site being operated on.
+    public UdmBootService(ILogger<UdmBootService> logger, IGatewaySshService gatewaySsh)
     {
         _logger = logger;
-        _gatewaySsh = gatewaySshRegistry.GetDefault();
+        _gatewaySsh = gatewaySsh;
     }
 
     public async Task<bool> IsInstalledAsync()
