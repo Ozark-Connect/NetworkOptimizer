@@ -2614,20 +2614,7 @@
                 settings. Most installs manage a single network and can leave this off.
             </p>
 
-            @if (_multiSiteEnabled && _sites.Count > 1)
-            {
-                <div class="form-group">
-                    <div class="alert alert-warning">
-                        Multi-site management is <strong>enabled</strong> with @_sites.Count sites. Turning it off
-                        hides every managed site and returns to single-site mode (no site data is deleted). Do this
-                        from the main site, and only on purpose.
-                    </div>
-                    <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
-                        Disable multi-site management
-                    </button>
-                </div>
-            }
-            else
+            @if (!_multiSiteEnabled)
             {
                 <div class="form-group">
                     <label class="checkbox-label">
@@ -2758,6 +2745,18 @@
                 <div id="site-agent-setup">
                     <SiteSetupWizard @ref="_setupWizard" OnSitesChanged="RefreshSites" />
                 </div>
+
+                <details class="setup-guide multisite-disable">
+                    <summary>Disable multi-site management</summary>
+                    <div class="alert alert-warning">
+                        Multi-site management is enabled with @_sites.Count sites. Turning it off hides every
+                        managed site and returns to single-site mode (no site data is deleted). Do this from the
+                        main site, and only on purpose.
+                    </div>
+                    <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
+                        Disable multi-site management
+                    </button>
+                </details>
             }
 
             @if (!string.IsNullOrEmpty(_multiSiteMessage))
@@ -2904,17 +2903,10 @@
 
     private async Task OnMultiSiteEnabledChanged(ChangeEventArgs e)
     {
-        var enabling = e.Value is true;
-        if (!enabling && !await ConfirmDisableMultiSiteAsync())
-        {
-            // Revert the checkbox - disabling is a deliberate, confirmed action.
-            _multiSiteEnabled = true;
-            StateHasChanged();
-            return;
-        }
-
+        // The checkbox only shows while multi-site is off, so this path only ever
+        // enables; disabling goes through the guarded collapsible action below.
         _multiSiteMessage = "";
-        _multiSiteEnabled = enabling;
+        _multiSiteEnabled = e.Value is true;
         await SiteManagement.SetMultiSiteEnabledAsync(_multiSiteEnabled);
         if (_multiSiteEnabled)
             _sites = await SiteManagement.GetSitesAsync();

@@ -19,13 +19,15 @@ namespace NetworkOptimizer.Web.Services;
 
 public class AuditService
 {
-    // Cache keys for IMemoryCache
-    private const string CacheKeyLastAuditResult = "AuditService_LastAuditResult";
-    private const string CacheKeyLastAuditTime = "AuditService_LastAuditTime";
-    private const string CacheKeyLastAuditId = "AuditService_LastAuditId";
-    private const string CacheKeyDismissedIssues = "AuditService_DismissedIssues";
-    private const string CacheKeyDismissedIssuesLoaded = "AuditService_DismissedIssuesLoaded";
-    private const string CacheKeyIsRunning = "AuditService_IsRunning";
+    // Cache keys for IMemoryCache, scoped per site so the app-wide cache never
+    // leaks one site's audit state (score, findings, dismissals, running flag)
+    // into another when switching sites.
+    private string CacheKeyLastAuditResult => $"AuditService_LastAuditResult:{_siteContext.Slug}";
+    private string CacheKeyLastAuditTime => $"AuditService_LastAuditTime:{_siteContext.Slug}";
+    private string CacheKeyLastAuditId => $"AuditService_LastAuditId:{_siteContext.Slug}";
+    private string CacheKeyDismissedIssues => $"AuditService_DismissedIssues:{_siteContext.Slug}";
+    private string CacheKeyDismissedIssuesLoaded => $"AuditService_DismissedIssuesLoaded:{_siteContext.Slug}";
+    private string CacheKeyIsRunning => $"AuditService_IsRunning:{_siteContext.Slug}";
 
     /// <summary>
     /// Whether an audit is currently running. Uses IMemoryCache so it's visible
@@ -48,6 +50,7 @@ public class AuditService
     private readonly Audit.Analyzers.FirewallRuleParser _firewallParser;
     private readonly IAlertEventBus? _alertEventBus;
     private readonly IThreatRepository? _threatRepository;
+    private readonly SiteContextService _siteContext;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -59,9 +62,11 @@ public class AuditService
         PdfStorageService pdfStorageService,
         IMemoryCache cache,
         Audit.Analyzers.FirewallRuleParser firewallParser,
+        SiteContextService siteContext,
         IAlertEventBus? alertEventBus = null,
         IThreatRepository? threatRepository = null)
     {
+        _siteContext = siteContext;
         _logger = logger;
         _connectionService = connectionService;
         _auditEngine = auditEngine;
