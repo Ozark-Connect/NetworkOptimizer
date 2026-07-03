@@ -88,10 +88,11 @@
                         <code>@SiteLongtermBucket</code>. Provide an
                         <strong>All Access API Token</strong> in the
                         <strong>@_sharedOrgName</strong> Organization so we can create those
-                        buckets and upgrade the shared connection token to cover them. After
-                        this, adding more sites needs no token. <strong>Your All Access API
-                        Token is held in memory only for this request and discarded
-                        immediately after, it's never saved to disk.</strong>
+                        buckets and upgrade the shared connection token to cover them. If you
+                        add more Sites, the shared token will be used to provision each new
+                        Site in InfluxDB. <strong>Your All Access API Token is held in memory
+                        only for this request and discarded immediately after, it's never
+                        saved to disk.</strong>
                     </p>
                 }
                 else
@@ -108,7 +109,7 @@
 
                 <div class="form-group">
                     <label class="form-label">All Access API Token</label>
-                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    <input type="password" class="form-control" @bind="_adminToken" @bind:event="oninput" placeholder="Paste your InfluxDB All Access API Token" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
                 </div>
 
                 @if (_state == Step.PickOrg)
