@@ -57,15 +57,17 @@ public static class ScheduleExecutorRegistration
         }
     }
 
+    /// <summary>Scope pinned to a site so scoped services hit that site's database and console.</summary>
+    private static IServiceScope CreatePinnedScope(IServiceProvider services, string siteKey)
+    {
+        var scope = services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteKey);
+        return scope;
+    }
+
     private static async Task<(bool Success, string? Summary, string? Error)> ExecuteWanSpeedTestAsync(
         IServiceProvider services, string siteKey, int taskId, string? targetId, string? targetConfig, CancellationToken ct)
     {
-        // The speed test services are still default-site singletons; running
-        // them for another site would test the wrong network and store to the
-        // wrong database. Fail with a clear message instead.
-        if (siteKey != SiteManagementService.DefaultSiteSlug)
-            return (false, null, "Scheduled WAN speed tests are not yet supported on non-default sites");
-
         try
         {
             // Parse config for test type, max mode, multi-WAN
@@ -97,7 +99,7 @@ public static class ScheduleExecutorRegistration
             if (testType != "server" && (wanGroup != null || wanName != null))
             {
                 var reconcileResult = await ReconcileWanMetadataAsync(
-                    services, taskId, targetId, wanGroup, wanName, multiInterfaces,
+                    services, siteKey, taskId, targetId, wanGroup, wanName, multiInterfaces,
                     testType, maxMode, ct);
 
                 if (reconcileResult != null)
@@ -117,6 +119,12 @@ public static class ScheduleExecutorRegistration
 
             if (testType == "server")
             {
+                // The server-side test runs the local binary on THIS host, so it can
+                // only ever measure the default site's WAN. Remote sites use the
+                // gateway test (the binary runs on their own gateway).
+                if (siteKey != SiteManagementService.DefaultSiteSlug)
+                    return (false, null, "Server-side WAN speed tests measure this server's own WAN and are not available for other sites. Use a gateway test instead.");
+
                 var serverService = services.GetRequiredService<UwnSpeedTestService>();
                 if (serverService.IsRunning)
                     return (false, null, "WAN speed test is already running");
@@ -124,14 +132,21 @@ public static class ScheduleExecutorRegistration
             }
             else
             {
-                var gatewayService = services.GetRequiredService<GatewayWanSpeedTestService>();
+                // The site's own gateway runs the test and the result lands in the
+                // site's database - resolved by site key through the registry.
+                var gatewayService = services.GetRequiredService<SpeedTestServiceRegistry>()
+                    .GetFor(siteKey).GatewayWan;
                 if (gatewayService.IsRunning)
                     return (false, null, "WAN speed test is already running");
 
                 if (multiInterfaces is { Length: > 1 })
                 {
-                    var sqmService = services.GetRequiredService<SqmService>();
-                    var allWans = await sqmService.GetWanInterfacesFromControllerAsync();
+                    List<WanInterfaceInfo> allWans;
+                    using (var scope = CreatePinnedScope(services, siteKey))
+                    {
+                        var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
+                        allWans = await sqmService.GetWanInterfacesFromControllerAsync();
+                    }
                     var selectedWans = allWans.Where(w => multiInterfaces.Contains(w.Interface)).ToList();
                     result = await gatewayService.RunTestAsync(
                         "", wanGroup, wanName,
@@ -229,14 +244,18 @@ public static class ScheduleExecutorRegistration
     /// if the schedule was irreconcilable and disabled.
     /// </summary>
     private static async Task<ReconcileResult?> ReconcileWanMetadataAsync(
-        IServiceProvider services, int taskId,
+        IServiceProvider services, string siteKey, int taskId,
         string? targetId, string? wanGroup, string? wanName, string[]? multiInterfaces,
         string testType, bool maxMode, CancellationToken ct)
     {
         try
         {
-            var sqmService = services.GetRequiredService<SqmService>();
-            var liveWans = await sqmService.GetWanInterfacesFromControllerAsync();
+            List<WanInterfaceInfo> liveWans;
+            using (var scope = CreatePinnedScope(services, siteKey))
+            {
+                var sqmService = scope.ServiceProvider.GetRequiredService<ISqmService>();
+                liveWans = await sqmService.GetWanInterfacesFromControllerAsync();
+            }
 
             if (liveWans.Count == 0)
                 return null; // Controller unreachable or no WANs - skip reconciliation
@@ -246,11 +265,11 @@ public static class ScheduleExecutorRegistration
 
             if (multiInterfaces is { Length: > 1 })
                 return await ReconcileMultiWanAsync(
-                    services, logger, taskId, targetId, wanGroup, wanName, multiInterfaces,
+                    services, siteKey, logger, taskId, targetId, wanGroup, wanName, multiInterfaces,
                     testType, maxMode, liveWans, ct);
 
             return await ReconcileSingleWanAsync(
-                services, logger, taskId, targetId, wanGroup, wanName,
+                services, siteKey, logger, taskId, targetId, wanGroup, wanName,
                 testType, maxMode, liveWans, ct);
         }
         catch (Exception ex)
@@ -288,7 +307,7 @@ public static class ScheduleExecutorRegistration
     }
 
     private static async Task<ReconcileResult> ReconcileSingleWanAsync(
-        IServiceProvider services, ILogger logger, int taskId,
+        IServiceProvider services, string siteKey, ILogger logger, int taskId,
         string? targetId, string? wanGroup, string? wanName,
         string testType, bool maxMode,
         List<WanInterfaceInfo> liveWans, CancellationToken ct)
@@ -298,7 +317,7 @@ public static class ScheduleExecutorRegistration
 
         if (!matched)
         {
-            await DisableScheduleAsync(services, taskId, ct);
+            await DisableScheduleAsync(services, siteKey, taskId, ct);
             return new ReconcileResult(false,
                 $"WAN schedule disabled: could not reconcile interface {targetId} " +
                 $"(group={wanGroup}, name={wanName}) against live controller data",
@@ -315,7 +334,7 @@ public static class ScheduleExecutorRegistration
             if (newGroup != null) configObj["wanGroup"] = newGroup;
             if (newName != null) configObj["wanName"] = newName;
 
-            await PersistScheduleUpdateAsync(services, taskId, newIface, configObj, ct);
+            await PersistScheduleUpdateAsync(services, siteKey, taskId, newIface, configObj, ct);
             logger.LogInformation(
                 "Reconciled WAN schedule {TaskId}: iface={Iface} group={Group} name={Name}",
                 taskId, newIface, newGroup, newName);
@@ -328,7 +347,7 @@ public static class ScheduleExecutorRegistration
     }
 
     private static async Task<ReconcileResult> ReconcileMultiWanAsync(
-        IServiceProvider services, ILogger logger, int taskId,
+        IServiceProvider services, string siteKey, ILogger logger, int taskId,
         string? targetId, string? wanGroup, string? wanName, string[] multiInterfaces,
         string testType, bool maxMode,
         List<WanInterfaceInfo> liveWans, CancellationToken ct)
@@ -351,7 +370,7 @@ public static class ScheduleExecutorRegistration
 
             if (!matched)
             {
-                await DisableScheduleAsync(services, taskId, ct);
+                await DisableScheduleAsync(services, siteKey, taskId, ct);
                 return new ReconcileResult(false,
                     $"WAN schedule disabled: could not reconcile interface {iface} " +
                     $"(group={grp}, name={nm}) against live controller data",
@@ -381,16 +400,17 @@ public static class ScheduleExecutorRegistration
                 ["interfaces"] = newMultiInterfaces
             };
 
-            await PersistScheduleUpdateAsync(services, taskId, newTargetId, configObj, ct);
+            await PersistScheduleUpdateAsync(services, siteKey, taskId, newTargetId, configObj, ct);
             logger.LogInformation("Reconciled multi-WAN schedule {TaskId}: updated groups/names", taskId);
         }
 
         return new ReconcileResult(true, null, newTargetId, newWanGroup, newWanName, newMultiInterfaces);
     }
 
-    private static async Task DisableScheduleAsync(IServiceProvider services, int taskId, CancellationToken ct)
+    private static async Task DisableScheduleAsync(IServiceProvider services, string siteKey, int taskId, CancellationToken ct)
     {
-        using var scope = services.CreateScope();
+        // Schedule rows live in each site's own database; task ids are per-site sequences.
+        using var scope = CreatePinnedScope(services, siteKey);
         var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
         var task = await repo.GetByIdAsync(taskId, ct);
         if (task != null)
@@ -401,11 +421,11 @@ public static class ScheduleExecutorRegistration
     }
 
     private static async Task PersistScheduleUpdateAsync(
-        IServiceProvider services, int taskId, string? newTargetId,
+        IServiceProvider services, string siteKey, int taskId, string? newTargetId,
         Dictionary<string, object?> configObj, CancellationToken ct)
     {
         var newConfig = System.Text.Json.JsonSerializer.Serialize(configObj);
-        using var scope = services.CreateScope();
+        using var scope = CreatePinnedScope(services, siteKey);
         var repo = scope.ServiceProvider.GetRequiredService<IScheduleRepository>();
         var task = await repo.GetByIdAsync(taskId, ct);
         if (task != null)

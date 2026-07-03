@@ -317,8 +317,12 @@ builder.Services.AddSingleton<ClientDashboardService>();
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
 builder.Services.AddSingleton<UwnSpeedTestService>();
 
-// Register Gateway WAN Speed Test service (singleton - gateway-direct WAN speed tests via SSH)
-builder.Services.AddSingleton<GatewayWanSpeedTestService>();
+// Gateway WAN Speed Test per site (registry-owned): the test runs on that site's
+// gateway via its own SSH settings and stores to that site's database. Scoped
+// resolution forwards to the current site's instance; the schedule executor
+// resolves by site key through the registry.
+builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).GatewayWan);
 
 // Topology Snapshot service: default site's instance comes from the speed test
 // registry (per-site instances capture against their own site's console).

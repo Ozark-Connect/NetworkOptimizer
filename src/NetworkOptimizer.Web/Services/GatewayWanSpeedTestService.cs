@@ -13,6 +13,11 @@ namespace NetworkOptimizer.Web.Services;
 /// Deploys the uwnspeedtest binary to the gateway and runs it on a specific WAN interface,
 /// using UWN's distributed HTTP speed test network for accurate measurement.
 /// This measures true WAN throughput without LAN traversal overhead.
+/// One instance exists per site, owned by <see cref="SpeedTestServiceRegistry"/>:
+/// the test runs on that site's gateway (its own SSH settings) and results land in
+/// that site's database. This is how a remote site's WAN gets speed tested - the
+/// binary runs on the site's gateway, so the measurement never traverses the
+/// path back to this server.
 /// </summary>
 public class GatewayWanSpeedTestService
 {
@@ -23,8 +28,11 @@ public class GatewayWanSpeedTestService
     private readonly IGatewaySshService _gatewaySsh;
     private readonly SshClientService _sshClient;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IServiceProvider _serviceProvider;
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
 
     // Observable test state (polled by UI components)
     private readonly object _lock = new();
@@ -57,15 +65,28 @@ public class GatewayWanSpeedTestService
         GatewaySshRegistry gatewaySshRegistry,
         SshClientService sshClient,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         INetworkPathAnalyzer pathAnalyzer,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
-        _gatewaySsh = gatewaySshRegistry.GetDefault();
+        _siteSlug = string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug;
+        _isDefault = _siteSlug == SiteManagementService.DefaultSiteSlug;
+        _gatewaySsh = gatewaySshRegistry.GetFor(_siteSlug);
         _sshClient = sshClient;
         _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
         _pathAnalyzer = pathAnalyzer;
         _serviceProvider = serviceProvider;
+    }
+
+    /// <summary>Context for the database holding this instance's site data.</summary>
+    private NetworkOptimizerDbContext CreateSiteDb()
+    {
+        if (!_isDefault)
+            return _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
+        return _dbFactory.CreateDbContext();
     }
 
     /// <summary>
@@ -510,7 +531,7 @@ public class GatewayWanSpeedTestService
         CancellationToken cancellationToken)
     {
         report("Saving", 98, "Saving results...");
-        await using var db = await _dbFactory.CreateDbContextAsync(cancellationToken);
+        await using var db = CreateSiteDb();
         db.Iperf3Results.Add(testResult);
         await db.SaveChangesAsync(cancellationToken);
         var resultId = testResult.Id;
@@ -569,7 +590,7 @@ public class GatewayWanSpeedTestService
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         // Include historical Cloudflare gateway results alongside new UWN results
         var query = db.Iperf3Results
             .Where(r => r.Direction == SpeedTestDirection.UwnWanGateway
@@ -594,7 +615,7 @@ public class GatewayWanSpeedTestService
     /// </summary>
     public async Task<bool> DeleteResultAsync(int id)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var result = await db.Iperf3Results.FindAsync(id);
         if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
                             && result.Direction != SpeedTestDirection.CloudflareWanGateway))
@@ -611,7 +632,7 @@ public class GatewayWanSpeedTestService
     /// </summary>
     public async Task<bool> UpdateNotesAsync(int id, string? notes)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var result = await db.Iperf3Results.FindAsync(id);
         if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
                             && result.Direction != SpeedTestDirection.CloudflareWanGateway))
@@ -627,7 +648,7 @@ public class GatewayWanSpeedTestService
     /// </summary>
     public async Task<bool> UpdateWanAssignmentAsync(int id, string wanNetworkGroup, string? wanName)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var result = await db.Iperf3Results.FindAsync(id);
         if (result == null || (result.Direction != SpeedTestDirection.UwnWanGateway
                             && result.Direction != SpeedTestDirection.CloudflareWanGateway))
@@ -719,9 +740,7 @@ public class GatewayWanSpeedTestService
                 Success = false,
                 ErrorMessage = errorMessage,
             };
-            using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<NetworkOptimizerDbContext>>();
-            using var context = db.CreateDbContext();
+            using var context = CreateSiteDb();
             context.Iperf3Results.Add(failedResult);
             context.SaveChanges();
             return failedResult;
@@ -739,7 +758,7 @@ public class GatewayWanSpeedTestService
         {
             await Task.Delay(TimeSpan.FromSeconds(1));
 
-            await using var db = await _dbFactory.CreateDbContextAsync();
+            await using var db = CreateSiteDb();
             var result = await db.Iperf3Results.FindAsync(resultId);
             if (result == null) return;
 

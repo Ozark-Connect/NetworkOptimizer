@@ -20,7 +20,8 @@ public class SpeedTestServiceRegistry
     public sealed record SiteSpeedTestServices(
         NetworkPathAnalyzer PathAnalyzer,
         TopologySnapshotService Snapshots,
-        ClientSpeedTestService ClientSpeedTest);
+        ClientSpeedTestService ClientSpeedTest,
+        GatewayWanSpeedTestService GatewayWan);
 
     private readonly IServiceProvider _serviceProvider;
     private readonly SiteConnectionRegistry _siteConnections;
@@ -48,7 +49,9 @@ public class SpeedTestServiceRegistry
                 _serviceProvider, connection, pathAnalyzer);
             var clientSpeedTest = ActivatorUtilities.CreateInstance<ClientSpeedTestService>(
                 _serviceProvider, s, pathAnalyzer, snapshots);
-            return new SiteSpeedTestServices(pathAnalyzer, snapshots, clientSpeedTest);
+            var gatewayWan = ActivatorUtilities.CreateInstance<GatewayWanSpeedTestService>(
+                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer);
+            return new SiteSpeedTestServices(pathAnalyzer, snapshots, clientSpeedTest, gatewayWan);
         });
 
     /// <summary>The default site's speed test bundle.</summary>
