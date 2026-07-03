@@ -450,32 +450,27 @@ public static class CongestionLocalizer
         var sourceEvents = metricSource
             .SelectMany(m => eventsBySeries[m].Where(e => Overlaps(e.Start, e.End, window.Start, window.End)))
             .ToList();
-        var worst = sourceEvents.OrderByDescending(e => e.PeakRttMs - e.BaselineRttMs).First();
 
-        // When the named bottleneck hop DIDN'T fire its own event (a brief burst under the 30-min bar, so
-        // it's only the derived bottleneck), its magnitudes aren't in sourceEvents and the worst member is
-        // a deeper hop whose burst-event peak sits near baseline - the row would report a near-zero delta
-        // on the wrong hop. Compute the named hop's OWN in-window magnitudes from its samples instead
-        // (baseline median -> p90 RTT, median -> max jitter), mirroring BuildSharedIncident's fallback, so
-        // the row shows the named hop's real rise.
-        double baseRtt, peakRtt, baseJit, peakJit;
-        if (!identityFired && identity != null)
-        {
-            var ix = Index(identity);
-            var inR = ix.InWindowRtt(window.Start, window.End);
-            var inJ = ix.InWindowJitter(window.Start, window.End);
-            baseRtt = ix.BaselineRttMedian(inR) ?? 0;
-            peakRtt = inR.Count > 0 ? SeriesStats.Percentile(inR, 0.90) ?? baseRtt : baseRtt;
-            baseJit = ix.BaselineJitterMedian(inJ) ?? 0;
-            peakJit = inJ.Count > 0 ? inJ.Max() : baseJit;
-        }
-        else
-        {
-            baseRtt = worst.BaselineRttMs;
-            peakRtt = worst.PeakRttMs;
-            baseJit = worst.BaselineJitterMs;
-            peakJit = worst.PeakJitterMs;
-        }
+        // The row's magnitudes come from ONE hop's own in-window samples: the named bottleneck when
+        // localized, else the member with the largest fired rise. Sampling (baseline median -> p90 RTT,
+        // median -> max jitter) rather than reusing the fired event's peak matters because the detector
+        // reports PeakRttMs/PeakJitterMs as the bucket MEDIAN - which sits near baseline for a burst or
+        // jitter-driven event (its elevation is in the p90/spikes, not the median), so the row would show
+        // a ~0 delta. This also covers a derived bottleneck that never fired its own event. Mirrors
+        // BuildSharedIncident's owner-magnitude computation.
+        var metricHop = identity ?? members
+            .OrderByDescending(m => eventsBySeries.TryGetValue(m, out var es)
+                ? es.Where(e => Overlaps(e.Start, e.End, window.Start, window.End))
+                     .Select(e => e.PeakRttMs - e.BaselineRttMs).DefaultIfEmpty(0).Max()
+                : 0)
+            .First();
+        var mix = Index(metricHop);
+        var inR = mix.InWindowRtt(window.Start, window.End);
+        var inJ = mix.InWindowJitter(window.Start, window.End);
+        var baseRtt = mix.BaselineRttMedian(inR) ?? 0;
+        var peakRtt = inR.Count > 0 ? SeriesStats.Percentile(inR, 0.90) ?? baseRtt : baseRtt;
+        var baseJit = mix.BaselineJitterMedian(inJ) ?? 0;
+        var peakJit = inJ.Count > 0 ? inJ.Max() : baseJit;
         // The penalized ASN/targets are the bottleneck hop when localized; downstream victims
         // are excluded. An unlocalized event has no single culprit, so it keeps the full set.
         var id = identity != null ? new List<AsnSeries> { identity } : members;

@@ -276,6 +276,37 @@ public class CongestionLocalizerTests
     }
 
     [Fact]
+    public void Burst_event_reports_the_spike_magnitude_not_the_bucket_median()
+    {
+        // An intermittent-spike ("burst") event: RTT/jitter medians stay near baseline, only sporadic
+        // samples spike. The detector reports peak as the bucket MEDIAN, which hides the spikes, so the
+        // row would show a ~0 delta. The row must report the spike magnitude (sample p90 RTT / max jitter).
+        // Uses an off-trace-map target (unlocalized, identity == null) - e.g. a speedtest / endpoint target.
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 2, jitterMs: 0.3)
+            .Select((s, i) => s.Time >= HumpStart && s.Time < HumpStart.AddMinutes(45) && i % 3 == 0
+                ? new LatencySample(s.Time, 8, 8 + 5, 5, 0)   // sporadic spike: RTT 8 ms, jitter 5 ms
+                : s)
+            .ToList();
+        var series = new List<AsnSeries>
+        {
+            new() { AsnNumber = 500, AsnName = "AS500", TargetIds = { "203.0.113.9" }, Samples = samples, HopIps = { "203.0.113.9" } }
+        };
+        var topo = new CongestionTopology
+        {
+            HopNumberByIp = HopNumbers,
+            Load = new List<(DateTime, double?)>(),
+            HasTraceMap = true
+        };
+
+        var events = CongestionLocalizer.Localize(series, topo, Options);
+
+        events.Should().NotBeEmpty();
+        var e = events[0];
+        e.PeakRttMs.Should().BeGreaterThan(5);      // reflects the ~8 ms spike, not the ~2 ms bucket median
+        e.PeakJitterMs.Should().BeGreaterThan(2);   // reflects the ~5 ms jitter spike, not the flat median
+    }
+
+    [Fact]
     public void Dead_end_transit_is_unverifiable_and_not_merged_into_the_corridor_event()
     {
         var series = new List<AsnSeries>
