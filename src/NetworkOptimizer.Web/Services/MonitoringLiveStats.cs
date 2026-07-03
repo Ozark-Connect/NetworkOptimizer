@@ -53,6 +53,27 @@ public class MonitoringLiveStats
 
     private readonly ConcurrentDictionary<string, DeviceLiveStats> _stats = new();
 
+    // Last time SNMP data was seen for a device, keyed by normalized MAC. On an
+    // agent-covered site the server never polls SNMP locally (the agent does), so the
+    // collection agent's own last-polled tracker stays empty; the tunnel result sink
+    // stamps this each time a device's SNMP batch arrives, and the SNMP Devices status
+    // table reads it so agent-polled devices show as Polling rather than "not yet polled".
+    private readonly ConcurrentDictionary<string, DateTime> _snmpSeenByMac = new();
+
+    /// <summary>Records that SNMP data was just relayed for a device (agent-covered sites).</summary>
+    public void RecordSnmpSeen(string deviceMac, DateTime timestamp)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return;
+        _snmpSeenByMac[Normalize(deviceMac)] = timestamp;
+    }
+
+    /// <summary>The last time SNMP data was seen for a device, or null.</summary>
+    public DateTime? GetSnmpLastSeen(string deviceMac)
+    {
+        if (string.IsNullOrEmpty(deviceMac)) return null;
+        return _snmpSeenByMac.TryGetValue(Normalize(deviceMac), out var t) ? t : null;
+    }
+
     /// <summary>Total bytes/sec across all monitored interfaces on this device, plus latency.</summary>
     public DeviceLiveStats? GetForDevice(string deviceMac)
     {

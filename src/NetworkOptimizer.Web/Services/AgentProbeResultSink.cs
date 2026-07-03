@@ -270,6 +270,9 @@ public class AgentProbeResultSink
         foreach (var sample in batch.Interfaces)
         {
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(sample.TimestampUnixMs).UtcDateTime;
+            // Stamp last-seen so the SNMP Devices status table shows agent-polled devices
+            // as Polling (the server's own SNMP tracker is empty on agent-covered sites).
+            liveStats.RecordSnmpSeen(sample.DeviceMac, timestamp);
             var key = $"{connection.SiteSlug}/{sample.DeviceMac}/{sample.IfName}";
             InterfaceRateCalculator.State? prevState =
                 _counterCache.TryGetValue(key, out var cached) ? cached : null;
@@ -334,6 +337,7 @@ public class AgentProbeResultSink
         foreach (var health in batch.Health)
         {
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(health.TimestampUnixMs).UtcDateTime;
+            liveStats.RecordSnmpSeen(health.DeviceMac, timestamp);
             await influx.WriteDeviceHealthAsync(
                 deviceMac: health.DeviceMac,
                 deviceType: string.IsNullOrEmpty(health.DeviceType) ? "unknown" : health.DeviceType,

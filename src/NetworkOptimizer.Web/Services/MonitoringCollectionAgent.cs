@@ -2175,6 +2175,10 @@ public class MonitoringCollectionAgent : BackgroundService
     public async Task<IReadOnlyList<SnmpDeviceStatus>> GetSnmpDeviceStatusesAsync(CancellationToken ct = default)
     {
         var devices = await GetMonitorableDevicesAsync(ct);
+        // On an agent-covered site the server doesn't poll SNMP locally (the agent does),
+        // so _snmpLastPolled/_snmpFailures stay empty. Fall back to the last time the agent
+        // relayed SNMP data for each device so the status table reflects reality.
+        var agentCovers = AgentCoversCollection();
         var result = new List<SnmpDeviceStatus>(devices.Count);
         foreach (var device in devices)
         {
@@ -2183,6 +2187,16 @@ public class MonitoringCollectionAgent : BackgroundService
             var excluded = _snmpFailures.PeekExcluded(mac, out var excludedAt);
             var hasLastPolled = _snmpLastPolled.TryGetValue(mac, out var lastPolled);
             var failures = _snmpFailures.GetFailureCount(mac);
+
+            if (!hasLastPolled && agentCovers)
+            {
+                var agentSeen = _liveStats.GetSnmpLastSeen(mac);
+                if (agentSeen.HasValue)
+                {
+                    hasLastPolled = true;
+                    lastPolled = agentSeen.Value;
+                }
+            }
 
             SnmpPollState state;
             if (!snmpEnabled) state = SnmpPollState.SnmpDisabled;
