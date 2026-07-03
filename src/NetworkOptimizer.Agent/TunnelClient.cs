@@ -57,6 +57,15 @@ public sealed class TunnelClient
     /// </summary>
     public async Task RunAsync(string tunnelUrl, string agentKey, string version, bool ignoreSslErrors, CancellationToken ct)
     {
+        // Belt-and-braces with the startup config validation: the tunnel carries
+        // SNMP credentials and proxied console traffic, so cleartext is never OK.
+        if (!Uri.TryCreate(tunnelUrl, UriKind.Absolute, out var tunnelUri)
+            || tunnelUri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new InvalidOperationException(
+                $"Refusing non-HTTPS tunnel address '{tunnelUrl}' - publish the tunnel through the TLS reverse proxy.");
+        }
+
         var handler = new SocketsHttpHandler
         {
             // Keep the long-lived stream alive across NAT/firewall idle timeouts.

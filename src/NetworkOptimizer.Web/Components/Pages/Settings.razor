@@ -2689,10 +2689,21 @@
                                                         Enrollment token: <code>@_newAgentToken</code><br />
                                                         Copy it now - it is shown only once and expires in 24 hours if unused. On the site's agent box, build the agent
                                                         (<code>dotnet publish src/NetworkOptimizer.Agent -c Release</code>), create an
-                                                        <code>agent.json</code> with <code>serverUrl</code> (this server's address as reachable
-                                                        from that site) and <code>enrollmentToken</code>, then run the binary. It enrolls once
-                                                        and appears here as Online.
+                                                        <code>agent.json</code> with <code>serverUrl</code> (this server's HTTPS address as
+                                                        reachable from that site - the agent refuses plain HTTP) and <code>enrollmentToken</code>,
+                                                        then run the binary. It enrolls once and appears here as Online.
                                                     </div>
+                                                }
+                                                @if (!site.IsDefault)
+                                                {
+                                                    <p class="form-hint">
+                                                        No VPN between this server and the site? Expose this server's HTTPS reverse proxy to
+                                                        the internet and use that address as the agent's <code>serverUrl</code> and
+                                                        <code>tunnelUrl</code>. On a UniFi gateway at this server's site:
+                                                        UniFi Network &gt; Settings &gt; Policy Table &gt; Port Forwarding - forward the reverse
+                                                        proxy's HTTPS port (usually 443/TCP). The agent connects over HTTPS only and the tunnel
+                                                        rides the same reverse proxy, so no other port needs to be opened.
+                                                    </p>
                                                 }
                                             </td>
                                         </tr>

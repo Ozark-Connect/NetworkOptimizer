@@ -34,6 +34,30 @@ if (string.IsNullOrWhiteSpace(config.ServerUrl))
     return 1;
 }
 
+// The agent refuses cleartext transport outright: serverUrl and tunnelUrl must
+// be https. TLS comes from the reverse proxy fronting the central server (the
+// tunnel listener itself is h2c behind it); self-signed certificates work with
+// ignoreSslErrors, but plain http never does - the tunnel carries SNMP
+// credentials and proxied console traffic.
+static bool IsHttpsUrl(string url) =>
+    Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
+
+if (!IsHttpsUrl(config.ServerUrl))
+{
+    Console.Error.WriteLine(
+        $"Refusing non-HTTPS serverUrl '{config.ServerUrl}'. The agent only connects over HTTPS; " +
+        "use the https:// address of the reverse proxy fronting the central server " +
+        "(self-signed certificates: set \"ignoreSslErrors\": true).");
+    return 1;
+}
+if (!string.IsNullOrEmpty(config.TunnelUrl) && !IsHttpsUrl(config.TunnelUrl))
+{
+    Console.Error.WriteLine(
+        $"Refusing non-HTTPS tunnelUrl '{config.TunnelUrl}'. Publish the agent tunnel through the " +
+        "gRPC-capable reverse proxy (see the agent README) and use its https:// address.");
+    return 1;
+}
+
 var version = Assembly.GetExecutingAssembly()
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
 
@@ -62,13 +86,19 @@ if (string.IsNullOrEmpty(config.AgentKey))
 
     var enrollment = await response.Content.ReadFromJsonAsync<EnrollmentResponse>(AgentJson.Options)
         ?? throw new InvalidOperationException("Empty enrollment response");
-    // The tunnel is a dedicated cleartext HTTP/2 port on the same host as the
-    // web UI, so derive its address from the server URL unless the config
-    // already pins one explicitly.
-    var tunnelUrl = config.TunnelUrl;
-    if (tunnelUrl == null && enrollment.TunnelPort is int tunnelPort)
-        tunnelUrl = $"http://{new Uri(config.ServerUrl).Host}:{tunnelPort}";
-    config = config with { AgentKey = enrollment.AgentKey, SiteSlug = enrollment.SiteSlug, EnrollmentToken = null, TunnelUrl = tunnelUrl };
+    // The server's dedicated tunnel port is a cleartext HTTP/2 listener, and
+    // the agent only speaks HTTPS - so the tunnel address is never derived
+    // automatically. It must be pinned explicitly to the https address the
+    // reverse proxy publishes for the tunnel; until then the agent stays on
+    // REST heartbeats.
+    if (config.TunnelUrl == null && enrollment.TunnelPort is int tunnelPort)
+    {
+        Console.WriteLine(
+            $"The server offers an agent tunnel (port {tunnelPort}), but the agent connects over HTTPS only. " +
+            "Publish the tunnel through the gRPC-capable reverse proxy (see the agent README) and set " +
+            "\"tunnelUrl\" to its https:// address in agent.json.");
+    }
+    config = config with { AgentKey = enrollment.AgentKey, SiteSlug = enrollment.SiteSlug, EnrollmentToken = null };
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, AgentJson.WriteOptions));
     Console.WriteLine($"Enrolled for site '{config.SiteSlug}'. Agent key saved to {configPath}.");
 }

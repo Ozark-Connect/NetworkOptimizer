@@ -30,34 +30,39 @@ Produces a self-contained single-file binary.
 }
 ```
 
-`serverUrl` must be reachable from the site (site-to-site VPN address or a
-port-forwarded public address).
+`serverUrl` must be the central server's **HTTPS** address, reachable from the
+site (over a site-to-site VPN or a port-forwarded public address). The agent
+refuses to connect over anything but HTTPS - for `serverUrl` and `tunnelUrl`
+alike. Self-signed certificates work with `"ignoreSslErrors": true`; plain
+`http://` never does.
 
 3. Run the binary (optionally passing the config path, default `agent.json`;
    or set `NO_AGENT_CONFIG`). On first run it exchanges the one-time token for
-   an agent key via `POST /api/public/agents/enrollments`, writes the key,
-   site slug, and tunnel address back into `agent.json`, and discards the
-   token. It then holds a persistent gRPC tunnel to the server's agent tunnel
-   port (default 8043), heartbeating every 30 seconds; the Multi-Site tab and
-   Sites page show it as Online. If the tunnel is unreachable it falls back to
-   `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
+   an agent key via `POST /api/public/agents/enrollments`, writes the key and
+   site slug back into `agent.json`, and discards the token. With
+   `"tunnelUrl"` configured it holds a persistent gRPC tunnel to the server,
+   heartbeating every 30 seconds; the Multi-Site tab and Sites page show it as
+   Online. If the tunnel is unreachable (or not configured yet) it falls back
+   to `POST /api/public/agents/heartbeats` and keeps retrying the tunnel.
 
-The tunnel port only starts listening when multi-site is enabled at server
-startup - enable multi-site, then restart the server once. Override the port
-with the `AgentTunnel__Port` environment variable on the server, or pin the
-full address with `"tunnelUrl"` in `agent.json`.
+The tunnel port (default 8043, `AgentTunnel__Port` on the server) only starts
+listening when multi-site is enabled at server startup - enable multi-site,
+then restart the server once.
 
 ## Securing the tunnel
 
-The listener itself is cleartext HTTP/2, same as the web UI port: TLS belongs
-to the reverse proxy already fronting the central server. Over a site-to-site
-VPN, connect directly (`http://vpn-address:8043`). Without a VPN, publish the
-tunnel through the same reverse proxy as the web UI (it must speak gRPC -
-Caddy: `reverse_proxy h2c://127.0.0.1:8043`, nginx: `grpc_pass`) and set
-`"tunnelUrl": "https://agents.example.com"` in `agent.json`. Everything rides
-that one TLS session: heartbeats, probe and SNMP traffic (including SNMP
-credentials pushed to the agent), and proxied UniFi Console connections -
-which are additionally HTTPS end-to-end inside the tunnel.
+The tunnel listener itself is cleartext HTTP/2, same as the web UI port: TLS
+belongs to the reverse proxy already fronting the central server, and the
+agent only connects over HTTPS. Publish the tunnel through that reverse proxy
+in every deployment, VPN or not (it must speak gRPC - Caddy:
+`reverse_proxy h2c://127.0.0.1:8043`, nginx: `grpc_pass`), and set
+`"tunnelUrl": "https://agents.example.com"` in `agent.json`. Over a
+site-to-site VPN the same applies; the proxy is simply reached at its VPN
+address, with `"ignoreSslErrors": true` if its certificate does not match that
+address. Everything rides that one TLS session: heartbeats, probe and SNMP
+traffic (including SNMP credentials pushed to the agent), and proxied UniFi
+Console connections - which are additionally HTTPS end-to-end inside the
+tunnel.
 
 ## Probing
 
