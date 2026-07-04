@@ -32,8 +32,10 @@
         <li>
             Build for the box's architecture (<code>linux-arm64</code> for a Pi or ARM box):
             <pre><code>dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64</code></pre>
-            The binary lands at
-            <code>src/NetworkOptimizer.Agent/bin/Release/net10.0/linux-x64/publish/NetworkOptimizer.Agent</code>.
+            <div class="agent-step-note">
+                The binary lands at
+                <code>src/NetworkOptimizer.Agent/bin/Release/net10.0/linux-x64/publish/NetworkOptimizer.Agent</code>.
+            </div>
         </li>
         <li>
             Create <code>agent.json</code> next to the binary:
@@ -43,8 +45,10 @@
             Copy the <code>NetworkOptimizer.Agent</code> binary and <code>agent.json</code> to the box and run
             it - it enrolls, writes its key back into <code>agent.json</code>, and holds the tunnel:
             <pre><code>chmod +x NetworkOptimizer.Agent && ./NetworkOptimizer.Agent</code></pre>
-            Once it shows Online here, run it from a systemd service so it survives reboots (see the
-            deployment guide).
+            <div class="agent-step-note">
+                Once it shows Online here, run it from a systemd service so it survives reboots (see the
+                deployment guide).
+            </div>
         </li>
     </ol>
     <p class="form-hint">

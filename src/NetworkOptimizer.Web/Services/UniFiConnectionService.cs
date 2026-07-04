@@ -245,7 +245,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Auto-connect if we have credentials and RememberCredentials is true
                 if (settings.RememberCredentials && settings.HasCredentials)
                 {
-                    await Task.Delay(1000); // Brief wait for app startup
+                    // Only the default site connects at process startup and benefits from a brief
+                    // settle delay. A secondary site's connection service is created on demand when
+                    // the user switches to it (app already running), so the delay there just adds
+                    // latency to the site switch.
+                    if (SiteSlug == SiteManagementService.DefaultSiteSlug)
+                        await Task.Delay(1000);
 
                     // If this site's console is reached through its agent tunnel and no
                     // agent has connected yet, defer: dialing the loopback proxy with no
@@ -951,6 +956,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             // No auto-connect will happen, don't wait
             return false;
         }
+
+        // If this site's console is reached through an agent tunnel that isn't up yet, don't
+        // block: the console connects asynchronously once the agent comes online
+        // (OnAgentConnectedAsync), and pages reload via OnConnectionChanged. Polling the full
+        // timeout here would stall the page render on every agent-site load or switch, which
+        // is the single biggest cause of "the page takes forever to appear" on those sites.
+        if (await IsConsoleViaAgentAsync() && !IsAgentOnline())
+            return false;
 
         var startTime = DateTime.UtcNow;
         while (DateTime.UtcNow - startTime < timeout)
