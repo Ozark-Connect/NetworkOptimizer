@@ -34,7 +34,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         ILogger<GatewaySpeedTestService> logger,
         IGatewaySshService gatewaySsh,
         SystemSettingsService systemSettings,
-        INetworkPathAnalyzer pathAnalyzer,
+        SpeedTestServiceRegistry speedTestRegistry,
         SiteDbContextFactory siteDbFactory,
         SiteContextService siteContext,
         SiteTunnelRouting tunnelRouting,
@@ -43,9 +43,11 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         _logger = logger;
         _gatewaySsh = gatewaySsh;
         _systemSettings = systemSettings;
-        _pathAnalyzer = pathAnalyzer;
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
+        // Use this site's path analyzer (not the main-pinned singleton) so gateway speed-test
+        // path analysis resolves against the current site's topology.
+        _pathAnalyzer = speedTestRegistry.GetFor(_siteContext.Slug).PathAnalyzer;
         _tunnelRouting = tunnelRouting;
         _agentIperf3 = agentIperf3;
     }

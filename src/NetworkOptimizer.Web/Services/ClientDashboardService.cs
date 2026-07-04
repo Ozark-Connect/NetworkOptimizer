@@ -54,7 +54,6 @@ public class ClientDashboardService
         ILogger<ClientDashboardService> logger,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         UniFiConnectionService connectionService,
-        INetworkPathAnalyzer pathAnalyzer,
         SpeedTestServiceRegistry speedTestRegistry,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
@@ -64,8 +63,11 @@ public class ClientDashboardService
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
         _connectionService = connectionService;
-        _pathAnalyzer = pathAnalyzer;
-        _speedTestService = speedTestRegistry.GetFor(_siteContext.Slug).ClientSpeedTest;
+        // The path analyzer must be this site's, not the main-pinned singleton, so L2 traces
+        // resolve against the current site's topology.
+        var siteServices = speedTestRegistry.GetFor(_siteContext.Slug);
+        _pathAnalyzer = siteServices.PathAnalyzer;
+        _speedTestService = siteServices.ClientSpeedTest;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
     }

@@ -13,7 +13,8 @@
 @inject GatewayWanSpeedTestService GatewayWanTestService
 @inject ISqmService SqmService
 @inject IGatewaySshService GatewaySshService
-@inject INetworkPathAnalyzer PathAnalyzer
+@inject SpeedTestServiceRegistry SpeedTestRegistry
+@inject SiteContextService SiteContext
 @inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
@@ -561,6 +562,10 @@
 </div>
 
 @code {
+    // Resolve the current site's path analyzer (not the main-pinned singleton) so historical
+    // path re-computes trace against this site's topology.
+    private INetworkPathAnalyzer PathAnalyzer => SpeedTestRegistry.GetFor(SiteContext.Slug).PathAnalyzer;
+
     // Test state
     private bool _isRunning;
     private bool _maxMode;
