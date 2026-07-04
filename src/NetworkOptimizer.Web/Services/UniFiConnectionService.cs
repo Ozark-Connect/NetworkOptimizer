@@ -100,6 +100,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     /// <summary>Per-site setting key: reach this site's console through its agent tunnel.</summary>
     public const string ConsoleViaAgentKey = "console.via_agent";
 
+    /// <summary>Shown while a site's agent-tunneled console waits for the agent to come online.</summary>
+    private const string AwaitingAgentMessage =
+        "This site's console connects through its on-site agent, which isn't online yet. It connects automatically when the agent comes up - refresh in a moment.";
+
     /// <summary>Per-site setting key: the UniFi Console's display name (system.name).</summary>
     public const string ConsoleNameKey = "console.name";
 
@@ -250,6 +254,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     // the tunnel comes up (often 20-30s after startup).
                     if (await IsConsoleViaAgentAsync() && !IsAgentOnline())
                     {
+                        _awaitingAgent = true;
+                        _lastError = AwaitingAgentMessage;
                         _logger.LogInformation(
                             "Console for site {Slug} routes via its agent tunnel, which isn't connected yet; deferring connect until the agent comes online",
                             SiteSlug);
@@ -291,6 +297,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public bool IsConnected => _isConnected && _client != null;
     public bool IsInitialized { get; private set; }
     public string? LastError => _lastError;
+
+    private bool _awaitingAgent;
+
+    /// <summary>
+    /// True when this site's console is reached through its agent tunnel and that tunnel
+    /// isn't up yet - a transient "waiting for the agent" state, not a misconfiguration.
+    /// The UI should prompt to wait/refresh rather than steering to connection setup.
+    /// </summary>
+    public bool IsAwaitingAgent => _awaitingAgent && !_isConnected;
     public DateTime? LastConnectedAt => _lastConnectedAt;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
 
@@ -417,6 +432,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client = null;
             _isConnected = false;
             _lastError = null;
+            _awaitingAgent = false;
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
@@ -425,7 +441,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Reached through the agent tunnel, which isn't up. Dialing the loopback
                 // proxy now fails with an SSL/EOF error that gets misreported as a
                 // certificate problem, so surface the real reason.
-                _lastError = "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then connect again.";
+                _awaitingAgent = true;
+                _lastError = AwaitingAgentMessage;
                 return false;
             }
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
@@ -540,6 +557,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _client = null;
             _isConnected = false;
             _lastError = null;
+            _awaitingAgent = false;
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
@@ -548,7 +566,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Reached through the agent tunnel, which isn't up. Dialing the loopback
                 // proxy now fails with an SSL/EOF error that gets misreported as a
                 // certificate problem, so surface the real reason.
-                _lastError = "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then connect again.";
+                _awaitingAgent = true;
+                _lastError = AwaitingAgentMessage;
                 return false;
             }
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();

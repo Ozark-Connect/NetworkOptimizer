@@ -17308,7 +17308,9 @@ body.kiosk-mode .status-indicators {
     position: absolute;
     right: 0;
     top: calc(100% + 6px);
-    min-width: 230px;
+    min-width: 260px;
+    width: max-content;
+    max-width: min(360px, calc(100vw - 1.5rem));
     background: var(--bg-card);
     border: 1px solid var(--bg-tertiary);
     border-radius: 10px;
@@ -17341,10 +17343,22 @@ body.kiosk-mode .status-indicators {
     background: rgba(5, 80, 181, 0.18);
 }
 
+.site-switcher-item-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 .site-switcher-item-slug {
+    flex-shrink: 0;
     color: var(--text-muted);
     font-family: monospace;
     font-size: 0.75rem;
+    white-space: nowrap;
 }
 
 .site-switcher-all {
@@ -17392,7 +17406,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-card {
-    padding: 1.25rem;
+    padding: 1rem;
     cursor: pointer;
     border: 1px solid transparent;
     margin-bottom: 0;

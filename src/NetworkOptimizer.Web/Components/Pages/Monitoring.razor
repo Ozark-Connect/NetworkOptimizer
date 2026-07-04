@@ -48,24 +48,49 @@
 
 @if (!ConnectionService.IsConnected)
 {
-    <div class="connection-banner">
-        <div class="banner-content">
-            <span class="banner-icon">!</span>
-            <div class="banner-text">
-                @if (!string.IsNullOrEmpty(ConnectionService.LastError))
-                {
-                    <strong>Connection Error</strong>
+    @if (ConnectionService.IsAwaitingAgent)
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    <strong>Waiting for the site's agent</strong>
                     <span>@ConnectionService.LastError</span>
-                }
-                else
-                {
-                    <strong>Not Connected</strong>
-                    <span>Configure your UniFi Console connection in Settings to get started.</span>
-                }
+                </div>
+                <button class="btn btn-primary btn-sm" @onclick="RefreshConnectionAsync" disabled="@_refreshingConnection">
+                    @if (_refreshingConnection)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
             </div>
-            <a href="/settings" class="btn btn-primary btn-sm">Settings</a>
         </div>
-    </div>
+    }
+    else
+    {
+        <div class="connection-banner">
+            <div class="banner-content">
+                <span class="banner-icon">!</span>
+                <div class="banner-text">
+                    @if (!string.IsNullOrEmpty(ConnectionService.LastError))
+                    {
+                        <strong>Connection Error</strong>
+                        <span>@ConnectionService.LastError</span>
+                    }
+                    else
+                    {
+                        <strong>Not Connected</strong>
+                        <span>Configure your UniFi Console connection in Settings to get started.</span>
+                    }
+                </div>
+                <a href="/settings" class="btn btn-primary btn-sm">Settings</a>
+            </div>
+        </div>
+    }
 }
 else
 {
@@ -1835,6 +1860,24 @@ else
         {
             _checkingInflux = false;
             StateHasChanged();
+        }
+    }
+
+    private bool _refreshingConnection;
+
+    // "Refresh" on the agent-wait banner: re-attempt the console connection now (the
+    // agent may have just come online). On success, ReconnectAsync fires
+    // OnConnectionChanged, which refreshes this page; otherwise the banner stays.
+    private async Task RefreshConnectionAsync()
+    {
+        _refreshingConnection = true;
+        try
+        {
+            await ConnectionService.ReconnectAsync();
+        }
+        finally
+        {
+            _refreshingConnection = false;
         }
     }
 
