@@ -136,4 +136,78 @@ public class AgentEnrollmentServiceTests
 
         (await _service.HeartbeatAsync(agentKey!, null)).Should().BeFalse();
     }
+
+    [Fact]
+    public async Task Enroll_StoresReportedLanIp()
+    {
+        var siteId = await SeedSiteAsync();
+        var (_, token) = await _service.CreateAgentAsync(siteId, "Primary");
+
+        await _service.EnrollAsync(token, "1.0.0", "192.0.2.50");
+
+        var agent = (await _service.GetAgentsForSiteAsync(siteId)).Single();
+        agent.LanIp.Should().Be("192.0.2.50");
+    }
+
+    [Fact]
+    public async Task Heartbeat_UpdatesLanIp_AndIgnoresInvalidValues()
+    {
+        var siteId = await SeedSiteAsync();
+        var (_, token) = await _service.CreateAgentAsync(siteId, "Primary");
+        var (_, agentKey, _, _) = await _service.EnrollAsync(token, null, "192.0.2.50");
+
+        await _service.HeartbeatAsync(agentKey!, null, "198.51.100.10");
+        (await _service.GetAgentsForSiteAsync(siteId)).Single().LanIp.Should().Be("198.51.100.10");
+
+        // A blank or malformed value must not clobber the known-good LAN IP.
+        await _service.HeartbeatAsync(agentKey!, null, "not-an-ip");
+        (await _service.GetAgentsForSiteAsync(siteId)).Single().LanIp.Should().Be("198.51.100.10");
+
+        await _service.HeartbeatAsync(agentKey!, null, null);
+        (await _service.GetAgentsForSiteAsync(siteId)).Single().LanIp.Should().Be("198.51.100.10");
+    }
+
+    [Fact]
+    public async Task GetOnlineAgentLanIp_ReturnsIp_ForOnlineEnrolledAgent()
+    {
+        var siteId = await SeedSiteAsync("branch-office");
+        var (_, token) = await _service.CreateAgentAsync(siteId, "Primary");
+        await _service.EnrollAsync(token, "1.0.0", "192.0.2.50");
+
+        (await _service.GetOnlineAgentLanIpAsync("branch-office")).Should().Be("192.0.2.50");
+    }
+
+    [Fact]
+    public async Task GetOnlineAgentLanIp_ReturnsNull_ForDefaultSite()
+    {
+        (await _service.GetOnlineAgentLanIpAsync(SiteManagementService.DefaultSiteSlug)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetOnlineAgentLanIp_ReturnsNull_WhenAgentOffline()
+    {
+        var siteId = await SeedSiteAsync("branch-office");
+        var (agent, token) = await _service.CreateAgentAsync(siteId, "Primary");
+        await _service.EnrollAsync(token, "1.0.0", "192.0.2.50");
+
+        // Push LastSeenAt outside the online window.
+        await using (var db = _factory.CreateDbContext())
+        {
+            var row = await db.SiteAgents.FindAsync(agent.Id);
+            row!.LastSeenAt = DateTime.UtcNow - AgentEnrollmentService.OnlineWindow - TimeSpan.FromMinutes(1);
+            await db.SaveChangesAsync();
+        }
+
+        (await _service.GetOnlineAgentLanIpAsync("branch-office")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetOnlineAgentLanIp_ReturnsNull_WhenLanIpUnknown()
+    {
+        var siteId = await SeedSiteAsync("branch-office");
+        var (_, token) = await _service.CreateAgentAsync(siteId, "Primary");
+        await _service.EnrollAsync(token, "1.0.0");
+
+        (await _service.GetOnlineAgentLanIpAsync("branch-office")).Should().BeNull();
+    }
 }

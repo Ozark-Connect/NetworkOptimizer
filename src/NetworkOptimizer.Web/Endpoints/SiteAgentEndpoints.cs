@@ -9,14 +9,14 @@ namespace NetworkOptimizer.Web.Endpoints;
 /// </summary>
 public static class SiteAgentEndpoints
 {
-    private record EnrollmentRequest(string? Token, string? Version);
-    private record HeartbeatRequest(string? AgentKey, string? Version);
+    private record EnrollmentRequest(string? Token, string? Version, string? LanIp);
+    private record HeartbeatRequest(string? AgentKey, string? Version, string? LanIp);
 
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/public/agents/enrollments", async (EnrollmentRequest request, AgentEnrollmentService enrollment, AgentTunnelOptions tunnel) =>
         {
-            var (success, agentKey, siteSlug, error) = await enrollment.EnrollAsync(request.Token ?? "", request.Version);
+            var (success, agentKey, siteSlug, error) = await enrollment.EnrollAsync(request.Token ?? "", request.Version, request.LanIp);
             return success
                 ? Results.Ok(new { agentKey, siteSlug, tunnelPort = tunnel.Enabled ? tunnel.Port : (int?)null })
                 : Results.BadRequest(new { error });
@@ -24,7 +24,7 @@ public static class SiteAgentEndpoints
 
         app.MapPost("/api/public/agents/heartbeats", async (HeartbeatRequest request, AgentEnrollmentService enrollment) =>
         {
-            var ok = await enrollment.HeartbeatAsync(request.AgentKey ?? "", request.Version);
+            var ok = await enrollment.HeartbeatAsync(request.AgentKey ?? "", request.Version, request.LanIp);
             return ok ? Results.NoContent() : Results.Unauthorized();
         });
     }

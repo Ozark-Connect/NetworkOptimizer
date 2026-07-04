@@ -111,7 +111,7 @@ public class AgentEnrollmentService
     /// Exchanges a one-time enrollment token for a long-lived agent key.
     /// Returns the raw key and the site slug the agent should operate under.
     /// </summary>
-    public async Task<(bool Success, string? AgentKey, string? SiteSlug, string? Error)> EnrollAsync(string token, string? version)
+    public async Task<(bool Success, string? AgentKey, string? SiteSlug, string? Error)> EnrollAsync(string token, string? version, string? lanIp = null)
     {
         if (string.IsNullOrWhiteSpace(token))
             return (false, null, null, "Missing enrollment token");
@@ -135,6 +135,9 @@ public class AgentEnrollmentService
         agent.EnrolledAt = DateTime.UtcNow;
         agent.LastSeenAt = DateTime.UtcNow;
         agent.LastVersion = Truncate(version, 32);
+        var normalizedLanIp = NormalizeLanIp(lanIp);
+        if (normalizedLanIp != null)
+            agent.LanIp = normalizedLanIp;
         agent.EnrollmentTokenHash = null;
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
@@ -163,7 +166,7 @@ public class AgentEnrollmentService
     }
 
     /// <summary>Records a heartbeat for an enrolled agent, keyed by its agent key.</summary>
-    public async Task<bool> HeartbeatAsync(string agentKey, string? version)
+    public async Task<bool> HeartbeatAsync(string agentKey, string? version, string? lanIp = null)
     {
         if (string.IsNullOrWhiteSpace(agentKey))
             return false;
@@ -177,9 +180,36 @@ public class AgentEnrollmentService
         agent.LastSeenAt = DateTime.UtcNow;
         if (!string.IsNullOrWhiteSpace(version))
             agent.LastVersion = Truncate(version, 32);
+        var normalizedLanIp = NormalizeLanIp(lanIp);
+        if (normalizedLanIp != null)
+            agent.LanIp = normalizedLanIp;
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return true;
+    }
+
+    /// <summary>
+    /// The LAN IP of an enrolled, enabled, online agent for the given site slug,
+    /// or null when the site has no such agent (default site, no agent, agent
+    /// offline, or its LAN IP is not yet known). Used to point site clients at the
+    /// on-site agent for LAN speed tests.
+    /// </summary>
+    public async Task<string?> GetOnlineAgentLanIpAsync(string siteSlug)
+    {
+        if (string.IsNullOrWhiteSpace(siteSlug) || siteSlug == SiteManagementService.DefaultSiteSlug)
+            return null;
+
+        await using var db = await _mainDbFactory.CreateDbContextAsync();
+        var site = await db.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == siteSlug);
+        if (site == null)
+            return null;
+
+        var agent = await db.SiteAgents.AsNoTracking()
+            .Where(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null && a.LanIp != null)
+            .OrderByDescending(a => a.LastSeenAt)
+            .FirstOrDefaultAsync();
+
+        return agent != null && IsOnline(agent.LastSeenAt) ? agent.LanIp : null;
     }
 
     /// <summary>Enables or disables an agent. Disabled agents cannot enroll or heartbeat.</summary>
@@ -198,6 +228,19 @@ public class AgentEnrollmentService
     /// <summary>Whether a last-seen timestamp counts as online right now.</summary>
     public static bool IsOnline(DateTime? lastSeenAt) =>
         lastSeenAt != null && DateTime.UtcNow - lastSeenAt < OnlineWindow;
+
+    /// <summary>
+    /// Returns the trimmed IP if <paramref name="value"/> parses as a valid IP
+    /// address, otherwise null. Guards against overwriting a good stored LAN IP
+    /// with a blank or malformed value from an untrusted agent payload.
+    /// </summary>
+    private static string? NormalizeLanIp(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        var trimmed = value.Trim();
+        return System.Net.IPAddress.TryParse(trimmed, out _) ? trimmed : null;
+    }
 
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();

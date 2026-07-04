@@ -41,6 +41,15 @@ public class SiteAgent
     [MaxLength(32)]
     public string? LastVersion { get; set; }
 
+    /// <summary>
+    /// The agent's primary LAN IPv4 on the site network, reported on enrollment
+    /// and each heartbeat. Site clients are pointed at this address for LAN speed
+    /// tests (OpenSpeedTest and iperf3), since the central server's own address is
+    /// unreachable from a remote site's LAN. Null until an agent reports it.
+    /// </summary>
+    [MaxLength(45)]
+    public string? LanIp { get; set; }
+
     public bool Enabled { get; set; } = true;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

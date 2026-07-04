@@ -61,6 +61,11 @@ if (!string.IsNullOrEmpty(config.TunnelUrl) && !IsHttpsUrl(config.TunnelUrl))
 var version = Assembly.GetExecutingAssembly()
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
 
+// The agent's primary LAN IPv4 on the site network. The central server points
+// site clients at this address for LAN speed tests, since its own address is
+// unreachable from a remote site's LAN. Reported on enrollment and each heartbeat.
+var lanIp = NetworkOptimizer.Core.Helpers.NetworkUtilities.DetectLocalIpFromInterfaces();
+
 var handler = new HttpClientHandler();
 if (config.IgnoreSslErrors)
     handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
@@ -77,7 +82,7 @@ if (string.IsNullOrEmpty(config.AgentKey))
 
     Console.WriteLine("Enrolling with central server...");
     var response = await http.PostAsJsonAsync("api/public/agents/enrollments",
-        new { token = config.EnrollmentToken, version }, AgentJson.Options);
+        new { token = config.EnrollmentToken, version, lanIp }, AgentJson.Options);
     if (!response.IsSuccessStatusCode)
     {
         Console.Error.WriteLine($"Enrollment failed: {response.StatusCode} {await response.Content.ReadAsStringAsync()}");
@@ -176,7 +181,7 @@ while (!cts.IsCancellationRequested)
     try
     {
         var response = await http.PostAsJsonAsync("api/public/agents/heartbeats",
-            new { agentKey = config.AgentKey, version }, AgentJson.Options, cts.Token);
+            new { agentKey = config.AgentKey, version, lanIp }, AgentJson.Options, cts.Token);
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             Console.Error.WriteLine("Heartbeat rejected: agent disabled or key revoked");
         else if (!response.IsSuccessStatusCode)

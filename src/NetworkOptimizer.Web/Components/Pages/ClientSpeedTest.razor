@@ -17,6 +17,8 @@
 @inject Iperf3ServerService Iperf3Server
 @inject ApMapService ApMapService
 @inject PullToRefreshState PtrState
+@inject SiteContextService SiteContext
+@inject AgentEnrollmentService AgentEnrollment
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -40,6 +42,18 @@
             <h2 class="card-title">Run a Speed Test</h2>
         </div>
         <div class="card-body">
+            @if (siteUsesAgent)
+            {
+                <div class="alert alert-info">
+                    <strong>On-site agent:</strong> Speed tests for this site run against its on-site agent at <code>@serverHost</code>, so they measure this site's own network rather than the central server.
+                </div>
+            }
+            else if (agentSiteOffline)
+            {
+                <div class="alert alert-warning">
+                    <strong>On-site agent offline:</strong> This site's agent isn't reporting in, so the targets below point at the central server and may be unreachable from the site's network. Start the site's agent to test against the site directly.
+                </div>
+            }
             <div class="test-options">
                 <!-- OpenSpeedTest Option -->
                 <div class="test-option">
@@ -101,9 +115,9 @@
                         <h3>iperf3 to Server</h3>
                         <span class="badge badge-secondary">Advanced</span>
                     </div>
-                    <p>Run iperf3 from any device on your network to test LAN throughput to this server (<code>@serverHost</code>).</p>
+                    <p>Run iperf3 from any device on your network to test LAN throughput to @targetLabel (<code>@serverHost</code>).</p>
 
-                    @if (iperf3ServerEnabled && Iperf3Server.StartupFailed)
+                    @if (iperf3ServerEnabled && !siteUsesAgent && Iperf3Server.StartupFailed)
                     {
                         <div class="alert alert-danger">
                             <strong>Server Failed to Start:</strong> @Iperf3Server.FailureMessage
@@ -398,13 +412,13 @@
                 <h4 style="margin-top: 1.5rem;">iperf3 to Server</h4>
                 <ol>
                     <li>Install iperf3 on another device (laptop, phone, etc.)</li>
-                    <li>Run the command to connect to this server on port 5201</li>
+                    <li>Run the command to connect to @targetLabel on port 5201</li>
                     <li>Server automatically captures and records results</li>
                     <li>Device is identified by the connecting IP address</li>
                 </ol>
 
                 <p class="form-help">
-                    <strong>Note:</strong> This tests the LAN speed between client devices and the Network Optimizer server.
+                    <strong>Note:</strong> This tests the LAN speed between client devices and @(siteUsesAgent ? "the on-site agent" : "the Network Optimizer server").
                     It's useful for identifying wireless bottlenecks, cable issues, switch problems, or network congestion.
                 </p>
             </div>
@@ -783,6 +797,15 @@
     private bool openSpeedTestAvailable;
     private string serverHost = "<server IP>";
 
+    // Multi-site: on an agent-backed site, tests target the on-site agent instead
+    // of this central server (whose address is unreachable from a remote site LAN).
+    private bool siteUsesAgent;
+    private bool agentSiteOffline;
+    private string targetLabel = "this server";
+
+    // Ports the on-site agent serves LAN speed tests on (OpenSpeedTest / iperf3).
+    private const int AgentOpenSpeedTestPort = 3000;
+
     // OpenSpeedTest health check cache
     private static DateTime _lastHealthCheck = DateTime.MinValue;
     private static bool _lastHealthResult = false;
@@ -830,6 +853,30 @@
         // Load configuration
         iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
 
+        // Multi-site: on an agent-backed site, point clients at the on-site agent
+        // (its own LAN IP) for LAN speed tests. The central server's own address is
+        // unreachable from a remote site's LAN. Falls back to the central-server
+        // target below when the site has no online agent reporting a LAN IP yet.
+        string? agentLanIp = null;
+        if (!SiteContext.IsDefault)
+        {
+            agentLanIp = await AgentEnrollment.GetOnlineAgentLanIpAsync(SiteContext.Slug);
+            agentSiteOffline = agentLanIp == null;
+        }
+        siteUsesAgent = agentLanIp != null;
+        targetLabel = siteUsesAgent ? "the on-site agent" : "this server";
+
+        if (siteUsesAgent)
+        {
+            // The agent serves OpenSpeedTest (HTTP) on port 3000 and iperf3 on 5201
+            // on the site network. It reports Online, so trust it without a health probe.
+            openSpeedTestUrl = $"http://{agentLanIp}:{AgentOpenSpeedTestPort}";
+            serverHost = agentLanIp!;
+            iperf3ServerEnabled = true;
+            openSpeedTestAvailable = true;
+        }
+        else
+        {
         // Construct OpenSpeedTest URL - supports HTTPS when proxied
         var hostName = Configuration["HOST_NAME"];
         var hostIp = Configuration["HOST_IP"];
@@ -894,6 +941,7 @@
         else if (!string.IsNullOrEmpty(openSpeedTestHealthCheckUrl))
         {
             openSpeedTestAvailable = await CheckOpenSpeedTestHealthAsync();
+        }
         }
 
         await LoadHistory();
