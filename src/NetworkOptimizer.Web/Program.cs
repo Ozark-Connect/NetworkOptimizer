@@ -954,7 +954,7 @@ app.Services.GetRequiredService<NetworkOptimizer.Threats.Enrichment.GeoEnrichmen
 // Load CrowdSec daily quota from settings
 {
     var sysSettings = app.Services.GetRequiredService<ISystemSettingsService>();
-    var csQuota = await sysSettings.GetAsync("crowdsec.daily_quota");
+    var csQuota = await sysSettings.GetGlobalAsync("crowdsec.daily_quota");
     var dailyLimit = 30;
     if (!string.IsNullOrEmpty(csQuota) && int.TryParse(csQuota, out var q) && q >= 1)
         dailyLimit = q;
