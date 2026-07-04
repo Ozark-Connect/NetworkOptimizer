@@ -41,8 +41,12 @@ public class ThreatCollectionService : BackgroundService
 
     // Track attack chain alerts: key = "chain:{ip}" or "attempt:{ip}", value = "stageCount:totalEvents:utcTicks"
     // Persisted to SystemSettings as JSON so dedup survives restarts.
-    private readonly Dictionary<string, string> _chainAlertState = new();
-    private bool _chainStateLoaded;
+    // Chain-alert dedup state, kept per originating site ("" = default). Attacker IPs
+    // repeat across sites, so this state must never be shared between them.
+    private readonly Dictionary<string, Dictionary<string, string>> _chainStateBySite = new();
+    private readonly HashSet<string> _chainStateLoadedSites = new();
+    // Optional per-site fan-out. Null (unregistered) means single-site behavior.
+    private readonly NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? _siteContext;
 
     public ThreatCollectionService(
         IServiceScopeFactory scopeFactory,
@@ -53,7 +57,8 @@ public class ThreatCollectionService : BackgroundService
         ThreatPatternAnalyzer patternAnalyzer,
         IAlertEventBus alertEventBus,
         IHttpClientFactory httpClientFactory,
-        IUniFiClientAccessor uniFiClientAccessor)
+        IUniFiClientAccessor uniFiClientAccessor,
+        NetworkOptimizer.Alerts.Interfaces.IScheduleSiteContext? siteContext = null)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -64,7 +69,15 @@ public class ThreatCollectionService : BackgroundService
         _alertEventBus = alertEventBus;
         _httpClientFactory = httpClientFactory;
         _uniFiClientAccessor = uniFiClientAccessor;
+        _siteContext = siteContext;
     }
+
+    private string DefaultSiteKey => _siteContext?.DefaultKey ?? "";
+
+    // Namespaces per-site cursor/state keys stored in the (global) settings DB. The default
+    // site keeps the bare key so existing single-site state is preserved exactly.
+    private string SiteScopedKey(string baseKey, string? siteKey) =>
+        string.IsNullOrEmpty(siteKey) || siteKey == DefaultSiteKey ? baseKey : $"{baseKey}:{siteKey}";
 
     /// <summary>
     /// Signal the background loop to run a collection cycle immediately.
@@ -102,7 +115,20 @@ public class ThreatCollectionService : BackgroundService
         {
             try
             {
-                await CollectAndProcessAsync(stoppingToken);
+                var siteKeys = _siteContext == null
+                    ? new List<string?> { null }
+                    : (await _siteContext.GetSiteKeysAsync(stoppingToken)).Cast<string?>().ToList();
+                foreach (var siteKey in siteKeys)
+                {
+                    try
+                    {
+                        await CollectAndProcessAsync(siteKey, stoppingToken);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogError(ex, "Threat collection failed for site {Site}", siteKey ?? "main");
+                    }
+                }
                 _hasCollectedOnce = true;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -128,9 +154,12 @@ public class ThreatCollectionService : BackgroundService
         _logger.LogInformation("Threat collection service stopped");
     }
 
-    private async Task CollectAndProcessAsync(CancellationToken cancellationToken)
+    private async Task CollectAndProcessAsync(string? siteKey, CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
+        // Pin the scope to this site so the scoped threat repository reads/writes ITS database.
+        // The settings accessor stays instance-wide (main DB); per-site cursors are namespaced.
+        _siteContext?.PinScope(scope, siteKey ?? DefaultSiteKey);
         var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
         var settings = scope.ServiceProvider.GetRequiredService<IThreatSettingsAccessor>();
 
@@ -143,10 +172,10 @@ public class ThreatCollectionService : BackgroundService
             return;
         }
 
-        var apiClient = _uniFiClientAccessor.Client;
+        var apiClient = _uniFiClientAccessor.GetClient(siteKey);
         if (apiClient == null)
         {
-            _logger.LogDebug("UniFi API client not available, skipping threat collection");
+            _logger.LogDebug("UniFi API client not available for site {Site}, skipping threat collection", siteKey ?? "main");
             return;
         }
 
@@ -155,7 +184,8 @@ public class ThreatCollectionService : BackgroundService
         // to avoid hitting the ~1000-result pagination cap. On subsequent runs, only
         // query from last sync (with 2-min overlap for API eventual consistency).
         var now = DateTimeOffset.UtcNow;
-        var lastSyncStr = await settings.GetSettingAsync("threats.last_sync_timestamp", cancellationToken);
+        var lastSyncKey = SiteScopedKey("threats.last_sync_timestamp", siteKey);
+        var lastSyncStr = await settings.GetSettingAsync(lastSyncKey, cancellationToken);
         DateTimeOffset recentStart;
 
         if (lastSyncStr != null && DateTimeOffset.TryParse(lastSyncStr, out var lastSync) && lastSync > now.AddHours(-24))
@@ -178,13 +208,13 @@ public class ThreatCollectionService : BackgroundService
             if (chunkEnd > now) chunkEnd = now;
 
             var chunkEvents = await CollectRangeAsync(apiClient, chunkCursor, chunkEnd, maxPages: int.MaxValue, cancellationToken);
-            await ProcessAndSaveAsync(chunkEvents, repository, settings, cancellationToken);
+            await ProcessAndSaveAsync(chunkEvents, repository, settings, siteKey, cancellationToken);
             totalRecentEvents += chunkEvents.Count;
 
             chunkCursor = chunkEnd;
         }
 
-        await settings.SaveSettingAsync("threats.last_sync_timestamp", now.ToString("O"));
+        await settings.SaveSettingAsync(lastSyncKey, now.ToString("O"));
 
         if (totalRecentEvents > 0)
             _logger.LogInformation("Collected {Count} threat events", totalRecentEvents);
@@ -192,7 +222,8 @@ public class ThreatCollectionService : BackgroundService
         // === PHASE 2: Gradual backfill (>24h ago) - page-limited to stay gentle ===
         // Backfill 30 days (data retention is separate at _retentionDays)
         const int backfillDays = 30;
-        var backfillCursorStr = await settings.GetSettingAsync("threats.backfill_cursor", cancellationToken);
+        var backfillCursorKey = SiteScopedKey("threats.backfill_cursor", siteKey);
+        var backfillCursorStr = await settings.GetSettingAsync(backfillCursorKey, cancellationToken);
         var backfillLimit = DateTimeOffset.UtcNow.AddDays(-backfillDays);
 
         // Initialize cursor to 24h ago on first run (Phase 1 covers recent 24h)
@@ -210,10 +241,10 @@ public class ThreatCollectionService : BackgroundService
                 if (chunkStart < backfillLimit) chunkStart = backfillLimit;
 
                 var backfillEvents = await CollectRangeAsync(apiClient, chunkStart, chunkEnd, maxPages: 20, cancellationToken);
-                await ProcessAndSaveAsync(backfillEvents, repository, settings, cancellationToken);
+                await ProcessAndSaveAsync(backfillEvents, repository, settings, siteKey, cancellationToken);
 
                 cursor = chunkStart;
-                await settings.SaveSettingAsync("threats.backfill_cursor", cursor.ToString("O"));
+                await settings.SaveSettingAsync(backfillCursorKey, cursor.ToString("O"));
                 BackfillCursor = cursor;
 
                 if (backfillEvents.Count > 0)
@@ -286,7 +317,7 @@ public class ThreatCollectionService : BackgroundService
     /// Enrich, classify, save events, run pattern analysis, and publish alerts.
     /// </summary>
     private async Task ProcessAndSaveAsync(List<ThreatEvent> events,
-        IThreatRepository repository, IThreatSettingsAccessor settings, CancellationToken cancellationToken)
+        IThreatRepository repository, IThreatSettingsAccessor settings, string? siteKey, CancellationToken cancellationToken)
     {
         if (events.Count == 0) return;
 
@@ -379,11 +410,15 @@ public class ThreatCollectionService : BackgroundService
         // Only re-alerts when a chain has progressed (more stages or 50%+ more events).
         try
         {
-            // Load persisted chain alert state from DB on first cycle
-            if (!_chainStateLoaded)
+            var chainScope = siteKey ?? "";
+            var chainState = _chainStateBySite.TryGetValue(chainScope, out var cs)
+                ? cs : (_chainStateBySite[chainScope] = new());
+            var chainStateKey = SiteScopedKey("threats.chain_alert_state", siteKey);
+
+            // Load persisted chain alert state from DB on first cycle for this site
+            if (_chainStateLoadedSites.Add(chainScope))
             {
-                _chainStateLoaded = true;
-                var stateJson = await settings.GetSettingAsync("threats.chain_alert_state", cancellationToken);
+                var stateJson = await settings.GetSettingAsync(chainStateKey, cancellationToken);
                 if (!string.IsNullOrEmpty(stateJson))
                 {
                     try
@@ -391,7 +426,7 @@ public class ThreatCollectionService : BackgroundService
                         var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(stateJson);
                         if (loaded != null)
                             foreach (var kv in loaded)
-                                _chainAlertState[kv.Key] = kv.Value;
+                                chainState[kv.Key] = kv.Value;
                     }
                     catch { /* corrupt state, start fresh */ }
                 }
@@ -399,7 +434,7 @@ public class ThreatCollectionService : BackgroundService
 
             // Prune entries older than 24h
             var pruneThreshold = DateTime.UtcNow.AddHours(-24).Ticks;
-            var staleKeys = _chainAlertState
+            var staleKeys = chainState
                 .Where(kv =>
                 {
                     var parts = kv.Value.Split(':');
@@ -408,7 +443,7 @@ public class ThreatCollectionService : BackgroundService
                 .Select(kv => kv.Key)
                 .ToList();
             foreach (var key in staleKeys)
-                _chainAlertState.Remove(key);
+                chainState.Remove(key);
 
             var sequences = await repository.GetAttackSequencesAsync(
                 DateTime.UtcNow.AddHours(-6), DateTime.UtcNow, limit: 20, cancellationToken);
@@ -428,7 +463,7 @@ public class ThreatCollectionService : BackgroundService
                 var totalEvents = seq.Stages.Sum(s => s.EventCount);
 
                 // Check if this chain has progressed since last alert
-                if (_chainAlertState.TryGetValue(stateKey, out var prevValue))
+                if (chainState.TryGetValue(stateKey, out var prevValue))
                 {
                     var parts = prevValue.Split(':');
                     if (parts.Length >= 2 &&
@@ -446,7 +481,7 @@ public class ThreatCollectionService : BackgroundService
                 if (noiseFilters.Any(f => f.Matches(seq.SourceIp, null, null)))
                     continue;
 
-                _chainAlertState[stateKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
+                chainState[stateKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
                 stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
@@ -489,13 +524,13 @@ public class ThreatCollectionService : BackgroundService
                 if (seq.Stages.Count < 2) continue;
 
                 // Skip if already alerted as a full chain
-                if (_chainAlertState.ContainsKey($"chain:{seq.SourceIp}")) continue;
+                if (chainState.ContainsKey($"chain:{seq.SourceIp}")) continue;
 
                 var attemptKey = $"attempt:{seq.SourceIp}";
                 var totalEvents = seq.Stages.Sum(s => s.EventCount);
 
                 // Check if this attempt chain has progressed since last alert
-                if (_chainAlertState.TryGetValue(attemptKey, out var prevValue))
+                if (chainState.TryGetValue(attemptKey, out var prevValue))
                 {
                     var parts = prevValue.Split(':');
                     if (parts.Length >= 3 &&
@@ -516,7 +551,7 @@ public class ThreatCollectionService : BackgroundService
                 if (noiseFilters.Any(f => f.Matches(seq.SourceIp, null, null)))
                     continue;
 
-                _chainAlertState[attemptKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
+                chainState[attemptKey] = $"{seq.Stages.Count}:{totalEvents}:{DateTime.UtcNow.Ticks}";
                 stateChanged = true;
 
                 var stageNames = string.Join(" -> ", seq.Stages.Select(s => s.Stage.ToDisplayString()));
@@ -548,8 +583,8 @@ public class ThreatCollectionService : BackgroundService
             // Persist updated state to DB
             if (stateChanged)
             {
-                var json = JsonSerializer.Serialize(_chainAlertState);
-                await settings.SaveSettingAsync("threats.chain_alert_state", json);
+                var json = JsonSerializer.Serialize(chainState);
+                await settings.SaveSettingAsync(chainStateKey, json);
             }
         }
         catch (Exception ex)

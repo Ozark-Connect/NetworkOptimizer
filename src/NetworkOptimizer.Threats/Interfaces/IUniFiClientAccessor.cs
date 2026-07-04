@@ -17,4 +17,13 @@ public interface IUniFiClientAccessor
     /// Whether the UniFi controller connection is established.
     /// </summary>
     bool IsConnected { get; }
+
+    /// <summary>
+    /// The API client for a specific site (null/empty slug = the default/main site), or null
+    /// if that site isn't connected. Used by per-site background collection.
+    /// </summary>
+    UniFiApiClient? GetClient(string? siteSlug);
+
+    /// <summary>Whether the given site's UniFi connection is established (null/empty = default site).</summary>
+    bool GetIsConnected(string? siteSlug);
 }

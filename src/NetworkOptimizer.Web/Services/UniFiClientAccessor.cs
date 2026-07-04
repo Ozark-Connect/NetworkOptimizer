@@ -9,14 +9,23 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class UniFiClientAccessor : IUniFiClientAccessor
 {
-    private readonly UniFiConnectionService _connectionService;
+    private readonly SiteConnectionRegistry _siteConnections;
 
     public UniFiClientAccessor(SiteConnectionRegistry siteConnections)
     {
-        _connectionService = siteConnections.GetDefault();
+        _siteConnections = siteConnections;
     }
 
-    public UniFiApiClient? Client => _connectionService.Client;
+    public UniFiApiClient? Client => _siteConnections.GetDefault().Client;
 
-    public bool IsConnected => _connectionService.IsConnected;
+    public bool IsConnected => _siteConnections.GetDefault().IsConnected;
+
+    public UniFiApiClient? GetClient(string? siteSlug) => Connection(siteSlug).Client;
+
+    public bool GetIsConnected(string? siteSlug) => Connection(siteSlug).IsConnected;
+
+    private UniFiConnectionService Connection(string? siteSlug) =>
+        string.IsNullOrEmpty(siteSlug)
+            ? _siteConnections.GetDefault()
+            : _siteConnections.GetFor(siteSlug);
 }

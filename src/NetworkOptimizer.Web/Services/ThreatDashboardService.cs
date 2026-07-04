@@ -19,6 +19,7 @@ public class ThreatDashboardService
     private readonly CrowdSecEnrichmentService _crowdSecService;
     private readonly GeoEnrichmentService _geoService;
     private readonly IUniFiClientAccessor _uniFiClientAccessor;
+    private readonly SiteContextService _siteContext;
     private readonly IThreatSettingsAccessor _settingsAccessor;
     private readonly ICredentialProtectionService _credentialService;
     private readonly IServiceProvider _serviceProvider;
@@ -42,6 +43,7 @@ public class ThreatDashboardService
         CrowdSecEnrichmentService crowdSecService,
         GeoEnrichmentService geoService,
         IUniFiClientAccessor uniFiClientAccessor,
+        SiteContextService siteContext,
         IThreatSettingsAccessor settingsAccessor,
         ICredentialProtectionService credentialService,
         IServiceProvider serviceProvider,
@@ -51,6 +53,7 @@ public class ThreatDashboardService
         _crowdSecService = crowdSecService;
         _geoService = geoService;
         _uniFiClientAccessor = uniFiClientAccessor;
+        _siteContext = siteContext;
         _settingsAccessor = settingsAccessor;
         _credentialService = credentialService;
         _serviceProvider = serviceProvider;
@@ -393,9 +396,9 @@ public class ThreatDashboardService
             using var scope = NewRepositoryScope(out var repo);
             await ApplyNoiseFiltersToRepository(repo, cancellationToken);
 
-            // Auto-fetch port forward rules from UniFi API
+            // Auto-fetch port forward rules from UniFi API (this site's console)
             List<UniFiPortForwardRule>? portForwardRules = null;
-            var apiClient = _uniFiClientAccessor.Client;
+            var apiClient = _uniFiClientAccessor.GetClient(_siteContext.Slug);
             if (apiClient != null)
             {
                 try
