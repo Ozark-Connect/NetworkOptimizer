@@ -619,58 +619,11 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
-    private static double? ParseJsonDouble(System.Text.Json.JsonElement? el)
-    {
-        if (el == null || el.Value.ValueKind == System.Text.Json.JsonValueKind.Undefined) return null;
-        if (el.Value.ValueKind == System.Text.Json.JsonValueKind.Number && el.Value.TryGetDouble(out var num)) return num;
-        if (el.Value.ValueKind == System.Text.Json.JsonValueKind.String)
-        {
-            var s = el.Value.GetString()?.Trim();
-            if (double.TryParse(s, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                return parsed;
-        }
-        return null;
-    }
+    private static double? ParseJsonDouble(System.Text.Json.JsonElement? el) =>
+        UniFiDeviceHealthReader.ParseJsonDouble(el);
 
-    private static double? ParseDeviceTemperature(UniFiDeviceResponse device)
-    {
-        // general_temperature: simple numeric field on switches (e.g., 72)
-        if (device.GeneralTemperature.HasValue && device.GeneralTemperature.Value > 0)
-            return device.GeneralTemperature.Value;
-
-        // temperatures: structured array on gateways, bare integer on some devices
-        if (device.Temperatures == null || device.Temperatures.Value.ValueKind == System.Text.Json.JsonValueKind.Undefined)
-            return null;
-
-        var el = device.Temperatures.Value;
-
-        // Gateway: array of { name, type, value } - pick the CPU sensor
-        if (el.ValueKind == System.Text.Json.JsonValueKind.Array)
-        {
-            foreach (var sensor in el.EnumerateArray())
-            {
-                var sType = sensor.TryGetProperty("type", out var t) ? t.GetString() : null;
-                if (string.Equals(sType, "cpu", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (sensor.TryGetProperty("value", out var v) && v.TryGetDouble(out var tempVal))
-                        return tempVal;
-                }
-            }
-            // No CPU sensor found, take the first one
-            foreach (var sensor in el.EnumerateArray())
-            {
-                if (sensor.TryGetProperty("value", out var v) && v.TryGetDouble(out var tempVal))
-                    return tempVal;
-            }
-        }
-
-        // Switch: bare integer
-        if (el.ValueKind == System.Text.Json.JsonValueKind.Number && el.TryGetDouble(out var bare))
-            return bare;
-
-        return null;
-    }
+    private static double? ParseDeviceTemperature(UniFiDeviceResponse device) =>
+        UniFiDeviceHealthReader.ParseDeviceTemperature(device);
 
     private async Task SlowTierCollectAsync(MonitoringSettings settings, CancellationToken ct)
     {

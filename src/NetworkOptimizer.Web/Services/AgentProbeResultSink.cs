@@ -348,7 +348,7 @@ public class AgentProbeResultSink
         // gateway live-port-state resilience in the loop below, the topology aggregates
         // after it, and the name-map reconcile - all of which read the site's UniFi
         // port_table (the server can't SNMP-walk a remote agent site).
-        var console = batch.Interfaces.Count > 0
+        var console = batch.Interfaces.Count > 0 || batch.Health.Count > 0
             ? GetConsoleData(connection.SiteSlug)
             : (Devices: (IReadOnlyList<UniFiDeviceResponse>)Array.Empty<UniFiDeviceResponse>(),
                Networks: (IReadOnlyList<NetworkInfo>)Array.Empty<NetworkInfo>());
@@ -573,23 +573,52 @@ public class AgentProbeResultSink
         {
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(health.TimestampUnixMs).UtcDateTime;
             liveStats.RecordSnmpSeen(health.DeviceMac, timestamp);
+
+            double? cpu = health.HasCpuPercent ? health.CpuPercent : null;
+            double? mem = health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null;
+            double? temp = health.HasTemperatureC ? health.TemperatureC : null;
+            long? uptime = health.HasUptimeSeconds ? health.UptimeSeconds : null;
+
+            // Fill health fields SNMP didn't return from the console's cached UniFi device
+            // data, mirroring the directly-monitored medium tier's CollectApiHealthFallbackAsync:
+            // when SNMP reported cpu/mem, only supplement temperature (and only on switches and
+            // gateways); when SNMP reported no health at all, fill whatever the API has.
+            if (deviceByMac.TryGetValue(NormalizeMac(health.DeviceMac), out var apiDevice))
+            {
+                var api = UniFiDeviceHealthReader.ExtractApiHealth(apiDevice);
+                var snmpHasHealth = health.HasCpuPercent || health.HasMemoryUsedPercent;
+                if (snmpHasHealth)
+                {
+                    var isSwitchOrGateway = apiDevice.DeviceType == DeviceType.Switch
+                        || apiDevice.DeviceType == DeviceType.Gateway;
+                    if (isSwitchOrGateway && temp == null) temp = api.TemperatureC;
+                }
+                else
+                {
+                    cpu ??= api.Cpu;
+                    mem ??= api.MemPercent;
+                    temp ??= api.TemperatureC;
+                    uptime ??= api.UptimeSeconds;
+                }
+            }
+
             await influx.WriteDeviceHealthAsync(
                 deviceMac: health.DeviceMac,
                 deviceType: string.IsNullOrEmpty(health.DeviceType) ? "unknown" : health.DeviceType,
-                cpuPercent: health.HasCpuPercent ? health.CpuPercent : null,
+                cpuPercent: cpu,
                 memoryTotalKb: health.HasMemoryTotalKb ? health.MemoryTotalKb : null,
                 memoryUsedKb: health.HasMemoryUsedKb ? health.MemoryUsedKb : null,
-                memoryUsedPercent: health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null,
-                temperatureC: health.HasTemperatureC ? health.TemperatureC : null,
-                uptimeSeconds: health.HasUptimeSeconds ? health.UptimeSeconds : null,
+                memoryUsedPercent: mem,
+                temperatureC: temp,
+                uptimeSeconds: uptime,
                 timestamp: timestamp);
 
             liveStats.RecordHealth(
                 health.DeviceMac,
-                health.HasCpuPercent ? health.CpuPercent : null,
-                health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null,
-                health.HasTemperatureC ? health.TemperatureC : null,
-                health.HasUptimeSeconds ? health.UptimeSeconds : null,
+                cpu,
+                mem,
+                temp,
+                uptime,
                 timestamp);
 
             // Threshold evaluation through the site's own evaluator instance, same
@@ -603,9 +632,8 @@ public class AgentProbeResultSink
                 var isGateway = string.Equals(health.DeviceType, "gateway", StringComparison.OrdinalIgnoreCase);
                 await _alertRegistry.GetFor(connection.SiteSlug).DeviceHealth.EvaluateAsync(
                     health.DeviceMac, deviceName, health.DeviceType,
-                    health.HasCpuPercent ? health.CpuPercent : null,
-                    health.HasMemoryUsedPercent ? health.MemoryUsedPercent : null,
-                    temperatureC: health.HasTemperatureC ? health.TemperatureC : null,
+                    cpu, mem,
+                    temperatureC: temp,
                     tempHighThresholdC: isGateway ? settings?.GatewayTempHighC : settings?.SwitchTempHighC,
                     ct: ct);
             }
