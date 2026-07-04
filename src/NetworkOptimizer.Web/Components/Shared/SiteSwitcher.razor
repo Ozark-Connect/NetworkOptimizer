@@ -69,6 +69,11 @@
         // scoped service resolves against the new site's database.
         await JS.InvokeVoidAsync("eval",
             $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
-        NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+        // Drop any #fragment first: reloading the *same* URL with its fragment is a
+        // same-document navigation the browser won't actually reload, so the new site
+        // cookie would never take effect. The fragment is meaningless on another site anyway.
+        var target = NavigationManager.Uri;
+        var fragmentAt = target.IndexOf('#');
+        NavigationManager.NavigateTo(fragmentAt >= 0 ? target[..fragmentAt] : target, forceLoad: true);
     }
 }
