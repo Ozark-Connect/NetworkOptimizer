@@ -47,7 +47,17 @@ COPY --from=uwnspeedtest-build /uwnspeedtest /app/uwnspeedtest
 # same-origin through the agent (see docker/agent/nginx.conf + config.js).
 COPY src/OpenSpeedTest/ /usr/share/nginx/html/
 COPY docker/agent/config.js /usr/share/nginx/html/assets/js/config.js
-COPY docker/agent/nginx.conf /etc/nginx/conf.d/default.conf
+# Run our OWN nginx master from an explicit standalone config (the same
+# nginx-standalone.conf the bare-metal installer uses), wrapping the shared server
+# block - rather than leaning on the base image's top-level nginx.conf. The webroot
+# stays /usr/share/nginx/html (set in the server block).
+COPY docker/agent/nginx.conf /etc/nginx/netopt-speedtest-server.conf
+COPY docker/agent/nginx-standalone.conf /etc/nginx/netopt-speedtest.conf
+RUN sed -i \
+        -e 's#__PIDFILE__#/run/nginx-speedtest.pid#' \
+        -e 's#__ERRORLOG__#/dev/stderr#' \
+        -e 's#__SERVERCONF__#/etc/nginx/netopt-speedtest-server.conf#' \
+        /etc/nginx/netopt-speedtest.conf
 COPY docker/agent/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

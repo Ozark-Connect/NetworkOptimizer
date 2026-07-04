@@ -139,22 +139,18 @@ CFGJS
         # install dir lives (e.g. under /root on some appliances).
         chmod -R a+rX "$WEBROOT"
 
-        # Our server block (the same one the Docker image uses), with the webroot
-        # repointed to the install dir, wrapped in a minimal standalone http{} config
-        # so it runs as an independent master rather than a system-nginx drop-in.
+        # Our server block + standalone wrapper - the exact same two files the Docker
+        # image uses, so the nginx config has a single source. Webroot repointed to the
+        # install dir; the wrapper's placeholder paths filled in for this install so it
+        # runs as an independent master rather than a system-nginx drop-in.
         curl -fsSL "$RAW/docker/agent/nginx.conf" -o "${INSTALL_DIR}/nginx-speedtest-server.conf"
         sed -i "s#root /usr/share/nginx/html;#root ${WEBROOT};#" "${INSTALL_DIR}/nginx-speedtest-server.conf"
-        cat > "${INSTALL_DIR}/nginx-speedtest.conf" <<NGINXCONF
-worker_processes auto;
-pid ${INSTALL_DIR}/nginx.pid;
-error_log ${INSTALL_DIR}/nginx-error.log warn;
-events { worker_connections 4096; }
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    include ${INSTALL_DIR}/nginx-speedtest-server.conf;
-}
-NGINXCONF
+        curl -fsSL "$RAW/docker/agent/nginx-standalone.conf" -o "${INSTALL_DIR}/nginx-speedtest.conf"
+        sed -i \
+            -e "s#__PIDFILE__#${INSTALL_DIR}/nginx.pid#" \
+            -e "s#__ERRORLOG__#${INSTALL_DIR}/nginx-error.log#" \
+            -e "s#__SERVERCONF__#${INSTALL_DIR}/nginx-speedtest-server.conf#" \
+            "${INSTALL_DIR}/nginx-speedtest.conf"
 
         # Dedicated systemd unit for OUR nginx master - separate from the system one.
         cat > /etc/systemd/system/netopt-speedtest-nginx.service <<UNIT

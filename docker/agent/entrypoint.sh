@@ -5,5 +5,5 @@
 # agent is the main process, so `docker stop` (SIGTERM to it) tears the container
 # down and nginx goes with it.
 set -e
-nginx -g 'daemon off;' &
+nginx -c /etc/nginx/netopt-speedtest.conf -g 'daemon off;' &
 exec /app/NetworkOptimizer.Agent
