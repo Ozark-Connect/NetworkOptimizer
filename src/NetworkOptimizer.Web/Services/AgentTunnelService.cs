@@ -63,7 +63,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid agent key"));
 
         var (agent, siteSlug) = auth.Value;
-        await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version);
+        await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version, hello.LanIp);
 
         var connection = _registry.Register(agent.Id, siteSlug, agent.Name);
         _logger.LogInformation("Agent {Name} (id {Id}) opened tunnel for site {Slug}", agent.Name, agent.Id, siteSlug);
@@ -100,7 +100,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                 switch (message.PayloadCase)
                 {
                     case AgentMessage.PayloadOneofCase.Heartbeat:
-                        await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version);
+                        await _enrollment.HeartbeatAsync(hello.AgentKey, hello.Version, hello.LanIp);
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResults:
                         await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);

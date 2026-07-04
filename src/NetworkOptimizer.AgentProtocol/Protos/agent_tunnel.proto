@@ -71,6 +71,7 @@ message ProxyClose {
 message AgentHello {
   string agent_key = 1;
   string version = 2;
+  string lan_ip = 3;
 }
 
 message ServerHello {
