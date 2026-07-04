@@ -102,7 +102,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     /// <summary>Shown while a site's agent-tunneled console waits for the agent to come online.</summary>
     private const string AwaitingAgentMessage =
-        "This site's console connects through its on-site agent, which isn't online yet. It connects automatically when the agent comes up - refresh in a moment.";
+        "This site's console connects through its on-site agent, which isn't online yet. It'll connect automatically as soon as the agent comes online.";
 
     /// <summary>Per-site setting key: the UniFi Console's display name (system.name).</summary>
     public const string ConsoleNameKey = "console.name";
