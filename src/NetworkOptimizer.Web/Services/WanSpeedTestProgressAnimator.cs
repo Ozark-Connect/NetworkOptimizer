@@ -1,11 +1,11 @@
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Animates coarse WAN speed-test progress while a run that can't stream live progress is in
-/// flight - the gateway SSH run and the agent run (which returns only the final JSON over the
-/// tunnel). It steps through the same discovery/latency/download/upload timeline the local run
-/// reports for real, and stops the moment the running task completes. The local (this-server)
-/// run keeps its accurate per-line stdout progress and does not use this.
+/// Animates coarse WAN speed-test progress for the gateway SSH run, which can't stream live
+/// progress. It steps through a discovery/latency/download/upload timeline and stops the moment
+/// the running task completes. The gateway page shows the reported percent directly. (The agent
+/// run reports phase boundaries instead - the WAN page interpolates those - and the local run
+/// keeps its accurate per-line stdout progress; neither uses this.)
 /// </summary>
 public static class WanSpeedTestProgressAnimator
 {

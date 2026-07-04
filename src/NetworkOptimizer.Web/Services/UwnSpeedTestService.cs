@@ -109,19 +109,46 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         Logger.LogInformation(
             "Dispatching UWN WAN speed test to site {Slug}'s agent ({Streams} streams, {Servers} servers)",
             SiteSlug, Streams, ServerCount);
-        report("Running at site agent", 5, "Measuring the site's WAN...");
-
         // The agent returns only the final JSON over the tunnel, so there's no live progress to
-        // stream. Simulate it the same way the gateway run does while the agent test is in flight;
-        // the local (this-server) run keeps its accurate per-line stdout progress in RunLocalAsync.
+        // stream. Report the SAME phase boundaries the local run does and let the page interpolate
+        // download (20->55) and upload (60->95) between them, so the bar climbs smoothly. Reporting
+        // fine-grained steps here fights that interpolation and makes the bar jump. The local
+        // (this-server) run keeps its accurate per-line stdout progress in RunLocalAsync.
         var agentTask = _agentUwn.RunAsync(
             SiteSlug, Streams, ServerCount, UwnDurationSeconds, UwnTimeoutSeconds, cancellationToken);
-        await WanSpeedTestProgressAnimator.AnimateAsync(agentTask, report, cancellationToken);
+        await AnimateAgentPhasesAsync(agentTask, report, cancellationToken);
         var (success, output) = await agentTask;
         if (!success)
             throw new InvalidOperationException($"Agent WAN speed test failed: {output}");
 
         return await BuildResultFromJsonAsync(output, wanIp: null, isp: null, serverInfo: null, report, cancellationToken);
+    }
+
+    /// <summary>
+    /// Simulated coarse progress for an agent run. Reports only the phase transitions the local run
+    /// reports; the page (SyncProgressFromService) interpolates the download and upload phases
+    /// between them. Stops as soon as the agent task completes.
+    /// </summary>
+    private async Task AnimateAgentPhasesAsync(Task runningTask, Action<string, int, string?> report, CancellationToken ct)
+    {
+        // Download/upload each hold at their phase start (20 / 60) while the page interpolates
+        // toward 55 / 95 over ~10s; size the hold to the test duration so it doesn't finish early.
+        var phaseMs = Math.Max(8000, UwnDurationSeconds * 1000);
+        var phases = new (string Phase, int Percent, string Status, int DelayMs)[]
+        {
+            ("Discovering servers", 5, "Discovering servers...", 2500),
+            ("Testing latency", 10, "Measuring latency...", 1500),
+            ("Testing download", 20, "Testing download...", phaseMs),
+            ("Testing upload", 60, "Testing upload...", phaseMs),
+        };
+
+        foreach (var phase in phases)
+        {
+            if (runningTask.IsCompleted) break;
+            report(phase.Phase, phase.Percent, phase.Status);
+            try { await Task.WhenAny(runningTask, Task.Delay(phase.DelayMs, ct)); }
+            catch (OperationCanceledException) { break; }
+        }
     }
 
     /// <summary>Runs the uwnspeedtest binary locally on this host (default site).</summary>

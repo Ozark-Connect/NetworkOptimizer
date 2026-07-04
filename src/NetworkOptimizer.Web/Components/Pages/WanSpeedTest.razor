@@ -742,7 +742,7 @@
                     var gwSettings = await GatewaySshService.GetSettingsAsync();
                     _gatewayAvailable = !string.IsNullOrEmpty(gwSettings.Host) && gwSettings.HasCredentials && gwSettings.Enabled;
                     if (!_gatewayAvailable)
-                        _gatewayUnavailableReason = "Gateway SSH not configured. Set up SSH access in the Gateway page.";
+                        _gatewayUnavailableReason = "Gateway SSH not configured. Set it up in Settings, under the Connection tab.";
                 }
                 catch
                 {
