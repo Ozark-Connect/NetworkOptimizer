@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Monitoring.Probes;
@@ -125,7 +124,36 @@ public class MonitoringCollectionAgent : BackgroundService
     /// its agents are additional vantage points, not replacements for local collection.
     /// </summary>
     private bool AgentCoversCollection() =>
-        !_isDefault && _tunnelRegistry.GetForSite(_siteSlug).Count > 0;
+        !_isDefault && (_tunnelRegistry.GetForSite(_siteSlug).Count > 0 || _siteAgentEnrolled);
+
+    // A secondary site is agent-backed if it has an ENROLLED agent, even while that agent
+    // is momentarily disconnected (app startup, agent reconnect). The NO Server can't reach
+    // such a site's network, so its local latency/SNMP loops must stand down the whole
+    // time - not only while the tunnel is live. Gating solely on a live tunnel meant that on
+    // every NO-server startup, before the agent reconnected, the server probed the site's
+    // targets from its own stack: false LAN packet-loss, and the server's own RTT on shared
+    // (anycast) targets. Refreshed on a throttle from the tier loop.
+    private volatile bool _siteAgentEnrolled;
+    private DateTime _agentCoverageCheckedAt = DateTime.MinValue;
+    private static readonly TimeSpan AgentCoverageTtl = TimeSpan.FromSeconds(30);
+
+    private async Task RefreshAgentCoverageAsync(CancellationToken ct)
+    {
+        if (_isDefault) return;
+        if (DateTime.UtcNow - _agentCoverageCheckedAt < AgentCoverageTtl) return;
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            var site = await db.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == _siteSlug, ct);
+            _siteAgentEnrolled = site != null && await db.SiteAgents.AsNoTracking()
+                .AnyAsync(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null, ct);
+            _agentCoverageCheckedAt = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Agent coverage refresh failed for site {Slug}", _siteSlug);
+        }
+    }
 
     /// <summary>
     /// No-op. Owned by MonitoringCollectionRegistry (started/stopped via
@@ -207,6 +235,9 @@ public class MonitoringCollectionAgent : BackgroundService
             TimeSpan interval = TimeSpan.FromSeconds(60);
             try
             {
+                // Keep agent-coverage state fresh so a secondary site's local loops stand
+                // down for an enrolled-but-reconnecting agent (no startup false loss).
+                await RefreshAgentCoverageAsync(stoppingToken);
                 var settings = await LoadSettingsAsync(stoppingToken);
                 if (settings == null || !await ShouldRunNowAsync(settings, stoppingToken))
                 {
