@@ -33,7 +33,10 @@ public class ThreatCollectionService : BackgroundService
 
     // On-demand trigger: released by TriggerCollection(), waited on during poll sleep
     private readonly SemaphoreSlim _triggerSignal = new(0, 1);
-    private bool _hasCollectedOnce;
+    // Per-site progress state. The collection loop fans out over sites, so these
+    // must be keyed by site or the dashboard shows whichever site the loop touched last.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _collectedSites = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset?> _backfillCursorBySite = new();
 
     // Geo database staleness check (24h cooldown to avoid checking every cycle)
     private DateTimeOffset _lastGeoCheck = DateTimeOffset.MinValue;
@@ -91,15 +94,25 @@ public class ThreatCollectionService : BackgroundService
     }
 
     /// <summary>
-    /// Whether the service has completed at least one collection cycle.
+    /// Whether the service has completed at least one collection cycle for the given site.
+    /// Pass null (or the default site's slug) for the main site.
     /// </summary>
-    public bool HasCollectedOnce => _hasCollectedOnce;
+    public bool HasCollectedOnceFor(string? siteSlug) => _collectedSites.ContainsKey(NormalizeSite(siteSlug));
 
     /// <summary>
-    /// How far back the gradual backfill has reached. Null if backfill hasn't started or is complete.
-    /// The dashboard uses this to show "Data from {date} - present (building...)" coverage info.
+    /// How far back the gradual backfill has reached for the given site. Null if backfill hasn't
+    /// started or is complete. The dashboard uses this to show "Data from {date} - present
+    /// (building...)" coverage info. Pass null (or the default site's slug) for the main site.
     /// </summary>
-    public DateTimeOffset? BackfillCursor { get; private set; }
+    public DateTimeOffset? BackfillCursorFor(string? siteSlug) =>
+        _backfillCursorBySite.TryGetValue(NormalizeSite(siteSlug), out var cursor) ? cursor : null;
+
+    /// <summary>
+    /// Collapses the default site's various identifiers (null, empty, and the configured default
+    /// key) to one canonical key so the loop's write and the dashboard's read line up.
+    /// </summary>
+    private string NormalizeSite(string? siteKey) =>
+        string.IsNullOrEmpty(siteKey) || siteKey == DefaultSiteKey ? "" : siteKey;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -123,13 +136,13 @@ public class ThreatCollectionService : BackgroundService
                     try
                     {
                         await CollectAndProcessAsync(siteKey, stoppingToken);
+                        _collectedSites.TryAdd(NormalizeSite(siteKey), 0);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         _logger.LogError(ex, "Threat collection failed for site {Site}", siteKey ?? "main");
                     }
                 }
-                _hasCollectedOnce = true;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -245,7 +258,7 @@ public class ThreatCollectionService : BackgroundService
 
                 cursor = chunkStart;
                 await settings.SaveSettingAsync(backfillCursorKey, cursor.ToString("O"));
-                BackfillCursor = cursor;
+                _backfillCursorBySite[NormalizeSite(siteKey)] = cursor;
 
                 if (backfillEvents.Count > 0)
                 {
@@ -258,7 +271,7 @@ public class ThreatCollectionService : BackgroundService
         }
         else
         {
-            BackfillCursor = null; // Backfill complete
+            _backfillCursorBySite[NormalizeSite(siteKey)] = null; // Backfill complete
             _logger.LogDebug("Backfill complete - coverage back to {Days}d", backfillDays);
         }
 

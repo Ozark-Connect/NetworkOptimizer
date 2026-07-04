@@ -10,6 +10,7 @@
 @inject IThreatSettingsAccessor SettingsAccessor
 @inject NetworkOptimizer.Threats.CrowdSec.CrowdSecClient CrowdSecClient
 @inject NetworkOptimizer.Threats.ThreatCollectionService CollectionService
+@inject NetworkOptimizer.Web.Services.SiteContextService SiteContext
 @inject NetworkOptimizer.Threats.Interfaces.IUniFiClientAccessor UniFiClientAccessor
 @implements IDisposable
 @inject NavigationManager NavigationManager
@@ -254,9 +255,9 @@
     </div>
 </div>
 
-@if (CollectionService.BackfillCursor != null)
+@if (CollectionService.BackfillCursorFor(BackfillSiteKey) != null)
 {
-    var cursor = CollectionService.BackfillCursor.Value;
+    var cursor = CollectionService.BackfillCursorFor(BackfillSiteKey)!.Value;
     var daysBack = (int)(DateTimeOffset.UtcNow - cursor).TotalDays;
     <div class="backfill-status">
         <span class="spinner-sm"></span>
@@ -2125,6 +2126,10 @@ else
 </style>
 
 @code {
+    // Progress state (backfill cursor, first-collection flag) is tracked per-site by the
+    // singleton collection service. Pass null for the default site, the slug otherwise.
+    private string? BackfillSiteKey => SiteContext.IsDefault ? null : SiteContext.Slug;
+
     [SupplyParameterFromQuery(Name = "tab")]
     public string? TabParam { get; set; }
 
@@ -2414,7 +2419,7 @@ else
         // If the DB is empty (service hasn't collected yet), trigger an immediate collection
         // and reload once it completes. Skip when on drilldown - overview data wasn't loaded
         // but we already have drilldown data from the DB.
-        if (!CollectionService.HasCollectedOnce)
+        if (!CollectionService.HasCollectedOnceFor(BackfillSiteKey))
         {
             CollectionService.TriggerCollection();
             // Only show blocking "collecting first data" UI on overview
@@ -2451,7 +2456,7 @@ else
             for (var i = 0; i < 30; i++)
             {
                 await Task.Delay(2000);
-                if (CollectionService.HasCollectedOnce)
+                if (CollectionService.HasCollectedOnceFor(BackfillSiteKey))
                     break;
             }
 
