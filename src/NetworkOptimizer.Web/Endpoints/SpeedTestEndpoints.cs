@@ -110,7 +110,15 @@ public static class SpeedTestEndpoints
                 siteSlug = null;
             }
 
-            var clientIp = EndpointHelpers.GetClientIp(context);
+            // An agent relay posts on behalf of a LAN client and passes the real client
+            // address as a param (a reverse-proxied / port-mapped central server rewrites
+            // X-Forwarded-For to the site's public IP, so the header can't carry it).
+            // Trust the param only for slug-tagged (agent-relayed) posts; direct clients
+            // still use the connection/X-Forwarded-For address.
+            var relayedClientIp = GetValue("client_ip");
+            var clientIp = !string.IsNullOrEmpty(siteSlug) && !string.IsNullOrEmpty(relayedClientIp)
+                ? relayedClientIp!
+                : EndpointHelpers.GetClientIp(context);
 
             // The owning site's service instance stores to that site's database and
             // enriches against that site's console. Cross-origin posts carry no site
@@ -180,17 +188,24 @@ public static class SpeedTestEndpoints
             SpeedTestServiceRegistry speedTestRegistry,
             NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory) =>
         {
-            var clientIp = EndpointHelpers.GetClientIp(context);
-
             // Same optional site routing as the results endpoint: a slug-tagged test
             // captures the snapshot from that site's console.
             var siteSlug = context.Request.Query["site"].ToString().Trim().ToLowerInvariant();
-            if (string.IsNullOrEmpty(siteSlug)
-                || !NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug)
-                || !siteDbFactory.SiteDbExists(siteSlug))
+            var relayed = !string.IsNullOrEmpty(siteSlug)
+                && NetworkOptimizer.Core.Helpers.StringUtilities.IsSlug(siteSlug)
+                && siteDbFactory.SiteDbExists(siteSlug);
+            if (!relayed)
             {
                 siteSlug = SiteManagementService.DefaultSiteSlug;
             }
+
+            // Relayed posts carry the real client IP as a param (see the results
+            // endpoint); it MUST match the IP the result posts under so the mid-test
+            // snapshot keys line up for the merge in AnalyzePathAsync.
+            var relayedClientIp = context.Request.Query["client_ip"].ToString();
+            var clientIp = relayed && !string.IsNullOrEmpty(relayedClientIp)
+                ? relayedClientIp
+                : EndpointHelpers.GetClientIp(context);
             var snapshotService = speedTestRegistry.GetFor(siteSlug).Snapshots;
 
             // Fire-and-forget - capture snapshot asynchronously, don't block response

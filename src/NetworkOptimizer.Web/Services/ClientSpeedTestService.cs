@@ -62,6 +62,39 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// The local endpoint the client actually connected to, for path analysis. On a
+    /// secondary (agent) site that's the on-site agent's LAN IP - the client hit the
+    /// agent's nginx / iperf3, not this central server - so the trace runs client to
+    /// agent on the site's own topology; the central server's HOST_IP is off-network
+    /// there and traces to nothing meaningful. The default site uses HOST_IP as before.
+    /// </summary>
+    private async Task<string?> ResolveServerIpAsync()
+    {
+        if (!_isDefault)
+        {
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                var site = await db.Sites.AsNoTracking().FirstOrDefaultAsync(s => s.Slug == _siteSlug);
+                if (site != null)
+                {
+                    var agent = await db.SiteAgents.AsNoTracking()
+                        .Where(a => a.SiteId == site.Id && a.Enabled && a.EnrolledAt != null && a.LanIp != null)
+                        .OrderByDescending(a => a.LastSeenAt)
+                        .FirstOrDefaultAsync();
+                    if (agent != null && AgentEnrollmentService.IsOnline(agent.LastSeenAt))
+                        return agent.LanIp;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to resolve agent LAN IP for site {Site} path analysis", _siteSlug);
+            }
+        }
+        return _configuration["HOST_IP"];
+    }
+
+    /// <summary>
     /// Record a speed test result from OpenSpeedTest browser client.
     /// </summary>
     public async Task<Iperf3Result> RecordOpenSpeedTestResultAsync(
@@ -82,8 +115,8 @@ public class ClientSpeedTestService
         // Determine direction based on whether this came from an external server
         var isWan = !string.IsNullOrWhiteSpace(externalServerId);
 
-        // Get server's local IP for path analysis
-        var serverIp = _configuration["HOST_IP"];
+        // Local endpoint the client hit, for path analysis (agent LAN IP on agent sites).
+        var serverIp = await ResolveServerIpAsync();
 
         // LAN (BrowserToServer): Store from SERVER's perspective (consistent with SSH-based tests):
         //   DownloadBitsPerSecond = data server received FROM client = client's upload
@@ -152,8 +185,9 @@ public class ClientSpeedTestService
         string? serverLocalIp = null)
     {
         var now = DateTime.UtcNow;
-        // Use the actual server IP from iperf3, fall back to HOST_IP config
-        var serverIp = serverLocalIp ?? _configuration["HOST_IP"];
+        // Use the actual server IP from iperf3, else the local endpoint the client hit
+        // (agent LAN IP on agent sites, HOST_IP on the default site).
+        var serverIp = serverLocalIp ?? await ResolveServerIpAsync();
 
         await using var db = await CreateSiteDbAsync();
 

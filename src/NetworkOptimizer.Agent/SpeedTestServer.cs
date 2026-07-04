@@ -61,7 +61,17 @@ public sealed class SpeedTestServer : IAsyncDisposable
     {
         try
         {
+            // The real client address rides as a query param (client_ip), NOT a header:
+            // the POST to the central server crosses a reverse proxy / port-map that
+            // rewrites X-Forwarded-For to this site's public IP, so the header can't
+            // carry it across. nginx put the real client in X-Forwarded-For for us here
+            // (the direct hop to this relay is always loopback); fall back to the
+            // connection IP. The central endpoint reads client_ip for slug-tagged posts.
+            var clientIp = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()
+                ?? context.Connection.RemoteIpAddress?.ToString();
             var query = context.Request.QueryString.Add("site", siteSlug);
+            if (!string.IsNullOrEmpty(clientIp))
+                query = query.Add("client_ip", clientIp);
             using var request = new HttpRequestMessage(HttpMethod.Post, path + query.ToUriComponent());
 
             var body = await new StreamReader(context.Request.Body).ReadToEndAsync(context.RequestAborted);
@@ -71,15 +81,6 @@ public sealed class SpeedTestServer : IAsyncDisposable
                 request.Content = new StringContent(body, Encoding.UTF8,
                     string.IsNullOrEmpty(mediaType) ? "application/x-www-form-urlencoded" : mediaType);
             }
-
-            // nginx passes the real client address in X-Forwarded-For (the direct
-            // connection here is always loopback); fall back to the connection IP.
-            // The server's GetClientIp honors X-Forwarded-For, so results keep the
-            // real client address instead of the agent's.
-            var clientIp = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()
-                ?? context.Connection.RemoteIpAddress?.ToString();
-            if (!string.IsNullOrEmpty(clientIp))
-                request.Headers.TryAddWithoutValidation("X-Forwarded-For", clientIp);
 
             using var response = await relay.SendAsync(request, context.RequestAborted);
             var responseBody = await response.Content.ReadAsStringAsync(context.RequestAborted);
