@@ -156,8 +156,13 @@ CFGJS
         cat > /etc/systemd/system/netopt-speedtest-nginx.service <<UNIT
 [Unit]
 Description=Network Optimizer LAN speed test (nginx)
-After=network-online.target
+# The speed test only matters when the agent is up (results relay through the
+# agent on 3001), so bind nginx's lifecycle to the agent: it starts after the
+# agent and stops whenever the agent stops or crashes. Mirrors the Docker
+# single-container model where the agent is PID 1 and nginx dies with it.
+After=network-online.target netopt-agent.service
 Wants=network-online.target
+BindsTo=netopt-agent.service
 
 [Service]
 Type=forking
@@ -175,8 +180,12 @@ UNIT
 
         if "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
             systemctl daemon-reload
-            systemctl enable --now netopt-speedtest-nginx.service
-            echo "Dedicated nginx serving OpenSpeedTest on port 3000 (netopt-speedtest-nginx.service)."
+            # Enable now, but START it below, after the agent unit is installed and
+            # running - nginx BindsTo the agent, so starting it before the agent exists
+            # would immediately stop it again.
+            systemctl enable netopt-speedtest-nginx.service
+            START_SPEEDTEST_NGINX=1
+            echo "Dedicated nginx for OpenSpeedTest on port 3000 will start with the agent (netopt-speedtest-nginx.service)."
         else
             echo "WARNING: nginx config test failed - the LAN speed test page won't serve."
             echo "Diagnose with: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
@@ -205,6 +214,12 @@ UNIT
 
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}.service"
+
+# nginx is bound to the agent (BindsTo); start it now that the agent unit exists
+# and is running, so it isn't immediately stopped for a missing dependency.
+if [ "${START_SPEEDTEST_NGINX:-0}" = 1 ]; then
+    systemctl start netopt-speedtest-nginx.service
+fi
 
 echo
 echo "Agent started. It enrolls, then holds a tunnel to ${SERVER%/}."
