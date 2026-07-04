@@ -1509,6 +1509,10 @@
     <div class="card settings-tab-speedtests" id="speed-test-settings">
         <div class="card-header">
             <h2 class="card-title">Speed Test Settings</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <p class="section-description">Configure iperf3 speed test parameters. Parallel streams can be configured per device type.</p>
@@ -1563,6 +1567,10 @@
     <div class="card settings-tab-speedtests" id="external-speedtest-settings">
         <div class="card-header">
             <h2 class="card-title">External Speed Test Servers</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <p class="section-description">Configure external OpenSpeedTest servers for WAN speed testing. Deploy the speed test container to remote servers (e.g., VPS instances) and clients can test their internet speed through them. Results are reported back here automatically.</p>
