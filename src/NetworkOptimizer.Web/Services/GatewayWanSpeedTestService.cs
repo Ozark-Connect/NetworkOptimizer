@@ -304,7 +304,7 @@ public class GatewayWanSpeedTestService
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
 
-        await WanSpeedTestProgressAnimator.AnimateAsync(sshTask, report, cancellationToken);
+        await WanSpeedTestProgressAnimator.AnimateStepsAsync(sshTask, report, cancellationToken);
 
         var result = await sshTask;
 
@@ -368,7 +368,7 @@ public class GatewayWanSpeedTestService
         }).ToList();
 
         var allTask = Task.WhenAll(sshTasks);
-        await WanSpeedTestProgressAnimator.AnimateAsync(allTask, report, cancellationToken);
+        await WanSpeedTestProgressAnimator.AnimateStepsAsync(allTask, report, cancellationToken);
 
         var results = await allTask;
 
