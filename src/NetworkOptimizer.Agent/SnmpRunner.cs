@@ -72,6 +72,7 @@ public sealed class SnmpRunner
                         {
                             DeviceMac = device.Mac,
                             IfName = ifName,
+                            IfDescr = iface.Description ?? "",
                             PortId = iface.PortId ?? "",
                             InOctets = iface.InOctets,
                             OutOctets = iface.OutOctets,

@@ -160,6 +160,10 @@ message SnmpInterfaceSample {
   int64 bcast_pkts_in = 17;
   int64 bcast_pkts_out = 18;
   int64 timestamp_unix_ms = 19;
+  // Raw SNMP ifDescr - the server classifies fabric-sum membership (physical ethN
+  // only on gateways) and mesh backhaul (vwiresta*) off this, matching the
+  // directly-monitored path's iface.Description.
+  string if_descr = 20;
 }
 
 message SnmpDeviceHealthSample {

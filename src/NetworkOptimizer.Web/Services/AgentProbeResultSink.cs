@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
@@ -44,6 +45,11 @@ public class AgentProbeResultSink
     private readonly ConcurrentDictionary<string, (DateTime At, IReadOnlyList<UniFiDeviceResponse> Devices, IReadOnlyList<NetworkInfo> Networks)> _consoleCache = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _consoleFetchGate = new();
     private static readonly TimeSpan ConsoleCacheTtl = TimeSpan.FromSeconds(60);
+
+    // Per-site topology-boundary aggregator (fabric sums, AP backhaul, gateway WAN),
+    // the same LanFabricAggregator the directly-monitored fast tier uses. Keyed by slug
+    // because this sink is a singleton serving every agent site.
+    private readonly ConcurrentDictionary<string, LanFabricAggregator> _fabricBySite = new();
 
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
@@ -338,16 +344,31 @@ public class AgentProbeResultSink
             }
         }
 
-        // Console device list (cached, fetched off the tunnel read loop) keyed by MAC,
-        // for the gateway live-port-state resilience in the loop below - it reads the
-        // site's UniFi port_table, which the server can't SNMP-walk on a remote agent
-        // site. The reconcile further down reads the same cached snapshot.
-        var deviceByMac = batch.Interfaces.Count > 0
-            ? GetConsoleData(connection.SiteSlug).Devices
-                .Where(d => !string.IsNullOrEmpty(d.Mac))
-                .GroupBy(d => NormalizeMac(d.Mac))
-                .ToDictionary(g => g.Key, g => g.First())
-            : new Dictionary<string, UniFiDeviceResponse>();
+        // Console device list (cached, fetched off the tunnel read loop): drives the
+        // gateway live-port-state resilience in the loop below, the topology aggregates
+        // after it, and the name-map reconcile - all of which read the site's UniFi
+        // port_table (the server can't SNMP-walk a remote agent site).
+        var console = batch.Interfaces.Count > 0
+            ? GetConsoleData(connection.SiteSlug)
+            : (Devices: (IReadOnlyList<UniFiDeviceResponse>)Array.Empty<UniFiDeviceResponse>(),
+               Networks: (IReadOnlyList<NetworkInfo>)Array.Empty<NetworkInfo>());
+        var deviceByMac = console.Devices
+            .Where(d => !string.IsNullOrEmpty(d.Mac))
+            .GroupBy(d => NormalizeMac(d.Mac))
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // Topology-boundary aggregates (fabric sums, AP backhaul, gateway WAN), shared
+        // verbatim with the directly-monitored fast tier via LanFabricAggregator so
+        // secondary sites compute identical numbers. Feed the UniFi port_table + device
+        // byte deltas first (fallback rates); the SNMP per-interface rates in the loop
+        // override them, mirroring the main tier's ordering.
+        var fabric = _fabricBySite.GetOrAdd(connection.SiteSlug, _ => new LanFabricAggregator());
+        var aggNow = DateTime.UtcNow;
+        if (deviceByMac.Count > 0)
+            fabric.UpdateUnifiPortRates(console.Devices, aggNow);
+        // Per-device fabric-sum + mesh-AP (vwiresta) accumulators, mirroring the fast tier.
+        var fabricSum = new Dictionary<string, (double In, double Out)>();
+        var meshUplink = new Dictionary<string, (double In, double Out)>();
 
         foreach (var sample in batch.Interfaces)
         {
@@ -367,6 +388,35 @@ public class AgentProbeResultSink
             // from memory.
             if (calc.RateInBps.HasValue && calc.RateOutBps.HasValue)
                 liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp);
+
+            // Feed the shared fabric aggregator, mirroring the fast tier: SNMP
+            // per-interface rate -> port_table PortIdx (the primary port rate), fabric-sum
+            // accumulation (physical ports only), and mesh-AP (vwiresta) backhaul.
+            if (calc.RateInBps.HasValue && calc.RateOutBps.HasValue
+                && deviceByMac.TryGetValue(NormalizeMac(sample.DeviceMac), out var aggDevice))
+            {
+                var pIdx = InterfacePortCorrelation
+                    .Correlate(aggDevice.PortTable, ifIndex: 0, sample.SpeedBps, sample.PortId, sample.IfName)
+                    .PortNumber ?? 0;
+                if (pIdx > 0)
+                    fabric.SetSnmpPortRate(NormalizeMac(sample.DeviceMac), pIdx, calc.RateInBps.Value, calc.RateOutBps.Value);
+
+                var dType = aggDevice.DeviceType;
+                if ((dType == DeviceType.Switch || dType == DeviceType.Gateway || dType == DeviceType.CellularModem)
+                    && LanFabricAggregator.IncludeInFabricSum(dType, sample.IfDescr))
+                {
+                    var fk = NormalizeMac(sample.DeviceMac);
+                    var cur = fabricSum.TryGetValue(fk, out var f) ? f : (0.0, 0.0);
+                    fabricSum[fk] = (cur.Item1 + calc.RateInBps.Value, cur.Item2 + calc.RateOutBps.Value);
+                }
+                else if (dType == DeviceType.AccessPoint
+                         && !string.IsNullOrEmpty(sample.IfDescr)
+                         && sample.IfDescr.StartsWith("vwiresta", StringComparison.OrdinalIgnoreCase)
+                         && !sample.IfDescr.Contains('.'))
+                {
+                    meshUplink[NormalizeMac(sample.DeviceMac)] = (calc.RateInBps.Value, calc.RateOutBps.Value);
+                }
+            }
 
             // Live port-state resilience for gateways: when UniFi's port_table says the
             // port is down or disabled and no frame counters moved this poll, mark the live
@@ -437,6 +487,23 @@ public class AgentProbeResultSink
                 timestamp: timestamp);
         }
 
+        // Publish fabric sums + mesh-AP backhaul, then the topology-boundary aggregates -
+        // mirroring the fast tier's post-loop passes (vwiresta + fabric recorded BEFORE
+        // WriteAggregates so its mesh pass sees them via GetForDevice). Uses each console
+        // device's real MAC so live-stats keys line up with the directly-monitored path.
+        if (deviceByMac.Count > 0)
+        {
+            foreach (var (fk, sum) in fabricSum)
+                if (deviceByMac.TryGetValue(fk, out var fsDev))
+                    liveStats.RecordFabricSum(fsDev.Mac, sum.In, sum.Out, aggNow);
+            foreach (var (mk, m) in meshUplink)
+                if (deviceByMac.TryGetValue(mk, out var mDev))
+                    // vwiresta rateIn = downloads, rateOut = uploads; swap to match the
+                    // fast tier's RecordInterfaceAggregate(mac, out, in) convention.
+                    liveStats.RecordInterfaceAggregate(mDev.Mac, m.Out, m.In, aggNow);
+            fabric.WriteAggregates(console.Devices, liveStats, aggNow);
+        }
+
         // Reconcile the InterfaceNameMap (friendly name, negotiated speed, port number,
         // SFP) + interface labels for this site the way the directly-monitored slow tier
         // does - but the server can't SNMP-walk an agent site, so the interface
@@ -448,11 +515,10 @@ public class AgentProbeResultSink
         {
             try
             {
-                var console = GetConsoleData(connection.SiteSlug);
                 if (console.Devices.Count > 0)
                 {
-                    // deviceByMac is the same cached console snapshot built above for the
-                    // live-port-state resilience; reuse it rather than rebuild.
+                    // console + deviceByMac are the cached snapshot captured above for the
+                    // resilience + aggregates; reuse them rather than re-fetch/rebuild.
                     var isDefaultSite = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
                     await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefaultSite);
                     var existingMaps = await db.InterfaceNameMaps.ToDictionaryAsync(
