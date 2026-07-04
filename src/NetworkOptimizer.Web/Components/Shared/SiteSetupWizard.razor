@@ -9,9 +9,33 @@
 @inject IJSRuntime JS
 
 <div class="site-wizard">
+    <div class="site-wizard-steps">
+        @{
+            var stepNames = new[] { "Name", "Console", "Agent", "Done" };
+        }
+        @for (var i = 0; i < stepNames.Length; i++)
+        {
+            var n = i + 1;
+            var stepClass = n < _step ? "done" : n == _step ? "current" : "upcoming";
+            <div class="site-wizard-step @stepClass">
+                <span class="site-wizard-step-node">
+                    @if (n < _step)
+                    {
+                        <text>&#x2713;</text>
+                    }
+                    else
+                    {
+                        @n
+                    }
+                </span>
+                <span class="site-wizard-step-label">@stepNames[i]</span>
+            </div>
+        }
+    </div>
+
     @if (_step == 1)
     {
-        <label class="form-label">Add Site <span class="form-help">(Step 1 of 4)</span></label>
+        <h3 class="site-wizard-title">Add a site</h3>
         @if (_remainingSlots <= 0)
         {
             <p class="section-description">
@@ -47,7 +71,7 @@
     }
     else if (_step == 2 && _site != null)
     {
-        <label class="form-label">Connect the UniFi Console for @_site.Name <span class="form-help">(Step 2 of 4)</span></label>
+        <h3 class="site-wizard-title">Connect the UniFi Console for @_site.Name</h3>
         <p class="section-description">
             If this site's UniFi Console is reachable from this server (site-to-site VPN or a public address),
             connect it now. You can also skip this and connect later from Settings after switching to the site.
@@ -104,7 +128,7 @@
     }
     else if (_step == 3 && _site != null)
     {
-        <label class="form-label">On-site agent for @_site.Name <span class="form-help">(Step 3 of 4)</span></label>
+        <h3 class="site-wizard-title">On-site agent for @_site.Name</h3>
         @if (!_wantAgent && _agentToken == null)
         {
             <p class="section-description">
@@ -121,24 +145,26 @@
         }
         else if (_agentToken == null)
         {
-            <p class="section-description">Choose what the agent does at the site:</p>
-            <label class="checkbox-toggle">
-                <input type="checkbox" checked disabled />
-                <span><strong>Site monitoring</strong> - reaches the site's devices for SNMP polling,
-                    latency/loss probing, and modem/ONT status pages. Always on; it's what the agent is for.</span>
-            </label>
-            <label class="checkbox-toggle">
-                <input type="checkbox" @bind="_featureLanSpeedTest" />
-                <span><strong>LAN speed test server</strong>
-                    <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients">?</span>
-                    - lets the site's clients run speed tests against the agent.</span>
-            </label>
-            <label class="checkbox-toggle">
-                <input type="checkbox" @bind="_featureProxy" />
-                <span><strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
-                    gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
-                    tests, deployments, and modem / ONT monitoring with no VPN.</span>
-            </label>
+            <div class="site-config-section">
+                <div class="site-config-section-title">What the agent does</div>
+                <label class="checkbox-toggle">
+                    <input type="checkbox" checked disabled />
+                    <span><strong>Site monitoring</strong> - reaches the site's devices for SNMP polling,
+                        latency/loss probing, and modem/ONT status pages. Always on; it's what the agent is for.</span>
+                </label>
+                <label class="checkbox-toggle">
+                    <input type="checkbox" @bind="_featureLanSpeedTest" />
+                    <span><strong>LAN speed test server</strong>
+                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients">?</span>
+                        - lets the site's clients run speed tests against the agent.</span>
+                </label>
+                <label class="checkbox-toggle">
+                    <input type="checkbox" @bind="_featureProxy" />
+                    <span><strong>SSH and UniFi Console proxy</strong> - this server reaches the site's console,
+                        gateway, and devices through the agent tunnel. Enables audits, gateway WAN speed
+                        tests, deployments, and modem / ONT monitoring with no VPN.</span>
+                </label>
+            </div>
             <div class="action-buttons">
                 <button type="button" class="btn btn-primary" @onclick="CreateAgentAsync" disabled="@_busy">
                     @if (_busy)
@@ -163,12 +189,17 @@
     }
     else if (_step == 4 && _site != null)
     {
-        <label class="form-label">@_site.Name is ready <span class="form-help">(Step 4 of 4)</span></label>
-        <p class="section-description">
-            The site's database is provisioned@(_connected ? ", its UniFi Console is connected" : "")@(_agentToken != null ? ", and its agent token is issued" : "").
-            Switch to the site to configure monitoring, speed tests, and everything else, exactly like a
-            single-site install.
-        </p>
+        <div class="site-wizard-success">
+            <span class="site-wizard-success-icon">&#x2713;</span>
+            <div>
+                <h3 class="site-wizard-title">@_site.Name is ready</h3>
+                <p class="section-description">
+                    The site's database is provisioned@(_connected ? ", its UniFi Console is connected" : "")@(_agentToken != null ? ", and its agent token is issued" : "").
+                    Switch to the site to configure monitoring, speed tests, and everything else, exactly like a
+                    single-site install.
+                </p>
+            </div>
+        </div>
         <div class="action-buttons">
             <button type="button" class="btn btn-primary" @onclick="SwitchToSiteAsync">Switch to @_site.Name</button>
             <button type="button" class="btn btn-secondary" @onclick="ResetAsync">Add Another Site</button>

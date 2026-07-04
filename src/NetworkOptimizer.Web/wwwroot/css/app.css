@@ -17649,6 +17649,25 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0;
 }
 
+@media (max-width: 768px) {
+    .site-config-panel {
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+
+    .site-config-section {
+        padding: 0.75rem;
+    }
+
+    .site-agent-row {
+        flex-wrap: wrap;
+    }
+
+    .site-agent-status {
+        flex-basis: 100%;
+    }
+}
+
 .agent-status-inline {
     display: inline-flex;
     align-items: center;
@@ -17738,6 +17757,124 @@ body.kiosk-mode .status-indicators {
     color: var(--text-secondary);
     font-size: 0.8125rem;
     line-height: 1.5;
+}
+
+.site-wizard {
+    padding: 1rem 1.25rem 1.25rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg);
+}
+
+.site-wizard-steps {
+    display: flex;
+    margin-bottom: 1.25rem;
+}
+
+.site-wizard-step {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    text-align: center;
+}
+
+.site-wizard-step:not(:first-child)::before {
+    content: "";
+    position: absolute;
+    top: 0.8rem;
+    right: 50%;
+    left: -50%;
+    height: 2px;
+    background: var(--border-color);
+}
+
+.site-wizard-step.current:not(:first-child)::before,
+.site-wizard-step.done:not(:first-child)::before {
+    background: var(--primary-color);
+}
+
+.site-wizard-step-node {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.site-wizard-step.current .site-wizard-step-node {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+
+.site-wizard-step.done .site-wizard-step-node {
+    background: var(--success-color);
+    border-color: var(--success-color);
+    color: var(--text-primary);
+}
+
+.site-wizard-step-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.site-wizard-step.current .site-wizard-step-label {
+    color: var(--text-primary);
+}
+
+.site-wizard-step.done .site-wizard-step-label {
+    color: var(--text-secondary);
+}
+
+.site-wizard-title {
+    margin: 0 0 0.75rem;
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.site-wizard-success {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+.site-wizard-success-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    background: var(--success-color);
+    color: var(--text-primary);
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+.site-wizard-success .site-wizard-title {
+    margin-bottom: 0.25rem;
+}
+
+@media (max-width: 768px) {
+    .site-wizard {
+        padding: 0.85rem;
+    }
+
+    .site-wizard-step-label {
+        font-size: 0.7rem;
+    }
 }
 
 .site-wizard .action-buttons {
