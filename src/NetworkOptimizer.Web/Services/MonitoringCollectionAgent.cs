@@ -1651,23 +1651,6 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task ReconcileFabricTargetsAsync(CancellationToken ct)
     {
-        // On an agent site the console reaches the controller through the tunnel and can
-        // read disconnected when this tier ticks - unlike the SNMP push, which reconnects
-        // first. Without a connected console GetMonitorableDevicesAsync returns empty and
-        // no fabric (device) targets ever get seeded. Ensure it's up as the SNMP push
-        // does, throttled so a genuinely offline console isn't hammered every tick.
-        if (!_isDefault && !_connectionService.IsConnected
-            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(30)
-            && await _connectionService.IsConsoleViaAgentAsync())
-        {
-            _lastConsoleEnsureAt = DateTime.UtcNow;
-            try { await _connectionService.ReconnectAsync(); }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Fabric reconcile console reconnect failed for site {Slug}", _siteSlug);
-            }
-        }
-
         var devices = await GetMonitorableDevicesAsync(ct);
         if (devices.Count == 0)
         {
@@ -2060,6 +2043,22 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
+        // On an agent site the console reaches the controller through the tunnel and can
+        // read disconnected between operations; reconnect it (as the SNMP push does) so
+        // every tier that enumerates devices - fabric targets, interface name map, device
+        // stats - can. Throttled so a genuinely offline console isn't hammered every tick.
+        if (!_isDefault && !_connectionService.IsConnected
+            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(30)
+            && await _connectionService.IsConsoleViaAgentAsync())
+        {
+            _lastConsoleEnsureAt = DateTime.UtcNow;
+            try { await _connectionService.ReconnectAsync(); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Console reconnect for device fetch failed for site {Slug}", _siteSlug);
+            }
+        }
+
         if (!_connectionService.IsConnected || _connectionService.Client == null)
             return new List<UniFiDeviceResponse>();
 
