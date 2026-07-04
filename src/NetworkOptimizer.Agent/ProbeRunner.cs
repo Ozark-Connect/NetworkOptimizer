@@ -41,6 +41,17 @@ public sealed class ProbeRunner
 
     public async Task RunAsync(CancellationToken ct)
     {
+        // Startup grace, mirroring the server latency tier's 20s initial delay
+        // (MonitoringCollectionAgent.RunTierAsync). A fresh ProbeRunner starts on every
+        // tunnel connect - the agent (re)starting, OR a NO-server restart that dropped
+        // and re-established the tunnel - and every target is "due" immediately. Probing
+        // the instant the process/link comes up catches the network still settling
+        // (routes, source-IP binds, the target device itself rebooting alongside) and
+        // records a false loss/latency spike right at the restart boundary. Wait for it
+        // to settle before the first tick, so no boundary sample is taken.
+        try { await Task.Delay(TimeSpan.FromSeconds(20), ct); }
+        catch (OperationCanceledException) { return; }
+
         using var concurrency = new SemaphoreSlim(4);
         while (!ct.IsCancellationRequested)
         {
