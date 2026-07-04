@@ -90,12 +90,15 @@ journalctl -u netopt-agent -f
 
 ## Reverse proxy
 
-The tunnel listener is cleartext HTTP/2 (h2c), same idea as the web UI port:
-TLS belongs to the reverse proxy already fronting the central server. Because
-the agent uses one URL, the proxy routes by path on that single host - the gRPC
-service path goes to the h2c tunnel port, everything else to the app:
+The tunnel listener speaks HTTP/2 over TLS with an ephemeral self-signed
+certificate: the reverse proxy fronting the central server terminates the
+agent's public TLS and re-encrypts to the tunnel port, skipping verification on
+that self-signed cert. This keeps the proxy-to-app hop encrypted even when the
+proxy runs on a separate box. Because the agent uses one URL, the proxy routes
+by path on that single host - the gRPC service path goes to the tunnel port,
+everything else to the app:
 
-- gRPC tunnel path: `/networkoptimizer.agent.v1.AgentTunnel/` -> `h2c://127.0.0.1:8043`
+- gRPC tunnel path: `/networkoptimizer.agent.v1.AgentTunnel/` -> `https://127.0.0.1:8043` (self-signed, skip verification)
 - everything else (app + `/api/public/agents/*`) -> `http://127.0.0.1:8042`
 
 **Traefik** (file provider) - add a higher-priority path router alongside the
@@ -118,7 +121,12 @@ services:
   optimizer:
     loadBalancer: { servers: [{ url: "http://127.0.0.1:8042" }] }
   agents:
-    loadBalancer: { servers: [{ url: "h2c://127.0.0.1:8043" }] }
+    loadBalancer:
+      servers: [{ url: "https://127.0.0.1:8043" }]
+      serversTransport: agent-tunnel-insecure   # self-signed cert on the tunnel
+serversTransports:
+  agent-tunnel-insecure:
+    insecureSkipVerify: true
 ```
 
 **Caddy**:
@@ -126,7 +134,9 @@ services:
 ```caddyfile
 optimizer.example.com {
     @grpc path /networkoptimizer.agent.v1.AgentTunnel/*
-    reverse_proxy @grpc h2c://127.0.0.1:8043
+    reverse_proxy @grpc https://127.0.0.1:8043 {
+        transport http { tls_insecure_skip_verify }
+    }
     reverse_proxy 127.0.0.1:8042
 }
 ```
@@ -135,7 +145,8 @@ optimizer.example.com {
 
 ```nginx
 location /networkoptimizer.agent.v1.AgentTunnel/ {
-    grpc_pass grpc://127.0.0.1:8043;
+    grpc_pass grpcs://127.0.0.1:8043;
+    grpc_ssl_verify off;
 }
 location / {
     proxy_pass http://127.0.0.1:8042;

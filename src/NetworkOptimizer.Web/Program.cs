@@ -179,8 +179,10 @@ builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.SiteDbContextFac
 
 // ---- Multi-site agent tunnel listener ----
 // The agent tunnel is gRPC, which needs HTTP/2. The main port stays HTTP/1.1
-// (reverse proxies, browsers), so the tunnel gets its own cleartext HTTP/2
-// listener. Explicit Kestrel Listen calls override URL-based configuration,
+// (reverse proxies, browsers), so the tunnel gets its own HTTP/2 listener,
+// served over TLS with an ephemeral self-signed cert (see
+// CreateSelfSignedTunnelCert) so the reverse-proxy-to-app hop is encrypted even
+// across a box boundary. Explicit Kestrel Listen calls override URL-based configuration,
 // so when the tunnel is active the main HTTP port(s) are re-bound explicitly
 // alongside it. Single-site installs never take this branch: no new port, no
 // binding changes. The flag is read with raw SQLite because Kestrel must be
@@ -227,7 +229,15 @@ if (agentTunnelEnabled)
                     options.ListenAnyIP(port);
             }
             options.ListenAnyIP(agentTunnelPort, listen =>
-                listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2);
+            {
+                listen.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+                // TLS on the tunnel port so the reverse-proxy-to-app hop is
+                // encrypted even when the proxy runs on a separate box (the
+                // agent key and pushed SNMP credentials would otherwise cross
+                // that LAN segment in cleartext h2c). The proxy is configured to
+                // skip verification, so an ephemeral self-signed cert suffices.
+                listen.UseHttps(StartupHelpers.CreateSelfSignedTunnelCert());
+            });
         });
     }
 }
@@ -2068,6 +2078,51 @@ static partial class StartupHelpers
         }
 
         return bindings.Count > 0 ? bindings : null;
+    }
+
+    /// <summary>
+    /// Builds an ephemeral self-signed certificate for the agent-tunnel TLS
+    /// listener. The tunnel port sits behind the reverse proxy fronting the
+    /// server, which is configured to skip verification, so this cert only
+    /// provides transport encryption for the proxy-to-app hop - it is never
+    /// validated, never persisted, and regenerated on every start. Encrypting
+    /// that hop matters when the proxy is a separate box: the agent enrollment
+    /// key and the SNMP credentials pushed over the tunnel would otherwise
+    /// traverse the LAN in cleartext. On Linux the freshly created cert holds an
+    /// ephemeral key handle Kestrel cannot use directly, so it is round-tripped
+    /// through PKCS#12 to bind the private key to the returned instance.
+    /// </summary>
+    internal static System.Security.Cryptography.X509Certificates.X509Certificate2 CreateSelfSignedTunnelCert()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            "CN=networkoptimizer-agent-tunnel",
+            rsa,
+            System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+
+        request.CertificateExtensions.Add(
+            new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(false, false, 0, false));
+        request.CertificateExtensions.Add(
+            new System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+                new System.Security.Cryptography.OidCollection
+                {
+                    new System.Security.Cryptography.Oid("1.3.6.1.5.5.7.3.1"), // serverAuth
+                },
+                false));
+
+        var san = new System.Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder();
+        san.AddDnsName("localhost");
+        san.AddIpAddress(System.Net.IPAddress.Loopback);
+        request.CertificateExtensions.Add(san.Build());
+
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddYears(100));
+
+        return System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadPkcs12(
+            certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx),
+            password: null);
     }
 
     internal static (bool isFuse, string filesystemType) DetectFilesystem(string filePath)

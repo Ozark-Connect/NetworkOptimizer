@@ -35,10 +35,10 @@ if (string.IsNullOrWhiteSpace(config.ServerUrl))
 }
 
 // The agent refuses cleartext transport outright: serverUrl and tunnelUrl must
-// be https. TLS comes from the reverse proxy fronting the central server (the
-// tunnel listener itself is h2c behind it); self-signed certificates work with
-// ignoreSslErrors, but plain http never does - the tunnel carries SNMP
-// credentials and proxied console traffic.
+// be https. TLS is terminated by the reverse proxy fronting the central server,
+// which re-encrypts to the tunnel listener's own self-signed TLS behind it;
+// self-signed certificates work with ignoreSslErrors, but plain http never does
+// - the tunnel carries SNMP credentials and proxied console traffic.
 static bool IsHttpsUrl(string url) =>
     Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 
@@ -86,11 +86,11 @@ if (string.IsNullOrEmpty(config.AgentKey))
 
     var enrollment = await response.Content.ReadFromJsonAsync<EnrollmentResponse>(AgentJson.Options)
         ?? throw new InvalidOperationException("Empty enrollment response");
-    // The server's dedicated tunnel port is a cleartext HTTP/2 listener, and
-    // the agent only speaks HTTPS - so the tunnel address is never derived
-    // automatically. It must be pinned explicitly to the https address the
-    // reverse proxy publishes for the tunnel; until then the agent stays on
-    // REST heartbeats.
+    // The server's dedicated tunnel port isn't publicly addressable on its own,
+    // and the agent only speaks HTTPS to the reverse proxy - so the tunnel
+    // address is never derived automatically. It must be pinned explicitly to
+    // the https address the reverse proxy publishes for the tunnel; until then
+    // the agent stays on REST heartbeats.
     if (config.TunnelUrl == null && enrollment.TunnelPort is int tunnelPort)
     {
         Console.WriteLine(

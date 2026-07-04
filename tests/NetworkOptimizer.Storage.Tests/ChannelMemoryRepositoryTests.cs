@@ -34,7 +34,11 @@ public class ChannelMemoryRepositoryTests : IDisposable
         db.Database.EnsureCreated();
 
         var logger = new Mock<ILogger<ChannelMemoryRepository>>();
-        _repository = new ChannelMemoryRepository(_factory, logger.Object);
+        // These tests exercise the default site, which the repository serves from
+        // the main factory; the site factory is required but never invoked here.
+        var siteDbFactory = new NetworkOptimizer.Storage.Services.SiteDbContextFactory(
+            new NetworkOptimizer.Storage.Services.SiteDatabasePaths("unused.db"));
+        _repository = new ChannelMemoryRepository(_factory, siteDbFactory, logger.Object);
     }
 
     public void Dispose()
