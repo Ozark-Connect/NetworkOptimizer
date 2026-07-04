@@ -11,6 +11,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject ICredentialProtectionService CredentialProtection
 @inject ILoggerFactory LoggerFactory
+@inject AgentSnmpQueryService AgentSnmpQuery
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -351,6 +352,29 @@
 
         try
         {
+            // Agent-covered site: the server can't reach the device directly, so run the GET
+            // through the site's agent. Main and any site without an online agent fall through
+            // to the direct poll below (unchanged).
+            if (!SiteCtx.IsDefault && AgentSnmpQuery.HasAgentForSite(SiteCtx.Slug))
+            {
+                var agentIp = await SnmpEndpoints.ResolveDeviceIpAsync(_expandedDeviceMac, ConnectionService);
+                if (agentIp == null)
+                {
+                    _testResult = new TestOidResult { ErrorMessage = "Could not resolve device IP." };
+                    return;
+                }
+                var agentRes = await AgentSnmpQuery.QueryAsync(SiteCtx.Slug, agentIp, _editOid.Trim(), TimeSpan.FromSeconds(10), CancellationToken.None);
+                if (agentRes != null)
+                {
+                    _testResult = agentRes.Success
+                        ? new TestOidResult { Success = true, Value = agentRes.Value }
+                        : new TestOidResult { ErrorMessage = string.IsNullOrEmpty(agentRes.Error) ? "No response." : agentRes.Error };
+                    return;
+                }
+                // agentRes == null: the agent's tunnel dropped between the check and the send;
+                // fall through to a direct attempt rather than failing outright.
+            }
+
             await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync();
             if (settings == null)
