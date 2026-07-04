@@ -56,6 +56,9 @@ public class MonitoringCollectionAgent : BackgroundService
     private readonly string _siteSlug;
     private readonly bool _isDefault;
 
+    // Throttles the agent-site console reconnect done inside ReconcileFabricTargetsAsync.
+    private DateTime _lastConsoleEnsureAt;
+
     // Counter delta cache for server-side rate computation. Key = "deviceMac/ifName".
     private readonly ConcurrentDictionary<string, InterfaceRateCalculator.State> _counterCache = new();
     // Per-target last-probed time, for per-target poll intervals on a shared loop.
@@ -1589,8 +1592,31 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task ReconcileFabricTargetsAsync(CancellationToken ct)
     {
+        // On an agent site the console reaches the controller through the tunnel and can
+        // read disconnected when this tier ticks - unlike the SNMP push, which reconnects
+        // first. Without a connected console GetMonitorableDevicesAsync returns empty and
+        // no fabric (device) targets ever get seeded. Ensure it's up as the SNMP push
+        // does, throttled so a genuinely offline console isn't hammered every tick.
+        if (!_isDefault && !_connectionService.IsConnected
+            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(30)
+            && await _connectionService.IsConsoleViaAgentAsync())
+        {
+            _lastConsoleEnsureAt = DateTime.UtcNow;
+            try { await _connectionService.ReconnectAsync(); }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Fabric reconcile console reconnect failed for site {Slug}", _siteSlug);
+            }
+        }
+
         var devices = await GetMonitorableDevicesAsync(ct);
-        if (devices.Count == 0) return;
+        if (devices.Count == 0)
+        {
+            _logger.LogDebug(
+                "Fabric reconcile for site {Slug}: no monitorable devices to seed targets from (console connected: {Connected})",
+                _siteSlug, _connectionService.IsConnected);
+            return;
+        }
 
         // Gateways need the LAN-side address here for the same reason SNMP does:
         // UniFi's "ip" field is the WAN public IP, which often doesn't answer ping
