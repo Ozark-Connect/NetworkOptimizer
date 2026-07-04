@@ -37,6 +37,9 @@ public sealed class TunnelClient
     /// <summary>Server asks us to run an iperf3 client test against a site-local target.</summary>
     public Func<Iperf3ClientRequest, CancellationToken, Task>? OnIperf3Request { get; set; }
 
+    /// <summary>Server asks us to run the UWN WAN speed test at the site.</summary>
+    public Func<UwnRequest, CancellationToken, Task>? OnUwnRequest { get; set; }
+
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
 
@@ -137,6 +140,12 @@ public sealed class TunnelClient
                         // must not block the read loop (heartbeats, other messages).
                         if (OnIperf3Request is { } iperf3Handler)
                             _ = iperf3Handler(message.Iperf3Request, linked.Token);
+                        break;
+                    case ServerMessage.PayloadOneofCase.UwnRequest:
+                        // Fire and forget for the same reason as the iperf3 test:
+                        // the WAN speed test runs for many seconds.
+                        if (OnUwnRequest is { } uwnHandler)
+                            _ = uwnHandler(message.UwnRequest, linked.Token);
                         break;
                 }
             }

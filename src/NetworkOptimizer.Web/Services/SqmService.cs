@@ -15,6 +15,7 @@ public class SqmService : ISqmService
     private readonly UniFiConnectionService _connectionService;
     private readonly TcMonitorClient _tcMonitorClient;
     private readonly IServiceProvider _serviceProvider;
+    private readonly SiteContextService _siteContext;
 
     // Track SQM state
     private SqmConfiguration? _currentConfig;
@@ -30,12 +31,14 @@ public class SqmService : ISqmService
         ILogger<SqmService> logger,
         UniFiConnectionService connectionService,
         TcMonitorClient tcMonitorClient,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        SiteContextService siteContext)
     {
         _logger = logger;
         _connectionService = connectionService;
         _tcMonitorClient = tcMonitorClient;
         _serviceProvider = serviceProvider;
+        _siteContext = siteContext;
     }
 
     /// <summary>
@@ -69,7 +72,7 @@ public class SqmService : ISqmService
             return result;
         }
 
-        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, tcMonitorPort);
+        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, tcMonitorPort, siteSlug: _siteContext.Slug);
 
         if (tcStats != null)
         {
@@ -136,7 +139,7 @@ public class SqmService : ISqmService
         if (string.IsNullOrEmpty(host))
             return null;
 
-        var stats = await _tcMonitorClient.GetTcStatsAsync(host, port);
+        var stats = await _tcMonitorClient.GetTcStatsAsync(host, port, siteSlug: _siteContext.Slug);
 
         if (stats != null)
         {
@@ -184,7 +187,7 @@ public class SqmService : ISqmService
             return (false, "Gateway SSH not configured");
         }
 
-        var available = await _tcMonitorClient.IsMonitorAvailableAsync(testHost, testPort);
+        var available = await _tcMonitorClient.IsMonitorAvailableAsync(testHost, testPort, siteSlug: _siteContext.Slug);
 
         if (available)
         {

@@ -119,14 +119,13 @@ public static class ScheduleExecutorRegistration
 
             if (testType == "server")
             {
-                // The server-side test runs the local binary on THIS host, so it can
-                // only ever measure the default site's WAN. Remote sites use the
-                // gateway test (the binary runs on their own gateway).
-                if (siteKey != SiteManagementService.DefaultSiteSlug)
-                    return (false, null, "Server-side WAN speed tests measure this server's own WAN and are not available for other sites. Use a gateway test instead.");
-
+                // The server-side ("Server") test runs the uwnspeedtest binary. For
+                // the default site it runs on THIS host; for an agent-backed site the
+                // service dispatches it to the site's agent so it measures the site's
+                // own WAN. The per-site instance resolves through the registry, and
+                // the service itself refuses sites that are neither (RunTestAsync).
                 var serverService = services.GetRequiredService<SpeedTestServiceRegistry>()
-                    .GetDefault().Uwn;
+                    .GetFor(siteKey).Uwn;
                 if (serverService.IsRunning)
                     return (false, null, "WAN speed test is already running");
                 result = await serverService.RunTestAsync(maxMode: maxMode, cancellationToken: ct);

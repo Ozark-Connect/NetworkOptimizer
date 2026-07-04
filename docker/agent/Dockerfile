@@ -18,6 +18,17 @@ RUN case "$TARGETARCH" in \
         -p:PublishSingleFile=true \
         -o /app/publish
 
+# uwnspeedtest Go binary for WAN speed tests run site-local at the agent
+# (uwnspeedtest imports the cfspeedtest module). Built for the target arch.
+FROM golang:1.22-alpine AS uwnspeedtest-build
+ARG TARGETARCH
+WORKDIR /src
+COPY src/cfspeedtest/ cfspeedtest/
+COPY src/uwnspeedtest/ uwnspeedtest/
+WORKDIR /src/uwnspeedtest
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
+    -ldflags "-s -w" -o /uwnspeedtest .
+
 # runtime-deps carries the native dependencies a self-contained .NET app needs.
 # iperf3 (LAN speed test) and iputils-ping (per-WAN source-bound probes) are the
 # only extras; the OpenSpeedTest page is embedded in the binary itself.
@@ -27,6 +38,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/publish/NetworkOptimizer.Agent /app/NetworkOptimizer.Agent
+# Site-local WAN speed test binary, resolved at AppContext.BaseDirectory/uwnspeedtest.
+COPY --from=uwnspeedtest-build /uwnspeedtest /app/uwnspeedtest
 
 # The agent persists its key/slug back into the config, so it must live on a
 # mounted volume - otherwise the agent re-enrolls on every container recreate.

@@ -241,11 +241,30 @@ jobs:
             cp "out/$rid/NetworkOptimizer.Agent" "NetworkOptimizer.Agent-$rid"
           done
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      # uwnspeedtest Go binary the agent runs for site-local WAN speed tests;
+      # install-native.sh drops it next to the agent binary (imports cfspeedtest,
+      # a sibling module in the checkout).
+      - name: Build uwnspeedtest binaries
+        working-directory: src/uwnspeedtest
+        run: |
+          for pair in "linux-x64 amd64" "linux-arm64 arm64"; do
+            set -- $pair
+            CGO_ENABLED=0 GOOS=linux GOARCH="$2" go build -trimpath \
+              -ldflags "-s -w" -o "$GITHUB_WORKSPACE/uwnspeedtest-$1" .
+          done
+
       - name: Upload agent binaries
         uses: actions/upload-artifact@v4
         with:
           name: agent-binaries
-          path: NetworkOptimizer.Agent-linux-*
+          path: |
+            NetworkOptimizer.Agent-linux-*
+            uwnspeedtest-linux-*
           if-no-files-found: error
           retention-days: 1
 
@@ -270,6 +289,8 @@ jobs:
           gh release upload ${{ github.ref_name }} \
             /tmp/agent-binaries/NetworkOptimizer.Agent-linux-x64 \
             /tmp/agent-binaries/NetworkOptimizer.Agent-linux-arm64 \
+            /tmp/agent-binaries/uwnspeedtest-linux-x64 \
+            /tmp/agent-binaries/uwnspeedtest-linux-arm64 \
             --clobber --repo ${{ github.repository }} || echo "Release not found yet - agent binaries not attached"
           # Find draft release matching this tag and publish it
           gh release edit ${{ github.ref_name }} --draft=false --repo ${{ github.repository }} || echo "No draft release found for ${{ github.ref_name }}"

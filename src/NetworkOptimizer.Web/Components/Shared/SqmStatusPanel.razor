@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject GatewaySpeedTestService GatewayService
 @inject TcMonitorClient TcMonitorClient
+@inject SiteContextService SiteContext
 @inject ISpeedTestRepository SpeedTestRepository
 
 <div class="sqm-status-panel">
@@ -181,7 +182,7 @@
             }
 
             // Poll TC Monitor directly (fast HTTP call, 2s timeout)
-            var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh);
+            var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh, siteSlug: SiteContext.Slug);
 
             if (response != null)
             {

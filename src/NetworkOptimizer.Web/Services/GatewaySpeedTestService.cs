@@ -23,6 +23,8 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly SiteDbContextFactory _siteDbFactory;
     private readonly SiteContextService _siteContext;
+    private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly AgentIperf3Service _agentIperf3;
 
     // Track running tests
     private bool _isTestRunning = false;
@@ -34,7 +36,9 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         SystemSettingsService systemSettings,
         INetworkPathAnalyzer pathAnalyzer,
         SiteDbContextFactory siteDbFactory,
-        SiteContextService siteContext)
+        SiteContextService siteContext,
+        SiteTunnelRouting tunnelRouting,
+        AgentIperf3Service agentIperf3)
     {
         _logger = logger;
         _gatewaySsh = gatewaySsh;
@@ -42,6 +46,8 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         _pathAnalyzer = pathAnalyzer;
         _siteDbFactory = siteDbFactory;
         _siteContext = siteContext;
+        _tunnelRouting = tunnelRouting;
+        _agentIperf3 = agentIperf3;
     }
 
     /// <summary>Context for the database holding this instance's site data.</summary>
@@ -344,9 +350,25 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         }
     }
 
+    /// <summary>
+    /// Runs the iperf3 client against the gateway for one direction. For an
+    /// agent-backed secondary site the client runs at the site's agent (through the
+    /// same primitive the LAN test uses) so throughput reflects the site's link to
+    /// its gateway; otherwise it runs locally on this server, exactly as before.
+    /// The default site is never routed via agent, so its path is unchanged. The
+    /// reverse flag carries the same "To/From Device" direction over both paths.
+    /// </summary>
     private async Task<(bool success, string output)> RunIperf3ClientAsync(
         string host, int port, int duration, int parallel, bool reverse)
     {
+        if (!_siteContext.IsDefault && await _tunnelRouting.IsViaAgentAsync(_siteContext.Slug))
+        {
+            _logger.LogDebug("Routing gateway iperf3 client to agent for site {Slug} against {Host}:{Port} (reverse={Reverse})",
+                _siteContext.Slug, host, port, reverse);
+            return await _agentIperf3.RunClientAsync(
+                _siteContext.Slug, host, port, duration, parallel, reverse, CancellationToken.None);
+        }
+
         var args = new List<string>
         {
             "-c", host,

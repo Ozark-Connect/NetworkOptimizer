@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.AgentProtocol;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Models;
@@ -23,6 +24,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     private readonly UniFiConnectionService _connectionService;
     private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly AgentUwnService _agentUwn;
 
     protected override SpeedTestDirection Direction => SpeedTestDirection.UwnWan;
 
@@ -33,6 +36,11 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
     private int Streams => MaxMode ? 48 : 20;
     private int ServerCount => MaxMode ? 12 : 4;
 
+    // Per-direction test duration and overall binary timeout, shared by the local
+    // run and the agent request so both invoke uwnspeedtest identically.
+    private const int UwnDurationSeconds = 8;
+    private const int UwnTimeoutSeconds = 90;
+
     public UwnSpeedTestService(
         ILogger<UwnSpeedTestService> logger,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
@@ -42,6 +50,8 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         SiteConnectionRegistry siteConnections,
         GatewaySshRegistry gatewaySshRegistry,
         IServiceScopeFactory scopeFactory,
+        SiteTunnelRouting tunnelRouting,
+        AgentUwnService agentUwn,
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
@@ -51,7 +61,17 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         _connectionService = siteConnections.GetFor(SiteSlug);
         _gatewaySsh = gatewaySshRegistry.GetFor(SiteSlug);
         _scopeFactory = scopeFactory;
+        _tunnelRouting = tunnelRouting;
+        _agentUwn = agentUwn;
     }
+
+    /// <summary>
+    /// The default site runs the binary locally; a non-default site can run only
+    /// when it is reached through its agent (the agent runs the binary at the
+    /// site, measuring the site's WAN rather than this server's).
+    /// </summary>
+    protected override async Task<bool> CanRunForSiteAsync() =>
+        IsDefaultSite || await _tunnelRouting.IsViaAgentAsync(SiteSlug);
 
     /// <summary>
     /// Scope pinned to this instance's site so scoped services (SQM WAN lookup)
@@ -68,6 +88,42 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
         Action<string, int, string?> report,
         CancellationToken cancellationToken)
     {
+        // A non-default site that is reached via its agent runs the binary at the
+        // site, so the measured WAN is the site's rather than this server's.
+        // CanRunForSiteAsync has already refused non-default sites without an agent.
+        if (!IsDefaultSite && await _tunnelRouting.IsViaAgentAsync(SiteSlug))
+            return await RunViaAgentAsync(report, cancellationToken);
+
+        return await RunLocalAsync(report, cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the uwnspeedtest binary at the site's agent and builds the result from
+    /// the JSON it returns. Progress is coarse (the agent returns only the final
+    /// JSON), but the stored result is identical to a local run.
+    /// </summary>
+    private async Task<Iperf3Result?> RunViaAgentAsync(
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
+    {
+        Logger.LogInformation(
+            "Dispatching UWN WAN speed test to site {Slug}'s agent ({Streams} streams, {Servers} servers)",
+            SiteSlug, Streams, ServerCount);
+        report("Running at site agent", 5, "Measuring the site's WAN...");
+
+        var (success, output) = await _agentUwn.RunAsync(
+            SiteSlug, Streams, ServerCount, UwnDurationSeconds, UwnTimeoutSeconds, cancellationToken);
+        if (!success)
+            throw new InvalidOperationException($"Agent WAN speed test failed: {output}");
+
+        return await BuildResultFromJsonAsync(output, wanIp: null, isp: null, serverInfo: null, report, cancellationToken);
+    }
+
+    /// <summary>Runs the uwnspeedtest binary locally on this host (default site).</summary>
+    private async Task<Iperf3Result?> RunLocalAsync(
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
+    {
         var binaryPath = GetLocalBinaryPath();
         if (!File.Exists(binaryPath))
             throw new InvalidOperationException(
@@ -80,7 +136,7 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
 
         report("Starting", 0, null);
 
-        var args = $"-streams {Streams} -servers {ServerCount} -duration 8 -timeout 90";
+        var args = UwnClientArgs.Build(Streams, ServerCount, UwnDurationSeconds, UwnTimeoutSeconds);
 
         var psi = new ProcessStartInfo
         {
@@ -185,6 +241,24 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             throw new InvalidOperationException(
                 $"UWN speed test binary produced no output (exit code: {process.ExitCode})");
 
+        return await BuildResultFromJsonAsync(stdout, wanIp, isp, serverInfo, report, cancellationToken);
+    }
+
+    /// <summary>
+    /// Parses the uwnspeedtest JSON (from a local run or the site's agent) into a
+    /// stored result, including WAN interface identification. The
+    /// <paramref name="wanIp"/>, <paramref name="isp"/>, and
+    /// <paramref name="serverInfo"/> hints come from a local run's stderr and are
+    /// null for an agent run, which relies on the JSON metadata alone.
+    /// </summary>
+    private async Task<Iperf3Result?> BuildResultFromJsonAsync(
+        string stdout,
+        string? wanIp,
+        string? isp,
+        string? serverInfo,
+        Action<string, int, string?> report,
+        CancellationToken cancellationToken)
+    {
         // Parse JSON output
         report("Processing", 96, null);
         var json = JsonSerializer.Deserialize<WanSpeedTestResult>(stdout, JsonOptions);

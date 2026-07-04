@@ -11,6 +11,7 @@ public class TcMonitorClient : ITcMonitorClient
 {
     private readonly ILogger<TcMonitorClient> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly SiteTunnelRouting _tunnelRouting;
 
     public const int DefaultPort = 8088;
 
@@ -27,10 +28,11 @@ public class TcMonitorClient : ITcMonitorClient
     // Serialize requests - the netcat-based server can only handle one connection at a time
     private static readonly SemaphoreSlim _requestLock = new(1, 1);
 
-    public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory)
+    public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory, SiteTunnelRouting tunnelRouting)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+        _tunnelRouting = tunnelRouting;
     }
 
     /// <summary>
@@ -40,8 +42,15 @@ public class TcMonitorClient : ITcMonitorClient
     /// <param name="port">Port number (default 8088)</param>
     /// <param name="forceRefresh">Bypass cache and fetch fresh data</param>
     /// <returns>TC monitor response with interface rates, or null if unreachable</returns>
-    public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort, bool forceRefresh = false)
+    public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort, bool forceRefresh = false, string? siteSlug = null)
     {
+        // A non-default agent-backed site reaches its gateway through the tunnel:
+        // rewrite host:port to the loopback proxy endpoint before polling. The
+        // default site (or a null slug) routes directly with no extra DB hit -
+        // RouteAsync short-circuits before touching the site's settings.
+        if (!string.IsNullOrEmpty(siteSlug))
+            (host, port) = await _tunnelRouting.RouteAsync(siteSlug, host, port);
+
         var url = $"http://{host}:{port}/";
 
         // Return cached if valid, not forcing refresh, and same endpoint
@@ -134,9 +143,9 @@ public class TcMonitorClient : ITcMonitorClient
     /// <param name="host">Gateway IP address or hostname.</param>
     /// <param name="port">Port number where tc-monitor is listening (default 8088).</param>
     /// <returns>True if the tc-monitor endpoint responds; otherwise, false.</returns>
-    public async Task<bool> IsMonitorAvailableAsync(string host, int port = DefaultPort)
+    public async Task<bool> IsMonitorAvailableAsync(string host, int port = DefaultPort, string? siteSlug = null)
     {
-        var result = await GetTcStatsAsync(host, port);
+        var result = await GetTcStatsAsync(host, port, siteSlug: siteSlug);
         return result != null;
     }
 
@@ -146,9 +155,9 @@ public class TcMonitorClient : ITcMonitorClient
     /// <param name="host">Gateway IP address or hostname.</param>
     /// <param name="port">Port number where tc-monitor is listening (default 8088).</param>
     /// <returns>The rate in Mbps of the first active interface, or null if unavailable.</returns>
-    public async Task<double?> GetPrimaryWanRateAsync(string host, int port = DefaultPort)
+    public async Task<double?> GetPrimaryWanRateAsync(string host, int port = DefaultPort, string? siteSlug = null)
     {
-        var stats = await GetTcStatsAsync(host, port);
+        var stats = await GetTcStatsAsync(host, port, siteSlug: siteSlug);
         var primaryInterface = stats?.Interfaces?.FirstOrDefault(i => i.Status == "active");
         return primaryInterface?.RateMbps;
     }

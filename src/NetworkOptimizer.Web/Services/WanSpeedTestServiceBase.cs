@@ -118,10 +118,12 @@ public abstract class WanSpeedTestServiceBase
         bool maxMode = false,
         CancellationToken cancellationToken = default)
     {
-        if (!IsDefaultSite)
+        if (!await CanRunForSiteAsync())
         {
             // The test binary runs on this host, so it measures this server's own
             // WAN - storing that as another site's result would be wrong data.
+            // Subclasses that can run the test at the site's agent override
+            // CanRunForSiteAsync to allow it (see UwnSpeedTestService).
             const string message = "Server-side WAN speed tests measure this server's own WAN and are not available for other sites. Use a gateway test instead.";
             Logger.LogWarning("Server-side WAN speed test refused for site {Site}", SiteSlug);
             lock (_lock) { _currentPhase = "Error"; _currentPercent = 0; _currentStatus = message; }
@@ -213,6 +215,15 @@ public abstract class WanSpeedTestServiceBase
             lock (_lock) _isRunning = false;
         }
     }
+
+    /// <summary>
+    /// Whether this service may run a test for its site. The base allows only the
+    /// default site, because the test binary runs on this host and can only
+    /// measure this server's own WAN. Subclasses that can dispatch the run to the
+    /// site's agent (which measures the site's WAN) override this to also allow
+    /// their agent-backed sites.
+    /// </summary>
+    protected virtual Task<bool> CanRunForSiteAsync() => Task.FromResult(IsDefaultSite);
 
     /// <summary>
     /// Subclass implements the actual test phases (metadata, latency, throughput).

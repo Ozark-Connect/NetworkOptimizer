@@ -5,6 +5,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 @inject TcMonitorClient SqmMonitorClient
+@inject SiteContextService SiteContext
 @inject IGatewaySshService GatewaySshService
 @inject IJSRuntime JS
 @inject ILogger<Sqm> Logger
@@ -2373,7 +2374,7 @@
                     var (gatewayHost, tcPort) = await GetGatewayConnectionAsync();
                     if (!string.IsNullOrEmpty(gatewayHost))
                     {
-                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true);
+                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true, siteSlug: SiteContext.Slug);
                         tcInterfaces = sqmMonitorData?.GetAllInterfaces();
                     }
                 }
@@ -3163,7 +3164,7 @@
             var (gatewayHost, tcPort) = await GetGatewayConnectionAsync();
             if (!string.IsNullOrEmpty(gatewayHost))
             {
-                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true);
+                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, tcPort, forceRefresh: true, siteSlug: SiteContext.Slug);
                 tcInterfaces = sqmMonitorData?.GetAllInterfaces();
 
                 // Adjust polling rate based on speedtest status

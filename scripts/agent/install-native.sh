@@ -65,6 +65,12 @@ echo "Downloading agent binary..."
 curl -fSL "${RELEASE_BASE}/NetworkOptimizer.Agent-${RID}" -o "${INSTALL_DIR}/NetworkOptimizer.Agent"
 chmod +x "${INSTALL_DIR}/NetworkOptimizer.Agent"
 
+# uwnspeedtest binary for site-local WAN speed tests; the agent resolves it next
+# to itself (AppContext.BaseDirectory/uwnspeedtest).
+echo "Downloading WAN speed test binary..."
+curl -fSL "${RELEASE_BASE}/uwnspeedtest-${RID}" -o "${INSTALL_DIR}/uwnspeedtest"
+chmod +x "${INSTALL_DIR}/uwnspeedtest"
+
 CONFIG="${INSTALL_DIR}/agent.json"
 
 # Preserve an already-enrolled config so re-running the installer (e.g. to

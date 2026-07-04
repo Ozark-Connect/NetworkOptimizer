@@ -27,6 +27,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly AgentProbeResultSink _probeResultSink;
     private readonly AgentTunnelProxyService _proxy;
     private readonly AgentIperf3Service _iperf3;
+    private readonly AgentUwnService _uwn;
     private readonly ILogger<AgentTunnelService> _logger;
 
     public AgentTunnelService(
@@ -35,6 +36,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         AgentProbeResultSink probeResultSink,
         AgentTunnelProxyService proxy,
         AgentIperf3Service iperf3,
+        AgentUwnService uwn,
         ILogger<AgentTunnelService> logger)
     {
         _enrollment = enrollment;
@@ -42,6 +44,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         _probeResultSink = probeResultSink;
         _proxy = proxy;
         _iperf3 = iperf3;
+        _uwn = uwn;
         _logger = logger;
     }
 
@@ -117,6 +120,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.Iperf3Result:
                         _iperf3.OnResult(message.Iperf3Result);
                         break;
+                    case AgentMessage.PayloadOneofCase.UwnResult:
+                        _uwn.OnResult(message.UwnResult);
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;
@@ -136,6 +142,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             _registry.Unregister(connection);
             _proxy.OnAgentDisconnected(connection);
             _iperf3.OnAgentDisconnected(connection);
+            _uwn.OnAgentDisconnected(connection);
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);
@@ -163,7 +170,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     {
         while (!ct.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromMinutes(5), ct);
+            await Task.Delay(TimeSpan.FromSeconds(60), ct);
             await _probeResultSink.OnAgentConnectedAsync(connection, ct);
         }
     }

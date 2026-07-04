@@ -166,8 +166,9 @@ public class DashboardService : IDashboardService
                 }
                 else
                 {
-                    // Poll TC Monitor directly (fast HTTP call, 2s timeout, no static cache)
-                    var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
+                    // Poll TC Monitor directly (fast HTTP call, 2s timeout, no static cache).
+                    // Route through the site's agent when it is reached that way.
+                    var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, siteSlug: _siteContext.Slug);
                     var interfaces = tcStats?.GetAllInterfaces();
                     data.SqmStatus = interfaces?.Any() == true ? "Active" : "Not Deployed";
                 }

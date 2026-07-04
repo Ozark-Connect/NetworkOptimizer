@@ -23,6 +23,7 @@ message AgentMessage {
     ProxyClose proxy_close = 6;
     SnmpResultBatch snmp_results = 7;
     Iperf3ClientResult iperf3_result = 8;
+    UwnResult uwn_result = 9;
   }
 }
 
@@ -35,6 +36,7 @@ message ServerMessage {
     ProxyClose proxy_close = 5;
     SnmpConfig snmp_config = 6;
     Iperf3ClientRequest iperf3_request = 7;
+    UwnRequest uwn_request = 8;
   }
 }
 
@@ -208,5 +210,29 @@ message Iperf3ClientResult {
   bool success = 2;
   // The iperf3 -J JSON on success, or an error message otherwise. Matches the
   // (success, output) contract the server's local iperf3 run already returns.
+  string output = 3;
+}
+
+// ---- UWN WAN speed test run at the site ----
+// The UWN WAN speed test measures the internet connection from the host running
+// the test binary. For a secondary site the central server's own WAN is the
+// wrong link, so it asks the agent to run the site's uwnspeedtest binary and
+// return the raw JSON the binary prints on stdout; the server parses it and
+// stores the result under that site, exactly as it does for a local run. Mirrors
+// the iperf3 client request/result correlation by request_id.
+
+message UwnRequest {
+  int64 request_id = 1;
+  int32 streams = 2;
+  int32 servers = 3;
+  int32 duration_seconds = 4;
+  int32 timeout_seconds = 5;
+}
+
+message UwnResult {
+  int64 request_id = 1;
+  bool success = 2;
+  // The uwnspeedtest JSON stdout on success, or an error message otherwise.
+  // Matches the (success, output) contract the server's local run returns.
   string output = 3;
 }
