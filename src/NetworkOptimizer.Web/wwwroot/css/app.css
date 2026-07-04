@@ -2107,6 +2107,11 @@ a.stat-card-link:active {
     color: var(--warning-color);
 }
 
+.status-badge.status-info {
+    background: rgba(71, 151, 255, 0.2);
+    color: var(--info-color);
+}
+
 .status-badge.badge-agent {
     background: rgba(100, 116, 139, 0.2);
     color: var(--text-secondary);

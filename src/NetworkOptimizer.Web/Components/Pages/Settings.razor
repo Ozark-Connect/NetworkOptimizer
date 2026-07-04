@@ -289,13 +289,15 @@
     <div class="card settings-tab-application" id="admin-password">
         <div class="card-header">
             <h2 class="card-title">Admin Password</h2>
-            @if (_multiSiteEnabled)
-            {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-            }
-            <span class="status-badge status-@(adminPasswordSource == AdminPasswordSource.None ? "disconnected" : "connected")">
-                @GetAdminPasswordSourceLabel()
-            </span>
+            <div class="card-header-badges">
+                @if (_multiSiteEnabled)
+                {
+                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                }
+                <span class="status-badge status-@(adminPasswordSource == AdminPasswordSource.None ? "disconnected" : "connected")">
+                    @GetAdminPasswordSourceLabel()
+                </span>
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -1906,14 +1908,16 @@
     <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
             <h2 class="card-title">Alert Channels</h2>
-            @if (_multiSiteEnabled)
-            {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-            }
-            @if (alertChannels?.Count > 0)
-            {
-                <span class="status-badge status-active">@alertChannels.Count configured</span>
-            }
+            <div class="card-header-badges">
+                @if (_multiSiteEnabled)
+                {
+                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                }
+                @if (alertChannels?.Count > 0)
+                {
+                    <span class="status-badge status-active">@alertChannels.Count configured</span>
+                }
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -2303,14 +2307,16 @@
     <div class="card settings-tab-security" id="crowdsec">
         <div class="card-header">
             <h2 class="card-title">CrowdSec CTI</h2>
-            @if (_multiSiteEnabled)
-            {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-            }
-            @if (crowdsecEnabled)
-            {
-                <span class="status-badge status-active">Enabled</span>
-            }
+            <div class="card-header-badges">
+                @if (_multiSiteEnabled)
+                {
+                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                }
+                @if (crowdsecEnabled)
+                {
+                    <span class="status-badge status-active">Enabled</span>
+                }
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -2409,13 +2415,15 @@
     <div class="card settings-tab-application" id="map">
         <div class="card-header">
             <h2 class="card-title">Satellite Imagery</h2>
-            @if (_multiSiteEnabled)
-            {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-            }
-            <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "")">
-                @(!string.IsNullOrEmpty(_mapboxToken) ? "Mapbox (commercial)" : "Esri (non-commercial)")
-            </span>
+            <div class="card-header-badges">
+                @if (_multiSiteEnabled)
+                {
+                    <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+                }
+                <span class="status-badge status-@(!string.IsNullOrEmpty(_mapboxToken) ? "connected" : "info")">
+                    @(!string.IsNullOrEmpty(_mapboxToken) ? "Mapbox (commercial)" : "Esri (non-commercial)")
+                </span>
+            </div>
         </div>
         <div class="card-body">
             <p class="section-description">
