@@ -208,7 +208,7 @@ public class MonitoringCollectionAgent : BackgroundService
             try
             {
                 var settings = await LoadSettingsAsync(stoppingToken);
-                if (settings == null || !ShouldRunNow(settings))
+                if (settings == null || !await ShouldRunNowAsync(settings, stoppingToken))
                 {
                     // Not enabled or not configured — sleep and re-check
                     interval = TimeSpan.FromSeconds(30);
@@ -248,15 +248,22 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
-    private static bool ShouldRunNow(MonitoringSettings settings)
+    private async Task<bool> ShouldRunNowAsync(MonitoringSettings settings, CancellationToken ct)
     {
         if (!settings.Enabled) return false;
         if (settings.SnmpDetectionState != SnmpDetectionState.EnabledV2c
             && settings.SnmpDetectionState != SnmpDetectionState.EnabledV3Only
             && settings.SnmpDetectionState != SnmpDetectionState.Working)
             return false;
-        if (string.IsNullOrEmpty(settings.InfluxDbToken)) return false;
-        return true;
+        // The default site stores its own InfluxDB token. Secondary sites derive
+        // their InfluxDB config from main (shared server/token, per-site buckets),
+        // so their MonitoringSettings token is empty - fall back to whether the
+        // effective per-site client is configured (deriving it if needed). Without
+        // this, every agent site's collection agent (fabric target reconcile, device
+        // and wifi tiers feeding Device Stats) was gated off entirely.
+        if (!string.IsNullOrEmpty(settings.InfluxDbToken)) return true;
+        if (!_influx.IsConfigured) await _influx.ReconfigureAsync(ct);
+        return _influx.IsConfigured;
     }
 
     // ---- Tier collection methods ----
