@@ -64,9 +64,10 @@ dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64
 ```
 
 Produces a **self-contained single-file binary** at
-`src/NetworkOptimizer.Agent/bin/Release/net10.0/<rid>/publish/NetworkOptimizer.Agent`.
-It embeds the OpenSpeedTest page, so the site box needs nothing installed - no
-.NET runtime, no Docker.
+`src/NetworkOptimizer.Agent/bin/Release/net10.0/<rid>/publish/NetworkOptimizer.Agent`
+- no .NET runtime needed. The only extra dependency is **nginx**, and only when
+the LAN speed test is enabled (it serves the OpenSpeedTest page + transfer legs);
+`install-native.sh` handles that for you.
 
 ## Enroll and run
 
@@ -231,12 +232,15 @@ the server's own prober), streaming results back for storage.
 
 ## LAN speed test serving
 
-Set `"lanSpeedTest": true` (optionally `"lanSpeedTestPort"`, default 3000) and
-the agent hosts the embedded OpenSpeedTest page for the site's clients.
-Download/upload endpoints are served by the agent itself; results are relayed to
-the central server tagged with the site slug and the client's real IP, so they
-land in the site's own database with no CORS or exposure of the central server to
-browsers required. If an `iperf3` binary is on the agent's PATH, an iperf3 server
+Set `"lanSpeedTest": true` and the site's clients get an OpenSpeedTest page on
+port 3000. **nginx** serves the page and the throughput-critical download/upload
+legs (sendfile, so it saturates 10 GbE on modest hardware where a .NET server
+would go CPU-bound) - the Docker image bundles it, and `install-native.sh`
+installs and configures it for the bare-metal install. The .NET agent keeps only
+a loopback results relay (nginx proxies the result posts to it), which forwards
+them to the central server tagged with the site slug and the client's real IP, so
+they land in the site's own database with no CORS or exposure of the central
+server to browsers. If an `iperf3` binary is on the agent's PATH, an iperf3 server
 (port 5201) runs alongside for wired/CLI throughput tests.
 
 ## Probe-only mode for multi-WAN monitoring

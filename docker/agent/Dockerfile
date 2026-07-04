@@ -30,20 +30,30 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
     -ldflags "-s -w" -o /uwnspeedtest .
 
 # runtime-deps carries the native dependencies a self-contained .NET app needs.
-# iperf3 (LAN speed test) and iputils-ping (per-WAN source-bound probes) are the
-# only extras; the OpenSpeedTest page is embedded in the binary itself.
+# nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
+# (sendfile, so it saturates 10 GbE on modest hardware); iperf3 (LAN speed test)
+# and iputils-ping (per-WAN source-bound probes) round it out. The .NET agent
+# runs the tunnel plus the loopback results relay.
 FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_VERSION}
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends iperf3 iputils-ping ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends nginx iperf3 iputils-ping ca-certificates \
+    && rm -rf /var/lib/apt/lists/* /etc/nginx/sites-enabled/default
 WORKDIR /app
 COPY --from=build /app/publish/NetworkOptimizer.Agent /app/NetworkOptimizer.Agent
 # Site-local WAN speed test binary, resolved at AppContext.BaseDirectory/uwnspeedtest.
 COPY --from=uwnspeedtest-build /uwnspeedtest /app/uwnspeedtest
+
+# OpenSpeedTest, served by nginx. config.js is overridden so results relay
+# same-origin through the agent (see docker/agent/nginx.conf + config.js).
+COPY src/OpenSpeedTest/ /usr/share/nginx/html/
+COPY docker/agent/config.js /usr/share/nginx/html/assets/js/config.js
+COPY docker/agent/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/agent/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # The agent persists its key/slug back into the config, so it must live on a
 # mounted volume - otherwise the agent re-enrolls on every container recreate.
 ENV NO_AGENT_CONFIG=/data/agent.json
 VOLUME /data
 
-ENTRYPOINT ["/app/NetworkOptimizer.Agent"]
+ENTRYPOINT ["/entrypoint.sh"]

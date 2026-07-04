@@ -2,23 +2,24 @@ using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Agent;
 
 /// <summary>
-/// Serves the embedded OpenSpeedTest page at the site so clients can run LAN
-/// speed tests against the agent. The download endpoint streams a generated
-/// payload, the upload endpoint drains, and result posts are relayed
-/// server-side to the central Network Optimizer with the site slug appended
-/// and the original client IP forwarded - which keeps the browser same-origin
-/// (no CORS setup on the central server) and lands results in the site's own
-/// database.
+/// The agent's speed-test results relay. nginx fronts the OpenSpeedTest page and
+/// the throughput-critical <c>/downloading</c> and <c>/upload</c> legs (sendfile,
+/// so it saturates 10 GbE on modest hardware where Kestrel would go CPU-bound),
+/// and proxies the result POSTs to this loopback listener. The relay forwards them
+/// to the central Network Optimizer with the site slug appended and the original
+/// client IP preserved (from nginx's X-Forwarded-For) - keeping the browser
+/// same-origin (no CORS on the central server) and landing results in the site's
+/// own database.
 /// </summary>
 public sealed class SpeedTestServer : IAsyncDisposable
 {
-    private static readonly byte[] DownloadPayload = CreatePayload();
+    /// <summary>Loopback port the relay binds; nginx proxies /api/public/speedtest/* here.</summary>
+    public const int RelayPort = 3001;
 
     private readonly WebApplication _app;
     private readonly HttpClient _relay;
@@ -30,16 +31,8 @@ public sealed class SpeedTestServer : IAsyncDisposable
         _relay = relay;
     }
 
-    private static byte[] CreatePayload()
-    {
-        // Random so nothing in the path can transparently compress it. Matches
-        // the 30 MiB `downloading` blob the nginx deployments serve.
-        var payload = new byte[30 * 1024 * 1024];
-        Random.Shared.NextBytes(payload);
-        return payload;
-    }
-
-    public static SpeedTestServer Create(string serverUrl, string siteSlug, int port, bool ignoreSslErrors)
+    /// <summary>Binds the results relay on loopback (<see cref="RelayPort"/>).</summary>
+    public static SpeedTestServer Create(string serverUrl, string siteSlug, bool ignoreSslErrors)
     {
         var handler = new HttpClientHandler();
         if (ignoreSslErrors)
@@ -48,55 +41,16 @@ public sealed class SpeedTestServer : IAsyncDisposable
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls($"http://*:{port}");
+        builder.WebHost.UseUrls($"http://127.0.0.1:{RelayPort}");
         var app = builder.Build();
-
-        var assets = new ManifestEmbeddedFileProvider(typeof(SpeedTestServer).Assembly, "SpeedTestSite");
-
-        // Same shape the deployment scripts inject into config.js, except the
-        // save URL points back at this agent, which relays to the server.
-        var configJs = """
-            var saveData = true;
-            var saveDataURL = window.location.protocol + "//" + window.location.host + "/api/public/speedtest/results";
-            var apiPath = "/api/public/speedtest/results";
-            var externalServerId = "";
-            var clientResultsUrl = saveDataURL.split("/api")[0] + "/client-speedtest";
-            var OpenSpeedTestdb = "";
-            """;
-
-        app.MapGet("/", (HttpContext context) =>
-        {
-            context.Response.Headers.CacheControl = "no-store";
-            return Results.Stream(assets.GetFileInfo("index.html").CreateReadStream(), "text/html");
-        });
-
-        app.MapGet("/assets/js/config.js", () => Results.Text(configJs, "application/javascript"));
-
-        app.MapGet("/downloading", (HttpContext context) =>
-        {
-            context.Response.Headers.CacheControl = "no-store";
-            return Results.Bytes(DownloadPayload, "application/octet-stream");
-        });
-
-        app.MapPost("/upload", async (HttpContext context) =>
-        {
-            await context.Request.Body.CopyToAsync(Stream.Null, context.RequestAborted);
-            return Results.Ok();
-        });
 
         app.MapPost("/api/public/speedtest/results",
             (Delegate)((HttpContext context) => RelayAsync(relay, context, "api/public/speedtest/results", siteSlug)));
         app.MapPost("/api/public/speedtest/topology-snapshots",
             (Delegate)((HttpContext context) => RelayAsync(relay, context, "api/public/speedtest/topology-snapshots", siteSlug)));
 
-        // The results link on the page lives on the central server.
+        // The "view results" link on the page lives on the central server.
         app.MapGet("/client-speedtest", () => Results.Redirect(serverUrl.TrimEnd('/') + "/client-speedtest"));
-
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            FileProvider = assets,
-            ServeUnknownFileTypes = true,
-        });
 
         return new SpeedTestServer(app, relay);
     }
@@ -118,9 +72,12 @@ public sealed class SpeedTestServer : IAsyncDisposable
                     string.IsNullOrEmpty(mediaType) ? "application/x-www-form-urlencoded" : mediaType);
             }
 
-            // The server's GetClientIp honors X-Forwarded-For, so results keep
-            // the real client address instead of the agent's.
-            var clientIp = context.Connection.RemoteIpAddress?.ToString();
+            // nginx passes the real client address in X-Forwarded-For (the direct
+            // connection here is always loopback); fall back to the connection IP.
+            // The server's GetClientIp honors X-Forwarded-For, so results keep the
+            // real client address instead of the agent's.
+            var clientIp = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()
+                ?? context.Connection.RemoteIpAddress?.ToString();
             if (!string.IsNullOrEmpty(clientIp))
                 request.Headers.TryAddWithoutValidation("X-Forwarded-For", clientIp);
 

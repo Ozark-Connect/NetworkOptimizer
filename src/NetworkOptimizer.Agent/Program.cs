@@ -113,17 +113,19 @@ Console.WriteLine($"Agent v{version} running for site '{config.SiteSlug}' agains
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-// LAN speed test serving (independent of the tunnel - site clients hit the
-// agent directly; results relay to the central server with the site slug).
+// LAN speed test (independent of the tunnel - site clients hit the agent
+// directly). nginx serves the OpenSpeedTest page + the throughput-critical
+// transfer legs on config.LanSpeedTestPort; this loopback relay only forwards
+// result posts to the central server with the site slug.
 SpeedTestServer? speedTestServer = null;
 Task? iperf3Task = null;
 if (config.LanSpeedTest)
 {
     try
     {
-        speedTestServer = SpeedTestServer.Create(config.ServerUrl, config.SiteSlug ?? "", config.LanSpeedTestPort, config.IgnoreSslErrors);
+        speedTestServer = SpeedTestServer.Create(config.ServerUrl, config.SiteSlug ?? "", config.IgnoreSslErrors);
         speedTestServer.Start();
-        Console.WriteLine($"LAN speed test page listening on port {config.LanSpeedTestPort}");
+        Console.WriteLine($"LAN speed test results relay on 127.0.0.1:{SpeedTestServer.RelayPort} (nginx fronts the page + transfer legs on port {config.LanSpeedTestPort})");
     }
     catch (Exception ex)
     {

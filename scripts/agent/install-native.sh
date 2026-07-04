@@ -93,6 +93,53 @@ else
     } > "$CONFIG"
 fi
 
+# nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
+# (sendfile, 10 GbE); the agent's loopback relay (127.0.0.1:3001) forwards result
+# posts to the central server. Only needed with --lan-speed-test.
+if [ "$LAN_SPEED_TEST" = true ]; then
+    echo "Setting up nginx for the LAN speed test..."
+    if ! command -v nginx >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq nginx
+        elif command -v dnf >/dev/null 2>&1; then dnf install -y -q nginx
+        elif command -v yum >/dev/null 2>&1; then yum install -y -q nginx
+        elif command -v apk >/dev/null 2>&1; then apk add --no-cache nginx
+        else echo "WARNING: could not install nginx automatically - install it and re-run to enable the LAN speed test."; fi
+    fi
+
+    if command -v nginx >/dev/null 2>&1; then
+        WEBROOT="/usr/share/nginx/html"
+        RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
+        mkdir -p "$WEBROOT/assets/js"
+        echo "Downloading OpenSpeedTest..."
+        TARBALL="$(mktemp)"; TMPX="$(mktemp -d)"
+        curl -fsSL "https://github.com/Ozark-Connect/NetworkOptimizer/archive/refs/heads/main.tar.gz" -o "$TARBALL"
+        tar -xzf "$TARBALL" -C "$TMPX" --strip-components=3 "NetworkOptimizer-main/src/OpenSpeedTest"
+        cp -r "$TMPX/." "$WEBROOT/"
+        rm -rf "$TARBALL" "$TMPX"
+
+        # Results relay same-origin through the agent (overrides the placeholder config.js).
+        cat > "$WEBROOT/assets/js/config.js" <<'CFGJS'
+var saveData = true;
+var saveDataURL = window.location.protocol + "//" + window.location.host + "/api/public/speedtest/results";
+var apiPath = "/api/public/speedtest/results";
+var externalServerId = "";
+var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
+var OpenSpeedTestdb = "";
+CFGJS
+
+        mkdir -p /etc/nginx/conf.d
+        curl -fsSL "$RAW/docker/agent/nginx.conf" -o /etc/nginx/conf.d/netopt-agent-speedtest.conf
+        rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+        if nginx -t >/dev/null 2>&1; then
+            systemctl enable nginx >/dev/null 2>&1 || true
+            systemctl restart nginx 2>/dev/null || service nginx restart 2>/dev/null || true
+            echo "nginx serving OpenSpeedTest on port 3000."
+        else
+            echo "WARNING: nginx config test failed - the LAN speed test page won't serve. Diagnose with: nginx -t"
+        fi
+    fi
+fi
+
 # systemd unit
 echo "Installing ${SERVICE_NAME}.service"
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
