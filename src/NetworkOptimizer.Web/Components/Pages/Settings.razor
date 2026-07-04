@@ -2817,6 +2817,19 @@
                                                         tests, LAN speed tests, and modem / ONT monitoring without VPN. Applies within
                                                         a minute.
                                                     </label>
+                                                    <div class="form-group">
+                                                        <label class="form-label">Client speed test target override (optional)</label>
+                                                        <input type="text" class="form-control"
+                                                               placeholder="e.g. 192.168.1.50 or https://speed.example.com"
+                                                               value="@ClientSpeedTestTarget(site.Id)"
+                                                               @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
+                                                        <small class="form-help">
+                                                            The address browsers on this site hit for the LAN speed test, for when
+                                                            the agent's auto-detected LAN IP isn't its client-facing address (e.g.
+                                                            behind a reverse proxy). Leave blank to use the agent's detected
+                                                            address. Doesn't affect the network path trace.
+                                                        </small>
+                                                    </div>
                                                 }
                                                 @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
                                                 {
@@ -3145,6 +3158,7 @@
             {
                 await LoadConsoleViaAgentAsync(site);
                 await LoadSshViaAgentAsync(site);
+                await LoadClientSpeedTestTargetAsync(site);
             }
         }
     }
@@ -3205,6 +3219,40 @@
         }
         await db.SaveChangesAsync();
         _sshViaAgent[site.Id] = value;
+    }
+
+    // Per-site Client Speed Test target override (IP/host or full URL), stored in the
+    // site's own database. Client-facing only - never affects the server-side path trace.
+    private readonly Dictionary<int, string?> _clientSpeedTestTarget = new();
+
+    private string? ClientSpeedTestTarget(int siteId) =>
+        _clientSpeedTestTarget.TryGetValue(siteId, out var v) ? v : null;
+
+    private async Task LoadClientSpeedTestTargetAsync(Site site)
+    {
+        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride);
+        _clientSpeedTestTarget[site.Id] = setting?.Value;
+    }
+
+    private async Task SaveClientSpeedTestTarget(Site site, string? value)
+    {
+        var trimmed = value?.Trim();
+        if (string.IsNullOrEmpty(trimmed)) trimmed = null;
+        await using var db = SiteDb.CreateForSite(site.Slug, site.IsDefault);
+        var setting = await db.SystemSettings.FindAsync(SystemSettingKeys.ClientSpeedTestTargetOverride);
+        if (setting == null)
+        {
+            if (trimmed != null)
+                db.SystemSettings.Add(new SystemSetting { Key = SystemSettingKeys.ClientSpeedTestTargetOverride, Value = trimmed });
+        }
+        else
+        {
+            setting.Value = trimmed;
+            setting.UpdatedAt = DateTime.UtcNow;
+        }
+        await db.SaveChangesAsync();
+        _clientSpeedTestTarget[site.Id] = trimmed;
     }
 
     private async Task CreateAgent(Site site)

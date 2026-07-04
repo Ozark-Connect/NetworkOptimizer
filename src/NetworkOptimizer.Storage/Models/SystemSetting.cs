@@ -40,6 +40,12 @@ public static class SystemSettingKeys
     // Multi-site management
     public const string MultiSiteEnabled = "multisite.enabled";
 
+    // Per-site Client Speed Test target override (agent sites only): an IP/host or a
+    // full URL the browser should hit for the LAN speed test, used when the agent's
+    // auto-detected LAN IP isn't its client-facing address (e.g. behind a reverse
+    // proxy). Client-facing only - the path trace always uses the agent's real LAN IP.
+    public const string ClientSpeedTestTargetOverride = "clientspeedtest.target_override";
+
     // UI preferences (legacy - no longer used)
     public const string SponsorshipBannerDismissed = "ui.sponsorship_banner_dismissed";
 

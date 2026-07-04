@@ -19,6 +19,7 @@
 @inject PullToRefreshState PtrState
 @inject SiteContextService SiteContext
 @inject AgentEnrollmentService AgentEnrollment
+@inject ISystemSettingsService Settings
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -803,6 +804,11 @@
     private bool agentSiteOffline;
     private string targetLabel = "this server";
 
+    // Optional per-site override for the client-facing agent target (IP/host or full
+    // URL), set in Settings > Multi-Site > (site) Configuration and stored in the site's
+    // own database. Client-facing only - never affects the server-side path trace.
+    private string? targetOverride;
+
     // Ports the on-site agent serves LAN speed tests on (OpenSpeedTest / iperf3).
     private const int AgentOpenSpeedTestPort = 3000;
 
@@ -862,16 +868,32 @@
         {
             agentLanIp = await AgentEnrollment.GetOnlineAgentLanIpAsync(SiteContext.Slug);
             agentSiteOffline = agentLanIp == null;
+            targetOverride = (await Settings.GetAsync(SystemSettingKeys.ClientSpeedTestTargetOverride))?.Trim();
         }
-        siteUsesAgent = agentLanIp != null;
+        // A per-site override (an IP/host or a full URL) wins over the auto-detected
+        // agent LAN IP for the CLIENT-FACING target - for agents whose reachable address
+        // isn't their detected LAN IP (e.g. behind a reverse proxy). It never touches the
+        // path trace, which always runs to the agent's real LAN IP server-side.
+        var effectiveTarget = !string.IsNullOrEmpty(targetOverride) ? targetOverride : agentLanIp;
+        siteUsesAgent = effectiveTarget != null;
         targetLabel = siteUsesAgent ? "the on-site agent" : "this server";
 
         if (siteUsesAgent)
         {
-            // The agent serves OpenSpeedTest (HTTP) on port 3000 and iperf3 on 5201
-            // on the site network. It reports Online, so trust it without a health probe.
-            openSpeedTestUrl = $"http://{agentLanIp}:{AgentOpenSpeedTestPort}";
-            serverHost = agentLanIp!;
+            // The agent serves OpenSpeedTest (HTTP) on port 3000 and iperf3 on 5201 on
+            // the site network. An override may be a full URL (used as-is) or a bare
+            // host/IP (default port). iperf3 always targets the host part.
+            if (effectiveTarget!.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || effectiveTarget.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                openSpeedTestUrl = effectiveTarget.TrimEnd('/');
+                serverHost = Uri.TryCreate(openSpeedTestUrl, UriKind.Absolute, out var u) ? u.Host : effectiveTarget;
+            }
+            else
+            {
+                openSpeedTestUrl = $"http://{effectiveTarget}:{AgentOpenSpeedTestPort}";
+                serverHost = effectiveTarget;
+            }
             iperf3ServerEnabled = true;
             openSpeedTestAvailable = true;
         }
