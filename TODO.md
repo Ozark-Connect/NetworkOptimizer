@@ -392,6 +392,15 @@ Suggested order: congestion / path-shift / outage navigation first (cheap, consi
   - Session management and token refresh across federated sessions
   - Fallback local auth for break-glass scenarios
 
+### Site Lifecycle Management (post-MVP, not essential for initial MVP)
+- **Deactivate a site:** stop its collection / agent coverage and hide it from the UI, but keep its
+  data, per-site DB, and InfluxDB buckets intact for later re-activation.
+- **Permanently remove a site:** delete its `Sites` + `SiteAgents` rows, its per-site DB
+  (`data/sites/<slug>/`), and its InfluxDB buckets (`<slug>-*`), behind a clear confirmation.
+  Today this requires manual DB row deletes + filesystem + bucket surgery (no in-app path).
+- Both should tear down / re-establish agent enrollment cleanly so a removed slug can be re-added
+  from scratch with no stale rows.
+
 ## Distribution
 
 ### ISO/OVA Image for MSP Deployment

@@ -896,7 +896,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
         if (!settings.IsConfigured || !settings.HasCredentials)
         {
-            _lastError = "No saved configuration";
+            _lastError = SiteSlug == SiteManagementService.DefaultSiteSlug
+                ? "The UniFi Console isn't connected yet. Set up the connection in Settings to view network data."
+                : "This site's UniFi Console isn't connected yet. Set up its connection in Settings - a console that isn't directly reachable from this server connects through the site's on-site agent.";
             return false;
         }
 

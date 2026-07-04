@@ -17362,6 +17362,29 @@ body.kiosk-mode .status-indicators {
     border-radius: 0 0 6px 6px;
 }
 
+@media (max-width: 768px) {
+    .site-switcher-trigger {
+        padding: 0.6rem 0.9rem;
+        font-size: 0.95rem;
+    }
+
+    .site-switcher-menu {
+        min-width: 260px;
+        padding: 0.5rem;
+    }
+
+    .site-switcher-item {
+        min-height: 44px;
+        padding: 0.65rem 0.85rem;
+        font-size: 0.95rem;
+    }
+
+    .site-switcher-all {
+        padding: 0.75rem 0.85rem 0.5rem;
+        font-size: 0.95rem;
+    }
+}
+
 .sites-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -17438,6 +17461,7 @@ body.kiosk-mode .status-indicators {
 .site-card-add-plus {
     font-size: 1.4rem;
     line-height: 1;
+    transform: translateY(-2.5px);
 }
 
 .sites-overview-card {
@@ -17579,6 +17603,50 @@ body.kiosk-mode .status-indicators {
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.5rem;
+}
+
+.site-config-row td {
+    padding: 0;
+}
+
+.data-table tr.site-config-row {
+    background: transparent;
+}
+
+.site-config-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    margin: 0.25rem 0 0.75rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg);
+}
+
+.site-config-section {
+    padding: 0.85rem 1rem;
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius-lg);
+}
+
+.site-config-section-title {
+    margin-bottom: 0.6rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.site-config-empty {
+    margin: 0 0 0.6rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.site-config-override {
+    margin-top: 1rem;
+    margin-bottom: 0;
 }
 
 .agent-status-inline {

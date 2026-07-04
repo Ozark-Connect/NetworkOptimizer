@@ -78,6 +78,15 @@ public class MonitoringInfluxClient : IAsyncDisposable
     public string? CurrentUrl => _url;
     public bool IsConfigured => _client != null && !string.IsNullOrEmpty(_bucket);
 
+    /// <summary>The primary bucket this client actually reads/writes, after resolution
+    /// (slug-prefixed for non-default sites; collisions with main are corrected). Null
+    /// until configured. Use this for display so the UI matches the real target bucket
+    /// rather than the raw stored value.</summary>
+    public string? PrimaryBucket => _bucket;
+
+    /// <summary>The long-term bucket this client actually reads/writes, after resolution.</summary>
+    public string? LongtermBucket => _longtermBucket;
+
     /// <summary>
     /// Build (or rebuild) the client from current MonitoringSettings. Safe to call repeatedly.
     /// Returns true if a usable client was constructed.

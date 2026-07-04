@@ -796,6 +796,10 @@
                 @* State 1: the shared connection is up and this site's buckets are reachable.
                    Server URL and org are shared with the main site (read-only); the bucket
                    names are this site's own and can be edited. *@
+                <p class="section-description">
+                    This site uses the main site's shared InfluxDB server and organization. Only its
+                    buckets are its own, named for the site so they never mix with another site's data.
+                </p>
                 <div class="form-group">
                     <label class="form-label">InfluxDB URL</label>
                     <div class="form-value">@_sharedInfluxUrl</div>
@@ -2837,84 +2841,119 @@
                                     </tr>
                                     @if (_expandedSiteId == site.Id)
                                     {
-                                        <tr>
+                                        var agents = AgentsFor(site.Id).ToList();
+                                        <tr class="history-details-row site-config-row">
                                             <td colspan="5">
-                                                @foreach (var agent in AgentsFor(site.Id))
-                                                {
-                                                    <div class="site-agent-row">
-                                                        <span class="status-dot @(AgentEnrollmentService.IsOnline(agent.LastSeenAt) ? "online" : "offline")"></span>
-                                                        <span>@agent.Name</span>
-                                                        <span class="site-agent-status">
-                                                            @if (!agent.Enabled)
+                                                <div class="site-config-panel">
+                                                    <div class="site-config-section">
+                                                        <div class="site-config-section-title">Agent</div>
+                                                        @if (agents.Count > 0)
+                                                        {
+                                                            @foreach (var agent in agents)
                                                             {
-                                                                <text>Disabled</text>
+                                                                <div class="site-agent-row">
+                                                                    <span class="status-dot @(AgentEnrollmentService.IsOnline(agent.LastSeenAt) ? "online" : "offline")"></span>
+                                                                    <span>@agent.Name</span>
+                                                                    <span class="site-agent-status">
+                                                                        @if (!agent.Enabled)
+                                                                        {
+                                                                            <text>Disabled</text>
+                                                                        }
+                                                                        else if (agent.EnrolledAt == null)
+                                                                        {
+                                                                            <text>Awaiting enrollment</text>
+                                                                        }
+                                                                        else if (AgentEnrollmentService.IsOnline(agent.LastSeenAt))
+                                                                        {
+                                                                            <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{agent.LastVersion}" : "")</text>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
+                                                                        }
+                                                                    </span>
+                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(agent)">
+                                                                        @(agent.Enabled ? "Disable" : "Enable")
+                                                                    </button>
+                                                                    <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveAgent(agent)">
+                                                                        Remove
+                                                                    </button>
+                                                                </div>
                                                             }
-                                                            else if (agent.EnrolledAt == null)
-                                                            {
-                                                                <text>Awaiting enrollment</text>
-                                                            }
-                                                            else if (AgentEnrollmentService.IsOnline(agent.LastSeenAt))
-                                                            {
-                                                                <text>Online@(TunnelRegistry.IsConnected(agent.Id) ? " (tunnel)" : "")@(agent.LastVersion != null ? $" - v{agent.LastVersion}" : "")</text>
-                                                            }
-                                                            else
-                                                            {
-                                                                <text>Last seen @agent.LastSeenAt?.ToLocalTime().ToString("MMM d, h:mm tt")</text>
-                                                            }
-                                                        </span>
-                                                        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgentEnabled(agent)">
-                                                            @(agent.Enabled ? "Disable" : "Enable")
-                                                        </button>
-                                                        <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveAgent(agent)">
-                                                            Remove
-                                                        </button>
+                                                            <div class="site-agent-actions">
+                                                                @if (!site.IsDefault && NeedsAgentSetup(site.Id))
+                                                                {
+                                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => StartAgentSetup(site)">
+                                                                        Finish agent setup
+                                                                    </button>
+                                                                }
+                                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
+                                                                    New Agent Token
+                                                                </button>
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <p class="site-config-empty">
+                                                                @(site.IsDefault
+                                                                    ? "This site is monitored directly by this server. Add an agent only if this server runs off-site."
+                                                                    : "No on-site agent for this site yet. Set one up to reach it without a VPN.")
+                                                            </p>
+                                                            <div class="site-agent-actions">
+                                                                @if (!site.IsDefault)
+                                                                {
+                                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => StartAgentSetup(site)">
+                                                                        Set up agent
+                                                                    </button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
+                                                                        New Agent Token
+                                                                    </button>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
+                                                        {
+                                                            <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="false" />
+                                                        }
                                                     </div>
-                                                }
-                                                <div class="site-agent-actions">
-                                                    @if (!site.IsDefault && NeedsAgentSetup(site.Id))
+
+                                                    @if (!site.IsDefault)
                                                     {
-                                                        <button type="button" class="btn btn-primary btn-sm" @onclick="() => StartAgentSetup(site)">
-                                                            @(AgentCount(site.Id) > 0 ? "Finish agent setup" : "Set up agent")
-                                                        </button>
+                                                        <div class="site-config-section">
+                                                            <div class="site-config-section-title">Settings</div>
+                                                            <label class="checkbox-toggle">
+                                                                <input type="checkbox" checked="@ConsoleViaAgent(site.Id)"
+                                                                       @onchange="e => ToggleConsoleViaAgent(site, (bool)e.Value!)" />
+                                                                Reach this site's UniFi Console through the agent tunnel - no VPN or
+                                                                port-forward to the console needed. Applies on the next connect.
+                                                            </label>
+                                                            <label class="checkbox-toggle">
+                                                                <input type="checkbox" checked="@SshViaAgent(site.Id)"
+                                                                       @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
+                                                                Reach this site's devices through the agent tunnel: SSH to the gateway
+                                                                and devices, plus modem and ONT status pages. Enables gateway WAN speed
+                                                                tests, LAN speed tests, and modem / ONT monitoring without VPN. Applies within
+                                                                a minute.
+                                                            </label>
+                                                            <div class="form-group site-config-override">
+                                                                <label class="form-label">Client speed test target override (optional)</label>
+                                                                <input type="text" class="form-control"
+                                                                       placeholder="e.g. 192.168.1.50 or https://speed.example.com"
+                                                                       value="@ClientSpeedTestTarget(site.Id)"
+                                                                       @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
+                                                                <small class="form-help">
+                                                                    The address browsers on this site hit for the LAN speed test, for when
+                                                                    the agent's auto-detected LAN IP isn't its client-facing address (e.g.
+                                                                    behind a reverse proxy). Leave blank to use the agent's detected
+                                                                    address. Doesn't affect the network path trace.
+                                                                </small>
+                                                            </div>
+                                                        </div>
                                                     }
-                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => CreateAgent(site)" disabled="@_creatingAgent">
-                                                        New Agent Token
-                                                    </button>
                                                 </div>
-                                                @if (!site.IsDefault)
-                                                {
-                                                    <label class="checkbox-toggle">
-                                                        <input type="checkbox" checked="@ConsoleViaAgent(site.Id)"
-                                                               @onchange="e => ToggleConsoleViaAgent(site, (bool)e.Value!)" />
-                                                        Reach this site's UniFi Console through the agent tunnel - no VPN or
-                                                        port-forward to the console needed. Applies on the next connect.
-                                                    </label>
-                                                    <label class="checkbox-toggle">
-                                                        <input type="checkbox" checked="@SshViaAgent(site.Id)"
-                                                               @onchange="e => ToggleSshViaAgent(site, (bool)e.Value!)" />
-                                                        Reach this site's devices through the agent tunnel: SSH to the gateway
-                                                        and devices, plus modem and ONT status pages. Enables gateway WAN speed
-                                                        tests, LAN speed tests, and modem / ONT monitoring without VPN. Applies within
-                                                        a minute.
-                                                    </label>
-                                                    <div class="form-group">
-                                                        <label class="form-label">Client speed test target override (optional)</label>
-                                                        <input type="text" class="form-control"
-                                                               placeholder="e.g. 192.168.1.50 or https://speed.example.com"
-                                                               value="@ClientSpeedTestTarget(site.Id)"
-                                                               @onchange="e => SaveClientSpeedTestTarget(site, e.Value?.ToString())" />
-                                                        <small class="form-help">
-                                                            The address browsers on this site hit for the LAN speed test, for when
-                                                            the agent's auto-detected LAN IP isn't its client-facing address (e.g.
-                                                            behind a reverse proxy). Leave blank to use the agent's detected
-                                                            address. Doesn't affect the network path trace.
-                                                        </small>
-                                                    </div>
-                                                }
-                                                @if (_newAgentToken != null && _newAgentTokenSiteId == site.Id)
-                                                {
-                                                    <AgentInstallInstructions Token="@_newAgentToken" LanSpeedTest="false" />
-                                                }
                                             </td>
                                         </tr>
                                     }
@@ -2930,14 +2969,16 @@
 
                 <details class="setup-guide multisite-disable">
                     <summary>Disable multi-site management</summary>
-                    <div class="alert alert-warning">
-                        Multi-site management is enabled with @_sites.Count sites. Turning it off hides every
-                        managed site and returns to single-site mode (no site data is deleted). Do this from the
-                        main site, and only on purpose.
+                    <div class="setup-guide-content">
+                        <div class="alert alert-warning">
+                            Multi-site management is enabled with @_sites.Count sites. Turning it off hides every
+                            managed site and returns to single-site mode (no site data is deleted). Do this from the
+                            main site, and only on purpose.
+                        </div>
+                        <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
+                            Disable multi-site management
+                        </button>
                     </div>
-                    <button type="button" class="btn btn-danger btn-sm" @onclick="DisableMultiSiteAsync">
-                        Disable multi-site management
-                    </button>
                 </details>
             }
 
@@ -6497,15 +6538,18 @@
             {
                 _sharedInfluxUrl = main!.InfluxDbUrl!.Trim();
                 _sharedInfluxOrg = main.InfluxDbOrg!.Trim();
-                // Bucket names are this site's own: prefer any explicit value saved on the
-                // site row, otherwise mirror MonitoringInfluxClient's derivation ({slug}-{main bucket}).
-                _siteInfluxPrimaryBucket = !string.IsNullOrWhiteSpace(_monitoringSettings?.InfluxDbBucket)
-                    ? _monitoringSettings!.InfluxDbBucket!.Trim()
+                // Show the buckets the client ACTUALLY reads/writes (slug-prefixed;
+                // collisions with main are corrected), not the raw site-row value, which
+                // can still hold the model's default unprefixed name (network_monitoring).
+                if (!InfluxClient.IsConfigured)
+                    await InfluxClient.ReconfigureAsync();
+                _siteInfluxPrimaryBucket = !string.IsNullOrWhiteSpace(InfluxClient.PrimaryBucket)
+                    ? InfluxClient.PrimaryBucket!
                     : $"{SiteContext.Slug}-{main.InfluxDbBucket!.Trim()}";
-                _siteInfluxLongtermBucket = !string.IsNullOrWhiteSpace(_monitoringSettings?.InfluxDbLongtermBucket)
-                    ? _monitoringSettings!.InfluxDbLongtermBucket!.Trim()
-                    : (string.IsNullOrWhiteSpace(main.InfluxDbLongtermBucket)
-                        ? string.Empty
+                _siteInfluxLongtermBucket = string.IsNullOrWhiteSpace(main.InfluxDbLongtermBucket)
+                    ? string.Empty
+                    : (!string.IsNullOrWhiteSpace(InfluxClient.LongtermBucket)
+                        ? InfluxClient.LongtermBucket!
                         : $"{SiteContext.Slug}-{main.InfluxDbLongtermBucket.Trim()}");
             }
         }
