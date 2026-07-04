@@ -20,7 +20,6 @@ namespace NetworkOptimizer.Web.Services;
 public class WiFiOptimizerService
 {
     private readonly UniFiConnectionService _connectionService;
-    private readonly ISystemSettingsService _settingsService;
     private readonly ILogger<WiFiOptimizerService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly SiteHealthScorer _healthScorer;
@@ -32,6 +31,11 @@ public class WiFiOptimizerService
     private readonly PlannedApService _plannedApService;
     private readonly ChannelRecommendationService _channelRecommendationService;
     private readonly NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository _channelMemoryRepository;
+    // Captured at construction (when this scope's site is known) so the fresh scopes
+    // below can be pinned to the same site - they may run after the original scope's
+    // ambient HTTP context is gone, or inside a pinned background scope whose pin a
+    // fresh scope would not inherit.
+    private readonly string _siteSlug;
 
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
@@ -47,20 +51,20 @@ public class WiFiOptimizerService
         UniFiConnectionService connectionService,
         WiFiOptimizerEngine optimizerEngine,
         VlanAnalyzer vlanAnalyzer,
-        ISystemSettingsService settingsService,
         HeatmapDataCache heatmapCache,
         FloorPlanService floorPlanService,
         IServiceScopeFactory serviceScopeFactory,
         PlannedApService plannedApService,
         ChannelRecommendationService channelRecommendationService,
         NetworkOptimizer.Storage.Interfaces.IChannelMemoryRepository channelMemoryRepository,
+        SiteContextService siteContext,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
+        _siteSlug = siteContext.Slug;
         _connectionService = connectionService;
         _optimizerEngine = optimizerEngine;
         _vlanAnalyzer = vlanAnalyzer;
-        _settingsService = settingsService;
         _heatmapCache = heatmapCache;
         _floorPlanService = floorPlanService;
         _serviceScopeFactory = serviceScopeFactory;
@@ -382,8 +386,18 @@ public class WiFiOptimizerService
                     })
                     .ToList();
 
-                // Apply user purpose overrides (same overrides used by Security Audit)
-                var overridesJson = await _settingsService.GetAsync("audit:networkPurposeOverrides");
+                // Apply user purpose overrides (same overrides used by Security Audit).
+                // Per-site key, read via a scope pinned to this service's site: the
+                // singleton settings service resolves the ambient context internally,
+                // which is absent when this runs inside a background collection loop.
+                string? overridesJson;
+                using (var overridesScope = _serviceScopeFactory.CreateScope())
+                {
+                    overridesScope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
+                    overridesJson = await overridesScope.ServiceProvider
+                        .GetRequiredService<NetworkOptimizer.Storage.Interfaces.ISettingsRepository>()
+                        .GetSystemSettingAsync("audit:networkPurposeOverrides");
+                }
                 if (!string.IsNullOrEmpty(overridesJson))
                 {
                     try
@@ -485,8 +499,11 @@ public class WiFiOptimizerService
         {
             // Resolve ApMapService lazily via a fresh scope to avoid circular dependency
             // (ApMapService -> WiFiOptimizerService -> ApMapService) and to survive
-            // Blazor circuit disposal (the original scoped IServiceProvider can be disposed)
+            // Blazor circuit disposal (the original scoped IServiceProvider can be disposed).
+            // Pinned to this service's site: a fresh scope does not inherit the original
+            // scope's site (ambient context may be gone, or the pin was explicit).
             using var scope = _serviceScopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
             var apMapService = scope.ServiceProvider.GetRequiredService<ApMapService>();
             var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
             var placedAps = cached.ApMarkers
@@ -1144,7 +1161,10 @@ public class WiFiOptimizerService
             bool hasBuildingData = false;
             try
             {
+                // Pinned like BuildOptimizerContextAsync's scope above: a fresh scope
+                // does not inherit this service's site.
                 using var scope = _serviceScopeFactory.CreateScope();
+                scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteSlug);
                 var apMapService = scope.ServiceProvider.GetRequiredService<ApMapService>();
                 var cached = await _heatmapCache.GetOrLoadAsync(_floorPlanService, apMapService, _plannedApService);
                 var placedAps = cached.ApMarkers

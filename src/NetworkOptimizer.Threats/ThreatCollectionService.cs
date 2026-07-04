@@ -178,10 +178,14 @@ public class ThreatCollectionService : BackgroundService
 
         await LoadConfigAsync(settings, cancellationToken);
 
-        var enabled = await settings.GetSettingAsync("threats.enabled", cancellationToken);
+        // Per-site enable flag (bare key for the default site, so single-site installs are
+        // unchanged): each site opts in/out of collection independently. Unset defaults to
+        // ON, so a new site collects until turned off - matching single-site semantics.
+        // Interval and retention (LoadConfigAsync above) stay global: one shared loop.
+        var enabled = await settings.GetSettingAsync(SiteScopedKey("threats.enabled", siteKey), cancellationToken);
         if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogDebug("Threat collection disabled");
+            _logger.LogDebug("Threat collection disabled for site {Site}", siteKey ?? "main");
             return;
         }
 

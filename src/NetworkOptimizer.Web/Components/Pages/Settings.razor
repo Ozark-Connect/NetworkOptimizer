@@ -2304,14 +2304,14 @@
         </div>
     </div>
 
+    @* The main site IS the global context: with multi-site enabled it shows the full
+       card (titled Global) with the shared settings; a secondary site gets only its
+       own enable toggle plus a pointer to the main site. Multi-site disabled renders
+       today's single combined card unchanged. *@
     <!-- Threat Intelligence Configuration -->
     <div class="card settings-tab-security" id="threat-intelligence">
         <div class="card-header">
-            <h2 class="card-title">Threat Intelligence</h2>
-            @if (_multiSiteEnabled)
-            {
-                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
-            }
+            <h2 class="card-title">@(_multiSiteEnabled && SiteContext.IsDefault ? "Global Threat Intelligence" : "Threat Intelligence")</h2>
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -2325,6 +2325,15 @@
                 </label>
             </div>
 
+            @if (!SiteContext.IsDefault)
+            {
+                <p class="section-description">
+                    Global settings (background collection interval, data retention, MaxMind GeoIP databases,
+                    and CrowdSec enrichment) are managed on the main site.
+                </p>
+            }
+            else
+            {
             <div class="form-group">
                 <label class="form-label">Background Collection Interval</label>
                 <select class="form-control" @bind="threatPollInterval">
@@ -2352,12 +2361,6 @@
                 <div class="info-row">
                     <span class="info-label">GeoLite2 Database:</span>
                     <span class="info-value" style="color: var(--text-secondary);">@threatGeoStatus</span>
-                    @* MaxMind creds + the GeoLite2 DBs are instance-wide (shared .mmdb files),
-                       unlike the per-site threat-collection settings around them. *@
-                    @if (_multiSiteEnabled)
-                    {
-                        <span class="status-badge global-badge" data-tooltip="MaxMind credentials and the GeoLite2 databases are instance-wide (shared across all sites)">Global</span>
-                    }
                 </div>
 
                 <div class="form-group" style="margin-top: 0.75rem;">
@@ -2398,6 +2401,7 @@
                     </div>
                 }
             </div>
+            }
 
             <div class="action-buttons" style="margin-top: 1rem;">
                 <button class="btn btn-primary" @onclick="SaveThreatSettings" disabled="@savingThreatSettings">
@@ -2422,9 +2426,11 @@
         </div>
     </div>
 
-    @* CrowdSec CTI is global (instance-wide) but shown on EVERY site: the per-site
-       Threats page deep-links here (#crowdsec). Badged Global on the card. The
-       default-only application cards below re-open the IsDefault gate. *@
+    @* CrowdSec CTI is global (instance-wide) and lives with the rest of the global
+       threat settings on the main site only; a secondary site's Threat Intelligence
+       card points there instead of rendering the shared settings. *@
+    @if (SiteContext.IsDefault)
+    {
     <!-- CrowdSec CTI Configuration -->
     <div class="card settings-tab-security" id="crowdsec">
         <div class="card-header">
@@ -2512,6 +2518,7 @@
             }
         </div>
     </div>
+    }
 
     @if (SiteContext.IsDefault)
     {
@@ -6250,14 +6257,21 @@
         StateHasChanged();
     }
 
+    // The collector reads all threat settings from the MAIN database via the main-pinned
+    // IThreatSettingsAccessor, so this card reads/writes through the Global accessors.
+    // The enable flag is PER SITE, namespaced the same way the collector's SiteScopedKey
+    // does: the bare key for the default site (single-site unchanged), "threats.enabled:<slug>"
+    // for secondary sites. Interval/retention/MaxMind/CrowdSec are one global value.
+    private string ThreatsEnabledKey => SiteContext.IsDefault
+        ? "threats.enabled"
+        : $"threats.enabled:{SiteContext.Slug}";
+
     private async Task LoadThreatSettings()
     {
         try
         {
-            // Instance-wide keys in the MAIN database: ThreatCollectionService reads them
-            // through the main-pinned IThreatSettingsAccessor, so site-routed reads/writes
-            // here would edit a copy the collector never sees.
-            var enabled = await SystemSettings.GetGlobalAsync("threats.enabled");
+            // Unset defaults to ON (opt-out), so a new secondary site collects until turned off.
+            var enabled = await SystemSettings.GetGlobalAsync(ThreatsEnabledKey);
             threatCollectionEnabled = enabled != "false";
 
             var interval = await SystemSettings.GetGlobalAsync("threats.poll_interval_minutes");
@@ -6309,24 +6323,30 @@
 
         try
         {
-            await SystemSettings.SetGlobalAsync("threats.enabled", threatCollectionEnabled ? "true" : "false");
-            await SystemSettings.SetGlobalAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
-            await SystemSettings.SetGlobalAsync("threats.retention_days", threatRetentionDays.ToString());
+            await SystemSettings.SetGlobalAsync(ThreatsEnabledKey, threatCollectionEnabled ? "true" : "false");
 
-            if (!string.IsNullOrEmpty(maxmindAccountId))
+            // Global settings render (and save) only on the main site; a secondary
+            // site's card carries just its own enable toggle.
+            if (SiteContext.IsDefault)
             {
-                var encAcct = CredentialService.Encrypt(maxmindAccountId);
-                await SystemSettings.SetGlobalAsync("maxmind.account_id", encAcct);
-                hasMaxmindAccountId = true;
-                maxmindAccountId = "";
-            }
+                await SystemSettings.SetGlobalAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
+                await SystemSettings.SetGlobalAsync("threats.retention_days", threatRetentionDays.ToString());
 
-            if (!string.IsNullOrEmpty(maxmindLicenseKey))
-            {
-                var encrypted = CredentialService.Encrypt(maxmindLicenseKey);
-                await SystemSettings.SetGlobalAsync("maxmind.license_key", encrypted);
-                hasMaxmindLicenseKey = true;
-                maxmindLicenseKey = "";
+                if (!string.IsNullOrEmpty(maxmindAccountId))
+                {
+                    var encAcct = CredentialService.Encrypt(maxmindAccountId);
+                    await SystemSettings.SetGlobalAsync("maxmind.account_id", encAcct);
+                    hasMaxmindAccountId = true;
+                    maxmindAccountId = "";
+                }
+
+                if (!string.IsNullOrEmpty(maxmindLicenseKey))
+                {
+                    var encrypted = CredentialService.Encrypt(maxmindLicenseKey);
+                    await SystemSettings.SetGlobalAsync("maxmind.license_key", encrypted);
+                    hasMaxmindLicenseKey = true;
+                    maxmindLicenseKey = "";
+                }
             }
 
             threatSettingsMessage = "Threat intelligence settings saved.";

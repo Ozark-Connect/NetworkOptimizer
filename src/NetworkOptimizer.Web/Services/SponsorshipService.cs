@@ -81,16 +81,19 @@ public class SponsorshipService : ISponsorshipService
             using var scope = _serviceProvider.CreateScope();
             var settingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
 
+            // Sponsorship nag state is instance-wide (one operator), so it always lives in
+            // the MAIN database - the site-routed accessors would read/write a separate
+            // copy per site while browsing secondary sites.
             // Check if user has already marked themselves as a sponsor
-            var alreadySponsorStr = await settingsService.GetAsync(SystemSettingKeys.SponsorshipAlreadySponsor);
+            var alreadySponsorStr = await settingsService.GetGlobalAsync(SystemSettingKeys.SponsorshipAlreadySponsor);
             if (!string.IsNullOrEmpty(alreadySponsorStr) && alreadySponsorStr.Equals("true", StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
 
             // Get current state
-            var lastShownLevelStr = await settingsService.GetAsync(SystemSettingKeys.SponsorshipLastShownLevel);
-            var lastNagTimeStr = await settingsService.GetAsync(SystemSettingKeys.SponsorshipLastNagTime);
+            var lastShownLevelStr = await settingsService.GetGlobalAsync(SystemSettingKeys.SponsorshipLastShownLevel);
+            var lastNagTimeStr = await settingsService.GetGlobalAsync(SystemSettingKeys.SponsorshipLastNagTime);
 
             var lastShownLevel = int.TryParse(lastShownLevelStr, out var level) ? level : 0;
             var lastNagTime = DateTime.TryParse(lastNagTimeStr, out var time) ? time : DateTime.MinValue;
@@ -154,8 +157,8 @@ public class SponsorshipService : ISponsorshipService
             var settingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
 
             // Save the shown level and timestamp
-            await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastShownLevel, level.ToString());
-            await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastNagTime, DateTime.UtcNow.ToString("O"));
+            await settingsService.SetGlobalAsync(SystemSettingKeys.SponsorshipLastShownLevel, level.ToString());
+            await settingsService.SetGlobalAsync(SystemSettingKeys.SponsorshipLastNagTime, DateTime.UtcNow.ToString("O"));
 
             _logger.LogDebug("Marked sponsorship nag level {Level} as shown", level);
         }
@@ -294,7 +297,7 @@ public class SponsorshipService : ISponsorshipService
         {
             using var scope = _serviceProvider.CreateScope();
             var settingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
-            await settingsService.SetAsync(SystemSettingKeys.SponsorshipAlreadySponsor, "true");
+            await settingsService.SetGlobalAsync(SystemSettingKeys.SponsorshipAlreadySponsor, "true");
             _logger.LogInformation("User marked as already a sponsor - nags permanently dismissed");
         }
         catch (Exception ex)
@@ -309,7 +312,7 @@ public class SponsorshipService : ISponsorshipService
         {
             using var scope = _serviceProvider.CreateScope();
             var settingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
-            var value = await settingsService.GetAsync(SystemSettingKeys.SponsorshipAlreadySponsor);
+            var value = await settingsService.GetGlobalAsync(SystemSettingKeys.SponsorshipAlreadySponsor);
             return !string.IsNullOrEmpty(value) && value.Equals("true", StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex)
