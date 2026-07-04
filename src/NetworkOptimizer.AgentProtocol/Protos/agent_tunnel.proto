@@ -25,6 +25,7 @@ message AgentMessage {
     Iperf3ClientResult iperf3_result = 8;
     UwnResult uwn_result = 9;
     ProbeResponse probe_response = 10;
+    SnmpOidResult snmp_oid_result = 11;
   }
 }
 
@@ -39,7 +40,25 @@ message ServerMessage {
     Iperf3ClientRequest iperf3_request = 7;
     UwnRequest uwn_request = 8;
     ProbeRequest probe_request = 9;
+    SnmpOidQuery snmp_oid_query = 10;
   }
+}
+
+// ---- On-demand SNMP OID test (Monitoring "Test OID" button) ----
+// For agent-covered sites the server can't reach the device directly, so it asks
+// the agent to GET the OID once and return the raw value, correlated by request_id.
+
+message SnmpOidQuery {
+  int64 request_id = 1;
+  string device_ip = 2;
+  string oid = 3;
+}
+
+message SnmpOidResult {
+  int64 request_id = 1;
+  bool success = 2;
+  string value = 3;
+  string error = 4;
 }
 
 // ---- TCP proxying (SSH / UniFi Console reach into the site) ----

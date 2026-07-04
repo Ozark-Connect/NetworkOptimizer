@@ -29,6 +29,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     private readonly AgentIperf3Service _iperf3;
     private readonly AgentUwnService _uwn;
     private readonly AgentProbeService _probe;
+    private readonly AgentSnmpQueryService _snmpQuery;
     private readonly ILogger<AgentTunnelService> _logger;
 
     public AgentTunnelService(
@@ -39,6 +40,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         AgentIperf3Service iperf3,
         AgentUwnService uwn,
         AgentProbeService probe,
+        AgentSnmpQueryService snmpQuery,
         ILogger<AgentTunnelService> logger)
     {
         _enrollment = enrollment;
@@ -48,6 +50,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         _iperf3 = iperf3;
         _uwn = uwn;
         _probe = probe;
+        _snmpQuery = snmpQuery;
         _logger = logger;
     }
 
@@ -129,6 +132,9 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     case AgentMessage.PayloadOneofCase.ProbeResponse:
                         _probe.OnResult(message.ProbeResponse);
                         break;
+                    case AgentMessage.PayloadOneofCase.SnmpOidResult:
+                        _snmpQuery.OnResult(message.SnmpOidResult);
+                        break;
                     default:
                         _logger.LogDebug("Agent {Id} sent unexpected {Payload} mid-stream", agent.Id, message.PayloadCase);
                         break;
@@ -150,6 +156,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             _iperf3.OnAgentDisconnected(connection);
             _uwn.OnAgentDisconnected(connection);
             _probe.OnAgentDisconnected(connection);
+            _snmpQuery.OnAgentDisconnected(connection);
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);

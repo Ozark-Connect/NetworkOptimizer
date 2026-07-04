@@ -25,6 +25,9 @@ public sealed class TunnelClient
     /// <summary>Invoked whenever the server pushes a new SNMP monitoring configuration.</summary>
     public Action<SnmpConfig>? OnSnmpConfig { get; set; }
 
+    /// <summary>Server asks us to GET a single OID once (the "Test OID" button).</summary>
+    public Func<SnmpOidQuery, CancellationToken, Task>? OnSnmpOidQuery { get; set; }
+
     /// <summary>Server asks us to dial a site-local TCP endpoint.</summary>
     public Func<ProxyOpen, CancellationToken, Task>? OnProxyOpen { get; set; }
 
@@ -124,6 +127,12 @@ public sealed class TunnelClient
                         break;
                     case ServerMessage.PayloadOneofCase.SnmpConfig:
                         OnSnmpConfig?.Invoke(message.SnmpConfig);
+                        break;
+                    case ServerMessage.PayloadOneofCase.SnmpOidQuery:
+                        // Fire and forget: a single GET can take a couple seconds and
+                        // must not block the read loop.
+                        if (OnSnmpOidQuery is { } oidHandler)
+                            _ = oidHandler(message.SnmpOidQuery, linked.Token);
                         break;
                     case ServerMessage.PayloadOneofCase.ProxyOpen:
                         // Fire and forget: the dial can take seconds and the

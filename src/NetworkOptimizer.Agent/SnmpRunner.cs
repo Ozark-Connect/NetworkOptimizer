@@ -41,6 +41,41 @@ public sealed class SnmpRunner
     public Task RunAsync(CancellationToken ct) =>
         Task.WhenAll(FastLoopAsync(ct), MediumLoopAsync(ct));
 
+    /// <summary>
+    /// Handles the server's on-demand "Test OID" request: GET the single OID once against a
+    /// site-local device and return the raw value (correlated by request id).
+    /// </summary>
+    public async Task HandleOidQueryAsync(SnmpOidQuery query, CancellationToken ct)
+    {
+        var result = new SnmpOidResult { RequestId = query.RequestId };
+        try
+        {
+            var poller = GetPoller(_config);
+            if (poller == null)
+                result.Error = "SNMP is not configured on this site.";
+            else if (!IPAddress.TryParse(query.DeviceIp, out var ip))
+                result.Error = $"Invalid IP address: {query.DeviceIp}";
+            else
+            {
+                var value = await poller.GetAsync<string>(ip, query.Oid);
+                if (value == null)
+                    result.Error = "No response (OID may not exist on this device).";
+                else
+                {
+                    result.Success = true;
+                    result.Value = value;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Error = $"SNMP error: {ex.Message}";
+        }
+
+        try { await _tunnel.SendAsync(new AgentMessage { SnmpOidResult = result }, ct); }
+        catch (Exception ex) { Console.Error.WriteLine($"Failed to send OID test result: {ex.Message}"); }
+    }
+
     /// <summary>Interface counters on the fast cadence.</summary>
     private async Task FastLoopAsync(CancellationToken ct)
     {

@@ -154,6 +154,7 @@ while (!cts.IsCancellationRequested)
         var probeRequestRunner = new ProbeRequestRunner(tunnel);
         tunnel.OnProbeConfig = probeRunner.UpdateConfig;
         tunnel.OnSnmpConfig = snmpRunner.UpdateConfig;
+        tunnel.OnSnmpOidQuery = snmpRunner.HandleOidQueryAsync;
         tunnel.OnProxyOpen = proxyHandler.HandleOpenAsync;
         tunnel.OnProxyData = proxyHandler.HandleDataAsync;
         tunnel.OnProxyClose = proxyHandler.HandleClose;

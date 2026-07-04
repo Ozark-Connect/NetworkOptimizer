@@ -17,11 +17,31 @@ public static class SnmpEndpoints
             SiteDbContextFactory siteDbFactory,
             SiteContextService siteContext,
             ICredentialProtectionService credentialProtection,
+            AgentSnmpQueryService agentSnmpQuery,
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceMac) || string.IsNullOrWhiteSpace(request.Oid))
                 return Results.BadRequest(new TestOidResponse { ErrorMessage = "Device MAC and OID are required." });
+
+            // Agent-covered site: the server can't reach the device directly, so run the GET
+            // through the site's agent. Main and any site without an online agent fall through
+            // to the direct poll below (unchanged).
+            if (!siteContext.IsDefault && agentSnmpQuery.HasAgentForSite(siteContext.Slug))
+            {
+                var agentDeviceIp = await ResolveDeviceIpAsync(request.DeviceMac, connectionService, ct);
+                if (agentDeviceIp == null)
+                    return Results.BadRequest(new TestOidResponse { ErrorMessage = "Could not resolve device IP." });
+
+                var agentResult = await agentSnmpQuery.QueryAsync(
+                    siteContext.Slug, agentDeviceIp, request.Oid, TimeSpan.FromSeconds(10), ct);
+                if (agentResult != null)
+                    return Results.Ok(agentResult.Success
+                        ? new TestOidResponse { Success = true, Value = agentResult.Value }
+                        : new TestOidResponse { ErrorMessage = string.IsNullOrEmpty(agentResult.Error) ? "No response." : agentResult.Error });
+                // agentResult == null: the agent's tunnel dropped between the check and the send;
+                // fall through to a direct attempt rather than failing outright.
+            }
 
             await using var db = siteDbFactory.CreateForSite(siteContext.Slug, siteContext.IsDefault);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
