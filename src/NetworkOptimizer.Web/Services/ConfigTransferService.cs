@@ -265,7 +265,9 @@ public class ConfigTransferService
                 HasCredentialKey = archive.GetEntry(".credential_key") != null,
                 HasFloorPlans = archive.Entries.Any(e => e.FullName.StartsWith("floor-plans/")),
                 HasDataProtectionKeys = archive.Entries.Any(e => e.FullName.StartsWith("keys/")),
-                HasSshKeys = archive.Entries.Any(e => e.FullName.StartsWith("ssh-keys/"))
+                HasSshKeys = archive.Entries.Any(e => e.FullName.StartsWith("ssh-keys/")),
+                SiteDatabaseCount = archive.Entries.Count(e =>
+                    e.FullName.StartsWith("sites/") && e.FullName.EndsWith("/network_optimizer.db"))
             };
             _logger.LogDebug("Preview: credentialKey={HasKey}, floorPlans={HasFP}, dataProtectionKeys={HasKeys}, sshKeys={HasSsh}",
                 preview.HasCredentialKey, preview.HasFloorPlans, preview.HasDataProtectionKeys, preview.HasSshKeys);
@@ -774,4 +776,6 @@ public class ImportPreview
     public bool HasFloorPlans { get; set; }
     public bool HasDataProtectionKeys { get; set; }
     public bool HasSshKeys { get; set; }
+    // Number of external (non-default) site databases bundled in the export.
+    public int SiteDatabaseCount { get; set; }
 }

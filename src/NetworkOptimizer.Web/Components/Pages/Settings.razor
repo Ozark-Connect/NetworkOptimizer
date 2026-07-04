@@ -2626,7 +2626,13 @@
                             }
                         </button>
                     </div>
-                    <p class="form-hint" style="margin-top: 0.5rem;">Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data.</p>
+                    <p class="form-hint" style="margin-top: 0.5rem;">
+                        Both include controller credentials, SSH keys, and data protection keys. Full adds floor plans, speed test history, audit results, signal logs, etc. Settings Only exports just configuration without history data.
+                        @if (_multiSiteEnabled)
+                        {
+                            <text> This backup covers <strong>every managed site</strong>, not just the current one - each site's database is bundled in.</text>
+                        }
+                    </p>
                     @if (!string.IsNullOrEmpty(exportError))
                     {
                         <div class="alert alert-danger" style="margin-top: 0.5rem;">@exportError</div>
@@ -2656,6 +2662,11 @@
                                     {
                                         <span class="text-muted">Data:</span>
                                         <span>@importPreview.TableCounts.Where(t => t.Value > 0).Count() tables with data</span>
+                                    }
+                                    @if (importPreview.SiteDatabaseCount > 0)
+                                    {
+                                        <span class="text-muted">Sites:</span>
+                                        <span>Main site + @importPreview.SiteDatabaseCount managed site@(importPreview.SiteDatabaseCount == 1 ? "" : "s")</span>
                                     }
                                 </div>
 
