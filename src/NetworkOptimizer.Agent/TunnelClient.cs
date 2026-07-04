@@ -34,6 +34,9 @@ public sealed class TunnelClient
     /// <summary>Server closed a proxied connection.</summary>
     public Action<ProxyClose>? OnProxyClose { get; set; }
 
+    /// <summary>Server asks us to run an iperf3 client test against a site-local target.</summary>
+    public Func<Iperf3ClientRequest, CancellationToken, Task>? OnIperf3Request { get; set; }
+
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
 
@@ -128,6 +131,12 @@ public sealed class TunnelClient
                         break;
                     case ServerMessage.PayloadOneofCase.ProxyClose:
                         OnProxyClose?.Invoke(message.ProxyClose);
+                        break;
+                    case ServerMessage.PayloadOneofCase.Iperf3Request:
+                        // Fire and forget: the test runs for its full duration and
+                        // must not block the read loop (heartbeats, other messages).
+                        if (OnIperf3Request is { } iperf3Handler)
+                            _ = iperf3Handler(message.Iperf3Request, linked.Token);
                         break;
                 }
             }

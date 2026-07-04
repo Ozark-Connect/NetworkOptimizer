@@ -30,6 +30,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly UniFiConnectionService _connectionService;
     private readonly ITopologySnapshotService _snapshotService;
+    private readonly SiteTunnelRouting _tunnelRouting;
+    private readonly AgentIperf3Service _agentIperf3;
     private readonly IAlertEventBus? _alertEventBus;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -58,6 +60,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         INetworkPathAnalyzer pathAnalyzer,
         SiteConnectionRegistry siteConnections,
         ITopologySnapshotService snapshotService,
+        SiteTunnelRouting tunnelRouting,
+        AgentIperf3Service agentIperf3,
         IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
@@ -73,6 +77,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         _pathAnalyzer = pathAnalyzer;
         _connectionService = siteConnections.GetFor(_siteSlug);
         _snapshotService = snapshotService;
+        _tunnelRouting = tunnelRouting;
+        _agentIperf3 = agentIperf3;
         _alertEventBus = alertEventBus;
     }
 
@@ -421,7 +427,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             {
                 // Step 3: Run download test (device -> client, with -R flag) - "From Device"
                 _logger.LogDebug("Running download test from {Host}", host);
-                var downloadResult = await RunLocalIperf3Async(host, durationSeconds, parallelStreams, reverse: true);
+                var downloadResult = await RunIperf3ClientAsync(host, durationSeconds, parallelStreams, reverse: true);
 
                 if (downloadResult.success)
                 {
@@ -442,7 +448,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
                 // Step 4: Run upload test (client -> device) - "To Device"
                 _logger.LogDebug("Running upload test to {Host}", host);
-                var uploadResult = await RunLocalIperf3Async(host, durationSeconds, parallelStreams, reverse: false);
+                var uploadResult = await RunIperf3ClientAsync(host, durationSeconds, parallelStreams, reverse: false);
 
                 if (uploadResult.success)
                 {
@@ -653,6 +659,25 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         {
             _logger.LogWarning(ex, "Failed to save iperf3 result to database");
         }
+    }
+
+    /// <summary>
+    /// Runs the iperf3 client for one direction. For an agent-backed secondary
+    /// site (devices reached via the tunnel), the client runs at the site's agent
+    /// so throughput reflects the site LAN; otherwise it runs locally on this
+    /// server, exactly as before. The default site is never routed via agent, so
+    /// its path is unchanged.
+    /// </summary>
+    private async Task<(bool success, string output)> RunIperf3ClientAsync(string host, int duration, int streams, bool reverse)
+    {
+        if (!_isDefault && await _tunnelRouting.IsViaAgentAsync(_siteSlug))
+        {
+            _logger.LogDebug("Routing iperf3 client to agent for site {Slug} against {Host} (reverse={Reverse})",
+                _siteSlug, host, reverse);
+            return await _agentIperf3.RunClientAsync(_siteSlug, host, Iperf3Port, duration, streams, reverse, CancellationToken.None);
+        }
+
+        return await RunLocalIperf3Async(host, duration, streams, reverse);
     }
 
     private async Task<(bool success, string output)> RunLocalIperf3Async(string host, int duration, int streams, bool reverse)

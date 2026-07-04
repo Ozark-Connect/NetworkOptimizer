@@ -22,6 +22,7 @@ message AgentMessage {
     ProxyData proxy_data = 5;
     ProxyClose proxy_close = 6;
     SnmpResultBatch snmp_results = 7;
+    Iperf3ClientResult iperf3_result = 8;
   }
 }
 
@@ -33,6 +34,7 @@ message ServerMessage {
     ProxyData proxy_data = 4;
     ProxyClose proxy_close = 5;
     SnmpConfig snmp_config = 6;
+    Iperf3ClientRequest iperf3_request = 7;
   }
 }
 
@@ -180,4 +182,31 @@ message ProbeResult {
   optional double rtt_avg_ms = 8;
   optional double rtt_max_ms = 9;
   optional double jitter_ms = 10;
+}
+
+// ---- LAN iperf3 client tests run at the site ----
+// The central server can't reach a secondary site's LAN devices directly, so
+// it asks the agent to run the iperf3 client locally against a site-local
+// target and return the raw `iperf3 -J` output. The server still orchestrates
+// the test (starting/stopping the device's iperf3 server over the tunnelled
+// SSH path) and does all parsing, path analysis, and storage; only the client
+// run itself moves to the agent so throughput reflects the site LAN. Requests
+// are correlated by request_id, mirroring the proxy connection_id pattern.
+
+message Iperf3ClientRequest {
+  int64 request_id = 1;
+  string host = 2;
+  int32 port = 3;
+  int32 duration_seconds = 4;
+  int32 parallel_streams = 5;
+  // Reverse mode (-R): server sends to client, i.e. the "To Device" direction.
+  bool reverse = 6;
+}
+
+message Iperf3ClientResult {
+  int64 request_id = 1;
+  bool success = 2;
+  // The iperf3 -J JSON on success, or an error message otherwise. Matches the
+  // (success, output) contract the server's local iperf3 run already returns.
+  string output = 3;
 }
