@@ -1991,9 +1991,9 @@
     <!-- Alert Channels Configuration -->
     <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
-            <h2 class="card-title">Alert Channels</h2>
+            <h2 class="card-title">@(SiteContext.IsDefault ? "Alert Channels" : "Site-Specific Alert Channels")</h2>
             <div class="card-header-badges">
-                @if (_multiSiteEnabled)
+                @if (_multiSiteEnabled && SiteContext.IsDefault)
                 {
                     <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
                 }
@@ -2004,9 +2004,37 @@
             </div>
         </div>
         <div class="card-body">
-            <p class="section-description">
-                Configure notification channels for the alert engine. Alerts are delivered via email, webhooks, Slack, Discord, Microsoft Teams, or ntfy.sh.
-            </p>
+            @if (SiteContext.IsDefault)
+            {
+                <p class="section-description">
+                    Configure notification channels for the alert engine. Alerts are delivered via email, webhooks, Slack, Discord, Microsoft Teams, or ntfy.sh.
+                </p>
+            }
+            else
+            {
+                <div class="site-config-section">
+                    <div class="site-config-section-title">Global channels</div>
+                    @if (_globalChannels?.Count > 0)
+                    {
+                        @foreach (var gch in _globalChannels)
+                        {
+                            <div class="global-channel-row">
+                                <span class="status-dot @(gch.IsEnabled ? "online" : "offline")"></span>
+                                <strong>@gch.Name</strong>
+                                <span class="status-badge status-neutral">@gch.ChannelType</span>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="section-description" style="margin: 0;">None configured on the main site.</p>
+                    }
+                    <p class="form-help">Managed on the main site; they fire for every site. Switch to the main site to change them.</p>
+                </div>
+                <p class="section-description">
+                    Channels below are specific to this site - they fire in addition to the global channels above.
+                </p>
+            }
 
             @if (alertChannels?.Count > 0)
             {
@@ -3588,6 +3616,8 @@
 
     // Alert Channels
     private List<DeliveryChannel>? alertChannels;
+    // Global (main-site) channels, loaded read-only on secondary sites for reference.
+    private List<DeliveryChannel>? _globalChannels;
     private bool showChannelForm = false;
     private int? editingChannelId = null;
     private string channelFormName = "";
@@ -5700,8 +5730,21 @@
 
     private async Task LoadAlertChannels()
     {
+        // On a secondary site the scoped repository reads this site's own channels; those
+        // are site-specific and fire only for this site. The global channels (managed on
+        // the main site) fire everywhere, so load them read-only for reference.
         try { alertChannels = await AlertRepository.GetChannelsAsync(); }
         catch { alertChannels = new(); }
+
+        if (!SiteContext.IsDefault)
+        {
+            try
+            {
+                await using var mainDb = SiteDb.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true);
+                _globalChannels = await mainDb.DeliveryChannels.AsNoTracking().OrderBy(c => c.Name).ToListAsync();
+            }
+            catch { _globalChannels = new(); }
+        }
     }
 
     private void OnSmtpSslChanged(ChangeEventArgs e)

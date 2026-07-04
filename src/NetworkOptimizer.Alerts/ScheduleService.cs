@@ -257,6 +257,7 @@ public class ScheduleService : BackgroundService
                     EventType = "schedule.task_completed",
                     Severity = AlertSeverity.Info,
                     Source = "schedule",
+                    SiteSlug = siteKey == DefaultSiteKey ? null : siteKey,
                     Title = $"Scheduled {FormatTaskType(taskType)} completed{siteSuffix}",
                     Message = summary ?? "Task completed successfully",
                     SourceUrl = "/alerts?tab=schedule"
@@ -269,6 +270,7 @@ public class ScheduleService : BackgroundService
                     EventType = "schedule.task_failed",
                     Severity = AlertSeverity.Error,
                     Source = "schedule",
+                    SiteSlug = siteKey == DefaultSiteKey ? null : siteKey,
                     Title = $"Scheduled {FormatTaskType(taskType)} failed{siteSuffix}",
                     Message = error ?? "Task failed with no error message",
                     SourceUrl = "/alerts?tab=schedule"
@@ -298,6 +300,7 @@ public class ScheduleService : BackgroundService
                     EventType = "schedule.task_failed",
                     Severity = AlertSeverity.Error,
                     Source = "schedule",
+                    SiteSlug = siteKey == DefaultSiteKey ? null : siteKey,
                     Title = $"Scheduled {FormatTaskType(taskType)} failed{siteSuffix}",
                     Message = ex.Message,
                     SourceUrl = "/alerts?tab=schedule"

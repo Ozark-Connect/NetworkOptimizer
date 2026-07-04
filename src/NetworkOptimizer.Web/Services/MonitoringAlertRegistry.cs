@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.DependencyInjection;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Web.Services.Monitoring;
 
 namespace NetworkOptimizer.Web.Services;
@@ -35,13 +37,19 @@ public class MonitoringAlertRegistry
 
     /// <summary>The alert evaluators for a site, created on first use.</summary>
     public SiteAlertEvaluators GetFor(string slug) =>
-        _instances.GetOrAdd(slug, s => new SiteAlertEvaluators(
-            ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<DeviceHealthAlertEvaluator>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<SfpAlertEvaluator>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<OntAlertEvaluator>(_serviceProvider, s),
-            ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s)));
+        _instances.GetOrAdd(slug, s =>
+        {
+            // Wrap the shared bus so every event these per-site evaluators publish is
+            // stamped with this site's slug, routing it to the site's rules and channels.
+            var bus = new SiteAlertEventBus(_serviceProvider.GetRequiredService<IAlertEventBus>(), s);
+            return new SiteAlertEvaluators(
+                ActivatorUtilities.CreateInstance<MonitoringAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<DeviceHealthAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<SfpAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<CableModemAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<OntAlertEvaluator>(_serviceProvider, s, bus),
+                ActivatorUtilities.CreateInstance<CellularAlertEvaluator>(_serviceProvider, s, bus));
+        });
 
     /// <summary>The default site's evaluators.</summary>
     public SiteAlertEvaluators GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);

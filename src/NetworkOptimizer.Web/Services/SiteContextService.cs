@@ -1,3 +1,4 @@
+using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Services;
 
@@ -10,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// Scopes without an HTTP context (background jobs, startup) resolve to the
 /// default site, preserving single-site behavior exactly.
 /// </summary>
-public class SiteContextService
+public class SiteContextService : IAlertSiteScope
 {
     /// <summary>Cookie carrying the selected site slug for this browser.</summary>
     public const string CookieName = "no-site";
@@ -34,6 +35,13 @@ public class SiteContextService
     /// called before any scoped service resolves the DbContext.
     /// </summary>
     public void OverrideSite(string slug) => _slug = slug;
+
+    /// <summary>
+    /// <see cref="IAlertSiteScope"/>: pin this scope to the site an alert originated
+    /// from (null/empty = default site) before the alert repository resolves its DbContext.
+    /// </summary>
+    public void UseSite(string? siteSlug) =>
+        OverrideSite(string.IsNullOrEmpty(siteSlug) ? SiteManagementService.DefaultSiteSlug : siteSlug);
 
     /// <summary>True when this scope operates on the default site (the main database).</summary>
     public bool IsDefault => Slug == SiteManagementService.DefaultSiteSlug;

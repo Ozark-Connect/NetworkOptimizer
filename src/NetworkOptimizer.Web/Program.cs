@@ -265,6 +265,9 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, 
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddScoped<SiteContextService>();
+// The alert pipeline pins its scope to an event's originating site through this seam.
+builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(sp =>
+    sp.GetRequiredService<SiteContextService>());
 builder.Services.AddSingleton<AgentEnrollmentService>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)

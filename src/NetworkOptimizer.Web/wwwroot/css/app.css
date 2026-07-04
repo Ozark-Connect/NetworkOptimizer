@@ -17721,6 +17721,13 @@ body.kiosk-mode .status-indicators {
     color: var(--text-secondary);
 }
 
+.global-channel-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+}
+
 .site-name-cell {
     display: inline-flex;
     align-items: center;

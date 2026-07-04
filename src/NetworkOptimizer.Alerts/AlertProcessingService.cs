@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,8 +30,9 @@ public class AlertProcessingService : BackgroundService
     private readonly string? _appBaseUrl;
 
     // In-memory rule cache (refreshed periodically)
-    private List<AlertRule> _cachedRules = [];
-    private DateTime _rulesCachedAt = DateTime.MinValue;
+    // Enabled rules cached per originating site ("" = default/main). Site DBs have
+    // independent rule id sequences, so caches must never be shared across sites.
+    private readonly ConcurrentDictionary<string, (List<AlertRule> Rules, DateTime CachedAt)> _rulesBySite = new();
     private static readonly TimeSpan RuleCacheDuration = TimeSpan.FromSeconds(60);
     private DateTime _lastCooldownCleanup = DateTime.UtcNow;
     private static readonly TimeSpan CooldownCleanupInterval = TimeSpan.FromMinutes(30);
@@ -102,10 +104,14 @@ public class AlertProcessingService : BackgroundService
     private async Task ProcessEventAsync(AlertEvent alertEvent, CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
+        // Pin the scope to the site this alert came from BEFORE the repository resolves its
+        // DbContext, so rules and history read/write that site's database. A null slug is
+        // the default (main) site, so single-site installs are unaffected.
+        scope.ServiceProvider.GetRequiredService<IAlertSiteScope>().UseSite(alertEvent.SiteSlug);
         var repository = scope.ServiceProvider.GetRequiredService<IAlertRepository>();
 
-        // Refresh rule cache if stale
-        await RefreshRuleCacheAsync(repository, cancellationToken);
+        var siteKey = alertEvent.SiteSlug ?? "";
+        var rules = await GetRulesAsync(repository, siteKey, cancellationToken);
 
         // Periodic cooldown cleanup to prevent unbounded growth
         if ((DateTime.UtcNow - _lastCooldownCleanup) > CooldownCleanupInterval)
@@ -114,11 +120,12 @@ public class AlertProcessingService : BackgroundService
             _lastCooldownCleanup = DateTime.UtcNow;
         }
 
-        // Evaluate event against rules
-        var matchingRules = _ruleEvaluator.Evaluate(alertEvent, _cachedRules);
+        // Evaluate event against this site's rules
+        var matchingRules = _ruleEvaluator.Evaluate(alertEvent, rules);
         if (matchingRules.Count == 0)
         {
-            _logger.LogWarning("No matching rules for event {EventType}", alertEvent.EventType);
+            _logger.LogDebug("No matching rules for event {EventType} (site {Site})",
+                alertEvent.EventType, siteKey.Length == 0 ? "main" : siteKey);
             return;
         }
 
@@ -190,7 +197,18 @@ public class AlertProcessingService : BackgroundService
         IAlertRepository repository,
         CancellationToken cancellationToken)
     {
+        // Deliver to this site's own channels plus the global (main-site) channels. For an
+        // alert from the default site the two are the same set, so there's no extra query.
         var channels = await repository.GetEnabledChannelsAsync(cancellationToken);
+        if (!string.IsNullOrEmpty(alertEvent.SiteSlug))
+        {
+            using var mainScope = _scopeFactory.CreateScope();
+            mainScope.ServiceProvider.GetRequiredService<IAlertSiteScope>().UseSite(null);
+            var mainRepo = mainScope.ServiceProvider.GetRequiredService<IAlertRepository>();
+            var globalChannels = await mainRepo.GetEnabledChannelsAsync(cancellationToken);
+            channels = channels.Concat(globalChannels).ToList();
+        }
+
         var deliveredTo = new List<int>();
         var errors = new List<string>();
 
@@ -242,21 +260,24 @@ public class AlertProcessingService : BackgroundService
         await repository.UpdateAlertAsync(historyEntry, cancellationToken);
     }
 
-    private async Task RefreshRuleCacheAsync(IAlertRepository repository, CancellationToken cancellationToken)
+    private async Task<List<AlertRule>> GetRulesAsync(IAlertRepository repository, string siteKey, CancellationToken cancellationToken)
     {
-        if ((DateTime.UtcNow - _rulesCachedAt) < RuleCacheDuration)
-            return;
+        var hasCache = _rulesBySite.TryGetValue(siteKey, out var cached);
+        if (hasCache && (DateTime.UtcNow - cached.CachedAt) < RuleCacheDuration)
+            return cached.Rules;
 
         try
         {
-            _cachedRules = await repository.GetEnabledRulesAsync(cancellationToken);
-            _rulesCachedAt = DateTime.UtcNow;
-            _logger.LogDebug("Refreshed alert rule cache ({Count} enabled rules)", _cachedRules.Count);
+            var rules = await repository.GetEnabledRulesAsync(cancellationToken);
+            _rulesBySite[siteKey] = (rules, DateTime.UtcNow);
+            return rules;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to refresh alert rule cache");
+            _logger.LogError(ex, "Failed to refresh alert rule cache for site {Site}",
+                siteKey.Length == 0 ? "main" : siteKey);
             // Keep using stale cache rather than failing
+            return hasCache ? cached.Rules : [];
         }
     }
 

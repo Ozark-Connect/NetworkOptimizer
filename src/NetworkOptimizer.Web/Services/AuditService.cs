@@ -615,6 +615,7 @@ public class AuditService
             await _alertEventBus.PublishAsync(new AlertEvent
             {
                 EventType = "audit.completed",
+                SiteSlug = _siteContext.IsDefault ? null : _siteContext.Slug,
                 Severity = activeCritical > 0 ? AlertSeverity.Error : AlertSeverity.Info,
                 Source = "audit",
                 Title = $"Security audit completed - Score: {result.Score}",
@@ -642,6 +643,7 @@ public class AuditService
                     await _alertEventBus.PublishAsync(new AlertEvent
                     {
                         EventType = "audit.score_dropped",
+                        SiteSlug = _siteContext.IsDefault ? null : _siteContext.Slug,
                         Severity = dropPercent >= 25 ? AlertSeverity.Critical : AlertSeverity.Warning,
                         Source = "audit",
                         Title = $"Audit score dropped {drop} points ({previousScore.Value} → {result.Score})",
@@ -670,6 +672,7 @@ public class AuditService
                 await _alertEventBus.PublishAsync(new AlertEvent
                 {
                     EventType = "audit.critical_findings",
+                    SiteSlug = _siteContext.IsDefault ? null : _siteContext.Slug,
                     Severity = AlertSeverity.Critical,
                     Source = "audit",
                     Title = $"{activeCritical} critical security findings detected",

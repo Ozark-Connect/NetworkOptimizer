@@ -78,4 +78,11 @@ public record AlertEvent
     /// When the event occurred.
     /// </summary>
     public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Slug of the site this alert originated from. Null means the default (main) site.
+    /// The processor uses it to evaluate the event against that site's rules and deliver
+    /// to that site's channels plus the global (main-site) channels.
+    /// </summary>
+    public string? SiteSlug { get; init; }
 }

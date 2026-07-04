@@ -50,7 +50,9 @@ public class AlertRuleEvaluator
                 continue;
             }
 
-            var cooldownKey = $"{rule.Id}:{alertEvent.DeviceId ?? alertEvent.DeviceIp ?? "global"}";
+            // Site-scoped: rule ids repeat across per-site databases, so a bare "{ruleId}:{device}"
+        // key would let one site's alert put another site's rule into cooldown.
+        var cooldownKey = $"{alertEvent.SiteSlug ?? ""}:{rule.Id}:{alertEvent.DeviceId ?? alertEvent.DeviceIp ?? "global"}";
             if (_cooldownTracker.IsInCooldown(cooldownKey, rule.CooldownSeconds))
             {
                 _logger.LogDebug("Rule '{RuleName}' matched event {EventType} but in cooldown",
@@ -69,7 +71,9 @@ public class AlertRuleEvaluator
     /// </summary>
     public void RecordFired(AlertRule rule, AlertEvent alertEvent)
     {
-        var cooldownKey = $"{rule.Id}:{alertEvent.DeviceId ?? alertEvent.DeviceIp ?? "global"}";
+        // Site-scoped: rule ids repeat across per-site databases, so a bare "{ruleId}:{device}"
+        // key would let one site's alert put another site's rule into cooldown.
+        var cooldownKey = $"{alertEvent.SiteSlug ?? ""}:{rule.Id}:{alertEvent.DeviceId ?? alertEvent.DeviceIp ?? "global"}";
         _cooldownTracker.RecordFired(cooldownKey);
     }
 
