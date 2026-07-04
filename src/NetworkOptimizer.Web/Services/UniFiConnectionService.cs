@@ -596,7 +596,17 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                     await repository.SaveUniFiConnectionSettingsAsync(dbSettings);
                 }
 
+                // Clear cached data from the previous (failed/disconnected) state
+                ClearCaches();
+
                 _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs}, API Key: {UseApiKey})", _client.IsUniFiOs, _client.UseApiKey);
+
+                // Notify subscribers (e.g. the Dashboard) so they reload their data.
+                // Critical for agent-tunneled consoles: when a site's console was
+                // unreachable at initial load and the agent tunnel later comes up,
+                // this reconnect fires the event that triggers the dashboard refresh.
+                OnConnectionChanged?.Invoke();
+
                 return true;
             }
             else
