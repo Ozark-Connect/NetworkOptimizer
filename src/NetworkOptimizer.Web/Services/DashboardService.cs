@@ -18,7 +18,8 @@ public class DashboardService : IDashboardService
     private readonly AuditService _auditService;
     private readonly GatewaySpeedTestService _gatewayService;
     private readonly TcMonitorClient _tcMonitorClient;
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly WiFiOptimizerService _wifiOptimizerService;
     private readonly MonitoringLiveStats _liveStats;
 
@@ -28,7 +29,8 @@ public class DashboardService : IDashboardService
         AuditService auditService,
         GatewaySpeedTestService gatewayService,
         TcMonitorClient tcMonitorClient,
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
         WiFiOptimizerService wifiOptimizerService,
         MonitoringLiveStats liveStats)
     {
@@ -37,10 +39,15 @@ public class DashboardService : IDashboardService
         _auditService = auditService;
         _gatewayService = gatewayService;
         _tcMonitorClient = tcMonitorClient;
-        _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _wifiOptimizerService = wifiOptimizerService;
         _liveStats = liveStats;
     }
+
+    /// <summary>Context for the current site's database (SqmWanConfigurations are per-site).</summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     /// <summary>
     /// Retrieves comprehensive dashboard data including device counts, client counts,
@@ -146,7 +153,7 @@ public class DashboardService : IDashboardService
             {
                 // Use a short-lived context to avoid disposed-context errors
                 // when this is called from async void event handlers
-                await using var db = await _dbFactory.CreateDbContextAsync();
+                await using var db = CreateSiteDb();
                 var sqmConfigs = await db.SqmWanConfigurations
                     .AsNoTracking()
                     .OrderBy(c => c.WanNumber)

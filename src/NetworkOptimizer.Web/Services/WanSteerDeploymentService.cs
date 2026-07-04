@@ -32,7 +32,8 @@ public class WanSteerDeploymentService
     private readonly ILogger<WanSteerDeploymentService> _logger;
     private readonly IGatewaySshService _gatewaySsh;
     private readonly SshClientService _sshClient;
-    private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly SiteContextService _siteContext;
     private readonly ISqmService _sqmService;
     private readonly IServiceProvider _serviceProvider;
 
@@ -40,17 +41,27 @@ public class WanSteerDeploymentService
         ILogger<WanSteerDeploymentService> logger,
         IGatewaySshService gatewaySsh,
         SshClientService sshClient,
-        IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        SiteContextService siteContext,
         ISqmService sqmService,
         IServiceProvider serviceProvider)
     {
         _logger = logger;
         _gatewaySsh = gatewaySsh;
         _sshClient = sshClient;
-        _dbFactory = dbFactory;
+        _siteDbFactory = siteDbFactory;
+        _siteContext = siteContext;
         _sqmService = sqmService;
         _serviceProvider = serviceProvider;
     }
+
+    /// <summary>
+    /// Context for the current site's database. WanSteerTrafficClasses are per-site
+    /// rows, so the main-DB factory would deploy the main site's WAN-steer rules to
+    /// every site's gateway.
+    /// </summary>
+    private NetworkOptimizerDbContext CreateSiteDb() =>
+        _siteDbFactory.CreateForSite(_siteContext.Slug, _siteContext.IsDefault);
 
     public async Task<WanSteerStatus> GetStatusAsync()
     {
@@ -396,7 +407,7 @@ public class WanSteerDeploymentService
         }
 
         // Load traffic classes from DB
-        await using var db = await _dbFactory.CreateDbContextAsync();
+        await using var db = CreateSiteDb();
         var trafficClasses = await db.WanSteerTrafficClasses
             .OrderBy(tc => tc.SortOrder)
             .ToListAsync();

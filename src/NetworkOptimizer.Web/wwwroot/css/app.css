@@ -17333,7 +17333,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-switcher-item.active {
-    background: var(--bg-tertiary);
+    background: rgba(5, 80, 181, 0.18);
 }
 
 .site-switcher-item-slug {

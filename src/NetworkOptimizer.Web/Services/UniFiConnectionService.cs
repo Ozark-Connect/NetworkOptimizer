@@ -420,6 +420,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
+            if (viaAgent && !IsAgentOnline())
+            {
+                // Reached through the agent tunnel, which isn't up. Dialing the loopback
+                // proxy now fails with an SSL/EOF error that gets misreported as a
+                // certificate problem, so surface the real reason.
+                _lastError = "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then connect again.";
+                return false;
+            }
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             _client = new UniFiApiClient(
                 clientLogger,
@@ -535,6 +543,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
+            if (viaAgent && !IsAgentOnline())
+            {
+                // Reached through the agent tunnel, which isn't up. Dialing the loopback
+                // proxy now fails with an SSL/EOF error that gets misreported as a
+                // certificate problem, so surface the real reason.
+                _lastError = "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then connect again.";
+                return false;
+            }
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             _client = new UniFiApiClient(
                 clientLogger,
@@ -726,6 +742,15 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         try
         {
             var viaAgent = await IsConsoleViaAgentAsync();
+            if (viaAgent && !IsAgentOnline())
+            {
+                // The console is reached through the agent tunnel, which isn't up. Dialing
+                // the loopback proxy now fails with an SSL/EOF error that gets misreported
+                // as a certificate problem, so return the real reason instead.
+                return (false,
+                    "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then test again.",
+                    null);
+            }
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
             testClient = new UniFiApiClient(
                 clientLogger,
