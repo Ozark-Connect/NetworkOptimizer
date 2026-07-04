@@ -2734,9 +2734,17 @@
                                             }
                                         </td>
                                         <td>
-                                            <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
-                                                Configuration
-                                            </button>
+                                            <div class="btn-group-wrap">
+                                                @if (site.Slug != SiteContext.Slug)
+                                                {
+                                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => SwitchToSiteAsync(site)">
+                                                        Switch to Site
+                                                    </button>
+                                                }
+                                                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleAgents(site.Id)">
+                                                    Configuration
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                     @if (_expandedSiteId == site.Id)
@@ -3043,6 +3051,20 @@
         _sites = await SiteManagement.GetSitesAsync();
         if (site.Slug == SiteContext.Slug)
             _currentSiteName = name; // keep the header badge in sync
+    }
+
+    /// <summary>
+    /// Switch the active site to the given one. Site context is cookie-based, so a
+    /// full reload is required for every scoped service to resolve against the new
+    /// site's database (same mechanism as the header site switcher).
+    /// </summary>
+    private async Task SwitchToSiteAsync(Site site)
+    {
+        if (site.Slug == SiteContext.Slug)
+            return;
+        await JS.InvokeVoidAsync("eval",
+            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
+        NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
     }
 
     private async Task SiteNameEditKey(KeyboardEventArgs e, Site site)
