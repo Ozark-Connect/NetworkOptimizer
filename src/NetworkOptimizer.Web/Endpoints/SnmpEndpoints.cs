@@ -21,20 +21,30 @@ public static class SnmpEndpoints
             ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
+            var oidLog = loggerFactory.CreateLogger("SnmpOidCheck");
             if (string.IsNullOrWhiteSpace(request.DeviceMac) || string.IsNullOrWhiteSpace(request.Oid))
                 return Results.BadRequest(new TestOidResponse { ErrorMessage = "Device MAC and OID are required." });
+
+            var hasAgent = !siteContext.IsDefault && agentSnmpQuery.HasAgentForSite(siteContext.Slug);
+            oidLog.LogInformation(
+                "OID test: site={Slug} isDefault={IsDefault} hasAgent={HasAgent} mac={Mac} oid={Oid}",
+                siteContext.Slug, siteContext.IsDefault, hasAgent, request.DeviceMac, request.Oid);
 
             // Agent-covered site: the server can't reach the device directly, so run the GET
             // through the site's agent. Main and any site without an online agent fall through
             // to the direct poll below (unchanged).
-            if (!siteContext.IsDefault && agentSnmpQuery.HasAgentForSite(siteContext.Slug))
+            if (hasAgent)
             {
                 var agentDeviceIp = await ResolveDeviceIpAsync(request.DeviceMac, connectionService, ct);
+                oidLog.LogInformation("OID test: agent path, resolved device IP={Ip} (connected={Connected})",
+                    agentDeviceIp ?? "<null>", connectionService.IsConnected);
                 if (agentDeviceIp == null)
                     return Results.BadRequest(new TestOidResponse { ErrorMessage = "Could not resolve device IP." });
 
                 var agentResult = await agentSnmpQuery.QueryAsync(
                     siteContext.Slug, agentDeviceIp, request.Oid, TimeSpan.FromSeconds(10), ct);
+                oidLog.LogInformation("OID test: agent result success={Success} value={Value} error={Error}",
+                    agentResult?.Success, agentResult?.Value, agentResult?.Error ?? "<null result>");
                 if (agentResult != null)
                     return Results.Ok(agentResult.Success
                         ? new TestOidResponse { Success = true, Value = agentResult.Value }

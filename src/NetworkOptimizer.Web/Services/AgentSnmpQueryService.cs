@@ -36,7 +36,10 @@ public class AgentSnmpQueryService
     {
         var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
         if (agent == null)
+        {
+            _logger.LogInformation("OID query for site {Slug}: no online agent", siteSlug);
             return null;
+        }
 
         var id = Interlocked.Increment(ref _nextRequestId);
         var pending = new PendingQuery(agent.AgentId);
@@ -47,6 +50,8 @@ public class AgentSnmpQueryService
             {
                 SnmpOidQuery = new SnmpOidQuery { RequestId = id, DeviceIp = deviceIp, Oid = oid }
             }, ct);
+            _logger.LogInformation("OID query {Id} to agent {AgentId} (site {Slug}, ip {Ip}, oid {Oid}): sent={Sent}",
+                id, agent.AgentId, siteSlug, deviceIp, oid, sent);
             if (!sent)
                 return new SnmpOidResult { RequestId = id, Success = false, Error = "The site's agent tunnel closed before the test could be sent." };
 
@@ -70,8 +75,11 @@ public class AgentSnmpQueryService
     /// <summary>Completes the matching pending query when an agent returns a result.</summary>
     public void OnResult(SnmpOidResult result)
     {
-        if (_pending.TryGetValue(result.RequestId, out var pending))
-            pending.Completion.TrySetResult(result);
+        var matched = _pending.TryGetValue(result.RequestId, out var pending);
+        _logger.LogInformation("OID query {Id} result received: matched={Matched} success={Success} error={Error}",
+            result.RequestId, matched, result.Success, result.Error);
+        if (matched)
+            pending!.Completion.TrySetResult(result);
     }
 
     /// <summary>Fails any queries waiting on an agent whose tunnel just dropped.</summary>

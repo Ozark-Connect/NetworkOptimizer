@@ -355,9 +355,10 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>
 builder.Services.AddScoped<ClientDashboardService>();
 
 // Register WAN Speed Test services. Cloudflare stays a default-site singleton
-// (legacy history only). UWN is per site through the registry: non-default
-// instances serve that site's result history; runs stay default-only (the
-// local binary measures this server's own WAN).
+// (legacy history only) - if reactivated it must be moved into SpeedTestServiceRegistry
+// and resolved per-site (see the note on CloudflareSpeedTestService). UWN is per site
+// through the registry: non-default instances serve that site's result history; runs
+// stay default-only (the local binary measures this server's own WAN).
 builder.Services.AddSingleton<CloudflareSpeedTestService>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<SpeedTestServiceRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Uwn);

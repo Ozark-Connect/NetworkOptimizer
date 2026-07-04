@@ -14,6 +14,12 @@ namespace NetworkOptimizer.Web.Services;
 /// Uses HTTP GET/POST to speed.cloudflare.com with Server-Timing header parsing.
 /// Employs concurrent connections (like the Cloudflare browser test and cloudflare-speed-cli)
 /// to saturate the link for accurate measurement.
+///
+/// MULTI-SITE: this is currently registered as a default-site singleton (legacy history only) and
+/// is NOT wired for per-site use. If it is ever reactivated, it must be made site-specific like the
+/// other WAN speed test services - own it in <see cref="SpeedTestServiceRegistry"/> per slug and
+/// resolve it scoped via GetFor(SiteContext.Slug) - so a secondary site tests its own WAN and stores
+/// to its own database, rather than always running against and writing the main site.
 /// </summary>
 public partial class CloudflareSpeedTestService : WanSpeedTestServiceBase
 {

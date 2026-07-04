@@ -47,6 +47,7 @@ public sealed class SnmpRunner
     /// </summary>
     public async Task HandleOidQueryAsync(SnmpOidQuery query, CancellationToken ct)
     {
+        Console.WriteLine($"OID test request {query.RequestId}: ip={query.DeviceIp} oid={query.Oid}");
         var result = new SnmpOidResult { RequestId = query.RequestId };
         try
         {
@@ -72,8 +73,9 @@ public sealed class SnmpRunner
             result.Error = $"SNMP error: {ex.Message}";
         }
 
+        Console.WriteLine($"OID test request {query.RequestId}: success={result.Success} value={result.Value} error={result.Error}");
         try { await _tunnel.SendAsync(new AgentMessage { SnmpOidResult = result }, ct); }
-        catch (Exception ex) { Console.Error.WriteLine($"Failed to send OID test result: {ex.Message}"); }
+        catch (Exception ex) { Console.Error.WriteLine($"Failed to send OID test result {query.RequestId}: {ex.Message}"); }
     }
 
     /// <summary>Interface counters on the fast cadence.</summary>
