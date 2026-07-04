@@ -65,6 +65,10 @@
                 @onclick="@(() => SetActiveTab("monitoring"))">
             Monitoring
         </button>
+        @* Speed Tests settings are global (instance-wide), but the tab stays on every
+           site: it's deep-linked from the Client WAN Speed Test and LAN Speed Test pages
+           (which exist per-site), so hiding it would break those "Configure" links. The
+           "Global" badges on the cards signal the settings are instance-wide. *@
         <button class="wifi-view-tab @(_activeTab == "speedtests" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("speedtests"))">
             Speed Tests
@@ -1910,8 +1914,9 @@
         </div>
     </div>
 
-    @if (SiteContext.IsDefault)
-    {
+    @* Alert Channels are global (instance-wide) but shown on EVERY site: the per-site
+       Alerts page's "Notification Channels" button deep-links here (#alert-channels), so
+       hiding it on secondary sites would break that link. The card carries a Global badge. *@
     <!-- Alert Channels Configuration -->
     <div class="card settings-tab-security" id="alert-channels">
         <div class="card-header">
@@ -2199,7 +2204,6 @@
             }
         </div>
     </div>
-    }
 
     <!-- Threat Intelligence Configuration -->
     <div class="card settings-tab-security" id="threat-intelligence">
@@ -2309,8 +2313,9 @@
         </div>
     </div>
 
-    @if (SiteContext.IsDefault)
-    {
+    @* CrowdSec CTI is global (instance-wide) but shown on EVERY site: the per-site
+       Threats page deep-links here (#crowdsec). Badged Global on the card. The
+       default-only application cards below re-open the IsDefault gate. *@
     <!-- CrowdSec CTI Configuration -->
     <div class="card settings-tab-security" id="crowdsec">
         <div class="card-header">
@@ -2399,6 +2404,8 @@
         </div>
     </div>
 
+    @if (SiteContext.IsDefault)
+    {
     <!-- 12. UI / Display Settings -->
     <div class="card settings-tab-application" id="ui-display">
         <div class="card-header">
