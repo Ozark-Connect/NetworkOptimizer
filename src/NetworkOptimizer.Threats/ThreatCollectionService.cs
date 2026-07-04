@@ -334,6 +334,11 @@ public class ThreatCollectionService : BackgroundService
     {
         if (events.Count == 0) return;
 
+        // Alert events must carry the originating site so the processor evaluates them
+        // against that site's rules and delivers to its channels (null = default site).
+        var normalizedSite = NormalizeSite(siteKey);
+        var alertSiteSlug = normalizedSite.Length == 0 ? null : normalizedSite;
+
         _geoService.EnrichEvents(events);
 
         foreach (var evt in events)
@@ -392,6 +397,7 @@ public class ThreatCollectionService : BackgroundService
                     {
                         EventType = "threats.attack_pattern",
                         Source = "threats",
+                        SiteSlug = alertSiteSlug,
                         Severity = severity,
                         Title = pattern.Description,
                         Message = $"{pattern.PatternType} pattern detected: {pattern.EventCount} events, confidence {pattern.Confidence:P0}",
@@ -511,6 +517,7 @@ public class ThreatCollectionService : BackgroundService
                 {
                     EventType = "threats.attack_chain",
                     Source = "threats",
+                    SiteSlug = alertSiteSlug,
                     Severity = severity,
                     Title = $"Attack chain: {stageNames}",
                     Message = message,
@@ -573,6 +580,7 @@ public class ThreatCollectionService : BackgroundService
                 {
                     EventType = "threats.attack_chain_attempt",
                     Source = "threats",
+                    SiteSlug = alertSiteSlug,
                     Severity = AlertSeverity.Info,
                     Title = $"Early-stage attack chain: {stageNames}",
                     Message = $"{seq.SourceIp} ({seq.CountryCode ?? "unknown"}) progressed through {seq.Stages.Count} early kill chain stages with {totalEvents} events. " +
@@ -621,6 +629,7 @@ public class ThreatCollectionService : BackgroundService
                 {
                     EventType = eventType,
                     Source = "threats",
+                    SiteSlug = alertSiteSlug,
                     Severity = evt.Severity >= 5 ? AlertSeverity.Critical : AlertSeverity.Error,
                     Title = $"{titlePrefix}: {evt.SignatureName}",
                     Message = $"{evt.Action} {evt.Protocol} from {evt.SourceIp}:{evt.SourcePort} to {evt.DestIp}:{evt.DestPort} - {evt.Category}",

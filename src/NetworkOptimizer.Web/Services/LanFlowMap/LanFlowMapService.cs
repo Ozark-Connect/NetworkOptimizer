@@ -23,7 +23,6 @@ public class LanFlowMapService
     // singleton) so the map's device/topology source is the current site's console,
     // not the main site's. UniFiConnectionService implements IUniFiClientProvider.
     private readonly UniFiConnectionService _connection;
-    private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly MonitoringLiveStats _liveStats;
     private readonly MonitoringInfluxClient _influx;
     private readonly MonitoringPathView _pathView;
@@ -37,7 +36,6 @@ public class LanFlowMapService
 
     public LanFlowMapService(
         UniFiConnectionService connection,
-        INetworkPathAnalyzer pathAnalyzer,
         MonitoringLiveStats liveStats,
         MonitoringInfluxClient influx,
         MonitoringPathView pathView,
@@ -50,7 +48,6 @@ public class LanFlowMapService
         ILogger<LanFlowMapService> logger)
     {
         _connection = connection;
-        _pathAnalyzer = pathAnalyzer;
         _liveStats = liveStats;
         _influx = influx;
         _pathView = pathView;

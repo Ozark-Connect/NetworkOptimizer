@@ -33,6 +33,19 @@ public class MonitoringInfluxRegistry : IAsyncDisposable
     /// <summary>The default site's client.</summary>
     public MonitoringInfluxClient GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
+    /// <summary>
+    /// Rebuilds every already-created client from current settings. Needed when the
+    /// shared connection (main's URL/org/token) changes: non-default clients derive
+    /// their connection from main at configure time, so reconfiguring only the default
+    /// client would leave existing site clients on the stale connection until restart.
+    /// Clients not yet created pick up the fresh settings on first use.
+    /// </summary>
+    public async Task ReconfigureAllAsync(CancellationToken ct = default)
+    {
+        foreach (var client in _clients.Values)
+            await client.ReconfigureAsync(ct);
+    }
+
     public async ValueTask DisposeAsync()
     {
         // The clients' own DisposeAsync is a no-op (they're scope-forwarded and must

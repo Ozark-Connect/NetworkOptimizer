@@ -15,18 +15,23 @@ public class TcMonitorClient : ITcMonitorClient
 
     public const int DefaultPort = 8088;
 
-    // Cache to avoid hammering the single-threaded TC Monitor server
-    private static TcMonitorResponse? _cachedResponse;
-    private static string? _cachedUrl;
-    private static DateTime _cacheTime = DateTime.MinValue;
+    // Per-endpoint cache + request gate, keyed by URL. Caching avoids hammering the
+    // single-threaded TC Monitor server, and the gate serializes requests because the
+    // netcat-based server can only handle one connection at a time - but both are per
+    // gateway, so with multiple sites each endpoint gets its own slot: one site's
+    // polling never evicts another's cache or blocks its requests.
+    private sealed class EndpointState
+    {
+        public readonly SemaphoreSlim Gate = new(1, 1);
+        public TcMonitorResponse? Response;
+        public DateTime CacheTime = DateTime.MinValue;
+        // Expire stale cache after consecutive failures (prevents showing data from a dead monitor)
+        public int ConsecutiveFailures;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, EndpointState> _endpoints = new();
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
-
-    // Expire stale cache after consecutive failures (prevents showing data from a dead monitor)
-    private static int _consecutiveFailures;
     private const int MaxConsecutiveFailures = 3;
-
-    // Serialize requests - the netcat-based server can only handle one connection at a time
-    private static readonly SemaphoreSlim _requestLock = new(1, 1);
 
     public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory, SiteTunnelRouting tunnelRouting)
     {
@@ -52,27 +57,28 @@ public class TcMonitorClient : ITcMonitorClient
             (host, port) = await _tunnelRouting.RouteAsync(siteSlug, host, port);
 
         var url = $"http://{host}:{port}/";
+        var state = _endpoints.GetOrAdd(url, _ => new EndpointState());
 
-        // Return cached if valid, not forcing refresh, and same endpoint
-        if (!forceRefresh && _cachedResponse != null && _cachedUrl == url && DateTime.UtcNow - _cacheTime < CacheDuration)
+        // Return cached if valid and not forcing refresh
+        if (!forceRefresh && state.Response != null && DateTime.UtcNow - state.CacheTime < CacheDuration)
         {
-            _logger.LogDebug("Returning cached TC stats (age: {Age:F1}s)", (DateTime.UtcNow - _cacheTime).TotalSeconds);
-            return _cachedResponse;
+            _logger.LogDebug("Returning cached TC stats (age: {Age:F1}s)", (DateTime.UtcNow - state.CacheTime).TotalSeconds);
+            return state.Response;
         }
 
-        // Serialize requests - if another is in progress, return cached data (only if same endpoint)
-        if (!await _requestLock.WaitAsync(TimeSpan.FromMilliseconds(100)))
+        // Serialize requests to this endpoint - if another is in progress, return cached data
+        if (!await state.Gate.WaitAsync(TimeSpan.FromMilliseconds(100)))
         {
             _logger.LogDebug("TC monitor request already in progress, returning cached data");
-            return _cachedUrl == url ? _cachedResponse : null;
+            return state.Response;
         }
 
         try
         {
             // Double-check cache after acquiring lock
-            if (!forceRefresh && _cachedResponse != null && _cachedUrl == url && DateTime.UtcNow - _cacheTime < CacheDuration)
+            if (!forceRefresh && state.Response != null && DateTime.UtcNow - state.CacheTime < CacheDuration)
             {
-                return _cachedResponse;
+                return state.Response;
             }
 
             // Retry once on failure (netcat server briefly unavailable between requests)
@@ -91,10 +97,9 @@ public class TcMonitorClient : ITcMonitorClient
                     if (response != null)
                     {
                         _logger.LogDebug("TC stats received: {InterfaceCount} interfaces", response.GetAllInterfaces().Count);
-                        _cachedResponse = response;
-                        _cachedUrl = url;
-                        _cacheTime = DateTime.UtcNow;
-                        _consecutiveFailures = 0;
+                        state.Response = response;
+                        state.CacheTime = DateTime.UtcNow;
+                        state.ConsecutiveFailures = 0;
                         return response;
                     }
                 }
@@ -120,20 +125,19 @@ public class TcMonitorClient : ITcMonitorClient
                 }
             }
 
-            _consecutiveFailures++;
-            if (_consecutiveFailures >= MaxConsecutiveFailures)
+            state.ConsecutiveFailures++;
+            if (state.ConsecutiveFailures >= MaxConsecutiveFailures)
             {
-                _logger.LogDebug("TC monitor unreachable after {Failures} attempts, expiring stale cache", _consecutiveFailures);
-                _cachedResponse = null;
-                _cachedUrl = null;
+                _logger.LogDebug("TC monitor unreachable after {Failures} attempts, expiring stale cache", state.ConsecutiveFailures);
+                state.Response = null;
                 return null;
             }
 
-            return _cachedUrl == url ? _cachedResponse : null;
+            return state.Response;
         }
         finally
         {
-            _requestLock.Release();
+            state.Gate.Release();
         }
     }
 

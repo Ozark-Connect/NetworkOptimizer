@@ -460,7 +460,10 @@ public class ClientDashboardService
         // Try to augment with UniFi controller metrics (5-minute resolution)
         try
         {
+            // Pin the fresh scope to this service's already-resolved site rather than
+            // re-resolving from the ambient HTTP context, which is not guaranteed here.
             using var scope = _scopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var wifiService = scope.ServiceProvider.GetRequiredService<WiFiOptimizerService>();
 
             var granularity = (to - from).TotalHours > 48
@@ -547,7 +550,10 @@ public class ClientDashboardService
     {
         try
         {
+            // Pinned like GetSignalHistoryWithUniFiAsync: don't re-resolve the site
+            // from the ambient HTTP context in a fresh scope.
             using var scope = _scopeFactory.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var wifiService = scope.ServiceProvider.GetRequiredService<WiFiOptimizerService>();
             return await wifiService.GetClientConnectionEventsAsync(mac, limit);
         }

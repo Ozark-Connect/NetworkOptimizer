@@ -43,7 +43,12 @@ public class AuditService
     private readonly UniFiConnectionService _connectionService;
     private readonly ConfigAuditEngine _auditEngine;
     private readonly IAuditRepository _auditRepository;
-    private readonly SystemSettingsService _settingsService;
+    // Scoped settings repository (NOT the SystemSettingsService singleton): it shares
+    // this service's scope, so a schedule executor's OverrideSite pin carries through
+    // and a scheduled audit reads the audited site's own audit:* tuning. The singleton
+    // creates its own unpinned scope, which resolves to the default site in background
+    // contexts.
+    private readonly ISettingsRepository _settingsRepository;
     private readonly FingerprintDatabaseService _fingerprintService;
     private readonly PdfStorageService _pdfStorageService;
     private readonly IMemoryCache _cache;
@@ -57,7 +62,7 @@ public class AuditService
         UniFiConnectionService connectionService,
         ConfigAuditEngine auditEngine,
         IAuditRepository auditRepository,
-        SystemSettingsService settingsService,
+        ISettingsRepository settingsRepository,
         FingerprintDatabaseService fingerprintService,
         PdfStorageService pdfStorageService,
         IMemoryCache cache,
@@ -71,7 +76,7 @@ public class AuditService
         _connectionService = connectionService;
         _auditEngine = auditEngine;
         _auditRepository = auditRepository;
-        _settingsService = settingsService;
+        _settingsRepository = settingsRepository;
         _fingerprintService = fingerprintService;
         _pdfStorageService = pdfStorageService;
         _cache = cache;
@@ -177,17 +182,17 @@ public class AuditService
     {
         try
         {
-            var appleStreaming = await _settingsService.GetAsync("audit:allowAppleStreamingOnMainNetwork");
-            var allStreaming = await _settingsService.GetAsync("audit:allowAllStreamingOnMainNetwork");
-            var nameBrandTVs = await _settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
-            var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
-            var mediaPlayers = await _settingsService.GetAsync("audit:allowMediaPlayersOnMainNetwork");
-            var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
-            var dnatExcludedVlans = await _settingsService.GetAsync("audit:dnatExcludedVlans");
-            var piholeEndpoint = await _settingsService.GetAsync("audit:piholeManagementPort");
-            var trustedDnsTargets = await _settingsService.GetAsync("audit:trustedDnsRedirectTargets");
-            var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
-            var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
+            var appleStreaming = await _settingsRepository.GetSystemSettingAsync("audit:allowAppleStreamingOnMainNetwork");
+            var allStreaming = await _settingsRepository.GetSystemSettingAsync("audit:allowAllStreamingOnMainNetwork");
+            var nameBrandTVs = await _settingsRepository.GetSystemSettingAsync("audit:allowNameBrandTVsOnMainNetwork");
+            var allTVs = await _settingsRepository.GetSystemSettingAsync("audit:allowAllTVsOnMainNetwork");
+            var mediaPlayers = await _settingsRepository.GetSystemSettingAsync("audit:allowMediaPlayersOnMainNetwork");
+            var printers = await _settingsRepository.GetSystemSettingAsync("audit:allowPrintersOnMainNetwork");
+            var dnatExcludedVlans = await _settingsRepository.GetSystemSettingAsync("audit:dnatExcludedVlans");
+            var piholeEndpoint = await _settingsRepository.GetSystemSettingAsync("audit:piholeManagementPort");
+            var trustedDnsTargets = await _settingsRepository.GetSystemSettingAsync("audit:trustedDnsRedirectTargets");
+            var unusedPortDays = await _settingsRepository.GetSystemSettingAsync("audit:unusedPortInactivityDays");
+            var namedPortDays = await _settingsRepository.GetSystemSettingAsync("audit:namedPortInactivityDays");
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -214,7 +219,7 @@ public class AuditService
             options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
 
             // Network purpose overrides
-            var purposeOverridesJson = await _settingsService.GetAsync("audit:networkPurposeOverrides");
+            var purposeOverridesJson = await _settingsRepository.GetSystemSettingAsync("audit:networkPurposeOverrides");
             if (!string.IsNullOrEmpty(purposeOverridesJson))
             {
                 try
@@ -361,7 +366,7 @@ public class AuditService
     {
         try
         {
-            var json = await _settingsService.GetAsync("audit:networkPurposeOverrides");
+            var json = await _settingsRepository.GetSystemSettingAsync("audit:networkPurposeOverrides");
             if (!string.IsNullOrEmpty(json))
             {
                 return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new();
@@ -390,7 +395,7 @@ public class AuditService
             ? JsonSerializer.Serialize(overrides)
             : null;
 
-        await _settingsService.SetAsync("audit:networkPurposeOverrides", json);
+        await _settingsRepository.SaveSystemSettingAsync("audit:networkPurposeOverrides", json);
         _logger.LogInformation("Saved network purpose override: {NetworkId} = {Purpose}", networkId, purpose ?? "(removed)");
     }
 

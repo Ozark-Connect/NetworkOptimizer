@@ -66,10 +66,13 @@ public class ThreatDashboardService
     /// and its own noise/severity filter state - so concurrent calls on the same circuit (e.g. a
     /// dashboard load overlapping a fire-and-forget drilldown) never share a DbContext or clobber
     /// each other's filters. The caller must dispose the returned scope (use a `using` statement).
+    /// The scope is pinned to this service's already-resolved site rather than re-resolving from
+    /// the ambient HTTP context, which background continuations (CrowdSec hydration) can outlive.
     /// </summary>
     private IServiceScope NewRepositoryScope(out IThreatRepository repository)
     {
         var scope = _serviceProvider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
         repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
         return scope;
     }
@@ -152,12 +155,17 @@ public class ThreatDashboardService
 
             _logger.LogDebug("CrowdSec background hydration starting for {Count} IPs", ipsToHydrate.Count);
 
-            // Run in a new scope so scoped services (repository) stay alive
+            // Run in a new scope so scoped services (repository) stay alive. Capture the
+            // site slug NOW: the continuation can outlive the triggering circuit scope and
+            // its HTTP context, so the fresh scope must be pinned explicitly or the
+            // repository could resolve to the default site's database.
+            var siteSlug = _siteContext.Slug;
             _ = Task.Run(async () =>
             {
                 try
                 {
                     using var scope = _serviceProvider.CreateScope();
+                    scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(siteSlug);
                     var repository = scope.ServiceProvider.GetRequiredService<IThreatRepository>();
 
                     foreach (var ip in ipsToHydrate)

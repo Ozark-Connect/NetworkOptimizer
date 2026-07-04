@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -37,7 +38,13 @@ public class WanDataUsageRegistry : BackgroundService
     /// <summary>The WAN data usage collector for a site, created on first use.</summary>
     public WanDataUsageService GetFor(string slug) =>
         _instances.GetOrAdd(slug, s =>
-            ActivatorUtilities.CreateInstance<WanDataUsageService>(_serviceProvider, s));
+            // Wrap the shared bus so the collector's data-cap alert events are stamped
+            // with this site's slug, routing them to the site's rules, history, and
+            // channels (same pattern as MonitoringAlertRegistry).
+            ActivatorUtilities.CreateInstance<WanDataUsageService>(
+                _serviceProvider, s,
+                (IAlertEventBus)new SiteAlertEventBus(
+                    _serviceProvider.GetRequiredService<IAlertEventBus>(), s)));
 
     /// <summary>The default site's collector.</summary>
     public WanDataUsageService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);

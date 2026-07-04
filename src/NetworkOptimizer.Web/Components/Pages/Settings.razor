@@ -2308,6 +2308,10 @@
     <div class="card settings-tab-security" id="threat-intelligence">
         <div class="card-header">
             <h2 class="card-title">Threat Intelligence</h2>
+            @if (_multiSiteEnabled)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -6250,13 +6254,16 @@
     {
         try
         {
-            var enabled = await SystemSettings.GetAsync("threats.enabled");
+            // Instance-wide keys in the MAIN database: ThreatCollectionService reads them
+            // through the main-pinned IThreatSettingsAccessor, so site-routed reads/writes
+            // here would edit a copy the collector never sees.
+            var enabled = await SystemSettings.GetGlobalAsync("threats.enabled");
             threatCollectionEnabled = enabled != "false";
 
-            var interval = await SystemSettings.GetAsync("threats.poll_interval_minutes");
+            var interval = await SystemSettings.GetGlobalAsync("threats.poll_interval_minutes");
             if (int.TryParse(interval, out var i)) threatPollInterval = i;
 
-            var retention = await SystemSettings.GetAsync("threats.retention_days");
+            var retention = await SystemSettings.GetGlobalAsync("threats.retention_days");
             if (int.TryParse(retention, out var r)) threatRetentionDays = r;
 
             // Build geo database status from service properties
@@ -6302,9 +6309,9 @@
 
         try
         {
-            await SystemSettings.SetAsync("threats.enabled", threatCollectionEnabled ? "true" : "false");
-            await SystemSettings.SetAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
-            await SystemSettings.SetAsync("threats.retention_days", threatRetentionDays.ToString());
+            await SystemSettings.SetGlobalAsync("threats.enabled", threatCollectionEnabled ? "true" : "false");
+            await SystemSettings.SetGlobalAsync("threats.poll_interval_minutes", threatPollInterval.ToString());
+            await SystemSettings.SetGlobalAsync("threats.retention_days", threatRetentionDays.ToString());
 
             if (!string.IsNullOrEmpty(maxmindAccountId))
             {

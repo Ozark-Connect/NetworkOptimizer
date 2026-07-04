@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Caching.Memory;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
@@ -47,18 +48,23 @@ public class SpeedTestServiceRegistry
                 connection,
                 new MemoryCache(new MemoryCacheOptions()),
                 _serviceProvider.GetRequiredService<ILoggerFactory>());
+            // Wrap the shared bus so every alert event these per-site services publish
+            // is stamped with this site's slug, routing it to the site's rules, history,
+            // and channels (same pattern as MonitoringAlertRegistry).
+            var bus = (IAlertEventBus)new SiteAlertEventBus(
+                _serviceProvider.GetRequiredService<IAlertEventBus>(), s);
             var snapshots = ActivatorUtilities.CreateInstance<TopologySnapshotService>(
                 _serviceProvider, connection, pathAnalyzer);
             var clientSpeedTest = ActivatorUtilities.CreateInstance<ClientSpeedTestService>(
-                _serviceProvider, s, pathAnalyzer, snapshots);
+                _serviceProvider, s, pathAnalyzer, snapshots, bus);
             var gatewayWan = ActivatorUtilities.CreateInstance<GatewayWanSpeedTestService>(
-                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer);
+                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer, bus);
             // Non-default UWN instances serve result CRUD only; running the local
             // binary is refused for them (it measures this server's own WAN).
             var uwn = ActivatorUtilities.CreateInstance<UwnSpeedTestService>(
-                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer);
+                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer, bus);
             var lanSpeedTest = ActivatorUtilities.CreateInstance<Iperf3SpeedTestService>(
-                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer, (ITopologySnapshotService)snapshots);
+                _serviceProvider, s, (INetworkPathAnalyzer)pathAnalyzer, (ITopologySnapshotService)snapshots, bus);
             return new SiteSpeedTestServices(pathAnalyzer, snapshots, clientSpeedTest, gatewayWan, uwn, lanSpeedTest);
         });
 

@@ -411,8 +411,9 @@
             _adminToken = string.Empty; // drop the admin token explicitly
             _sharedToken = orgScoped.Token;
 
-            // Main picks up the upgraded token; this site derives it.
-            await InfluxRegistry.GetDefault().ReconfigureAsync();
+            // Main and every existing site client pick up the upgraded token
+            // (site clients derive their connection from main at configure time).
+            await InfluxRegistry.ReconfigureAllAsync();
             await ReconfigureSiteClientAsync();
 
             _state = Step.Done;
@@ -639,8 +640,9 @@
         }
         _adminToken = string.Empty; // drop the admin token explicitly
 
-        // Main picks up the shared connection; this site derives its buckets from it.
-        await InfluxRegistry.GetDefault().ReconfigureAsync();
+        // Main and every existing site client pick up the shared connection; this
+        // site derives its buckets from it.
+        await InfluxRegistry.ReconfigureAllAsync();
         await ReconfigureSiteClientAsync();
 
         _state = Step.Done;

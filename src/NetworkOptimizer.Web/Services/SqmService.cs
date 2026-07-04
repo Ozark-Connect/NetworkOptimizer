@@ -157,7 +157,10 @@ public class SqmService : ISqmService
     {
         try
         {
+            // Pin the fresh scope to this service's already-resolved site rather than
+            // re-resolving from the ambient HTTP context, which is not guaranteed here.
             using var scope = _serviceProvider.CreateScope();
+            scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(_siteContext.Slug);
             var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
             var settings = await repository.GetGatewaySshSettingsAsync();
             if (!string.IsNullOrEmpty(settings?.Host))

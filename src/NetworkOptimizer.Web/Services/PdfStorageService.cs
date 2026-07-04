@@ -5,8 +5,10 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Service for storing and retrieving pre-generated PDF reports.
 /// PDFs are stored on disk to avoid JS interop issues on mobile browsers.
-/// Scoped per site: each site's PDFs live under their own subdirectory (keyed by
-/// slug) since AuditResults.Id autoincrements independently in each site's database.
+/// Scoped per site: the default site uses the root directory (unchanged from
+/// single-site installs), and each secondary site's PDFs live under their own
+/// slug subdirectory since AuditResults.Id autoincrements independently in each
+/// site's database.
 /// </summary>
 public class PdfStorageService
 {
@@ -27,11 +29,15 @@ public class PdfStorageService
     }
 
     /// <summary>
-    /// This site's PDF subdirectory. AuditResults.Id autoincrements per-site database,
+    /// This site's PDF directory. AuditResults.Id autoincrements per-site database,
     /// so two sites can produce the same audit ID - namespacing by slug keeps their
-    /// PDFs from colliding.
+    /// PDFs from colliding. The default site keeps the original root path so PDFs
+    /// generated before multi-site stay findable (same layout as floor plans);
+    /// secondary sites nest under their slug.
     /// </summary>
-    private string SitePdfDirectory => Path.Combine(_pdfDirectory, _siteContext.Slug);
+    private string SitePdfDirectory => _siteContext.IsDefault
+        ? _pdfDirectory
+        : Path.Combine(_pdfDirectory, _siteContext.Slug);
 
     private static string GetPdfDirectory()
     {
