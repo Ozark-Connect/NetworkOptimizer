@@ -155,7 +155,7 @@
                 <label class="checkbox-toggle">
                     <input type="checkbox" @bind="_featureLanSpeedTest" />
                     <span><strong>LAN speed test server</strong>
-                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients">?</span>
+                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Hosts an OpenSpeedTest page and an iperf3 server at the site for the site's own clients" @onclick:stopPropagation="true" @onclick:preventDefault="true">?</span>
                         - lets the site's clients run speed tests against the agent.</span>
                 </label>
                 <label class="checkbox-toggle">

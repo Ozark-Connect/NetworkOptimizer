@@ -17713,6 +17713,12 @@ body.kiosk-mode .status-indicators {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
     align-self: center;
+    margin-left: 0.5rem;
+}
+
+.status-badge.status-neutral {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
 }
 
 .site-name-cell {
