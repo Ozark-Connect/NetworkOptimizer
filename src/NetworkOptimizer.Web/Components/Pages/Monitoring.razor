@@ -217,7 +217,7 @@ else
                 <div class="stat-label">WAN Upload</div>
             </div>
             @{ var ispHealth = IspHealthService.GetCachedScore(); }
-            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigationManager.NavigateTo("/monitoring?tab=isp-health"))">
+            <div class="monitoring-stat-card clickable-stat-card isp-health-tile @ispHealth.TileCssClass" data-tooltip="@ispHealth.TileTooltip" data-tooltip-hover-only @onclick="@(() => NavigateFromIspHealthTile(ispHealth.Status))">
                 <div class="stat-value isp-tile-score">@ispHealth.TileText</div>
                 <div class="stat-label">ISP Health</div>
                 @if (ispHealth.Status == IspHealthStatus.Ready && ispHealth.Score.HasValue)
@@ -2112,6 +2112,21 @@ else
             _scrollToDiscoveryPending = true;
             StateHasChanged();
         });
+    }
+
+    /// <summary>
+    /// The ISP Health tile opens the ISP Health tab once the feature is set up, but
+    /// while it is still pre-setup (Upstream Discovery hasn't run, so there are no
+    /// ISP/transit targets yet) it sends the user straight to the Network Performance
+    /// tab's Upstream Discovery section - where setup actually happens - rather than
+    /// the ISP Health tab, which would only tell them to go run discovery.
+    /// </summary>
+    private void NavigateFromIspHealthTile(IspHealthStatus status)
+    {
+        if (status is IspHealthStatus.NotConfigured or IspHealthStatus.NeedsDiscovery)
+            NavigateToUpstreamDiscovery();
+        else
+            NavigationManager.NavigateTo("/monitoring?tab=isp-health");
     }
 
     private async Task ScrollToUpstreamDiscoveryAsync()
