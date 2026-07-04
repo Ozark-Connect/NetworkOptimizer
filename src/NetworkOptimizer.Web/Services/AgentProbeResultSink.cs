@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.AgentProtocol;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
@@ -43,6 +42,7 @@ public class AgentProbeResultSink
     // name-map reconcile doesn't hit the controller on every batch. Fetched through the
     // tunneled console.
     private readonly ConcurrentDictionary<string, (DateTime At, IReadOnlyList<UniFiDeviceResponse> Devices, IReadOnlyList<NetworkInfo> Networks)> _consoleCache = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _consoleFetchGate = new();
     private static readonly TimeSpan ConsoleCacheTtl = TimeSpan.FromSeconds(60);
 
     public AgentProbeResultSink(
@@ -244,30 +244,66 @@ public class AgentProbeResultSink
         }
     }
 
-    /// <summary>Console device list + networkconf for a site, cached (~60s) and fetched through the tunneled console.</summary>
-    private async Task<(IReadOnlyList<UniFiDeviceResponse> Devices, IReadOnlyList<NetworkInfo> Networks)> GetConsoleDataAsync(string slug, CancellationToken ct)
+    /// <summary>
+    /// Cached (~60s) console device list + networkconf for a site. Returns whatever is
+    /// cached immediately and NEVER performs a live fetch on the caller's thread. It is
+    /// called inline on the tunnel read loop, and a console fetch travels back over that
+    /// same tunnel - awaiting it here would block the read loop from processing its own
+    /// ProxyOpenResult, self-deadlocking for the full open timeout and starving every
+    /// other proxied connection (console page loads, SSH, tc-monitor). A stale or missing
+    /// cache kicks a background refresh that a later batch reads.
+    /// </summary>
+    private (IReadOnlyList<UniFiDeviceResponse> Devices, IReadOnlyList<NetworkInfo> Networks) GetConsoleData(string slug)
     {
         var hasCache = _consoleCache.TryGetValue(slug, out var cached);
-        if (hasCache && DateTime.UtcNow - cached.At < ConsoleCacheTtl)
-            return (cached.Devices, cached.Networks);
+        if (!hasCache || DateTime.UtcNow - cached.At >= ConsoleCacheTtl)
+            _ = RefreshConsoleCacheAsync(slug);
+        return hasCache ? (cached.Devices, cached.Networks)
+                        : (Array.Empty<UniFiDeviceResponse>(), Array.Empty<NetworkInfo>());
+    }
 
-        var conn = _siteConnections.GetFor(slug);
-        if (!conn.IsConnected || conn.Client == null)
-            return hasCache ? (cached.Devices, cached.Networks) : (Array.Empty<UniFiDeviceResponse>(), Array.Empty<NetworkInfo>());
-
+    /// <summary>
+    /// Refreshes the console cache for a site off the tunnel read loop (fired from
+    /// <see cref="GetConsoleData"/>). Single-flight per site via a non-blocking gate, and
+    /// advances the cache timestamp on every outcome - success, console-down, or failure -
+    /// so a degraded console backs off a full TTL instead of being re-hammered on every
+    /// SNMP batch.
+    /// </summary>
+    private async Task RefreshConsoleCacheAsync(string slug)
+    {
+        var gate = _consoleFetchGate.GetOrAdd(slug, _ => new SemaphoreSlim(1, 1));
+        if (!await gate.WaitAsync(0)) return; // a refresh is already running for this site
         try
         {
-            IReadOnlyList<UniFiDeviceResponse> devices = await conn.Client.GetDevicesAsync(ct) ?? new List<UniFiDeviceResponse>();
-            IReadOnlyList<NetworkInfo> networks;
-            try { networks = await conn.GetNetworksAsync(ct); }
-            catch { networks = hasCache ? cached.Networks : Array.Empty<NetworkInfo>(); }
+            var hadCache = _consoleCache.TryGetValue(slug, out var cached);
+            if (hadCache && DateTime.UtcNow - cached.At < ConsoleCacheTtl)
+                return; // another refresh just landed
+
+            IReadOnlyList<UniFiDeviceResponse> devices = hadCache ? cached.Devices : Array.Empty<UniFiDeviceResponse>();
+            IReadOnlyList<NetworkInfo> networks = hadCache ? cached.Networks : Array.Empty<NetworkInfo>();
+
+            var conn = _siteConnections.GetFor(slug);
+            if (conn.IsConnected && conn.Client != null)
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try
+                {
+                    devices = await conn.Client.GetDevicesAsync(cts.Token) ?? devices;
+                    try { networks = await conn.GetNetworksAsync(cts.Token); } catch { /* keep prior labels */ }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Console fetch for interface name map failed for site {Slug}", slug);
+                }
+            }
+
+            // Advance the timestamp regardless of outcome so a down/failing console backs
+            // off a full TTL rather than retrying every batch.
             _consoleCache[slug] = (DateTime.UtcNow, devices, networks);
-            return (devices, networks);
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogDebug(ex, "Console fetch for interface name map failed for site {Slug}", slug);
-            return hasCache ? (cached.Devices, cached.Networks) : (Array.Empty<UniFiDeviceResponse>(), Array.Empty<NetworkInfo>());
+            gate.Release();
         }
     }
 
@@ -380,7 +416,7 @@ public class AgentProbeResultSink
         {
             try
             {
-                var console = await GetConsoleDataAsync(connection.SiteSlug, ct);
+                var console = GetConsoleData(connection.SiteSlug);
                 if (console.Devices.Count > 0)
                 {
                     var deviceByMac = console.Devices
