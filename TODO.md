@@ -401,6 +401,23 @@ Suggested order: congestion / path-shift / outage navigation first (cheap, consi
 - Both should tear down / re-establish agent enrollment cleanly so a removed slug can be re-added
   from scratch with no stale rows.
 
+### Site-specific alert channels (post-MVP)
+Today delivery channels are global: `DeliveryChannel` has no `SiteId`, `AlertProcessingService` is a
+singleton that dispatches against the main DB, and alert events/rules aren't site-tagged. Alerts are
+evaluated per-site but every one fans out to the single global channel set.
+
+Goal: keep global channels applying everywhere, but let a site add its OWN additional channels.
+- **Model:** nullable `DeliveryChannel.SiteId` (null = global, set = site-specific). Additive
+  migration, fully backward-compatible - existing channels stay global.
+- **Dispatch (the real work):** thread the originating site through the alert event -> incident ->
+  dispatch so the processor can select channels `WHERE SiteId IS NULL OR SiteId = <firing site>`.
+  The alert pipeline is currently main-DB/global-scoped and carries no site identity; adding that
+  end-to-end is the bulk of the effort (and is the same plumbing per-site alert RULES would need).
+- **UI:** per-site channel view - inherited global channels (read-only) plus this site's own
+  additions, mirroring the external-site InfluxDB pattern (Settings > Monitoring).
+- Low-risk and incremental: nullable `SiteId` defaults to global, so nothing changes until a site
+  adds its first channel. Best landed alongside making alert rules site-aware.
+
 ## Distribution
 
 ### ISO/OVA Image for MSP Deployment
