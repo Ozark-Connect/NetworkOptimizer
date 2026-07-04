@@ -964,12 +964,12 @@ public class MonitoringCollectionAgent : BackgroundService
         // Network config (cached ~5 min) feeds the WireGuard / OpenVPN / honeypot /
         // bridge interface labels resolved below. Best-effort: a fetch failure just
         // means those families fall back to their raw ifname.
-        // Loaded for agent sites too: it reaches the controller through the same console
-        // connection the agent tunnels, and feeds the interface labels below - including
-        // the agent-site PortTable path - so the gateway's WAN/carrier labels resolve.
         IReadOnlyList<NetworkInfo> networkConfigs = Array.Empty<NetworkInfo>();
-        try { networkConfigs = await _connectionService.GetNetworksAsync(ct); }
-        catch (Exception ex) { _logger.LogDebug(ex, "networkconf fetch for interface labels failed"); }
+        if (!agentCovers)
+        {
+            try { networkConfigs = await _connectionService.GetNetworksAsync(ct); }
+            catch (Exception ex) { _logger.LogDebug(ex, "networkconf fetch for interface labels failed"); }
+        }
 
         var poller = agentCovers ? null : GetOrBuildPoller(settings);
         if (poller == null && !agentCovers) return;
@@ -1018,58 +1018,6 @@ public class MonitoringCollectionAgent : BackgroundService
                 {
                     _logger.LogDebug(ex, "SFP alert evaluation failed for {Mac} port {Port}", sfpMac, sfpPortName);
                 }
-            }
-        }
-
-        // Agent sites: the server can't SNMP-poll the remote network, so the
-        // SNMP-driven reconcile below is skipped (agentCovers). Build the interface
-        // name map straight from the UniFi PortTable instead - it carries the friendly
-        // name, port number, and negotiated speed - keyed by the port's Linux IfName so
-        // it joins to the ifName the agent reports in its SNMP samples. Without this the
-        // gateway (whose raw SNMP ifNames aren't friendly and whose SNMP speed is
-        // inflated to the port's max capability) shows no friendly name and no link rate.
-        if (agentCovers)
-        {
-            foreach (var device in devices)
-            {
-                if (device.PortTable == null) continue;
-                var mac = NormalizeMac(device.Mac);
-                var deviceIfNames = new List<string>();
-                foreach (var port in device.PortTable)
-                {
-                    if (string.IsNullOrEmpty(port.IfName)) continue;
-                    deviceIfNames.Add(port.IfName);
-                    var key = (mac, port.IfName);
-                    var friendly = string.IsNullOrEmpty(port.Name) ? null : port.Name;
-                    int? speed = port.Speed > 0 ? port.Speed : (int?)null;
-                    int? portNum = port.PortIdx > 0 ? port.PortIdx : (int?)null;
-                    if (!existingMaps.TryGetValue(key, out var mapping))
-                    {
-                        db.InterfaceNameMaps.Add(existingMaps[key] = new InterfaceNameMap
-                        {
-                            DeviceMac = mac,
-                            IfName = port.IfName,
-                            FriendlyName = friendly,
-                            PortNumber = portNum,
-                            SpeedMbps = speed,
-                            IsSfp = port.SfpFound,
-                            LastUpdated = DateTime.UtcNow
-                        });
-                    }
-                    else
-                    {
-                        if (friendly != null) mapping.FriendlyName = friendly;
-                        if (portNum.HasValue) mapping.PortNumber = portNum;
-                        if (speed.HasValue) mapping.SpeedMbps = speed;
-                        if (port.SfpFound.HasValue) mapping.IsSfp = port.SfpFound;
-                        mapping.LastUpdated = DateTime.UtcNow;
-                    }
-                }
-                // WAN/carrier/VPN interface labels for the live-view port table, same as
-                // the SNMP path emits for directly-monitored sites - built here from the
-                // PortTable ifnames since the server can't SNMP-walk an agent site.
-                _liveStats.RecordInterfaceLabels(mac,
-                    InterfaceLabelResolver.BuildLabels(device, networkConfigs, deviceIfNames));
             }
         }
 

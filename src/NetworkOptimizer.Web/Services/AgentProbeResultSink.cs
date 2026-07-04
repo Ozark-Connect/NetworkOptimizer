@@ -6,6 +6,8 @@ using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Probes;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -36,6 +38,12 @@ public class AgentProbeResultSink
     // the device list each SNMP config push assembles. Health samples relayed by the
     // agent carry only the MAC; this gives their alerts a human-readable label.
     private readonly ConcurrentDictionary<string, Dictionary<string, string>> _deviceNamesBySite = new();
+
+    // Console device list + networkconf per site, cached so the agent-relayed interface
+    // name-map reconcile doesn't hit the controller on every batch. Fetched through the
+    // tunneled console.
+    private readonly ConcurrentDictionary<string, (DateTime At, IReadOnlyList<UniFiDeviceResponse> Devices, IReadOnlyList<NetworkInfo> Networks)> _consoleCache = new();
+    private static readonly TimeSpan ConsoleCacheTtl = TimeSpan.FromSeconds(60);
 
     public AgentProbeResultSink(
         SiteDbContextFactory siteDbFactory,
@@ -236,6 +244,33 @@ public class AgentProbeResultSink
         }
     }
 
+    /// <summary>Console device list + networkconf for a site, cached (~60s) and fetched through the tunneled console.</summary>
+    private async Task<(IReadOnlyList<UniFiDeviceResponse> Devices, IReadOnlyList<NetworkInfo> Networks)> GetConsoleDataAsync(string slug, CancellationToken ct)
+    {
+        var hasCache = _consoleCache.TryGetValue(slug, out var cached);
+        if (hasCache && DateTime.UtcNow - cached.At < ConsoleCacheTtl)
+            return (cached.Devices, cached.Networks);
+
+        var conn = _siteConnections.GetFor(slug);
+        if (!conn.IsConnected || conn.Client == null)
+            return hasCache ? (cached.Devices, cached.Networks) : (Array.Empty<UniFiDeviceResponse>(), Array.Empty<NetworkInfo>());
+
+        try
+        {
+            IReadOnlyList<UniFiDeviceResponse> devices = await conn.Client.GetDevicesAsync(ct) ?? new List<UniFiDeviceResponse>();
+            IReadOnlyList<NetworkInfo> networks;
+            try { networks = await conn.GetNetworksAsync(ct); }
+            catch { networks = hasCache ? cached.Networks : Array.Empty<NetworkInfo>(); }
+            _consoleCache[slug] = (DateTime.UtcNow, devices, networks);
+            return (devices, networks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Console fetch for interface name map failed for site {Slug}", slug);
+            return hasCache ? (cached.Devices, cached.Networks) : (Array.Empty<UniFiDeviceResponse>(), Array.Empty<NetworkInfo>());
+        }
+    }
+
     /// <summary>
     /// Records SNMP samples relayed by an agent: interface counters go through
     /// the same InterfaceRateCalculator as the local fast tier (32-bit wrap,
@@ -332,6 +367,74 @@ public class AgentProbeResultSink
                 bcastPktsIn: sample.BcastPktsIn > 0 ? sample.BcastPktsIn : null,
                 bcastPktsOut: sample.BcastPktsOut > 0 ? sample.BcastPktsOut : null,
                 timestamp: timestamp);
+        }
+
+        // Reconcile the InterfaceNameMap (friendly name, negotiated speed, port number,
+        // SFP) + interface labels for this site the way the directly-monitored slow tier
+        // does - but the server can't SNMP-walk an agent site, so the interface
+        // enumeration comes from the agent's streamed samples and the gap-fill from the
+        // site's UniFi port table + networkconf (via the tunneled console, cached). The
+        // shared InterfacePortCorrelation helper is the exact per-interface logic the main
+        // path runs; the main path itself is untouched.
+        if (batch.Interfaces.Count > 0)
+        {
+            try
+            {
+                var console = await GetConsoleDataAsync(connection.SiteSlug, ct);
+                if (console.Devices.Count > 0)
+                {
+                    var deviceByMac = console.Devices
+                        .Where(d => !string.IsNullOrEmpty(d.Mac))
+                        .GroupBy(d => NormalizeMac(d.Mac))
+                        .ToDictionary(g => g.Key, g => g.First());
+                    var isDefaultSite = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
+                    await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefaultSite);
+                    var existingMaps = await db.InterfaceNameMaps.ToDictionaryAsync(
+                        m => (m.DeviceMac, m.IfName), m => m, ct);
+
+                    foreach (var deviceGroup in batch.Interfaces.GroupBy(s => NormalizeMac(s.DeviceMac)))
+                    {
+                        if (!deviceByMac.TryGetValue(deviceGroup.Key, out var device)) continue;
+                        var ifNames = new List<string>();
+                        foreach (var sample in deviceGroup)
+                        {
+                            if (string.IsNullOrEmpty(sample.IfName)) continue;
+                            ifNames.Add(sample.IfName);
+                            var corr = InterfacePortCorrelation.Correlate(
+                                device.PortTable, ifIndex: 0, sample.SpeedBps, sample.PortId, sample.IfName);
+                            var mapKey = (deviceGroup.Key, sample.IfName);
+                            if (!existingMaps.TryGetValue(mapKey, out var mapping))
+                            {
+                                db.InterfaceNameMaps.Add(existingMaps[mapKey] = new InterfaceNameMap
+                                {
+                                    DeviceMac = deviceGroup.Key,
+                                    IfName = sample.IfName,
+                                    FriendlyName = corr.FriendlyName,
+                                    PortNumber = corr.PortNumber,
+                                    SpeedMbps = corr.LinkSpeedMbps,
+                                    IsSfp = corr.IsSfp,
+                                    LastUpdated = DateTime.UtcNow
+                                });
+                            }
+                            else
+                            {
+                                if (corr.FriendlyName != null) mapping.FriendlyName = corr.FriendlyName;
+                                if (corr.PortNumber.HasValue) mapping.PortNumber = corr.PortNumber;
+                                if (corr.LinkSpeedMbps.HasValue) mapping.SpeedMbps = corr.LinkSpeedMbps;
+                                if (corr.IsSfp.HasValue) mapping.IsSfp = corr.IsSfp;
+                                mapping.LastUpdated = DateTime.UtcNow;
+                            }
+                        }
+                        liveStats.RecordInterfaceLabels(deviceGroup.Key,
+                            InterfaceLabelResolver.BuildLabels(device, console.Networks, ifNames));
+                    }
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Interface name map reconcile from agent samples failed for site {Slug}", connection.SiteSlug);
+            }
         }
 
         foreach (var health in batch.Health)
