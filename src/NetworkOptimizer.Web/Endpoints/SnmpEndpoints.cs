@@ -26,7 +26,7 @@ public static class SnmpEndpoints
                 return Results.BadRequest(new TestOidResponse { ErrorMessage = "Device MAC and OID are required." });
 
             var hasAgent = !siteContext.IsDefault && agentSnmpQuery.HasAgentForSite(siteContext.Slug);
-            oidLog.LogInformation(
+            oidLog.LogDebug(
                 "OID test: site={Slug} isDefault={IsDefault} hasAgent={HasAgent} mac={Mac} oid={Oid}",
                 siteContext.Slug, siteContext.IsDefault, hasAgent, request.DeviceMac, request.Oid);
 
@@ -36,14 +36,14 @@ public static class SnmpEndpoints
             if (hasAgent)
             {
                 var agentDeviceIp = await ResolveDeviceIpAsync(request.DeviceMac, connectionService, ct);
-                oidLog.LogInformation("OID test: agent path, resolved device IP={Ip} (connected={Connected})",
+                oidLog.LogDebug("OID test: agent path, resolved device IP={Ip} (connected={Connected})",
                     agentDeviceIp ?? "<null>", connectionService.IsConnected);
                 if (agentDeviceIp == null)
                     return Results.BadRequest(new TestOidResponse { ErrorMessage = "Could not resolve device IP." });
 
                 var agentResult = await agentSnmpQuery.QueryAsync(
                     siteContext.Slug, agentDeviceIp, request.Oid, TimeSpan.FromSeconds(10), ct);
-                oidLog.LogInformation("OID test: agent result success={Success} value={Value} error={Error}",
+                oidLog.LogDebug("OID test: agent result success={Success} value={Value} error={Error}",
                     agentResult?.Success, agentResult?.Value, agentResult?.Error ?? "<null result>");
                 if (agentResult != null)
                     return Results.Ok(agentResult.Success
