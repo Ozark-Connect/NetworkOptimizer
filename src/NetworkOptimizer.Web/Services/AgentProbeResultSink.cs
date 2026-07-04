@@ -338,6 +338,17 @@ public class AgentProbeResultSink
             }
         }
 
+        // Console device list (cached, fetched off the tunnel read loop) keyed by MAC,
+        // for the gateway live-port-state resilience in the loop below - it reads the
+        // site's UniFi port_table, which the server can't SNMP-walk on a remote agent
+        // site. The reconcile further down reads the same cached snapshot.
+        var deviceByMac = batch.Interfaces.Count > 0
+            ? GetConsoleData(connection.SiteSlug).Devices
+                .Where(d => !string.IsNullOrEmpty(d.Mac))
+                .GroupBy(d => NormalizeMac(d.Mac))
+                .ToDictionary(g => g.Key, g => g.First())
+            : new Dictionary<string, UniFiDeviceResponse>();
+
         foreach (var sample in batch.Interfaces)
         {
             var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(sample.TimestampUnixMs).UtcDateTime;
@@ -356,12 +367,33 @@ public class AgentProbeResultSink
             // from memory.
             if (calc.RateInBps.HasValue && calc.RateOutBps.HasValue)
                 liveStats.RecordPortRate(sample.DeviceMac, sample.IfName, calc.RateOutBps.Value, calc.RateInBps.Value, timestamp);
+
+            // Live port-state resilience for gateways: when UniFi's port_table says the
+            // port is down or disabled and no frame counters moved this poll, mark the live
+            // port down - SNMP on a gateway keeps a dead port reporting a stale "up" at a
+            // placeholder 10 Mbps. Live cache only; the InfluxDB write below keeps the raw
+            // SNMP ifOperStatus.
+            // KEEP IN SYNC with the directly-monitored fast tier in
+            // MonitoringCollectionAgent.RecordInterfaceSample ("Live port-state resilience
+            // for gateways") - if you adjust one, adjust the other.
+            int liveOperStatus = sample.OperStatus;
+            if (deviceByMac.TryGetValue(NormalizeMac(sample.DeviceMac), out var portDevice)
+                && portDevice.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway
+                && !(calc.RateInBps > 0) && !(calc.RateOutBps > 0))
+            {
+                var uniPort = portDevice.PortTable?.FirstOrDefault(p =>
+                    !string.IsNullOrEmpty(p.IfName)
+                    && string.Equals(p.IfName, sample.IfName, StringComparison.OrdinalIgnoreCase));
+                if (uniPort != null && (!uniPort.Up || !uniPort.Enable))
+                    liveOperStatus = 2; // ifOperStatus down
+            }
+
             liveStats.RecordPortStats(new MonitoringInfluxClient.PortStatsPoint
             {
                 DeviceMac = sample.DeviceMac,
                 IfName = sample.IfName,
                 PortId = sample.PortId,
-                OperStatus = sample.OperStatus,
+                OperStatus = liveOperStatus,
                 SpeedBps = sample.SpeedBps > 0 ? sample.SpeedBps : null,
                 RateInBps = calc.RateInBps,
                 RateOutBps = calc.RateOutBps,
@@ -419,10 +451,8 @@ public class AgentProbeResultSink
                 var console = GetConsoleData(connection.SiteSlug);
                 if (console.Devices.Count > 0)
                 {
-                    var deviceByMac = console.Devices
-                        .Where(d => !string.IsNullOrEmpty(d.Mac))
-                        .GroupBy(d => NormalizeMac(d.Mac))
-                        .ToDictionary(g => g.Key, g => g.First());
+                    // deviceByMac is the same cached console snapshot built above for the
+                    // live-port-state resilience; reuse it rather than rebuild.
                     var isDefaultSite = connection.SiteSlug == SiteManagementService.DefaultSiteSlug;
                     await using var db = _siteDbFactory.CreateForSite(connection.SiteSlug, isDefaultSite);
                     var existingMaps = await db.InterfaceNameMaps.ToDictionaryAsync(

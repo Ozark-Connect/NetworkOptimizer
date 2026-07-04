@@ -1779,6 +1779,9 @@ public class MonitoringCollectionAgent : BackgroundService
         // down or disabled, mark the live port down - UNLESS the SNMP frame counters moved
         // this poll, which proves it is passing traffic and UniFi's state is stale. Scoped to
         // the in-memory live cache; the InfluxDB write above keeps the raw SNMP ifOperStatus.
+        // KEEP IN SYNC with the agent-relayed path in
+        // AgentProbeResultSink.RecordSnmpBatchAsync ("Live port-state resilience for
+        // gateways") - if you adjust one, adjust the other.
         int liveOperStatus = iface.OperStatus;
         if (device.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.Gateway && !(rateInBps > 0) && !(rateOutBps > 0))
         {
