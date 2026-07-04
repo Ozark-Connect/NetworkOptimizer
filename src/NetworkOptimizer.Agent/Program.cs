@@ -151,6 +151,7 @@ while (!cts.IsCancellationRequested)
         var proxyHandler = new ProxyHandler(tunnel);
         var iperf3ClientRunner = new Iperf3ClientRunner(tunnel);
         var uwnClientRunner = new UwnClientRunner(tunnel);
+        var probeRequestRunner = new ProbeRequestRunner(tunnel);
         tunnel.OnProbeConfig = probeRunner.UpdateConfig;
         tunnel.OnSnmpConfig = snmpRunner.UpdateConfig;
         tunnel.OnProxyOpen = proxyHandler.HandleOpenAsync;
@@ -158,6 +159,7 @@ while (!cts.IsCancellationRequested)
         tunnel.OnProxyClose = proxyHandler.HandleClose;
         tunnel.OnIperf3Request = iperf3ClientRunner.HandleAsync;
         tunnel.OnUwnRequest = uwnClientRunner.HandleAsync;
+        tunnel.OnProbeRequest = probeRequestRunner.HandleAsync;
         var probeTask = probeRunner.RunAsync(connectionCts.Token);
         var snmpTask = snmpRunner.RunAsync(connectionCts.Token);
         try

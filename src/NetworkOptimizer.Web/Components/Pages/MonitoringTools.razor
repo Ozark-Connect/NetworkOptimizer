@@ -31,7 +31,7 @@
         <div class="form-group">
             <label class="form-label">From (vantage)</label>
             <select class="form-control" value="@_fromKey" @onchange="OnVantageChanged">
-                <option value="server">Network Optimizer server</option>
+                <option value="server">@(ExecutorFactory.ServerVantageIsAgent ? "On-site agent" : "Network Optimizer server")</option>
                 @foreach (var d in _devices)
                 {
                     <option value="@($"device:{d.Mac}")">@LabelForDevice(d)</option>
@@ -40,7 +40,14 @@
             @if (_fromKey == "server")
             {
                 <p class="page-description" style="margin-top: 0.5rem;">
-                    Probes from this server. Capabilities: @_localCapabilities.
+                    @if (ExecutorFactory.ServerVantageIsAgent)
+                    {
+                        @:Probes run from this site's on-site agent (on the site's own network), not the central server.
+                    }
+                    else
+                    {
+                        @:Probes from this server. Capabilities: @_localCapabilities.
+                    }
                 </p>
             }
             else if (_sshCredentialsMissing)

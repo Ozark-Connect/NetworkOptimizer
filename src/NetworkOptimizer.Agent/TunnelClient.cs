@@ -40,6 +40,9 @@ public sealed class TunnelClient
     /// <summary>Server asks us to run the UWN WAN speed test at the site.</summary>
     public Func<UwnRequest, CancellationToken, Task>? OnUwnRequest { get; set; }
 
+    /// <summary>Server asks us to run an on-demand ping/traceroute from this host.</summary>
+    public Func<ProbeRequest, CancellationToken, Task>? OnProbeRequest { get; set; }
+
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
 
@@ -146,6 +149,12 @@ public sealed class TunnelClient
                         // the WAN speed test runs for many seconds.
                         if (OnUwnRequest is { } uwnHandler)
                             _ = uwnHandler(message.UwnRequest, linked.Token);
+                        break;
+                    case ServerMessage.PayloadOneofCase.ProbeRequest:
+                        // Fire and forget: a traceroute can take up to ~10s and must
+                        // not block the read loop (heartbeats, proxy, other messages).
+                        if (OnProbeRequest is { } probeHandler)
+                            _ = probeHandler(message.ProbeRequest, linked.Token);
                         break;
                 }
             }

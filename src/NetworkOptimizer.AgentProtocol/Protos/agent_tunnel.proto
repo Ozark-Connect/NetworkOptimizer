@@ -24,6 +24,7 @@ message AgentMessage {
     SnmpResultBatch snmp_results = 7;
     Iperf3ClientResult iperf3_result = 8;
     UwnResult uwn_result = 9;
+    ProbeResponse probe_response = 10;
   }
 }
 
@@ -37,6 +38,7 @@ message ServerMessage {
     SnmpConfig snmp_config = 6;
     Iperf3ClientRequest iperf3_request = 7;
     UwnRequest uwn_request = 8;
+    ProbeRequest probe_request = 9;
   }
 }
 
@@ -240,4 +242,32 @@ message UwnResult {
   // The uwnspeedtest JSON stdout on success, or an error message otherwise.
   // Matches the (success, output) contract the server's local run returns.
   string output = 3;
+}
+
+// ---- On-demand ping/traceroute run from the agent host ----
+// Network Tools and Upstream Discovery both need a probe vantage ON the site's
+// network. The central server can't reach a secondary site's LAN/WAN path, so it
+// asks the agent to run the ping/traceroute from its own host (the on-site
+// equivalent of running from the NO Server on the home site) and return the
+// result. The agent runs the SAME LocalProbeExecutor the server uses, serialized
+// to JSON; the server deserializes into PingProbeResult / TracerouteResult.
+// Correlated by request_id, mirroring the iperf3 pattern.
+
+message ProbeRequest {
+  int64 request_id = 1;
+  string address = 2;
+  string mode = 3;        // icmp | tcp | udp (ProbeMode)
+  int32 port = 4;         // TCP mode
+  string source_ip = 5;   // source/interface bind (WAN selection), optional
+  bool traceroute = 6;    // false = ping burst, true = traceroute
+  int32 count = 7;        // ping count (ping only)
+  int32 max_hops = 8;     // traceroute max hops
+}
+
+message ProbeResponse {
+  int64 request_id = 1;
+  bool success = 2;
+  string error = 3;
+  // Serialized PingProbeResult (ping) or TracerouteResult (traceroute) on success.
+  string result_json = 4;
 }

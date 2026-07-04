@@ -248,6 +248,7 @@ builder.Services.AddSingleton<AgentProbeResultSink>();
 builder.Services.AddSingleton<AgentTunnelProxyService>();
 builder.Services.AddSingleton<AgentIperf3Service>();
 builder.Services.AddSingleton<AgentUwnService>();
+builder.Services.AddSingleton<AgentProbeService>();
 builder.Services.AddSingleton<AgentServerUrlProvider>();
 
 // Register repository pattern (scoped - same lifetime as DbContext)
