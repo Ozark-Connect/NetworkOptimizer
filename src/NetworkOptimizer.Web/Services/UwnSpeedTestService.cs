@@ -111,8 +111,13 @@ public class UwnSpeedTestService : WanSpeedTestServiceBase
             SiteSlug, Streams, ServerCount);
         report("Running at site agent", 5, "Measuring the site's WAN...");
 
-        var (success, output) = await _agentUwn.RunAsync(
+        // The agent returns only the final JSON over the tunnel, so there's no live progress to
+        // stream. Simulate it the same way the gateway run does while the agent test is in flight;
+        // the local (this-server) run keeps its accurate per-line stdout progress in RunLocalAsync.
+        var agentTask = _agentUwn.RunAsync(
             SiteSlug, Streams, ServerCount, UwnDurationSeconds, UwnTimeoutSeconds, cancellationToken);
+        await WanSpeedTestProgressAnimator.AnimateAsync(agentTask, report, cancellationToken);
+        var (success, output) = await agentTask;
         if (!success)
             throw new InvalidOperationException($"Agent WAN speed test failed: {output}");
 

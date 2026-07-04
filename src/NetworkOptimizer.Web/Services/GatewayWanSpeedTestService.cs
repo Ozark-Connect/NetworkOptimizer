@@ -304,7 +304,7 @@ public class GatewayWanSpeedTestService
         var sshTask = _gatewaySsh.RunCommandAsync(
             command, TimeSpan.FromSeconds(120), cancellationToken);
 
-        await AnimateProgress(sshTask, report, cancellationToken);
+        await WanSpeedTestProgressAnimator.AnimateAsync(sshTask, report, cancellationToken);
 
         var result = await sshTask;
 
@@ -368,7 +368,7 @@ public class GatewayWanSpeedTestService
         }).ToList();
 
         var allTask = Task.WhenAll(sshTasks);
-        await AnimateProgress(allTask, report, cancellationToken);
+        await WanSpeedTestProgressAnimator.AnimateAsync(allTask, report, cancellationToken);
 
         var results = await allTask;
 
@@ -558,36 +558,6 @@ public class GatewayWanSpeedTestService
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
 
         return testResult;
-    }
-
-    private static async Task AnimateProgress(Task sshTask, Action<string, int, string?> report, CancellationToken ct)
-    {
-        // Timeline: discovery/latency ~3.5s, download ~9s (2s warmup + 8s), upload ~9s (2s warmup + 8s)
-        // Total animation: ~21.5s to match actual test duration of ~25s minus overhead
-        var progressSteps = new (string Phase, int Percent, string Status, int DelayMs)[]
-        {
-            ("Discovering servers", 10, "Discovering servers...", 1500),
-            ("Testing latency", 15, "Measuring latency...", 1000),
-            ("Testing download", 22, "Testing download...", 1800),
-            ("Testing download", 30, "Testing download...", 1800),
-            ("Testing download", 38, "Testing download...", 1800),
-            ("Testing download", 44, "Testing download...", 1800),
-            ("Testing download", 50, "Testing download...", 1800),
-            ("Testing upload", 58, "Testing upload...", 1800),
-            ("Testing upload", 66, "Testing upload...", 1800),
-            ("Testing upload", 74, "Testing upload...", 1800),
-            ("Testing upload", 82, "Testing upload...", 1800),
-            ("Testing upload", 90, "Testing upload...", 1800),
-        };
-
-        foreach (var step in progressSteps)
-        {
-            if (sshTask.IsCompleted) break;
-            try { await Task.WhenAny(sshTask, Task.Delay(step.DelayMs, ct)); }
-            catch (OperationCanceledException) { break; }
-            if (!sshTask.IsCompleted)
-                report(step.Phase, step.Percent, step.Status);
-        }
     }
 
     private static void ValidateInterfaceName(string name)
