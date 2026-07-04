@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Storage;
+using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web.Services.Ssh;
@@ -30,6 +30,7 @@ public class GatewayWanSpeedTestService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
+    private readonly IAlertEventBus? _alertEventBus;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -68,6 +69,7 @@ public class GatewayWanSpeedTestService
         NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         INetworkPathAnalyzer pathAnalyzer,
         IServiceProvider serviceProvider,
+        IAlertEventBus? alertEventBus = null,
         string siteSlug = SiteManagementService.DefaultSiteSlug)
     {
         _logger = logger;
@@ -78,6 +80,7 @@ public class GatewayWanSpeedTestService
         _dbFactory = dbFactory;
         _siteDbFactory = siteDbFactory;
         _pathAnalyzer = pathAnalyzer;
+        _alertEventBus = alertEventBus;
         _serviceProvider = serviceProvider;
     }
 
@@ -347,7 +350,7 @@ public class GatewayWanSpeedTestService
             (1, true) => (6, 24),
             (2, true) => (5, 20),
             (3, true) => (4, 16),
-            (<= 3, false) => (4, 20),
+            ( <= 3, false) => (4, 20),
             (4, _) => (3, 12),
             (5, true) => (3, 12),
             (5, false) => (2, 8),
