@@ -25,11 +25,18 @@ namespace NetworkOptimizer.Web.Services.Monitoring;
 /// </summary>
 public class UpstreamTracerService
 {
+    // Per-site: the site's console + gateway SSH + ISP Health, and the "server" probe
+    // vantage - the local server on the default site, or the on-site agent (running the
+    // same LocalProbeExecutor over the tunnel) on a secondary site, so the traceroute
+    // originates on the site's own network with first-hop logic identical to home.
+    private readonly string _siteSlug;
+    private readonly bool _isDefault;
     private readonly UniFiConnectionService _connectionService;
     private readonly IGatewaySshService _gatewaySsh;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly AsnResolutionService _asnResolution;
-    private readonly LocalProbeExecutor _localProbe;
+    private readonly IProbeExecutor _traceExecutor;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IspHealth.IspHealthService _ispHealth;
     private readonly NetworkOptimizer.Audit.Services.IeeeOuiDatabase _ouiDb;
@@ -85,29 +92,40 @@ public class UpstreamTracerService
 
     private record TraceEndpoint(string Label, string Address, bool IsTransitProbe = false, bool EndpointIsTransitHop = false);
 
+    // Built per site by UpstreamTracerRegistry, which resolves the site's console,
+    // gateway SSH, ISP Health, and "server" probe vantage (local on the default site,
+    // on-site agent on a secondary site).
     public UpstreamTracerService(
-        SiteConnectionRegistry siteConnections,
-        GatewaySshRegistry gatewaySshRegistry,
+        string siteSlug,
+        bool isDefault,
+        UniFiConnectionService connectionService,
+        IGatewaySshService gatewaySsh,
+        IspHealth.IspHealthService ispHealth,
+        IProbeExecutor traceExecutor,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         AsnResolutionService asnResolution,
-        LocalProbeExecutor localProbe,
         IServiceScopeFactory scopeFactory,
-        IspHealth.IspHealthRegistry ispHealthRegistry,
         NetworkOptimizer.Audit.Services.IeeeOuiDatabase ouiDb,
         ILogger<UpstreamTracerService> logger)
     {
-        _connectionService = siteConnections.GetDefault();
-        _gatewaySsh = gatewaySshRegistry.GetDefault();
+        _siteSlug = siteSlug;
+        _isDefault = isDefault;
+        _connectionService = connectionService;
+        _gatewaySsh = gatewaySsh;
+        _ispHealth = ispHealth;
+        _traceExecutor = traceExecutor;
+        _siteDbFactory = siteDbFactory;
         _dbFactory = dbFactory;
         _asnResolution = asnResolution;
-        _localProbe = localProbe;
         _scopeFactory = scopeFactory;
-        // Default-site instance, matching this service's default-pinned console
-        // and gateway SSH dependencies (upstream tracing is main-site-only today).
-        _ispHealth = ispHealthRegistry.GetDefault();
         _ouiDb = ouiDb;
         _logger = logger;
     }
+
+    /// <summary>The site's own database for persisting upstream discovery state.</summary>
+    private async Task<NetworkOptimizerDbContext> CreateDbAsync(CancellationToken ct = default) =>
+        _isDefault ? await _dbFactory.CreateDbContextAsync(ct) : _siteDbFactory.CreateForSite(_siteSlug, isDefault: false);
 
     /// <summary>
     /// Rehydrate the in-memory <see cref="State"/> from persisted DB rows when
@@ -121,7 +139,7 @@ public class UpstreamTracerService
         if (State.Step != TracerStep.Idle) return;
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateDbAsync(ct);
             var ctx = await db.WanDiscoveryContexts
                 .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
                 .FirstOrDefaultAsync(ct);
@@ -242,7 +260,7 @@ public class UpstreamTracerService
     {
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateDbAsync(ct);
             var ctx = await db.WanDiscoveryContexts
                 .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
                 .FirstOrDefaultAsync(ct);
@@ -480,7 +498,7 @@ public class UpstreamTracerService
         // tracer completes.
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateDbAsync(ct);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings != null)
             {
@@ -586,7 +604,7 @@ public class UpstreamTracerService
         // survives across discovery runs and is available to MonitoringPathView.
         try
         {
-            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+            await using var db = await CreateDbAsync(ct);
             var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
             if (settings != null)
             {
@@ -894,7 +912,7 @@ public class UpstreamTracerService
         var target = new ProbeTarget(endpoint.Address, mode);
         try
         {
-            var result = await _localProbe.TracerouteAsync(target, maxHops: 30,
+            var result = await _traceExecutor.TracerouteAsync(target, maxHops: 30,
                 perHopTimeout: TimeSpan.FromSeconds(1),
                 totalDeadline: TimeSpan.FromSeconds(10),
                 ct: ct);
@@ -906,7 +924,7 @@ public class UpstreamTracerService
             return (endpoint.Label, new TracerouteResult
             {
                 Target = target,
-                Vantage = _localProbe.Vantage,
+                Vantage = _traceExecutor.Vantage,
                 ModeUsed = mode,
                 Hops = Array.Empty<TraceHop>(),
                 Reached = false,
@@ -1103,7 +1121,7 @@ public class UpstreamTracerService
         // Reconcile ALL candidates (transit + path-end) and access hops against
         // existing DB targets. Enabled → pre-check; disabled → uncheck.
         // Absorb descriptive names over numbered fallbacks.
-        await using var reconcileDb = await _dbFactory.CreateDbContextAsync(ct);
+        await using var reconcileDb = await CreateDbAsync(ct);
         var allExisting = await reconcileDb.MonitoringTargets
             .AsNoTracking()
             .ToListAsync(ct);
@@ -1162,7 +1180,7 @@ public class UpstreamTracerService
 
     /// <summary>Rapid ping burst used for reachability verification.</summary>
     private Task<PingProbeResult> ProbeReachabilityAsync(string address, ProbeMode mode, CancellationToken ct) =>
-        _localProbe.PingAsync(new ProbeTarget(address, mode),
+        _traceExecutor.PingAsync(new ProbeTarget(address, mode),
             count: ReachabilityPingCount, perPingTimeout: TimeSpan.FromSeconds(2), ct: ct);
 
     private async Task VerifyReachabilityAsync(CancellationToken ct)
@@ -1610,7 +1628,7 @@ public class UpstreamTracerService
     {
         if (State.Step != TracerStep.ReviewingResults) return;
 
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        await using var db = await CreateDbAsync(ct);
 
         // Scope all writes to the WAN this discovery ran against. Multi-WAN setups
         // get one row in MonitoringTargets per (target, wan) and one row in

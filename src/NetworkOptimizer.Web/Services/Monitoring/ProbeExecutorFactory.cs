@@ -25,6 +25,7 @@ public class ProbeExecutorFactory
     private readonly UniFiConnectionService _connection;
     private readonly AgentProbeService _agentProbe;
     private readonly SiteContextService _siteContext;
+    private readonly SiteTunnelRouting _tunnelRouting;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ProbeExecutorFactory> _logger;
 
@@ -37,6 +38,7 @@ public class ProbeExecutorFactory
         UniFiConnectionService connection,
         AgentProbeService agentProbe,
         SiteContextService siteContext,
+        SiteTunnelRouting tunnelRouting,
         ILoggerFactory loggerFactory,
         ILogger<ProbeExecutorFactory> logger)
     {
@@ -48,6 +50,7 @@ public class ProbeExecutorFactory
         _connection = connection;
         _agentProbe = agentProbe;
         _siteContext = siteContext;
+        _tunnelRouting = tunnelRouting;
         _loggerFactory = loggerFactory;
         _logger = logger;
     }
@@ -124,6 +127,13 @@ public class ProbeExecutorFactory
 
                 connection = SshConnectionInfo.FromUniFiSettings(sshSettings, device.DisplayIpAddress, decryptedPassword);
             }
+
+            // Route the device SSH through the agent tunnel on secondary sites: the
+            // device's LAN IP is unreachable from the central server, so rewrite host:port
+            // to the site agent's loopback proxy (the same routing gateway/device SSH use
+            // via GatewaySshService.MaybeRouteViaAgentAsync). No-op on the default site.
+            (connection.Host, connection.Port) = await _tunnelRouting.RouteAsync(
+                _siteContext.Slug, connection.Host, connection.Port);
 
             return new SshProbeExecutor(
                 _sshClient,

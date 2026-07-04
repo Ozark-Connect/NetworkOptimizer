@@ -29,16 +29,19 @@ public class UpstreamRediscoveryService : BackgroundService
     private static readonly TimeSpan PendingRecheckInterval = TimeSpan.FromHours(24);
 
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
-    private readonly UpstreamTracerService _tracer;
+    private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
+    private readonly UpstreamTracerRegistry _tracerRegistry;
     private readonly ILogger<UpstreamRediscoveryService> _logger;
 
     public UpstreamRediscoveryService(
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
-        UpstreamTracerService tracer,
+        NetworkOptimizer.Storage.Services.SiteDbContextFactory siteDbFactory,
+        UpstreamTracerRegistry tracerRegistry,
         ILogger<UpstreamRediscoveryService> logger)
     {
         _dbFactory = dbFactory;
-        _tracer = tracer;
+        _siteDbFactory = siteDbFactory;
+        _tracerRegistry = tracerRegistry;
         _logger = logger;
     }
 
@@ -60,7 +63,37 @@ public class UpstreamRediscoveryService : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        // Each enabled site re-discovers independently: its own per-site tracer (own
+        // vantage + gateway) writing to its own DB. Default site first.
+        List<(string Slug, bool IsDefault)> sites;
+        try
+        {
+            await using var mainDb = await _dbFactory.CreateDbContextAsync(ct);
+            sites = (await mainDb.Sites.AsNoTracking().Where(s => s.Enabled)
+                    .Select(s => new { s.Slug, s.IsDefault }).ToListAsync(ct))
+                .Select(s => (s.Slug, s.IsDefault))
+                .OrderBy(x => x.IsDefault ? 0 : 1)
+                .ToList();
+        }
+        catch { sites = new(); }
+        // Pre-multisite installs have no Sites rows; fall back to the default site.
+        if (sites.Count == 0)
+            sites = new() { (SiteManagementService.DefaultSiteSlug, true) };
+
+        foreach (var (slug, isDefault) in sites)
+        {
+            if (ct.IsCancellationRequested) return;
+            try { await TickSiteAsync(slug, isDefault, ct); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Upstream re-discovery tick failed for site {Slug}", slug); }
+        }
+    }
+
+    private async Task TickSiteAsync(string slug, bool isDefault, CancellationToken ct)
+    {
+        var tracer = _tracerRegistry.GetFor(slug);
+        await using var db = isDefault
+            ? await _dbFactory.CreateDbContextAsync(ct)
+            : _siteDbFactory.CreateForSite(slug, isDefault: false);
         var settings = await db.MonitoringSettings.FirstOrDefaultAsync(ct);
         if (settings == null || !settings.Enabled) return;
         if (settings.UpstreamDiscoveryNeedsReview) return; // already flagged - waiting for user
@@ -79,23 +112,23 @@ public class UpstreamRediscoveryService : BackgroundService
 
         _logger.LogInformation("Running scheduled upstream re-discovery (last commit {Days:0.0} days ago)", sinceLast.TotalDays);
 
-        await _tracer.StartDiscoveryAsync(ct);
-        await _tracer.WaitForCompletionAsync();
+        await tracer.StartDiscoveryAsync(ct);
+        await tracer.WaitForCompletionAsync();
 
         // After WaitForCompletionAsync, the state machine has settled (ReviewingResults
         // on success, Failed otherwise). The tracer state holds the new candidate set.
-        if (_tracer.State.Step != TracerStep.ReviewingResults)
+        if (tracer.State.Step != TracerStep.ReviewingResults)
         {
-            _logger.LogInformation("Re-discovery finished in state {Step}; no review flag set", _tracer.State.Step);
+            _logger.LogInformation("Re-discovery finished in state {Step}; no review flag set", tracer.State.Step);
             return;
         }
 
         // Compare on a stable upstream-ASN identity scoped to the WAN this run discovered.
         // A run never writes MonitoringTargets (commit only happens on user review), so the
         // committed views are read here, where State.WanInterface is known.
-        var wanInterface = _tracer.State.WanInterface ?? "wan";
+        var wanInterface = tracer.State.WanInterface ?? "wan";
         var (monitoredAsns, autoEnabledAsns) = await BuildCommittedViewsAsync(db, wanInterface, ct);
-        var candidate = BuildCandidateSignature(_tracer.State);
+        var candidate = BuildCandidateSignature(tracer.State);
 
         var priorMissCounts = await LoadMissCountsAsync(db, wanInterface, ct);
         var eval = EvaluateChange(monitoredAsns, autoEnabledAsns, candidate, priorMissCounts, RemovalConfirmRuns);
@@ -116,7 +149,7 @@ public class UpstreamRediscoveryService : BackgroundService
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             // Don't auto-commit; just reset the tracer state since there's nothing to review.
-            _tracer.ResetToIdle();
+            tracer.ResetToIdle();
             return;
         }
 

@@ -544,7 +544,12 @@ builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.AsnResolu
 builder.Services.AddSingleton<MonitoringAlertRegistry>();
 // (The cable modem, ONT, and cellular alert evaluators are per site via
 // MonitoringAlertRegistry.)
-builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService>();
+// Upstream tracer is per site (isolated discovery state in each site's DB, traceroute
+// from the site's own vantage). Scoped resolution forwards to the current site's tracer;
+// the background re-discovery iterates sites via the registry.
+builder.Services.AddSingleton<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>();
+builder.Services.AddScoped(sp => sp.GetRequiredService<NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug));
 builder.Services.AddScoped<InfluxDbProvisioningService>();
 // Probe-execution layer: the server-side LocalProbeExecutor is the default vantage. SSH
 // vantages (gateway/switch/AP) are constructed per-device via SshProbeExecutor later.
