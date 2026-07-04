@@ -548,6 +548,15 @@
             if (string.IsNullOrEmpty(org.Id))
                 throw new InvalidOperationException("Org has no ID");
 
+            // An external site reaches this full flow only when main has no shared
+            // InfluxDB yet (site mode bailed). Establish the shared connection on main
+            // first, then this site's buckets, rather than making this site self-contained.
+            if (!IsDefaultSite)
+            {
+                await ProvisionMainAndSiteAsync(url, adminToken, org);
+                return;
+            }
+
             var settings = await GetOrCreateSettingsRowAsync();
             // Non-default sites get slug-prefixed buckets in the shared org
             // (decision D1) so per-site data never mixes; the default site
@@ -587,6 +596,55 @@
             _busy = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// Establishes the shared InfluxDB from an external-site context when the main site
+    /// has none configured. Creates main's unprefixed buckets and an org-scoped token
+    /// written to main's row - the shared connection every site derives from - then this
+    /// site's slug-prefixed buckets. Main's buckets may go unused (main may have no
+    /// UniFi Console) but they anchor the shared model so later sites provision silently.
+    /// This site's row is left empty so it derives its connection from main.
+    /// </summary>
+    private async Task ProvisionMainAndSiteAsync(string url, string adminToken, InfluxDbProvisioningService.InfluxOrg org)
+    {
+        const string mainPrimary = "network_monitoring";
+        const string mainLongterm = "network_monitoring_longterm";
+        var sitePrimary = $"{SiteContext.Slug}-{mainPrimary}";
+        var siteLongterm = $"{SiteContext.Slug}-{mainLongterm}";
+
+        // Main's shared buckets, then this site's own buckets.
+        await Provisioner.EnsureBucketsAsync(url, adminToken, org.Id!, mainPrimary, mainLongterm);
+        await Provisioner.EnsureBucketsAsync(url, adminToken, org.Id!, sitePrimary, siteLongterm);
+
+        // Org-scoped token so the shared credential can create and write every site's
+        // buckets - this is what lets later sites provision without an all-access token.
+        var orgScoped = await Provisioner.CreateOrgScopedTokenAsync(url, adminToken, org.Id!);
+
+        await using (var mainDb = SiteDbFactory.CreateForSite(SiteManagementService.DefaultSiteSlug, isDefault: true))
+        {
+            var mainRow = await mainDb.MonitoringSettings.FirstOrDefaultAsync();
+            if (mainRow == null)
+            {
+                mainRow = new MonitoringSettings();
+                mainDb.MonitoringSettings.Add(mainRow);
+            }
+            mainRow.InfluxDbUrl = url;
+            mainRow.InfluxDbOrg = org.Name ?? string.Empty;
+            mainRow.InfluxDbBucket = mainPrimary;
+            mainRow.InfluxDbLongtermBucket = mainLongterm;
+            mainRow.InfluxDbToken = CredentialService.Encrypt(orgScoped.Token);
+            mainRow.UpdatedAt = DateTime.UtcNow;
+            await mainDb.SaveChangesAsync();
+        }
+        _adminToken = string.Empty; // drop the admin token explicitly
+
+        // Main picks up the shared connection; this site derives its buckets from it.
+        await InfluxRegistry.GetDefault().ReconfigureAsync();
+        await ReconfigureSiteClientAsync();
+
+        _state = Step.Done;
+        if (OnProvisioned.HasDelegate) await OnProvisioned.InvokeAsync();
     }
 
     private async Task DismissAsync()

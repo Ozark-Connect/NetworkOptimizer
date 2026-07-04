@@ -90,29 +90,33 @@ public class MonitoringInfluxClient : IAsyncDisposable
             await using var db = await CreateSettingsContextAsync(ct);
             var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
 
-            // The InfluxDB connection is instance-wide: non-default sites share the
-            // main site's server, org, and token, differing only in bucket names
-            // (site-slug prefix). When this site's row carries no Influx config of
-            // its own, derive the client from the main row. A site row with a full
-            // Influx config (wizard run on that site) still takes precedence.
-            if (_siteSlug != null && !HasInfluxConfig(settings))
+            // One InfluxDB server per NO server, many buckets. A non-default site NEVER
+            // holds its own connection: server, org, and token always come from the main
+            // site (whose org-scoped token can write every site's buckets). A site only
+            // chooses its bucket NAMES. Resolving them here - the single point every read
+            // and write is configured from - means no DB/scripted/edited state can ever
+            // point a site's client at main's buckets.
+            if (_siteSlug != null)
             {
                 await using var mainDb = await _dbFactory.CreateDbContextAsync(ct);
                 var main = await mainDb.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
-                if (HasInfluxConfig(main))
+                if (!HasInfluxConfig(main))
                 {
-                    var derived = new MonitoringSettings
-                    {
-                        InfluxDbUrl = main!.InfluxDbUrl,
-                        InfluxDbToken = main.InfluxDbToken,
-                        InfluxDbOrg = main.InfluxDbOrg,
-                        InfluxDbBucket = $"{_siteSlug}-{main.InfluxDbBucket}",
-                        InfluxDbLongtermBucket = string.IsNullOrWhiteSpace(main.InfluxDbLongtermBucket)
-                            ? string.Empty
-                            : $"{_siteSlug}-{main.InfluxDbLongtermBucket}"
-                    };
-                    return await ApplyConfigAsync(derived, ct);
+                    _logger.LogDebug("Main site has no shared InfluxDB connection yet; site {Slug} client not configured", _siteSlug);
+                    await DisposeClientAsync();
+                    _initialized = false;
+                    return false;
                 }
+
+                var derived = new MonitoringSettings
+                {
+                    InfluxDbUrl = main!.InfluxDbUrl,
+                    InfluxDbToken = main.InfluxDbToken,
+                    InfluxDbOrg = main.InfluxDbOrg,
+                    InfluxDbBucket = ResolveSiteBucket(settings?.InfluxDbBucket, main),
+                    InfluxDbLongtermBucket = ResolveSiteLongtermBucket(settings?.InfluxDbLongtermBucket, main)
+                };
+                return await ApplyConfigAsync(derived, ct);
             }
 
             if (settings == null)
@@ -136,6 +140,35 @@ public class MonitoringInfluxClient : IAsyncDisposable
         && !string.IsNullOrWhiteSpace(settings.InfluxDbToken)
         && !string.IsNullOrWhiteSpace(settings.InfluxDbOrg)
         && !string.IsNullOrWhiteSpace(settings.InfluxDbBucket);
+
+    /// <summary>
+    /// Resolves a non-default site's primary bucket. A custom name from the site's own
+    /// row is honored (non-standard names are fine), EXCEPT a name that collides with
+    /// either of main's buckets - that is corrected to the slug-prefixed default so a
+    /// site's series can never be written into main's data. This is the hard floor
+    /// against writing into MAIN; collisions with OTHER sites are rejected at set-time
+    /// in the UI, where the full set of known buckets is available.
+    /// </summary>
+    private string ResolveSiteBucket(string? siteBucket, MonitoringSettings main)
+    {
+        var fallback = $"{_siteSlug}-{main.InfluxDbBucket}";
+        var name = siteBucket?.Trim();
+        return string.IsNullOrEmpty(name) || CollidesWithMain(name, main) ? fallback : name;
+    }
+
+    private string ResolveSiteLongtermBucket(string? siteLongterm, MonitoringSettings main)
+    {
+        var fallback = string.IsNullOrWhiteSpace(main.InfluxDbLongtermBucket)
+            ? string.Empty
+            : $"{_siteSlug}-{main.InfluxDbLongtermBucket}";
+        var name = siteLongterm?.Trim();
+        return string.IsNullOrEmpty(name) || CollidesWithMain(name, main) ? fallback : name;
+    }
+
+    /// <summary>True when a proposed site bucket name equals one of main's bucket names.</summary>
+    private static bool CollidesWithMain(string name, MonitoringSettings main) =>
+        string.Equals(name, main.InfluxDbBucket?.Trim(), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, main.InfluxDbLongtermBucket?.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private async Task<bool> ApplyConfigAsync(MonitoringSettings settings, CancellationToken ct)
     {
