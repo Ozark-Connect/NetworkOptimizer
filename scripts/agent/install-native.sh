@@ -96,8 +96,14 @@ fi
 # nginx serves the OpenSpeedTest page + the throughput-critical transfer legs
 # (sendfile, 10 GbE); the agent's loopback relay (127.0.0.1:3001) forwards result
 # posts to the central server. Only needed with --lan-speed-test.
+#
+# We run our OWN dedicated nginx master - its own config, webroot, pidfile, and
+# systemd unit (netopt-speedtest-nginx) - and NEVER touch any system nginx the host
+# may already run (a reverse proxy, a NAS appliance's web UI, etc.). Dropping a
+# conf.d file and running `systemctl restart nginx` would hijack or bounce that
+# unrelated instance, which is unacceptable. We only borrow the nginx *binary*.
 if [ "$LAN_SPEED_TEST" = true ]; then
-    echo "Setting up nginx for the LAN speed test..."
+    echo "Setting up a dedicated nginx instance for the LAN speed test..."
     if ! command -v nginx >/dev/null 2>&1; then
         if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq nginx
         elif command -v dnf >/dev/null 2>&1; then dnf install -y -q nginx
@@ -106,8 +112,11 @@ if [ "$LAN_SPEED_TEST" = true ]; then
         else echo "WARNING: could not install nginx automatically - install it and re-run to enable the LAN speed test."; fi
     fi
 
-    if command -v nginx >/dev/null 2>&1; then
-        WEBROOT="/usr/share/nginx/html"
+    NGINX_BIN="$(command -v nginx 2>/dev/null || echo /usr/sbin/nginx)"
+    if [ -x "$NGINX_BIN" ]; then
+        # Webroot lives beside the deployables, not in /usr/share/nginx/html (which
+        # may belong to the system nginx or sit on a read-only root on appliances).
+        WEBROOT="${INSTALL_DIR}/speedtest-web"
         RAW="https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main"
         mkdir -p "$WEBROOT/assets/js"
         echo "Downloading OpenSpeedTest..."
@@ -126,16 +135,55 @@ var externalServerId = "";
 var clientResultsUrl = window.location.protocol + "//" + window.location.host + "/client-speedtest";
 var OpenSpeedTestdb = "";
 CFGJS
+        # World-readable so nginx's unprivileged workers can serve it wherever the
+        # install dir lives (e.g. under /root on some appliances).
+        chmod -R a+rX "$WEBROOT"
 
-        mkdir -p /etc/nginx/conf.d
-        curl -fsSL "$RAW/docker/agent/nginx.conf" -o /etc/nginx/conf.d/netopt-agent-speedtest.conf
-        rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-        if nginx -t >/dev/null 2>&1; then
-            systemctl enable nginx >/dev/null 2>&1 || true
-            systemctl restart nginx 2>/dev/null || service nginx restart 2>/dev/null || true
-            echo "nginx serving OpenSpeedTest on port 3000."
+        # Our server block (the same one the Docker image uses), with the webroot
+        # repointed to the install dir, wrapped in a minimal standalone http{} config
+        # so it runs as an independent master rather than a system-nginx drop-in.
+        curl -fsSL "$RAW/docker/agent/nginx.conf" -o "${INSTALL_DIR}/nginx-speedtest-server.conf"
+        sed -i "s#root /usr/share/nginx/html;#root ${WEBROOT};#" "${INSTALL_DIR}/nginx-speedtest-server.conf"
+        cat > "${INSTALL_DIR}/nginx-speedtest.conf" <<NGINXCONF
+worker_processes auto;
+pid ${INSTALL_DIR}/nginx.pid;
+error_log ${INSTALL_DIR}/nginx-error.log warn;
+events { worker_connections 4096; }
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    include ${INSTALL_DIR}/nginx-speedtest-server.conf;
+}
+NGINXCONF
+
+        # Dedicated systemd unit for OUR nginx master - separate from the system one.
+        cat > /etc/systemd/system/netopt-speedtest-nginx.service <<UNIT
+[Unit]
+Description=Network Optimizer LAN speed test (nginx)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=${INSTALL_DIR}/nginx.pid
+ExecStartPre=${NGINX_BIN} -t -c ${INSTALL_DIR}/nginx-speedtest.conf
+ExecStart=${NGINX_BIN} -c ${INSTALL_DIR}/nginx-speedtest.conf
+ExecReload=${NGINX_BIN} -s reload -c ${INSTALL_DIR}/nginx-speedtest.conf
+ExecStop=${NGINX_BIN} -s quit -c ${INSTALL_DIR}/nginx-speedtest.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+        if "$NGINX_BIN" -t -c "${INSTALL_DIR}/nginx-speedtest.conf" >/dev/null 2>&1; then
+            systemctl daemon-reload
+            systemctl enable --now netopt-speedtest-nginx.service
+            echo "Dedicated nginx serving OpenSpeedTest on port 3000 (netopt-speedtest-nginx.service)."
         else
-            echo "WARNING: nginx config test failed - the LAN speed test page won't serve. Diagnose with: nginx -t"
+            echo "WARNING: nginx config test failed - the LAN speed test page won't serve."
+            echo "Diagnose with: $NGINX_BIN -t -c ${INSTALL_DIR}/nginx-speedtest.conf"
         fi
     fi
 fi
