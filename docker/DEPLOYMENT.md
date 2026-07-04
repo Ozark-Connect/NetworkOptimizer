@@ -13,6 +13,7 @@ Production deployment guide for Network Optimizer.
 | Windows Installer | Windows desktops/servers | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | macOS Native | Mac servers, multi-gigabit speed testing | [macOS Installation](../docs/MACOS-INSTALLATION.md) |
 | Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
+| Multi-Site On-Site Agent | Remote sites reporting to a central server | [Agent Guide](../src/NetworkOptimizer.Agent/README.md) |
 
 ---
 
@@ -246,6 +247,12 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for macOS and Linux instruct
 Network Optimizer can be installed as two Home Assistant add-ons. See [issue #201](https://github.com/Ozark-Connect/NetworkOptimizer/issues/201) for setup instructions and discussion.
 
 For the initial admin password, check the add-on's **Log** tab instead of using the `docker logs` command.
+
+### 6. Multi-Site On-Site Agent
+
+For multi-site deployments, each remote site runs a lightweight on-site agent that dials home to this central server over a single outbound HTTPS tunnel - no inbound access to the site is required. The agent handles that site's latency/loss probing, SNMP monitoring, UniFi Console proxying, and LAN speed testing.
+
+Install it with Docker or as a bare-metal systemd service. Per-site one-liners are generated in the web UI under **Settings > Multi-Site > (site) > Agents > Set up agent**. See the [Agent Deployment Guide](../src/NetworkOptimizer.Agent/README.md) for the full walkthrough, all options, and reverse-proxy configuration.
 
 ## Pre-Deployment Checklist
 

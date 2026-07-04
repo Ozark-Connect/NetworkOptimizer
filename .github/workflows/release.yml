@@ -9,6 +9,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ozark-connect/network-optimizer
   SPEEDTEST_IMAGE_NAME: ozark-connect/speedtest
+  AGENT_IMAGE_NAME: ozark-connect/agent
 
 jobs:
   build:
@@ -81,6 +82,39 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # --- On-site agent image (same build-by-digest pattern) ---
+      - name: Extract metadata for agent image
+        id: agent-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }}
+
+      - name: Build and push agent by digest
+        id: agent-build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/agent/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.agent-meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=agent-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,scope=agent-${{ env.PLATFORM_PAIR }},mode=max
+
+      - name: Export agent digest
+        run: |
+          mkdir -p /tmp/agent-digests
+          digest="${{ steps.agent-build.outputs.digest }}"
+          touch "/tmp/agent-digests/${digest#sha256:}"
+
+      - name: Upload agent digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/agent-digests/*
+          if-no-files-found: error
+          retention-days: 1
+
   merge:
     needs: build
     runs-on: ubuntu-latest
@@ -132,6 +166,35 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
 
+      # On-site agent image - merge the per-arch digests into one manifest list
+      - name: Download agent digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/agent-digests
+          pattern: agent-digests-*
+          merge-multiple: true
+
+      - name: Extract metadata for agent image
+        id: agent-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Create agent manifest list and push
+        working-directory: /tmp/agent-digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect agent image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.AGENT_IMAGE_NAME }}:${{ steps.agent-meta.outputs.version }}
+
       # Speedtest image - trivial build (copy files into nginx:alpine), QEMU is fine
       - name: Extract metadata for speedtest image
         id: speedtest-meta
@@ -156,16 +219,57 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Self-contained agent binaries the bare-metal installer (scripts/agent/install-native.sh)
+  # downloads from the release. Cross-published for both RIDs on one runner - a
+  # self-contained publish bundles the target runtime, so no arm64 runner is needed.
+  agent-binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.200'
+
+      - name: Publish self-contained agent binaries
+        run: |
+          for rid in linux-x64 linux-arm64; do
+            dotnet publish src/NetworkOptimizer.Agent/NetworkOptimizer.Agent.csproj \
+              -c Release -r "$rid" --self-contained true -p:PublishSingleFile=true \
+              -o "out/$rid"
+            cp "out/$rid/NetworkOptimizer.Agent" "NetworkOptimizer.Agent-$rid"
+          done
+
+      - name: Upload agent binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-binaries
+          path: NetworkOptimizer.Agent-linux-*
+          if-no-files-found: error
+          retention-days: 1
+
   publish-release:
-    needs: merge
+    needs: [merge, agent-binaries]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Publish draft release
+      - name: Download agent binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-binaries
+          path: /tmp/agent-binaries
+
+      - name: Attach agent binaries and publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Attach the self-contained agent binaries the bare-metal installer downloads
+          gh release upload ${{ github.ref_name }} \
+            /tmp/agent-binaries/NetworkOptimizer.Agent-linux-x64 \
+            /tmp/agent-binaries/NetworkOptimizer.Agent-linux-arm64 \
+            --clobber --repo ${{ github.repository }} || echo "Release not found yet - agent binaries not attached"
           # Find draft release matching this tag and publish it
           gh release edit ${{ github.ref_name }} --draft=false --repo ${{ github.repository }} || echo "No draft release found for ${{ github.ref_name }}"

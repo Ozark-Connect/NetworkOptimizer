@@ -1,0 +1,26 @@
+# Network Optimizer on-site agent.
+#
+# The agent dials OUT to the central server over HTTPS only - no inbound access
+# to the site is required for the tunnel. Host networking is used so latency/loss
+# probes see the site's real network position (and per-WAN source binding works),
+# and so the optional LAN speed test (port 3000) and iperf3 (port 5201) are
+# reachable by site clients on the host's address.
+#
+# scripts/agent/install.sh writes ./data/agent.json (server URL + enrollment
+# token) before first start. The agent persists its key there on enrollment.
+
+services:
+  network-optimizer-agent:
+    image: ghcr.io/ozark-connect/agent:latest
+    container_name: network-optimizer-agent
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=${TZ:-UTC}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

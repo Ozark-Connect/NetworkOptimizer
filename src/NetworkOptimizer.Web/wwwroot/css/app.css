@@ -17483,6 +17483,13 @@ body.kiosk-mode .status-indicators {
     margin-bottom: 0;
 }
 
+.agent-install .agent-flavor-title {
+    margin: 1.25rem 0 0.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
 .sites-overview-header {
     display: flex;
     align-items: center;

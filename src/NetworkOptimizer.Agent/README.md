@@ -14,7 +14,49 @@ gRPC tunnel travel through that one host; the reverse proxy fans them out to the
 right port (see [Reverse proxy](#reverse-proxy)). The agent only ever speaks
 HTTPS, and never accepts inbound connections - it dials out.
 
-## Build
+## Install
+
+On the site's agent box, install with Docker or bare-metal (systemd) - pick one.
+Both dial out to the central server over HTTPS only, with no inbound access to
+the site. Generate the enrollment token in the web UI: **Settings > Multi-Site >
+(site) > Agents > Set up agent**.
+
+### Docker
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | bash -s -- \
+  --server "https://optimizer.example.com" \
+  --token  "noa_..."
+```
+
+Pulls the agent image (`ghcr.io/ozark-connect/agent`) and the compose template
+(`docker/agent/docker-compose.yml`), writes `agent.json`, and starts the
+container with host networking. Config persists in `./data/agent.json` under the
+install directory.
+
+### Bare metal (systemd)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- \
+  --server "https://optimizer.example.com" \
+  --token  "noa_..."
+```
+
+Downloads the self-contained binary (no .NET runtime or Docker), writes
+`agent.json`, and installs + starts a `netopt-agent` systemd service under
+`/opt/netopt-agent`.
+
+Both scripts accept:
+
+- `--lan-speed-test` - host the LAN speed test page (port 3000) and iperf3 (5201)
+- `--insecure` - accept a self-signed cert on the server's reverse proxy
+- `--dir PATH` - override the install directory
+
+Re-running either script updates the agent in place and preserves the enrolled
+key. To build from source instead (development, or an architecture without a
+published binary), see below.
+
+## Build from source
 
 ```bash
 dotnet publish src/NetworkOptimizer.Agent -c Release -r linux-x64

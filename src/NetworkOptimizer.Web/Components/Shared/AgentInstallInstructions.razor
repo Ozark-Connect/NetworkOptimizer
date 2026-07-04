@@ -58,12 +58,27 @@
 }
 else
 {
-    <p class="section-description">On the site's agent box (Docker required), run:</p>
+    <p class="section-description">
+        On the site's agent box, install with Docker or as a bare-metal systemd service - pick one. Either
+        way the agent dials out to <code>@ServerDisplay</code> over HTTPS only, with no inbound access to the
+        site.
+    </p>
+
+    <h4 class="agent-flavor-title">Docker</h4>
+    <p class="form-hint">Pulls the agent image and compose template, writes the config, and starts it.</p>
     <pre><code>@DockerOneLiner()</code></pre>
+
+    <h4 class="agent-flavor-title">Bare metal (systemd)</h4>
     <p class="form-hint">
-        This pulls the agent image and its compose template, writes the config, and starts it. The agent
-        dials out to <code>@ServerDisplay</code> over HTTPS only - no inbound access to the site needed.
-        That URL just has to be reachable from the site: over a VPN or site-to-site VPN, or a public
+        No Docker required - downloads a self-contained binary and installs a <code>netopt-agent</code>
+        systemd service.
+    </p>
+    <pre><code>@NativeOneLiner()</code></pre>
+
+    <p class="form-hint">
+        Full options and troubleshooting are in the
+        <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md" target="_blank" rel="noopener">agent deployment guide</a>.
+        The server URL just has to be reachable from the site: over a VPN or site-to-site VPN, or a public
         address. If it isn't reachable over a VPN, expose this server's reverse proxy - on a UniFi gateway
         at this server's site: UniFi Network &gt; Settings &gt; Policy Table &gt; Port Forwarding (usually
         443/TCP).
@@ -103,7 +118,18 @@ else
     private string DockerOneLiner()
     {
         var sb = new StringBuilder();
-        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install.sh | bash -s -- \\\n");
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-docker.sh | bash -s -- \\\n");
+        sb.Append($"  --server \"{ServerValue}\" \\\n");
+        sb.Append($"  --token \"{Token}\"");
+        if (LanSpeedTest)
+            sb.Append(" \\\n  --lan-speed-test");
+        return sb.ToString();
+    }
+
+    private string NativeOneLiner()
+    {
+        var sb = new StringBuilder();
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-native.sh | sudo bash -s -- \\\n");
         sb.Append($"  --server \"{ServerValue}\" \\\n");
         sb.Append($"  --token \"{Token}\"");
         if (LanSpeedTest)
