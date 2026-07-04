@@ -549,6 +549,11 @@ public class GatewayWanSpeedTestService
         report("Complete", 100, $"Down: {testResult.DownloadMbps:F1} / Up: {testResult.UploadMbps:F1} Mbps");
         lock (_lock) _lastCompletedResult = testResult;
 
+        // Publish alert event (same wan.speed_completed / wan.speed_degradation
+        // events the server-side WAN tests emit)
+        if (testResult.Success)
+            await WanSpeedAlertPublisher.PublishAsync(_alertEventBus, testResult, () => Task.FromResult(CreateSiteDb()), _logger);
+
         var resolvedWanGroup = testResult.WanNetworkGroup;
         _ = Task.Run(async () => await AnalyzePathInBackgroundAsync(resultId, resolvedWanGroup), CancellationToken.None);
 
