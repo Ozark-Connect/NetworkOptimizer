@@ -2026,11 +2026,7 @@ public class MonitoringCollectionAgent : BackgroundService
         }
     }
 
-    private static object ParseCustomValue(string raw, CustomOidValueType valueType) => valueType switch
-    {
-        CustomOidValueType.Integer => long.TryParse(raw, out var l) ? l : (object)raw,
-        CustomOidValueType.Float => double.TryParse(raw, out var d) ? d : (object)raw,
-        _ => raw
-    };
+    private static object ParseCustomValue(string raw, CustomOidValueType valueType) =>
+        CustomOidValueParser.Parse(raw, valueType);
 
 }

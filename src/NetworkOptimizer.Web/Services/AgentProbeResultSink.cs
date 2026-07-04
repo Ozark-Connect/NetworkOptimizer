@@ -233,6 +233,31 @@ public class AgentProbeResultSink
                 }
                 _deviceNamesBySite[connection.SiteSlug] = names;
 
+                // Custom OIDs: push the site's enabled per-device OIDs for the devices the
+                // agent is polling, mirroring the directly-monitored medium tier's custom-OID
+                // collection. The agent gets/walks them; the server parses and stores the raw
+                // values it relays back.
+                if (config.Devices.Count > 0)
+                {
+                    var configuredMacs = new HashSet<string>(
+                        config.Devices.Select(d => NormalizeMac(d.Mac)), StringComparer.OrdinalIgnoreCase);
+                    var customOids = await db.CustomOidConfigurations.AsNoTracking()
+                        .Where(c => c.Enabled)
+                        .ToListAsync(ct);
+                    foreach (var oid in customOids)
+                    {
+                        if (!configuredMacs.Contains(NormalizeMac(oid.DeviceMac))) continue;
+                        config.CustomOids.Add(new SnmpCustomOid
+                        {
+                            DeviceMac = oid.DeviceMac,
+                            Oid = oid.Oid,
+                            FieldName = oid.FieldName,
+                            ValueType = (int)oid.ValueType,
+                            Scope = (int)oid.Scope,
+                        });
+                    }
+                }
+
                 // Console is up but the site genuinely has no SNMP-enabled devices.
                 if (config.Devices.Count == 0)
                     config.Enabled = false;
@@ -643,6 +668,92 @@ public class AgentProbeResultSink
                     health.DeviceMac, connection.SiteSlug);
             }
         }
+
+        await WriteCustomOidResultsAsync(influx, connection.SiteSlug, batch.CustomOids, deviceByMac, ct);
+    }
+
+    /// <summary>
+    /// Parses and stores the agent-relayed custom-OID values, mirroring the directly-monitored
+    /// medium tier's PollCustomOidsAsync: scalar values land on device_health, walked values land
+    /// on interface_counters keyed by the resolved interface name. Aggregated per device / per
+    /// interface so all fields for a target share one point.
+    /// </summary>
+    private async Task WriteCustomOidResultsAsync(
+        MonitoringInfluxClient influx,
+        string siteSlug,
+        IReadOnlyList<SnmpCustomOidResult> results,
+        IReadOnlyDictionary<string, UniFiDeviceResponse> deviceByMac,
+        CancellationToken ct)
+    {
+        if (results.Count == 0) return;
+
+        // ifIndex -> ifName per device, from the site's name map (same source the medium tier uses).
+        var ifNameByMac = new Dictionary<string, Dictionary<string, string>>();
+        if (results.Any(r => r.Scope == 1 && r.InterfaceValues.Count > 0))
+        {
+            try
+            {
+                var isDefault = siteSlug == SiteManagementService.DefaultSiteSlug;
+                await using var db = _siteDbFactory.CreateForSite(siteSlug, isDefault);
+                var maps = await db.InterfaceNameMaps.AsNoTracking()
+                    .Where(m => m.IfIndex != null)
+                    .Select(m => new { m.DeviceMac, m.IfIndex, m.IfName })
+                    .ToListAsync(ct);
+                foreach (var m in maps)
+                {
+                    var mac = NormalizeMac(m.DeviceMac);
+                    if (!ifNameByMac.TryGetValue(mac, out var idxMap))
+                        ifNameByMac[mac] = idxMap = new Dictionary<string, string>();
+                    idxMap[m.IfIndex!.Value.ToString()] = m.IfName;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Interface name map load for custom OIDs failed (site {Slug})", siteSlug);
+            }
+        }
+
+        var deviceFields = new Dictionary<string, Dictionary<string, object>>();
+        var deviceTypes = new Dictionary<string, string>();
+        var interfaceFields = new Dictionary<(string Mac, string IfName), Dictionary<string, object>>();
+
+        foreach (var r in results)
+        {
+            var mac = NormalizeMac(r.DeviceMac);
+            var valueType = (CustomOidValueType)r.ValueType;
+            if (r.Scope == 0) // DeviceLevel
+            {
+                if (string.IsNullOrEmpty(r.Value)) continue;
+                if (!deviceFields.TryGetValue(r.DeviceMac, out var fields))
+                {
+                    deviceFields[r.DeviceMac] = fields = new Dictionary<string, object>();
+                    deviceTypes[r.DeviceMac] = deviceByMac.TryGetValue(mac, out var d)
+                        ? d.DeviceType.ToString() : "unknown";
+                }
+                fields[r.FieldName] = CustomOidValueParser.Parse(r.Value, valueType);
+            }
+            else // InterfaceLevel
+            {
+                ifNameByMac.TryGetValue(mac, out var idxMap);
+                foreach (var (ifIdx, raw) in r.InterfaceValues)
+                {
+                    var ifName = idxMap != null && idxMap.TryGetValue(ifIdx, out var n) ? n : ifIdx;
+                    var key = (r.DeviceMac, ifName);
+                    if (!interfaceFields.TryGetValue(key, out var fields))
+                        interfaceFields[key] = fields = new Dictionary<string, object>();
+                    fields[r.FieldName] = CustomOidValueParser.Parse(raw, valueType);
+                }
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var (deviceMac, fields) in deviceFields)
+            await influx.WriteCustomFieldsAsync(
+                "device_health", deviceMac, fields, deviceTypes.GetValueOrDefault(deviceMac), null, null, now);
+
+        foreach (var ((deviceMac, ifName), fields) in interfaceFields)
+            await influx.WriteCustomFieldsAsync(
+                "interface_counters", deviceMac, fields, null, ifName, null, now);
     }
 
     /// <summary>Records a batch of probe results from an agent.</summary>

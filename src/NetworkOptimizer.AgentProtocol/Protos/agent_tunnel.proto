@@ -128,6 +128,17 @@ message SnmpConfig {
   int32 fast_interval_seconds = 6;
   int32 medium_interval_seconds = 7;
   repeated SnmpDeviceSpec devices = 8;
+  // User-defined OIDs to poll alongside the standard metrics, matching the
+  // directly-monitored medium tier's custom-OID collection.
+  repeated SnmpCustomOid custom_oids = 9;
+}
+
+message SnmpCustomOid {
+  string device_mac = 1;
+  string oid = 2;
+  string field_name = 3;
+  int32 value_type = 4; // CustomOidValueType: 0=Integer, 1=Float, 2=String
+  int32 scope = 5;      // CustomOidScope: 0=DeviceLevel (scalar), 1=InterfaceLevel (walked)
 }
 
 message SnmpDeviceSpec {
@@ -140,6 +151,20 @@ message SnmpDeviceSpec {
 message SnmpResultBatch {
   repeated SnmpInterfaceSample interfaces = 1;
   repeated SnmpDeviceHealthSample health = 2;
+  repeated SnmpCustomOidResult custom_oids = 3;
+}
+
+// Raw custom-OID poll results. The agent SNMP-gets/walks the OID; the server parses
+// the value (per value_type), resolves interface indices to names, and writes to
+// Influx - keeping parsing and storage identical to the directly-monitored path.
+message SnmpCustomOidResult {
+  string device_mac = 1;
+  string field_name = 2;
+  int32 value_type = 3;
+  int32 scope = 4;
+  string value = 5;                          // DeviceLevel: the scalar value
+  map<string, string> interface_values = 6;  // InterfaceLevel: ifIndex -> raw value
+  int64 timestamp_unix_ms = 7;
 }
 
 message SnmpInterfaceSample {

@@ -136,16 +136,76 @@ public sealed class SnmpRunner
                     if (metrics.Temperature > 0) sample.TemperatureC = metrics.Temperature!.Value;
                     if (metrics.Uptime > 0) sample.UptimeSeconds = metrics.Uptime / 100;
 
+                    var batch = new SnmpResultBatch();
                     if (sample.HasCpuPercent || sample.HasMemoryUsedPercent || sample.HasTemperatureC || sample.HasUptimeSeconds)
-                    {
-                        var batch = new SnmpResultBatch();
                         batch.Health.Add(sample);
+
+                    await PollCustomOidsAsync(poller, ip, device, config, batch);
+
+                    if (batch.Health.Count > 0 || batch.CustomOids.Count > 0)
                         await _tunnel.SendAsync(new AgentMessage { SnmpResults = batch }, ct);
-                    }
                 }, ct);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, config?.MediumIntervalSeconds ?? 30)), ct);
+        }
+    }
+
+    /// <summary>
+    /// Polls the device's configured custom OIDs and appends raw results to the batch. Scalar
+    /// (device-level) OIDs are SNMP-GET; indexed (interface-level) OIDs are walked and returned
+    /// keyed by ifIndex. The server parses the values and resolves interface names, mirroring the
+    /// directly-monitored medium tier's PollCustomOidsAsync.
+    /// </summary>
+    private static async Task PollCustomOidsAsync(
+        SnmpPoller poller, IPAddress ip, SnmpDeviceSpec device, SnmpConfig config, SnmpResultBatch batch)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        foreach (var oid in config.CustomOids)
+        {
+            if (!string.Equals(oid.DeviceMac, device.Mac, StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                if (oid.Scope == 0) // DeviceLevel (scalar)
+                {
+                    var value = await poller.GetAsync<string>(ip, oid.Oid);
+                    if (value != null)
+                        batch.CustomOids.Add(new SnmpCustomOidResult
+                        {
+                            DeviceMac = device.Mac,
+                            FieldName = oid.FieldName,
+                            ValueType = oid.ValueType,
+                            Scope = oid.Scope,
+                            Value = value,
+                            TimestampUnixMs = now,
+                        });
+                }
+                else // InterfaceLevel (walked, keyed by ifIndex)
+                {
+                    var walked = await poller.BulkWalkAsync(ip, oid.Oid);
+                    var result = new SnmpCustomOidResult
+                    {
+                        DeviceMac = device.Mac,
+                        FieldName = oid.FieldName,
+                        ValueType = oid.ValueType,
+                        Scope = oid.Scope,
+                        TimestampUnixMs = now,
+                    };
+                    var prefix = oid.Oid + ".";
+                    foreach (var v in walked)
+                    {
+                        var walkedOid = v.Id.ToString();
+                        if (!walkedOid.StartsWith(prefix)) continue;
+                        result.InterfaceValues[walkedOid.Substring(prefix.Length)] = v.Data.ToString() ?? "";
+                    }
+                    if (result.InterfaceValues.Count > 0)
+                        batch.CustomOids.Add(result);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.Error.WriteLine($"Custom OID poll failed for {device.Mac} OID={oid.Oid}: {ex.Message}");
+            }
         }
     }
 
