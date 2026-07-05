@@ -210,6 +210,7 @@ builder.Services.AddSingleton<IOntProvider, RealtekOntProvider>();
 builder.Services.AddSingleton<IOntProvider, Lantiq8311OntProvider>();
 builder.Services.AddSingleton<IOntProvider, QuantumQ1000kOntProvider>();
 builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
+builder.Services.AddSingleton<IOntProvider, TelekomModem2OntProvider>();
 builder.Services.AddSingleton<OntMonitorService>();
 
 // Register iperf3 Speed Test service (singleton - tracks running tests, uses UniFiSshService)
