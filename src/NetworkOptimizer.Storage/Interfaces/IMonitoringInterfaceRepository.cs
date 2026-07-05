@@ -12,11 +12,12 @@ public interface IMonitoringInterfaceRepository
     Task<MonitoringInterface?> GetMonitoringInterfaceAsync(int id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the monitoring interface whose target IP matches the given address,
-    /// if one exists. Used to surface deployment status next to ONT/modem monitor
-    /// configs that share the same management IP.
+    /// Returns the monitoring interface whose EFFECTIVE polled IP (AliasIp when set,
+    /// otherwise TargetIp) matches the given address, if one exists. Used to surface
+    /// deployment status next to ONT/modem monitor configs, matching what the user
+    /// actually configured as the monitor's Host (the alias for aliased rows).
     /// </summary>
-    Task<MonitoringInterface?> GetByTargetIpAsync(string targetIp, CancellationToken cancellationToken = default);
+    Task<MonitoringInterface?> GetByEffectiveIpAsync(string ip, CancellationToken cancellationToken = default);
 
     Task SaveMonitoringInterfaceAsync(MonitoringInterface config, CancellationToken cancellationToken = default);
     Task DeleteMonitoringInterfaceAsync(int id, CancellationToken cancellationToken = default);

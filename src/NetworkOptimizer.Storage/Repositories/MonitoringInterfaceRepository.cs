@@ -51,25 +51,81 @@ public class MonitoringInterfaceRepository : IMonitoringInterfaceRepository
         }
     }
 
-    public async Task<MonitoringInterface?> GetByTargetIpAsync(string targetIp, CancellationToken cancellationToken = default)
+    public async Task<MonitoringInterface?> GetByEffectiveIpAsync(string ip, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.MonitoringInterfaces
                 .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.TargetIp == targetIp, cancellationToken);
+                .FirstOrDefaultAsync(m => (m.AliasIp ?? m.TargetIp) == ip, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get monitoring interface for target {TargetIp}", targetIp);
+            _logger.LogError(ex, "Failed to get monitoring interface for effective IP {Ip}", ip);
             throw;
         }
     }
 
     public async Task SaveMonitoringInterfaceAsync(MonitoringInterface config, CancellationToken cancellationToken = default)
     {
+        // Uniqueness across rows (effective IP, GatewayLocalIp, cross-set disjointness)
+        // can't be expressed as simple per-column indexes, so it's checked and saved inside
+        // one transaction. SQLite's default (non-deferred) transaction is BEGIN IMMEDIATE,
+        // which serializes writers - this closes the real race where two Blazor Server
+        // circuits (e.g. two browser tabs) could otherwise both pass an app-level check
+        // before either saves.
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            var others = await _context.MonitoringInterfaces
+                .AsNoTracking()
+                .Where(m => m.Id != config.Id)
+                .ToListAsync(cancellationToken);
+
+            var effectiveIp = config.AliasIp ?? config.TargetIp;
+            foreach (var other in others)
+            {
+                var otherEffectiveIp = other.AliasIp ?? other.TargetIp;
+
+                if (other.Name == config.Name)
+                    throw new InvalidOperationException(
+                        $"An interface named \"{config.Name}\" already exists. Interface names must be unique " +
+                        "(the boot script and macvlan interface are both keyed on the name) - pick a different one.");
+
+                if (otherEffectiveIp == effectiveIp)
+                    throw new InvalidOperationException(
+                        $"{effectiveIp} is already the polled IP for monitoring interface \"{other.Name}\". " +
+                        "Two interfaces can't poll the same address - use a different Alias IP.");
+
+                if (other.GatewayLocalIp == config.GatewayLocalIp)
+                    throw new InvalidOperationException(
+                        $"{config.GatewayLocalIp} is already the gateway-local IP for monitoring interface \"{other.Name}\". " +
+                        "Pick a different gateway-local IP.");
+
+                if (config.AliasIp != null &&
+                    (config.AliasIp == other.TargetIp || config.AliasIp == other.GatewayLocalIp))
+                    throw new InvalidOperationException(
+                        $"Alias IP {config.AliasIp} collides with monitoring interface \"{other.Name}\"'s target or gateway-local IP.");
+
+                if (config.TargetIp == other.AliasIp || config.GatewayLocalIp == other.AliasIp)
+                    throw new InvalidOperationException(
+                        $"{(config.TargetIp == other.AliasIp ? config.TargetIp : config.GatewayLocalIp)} " +
+                        $"collides with monitoring interface \"{other.Name}\"'s alias IP.");
+
+                // A gateway-local (macvlan) address must not equal another interface's polled
+                // target, or that interface would silently poll this gateway macvlan instead of
+                // its real device (local addresses win over routes). Check both directions.
+                if (config.GatewayLocalIp == other.TargetIp)
+                    throw new InvalidOperationException(
+                        $"Gateway-local IP {config.GatewayLocalIp} collides with monitoring interface \"{other.Name}\"'s target IP. " +
+                        "Pick a different gateway-local IP - otherwise that interface would poll this gateway address instead of its device.");
+
+                if (config.TargetIp == other.GatewayLocalIp)
+                    throw new InvalidOperationException(
+                        $"Target IP {config.TargetIp} collides with monitoring interface \"{other.Name}\"'s gateway-local IP. " +
+                        "This interface would poll that gateway address instead of a real device - use a different target or alias IP.");
+            }
+
             if (config.Id > 0)
             {
                 var existing = await _context.MonitoringInterfaces
@@ -83,6 +139,7 @@ public class MonitoringInterfaceRepository : IMonitoringInterfaceRepository
                     existing.TargetIp = config.TargetIp;
                     existing.SubnetPrefix = config.SubnetPrefix;
                     existing.GatewayLocalIp = config.GatewayLocalIp;
+                    existing.AliasIp = config.AliasIp;
                     existing.SnatEnabled = config.SnatEnabled;
                     existing.WatchdogIntervalMinutes = config.WatchdogIntervalMinutes;
                     existing.IsManuallyDeployed = config.IsManuallyDeployed;
@@ -98,7 +155,12 @@ public class MonitoringInterfaceRepository : IMonitoringInterfaceRepository
             }
 
             await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             _logger.LogDebug("Saved monitoring interface {Name} ({TargetIp})", config.Name, config.TargetIp);
+        }
+        catch (InvalidOperationException)
+        {
+            throw; // Uniqueness violation - already a clear, user-facing message.
         }
         catch (Exception ex)
         {

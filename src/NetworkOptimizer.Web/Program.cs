@@ -843,7 +843,7 @@ using (var scope = app.Services.CreateScope())
 
     // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
     app.Logger.LogInformation("Applying database migrations...");
-    db.Database.Migrate();
+    NetworkOptimizer.Storage.MigrationSafety.MigrateWithFriendlyErrors(db);
     app.Logger.LogInformation("Database migrations complete");
 
     // Migrate every provisioned non-default site database: app upgrades can add
