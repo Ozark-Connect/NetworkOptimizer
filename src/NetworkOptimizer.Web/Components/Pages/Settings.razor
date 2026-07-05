@@ -2364,6 +2364,23 @@
         </div>
     </div>
 
+    <!-- Software Updates -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Software Updates</h2>
+        </div>
+        <div class="card-body">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="receivePrereleaseUpdates" @bind:after="SavePrereleaseSetting" />
+                Receive pre-release update notifications
+            </label>
+            <p class="form-help">
+                Shows a banner when a preview (beta) build is available so you can try new features
+                early. Stable update notifications are unaffected either way.
+            </p>
+        </div>
+    </div>
+
     <!-- 14. Data Management -->
     <div class="card">
         <div class="card-header">
@@ -2708,6 +2725,7 @@
 
     // Application Settings
     private int alertRetention = 30;
+    private bool receivePrereleaseUpdates = true; // default ON; dismissing the preview banner opts out
 
     // Security Audit Settings
     private bool allowAppleStreamingOnMainNetwork = false;
@@ -2854,6 +2872,11 @@
         hasControllerApiKey = connectionSettings.HasApiKey;
 
         UpdateControllerStatus();
+
+        // Pre-release update notifications default ON (null); only an explicit "false" opts out.
+        var prereleaseSetting = await SystemSettings.GetAsync("updates.include_prereleases");
+        receivePrereleaseUpdates = prereleaseSetting is null || (bool.TryParse(prereleaseSetting, out var prPre) && prPre);
+
         await LoadGatewaySettings();
         await LoadSshSettings();
         await LoadModemConfigs();
@@ -4430,6 +4453,11 @@
         var provider = e.Value?.ToString() ?? "att-gateway";
         _editingOnt.Provider = provider;
         _editingOnt.Port = GetOntProviderDefaultPort(provider);
+    }
+
+    private async Task SavePrereleaseSetting()
+    {
+        await SystemSettings.SetAsync("updates.include_prereleases", receivePrereleaseUpdates ? "true" : "false");
     }
 
     private static int GetOntProviderDefaultPort(string provider) => provider switch
