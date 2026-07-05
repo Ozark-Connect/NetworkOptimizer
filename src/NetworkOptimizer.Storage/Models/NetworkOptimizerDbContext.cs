@@ -163,12 +163,22 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.Enabled);
         });
 
-        // MonitoringInterface configuration (one row per ONT/modem access route)
+        // MonitoringInterface configuration (one row per ONT/modem access route). TargetIp
+        // is intentionally NOT unique - two rows sharing a TargetIp, distinguished by
+        // AliasIp, is exactly the duplicate-IP-WAN scenario this feature exists for. The
+        // uniqueness that actually matters (effective polled IP, cross-column disjointness)
+        // can't be expressed as simple column indexes and is enforced transactionally in
+        // MonitoringInterfaceRepository.SaveMonitoringInterfaceAsync instead. AliasIp,
+        // GatewayLocalIp, and Name each still get a simple per-column unique index as
+        // belt-and-braces (SQLite allows multiple NULLs under a unique index, so rows
+        // without an alias don't collide on AliasIp being null).
         modelBuilder.Entity<MonitoringInterface>(entity =>
         {
             entity.ToTable("MonitoringInterfaces");
             entity.HasIndex(e => e.TargetIp);
-            entity.HasIndex(e => new { e.WanIfName, e.Name }).IsUnique();
+            entity.HasIndex(e => e.Name).IsUnique();
+            entity.HasIndex(e => e.AliasIp).IsUnique();
+            entity.HasIndex(e => e.GatewayLocalIp).IsUnique();
         });
 
         // DeviceSshConfiguration configuration
