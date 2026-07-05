@@ -64,7 +64,13 @@
                         {
                             <tr>
                                 <td><code>@mi.Name</code></td>
-                                <td><code>@mi.TargetIp</code></td>
+                                <td>
+                                    <code>@mi.TargetIp</code>
+                                    @if (!string.IsNullOrEmpty(mi.AliasIp))
+                                    {
+                                        <br /><span class="text-muted">polled as <code>@mi.AliasIp</code></span>
+                                    }
+                                </td>
                                 <td>@WanLabelFor(mi)</td>
                                 <td><code>@mi.GatewayLocalIp/@mi.SubnetPrefix</code></td>
                                 <td>@StatusBadge(mi)</td>
@@ -91,7 +97,7 @@
                                             }
                                             else
                                             {
-                                                <span>Remove</span>
+                                                <span>@(_forceRemoveArmed.Contains(mi.Id) ? "Remove anyway" : "Remove")</span>
                                             }
                                         </button>
                                     </div>
@@ -162,7 +168,7 @@
                         </div>
                     </div>
 
-                    <details class="setup-guide mi-advanced">
+                    <details class="setup-guide mi-advanced" open="@_advancedOpen" @ontoggle="@(() => { if (_suppressNextAdvancedToggle) { _suppressNextAdvancedToggle = false; } else { _advancedOpen = !_advancedOpen; } })">
                         <summary>Advanced</summary>
                         <div class="setup-guide-content">
                             <div class="form-row">
@@ -178,6 +184,17 @@
                                 <div class="form-group mi-grow-1">
                                     <label class="form-label">Interface name</label>
                                     <input type="text" class="form-control" @bind="_editing.Name" @bind:event="oninput" placeholder="modem0" />
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group mi-grow-2">
+                                    <label class="form-label">Alias IP (for duplicate-IP WANs)</label>
+                                    <input type="text" class="form-control" @bind="_editing.AliasIp" @bind:event="oninput" placeholder="192.168.101.1" />
+                                    <small class="form-help">
+                                        Only needed when another device on a different WAN already answers at this
+                                        same management IP. The LAN polls this address instead; the gateway
+                                        translates it back to the real device.
+                                    </small>
                                 </div>
                             </div>
                             <div class="form-row">
@@ -344,7 +361,25 @@
     private bool _messageSuccess;
     private List<string> _deploySteps = new();
 
+    // Ids of rows where a Remove attempt already failed to fully clean up the gateway and a
+    // second click is armed to delete the row anyway. Deliberately in-memory only (not
+    // persisted) - it must reset on refresh. It's a transient "you just saw this error" flag,
+    // not scoped to the row you're currently looking at - so ANY edit/deploy/status-check
+    // interaction, even on a completely different row, invalidates it everywhere (see
+    // DisarmAllForceRemove): the user has moved on, and stale armed state left on some other
+    // row could otherwise force-delete it much later on what looks like a single click.
+    internal readonly HashSet<int> _forceRemoveArmed = new();
+
+    /// <summary>
+    /// Test-visible (internal, see NetworkOptimizer.Web.csproj InternalsVisibleTo) so
+    /// MonitoringInterfacesCardTests can verify this without a Blazor component-test harness.
+    /// </summary>
+    internal void DisarmAllForceRemove() => _forceRemoveArmed.Clear();
+
     private string? _appliedPrefill;
+
+    private bool _advancedOpen;
+    private bool _suppressNextAdvancedToggle;
 
     private static MonitoringInterface NewInterface() => new() { Name = "modem0", SubnetPrefix = 24, SnatEnabled = true, WatchdogIntervalMinutes = 5 };
 
@@ -358,18 +393,20 @@
         TargetIp = mi.TargetIp,
         SubnetPrefix = mi.SubnetPrefix,
         GatewayLocalIp = mi.GatewayLocalIp,
+        AliasIp = mi.AliasIp,
         SnatEnabled = mi.SnatEnabled,
         WatchdogIntervalMinutes = mi.WatchdogIntervalMinutes
     };
 
     // A gateway re-teardown is needed when an edit changes anything the boot script bakes
-    // into the macvlan name, route, SNAT rule, or script filename - otherwise the old
-    // artifacts (interface, route, SNAT, cron, /data/on_boot.d file) are orphaned.
+    // into the macvlan name, route, SNAT rule, alias/DNAT rules, or script filename -
+    // otherwise the old artifacts (interface, route, SNAT, alias mark/DNAT, cron,
+    // /data/on_boot.d file) are orphaned.
     private static bool NeedsOldTeardown(MonitoringInterface a, MonitoringInterface b)
         => a.Name != b.Name || a.WanIfName != b.WanIfName || a.WanVlanId != b.WanVlanId
             || a.TargetIp != b.TargetIp
             || a.GatewayLocalIp != b.GatewayLocalIp || a.SubnetPrefix != b.SubnetPrefix
-            || a.SnatEnabled != b.SnatEnabled;
+            || a.SnatEnabled != b.SnatEnabled || a.AliasIp != b.AliasIp;
 
     protected override async Task OnInitializedAsync()
     {
@@ -418,7 +455,7 @@
 
         var existing = string.IsNullOrWhiteSpace(PrefillTargetIp)
             ? null
-            : _interfaces.FirstOrDefault(i => i.TargetIp == PrefillTargetIp);
+            : _interfaces.FirstOrDefault(i => (i.AliasIp ?? i.TargetIp) == PrefillTargetIp);
         if (existing != null)
         {
             EditInterface(existing);
@@ -509,6 +546,7 @@
         _collapsed = false;
         _message = null;
         _deploySteps.Clear();
+        DisarmAllForceRemove();
     }
 
     private void CancelEdit()
@@ -567,20 +605,27 @@
         // Capture the pre-edit config before save/reset so we can tear down any orphaned
         // gateway state (renamed interface, changed WAN/target, disabled SNAT, etc.).
         var original = _editingOriginal;
+        var editingId = _editing.Id;
 
         if (!await ValidateAndSaveAsync())
             return;
 
-        // Reload so we have the persisted Id, then deploy that row.
+        // Reload so we have the persisted Id, then deploy that row. Looked up by Id, not
+        // TargetIp+WanIfName - TargetIp is no longer unique across rows (two WANs can
+        // legitimately share it, distinguished by AliasIp), so matching on it risked
+        // finding the wrong row and deploying/tearing down the wrong interface.
         await LoadAsync();
-        var saved = _interfaces.FirstOrDefault(i => i.TargetIp == _editing.TargetIp && i.WanIfName == _editing.WanIfName);
+        var saved = editingId > 0
+            ? _interfaces.FirstOrDefault(i => i.Id == editingId)
+            : _interfaces.FirstOrDefault(i => i.TargetIp == _editing.TargetIp
+                && i.WanIfName == _editing.WanIfName && i.AliasIp == _editing.AliasIp);
         _editing = NewInterface();
         _editingOriginal = null;
         _vlanEnabled = false;
         _localIpAutoSuggested = false;
 
         // Editing changed gateway-affecting fields: remove the old config first so we don't
-        // leave a stale macvlan/route/SNAT/cron/boot-script behind.
+        // leave a stale macvlan/route/SNAT/alias/cron/boot-script behind.
         if (original != null && saved != null && NeedsOldTeardown(original, saved))
         {
             try
@@ -593,14 +638,41 @@
             }
         }
 
-        if (saved != null)
-            await DeployInterface(saved);
+        if (saved == null)
+        {
+            _message = "Saved, but couldn't find the row to deploy - reload the page and click Deploy manually.";
+            _messageSuccess = false;
+            return;
+        }
+
+        var deployResult = await DeployInterfaceReturningResult(saved);
+
+        // On a Gate 2 collision, re-enter edit mode on the row we just saved so the user can
+        // see and fill in the suggested Alias IP - SaveAndDeploy would otherwise leave the
+        // form empty with no row to attach the suggestion to.
+        if (!deployResult.Success && deployResult.Block == MonitoringInterfaceDeploymentService.PreflightBlock.AlreadyReachable
+            && saved.AliasIp == null)
+        {
+            EditInterface(saved);
+            var suggestion = SuggestAliasIp(saved.TargetIp);
+            if (!string.IsNullOrEmpty(suggestion))
+                _editing.AliasIp = suggestion;
+            _suppressNextAdvancedToggle = true;
+            _advancedOpen = true;
+        }
     }
 
     private async Task<bool> ValidateAndSaveAsync()
     {
         _message = null;
         _deploySteps.Clear();
+
+        // A blank Alias IP means "no alias". An empty text input binds string? to "", not
+        // null - normalize it back so it doesn't trip the alias validation path and so a
+        // non-aliased row keeps AliasIp null (the unique AliasIp index treats null, not "",
+        // as "not participating"; two blank-alias rows must not collide).
+        if (string.IsNullOrWhiteSpace(_editing.AliasIp))
+            _editing.AliasIp = null;
 
         // "Tagged" is checked but no VLAN ID entered: the placeholder can read like a
         // set value, so require an explicit ID rather than silently deploying untagged.
@@ -638,12 +710,13 @@
         }
     }
 
-    private async Task DeployInterface(MonitoringInterface mi)
+    private async Task<MonitoringInterfaceDeploymentService.DeployResult> DeployInterfaceReturningResult(MonitoringInterface mi)
     {
         _busyId = mi.Id;
         _busyAction = "deploy";
         _message = null;
         _deploySteps.Clear();
+        DisarmAllForceRemove();
         StateHasChanged();
         try
         {
@@ -660,12 +733,15 @@
             {
                 mi.LastError = result.Message;
             }
+            return result;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Deploy failed for monitoring interface {Id}", mi.Id);
             _message = $"Deploy failed: {ex.Message}";
             _messageSuccess = false;
+            return new MonitoringInterfaceDeploymentService.DeployResult(
+                false, MonitoringInterfaceDeploymentService.PreflightBlock.GatewayUnreachable, _message, _deploySteps);
         }
         finally
         {
@@ -673,6 +749,34 @@
             _busyAction = null;
             StateHasChanged();
         }
+    }
+
+    private Task DeployInterface(MonitoringInterface mi) => DeployInterfaceReturningResult(mi);
+
+    /// <summary>
+    /// What a Remove click should do, given whether this row already had a failed attempt
+    /// armed for force-delete and whether this attempt's gateway cleanup succeeded. Split out
+    /// as a pure function so the retry/force-delete decision is unit-testable without a
+    /// Blazor component test harness (this project has none - see
+    /// MonitoringInterfacesCardTests for the coverage this stands in for).
+    /// </summary>
+    internal readonly record struct RemoveOutcome(bool DeleteRow, bool Arm, string Message, bool Success);
+
+    internal static RemoveOutcome DecideRemoveOutcome(bool wasArmed, bool cleanupSucceeded, string name)
+    {
+        if (cleanupSucceeded)
+            return new RemoveOutcome(true, false, $"Removed monitoring interface {name}.", true);
+
+        if (wasArmed)
+            return new RemoveOutcome(true, false,
+                $"Removed {name} from the list, but gateway cleanup failed again - gateway state " +
+                "(macvlan, route, alias rules, or the cron watchdog) may remain. See the emergency-rollback " +
+                "runbook for manual cleanup on the gateway.", false);
+
+        return new RemoveOutcome(false, true,
+            $"Couldn't fully remove {name} from the gateway - the configuration was kept so you can retry. " +
+            "Click Remove again to delete it anyway (gateway state may remain; see the emergency-rollback " +
+            "runbook for manual cleanup on the gateway).", false);
     }
 
     private async Task RemoveInterface(MonitoringInterface mi)
@@ -684,25 +788,37 @@
         StateHasChanged();
         try
         {
+            var wasArmed = _forceRemoveArmed.Remove(mi.Id);
             var (success, steps) = await Deploy.RemoveAsync(mi);
             _deploySteps = steps;
-            await Repo.DeleteMonitoringInterfaceAsync(mi.Id);
-            _statuses.Remove(mi.Id);
 
-            // If we were editing the interface we just removed, drop back to the add form.
-            if (_editing.Id == mi.Id)
+            var outcome = DecideRemoveOutcome(wasArmed, success, mi.Name);
+            if (outcome.Arm)
+                _forceRemoveArmed.Add(mi.Id);
+
+            if (outcome.DeleteRow)
             {
-                _editing = NewInterface();
-                _editingOriginal = null;
+                await Repo.DeleteMonitoringInterfaceAsync(mi.Id);
+                _statuses.Remove(mi.Id);
+
+                // If we were editing the interface we just removed, drop back to the add form.
+                if (_editing.Id == mi.Id)
+                {
+                    _editing = NewInterface();
+                    _editingOriginal = null;
+                }
+                await LoadAsync();
             }
 
-            _message = success ? $"Removed monitoring interface {mi.Name}." : "Removed configuration; some gateway cleanup may have failed (see log).";
-            _messageSuccess = success;
-            await LoadAsync();
+            _message = outcome.Message;
+            _messageSuccess = outcome.Success;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Remove failed for monitoring interface {Id}", mi.Id);
+            // The attempt never reached a decision - don't strand an armed state on a click
+            // that threw before RemoveAsync could even report back.
+            _forceRemoveArmed.Remove(mi.Id);
             _message = $"Remove failed: {ex.Message}";
             _messageSuccess = false;
         }
@@ -716,6 +832,7 @@
 
     private async Task CheckStatus(MonitoringInterface mi, bool silent = false)
     {
+        DisarmAllForceRemove();
         if (!silent)
         {
             _busyId = mi.Id;
@@ -796,24 +913,79 @@
 
     /// <summary>
     /// Suggest a gateway-local IP on the modem's subnet: the target host +/-1, avoiding
-    /// .0/.255 and the target itself. Editable by the user.
+    /// .0/.255, the target itself, and any value already used by another row (the new
+    /// GatewayLocalIp uniqueness gate would otherwise reject the first suggested value for
+    /// a second duplicate-IP interface). Editable by the user.
     /// </summary>
-    private static string SuggestLocalIp(string? targetIp)
+    private string SuggestLocalIp(string? targetIp)
     {
-        // Require a complete dotted-quad. IPAddress.TryParse accepts shorthand like "1"
-        // (-> 0.0.0.1) or "192.168.100" (-> 192.168.0.100), which under per-keystroke
-        // (oninput) binding would suggest off a half-typed address (e.g. "0.0.0.2").
         if (targetIp is null || targetIp.Split('.').Length != 4 ||
             !IPAddress.TryParse(targetIp, out var ip) ||
             ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             return "";
+
+        var used = new HashSet<string>(
+            _interfaces.Where(i => i.Id != _editing.Id).Select(i => i.GatewayLocalIp));
         var bytes = ip.GetAddressBytes();
-        int last = bytes[3];
-        int candidate = last + 1;
-        if (candidate >= 255) candidate = last - 1;
-        if (candidate <= 0) candidate = 2;
-        if (candidate == last) candidate = last == 1 ? 2 : last - 1;
-        bytes[3] = (byte)candidate;
-        return new IPAddress(bytes).ToString();
+        int target = bytes[3];
+
+        for (var delta = 1; delta < 250; delta++)
+        {
+            foreach (var candidate in new[] { target + delta, target - delta })
+            {
+                if (candidate <= 0 || candidate >= 255 || candidate == target)
+                    continue;
+                bytes[3] = (byte)candidate;
+                var s = new IPAddress(bytes).ToString();
+                if (!used.Contains(s))
+                    return s;
+            }
+        }
+        return ""; // exhausted the /24 - user must enter one manually
+    }
+
+    /// <summary>
+    /// Suggest an Alias IP for the duplicate-IP case: target's third octet + 1 (matches the
+    /// documented shape, e.g. 192.168.100.1 -> 192.168.101.1 - memorable and debuggable),
+    /// scanning further octets if taken, falling back to RFC 2544 benchmark space
+    /// (198.18.0.0/15 - never internet-routed, essentially never present on a home LAN) if
+    /// the local /24 space is exhausted. Deliberately avoids CGNAT space (100.64.0.0/10,
+    /// RFC 6598) since Starlink itself hands out CGNAT addresses there.
+    /// </summary>
+    private string SuggestAliasIp(string? targetIp)
+    {
+        if (targetIp is null || targetIp.Split('.').Length != 4 ||
+            !IPAddress.TryParse(targetIp, out var ip) ||
+            ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            return "";
+
+        var used = new HashSet<string>(
+            _interfaces.Where(i => i.Id != _editing.Id)
+                .SelectMany(i => new[] { i.TargetIp, i.GatewayLocalIp, i.AliasIp })
+                .Where(s => s != null)!);
+
+        var bytes = ip.GetAddressBytes();
+        for (var delta = 1; delta < 250; delta++)
+        {
+            var third = bytes[2] + delta;
+            if (third > 255) break;
+            var candidate = new IPAddress(new[] { bytes[0], bytes[1], (byte)third, (byte)1 }).ToString();
+            if (!used.Contains(candidate))
+                return candidate;
+        }
+
+        // Local /24 space exhausted - fall back to RFC 2544 benchmark space (198.18.0.0/15,
+        // i.e. second octet 18 or 19 - never internet-routed, essentially never present on
+        // a home LAN). host enumerates every address in that /15 (2^17 addresses).
+        for (var host = 1; host < 1 << 17; host++)
+        {
+            var secondOctet = 18 + (host >> 16);
+            var thirdOctet = (host >> 8) & 0xFF;
+            var fourthOctet = host & 0xFF;
+            var candidate = $"198.{secondOctet}.{thirdOctet}.{fourthOctet}";
+            if (!used.Contains(candidate))
+                return candidate;
+        }
+        return "";
     }
 }
