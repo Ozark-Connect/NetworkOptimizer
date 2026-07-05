@@ -64,6 +64,16 @@ public class MonitoringInterface
     public string GatewayLocalIp { get; set; } = "";
 
     /// <summary>
+    /// Alternate IP the LAN polls instead of TargetIp, for the duplicate-IP case where two
+    /// WANs' devices share the same management IP (e.g. a modem and a Starlink dish both at
+    /// 192.168.100.1). When set, the gateway DNATs AliasIp -> TargetIp pinned to this
+    /// interface's WAN via fwmark policy routing, and installs no main-table route for
+    /// TargetIp. Null (the default) means normal direct routing - unrelated to this field.
+    /// </summary>
+    [MaxLength(64)]
+    public string? AliasIp { get; set; }
+
+    /// <summary>
     /// Whether to add a narrow SNAT rule so LAN clients (including the Network
     /// Optimizer server's pollers) masquerade to the gateway-local IP when reaching
     /// the modem. Required for LAN-side access; on by default.
