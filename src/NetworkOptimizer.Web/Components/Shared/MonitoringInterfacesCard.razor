@@ -166,6 +166,21 @@
                         </div>
                     </div>
 
+                    @if (ShowNativeWanAdvisory)
+                    {
+                        <div class="mi-tip mi-tip-warning">
+                            <strong>@SelectedWanName is monitored natively by UniFi.</strong>
+                            Its dashboard widget depends on reaching the device's IP through the
+                            gateway's main routing table. A plain monitoring interface here would
+                            claim that route and can silently break the native widget. Use an
+                            alias IP instead - the LAN polls the alias and the shared IP stays
+                            untouched.
+                            <button type="button" class="btn btn-sm btn-secondary mi-tip-action" @onclick="UseAliasInstead">
+                                Use alias instead
+                            </button>
+                        </div>
+                    }
+
                     <details class="setup-guide mi-advanced" open="@_advancedOpen" @ontoggle="@(() => { if (_suppressNextAdvancedToggle) { _suppressNextAdvancedToggle = false; } else { _advancedOpen = !_advancedOpen; } })">
                         <summary>Advanced</summary>
                         <div class="setup-guide-content">
@@ -291,6 +306,19 @@
 
     .mi-tip strong {
         color: var(--info-color);
+    }
+
+    .mi-tip-warning {
+        border-left-color: var(--warning-color);
+    }
+
+    .mi-tip-warning strong {
+        color: var(--warning-color);
+    }
+
+    .mi-tip-action {
+        display: block;
+        margin-top: 0.5rem;
     }
 
     .mi-advanced {
@@ -587,6 +615,29 @@
     {
         var w = _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName);
         _editing.WanKey = w != null && w.WanIndex > 0 ? $"wan{w.WanIndex}" : null;
+    }
+
+    // Advisory (non-blocking): the selected WAN's device is monitored natively by UniFi
+    // through ambient reachability (Starlink), so a plain (non-aliased) interface here
+    // would claim the shared IP's main-table route and silently break the native widget.
+    // Live purely off current form state so it appears/disappears as the user edits.
+    private string? SelectedWanName =>
+        _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName)?.Name;
+
+    private bool ShowNativeWanAdvisory =>
+        !string.IsNullOrEmpty(_editing.WanIfName)
+        && string.IsNullOrWhiteSpace(_editing.AliasIp)
+        && NativeMonitoredWanDetector.IsUniFiNativeMonitored(SelectedWanName);
+
+    private void UseAliasInstead()
+    {
+        if (string.IsNullOrWhiteSpace(_editing.AliasIp))
+        {
+            var suggestion = SuggestAliasIp(_editing.TargetIp);
+            if (!string.IsNullOrEmpty(suggestion))
+                _editing.AliasIp = suggestion;
+        }
+        _advancedOpen = true;
     }
 
     private async Task SaveOnly()
