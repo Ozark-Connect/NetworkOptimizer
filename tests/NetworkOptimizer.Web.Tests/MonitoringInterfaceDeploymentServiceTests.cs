@@ -151,6 +151,22 @@ public class MonitoringInterfaceDeploymentServiceTests
     }
 
     [Fact]
+    public void BootScript_Aliased_SweepsStaleMainTableRoute()
+    {
+        // A row deployed plain and later switched to alias mode via "Save without
+        // deploying" + the row-level Deploy button (which, unlike SaveAndDeploy, never
+        // tears down the old config) keeps its old main-table host route. In alias mode
+        // that route still captures the shared TARGET_IP in the main table - the exact
+        // other-WAN hijack alias mode exists to prevent. The alias branch must delete it,
+        // and the idempotency guard must require its absence (a fast path that only checks
+        // the four alias artifacts would skip the sweep forever).
+        var script = MonitoringInterfaceDeploymentService.GenerateBootScript(ValidAliased());
+
+        script.Should().Contain("! ip route show \"$TARGET_IP/32\" 2>/dev/null | grep -q \"dev $IFACE\" &&");
+        script.Should().Contain("ip route del \"$TARGET_IP/32\" dev \"$IFACE\" && changed=1 || fail=1");
+    }
+
+    [Fact]
     public void BootScript_CleanupMarkedRules_LoopReadsFromFileNotPipe_SoFailureFlagSurvives()
     {
         // Same subshell hazard as CleanupMarkedRulesCommand (the standalone Remove-flow SSH
