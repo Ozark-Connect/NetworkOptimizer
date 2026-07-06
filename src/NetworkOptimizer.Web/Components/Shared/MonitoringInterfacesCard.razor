@@ -637,6 +637,7 @@
             if (!string.IsNullOrEmpty(suggestion))
                 _editing.AliasIp = suggestion;
         }
+        _suppressNextAdvancedToggle = true;
         _advancedOpen = true;
     }
 
