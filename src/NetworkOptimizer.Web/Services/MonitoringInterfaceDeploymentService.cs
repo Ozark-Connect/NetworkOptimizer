@@ -779,8 +779,9 @@ fi
 # 3. host route to the modem/ONT. Aliased interfaces skip the main-table route entirely
 # (ambiguous when two WANs share TARGET_IP) and instead route via a private per-interface
 # table, selected by an fwmark set on ALIAS_IP before DNAT rewrites it to TARGET_IP. All
-# four alias artifacts are checked together before touching any of them: tearing down and
-# re-adding on every tick (rather than only when something's actually missing or wrong)
+# four alias artifacts - plus the absence of a stale main-table route left by a pre-alias
+# deployment of this row - are checked together before touching any of them: tearing down
+# and re-adding on every tick (rather than only when something's actually missing or wrong)
 # would defeat the ""only log when changed"" eMMC guard below AND open a window, every
 # single tick, where the mark rule is briefly absent - during which an in-flight flow to
 # the alias can leak via the main table toward the OTHER WAN's device, the exact hijack
@@ -788,15 +789,24 @@ fi
 if [ ""$ALIAS_ENABLED"" = ""1"" ]; then
     if ip route show table ""$TABLE"" ""$TARGET_IP/32"" 2>/dev/null | grep -q ""dev $IFACE"" &&
        ip route show table ""$TABLE"" ""$TARGET_IP/32"" 2>/dev/null | grep -q ""src $LOCAL_IP"" &&
+       ! ip route show ""$TARGET_IP/32"" 2>/dev/null | grep -q ""dev $IFACE"" &&
        ip rule show | grep -qF ""fwmark $MARK/$MASK lookup $TABLE"" &&
        iptables -w 5 -t mangle -C PREROUTING -d ""$ALIAS_IP"" -j MARK --set-xmark ""$MARK/$MASK"" 2>/dev/null &&
        iptables -w 5 -t nat -C PREROUTING -m mark --mark ""$MARK/$MASK"" -j DNAT --to-destination ""$TARGET_IP"" 2>/dev/null; then
-        : # all four alias artifacts already present and correct - nothing to do this tick
+        : # all four alias artifacts present and no stale main-table route - nothing to do this tick
     else
         cleanup_marked_rules mangle
         cleanup_marked_rules nat
         ip rule show | grep -q ""lookup $TABLE\b"" && ip rule del fwmark ""$MARK/$MASK"" lookup ""$TABLE"" 2>/dev/null
         ip route flush table ""$TABLE"" 2>/dev/null
+
+        # A pre-alias plain deployment of this row left its host route in the MAIN table,
+        # where it keeps capturing the shared TARGET_IP ahead of the other WAN's device -
+        # the exact hijack alias mode exists to prevent. dev-scoped delete: another row may
+        # legitimately route the same TARGET_IP via ITS OWN interface.
+        if ip route show ""$TARGET_IP/32"" 2>/dev/null | grep -q ""dev $IFACE""; then
+            ip route del ""$TARGET_IP/32"" dev ""$IFACE"" && changed=1 || fail=1
+        fi
 
         ip route replace ""$TARGET_IP/32"" dev ""$IFACE"" src ""$LOCAL_IP"" table ""$TABLE"" && changed=1 || fail=1
         ip rule add fwmark ""$MARK/$MASK"" lookup ""$TABLE"" && changed=1 || fail=1
