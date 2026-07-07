@@ -50,6 +50,24 @@ public class WanInterfaceExtractionTests
                 }
             }
 
+            // Build networkgroup -> geo-IP ISP lookup from last_geo_info (mirrors the real
+            // SqmService: prefer isp_name, fall back to isp).
+            var networkGroupToIsp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (device.TryGetProperty("last_geo_info", out var lastGeoInfo) &&
+                lastGeoInfo.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var geo in lastGeoInfo.EnumerateObject())
+                {
+                    if (geo.Value.ValueKind != JsonValueKind.Object)
+                        continue;
+                    var isp = geo.Value.TryGetProperty("isp_name", out var ispNameProp) ? ispNameProp.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(isp) && geo.Value.TryGetProperty("isp", out var ispProp))
+                        isp = ispProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(isp))
+                        networkGroupToIsp[geo.Name] = isp!;
+                }
+            }
+
             // Check for wan1, wan2, wan3, wan4
             for (int i = 1; i <= 4; i++)
             {
@@ -99,7 +117,8 @@ public class WanInterfaceExtractionTests
                         TcInterface = tcInterface,
                         NetworkGroup = networkGroup,
                         SmartqEnabled = smartqEnabled,
-                        WanType = wanType
+                        WanType = wanType,
+                        IspName = networkGroup is not null ? networkGroupToIsp.GetValueOrDefault(networkGroup) : null
                     });
                 }
             }
@@ -120,6 +139,7 @@ public class WanInterfaceExtractionTests
         public string? NetworkGroup { get; set; }
         public bool SmartqEnabled { get; set; }
         public string WanType { get; set; } = "";
+        public string? IspName { get; set; }
     }
 
     [Fact]
@@ -409,5 +429,65 @@ public class WanInterfaceExtractionTests
         wan.NetworkGroup.Should().BeNull("eth6 is not in ethernet_overrides");
         wan.SmartqEnabled.Should().BeFalse("No networkgroup means SmartQ status can't be determined");
         wan.WanType.Should().Be("dhcp", "Falls back to default when networkgroup not found");
+    }
+
+    [Fact]
+    public void ExtractWanInterfaces_PopulatesIspNameFromLastGeoInfo()
+    {
+        // Arrange - the dual-WAN shape this feature targets: a fibre ISP on WAN1, Starlink on
+        // WAN2, plus a WAN whose geo entry has no isp_name. isp_name is preferred; the third
+        // WAN falls back to the "isp" field.
+        var deviceJson = """
+        [{
+            "type": "udm",
+            "ethernet_overrides": [
+                { "ifname": "eth4", "networkgroup": "WAN" },
+                { "ifname": "eth2", "networkgroup": "WAN2" },
+                { "ifname": "eth3", "networkgroup": "WAN3" }
+            ],
+            "last_geo_info": {
+                "WAN": { "isp_name": "Deutsche Telekom" },
+                "WAN2": { "isp_name": "Starlink" },
+                "WAN3": { "isp": "Some Backup ISP" }
+            },
+            "wan1": { "uplink_ifname": "eth4", "ifname": "eth4", "ip": "192.0.2.20" },
+            "wan2": { "uplink_ifname": "eth2", "ifname": "eth2", "ip": "100.64.0.10" },
+            "wan3": { "uplink_ifname": "eth3", "ifname": "eth3", "ip": "203.0.113.9" }
+        }]
+        """;
+
+        var networkGroupToSmartq = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var networkGroupToWanType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Act
+        var result = ExtractWanInterfaces(deviceJson, networkGroupToSmartq, networkGroupToWanType);
+
+        // Assert
+        result.Should().HaveCount(3);
+        result.Single(w => w.NetworkGroup == "WAN").IspName.Should().Be("Deutsche Telekom");
+        result.Single(w => w.NetworkGroup == "WAN2").IspName.Should().Be("Starlink",
+            "the Starlink WAN's ISP comes from UniFi's geo-IP classification regardless of the WAN name");
+        result.Single(w => w.NetworkGroup == "WAN3").IspName.Should().Be("Some Backup ISP",
+            "isp_name is preferred but the isp field is the fallback");
+    }
+
+    [Fact]
+    public void ExtractWanInterfaces_LeavesIspNameNullWhenNoGeoInfo()
+    {
+        var deviceJson = """
+        [{
+            "type": "udm",
+            "ethernet_overrides": [ { "ifname": "eth0", "networkgroup": "WAN" } ],
+            "wan1": { "uplink_ifname": "eth0", "ifname": "eth0", "ip": "203.0.113.50" }
+        }]
+        """;
+
+        var result = ExtractWanInterfaces(
+            deviceJson,
+            new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+        result.Should().HaveCount(1);
+        result.First().IspName.Should().BeNull();
     }
 }

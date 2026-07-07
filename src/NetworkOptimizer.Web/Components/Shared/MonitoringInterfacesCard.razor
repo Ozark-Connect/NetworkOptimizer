@@ -309,6 +309,8 @@
     }
 
     .mi-tip-warning {
+        background: rgba(245, 158, 11, 0.1);
+        border-color: var(--warning-color);
         border-left-color: var(--warning-color);
     }
 
@@ -621,13 +623,15 @@
     // through ambient reachability (Starlink), so a plain (non-aliased) interface here
     // would claim the shared IP's main-table route and silently break the native widget.
     // Live purely off current form state so it appears/disappears as the user edits.
-    private string? SelectedWanName =>
-        _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName)?.Name;
+    private WanInterfaceInfo? SelectedWan =>
+        _wans.FirstOrDefault(x => x.PhysicalIfName == _editing.WanIfName);
+
+    private string? SelectedWanName => SelectedWan?.Name;
 
     private bool ShowNativeWanAdvisory =>
         !string.IsNullOrEmpty(_editing.WanIfName)
         && string.IsNullOrWhiteSpace(_editing.AliasIp)
-        && NativeMonitoredWanDetector.IsUniFiNativeMonitored(SelectedWanName);
+        && NativeMonitoredWanDetector.IsUniFiNativeMonitored(SelectedWanName, SelectedWan?.IspName);
 
     private void UseAliasInstead()
     {
@@ -637,8 +641,14 @@
             if (!string.IsNullOrEmpty(suggestion))
                 _editing.AliasIp = suggestion;
         }
-        _suppressNextAdvancedToggle = true;
-        _advancedOpen = true;
+        // Only arm the suppression when the details element will actually change state.
+        // Arming it while Advanced is already open leaves the flag set (no toggle fires to
+        // consume it), which then swallows the user's next genuine close.
+        if (!_advancedOpen)
+        {
+            _suppressNextAdvancedToggle = true;
+            _advancedOpen = true;
+        }
     }
 
     private async Task SaveOnly()
