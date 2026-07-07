@@ -344,6 +344,26 @@ public class SqmService : ISqmService
                 _logger.LogDebug("Examining gateway-capable device: type={DeviceType}, model={Model}, name={Name}",
                     deviceType, deviceModel2, deviceName ?? "(unnamed)");
 
+                // Build networkgroup -> geo-IP ISP lookup from last_geo_info (keyed by WAN group,
+                // e.g. "WAN", "WAN2"). This is UniFi's own ISP classification - the same value its
+                // native UI shows in the ISP column - used to flag natively-monitored WANs (Starlink)
+                // independently of the user-chosen name. Prefer isp_name, fall back to isp.
+                var networkGroupToIsp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (device.TryGetProperty("last_geo_info", out var lastGeoInfo) &&
+                    lastGeoInfo.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    foreach (var geo in lastGeoInfo.EnumerateObject())
+                    {
+                        if (geo.Value.ValueKind != System.Text.Json.JsonValueKind.Object)
+                            continue;
+                        var isp = geo.Value.TryGetProperty("isp_name", out var ispNameProp) ? ispNameProp.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(isp) && geo.Value.TryGetProperty("isp", out var ispProp))
+                            isp = ispProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(isp))
+                            networkGroupToIsp[geo.Name] = isp!;
+                    }
+                }
+
                 // Build port_idx -> speed and port_idx -> label lookups from port_table
                 // (speed for WAN link speed capping, label for the WAN display name).
                 var portIdxToSpeed = new Dictionary<int, int>();
@@ -542,7 +562,8 @@ public class SqmService : ISqmService
                             WanIndex = i,
                             PhysicalIfName = physicalIfname,
                             PortIdx = wanPortIdxValue,
-                            PortLabel = portLabel
+                            PortLabel = portLabel,
+                            IspName = networkGroup is not null ? networkGroupToIsp.GetValueOrDefault(networkGroup) : null
                         });
 
                         _logger.LogDebug("Accepted {WanKey}: interface={Interface}, name={Name}, networkGroup={NG}, smartQ={SQ}, wanType={WT}",
@@ -833,4 +854,11 @@ public class WanInterfaceInfo
 
     /// <summary>Physical WAN port link speed in Mbps (e.g., 1000 for 1GbE, 2500 for 2.5GbE). Null if unknown (GRE tunnels, etc.)</summary>
     public int? LinkSpeedMbps { get; set; }
+
+    /// <summary>
+    /// UniFi's geo-IP ISP classification for this WAN (last_geo_info.isp_name, e.g. "Starlink",
+    /// "Deutsche Telekom") - the same value the native UI shows in the ISP column. Independent of
+    /// the user-chosen <see cref="Name"/>. Null when the controller hasn't resolved a geo-IP ISP.
+    /// </summary>
+    public string? IspName { get; set; }
 }
