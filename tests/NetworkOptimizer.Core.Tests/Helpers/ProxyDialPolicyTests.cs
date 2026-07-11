@@ -11,9 +11,9 @@ public class ProxyDialPolicyTests
 
     [Theory]
     // RFC1918
-    [InlineData("10.10.1.1", true)]
+    [InlineData("10.20.30.1", true)]
     [InlineData("172.16.5.10", true)]
-    [InlineData("192.168.50.1", true)]
+    [InlineData("192.168.77.1", true)]
     // IPv6 unique-local and link-local
     [InlineData("fd00::1", true)]
     [InlineData("fe80::1", true)]
@@ -57,13 +57,13 @@ public class ProxyDialPolicyTests
     [Fact]
     public void Pinned_ReplacesDefaultEntirely()
     {
-        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "10.10.1.0/24" }, out var error);
+        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "10.20.30.0/24" }, out var error);
 
         error.Should().BeNull();
         policy.Should().NotBeNull();
         policy!.IsDefault.Should().BeFalse();
-        policy.IsAllowed(IPAddress.Parse("10.10.1.1")).Should().BeTrue();
-        policy.IsAllowed(IPAddress.Parse("10.10.1.200")).Should().BeTrue();
+        policy.IsAllowed(IPAddress.Parse("10.20.30.1")).Should().BeTrue();
+        policy.IsAllowed(IPAddress.Parse("10.20.30.200")).Should().BeTrue();
         // Site-local but outside the pin: denied (replace, not extend)
         policy.IsAllowed(IPAddress.Parse("10.10.2.1")).Should().BeFalse();
         policy.IsAllowed(IPAddress.Parse("192.168.1.1")).Should().BeFalse();
@@ -73,21 +73,21 @@ public class ProxyDialPolicyTests
     public void Pinned_CanAdmitPublicTargets()
     {
         // The operator escape hatch for an exotic public-IP custom target
-        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "192.168.50.0/24", "203.0.113.5" }, out _);
+        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "192.168.77.0/24", "203.0.113.5" }, out _);
 
         policy!.IsAllowed(IPAddress.Parse("203.0.113.5")).Should().BeTrue();
         policy.IsAllowed(IPAddress.Parse("203.0.113.6")).Should().BeFalse();
-        policy.IsAllowed(IPAddress.Parse("192.168.50.1")).Should().BeTrue();
+        policy.IsAllowed(IPAddress.Parse("192.168.77.1")).Should().BeTrue();
     }
 
     [Fact]
     public void Pinned_BareIpsBecomeExactMatches()
     {
-        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "10.10.1.1", "fd00::5" }, out _);
+        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "10.20.30.1", "fd00::5" }, out _);
 
         policy!.PinnedCount.Should().Be(2);
-        policy.IsAllowed(IPAddress.Parse("10.10.1.1")).Should().BeTrue();
-        policy.IsAllowed(IPAddress.Parse("10.10.1.2")).Should().BeFalse();
+        policy.IsAllowed(IPAddress.Parse("10.20.30.1")).Should().BeTrue();
+        policy.IsAllowed(IPAddress.Parse("10.20.30.2")).Should().BeFalse();
         policy.IsAllowed(IPAddress.Parse("fd00::5")).Should().BeTrue();
         policy.IsAllowed(IPAddress.Parse("fd00::6")).Should().BeFalse();
     }
@@ -104,22 +104,22 @@ public class ProxyDialPolicyTests
     [Fact]
     public void Pinned_SkipsBlankEntries()
     {
-        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { " 10.10.1.0/24 ", "", "  ", null }, out var error);
+        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { " 10.20.30.0/24 ", "", "  ", null }, out var error);
 
         error.Should().BeNull();
         policy!.PinnedCount.Should().Be(1);
-        policy.IsAllowed(IPAddress.Parse("10.10.1.1")).Should().BeTrue();
+        policy.IsAllowed(IPAddress.Parse("10.20.30.1")).Should().BeTrue();
     }
 
     [Theory]
     [InlineData("not-an-ip")]
-    [InlineData("10.10.1.0/33")]
-    [InlineData("10.10.1.0/-1")]
+    [InlineData("10.20.30.0/33")]
+    [InlineData("10.20.30.0/-1")]
     [InlineData("banana/24")]
     [InlineData("fd00::/129")]
     public void Pinned_InvalidEntryFailsLoudly(string entry)
     {
-        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "10.10.1.0/24", entry }, out var error);
+        var policy = ProxyDialPolicy.FromPinnedCidrs(new[] { "10.20.30.0/24", entry }, out var error);
 
         policy.Should().BeNull();
         error.Should().NotBeNull();
