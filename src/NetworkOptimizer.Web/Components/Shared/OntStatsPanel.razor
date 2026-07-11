@@ -107,7 +107,9 @@ else if (IsShowingExternal && _externalOntStats != null)
     </div>
 
     <div class="sqm-actions">
-        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
+        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@_isRefreshing">
+            @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+        </button>
         <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
     </div>
 }
@@ -156,7 +158,9 @@ else if (IsShowingExternal)
     </div>
 
     <div class="sqm-actions">
-        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation>Refresh</button>
+        <button class="btn btn-secondary" @onclick="RefreshExternal" @onclick:stopPropagation disabled="@_isRefreshing">
+            @if (_isRefreshing) { <span class="spinner-sm"></span> } else { <span>Refresh</span> }
+        </button>
         <a href="/settings#ont-monitoring" class="btn btn-primary" @onclick:stopPropagation>ONT Settings</a>
     </div>
 }
@@ -327,6 +331,7 @@ else
     private int _currentIndex = 0;
     private System.Threading.Timer? _refreshTimer;
     private OntStats? _externalOntStats;
+    private bool _isRefreshing;
 
     private int TotalCount => _monitoredOnts.Count + _externalOnts.Count;
     private bool IsShowingExternal => _currentIndex >= _monitoredOnts.Count;
@@ -425,10 +430,19 @@ else
     private async Task RefreshExternal()
     {
         var extIdx = _currentIndex - _monitoredOnts.Count;
-        if (extIdx < 0 || extIdx >= _externalOnts.Count) return;
-        await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
-        RefreshExternalStats();
+        if (extIdx < 0 || extIdx >= _externalOnts.Count || _isRefreshing) return;
+        _isRefreshing = true;
         StateHasChanged();
+        try
+        {
+            await ExternalOntService.PollOntAsync(_externalOnts[extIdx].Id);
+            RefreshExternalStats();
+        }
+        finally
+        {
+            _isRefreshing = false;
+            StateHasChanged();
+        }
     }
 
     private string ExternalRxClass()
