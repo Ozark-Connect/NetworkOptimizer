@@ -401,14 +401,35 @@ IPs. Commercial and even residential sites are stable enough in practice; a stol
 from a random IP then dies at the firewall before the bearer key is presented. Bearer
 key + rate-limiting stay as defense-in-depth behind it.
 
+Implemented (agent-owned proxy controls; revises an earlier "not worth it" call):
+- **Site-local proxy dial fence** (always on): `ProxyOpen` targets must be RFC1918 /
+  IPv6 unique-local / IPv6 link-local; hostnames are resolved once, every address
+  validated, and the dial uses the validated addresses. The earlier rationale ("gateway
+  SSH pivots anyway, so an allowlist contains nothing") was right about LAN containment
+  but missed the **internet-relay vector**: unrestricted `ProxyOpen` let a compromised
+  server use every site as a silent exit node against third parties - no gateway creds
+  needed, no footprint on customer equipment. The fence closes exactly that, and only
+  claims that.
+- **Operator pin** (`proxyAllowedCidrs` in agent.json): replaces the fence with an
+  operator-owned CIDR list - real reach-capping the server can't override, and the only
+  escape hatch for public-IP targets.
+- **Dial audit trail**: every proxy dial (allow + deny) journaled agent-side where the
+  server can't suppress it.
+- NOT built (still on record as not worth it): a **server-pushed device allowlist**
+  (UniFi device list + custom targets enforced agent-side). The server is authoritative
+  for tunnel config, so a compromised server pushes its own list; signing doesn't help
+  (server holds the key) and TOFU/ratcheting either blocks legit changes (device
+  adoption, DHCP renumbering) or degrades to log-only. All complexity, no unforgeable
+  containment - the three controls above are the honest subset.
+
 Considered and deliberately NOT implemented (rationale on record so it isn't re-litigated):
-- **Agent-side proxy dial allowlist** (restrict `ProxyOpen` targets to the gateway/known
-  devices): not an effective control. Gateway SSH already reaches the whole LAN, so
-  anything with gateway access pivots through it regardless; restricting the agent's dial
-  targets contains nothing against a compromised server. Pure complexity.
 - **Hard SSH host-key pinning**: impractical. UniFi regenerates SSH host keys on firmware
   upgrades (and adoption/factory reset), so a strict pin breaks SSH after routine updates
   and trains operators to click through warnings - worse than the soft tripwire above.
+- **Agent-side SSH command filtering**: impossible at the agent - the proxied SSH session
+  is encrypted end-to-end between the central server and the gateway's sshd; the agent
+  pumps opaque bytes. Command safety lives server-side (parameterized command
+  construction); the gateway-side option is `authorized_keys` forced commands.
 
 ### Credential Key: Hardening Follow-ups
 

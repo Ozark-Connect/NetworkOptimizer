@@ -59,6 +59,28 @@ if (!string.IsNullOrEmpty(config.TunnelUrl) && !IsHttpsUrl(config.TunnelUrl))
     return 1;
 }
 
+// Proxy dial policy: hardcoded site-local fence (RFC1918 / IPv6 local) unless the
+// operator pins an explicit CIDR list in agent.json, which fully replaces it. The
+// policy is agent-owned on purpose - nothing the server sends over the tunnel can
+// widen it. An invalid entry aborts startup: failing loud beats silently running
+// with a partial pin.
+var proxyPolicy = NetworkOptimizer.Core.Helpers.ProxyDialPolicy.SiteLocal;
+if (config.ProxyAllowedCidrs != null)
+{
+    var pinned = NetworkOptimizer.Core.Helpers.ProxyDialPolicy.FromPinnedCidrs(config.ProxyAllowedCidrs, out var policyError);
+    if (pinned == null)
+    {
+        Console.Error.WriteLine($"Invalid proxyAllowedCidrs in {configPath}: {policyError}");
+        return 1;
+    }
+    proxyPolicy = pinned;
+    Console.WriteLine($"Proxy dials pinned to {pinned.PinnedCount} operator-configured CIDR(s)");
+}
+else
+{
+    Console.WriteLine("Proxy dials restricted to site-local addresses (RFC1918 / IPv6 local)");
+}
+
 var version = Assembly.GetExecutingAssembly()
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
 
@@ -177,7 +199,7 @@ while (!cts.IsCancellationRequested)
         var tunnel = new TunnelClient();
         var probeRunner = new ProbeRunner(tunnel.TrySend, config.ProbeSourceIp);
         var snmpRunner = new SnmpRunner(tunnel);
-        var proxyHandler = new ProxyHandler(tunnel);
+        var proxyHandler = new ProxyHandler(tunnel, proxyPolicy);
         var iperf3ClientRunner = new Iperf3ClientRunner(tunnel);
         var uwnClientRunner = new UwnClientRunner(tunnel);
         var probeRequestRunner = new ProbeRequestRunner(tunnel);
@@ -255,6 +277,13 @@ return 0;
 namespace NetworkOptimizer.Agent
 {
     /// <summary>Agent configuration file contents (agent.json).</summary>
+    /// <remarks>
+    /// ProxyAllowedCidrs: operator pin for tunnel proxy dial targets (IPs or CIDRs).
+    /// When present it fully replaces the built-in site-local fence - both the
+    /// narrowing knob (pin to a management VLAN) and the only escape hatch for a
+    /// public-IP target. Include every subnet holding the UniFi Console, gateway,
+    /// devices used for SSH/speed tests, and modem/ONT/hotspot status pages.
+    /// </remarks>
     public record AgentConfig(
         string ServerUrl,
         string? EnrollmentToken,
@@ -264,7 +293,8 @@ namespace NetworkOptimizer.Agent
         string? TunnelUrl = null,
         string? ProbeSourceIp = null,
         bool LanSpeedTest = false,
-        int LanSpeedTestPort = 3000);
+        int LanSpeedTestPort = 3000,
+        IReadOnlyList<string>? ProxyAllowedCidrs = null);
 
     public record EnrollmentResponse(string AgentKey, string SiteSlug, int? TunnelPort = null);
 

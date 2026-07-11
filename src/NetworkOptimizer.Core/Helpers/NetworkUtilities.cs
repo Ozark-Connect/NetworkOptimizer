@@ -322,30 +322,17 @@ public static class NetworkUtilities
 
         // IPv6 Unique Local Address (fc00::/7, primarily fd00::/8 in practice)
         if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            var v6Bytes = ip.GetAddressBytes();
-            if ((v6Bytes[0] & 0xFE) == 0xFC)
-                return true;
-            return false;
-        }
+            return IsIPv6UniqueLocal(ip);
 
         // Only do byte checks for IPv4
         if (ip.AddressFamily != AddressFamily.InterNetwork)
             return false;
 
+        // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 (RFC1918)
+        if (IsRfc1918(ip))
+            return true;
+
         var bytes = ip.GetAddressBytes();
-
-        // 10.0.0.0/8 (RFC1918)
-        if (bytes[0] == 10)
-            return true;
-
-        // 172.16.0.0/12 (RFC1918)
-        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
-            return true;
-
-        // 192.168.0.0/16 (RFC1918)
-        if (bytes[0] == 192 && bytes[1] == 168)
-            return true;
 
         // 127.0.0.0/8 (Loopback)
         if (bytes[0] == 127)
@@ -368,6 +355,39 @@ public static class NetworkUtilities
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Check if an IP address is in one of the three RFC1918 private IPv4 blocks
+    /// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Stricter than
+    /// <see cref="IsPrivateIpAddress(IPAddress)"/>: loopback, link-local, CGNAT, and
+    /// multicast are NOT RFC1918. IPv4-mapped IPv6 addresses are unwrapped first.
+    /// </summary>
+    /// <param name="ip">Parsed IP address to check</param>
+    /// <returns>True if the IP is in an RFC1918 block</returns>
+    public static bool IsRfc1918(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+        if (ip.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+
+        var bytes = ip.GetAddressBytes();
+        return bytes[0] == 10
+            || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+            || (bytes[0] == 192 && bytes[1] == 168);
+    }
+
+    /// <summary>
+    /// Check if an IP address is an IPv6 unique local address (fc00::/7, in practice fd00::/8).
+    /// </summary>
+    /// <param name="ip">Parsed IP address to check</param>
+    /// <returns>True if the IP is an IPv6 ULA</returns>
+    public static bool IsIPv6UniqueLocal(IPAddress ip)
+    {
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6)
+            return false;
+        return (ip.GetAddressBytes()[0] & 0xFE) == 0xFC;
     }
 
     /// <summary>
