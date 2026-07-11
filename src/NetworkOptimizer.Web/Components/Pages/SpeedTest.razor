@@ -637,12 +637,12 @@
 
                         <div class="form-group">
                             <label class="form-label">SSH Username</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(using global setting)" />
+                            <input type="text" class="form-control" autocomplete="off" @bind="editingDevice.SshUsername" placeholder="(using global setting)" />
                         </div>
 
                         <div class="form-group">
                             <label class="form-label">SSH Password</label>
-                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved – enter new to update" : "(using global setting)")" />
+                            <input type="password" class="form-control" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved – enter new to update" : "(using global setting)")" />
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 

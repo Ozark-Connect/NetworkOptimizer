@@ -214,7 +214,10 @@ public class UniFiRepository : IUniFiRepository
                     existing.Iperf3ParallelStreams = config.Iperf3ParallelStreams;
                     existing.Iperf3DurationSeconds = config.Iperf3DurationSeconds;
                     existing.SshUsername = config.SshUsername;
-                    existing.SshPassword = config.SshPassword;
+                    // Blank means keep: the edit form never round-trips the stored encrypted
+                    // password and only sets this field when the user typed a new one.
+                    if (!string.IsNullOrEmpty(config.SshPassword))
+                        existing.SshPassword = config.SshPassword;
                     existing.SshPrivateKeyPath = config.SshPrivateKeyPath;
                     existing.UpdatedAt = DateTime.UtcNow;
                 }
