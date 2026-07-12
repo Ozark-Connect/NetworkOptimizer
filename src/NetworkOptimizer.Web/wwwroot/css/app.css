@@ -355,6 +355,13 @@ a:hover {
     margin-bottom: 4px;
 }
 
+.page-header-suffix {
+    margin-left: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
 .page-header-actions {
     display: flex;
     align-items: center;
