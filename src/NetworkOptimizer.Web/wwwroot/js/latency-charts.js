@@ -277,6 +277,34 @@ function updateChartVisibility() {
     });
 }
 
+// Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
+// flaky enough to advise pausing. Deliberately low: any sustained loss to a LAN device is
+// abnormal, so even a fraction of a percent is worth flagging as a poor measurement target.
+const LAN_FLAKY_LOSS_PCT = 0.5;
+
+// Report the current LAN (Fabric) category's flaky targets to Blazor so it can render the
+// "flaky LAN target" advisory. Detection only; the role/dismissed gating and the notice itself
+// live in Blazor (Monitoring.razor), which has the target metadata. Entirely best-effort:
+// wrapped so a failure here can never disturb chart rendering, and a no-op until Blazor has
+// handed us its DotNet reference via window.__netoptLatencyRef.
+function notifyLanFlakyHints(data) {
+    try {
+        const ref = window.__netoptLatencyRef;
+        if (!ref) return;
+        let ids = [];
+        if (currentCategory === 'Fabric' && data && Array.isArray(data.targets)) {
+            ids = data.targets.filter(t => {
+                const vals = (t.loss || []).map(p => p.value).filter(v => v != null);
+                if (!vals.length) return false;
+                const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                return mean >= LAN_FLAKY_LOSS_PCT;
+            }).map(t => t.targetId);
+        }
+        // Fire-and-forget; swallow rejection if the Blazor circuit is already gone.
+        Promise.resolve(ref.invokeMethodAsync('SetLanFlakyHints', currentCategory, ids)).catch(() => { });
+    } catch { }
+}
+
 async function loadAndUpdate() {
     const data = await fetchData();
     if (!data || !data.targets) return;
@@ -315,6 +343,8 @@ async function loadAndUpdate() {
         renderBadges(container);
         renderStatsTable(container);
     }
+
+    notifyLanFlakyHints(data);
 
     // WAN rate chart - show for non-Fabric categories
     const showWanRate = currentCategory !== 'Fabric';

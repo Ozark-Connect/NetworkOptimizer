@@ -453,6 +453,42 @@ else
             </div>
         </div>
 
+        @* Flaky LAN target advisory: shown under the LAN chart when a non-gateway/non-AP fabric
+           target has elevated loss (issue #971). LAN-side sibling of the WAN FlakyTargetsCard. *@
+        @if (LanFlakyHintTargets.Count > 0)
+        {
+            <div class="card lan-flaky-hint">
+                <div class="card-body">
+                    <p class="section-description">
+                        <span class="lan-flaky-warn">&#9888;</span>
+                        These LAN devices are showing packet loss that's usually a measurement artifact -
+                        Wi-Fi roaming or the device deprioritizing pings - rather than a real network problem.
+                        If one isn't useful to monitor, pause it in Latency Targets to keep it out of your charts.
+                    </p>
+                    <ul class="lan-flaky-list">
+                        @foreach (var t in LanFlakyHintTargets)
+                        {
+                            <li>
+                                <span class="host-truncate">@t.Name</span>
+                                <span class="lan-flaky-actions">
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => JumpToLatencyTargetAsync(t.Id)">Review in Latency Targets</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => DismissLanFlakyHintAsync(t)">Dismiss</button>
+                                </span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+            <style>
+                .lan-flaky-hint { border-left: 3px solid var(--warning-color); margin-top: 1rem; }
+                .lan-flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
+                .lan-flaky-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+                .lan-flaky-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+                .lan-flaky-list .host-truncate { font-size: 0.9rem; }
+                .lan-flaky-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+            </style>
+        }
+
         <!-- Upstream tracer wizard -->
         <div id="upstream-discovery" style="margin-top: 1.5rem;">
             <UpstreamTracerPanel ForceExpand="_forceExpandUpstream" OnSaved="StateHasChanged" />
@@ -463,7 +499,7 @@ else
         </div>
 
         <div style="margin-top: 1.5rem;">
-            <LatencyTargetsCard Targets="_targets" WanContexts="_wanContexts" OnTargetsChanged="OnTargetsChanged" />
+            <LatencyTargetsCard @ref="_latencyTargetsCard" Targets="_targets" WanContexts="_wanContexts" OnTargetsChanged="OnTargetsChanged" />
         </div>
 
         @* Multi-WAN contexts management card hidden for now (GA). Re-enable by
@@ -1421,6 +1457,16 @@ else
     private bool _cmChartsMounted;
     private bool _ontChartsMounted;
 
+    // "Flaky LAN target" advisory shown under the LAN latency chart. The chart JS reports which
+    // Fabric targets have elevated loss over the visible window (via _latencyDotNetRef ->
+    // SetLanFlakyHints); the role/dismissed gating and the notice itself render here where the
+    // target metadata lives. _latencyTargetsCard is the @ref used to expand+scroll the matching
+    // Latency Targets row.
+    private DotNetObjectReference<Monitoring>? _latencyDotNetRef;
+    private LatencyTargetsCard? _latencyTargetsCard;
+    private bool _lanFlakyCategoryActive;
+    private List<string> _lanFlakyTargetIds = new();
+
     // Investigation state
     private bool _investigatingLoss;
     private bool _investigatingSfp;
@@ -2308,6 +2354,65 @@ else
         }
     }
 
+    // Called by latency-charts.js after each render with the LAN (Fabric) targets whose loss over
+    // the visible window is elevated. We store the ids only; the notice applies the role gate and
+    // per-target dismissal against _targets. A no-change guard avoids re-rendering on every poll.
+    [JSInvokable]
+    public void SetLanFlakyHints(string category, string[] flakyTargetIds)
+    {
+        var active = category == "Fabric";
+        var ids = flakyTargetIds?.ToList() ?? new List<string>();
+        if (active == _lanFlakyCategoryActive && ids.SequenceEqual(_lanFlakyTargetIds)) return;
+        _lanFlakyCategoryActive = active;
+        _lanFlakyTargetIds = ids;
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Fabric targets the chart flagged as flaky, minus gateways/APs (real infra loss is worth
+    // investigating, not hiding) and minus targets whose hint the user already dismissed.
+    private IReadOnlyList<MonitoringTarget> LanFlakyHintTargets =>
+        !_lanFlakyCategoryActive
+            ? Array.Empty<MonitoringTarget>()
+            : _targets.Where(t => t.TargetType == MonitoringTargetType.Fabric
+                    && t.Enabled
+                    && t.LanFlakyHintDismissedAt == null
+                    && _lanFlakyTargetIds.Contains(t.TargetId)
+                    && !IsGatewayOrAp(t.AutoLabel))
+                .OrderBy(t => t.Name)
+                .ToList();
+
+    // AutoLabel is set at fabric-target discovery to "gateway" / "switch" / "ap" / "unknown"
+    // (MonitoringCollectionAgent.DescribeDeviceType). Only gateways and APs are suppressed - a
+    // switch-capability device such as a smart power strip still gets the hint.
+    private static bool IsGatewayOrAp(string? autoLabel) =>
+        autoLabel is "gateway" or "ap";
+
+    private async Task JumpToLatencyTargetAsync(int targetId)
+    {
+        if (_latencyTargetsCard != null)
+            await _latencyTargetsCard.ExpandAndHighlightAsync(targetId);
+    }
+
+    private async Task DismissLanFlakyHintAsync(MonitoringTarget target)
+    {
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteCtx.Slug, SiteCtx.IsDefault);
+            var row = await db.MonitoringTargets.FindAsync(target.Id);
+            if (row != null)
+            {
+                row.LanFlakyHintDismissedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+        }
+        catch { }
+        // _targets is loaded AsNoTracking, so reflect the dismissal in memory to drop the row
+        // from the advisory immediately without waiting for a reload.
+        var local = _targets.FirstOrDefault(t => t.Id == target.Id);
+        if (local != null) local.LanFlakyHintDismissedAt = DateTime.UtcNow;
+        StateHasChanged();
+    }
+
     [JSInvokable]
     public async Task OnMapTimeChanged(string? isoTimestamp)
     {
@@ -3160,6 +3265,16 @@ else
             try
             {
                 var chartsUrl = VersionedJs("/js/latency-charts.js");
+                // Hand the chart module our DotNet ref (for the flaky-LAN-target callback) via a
+                // window slot before it mounts. Best-effort: the JS callback no-ops if it's absent,
+                // so a failure here never affects chart rendering.
+                _latencyDotNetRef ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("eval", "window.__netoptSetLatencyRef ||= function(r){ window.__netoptLatencyRef = r; };");
+                    await JS.InvokeVoidAsync("__netoptSetLatencyRef", _latencyDotNetRef);
+                }
+                catch { }
                 var postMount = "";
                 if (!string.IsNullOrEmpty(_preSelectCategory))
                 {
@@ -3179,6 +3294,9 @@ else
             _latencyChartsMounted = false;
             try { await JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();"); }
             catch { }
+            // The flaky-LAN advisory is tied to the live chart, so clear it when the chart leaves.
+            _lanFlakyCategoryActive = false;
+            _lanFlakyTargetIds = new();
             // The chart (and its highlight) is torn down on leave, so drop the loss-nav state
             // too - otherwise returning shows the card "active" with no highlight on the chart.
             // Deep-linked investigations re-arm via the query param on entry, so this is safe.
@@ -3337,6 +3455,7 @@ else
         _testFeedbackTimer?.Dispose();
         _sfpChartDebounce?.Dispose();
         _mapDotNetRef?.Dispose();
+        _latencyDotNetRef?.Dispose();
         if (_latencyChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__latencyCharts?.unmount();").AsTask(); }
