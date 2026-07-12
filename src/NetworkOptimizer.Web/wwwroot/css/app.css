@@ -3271,12 +3271,17 @@ select.form-control {
         height: auto;
         padding: 0.75rem 1rem;
         gap: 0.5rem;
-        transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    /* Slide up by exactly the bar's own height (translateY %) so the full
+       transition is spent moving one bar-height - a gradual slide, not the
+       instant snap that top:-100% produced (that % resolves against the tall
+       scroll container, so the bar cleared the screen in a few ms). */
     .top-bar.top-bar-hidden {
         position: sticky;
-        top: -100%;
+        top: 0;
+        transform: translateY(-100%);
         pointer-events: none;
     }
 
