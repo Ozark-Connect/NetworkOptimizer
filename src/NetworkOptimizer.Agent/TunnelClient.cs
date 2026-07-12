@@ -38,6 +38,16 @@ public sealed class TunnelClient
     private const int CoalesceMaxSamples = 500;
     private const int OutboundHeadroomSlots = 64;
 
+    // The server is never silent on a healthy tunnel - it re-pushes the site's
+    // configs every 60 s - so 2.5 missed refresh cycles means the link is
+    // black-holed. A real WAN outage drops packets rather than resetting
+    // connections: without this watchdog the read loop would hang in MoveNext
+    // for the full TCP timeout (~15 min) before the reconnect loop - and the
+    // buffered-backlog flush - could run. Written by the read loop, watched by
+    // WatchInboundSilenceAsync.
+    private const long InboundSilenceTimeoutMs = 150_000;
+    private long _lastInboundTicks;
+
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
     public Action<ProbeConfig>? OnProbeConfig { get; set; }
 
@@ -123,27 +133,32 @@ public sealed class TunnelClient
 
         using var grpcChannel = GrpcChannel.ForAddress(tunnelUrl, new GrpcChannelOptions { HttpHandler = handler });
         var client = new AgentTunnel.AgentTunnelClient(grpcChannel);
-        using var call = client.Connect(cancellationToken: ct);
+        // The linked source scopes the whole call (not just the pump/heartbeat)
+        // so the inbound-silence watchdog can abort a black-holed read loop.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var call = client.Connect(cancellationToken: linked.Token);
 
         await call.RequestStream.WriteAsync(new AgentMessage
         {
             Hello = new AgentHello { AgentKey = agentKey, Version = version, LanIp = lanIp ?? "" }
-        }, ct);
+        }, linked.Token);
 
-        if (!await call.ResponseStream.MoveNext(ct) || call.ResponseStream.Current.Hello is not { } hello)
+        if (!await call.ResponseStream.MoveNext(linked.Token) || call.ResponseStream.Current.Hello is not { } hello)
             throw new IOException("Tunnel closed before server hello");
 
         var heartbeatInterval = TimeSpan.FromSeconds(Math.Max(5, hello.HeartbeatIntervalSeconds));
         Console.WriteLine($"Tunnel open for site '{hello.SiteSlug}' (heartbeat every {heartbeatInterval.TotalSeconds:0}s)");
 
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Volatile.Write(ref _lastInboundTicks, Environment.TickCount64);
         var pumpTask = PumpOutboundAsync(call.RequestStream, linked.Token);
         var heartbeatTask = HeartbeatLoopAsync(heartbeatInterval, linked.Token);
+        var watchdogTask = WatchInboundSilenceAsync(linked, linked.Token);
 
         try
         {
-            while (await call.ResponseStream.MoveNext(ct))
+            while (await call.ResponseStream.MoveNext(linked.Token))
             {
+                Volatile.Write(ref _lastInboundTicks, Environment.TickCount64);
                 var message = call.ResponseStream.Current;
                 switch (message.PayloadCase)
                 {
@@ -201,7 +216,27 @@ public sealed class TunnelClient
         {
             linked.Cancel();
             _outbound.Writer.TryComplete();
-            try { await Task.WhenAll(pumpTask, heartbeatTask); } catch (OperationCanceledException) { }
+            try { await Task.WhenAll(pumpTask, heartbeatTask, watchdogTask); } catch (OperationCanceledException) { }
+        }
+    }
+
+    /// <summary>
+    /// Forces a reconnect when nothing has arrived from the server past the
+    /// silence timeout. Cancelling the connection's source aborts the read
+    /// loop; the caller's reconnect loop then salvages the outbound channel
+    /// and keeps buffering, so a forced reconnect never loses data.
+    /// </summary>
+    private async Task WatchInboundSilenceAsync(CancellationTokenSource connectionCts, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), ct);
+            var silentMs = Environment.TickCount64 - Volatile.Read(ref _lastInboundTicks);
+            if (silentMs <= InboundSilenceTimeoutMs) continue;
+            Console.Error.WriteLine(
+                $"Tunnel silent for {silentMs / 1000}s (server config refresh is 60s); assuming dead link, reconnecting - results keep buffering");
+            connectionCts.Cancel();
+            return;
         }
     }
 
