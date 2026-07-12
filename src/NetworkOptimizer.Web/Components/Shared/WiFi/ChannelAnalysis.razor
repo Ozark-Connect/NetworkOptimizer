@@ -624,7 +624,7 @@
     {
         try
         {
-            var dismissed = await SettingsService.GetAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
+            var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.ChannelDisclaimerDismissed);
             _channelDisclaimerDismissed = !string.IsNullOrEmpty(dismissed) && dismissed.Equals("true", StringComparison.OrdinalIgnoreCase);
         }
         catch { /* Non-critical */ }
@@ -1281,7 +1281,7 @@
         _channelDisclaimerDismissed = true;
         try
         {
-            await SettingsService.SetAsync(SystemSettingKeys.ChannelDisclaimerDismissed, "true");
+            await SettingsService.SetGlobalAsync(SystemSettingKeys.ChannelDisclaimerDismissed, "true");
         }
         catch { /* Still hide it */ }
     }
