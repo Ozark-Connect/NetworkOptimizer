@@ -8,7 +8,6 @@ using NetworkOptimizer.Alerts.Delivery;
 using NetworkOptimizer.Alerts.Events;
 using NetworkOptimizer.Alerts.Interfaces;
 using NetworkOptimizer.Alerts.Models;
-using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Alerts;
@@ -302,20 +301,19 @@ public class AlertProcessingService : BackgroundService
     /// <summary>
     /// Resolves a relative SourceUrl (e.g., "/audit") to an absolute URL using the app's
     /// configured hostname. Falls back to the relative path if no hostname is configured.
-    /// For an alert from a non-default site, appends ?site=&lt;slug&gt; so the "View" link
-    /// lands on that site (the selection middleware persists it to the session cookie).
+    /// Always appends ?site=&lt;slug&gt; - including for the default site - so the "View"
+    /// link pins its own browser tab to the alert's originating site instead of resolving
+    /// the recipient's browser-default site cookie, which may point at another site.
     /// </summary>
     private string? ResolveSourceUrl(string? relativeUrl, string? siteSlug)
     {
         if (string.IsNullOrEmpty(relativeUrl))
             return null;
 
-        var url = relativeUrl;
-        if (!string.IsNullOrEmpty(siteSlug))
-        {
-            var separator = url.Contains('?') ? '&' : '?';
-            url = $"{url}{separator}site={Uri.EscapeDataString(siteSlug)}";
-        }
+        // The default site arrives here as null/empty; its selectable slug is "main".
+        var slug = string.IsNullOrEmpty(siteSlug) ? "main" : siteSlug;
+        var separator = relativeUrl.Contains('?') ? '&' : '?';
+        var url = $"{relativeUrl}{separator}site={Uri.EscapeDataString(slug)}";
 
         if (_appBaseUrl != null)
             return $"{_appBaseUrl}{url}";
