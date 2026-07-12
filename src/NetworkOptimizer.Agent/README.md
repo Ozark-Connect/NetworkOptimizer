@@ -265,12 +265,42 @@ is inherent to centralized gateway management, not a flaw of the tunnel - no
 protocol trick changes it, which is exactly why protecting the server is the
 whole ballgame.
 
-Two controls we deliberately did **not** build, so the reasoning is on record:
+### What the agent enforces on its own
 
-- **An agent-side allowlist on proxy dial targets** would contain nothing.
-  Gateway SSH already reaches the entire LAN, so anything with gateway access
-  pivots through it; restricting what the agent may dial doesn't limit a
-  compromised server, it just adds complexity.
+Three controls are agent-owned - nothing the server sends over the tunnel can
+change them:
+
+- **Site-local proxy fence (built in, always on).** The tunnel's TCP proxy
+  refuses to dial anything that is not a site-local address (RFC1918, IPv6
+  unique-local, IPv6 link-local). Everything the proxy legitimately reaches -
+  the UniFi Console, gateway/device SSH, modem/ONT/hotspot status pages - is
+  site-local, so normal setups never notice. What it closes is the quiet abuse
+  a compromised central server would otherwise get for free: using your site
+  as an exit node to relay attacks at third parties. Hostnames are resolved
+  once, every resolved address is checked, and the connection goes to the
+  checked address, so DNS tricks can't split the check from the dial.
+- **Operator pinning (`proxyAllowedCidrs` in `agent.json`, optional).** A list
+  of IPs/CIDRs that fully replaces the built-in fence. Pin it to narrow the
+  server's reach through the proxy to exactly the addresses you list (e.g.
+  just the management VLAN) - or to admit an exotic public-IP target, which is
+  the only escape hatch that exists. If you pin, include every subnet holding
+  the UniFi Console, the gateway, any devices used for SSH/speed tests or as
+  probe vantages, and modem/ONT/hotspot status pages - anything outside the
+  pin fails with a logged denial. An invalid entry aborts agent startup rather
+  than running half-pinned.
+- **Dial audit trail.** Every proxy dial (allowed or denied) is one line in
+  the agent's journal, with the target and connection id. The central server
+  cannot suppress or rotate it, so the site always has its own record of what
+  was reached through the tunnel: `journalctl -u netopt-agent | grep "Proxy dial"`.
+
+Honest scope: with gateway SSH credentials configured, a compromised central
+server still owns the LAN through the gateway - these controls close the
+internet-relay vector, cap what the proxy path can reach, and leave evidence;
+they do not (cannot) contain gateway-credential pivoting. That containment
+story remains server-side hardening, above.
+
+One control we deliberately did **not** build, so the reasoning is on record:
+
 - **Pinning the gateway's SSH host key** is impractical here: UniFi regenerates
   host keys on firmware upgrades (and adoption/factory reset), so a strict pin
   would break SSH after routine updates and train operators to click through
@@ -278,6 +308,13 @@ Two controls we deliberately did **not** build, so the reasoning is on record:
   gateway - is better addressed at the tunnel (guard the key, IP-allowlist, and
   one-tunnel-per-key), with at most a soft "host key changed" alert that never
   blocks.
+
+Also out of scope by design: filtering SSH *commands* at the agent. The proxied
+SSH session is encrypted end-to-end between the central server and the
+gateway's sshd; the agent pumps opaque bytes and cannot inspect them. Command
+safety lives server-side (parameterized command construction), and the
+gateway-side option (`authorized_keys` forced commands) is gateway
+configuration, not agent code.
 
 ## Local dev / testing
 

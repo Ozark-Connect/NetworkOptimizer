@@ -198,6 +198,109 @@ public class UniFiRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveDeviceSshConfigurationAsync_UpdateWithBlankPassword_KeepsStoredPassword()
+    {
+        // The edit form never round-trips the stored encrypted password; a blank
+        // incoming password on update means "unchanged", not "clear".
+        var device = new DeviceSshConfiguration
+        {
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshUsername = "User1",
+            SshPassword = "encrypted-blob"
+        };
+        _context.DeviceSshConfigurations.Add(device);
+        await _context.SaveChangesAsync();
+
+        var update = new DeviceSshConfiguration
+        {
+            Id = device.Id,
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshUsername = "User2",
+            SshPassword = null
+        };
+        await _repository.SaveDeviceSshConfigurationAsync(update);
+
+        var saved = await _context.DeviceSshConfigurations.FindAsync(device.Id);
+        saved!.SshUsername.Should().Be("User2");
+        saved.SshPassword.Should().Be("encrypted-blob");
+    }
+
+    [Fact]
+    public async Task SaveDeviceSshConfigurationAsync_UpdateWithNewPassword_Overwrites()
+    {
+        var device = new DeviceSshConfiguration
+        {
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshPassword = "old-blob"
+        };
+        _context.DeviceSshConfigurations.Add(device);
+        await _context.SaveChangesAsync();
+
+        var update = new DeviceSshConfiguration
+        {
+            Id = device.Id,
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshPassword = "new-blob"
+        };
+        await _repository.SaveDeviceSshConfigurationAsync(update);
+
+        var saved = await _context.DeviceSshConfigurations.FindAsync(device.Id);
+        saved!.SshPassword.Should().Be("new-blob");
+    }
+
+    [Fact]
+    public async Task SaveDeviceSshConfigurationAsync_UpdateWithKeyPath_ClearsStoredPassword()
+    {
+        // Switching to key auth drops the stored password (matching the gateway and
+        // UniFi SSH settings pages), so a broken key fails loudly instead of silently
+        // falling back to the old password.
+        var device = new DeviceSshConfiguration
+        {
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshPassword = "encrypted-blob"
+        };
+        _context.DeviceSshConfigurations.Add(device);
+        await _context.SaveChangesAsync();
+
+        var update = new DeviceSshConfiguration
+        {
+            Id = device.Id,
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshPassword = null,
+            SshPrivateKeyPath = "/app/ssh-keys/id_test"
+        };
+        await _repository.SaveDeviceSshConfigurationAsync(update);
+
+        var saved = await _context.DeviceSshConfigurations.FindAsync(device.Id);
+        saved!.SshPassword.Should().BeNull();
+        saved.SshPrivateKeyPath.Should().Be("/app/ssh-keys/id_test");
+    }
+
+    [Fact]
+    public async Task SaveDeviceSshConfigurationAsync_KeyPathWinsOverTypedPassword()
+    {
+        var device = new DeviceSshConfiguration
+        {
+            Name = "Device",
+            Host = "192.168.1.1",
+            SshPassword = "typed-blob",
+            SshPrivateKeyPath = "/app/ssh-keys/id_test"
+        };
+
+        await _repository.SaveDeviceSshConfigurationAsync(device);
+
+        var saved = await _context.DeviceSshConfigurations.FirstOrDefaultAsync(d => d.Name == "Device");
+        saved!.SshPassword.Should().BeNull();
+        saved.SshPrivateKeyPath.Should().Be("/app/ssh-keys/id_test");
+    }
+
+    [Fact]
     public async Task DeleteDeviceSshConfigurationAsync_RemovesDevice()
     {
         var device = new DeviceSshConfiguration { Name = "To Delete", Host = "192.168.1.1" };

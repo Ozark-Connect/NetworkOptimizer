@@ -199,6 +199,12 @@ public class UniFiRepository : IUniFiRepository
     {
         try
         {
+            // Key auth wins: a configured key path drops the password (matching the
+            // gateway/UniFi SSH settings pages), so a broken key fails loudly instead
+            // of silently falling back to a stale stored password.
+            if (!string.IsNullOrEmpty(config.SshPrivateKeyPath))
+                config.SshPassword = null;
+
             if (config.Id > 0)
             {
                 var existing = await _context.DeviceSshConfigurations
@@ -214,7 +220,12 @@ public class UniFiRepository : IUniFiRepository
                     existing.Iperf3ParallelStreams = config.Iperf3ParallelStreams;
                     existing.Iperf3DurationSeconds = config.Iperf3DurationSeconds;
                     existing.SshUsername = config.SshUsername;
-                    existing.SshPassword = config.SshPassword;
+                    // Blank means keep: the edit form never round-trips the stored encrypted
+                    // password and only sets this field when the user typed a new one.
+                    if (!string.IsNullOrEmpty(config.SshPassword))
+                        existing.SshPassword = config.SshPassword;
+                    else if (!string.IsNullOrEmpty(config.SshPrivateKeyPath))
+                        existing.SshPassword = null;
                     existing.SshPrivateKeyPath = config.SshPrivateKeyPath;
                     existing.UpdatedAt = DateTime.UtcNow;
                 }

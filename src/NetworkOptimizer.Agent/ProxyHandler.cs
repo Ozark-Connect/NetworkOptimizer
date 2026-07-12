@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Sockets;
 using Google.Protobuf;
 using NetworkOptimizer.AgentProtocol;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Agent;
 
@@ -12,17 +14,21 @@ namespace NetworkOptimizer.Agent;
 /// dies with its tunnel connection, like the probe runner.
 /// </summary>
 /// <remarks>
-/// Security model: the agent dials whatever host:port the server names, with no
-/// agent-side allowlist, and that is deliberate. The tunnel's legitimate job
-/// includes SSH to the site gateway, and the gateway is the LAN router - anything
-/// that can reach it already reaches the whole LAN - so an allowlist restricting
-/// proxy targets to "just the gateway" would contain nothing against a compromised
-/// central server (it would simply pivot through the gateway). The trust boundary
-/// is therefore the central server and the agentKey, not this dial path: harden
-/// the server (IP-allowlist the admin plane and this tunnel endpoint to your
-/// sites' IPs, strong auth, guard key material), and treat a server compromise as
-/// game-over for managed gateways, which is inherent to centralized gateway
-/// management. See the agent README "Security and hardening" section and TODO.md.
+/// Security model: dial targets are gated by a <see cref="ProxyDialPolicy"/> the
+/// agent owns - site-local addresses only by default, or the operator's pinned
+/// CIDR list from agent.json ("proxyAllowedCidrs"). Nothing on the tunnel can
+/// widen it, so a compromised central server cannot use this site as a relay to
+/// the internet, and an operator pin caps its LAN reach through this path to
+/// exactly the addresses listed. Every dial is journaled locally (allow and
+/// deny), an audit trail the server cannot suppress. What this deliberately does
+/// NOT claim: containment of a compromised server that holds gateway SSH
+/// credentials - the gateway is the LAN router, so that reach is LAN-wide
+/// regardless; protecting the central server remains the primary defense (see
+/// the agent README "Security and hardening" section and TODO.md). Hostnames are
+/// resolved once, every resolved address is validated, and the dial uses the
+/// validated addresses - a name that resolves to any out-of-scope address is
+/// refused outright rather than filtered, so DNS games can't split the check
+/// from the connect.
 /// </remarks>
 public sealed class ProxyHandler
 {
@@ -30,34 +36,69 @@ public sealed class ProxyHandler
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
     private readonly TunnelClient _tunnel;
+    private readonly ProxyDialPolicy _policy;
     private readonly ConcurrentDictionary<long, TcpClient> _connections = new();
 
-    public ProxyHandler(TunnelClient tunnel)
+    public ProxyHandler(TunnelClient tunnel, ProxyDialPolicy policy)
     {
         _tunnel = tunnel;
+        _policy = policy;
     }
 
     public async Task HandleOpenAsync(ProxyOpen open, CancellationToken ct)
     {
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(open.Host, out var literal))
+        {
+            addresses = new[] { literal };
+        }
+        else
+        {
+            try
+            {
+                addresses = await Dns.GetHostAddressesAsync(open.Host, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await SendOpenFailureAsync(open.ConnectionId, $"could not resolve '{open.Host}': {ex.Message}", ct);
+                return;
+            }
+            if (addresses.Length == 0)
+            {
+                await SendOpenFailureAsync(open.ConnectionId, $"'{open.Host}' resolved to no addresses", ct);
+                return;
+            }
+        }
+
+        // All-or-nothing: one out-of-scope address in the resolution refuses the
+        // whole dial instead of narrowing to the in-scope subset.
+        var offender = addresses.FirstOrDefault(a => !_policy.IsAllowed(a));
+        if (offender != null)
+        {
+            var scope = _policy.IsDefault ? "site-local scope" : "the operator-pinned proxy scope";
+            Console.Error.WriteLine($"Proxy dial DENIED: {open.Host}:{open.Port} (conn {open.ConnectionId}) - {offender} is outside {scope}");
+            await SendOpenFailureAsync(open.ConnectionId,
+                $"proxy target denied by agent policy: {offender} is outside {scope}", ct);
+            return;
+        }
+
+        Console.WriteLine($"Proxy dial: {open.Host}:{open.Port} (conn {open.ConnectionId})");
+
         var client = new TcpClient();
         try
         {
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             connectCts.CancelAfter(ConnectTimeout);
-            await client.ConnectAsync(open.Host, open.Port, connectCts.Token);
+            // Dial the validated addresses, never the name - re-resolving here
+            // would let a changed DNS answer bypass the policy check above.
+            await client.ConnectAsync(addresses, open.Port, connectCts.Token);
         }
         catch (Exception ex)
         {
             client.Dispose();
-            await _tunnel.SendAsync(new AgentMessage
-            {
-                ProxyOpenResult = new ProxyOpenResult
-                {
-                    ConnectionId = open.ConnectionId,
-                    Ok = false,
-                    Error = ex is OperationCanceledException ? "connect timed out" : ex.Message,
-                }
-            }, ct);
+            var reason = ex is OperationCanceledException ? "connect timed out" : ex.Message;
+            Console.Error.WriteLine($"Proxy dial failed: {open.Host}:{open.Port} (conn {open.ConnectionId}) - {reason}");
+            await SendOpenFailureAsync(open.ConnectionId, reason, ct);
             return;
         }
 
@@ -101,6 +142,17 @@ public sealed class ProxyHandler
             }
         }
     }
+
+    private async Task SendOpenFailureAsync(long connectionId, string error, CancellationToken ct) =>
+        await _tunnel.SendAsync(new AgentMessage
+        {
+            ProxyOpenResult = new ProxyOpenResult
+            {
+                ConnectionId = connectionId,
+                Ok = false,
+                Error = error,
+            }
+        }, ct);
 
     public async Task HandleDataAsync(ProxyData data, CancellationToken ct)
     {

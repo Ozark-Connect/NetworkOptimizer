@@ -553,4 +553,60 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region IsRfc1918 Tests
+
+    [Theory]
+    [InlineData("10.0.0.1", true)]
+    [InlineData("10.255.255.255", true)]
+    [InlineData("172.16.0.1", true)]
+    [InlineData("172.31.255.254", true)]
+    [InlineData("192.168.0.1", true)]
+    [InlineData("192.168.255.254", true)]
+    // IPv4-mapped IPv6 forms unwrap before evaluation
+    [InlineData("::ffff:192.168.1.10", true)]
+    [InlineData("::ffff:203.0.113.5", false)]
+    // Adjacent and lookalike ranges are NOT RFC1918
+    [InlineData("9.255.255.255", false)]
+    [InlineData("11.0.0.1", false)]
+    [InlineData("172.15.255.255", false)]
+    [InlineData("172.32.0.1", false)]
+    [InlineData("192.167.1.1", false)]
+    [InlineData("192.169.1.1", false)]
+    // Private-adjacent classes IsPrivateIpAddress accepts but strict RFC1918 must not
+    [InlineData("127.0.0.1", false)]
+    [InlineData("169.254.10.10", false)]
+    [InlineData("100.64.0.1", false)]
+    [InlineData("224.0.0.1", false)]
+    [InlineData("0.0.0.0", false)]
+    // Public and IPv6
+    [InlineData("203.0.113.5", false)]
+    [InlineData("8.8.8.8", false)]
+    [InlineData("2001:db8::1", false)]
+    [InlineData("fd00::1", false)]
+    public void IsRfc1918_ClassifiesStrictly(string ip, bool expected)
+    {
+        NetworkUtilities.IsRfc1918(IPAddress.Parse(ip)).Should().Be(expected);
+    }
+
+    #endregion
+
+    #region IsIPv6UniqueLocal Tests
+
+    [Theory]
+    [InlineData("fc00::1", true)]
+    [InlineData("fd00::1", true)]
+    [InlineData("fdab:cdef::42", true)]
+    [InlineData("fbff::1", false)]
+    [InlineData("fe00::1", false)]
+    [InlineData("fe80::1", false)]
+    [InlineData("2001:db8::1", false)]
+    [InlineData("::1", false)]
+    [InlineData("192.168.1.1", false)]
+    public void IsIPv6UniqueLocal_ClassifiesFc00Slash7(string ip, bool expected)
+    {
+        NetworkUtilities.IsIPv6UniqueLocal(IPAddress.Parse(ip)).Should().Be(expected);
+    }
+
+    #endregion
 }
