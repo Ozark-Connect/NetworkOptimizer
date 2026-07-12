@@ -463,7 +463,7 @@ else
                         <span class="lan-flaky-warn">&#9888;</span>
                         These LAN devices are showing packet loss that's usually a measurement artifact -
                         Wi-Fi roaming or the device deprioritizing pings - rather than a real network problem.
-                        If one isn't useful to monitor, disable it in Latency Targets to keep it out of your charts.
+                        If one isn't useful to monitor, pause it in Latency Targets to keep it out of your charts.
                     </p>
                     <ul class="lan-flaky-list">
                         @foreach (var t in LanFlakyHintTargets)
@@ -472,7 +472,7 @@ else
                                 <span class="host-truncate">@t.Name</span>
                                 <span class="lan-flaky-actions">
                                     <button class="btn btn-sm btn-secondary" @onclick="() => JumpToLatencyTargetAsync(t.Id)">Review in Latency Targets</button>
-                                    <button class="btn btn-sm btn-secondary lan-flaky-dismiss" @onclick="() => DismissLanFlakyHintAsync(t)" data-tooltip="Dismiss this hint">&times;</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="() => DismissLanFlakyHintAsync(t)">Dismiss</button>
                                 </span>
                             </li>
                         }
@@ -484,8 +484,8 @@ else
                 .lan-flaky-warn { color: var(--warning-color); margin-right: 0.4rem; }
                 .lan-flaky-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
                 .lan-flaky-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+                .lan-flaky-list .host-truncate { font-size: 0.9rem; }
                 .lan-flaky-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-                .lan-flaky-dismiss { line-height: 1; }
             </style>
         }
 
