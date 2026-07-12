@@ -13,7 +13,7 @@
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject NavigationManager NavigationManager
-@inject IJSRuntime JS
+@inject SiteSwitchService SiteSwitch
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
@@ -212,10 +212,6 @@ else
         if (site.Slug == SiteContext.Slug)
             return;
 
-        // Site context is cookie-based; a full reload re-resolves every scoped
-        // service against the selected site's database.
-        await JS.InvokeVoidAsync("eval",
-            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
-        NavigationManager.NavigateTo("/", forceLoad: true);
+        await SiteSwitch.SwitchToAsync(site.Slug, "/");
     }
 }

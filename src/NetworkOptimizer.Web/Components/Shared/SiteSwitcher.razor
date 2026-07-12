@@ -3,8 +3,8 @@
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
+@inject SiteSwitchService SiteSwitch
 @inject NavigationManager NavigationManager
-@inject IJSRuntime JS
 
 @if (_enabled && _sites.Count > 0)
 {
@@ -23,14 +23,19 @@
             <div class="site-switcher-menu">
                 @foreach (var site in _sites)
                 {
-                    <button type="button" class="site-switcher-item @(site.Slug == SiteContext.Slug ? "active" : "")"
-                            @onclick="() => SwitchToAsync(site)">
+                    @* A real anchor so middle-click / ctrl+click opens the site in a new
+                       tab (the ?site= href pins that tab without touching this one or the
+                       browser default). A plain left click switches this tab and makes the
+                       site the browser default. *@
+                    <a class="site-switcher-item @(site.Slug == SiteContext.Slug ? "active" : "")"
+                       href="@GetSiteHref(site)"
+                       @onclick="() => SwitchToAsync(site)" @onclick:preventDefault @onclick:stopPropagation>
                         <span class="site-switcher-item-name">
                             <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")"></span>
                             @site.Name
                         </span>
                         <span class="site-switcher-item-slug">@site.Slug</span>
-                    </button>
+                    </a>
                 }
                 <a class="site-switcher-all" href="/sites" @onclick="CloseDropdown">All sites</a>
             </div>
@@ -59,52 +64,37 @@
 
     private void CloseDropdown() => _open = false;
 
+    /// <summary>Current page pinned to the given site - the middle-click new-tab target.</summary>
+    private string GetSiteHref(Site site) =>
+        SiteContextService.WithSiteParam(CurrentPageWithoutFragment(), site.Slug);
+
     private async Task SwitchToAsync(Site site)
     {
         _open = false;
         if (site.Slug == SiteContext.Slug)
             return;
 
-        // Site context is cookie-based; switching requires a full reload so every
-        // scoped service resolves against the new site's database.
-        await JS.InvokeVoidAsync("eval",
-            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
+        await SiteSwitch.SwitchToAsync(site.Slug, CurrentPageWithoutFragment());
+    }
+
+    private string CurrentPageWithoutFragment()
+    {
         var target = NavigationManager.Uri;
 
-        // Drop any #fragment: reloading the *same* URL with its fragment is a
-        // same-document navigation the browser won't actually reload, so the new site
-        // cookie would never take effect. The fragment is meaningless on another site anyway.
+        // Drop any #fragment: it is meaningless on another site, and reloading the
+        // *same* URL with its fragment is a same-document navigation the browser
+        // won't actually perform.
         var fragmentAt = target.IndexOf('#');
         if (fragmentAt >= 0)
             target = target[..fragmentAt];
 
-        // Strip the ?site= selector: an alert "View" link pins the site through this
-        // query param, which wins over the cookie, so leaving it in place would
-        // immediately override the switch we just made.
-        target = RemoveSiteQueryParam(target);
-
         // The all-sites overview isn't a per-site page, so switching sites from it
         // should land on the new site's dashboard rather than reload the overview.
         var relative = NavigationManager.ToBaseRelativePath(target).TrimEnd('/');
-        if (string.Equals(relative, "sites", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(relative, "sites", StringComparison.OrdinalIgnoreCase)
+            || relative.StartsWith("sites?", StringComparison.OrdinalIgnoreCase))
             target = NavigationManager.BaseUri;
 
-        NavigationManager.NavigateTo(target, forceLoad: true);
-    }
-
-    private static string RemoveSiteQueryParam(string url)
-    {
-        var queryAt = url.IndexOf('?');
-        if (queryAt < 0)
-            return url;
-
-        var kept = url[(queryAt + 1)..]
-            .Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Where(p => !p.Equals(SiteContextService.SiteQueryParam, StringComparison.OrdinalIgnoreCase)
-                     && !p.StartsWith(SiteContextService.SiteQueryParam + "=", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var basePart = url[..queryAt];
-        return kept.Count > 0 ? $"{basePart}?{string.Join('&', kept)}" : basePart;
+        return target;
     }
 }

@@ -6,8 +6,7 @@
 @inject AgentEnrollmentService AgentEnrollment
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
-@inject NavigationManager NavigationManager
-@inject IJSRuntime JS
+@inject SiteSwitchService SiteSwitch
 @implements IDisposable
 
 <div class="site-wizard">
@@ -430,9 +429,7 @@
         if (_site == null)
             return;
 
-        await JS.InvokeVoidAsync("eval",
-            $"document.cookie = '{SiteContextService.CookieName}={_site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
-        NavigationManager.NavigateTo("/", forceLoad: true);
+        await SiteSwitch.SwitchToAsync(_site.Slug, "/");
     }
 
     private async Task ResetAsync()
