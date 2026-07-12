@@ -614,6 +614,11 @@ Goal: keep global channels applying everywhere, but let a site add its OWN addit
 - **Fix:** Replace with an enum `DnatCoverageType` for type safety and discoverability
 - **Scope:** `DnatDnsAnalyzer.cs` only - fully self-contained
 
+### Relocate DefaultSiteSlug Constant to a Shared Project
+- **Issue:** `SiteManagementService.DefaultSiteSlug` (`"main"`) lives in `NetworkOptimizer.Web`, but lower-level projects that reference only `NetworkOptimizer.Core` need the same value. `AlertProcessingService.ResolveSourceUrl` (`NetworkOptimizer.Alerts`) can't reference it - the dependency points the wrong way - so it hardcodes the literal `"main"` with a comment.
+- **Fix:** Move the constant down into a shared low-level home (`NetworkOptimizer.Core`), then repoint every reference (`SiteManagementService`, `SiteContextService`, `AlertProcessingService`, and any others).
+- **Scope:** Multiple projects; small but touches DI/reference sites, so needs a rebuild + test pass. Not urgent - the literal is correct as long as the constant stays `"main"`.
+
 ### ThirdPartyDnsDetector Probe Method Duplication
 - **Issue:** Two overloads of `TryProbePiholeEndpointAsync` and `TryProbeAdGuardHomeEndpointAsync` - one takes a full URL, one takes IP+port+scheme. The logic is nearly identical.
 - **Fix:** Unify into a single method that takes a URL string. The IP+port caller can construct the URL before calling.
