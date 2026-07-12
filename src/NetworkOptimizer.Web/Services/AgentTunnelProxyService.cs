@@ -46,6 +46,7 @@ public class AgentTunnelProxyService : IDisposable
     private readonly ConcurrentDictionary<string, (DateTime Until, DateTime OpenedAtLastMsg)> _openBreaker = new();
 
     private readonly AgentTunnelRegistry _registry;
+    private readonly SiteConnectionRegistry _siteConnections;
     private readonly ILogger<AgentTunnelProxyService> _logger;
 
     private readonly ConcurrentDictionary<string, ProxyListener> _listeners = new();
@@ -53,9 +54,10 @@ public class AgentTunnelProxyService : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private long _nextConnectionId;
 
-    public AgentTunnelProxyService(AgentTunnelRegistry registry, ILogger<AgentTunnelProxyService> logger)
+    public AgentTunnelProxyService(AgentTunnelRegistry registry, SiteConnectionRegistry siteConnections, ILogger<AgentTunnelProxyService> logger)
     {
         _registry = registry;
+        _siteConnections = siteConnections;
         _logger = logger;
     }
 
@@ -169,7 +171,23 @@ public class AgentTunnelProxyService : IDisposable
                 openError = "open timed out";
                 // Trip the breaker so the opens queued behind this one fast-fail
                 // instead of each blocking the full OpenTimeout.
+                var wasTripped = _openBreaker.TryGetValue(listener.SiteSlug, out var prev)
+                                 && DateTime.UtcNow < prev.Until;
                 _openBreaker[listener.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt);
+
+                // On the FIRST timeout of an outage, flip the site's console to
+                // awaiting-agent now (not at the 90s watchdog), so its page renders
+                // short-circuit console calls instead of each dialing the dead proxy
+                // and paying the retry backoff. Fire-and-forget; the flip is idempotent.
+                if (!wasTripped)
+                {
+                    var slug = listener.SiteSlug;
+                    _ = Task.Run(async () =>
+                    {
+                        try { await _siteConnections.GetFor(slug).NoteProxyUnreachableAsync(); }
+                        catch (Exception ex) { _logger.LogDebug(ex, "Early awaiting-agent flip failed for site {Slug}", slug); }
+                    });
+                }
             }
             if (openError != null)
             {

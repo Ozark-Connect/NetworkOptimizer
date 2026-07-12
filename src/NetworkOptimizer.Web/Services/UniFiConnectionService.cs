@@ -211,6 +211,33 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Called by the tunnel proxy the instant it confirms this site's agent tunnel
+    /// is black-holed (a proxy open timed out) - while the agent is still
+    /// registered, so the 90s server watchdog (which drives
+    /// <see cref="OnAgentTunnelDroppedAsync"/>) hasn't fired. Flips the console to
+    /// awaiting-agent NOW so its calls short-circuit at the IsConnected guard
+    /// instead of each dialing the dead loopback proxy and paying the retry
+    /// backoff - which read as a multi-second site switch for up to 90s. Unlike
+    /// OnAgentTunnelDroppedAsync it does NOT bail while the agent is still
+    /// registered, because the proxy has proven the tunnel dead regardless.
+    /// Idempotent; the agent-connected hook (on reconnect or the periodic refresh)
+    /// re-establishes the console when the tunnel returns.
+    /// </summary>
+    public async Task NoteProxyUnreachableAsync()
+    {
+        if (!_isConnected && _client == null) return; // already down / awaiting - idempotent
+        if (!await IsConsoleViaAgentAsync()) return;   // only agent-routed consoles reach the proxy
+        _logger.LogInformation(
+            "Tunnel proxy reports site {Slug} unreachable; flipping its console to awaiting-agent ahead of the watchdog", SiteSlug);
+        _client?.Dispose();
+        _client = null;
+        _isConnected = false;
+        _awaitingAgent = true;
+        _lastError = AwaitingAgentMessage;
+        OnConnectionChanged?.Invoke();
+    }
+
+    /// <summary>
     /// When the site's console is reached through its agent tunnel, rewrites
     /// the controller URL to the loopback proxy endpoint that forwards over
     /// the tunnel. Callers must also force ignore-SSL for proxied connections:
