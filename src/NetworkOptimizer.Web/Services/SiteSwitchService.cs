@@ -35,21 +35,16 @@ public class SiteSwitchService
     /// </summary>
     /// <param name="slug">Slug of the site to switch to.</param>
     /// <param name="targetUrl">
-    /// Page to land on, defaulting to the current URL. Any #fragment is dropped:
-    /// reloading the *same* URL with its fragment is a same-document navigation the
-    /// browser won't actually reload, and the fragment is meaningless on another site.
+    /// Page to land on, defaulting to the current URL. Any #fragment is preserved so
+    /// switching sites from an anchored spot (e.g. a highlighted setting) lands on the
+    /// same spot on the new site; the changed ?site= query guarantees the full reload.
     /// </param>
     public async Task SwitchToAsync(string slug, string? targetUrl = null)
     {
         await _js.InvokeVoidAsync("eval",
             $"document.cookie = '{SiteContextService.CookieName}={slug}; path=/; max-age=31536000; SameSite=Lax'");
 
-        var target = targetUrl ?? _navigation.Uri;
-        var fragmentAt = target.IndexOf('#');
-        if (fragmentAt >= 0)
-            target = target[..fragmentAt];
-
-        _navigation.NavigateTo(SiteContextService.WithSiteParam(target, slug), forceLoad: true);
+        _navigation.NavigateTo(SiteContextService.WithSiteParam(targetUrl ?? _navigation.Uri, slug), forceLoad: true);
     }
 
     /// <summary>

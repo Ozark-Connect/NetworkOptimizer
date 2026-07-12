@@ -66,7 +66,7 @@
 
     /// <summary>Current page pinned to the given site - the middle-click new-tab target.</summary>
     private string GetSiteHref(Site site) =>
-        SiteContextService.WithSiteParam(CurrentPageWithoutFragment(), site.Slug);
+        SiteContextService.WithSiteParam(CurrentSwitchTarget(), site.Slug);
 
     private async Task SwitchToAsync(Site site)
     {
@@ -74,27 +74,24 @@
         if (site.Slug == SiteContext.Slug)
             return;
 
-        await SiteSwitch.SwitchToAsync(site.Slug, CurrentPageWithoutFragment());
+        await SiteSwitch.SwitchToAsync(site.Slug, CurrentSwitchTarget());
     }
 
-    private string CurrentPageWithoutFragment()
+    /// <summary>
+    /// Where a site switch from the current page should land. The #fragment is kept
+    /// so an anchored spot (e.g. a highlighted setting) carries to the new site; the
+    /// changed ?site= query still guarantees the full reload.
+    /// </summary>
+    private string CurrentSwitchTarget()
     {
-        var target = NavigationManager.Uri;
-
-        // Drop any #fragment: it is meaningless on another site, and reloading the
-        // *same* URL with its fragment is a same-document navigation the browser
-        // won't actually perform.
-        var fragmentAt = target.IndexOf('#');
-        if (fragmentAt >= 0)
-            target = target[..fragmentAt];
-
         // The all-sites overview isn't a per-site page, so switching sites from it
         // should land on the new site's dashboard rather than reload the overview.
-        var relative = NavigationManager.ToBaseRelativePath(target).TrimEnd('/');
-        if (string.Equals(relative, "sites", StringComparison.OrdinalIgnoreCase)
-            || relative.StartsWith("sites?", StringComparison.OrdinalIgnoreCase))
-            target = NavigationManager.BaseUri;
+        var pathOnly = NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
+            .Split('?', '#')[0]
+            .TrimEnd('/');
+        if (string.Equals(pathOnly, "sites", StringComparison.OrdinalIgnoreCase))
+            return NavigationManager.BaseUri;
 
-        return target;
+        return NavigationManager.Uri;
     }
 }
