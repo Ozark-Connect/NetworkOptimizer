@@ -240,7 +240,7 @@ else
                         "window.__dashMountMap3d = async function(canvasId) {" +
                         $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                         "  window.__dashLanFlowMap = m;" +
-                        "  await m.mount(canvasId,{storagePrefix:'dashLanFlowMap',signalHint:false});" +
+                        $"  await m.mount(canvasId,{{storagePrefix:'{SiteCtx.ScopeStorageKey("dashLanFlowMap")}',signalHint:false}});" +
                         "}");
                     await JS.InvokeVoidAsync("__dashMountMap3d", "dashboard-lan-flow-map-canvas");
                 }
@@ -249,7 +249,7 @@ else
                     await JS.InvokeVoidAsync("eval",
                         $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
                         "window.__dashLanFlowMap2d = m; m.startDataPolling(); " +
-                        "await m.mount('dashboard-lan-flow-map-2d-stage',{storagePrefix:'dashLanFlowMap2d',liveOnly:true}); })();");
+                        $"await m.mount('dashboard-lan-flow-map-2d-stage',{{storagePrefix:'{SiteCtx.ScopeStorageKey("dashLanFlowMap2d")}',liveOnly:true}}); }})();");
                 }
             }
             catch { _mapMounted = false; _mountedMode = null; }

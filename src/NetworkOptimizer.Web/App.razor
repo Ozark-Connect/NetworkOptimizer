@@ -442,6 +442,39 @@
             });
             reconnectObserver.observe(reconnectModal, { attributes: true });
         }
+
+        // PWA / mobile resume recovery. When the app is backgrounded, iOS and
+        // Android suspend the tab and its Blazor WebSocket dies, but on resume
+        // Blazor often does NOT surface the reconnect modal (the socket looks
+        // open to it), so the page sits on its stale prerender with frozen
+        // loading spinners until a manual refresh - exactly what a user sees
+        // returning to a long-backgrounded dashboard. If the tab was hidden
+        // long enough that the circuit almost certainly dropped, reload on
+        // resume. The reconnect-modal observer above already covers the case
+        // where Blazor DOES detect the drop, so defer to it when it's showing
+        // to avoid a double reload. scrollRestoration.js and the site-context
+        // pin keep the reload on the same place and site.
+        (function () {
+            const STALE_HIDDEN_MS = 30000;
+            let hiddenAt = null;
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'hidden') {
+                    hiddenAt = Date.now();
+                    return;
+                }
+                if (hiddenAt === null) return;
+                const hiddenMs = Date.now() - hiddenAt;
+                hiddenAt = null;
+                const modal = document.getElementById('components-reconnect-modal');
+                const blazorHandlingDrop = modal && (
+                    modal.classList.contains('components-reconnect-show') ||
+                    modal.classList.contains('components-reconnect-failed') ||
+                    modal.classList.contains('components-reconnect-rejected'));
+                if (hiddenMs >= STALE_HIDDEN_MS && !blazorHandlingDrop) {
+                    location.reload();
+                }
+            });
+        })();
     </script>
 </body>
 
