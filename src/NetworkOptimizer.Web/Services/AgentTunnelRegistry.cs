@@ -91,6 +91,21 @@ public sealed class AgentTunnelConnection
     public DateTime ConnectedAt { get; }
     public DateTime LastMessageAt { get; internal set; }
 
+    /// <summary>
+    /// How long a tunnel may go silent before it counts as black-holed (agents
+    /// heartbeat every 30s and the server re-pushes configs every 60s, so a
+    /// healthy tunnel is never this quiet). A black-holed tunnel stays
+    /// REGISTERED until the 90s watchdog reaps it, so every consumer that asks
+    /// "is the agent there?" must use <see cref="IsStale"/> rather than mere
+    /// registration - the proxy's open gate, the console connect/wait paths,
+    /// and the config-refresh reconnect guard all share this single definition
+    /// so they can't disagree about the dead-but-registered window.
+    /// </summary>
+    public static readonly TimeSpan StaleThreshold = TimeSpan.FromSeconds(45);
+
+    /// <summary>True when nothing has arrived past <see cref="StaleThreshold"/>: dead-but-registered.</summary>
+    public bool IsStale => DateTime.UtcNow - LastMessageAt > StaleThreshold;
+
     private readonly CancellationTokenSource _dropCts = new();
 
     /// <summary>Cancelled when the server force-drops this connection (license enforcement).</summary>

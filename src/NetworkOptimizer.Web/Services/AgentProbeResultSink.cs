@@ -117,6 +117,15 @@ public class AgentProbeResultSink
     {
         try
         {
+            // The 60s config refresh also lands here while a black-holed tunnel is
+            // still registered (the 90s watchdog hasn't reaped it). Reconnecting the
+            // console through a tunnel that's silent past the stale threshold just
+            // dials the dead loopback proxy and clobbers the awaiting-agent state the
+            // proxy's unreachable signal set. Skip; a real agent reconnect arrives
+            // with a fresh LastMessageAt and proceeds normally.
+            if (connection.IsStale)
+                return;
+
             var siteConnection = _siteConnections.GetFor(connection.SiteSlug);
             if (siteConnection.IsConnected || !await siteConnection.IsConsoleViaAgentAsync())
                 return;

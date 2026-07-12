@@ -180,6 +180,22 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Whether this site's agent tunnel is registered AND alive (not silent past
+    /// the stale threshold). A black-holed tunnel stays registered until the 90s
+    /// watchdog reaps it, so <see cref="IsAgentOnline"/> reads stale-true for
+    /// that whole window - long enough for WaitForConnectionAsync to poll its
+    /// full timeout on every page load of the site (twice per page with
+    /// prerender), which is what made switching to an outaged site take ~10s+
+    /// while a known-offline site was instant. Connect/wait decisions must use
+    /// THIS; registration alone is only meaningful for teardown bookkeeping.
+    /// </summary>
+    private bool HasLiveAgentTunnel()
+    {
+        var registry = _serviceProvider.GetService<AgentTunnelRegistry>();
+        return registry != null && registry.GetForSite(SiteSlug).Any(a => !a.IsStale);
+    }
+
+    /// <summary>
     /// Called when this site's agent tunnel drops. When the console is reached
     /// through that tunnel, flip straight to the awaiting-agent state: the client
     /// stays "connected" otherwise, and every console call dials the dead loopback
@@ -311,11 +327,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                         await Task.Delay(1000);
 
                     // If this site's console is reached through its agent tunnel and no
-                    // agent has connected yet, defer: dialing the loopback proxy with no
-                    // agent behind it fails with a spurious SSL/EOF error on the dashboard.
+                    // live agent has connected yet, defer: dialing the loopback proxy with
+                    // no agent behind it fails with a spurious SSL/EOF error on the dashboard.
                     // OnAgentConnectedAsync establishes the console connection as soon as
                     // the tunnel comes up (often 20-30s after startup).
-                    if (await IsConsoleViaAgentAsync() && !IsAgentOnline())
+                    if (await IsConsoleViaAgentAsync() && !HasLiveAgentTunnel())
                     {
                         _awaitingAgent = true;
                         _lastError = AwaitingAgentMessage;
@@ -499,11 +515,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
-            if (viaAgent && !IsAgentOnline())
+            if (viaAgent && !HasLiveAgentTunnel())
             {
-                // Reached through the agent tunnel, which isn't up. Dialing the loopback
-                // proxy now fails with an SSL/EOF error that gets misreported as a
-                // certificate problem, so surface the real reason.
+                // Reached through the agent tunnel, which isn't up - or is
+                // dead-but-registered (black-holed). Dialing the loopback proxy now
+                // fails with an SSL/EOF error that gets misreported as a certificate
+                // problem, so surface the real reason.
                 _awaitingAgent = true;
                 _lastError = AwaitingAgentMessage;
                 return false;
@@ -624,11 +641,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             // Create new client
             var viaAgent = await IsConsoleViaAgentAsync();
-            if (viaAgent && !IsAgentOnline())
+            if (viaAgent && !HasLiveAgentTunnel())
             {
-                // Reached through the agent tunnel, which isn't up. Dialing the loopback
-                // proxy now fails with an SSL/EOF error that gets misreported as a
-                // certificate problem, so surface the real reason.
+                // Reached through the agent tunnel, which isn't up - or is
+                // dead-but-registered (black-holed). Dialing the loopback proxy now
+                // fails with an SSL/EOF error that gets misreported as a certificate
+                // problem, so surface the real reason.
                 _awaitingAgent = true;
                 _lastError = AwaitingAgentMessage;
                 return false;
@@ -834,11 +852,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         try
         {
             var viaAgent = await IsConsoleViaAgentAsync();
-            if (viaAgent && !IsAgentOnline())
+            if (viaAgent && !HasLiveAgentTunnel())
             {
-                // The console is reached through the agent tunnel, which isn't up. Dialing
-                // the loopback proxy now fails with an SSL/EOF error that gets misreported
-                // as a certificate problem, so return the real reason instead.
+                // The console is reached through the agent tunnel, which isn't up (or is
+                // dead-but-registered). Dialing the loopback proxy now fails with an
+                // SSL/EOF error that gets misreported as a certificate problem, so
+                // return the real reason instead.
                 return (false,
                     "This site's console is reached through its on-site agent tunnel, which isn't connected yet. Start the site's agent (or wait for it to come online), then test again.",
                     null);
@@ -1007,6 +1026,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         // If already connected, return immediately
         if (IsConnected) return true;
 
+        // Already flipped to awaiting-agent (tunnel down or proven black-holed):
+        // no poll can succeed until the agent reconnects, and pages reload via
+        // OnConnectionChanged when it does. Waiting here would stall every page
+        // render of the site for the full timeout.
+        if (IsAwaitingAgent) return false;
+
         // Check if we have saved credentials to connect with
         var settings = await GetSettingsAsync();
         if (!settings.IsConfigured || !settings.HasCredentials || !settings.RememberCredentials)
@@ -1015,12 +1040,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return false;
         }
 
-        // If this site's console is reached through an agent tunnel that isn't up yet, don't
-        // block: the console connects asynchronously once the agent comes online
+        // If this site's console is reached through an agent tunnel that isn't up - or is
+        // dead-but-registered (black-holed, silent past the stale threshold) - don't block:
+        // the console connects asynchronously once the agent (re)connects
         // (OnAgentConnectedAsync), and pages reload via OnConnectionChanged. Polling the full
         // timeout here would stall the page render on every agent-site load or switch, which
         // is the single biggest cause of "the page takes forever to appear" on those sites.
-        if (await IsConsoleViaAgentAsync() && !IsAgentOnline())
+        if (await IsConsoleViaAgentAsync() && !HasLiveAgentTunnel())
             return false;
 
         var startTime = DateTime.UtcNow;

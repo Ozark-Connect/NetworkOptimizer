@@ -25,11 +25,9 @@ public class AgentTunnelProxyService : IDisposable
     // answer never comes.
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(3);
 
-    // A healthy tunnel stamps LastMessageAt at least every 30s (agent heartbeat),
-    // plus 60s server config re-pushes. Past this it's treated as black-holed and
-    // proxy opens are refused immediately instead of blocking - well before the
-    // 90s server watchdog drops the dead tunnel.
-    private static readonly TimeSpan StaleTunnelThreshold = TimeSpan.FromSeconds(45);
+    // Past AgentTunnelConnection.StaleThreshold of silence the tunnel is treated
+    // as black-holed and proxy opens are refused immediately instead of blocking
+    // - well before the 90s server watchdog drops the dead tunnel.
 
     // After an open to a site times out, fast-fail further opens instead of each
     // eating the full OpenTimeout. A page render (a site switch) fires a burst of
@@ -121,7 +119,7 @@ public class AgentTunnelProxyService : IDisposable
         // down and refuse immediately so the console falls through to its
         // error/awaiting-agent state instead of hanging the browser.
         var silent = DateTime.UtcNow - agent.LastMessageAt;
-        if (silent > StaleTunnelThreshold)
+        if (silent > AgentTunnelConnection.StaleThreshold)
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - agent {AgentId} silent for {Silent:n0}s (site {Slug})",
                 listener.TargetHost, listener.TargetPort, agent.AgentId, silent.TotalSeconds, listener.SiteSlug);
