@@ -232,6 +232,16 @@
             setTimeout(function() { window.scrollBy(0, 1); window.scrollBy(0, -1); }, 100);
         });
 
+        // iOS can restore from background with the window scrolled off (0,0); the body
+        // then swallows touch gestures and .main-content can't scroll until a tap resets it
+        function unstickViewport() {
+            if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+        }
+        window.addEventListener('pageshow', unstickViewport);
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) setTimeout(unstickViewport, 50);
+        });
+
         // Show nav bar when content shrinks below scrollable (e.g. tab switch to short content)
         var pageContent = document.querySelector('.page-content');
         if (window.innerWidth <= 1024 && pageContent) {
