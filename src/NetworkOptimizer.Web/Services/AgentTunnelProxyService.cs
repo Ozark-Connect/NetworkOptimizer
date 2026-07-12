@@ -18,7 +18,18 @@ namespace NetworkOptimizer.Web.Services;
 public class AgentTunnelProxyService : IDisposable
 {
     private const int FrameBytes = 32 * 1024;
-    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(10);
+
+    // A live agent answers a ProxyOpen in well under a second (it's a local dial
+    // on its side), so a tight timeout still never trips a healthy tunnel but
+    // bounds the per-connection stall when the tunnel is black-holed and the
+    // answer never comes.
+    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(3);
+
+    // A healthy tunnel stamps LastMessageAt at least every 30s (agent heartbeat),
+    // plus 60s server config re-pushes. Past this it's treated as black-holed and
+    // proxy opens are refused immediately instead of blocking - well before the
+    // 90s server watchdog drops the dead tunnel.
+    private static readonly TimeSpan StaleTunnelThreshold = TimeSpan.FromSeconds(45);
 
     private readonly AgentTunnelRegistry _registry;
     private readonly ILogger<AgentTunnelProxyService> _logger;
@@ -82,6 +93,22 @@ public class AgentTunnelProxyService : IDisposable
         {
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - no agent online for site {Slug}",
                 listener.TargetHost, listener.TargetPort, listener.SiteSlug);
+            client.Dispose();
+            return;
+        }
+
+        // A black-holed tunnel stays registered (IsAgentOnline() true) until the
+        // 90s server watchdog drops it. Until then this dial would write into the
+        // dead socket and block the full OpenTimeout waiting for an answer that
+        // never comes - a multi-second freeze on every page load and site switch.
+        // If the tunnel has gone silent past the heartbeat window, treat it as
+        // down and refuse immediately so the console falls through to its
+        // error/awaiting-agent state instead of hanging the browser.
+        var silent = DateTime.UtcNow - agent.LastMessageAt;
+        if (silent > StaleTunnelThreshold)
+        {
+            _logger.LogDebug("Proxy connect to {Host}:{Port} refused - agent {AgentId} silent for {Silent:n0}s (site {Slug})",
+                listener.TargetHost, listener.TargetPort, agent.AgentId, silent.TotalSeconds, listener.SiteSlug);
             client.Dispose();
             return;
         }
