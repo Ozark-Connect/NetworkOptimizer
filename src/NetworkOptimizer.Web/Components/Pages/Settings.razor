@@ -2280,7 +2280,11 @@
     <!-- Threat Intelligence Configuration -->
     <div class="card settings-tab-security" id="threat-intelligence">
         <div class="card-header">
-            <h2 class="card-title">@(_multiSiteEnabled && SiteContext.IsDefault ? "Global Threat Intelligence" : "Threat Intelligence")</h2>
+            <h2 class="card-title">Threat Intelligence</h2>
+            @if (_multiSiteEnabled && SiteContext.IsDefault)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <p class="section-description">
