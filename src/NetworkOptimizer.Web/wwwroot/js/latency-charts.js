@@ -278,9 +278,9 @@ function updateChartVisibility() {
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
-// flaky enough to advise disabling. Matches FlakyTargetService.LossAbsoluteFloorPct so the two
-// flaky-target surfaces agree on "meaningful loss".
-const LAN_FLAKY_LOSS_PCT = 3;
+// flaky enough to advise disabling. Deliberately low: any sustained loss to a LAN device is
+// abnormal, so even a fraction of a percent is worth flagging as a poor measurement target.
+const LAN_FLAKY_LOSS_PCT = 0.5;
 
 // Report the current LAN (Fabric) category's flaky targets to Blazor so it can render the
 // "flaky LAN target" advisory. Detection only; the role/dismissed gating and the notice itself
