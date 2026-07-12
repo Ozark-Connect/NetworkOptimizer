@@ -364,7 +364,7 @@ a:hover {
     color: var(--text-muted);
 }
 
-h1:focus:not(:focus-visible) {
+h1:focus {
     outline: none;
 }
 
