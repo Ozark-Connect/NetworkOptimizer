@@ -124,6 +124,10 @@ public class AgentTunnelProxyService : IDisposable
             _logger.LogDebug("Proxy connect to {Host}:{Port} refused - agent {AgentId} silent for {Silent:n0}s (site {Slug})",
                 listener.TargetHost, listener.TargetPort, agent.AgentId, silent.TotalSeconds, listener.SiteSlug);
             client.Dispose();
+            // Belt-and-braces with the watchdog's proactive flip: if a dial reaches
+            // a stale tunnel before the watchdog's next 15s tick has flipped the
+            // console, flip it now so this page's remaining calls short-circuit.
+            FlipConsoleAwaitingAgent(listener.SiteSlug);
             return;
         }
 
@@ -176,16 +180,9 @@ public class AgentTunnelProxyService : IDisposable
                 // On the FIRST timeout of an outage, flip the site's console to
                 // awaiting-agent now (not at the 90s watchdog), so its page renders
                 // short-circuit console calls instead of each dialing the dead proxy
-                // and paying the retry backoff. Fire-and-forget; the flip is idempotent.
+                // and paying the retry backoff.
                 if (!wasTripped)
-                {
-                    var slug = listener.SiteSlug;
-                    _ = Task.Run(async () =>
-                    {
-                        try { await _siteConnections.GetFor(slug).NoteProxyUnreachableAsync(); }
-                        catch (Exception ex) { _logger.LogDebug(ex, "Early awaiting-agent flip failed for site {Slug}", slug); }
-                    });
-                }
+                    FlipConsoleAwaitingAgent(listener.SiteSlug);
             }
             if (openError != null)
             {
@@ -261,6 +258,21 @@ public class AgentTunnelProxyService : IDisposable
     {
         foreach (var connection in _connections.Values.Where(c => ReferenceEquals(c.Agent, agent)))
             CloseConnection(connection, notifyAgent: false);
+    }
+
+    /// <summary>
+    /// Flips the site's console to awaiting-agent off the dial path (fire-and-
+    /// forget, idempotent) the moment a dead tunnel is proven - by an open
+    /// timeout or a stale-gate refusal - so page renders short-circuit console
+    /// calls instead of paying dial-and-retry per call until the 90s watchdog.
+    /// </summary>
+    private void FlipConsoleAwaitingAgent(string siteSlug)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await _siteConnections.GetFor(siteSlug).NoteTunnelUnreachableAsync(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Awaiting-agent flip failed for site {Slug}", siteSlug); }
+        });
     }
 
     private void CloseConnection(ProxyConnection connection, bool notifyAgent)

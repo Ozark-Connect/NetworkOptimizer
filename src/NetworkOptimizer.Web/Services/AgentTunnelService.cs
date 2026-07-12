@@ -231,13 +231,27 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     /// <see cref="LivenessTimeout"/>. Cancelling the drop token aborts the
     /// read loop, which runs the normal teardown: unregister, proxy/console
     /// awaiting-agent flip, and the agent's own reconnect gets a clean slate.
+    /// Before that, the moment silence crosses the stale threshold, the site's
+    /// console is flipped to awaiting-agent proactively - without this, a site
+    /// nobody dialed during the outage stayed stale-green until first contact,
+    /// and that first switch paid a dial-and-retry on every console call for
+    /// the rest of the 90s window.
     /// </summary>
     private async Task WatchLivenessAsync(AgentTunnelConnection connection, CancellationToken ct)
     {
+        var flaggedStale = false;
         while (!ct.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(15), ct);
             var silent = DateTime.UtcNow - connection.LastMessageAt;
+            if (!flaggedStale && silent > AgentTunnelConnection.StaleThreshold)
+            {
+                flaggedStale = true;
+                _logger.LogInformation(
+                    "Agent {Name} (id {Id}, site {Slug}) silent for {Silent:0}s; treating the tunnel as black-holed",
+                    connection.AgentName, connection.AgentId, connection.SiteSlug, silent.TotalSeconds);
+                _probeResultSink.OnTunnelStale(connection);
+            }
             if (silent <= LivenessTimeout) continue;
             _logger.LogWarning(
                 "Agent {Name} (id {Id}, site {Slug}) silent for {Silent:0}s (heartbeat is {Interval}s); dropping dead tunnel",

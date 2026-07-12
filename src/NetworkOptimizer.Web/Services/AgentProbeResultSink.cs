@@ -113,6 +113,29 @@ public class AgentProbeResultSink
         });
     }
 
+    /// <summary>
+    /// Called by the tunnel watchdog when a still-registered tunnel goes silent
+    /// past the stale threshold (black-holed, not yet droppable at 90s). Flips
+    /// the site's console to awaiting-agent proactively, so a site nobody has
+    /// touched during the outage doesn't stay stale-green until first contact -
+    /// which made the first switch to it pay a dial-and-retry on every console
+    /// call. Fire-and-forget; the flip is idempotent.
+    /// </summary>
+    public void OnTunnelStale(AgentTunnelConnection connection)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _siteConnections.GetFor(connection.SiteSlug).NoteTunnelUnreachableAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Stale-tunnel awaiting-agent flip failed for site {Slug}", connection.SiteSlug);
+            }
+        });
+    }
+
     private async Task ReconnectConsoleIfViaAgentAsync(AgentTunnelConnection connection)
     {
         try
