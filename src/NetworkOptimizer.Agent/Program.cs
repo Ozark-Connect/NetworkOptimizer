@@ -231,6 +231,9 @@ while (!cts.IsCancellationRequested)
         tunnel.OnIperf3Request = iperf3ClientRunner.HandleAsync;
         tunnel.OnUwnRequest = uwnClientRunner.HandleAsync;
         tunnel.OnProbeRequest = probeRequestRunner.HandleAsync;
+        // Server confirms persisted result frames; trim them from the buffer so
+        // only unacked data is retained for replay.
+        tunnel.OnResultAck = seq => resultBuffer!.MarkAcked(seq);
         var backlog = resultBuffer!.Count;
         if (backlog > 0)
             Console.WriteLine($"Buffered backlog: {backlog} result message(s) (~{resultBuffer.ApproxBytes / 1024} KB) will flush once the tunnel connects");
@@ -255,11 +258,9 @@ while (!cts.IsCancellationRequested)
         finally
         {
             connectionCts.Cancel();
-            // Order matters for FIFO replay: the drain requeues its in-hand
-            // message first, then the salvage inserts the (older) messages
-            // still parked in the outbound channel ahead of it.
+            // Nothing to salvage: the drain only peeks, so every unacked frame is
+            // still in the buffer and replays on the next connection.
             try { await drainTask; } catch (OperationCanceledException) { }
-            tunnel.SalvageUnsentInto(resultBuffer);
         }
     }
 

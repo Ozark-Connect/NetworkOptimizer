@@ -27,6 +27,14 @@ message AgentMessage {
     ProbeResponse probe_response = 10;
     SnmpOidResult snmp_oid_result = 11;
   }
+  // Monotonic per-agent sequence for store-and-forward acking. Set on
+  // probe_results / snmp_results frames only; 0 on control frames and on older
+  // agents. The agent keeps the batch buffered until the server echoes this
+  // number in a ResultAck (persisted), then trims it. Without this, a
+  // black-holed tunnel - where TCP still "accepts" writes into a dead socket and
+  // reports success - would let the buffer drain into the void and silently lose
+  // an outage's worth of data.
+  uint64 sequence = 12;
 }
 
 message ServerMessage {
@@ -42,7 +50,17 @@ message ServerMessage {
     ProbeRequest probe_request = 9;
     SnmpOidQuery snmp_oid_query = 10;
     WanSpeedTestConfig wan_speedtest_config = 11;
+    ResultAck result_ack = 12;
   }
+}
+
+// Cumulative acknowledgement of store-and-forward result frames. Sent by the
+// server after a probe_results / snmp_results batch is persisted; acking
+// sequence N confirms every frame with sequence <= N. The agent then trims
+// those from its buffer. An unacked frame stays buffered and replays on the
+// next connection, so nothing is lost when a tunnel black-holes.
+message ResultAck {
+  uint64 sequence = 1;
 }
 
 // ---- WAN speed test routing (agent /wan/ router) ----
@@ -120,6 +138,12 @@ message ServerHello {
   string site_slug = 1;
   string agent_name = 2;
   int32 heartbeat_interval_seconds = 3;
+  // True on servers that acknowledge result frames (>= the store-and-forward
+  // ack protocol). Absent/false (an older server) tells the agent NOT to wait
+  // for acks: it trims each frame on send, matching the pre-ack behavior, so a
+  // newer agent against an older server doesn't retain its whole buffer and
+  // re-flush it on every reconnect.
+  bool supports_result_ack = 4;
 }
 
 message AgentHeartbeat {

@@ -4,10 +4,21 @@ namespace NetworkOptimizer.AgentProtocol;
 /// Store-and-forward buffer between the agent's collectors (probe and SNMP
 /// runners) and the tunnel. Collectors always enqueue here - never directly
 /// into a connection - so monitoring continues through tunnel outages and the
-/// backlog replays in order once the tunnel reconnects. Bounded by sample age
-/// and total serialized size; when either cap is exceeded the OLDEST messages
-/// are dropped, since the newest data is the most valuable when the link
-/// returns. Thread-safe for any number of producers and consumers.
+/// backlog replays in order once the tunnel reconnects.
+///
+/// A message stays in the buffer until the SERVER acknowledges it (see
+/// <see cref="MarkAcked"/>), NOT when it is written to the socket. TCP reports a
+/// write into a black-holed connection as success (the bytes sit in the kernel
+/// send buffer and are discarded on teardown), so dropping a message on send
+/// would silently lose an outage's worth of data the moment the link goes dead.
+/// The drain therefore only ever PEEKS unsent entries
+/// (<see cref="TakeUnsentBatchAsync"/>); an unacked frame is re-sent on the next
+/// connection.
+///
+/// Bounded by sample age and total serialized size; when either cap is exceeded
+/// the OLDEST messages are dropped, since the newest data is the most valuable
+/// when the link returns - this is the only way a message leaves the buffer
+/// without being acked. Thread-safe for any number of producers and consumers.
 /// </summary>
 public sealed class ResultBuffer
 {
@@ -22,7 +33,11 @@ public sealed class ResultBuffer
     /// </summary>
     public const long DefaultMaxBytes = 64 * 1024 * 1024;
 
-    private readonly record struct Entry(AgentMessage Message, DateTime EnqueuedUtc, int SizeBytes);
+    /// <summary>One buffered message and the monotonic sequence assigned at enqueue.</summary>
+    private readonly record struct Entry(long Seq, AgentMessage Message, DateTime EnqueuedUtc, int SizeBytes);
+
+    /// <summary>A coalesced frame ready to send, tagged with the highest sequence it covers.</summary>
+    public sealed record SendFrame(AgentMessage Message, long ThroughSeq);
 
     private readonly LinkedList<Entry> _entries = new();
     private readonly SemaphoreSlim _available = new(0);
@@ -30,6 +45,7 @@ public sealed class ResultBuffer
     private readonly TimeSpan _maxAge;
     private readonly long _maxBytes;
     private long _bytes;
+    private long _nextSeq;
     private long _dropped;
     private long _droppedUnreported;
 
@@ -39,7 +55,7 @@ public sealed class ResultBuffer
         _maxBytes = maxBytes ?? DefaultMaxBytes;
     }
 
-    /// <summary>Number of buffered messages.</summary>
+    /// <summary>Number of buffered (unacked) messages.</summary>
     public int Count
     {
         get { lock (_lock) return _entries.Count; }
@@ -71,12 +87,15 @@ public sealed class ResultBuffer
         }
     }
 
-    /// <summary>Appends a message, evicting the oldest entries past the caps.</summary>
+    /// <summary>
+    /// Appends a message with the next sequence number, evicting the oldest
+    /// entries past the caps.
+    /// </summary>
     public void Enqueue(AgentMessage message)
     {
         lock (_lock)
         {
-            var entry = new Entry(message, DateTime.UtcNow, message.CalculateSize());
+            var entry = new Entry(++_nextSeq, message, DateTime.UtcNow, message.CalculateSize());
             _entries.AddLast(entry);
             _bytes += entry.SizeBytes;
             EvictLocked();
@@ -85,72 +104,95 @@ public sealed class ResultBuffer
     }
 
     /// <summary>
-    /// Reinserts messages at the FRONT, preserving their order, so a failed
-    /// send slots back in ahead of everything enqueued since. Entries get a
-    /// fresh age stamp - they were dequeued seconds ago at most, so the age
-    /// cap distortion is negligible.
+    /// Peeks the oldest run of entries whose sequence is greater than
+    /// <paramref name="afterSeq"/>, coalescing consecutive same-type batches up
+    /// to <paramref name="maxSamples"/>, and returns them as one frame tagged
+    /// with the highest sequence it covers. Entries are NOT removed - they stay
+    /// buffered until <see cref="MarkAcked"/>. Waits until such an entry exists;
+    /// throws <see cref="OperationCanceledException"/> on cancellation.
+    /// A caller re-sending after a reconnect passes afterSeq = 0 to replay every
+    /// unacked entry from the oldest.
     /// </summary>
-    public void RequeueFront(IReadOnlyList<AgentMessage> messages)
-    {
-        if (messages.Count == 0) return;
-        lock (_lock)
-        {
-            var now = DateTime.UtcNow;
-            for (var i = messages.Count - 1; i >= 0; i--)
-            {
-                var entry = new Entry(messages[i], now, messages[i].CalculateSize());
-                _entries.AddFirst(entry);
-                _bytes += entry.SizeBytes;
-            }
-            EvictLocked();
-        }
-        _available.Release(messages.Count);
-    }
-
-    /// <summary>
-    /// Takes the oldest message, waiting until one is available. Throws
-    /// <see cref="OperationCanceledException"/> on cancellation.
-    /// </summary>
-    public async ValueTask<AgentMessage> DequeueAsync(CancellationToken ct)
+    public async ValueTask<SendFrame> TakeUnsentBatchAsync(long afterSeq, int maxSamples, CancellationToken ct)
     {
         while (true)
         {
-            // Evictions and TryDequeueIf remove entries without consuming
-            // permits, so a wake-up can find the list empty - loop and wait
-            // for the next permit. Permits never undercount entries.
-            await _available.WaitAsync(ct);
             lock (_lock)
             {
-                if (_entries.Count > 0)
-                    return TakeFirstLocked();
+                var frame = BuildUnsentFrameLocked(afterSeq, maxSamples);
+                if (frame != null)
+                    return frame;
             }
+            await _available.WaitAsync(ct);
+            // Evictions and coalescing consume entries without matching permits,
+            // so drain any surplus and re-check under the lock. The synchronous
+            // BuildUnsentFrameLocked above is the source of truth; the permit is
+            // only a wake-up, so an over- or under-count never loses a frame.
+            while (_available.Wait(0)) { }
         }
     }
 
     /// <summary>
-    /// Takes the oldest message only if it satisfies <paramref name="predicate"/>.
-    /// Used by the tunnel drain to coalesce a backlog of same-type batches.
+    /// Removes every buffered entry whose sequence is at or below
+    /// <paramref name="throughSeq"/> - the server's cumulative acknowledgement
+    /// that those frames are persisted. Sequences are monotonic and entries are
+    /// ordered, so the acked run is always at the front.
     /// </summary>
-    public bool TryDequeueIf(Func<AgentMessage, bool> predicate, out AgentMessage message)
+    public void MarkAcked(long throughSeq)
     {
         lock (_lock)
         {
-            if (_entries.Count > 0 && predicate(_entries.First!.Value.Message))
+            while (_entries.First is { } first && first.Value.Seq <= throughSeq)
             {
-                message = TakeFirstLocked();
-                return true;
+                _bytes -= first.Value.SizeBytes;
+                _entries.RemoveFirst();
             }
         }
-        message = null!;
-        return false;
     }
 
-    private AgentMessage TakeFirstLocked()
+    private SendFrame? BuildUnsentFrameLocked(long afterSeq, int maxSamples)
     {
-        var entry = _entries.First!.Value;
-        _entries.RemoveFirst();
-        _bytes -= entry.SizeBytes;
-        return entry.Message;
+        var node = _entries.First;
+        while (node != null && node.Value.Seq <= afterSeq)
+            node = node.Next;
+        if (node == null)
+            return null;
+
+        // Clone so the buffered originals stay intact for a possible re-send;
+        // coalescing must never mutate what is still awaiting an ack.
+        var merged = node.Value.Message.Clone();
+        var throughSeq = node.Value.Seq;
+        node = node.Next;
+
+        if (merged.PayloadCase == AgentMessage.PayloadOneofCase.ProbeResults)
+        {
+            while (node != null
+                   && node.Value.Message.PayloadCase == AgentMessage.PayloadOneofCase.ProbeResults
+                   && merged.ProbeResults.Results.Count < maxSamples)
+            {
+                merged.ProbeResults.Results.AddRange(node.Value.Message.ProbeResults.Results);
+                throughSeq = node.Value.Seq;
+                node = node.Next;
+            }
+        }
+        else if (merged.PayloadCase == AgentMessage.PayloadOneofCase.SnmpResults)
+        {
+            int Samples() => merged.SnmpResults.Interfaces.Count
+                             + merged.SnmpResults.Health.Count
+                             + merged.SnmpResults.CustomOids.Count;
+            while (node != null
+                   && node.Value.Message.PayloadCase == AgentMessage.PayloadOneofCase.SnmpResults
+                   && Samples() < maxSamples)
+            {
+                merged.SnmpResults.Interfaces.AddRange(node.Value.Message.SnmpResults.Interfaces);
+                merged.SnmpResults.Health.AddRange(node.Value.Message.SnmpResults.Health);
+                merged.SnmpResults.CustomOids.AddRange(node.Value.Message.SnmpResults.CustomOids);
+                throughSeq = node.Value.Seq;
+                node = node.Next;
+            }
+        }
+
+        return new SendFrame(merged, throughSeq);
     }
 
     private void EvictLocked()

@@ -115,6 +115,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     SiteSlug = siteSlug,
                     AgentName = agent.Name,
                     HeartbeatIntervalSeconds = HeartbeatIntervalSeconds,
+                    SupportsResultAck = true,
                 }
             }, ct);
 
@@ -137,6 +138,11 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResults:
                         await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
+                        // Ack only after the batch is persisted, so the agent keeps it
+                        // buffered until we confirm it landed. Cumulative: sequence N
+                        // acks everything <= N. Sequence 0 = an older agent with no acking.
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.ProxyOpenResult:
                         _proxy.OnProxyOpenResult(message.ProxyOpenResult);
@@ -149,6 +155,8 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpResults:
                         await _probeResultSink.RecordSnmpBatchAsync(connection, message.SnmpResults, ct);
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.Iperf3Result:
                         _iperf3.OnResult(message.Iperf3Result);

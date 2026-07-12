@@ -19,16 +19,12 @@ namespace NetworkOptimizer.Agent;
 public sealed class TunnelClient
 {
     // Wait (not drop) when full: proxied byte streams ride this channel and a
-    // dropped frame would corrupt them.
+    // dropped frame would corrupt them. Result frames also ride it, but they
+    // stay in the ResultBuffer until the server acks them, so a frame still on
+    // this channel when the tunnel tears down is simply re-sent on the next
+    // connection - nothing to salvage.
     private readonly Channel<AgentMessage> _outbound = Channel.CreateBounded<AgentMessage>(
         new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.Wait });
-
-    // Message the pump has taken off the channel but not confirmed written, so
-    // SalvageUnsentInto can recover it after teardown. A message that was in
-    // fact written but never reached the server replays as a duplicate on the
-    // next connection - harmless, since every sample carries its own timestamp
-    // and re-writes the same point.
-    private volatile AgentMessage? _pumpInFlight;
 
     // Backlog-flush tuning for DrainResultsAsync: coalescing consecutive
     // batches slashes the server's per-batch overhead (DB round-trips, console
@@ -53,6 +49,14 @@ public sealed class TunnelClient
     // connect and hello would hang the read on dead TCP for the full OS timeout
     // (~15 min) before the reconnect loop could retry.
     private static readonly TimeSpan HelloTimeout = TimeSpan.FromSeconds(20);
+
+    // Set from the server hello. An older server that doesn't ack result frames
+    // (SupportsResultAck = false) means we can't rely on acks, so the drain trims
+    // each frame on send - the pre-ack behavior - instead of retaining the whole
+    // buffer and re-flushing it on every reconnect. A fresh TunnelClient per
+    // connection defaults this to false (keep until proven), which is the safe
+    // side: worst case a frame is re-sent, never dropped.
+    private volatile bool _ackless;
 
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
     public Action<ProbeConfig>? OnProbeConfig { get; set; }
@@ -83,6 +87,13 @@ public sealed class TunnelClient
 
     /// <summary>Server asks us to run an on-demand ping/traceroute from this host.</summary>
     public Func<ProbeRequest, CancellationToken, Task>? OnProbeRequest { get; set; }
+
+    /// <summary>
+    /// Server has persisted result frames up to (and including) this sequence.
+    /// Wired to <see cref="ResultBuffer.MarkAcked"/> so acked frames leave the
+    /// buffer; anything unacked replays on the next connection.
+    /// </summary>
+    public Action<long>? OnResultAck { get; set; }
 
     /// <summary>Queues a message for the stream pump. Safe from any thread.</summary>
     public bool TrySend(AgentMessage message) => _outbound.Writer.TryWrite(message);
@@ -165,6 +176,7 @@ public sealed class TunnelClient
 
             heartbeatInterval = TimeSpan.FromSeconds(Math.Max(5, hello.HeartbeatIntervalSeconds));
             siteSlug = hello.SiteSlug;
+            _ackless = !hello.SupportsResultAck;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -233,6 +245,9 @@ public sealed class TunnelClient
                         if (OnProbeRequest is { } probeHandler)
                             _ = probeHandler(message.ProbeRequest, linked.Token);
                         break;
+                    case ServerMessage.PayloadOneofCase.ResultAck:
+                        OnResultAck?.Invoke((long)message.ResultAck.Sequence);
+                        break;
                 }
             }
         }
@@ -246,9 +261,9 @@ public sealed class TunnelClient
 
     /// <summary>
     /// Forces a reconnect when nothing has arrived from the server past the
-    /// silence timeout. Cancelling the connection's source aborts the read
-    /// loop; the caller's reconnect loop then salvages the outbound channel
-    /// and keeps buffering, so a forced reconnect never loses data.
+    /// silence timeout. Cancelling the connection's source aborts the read loop;
+    /// the buffer keeps every unacked frame, so the reconnect replays them and a
+    /// forced reconnect never loses data.
     /// </summary>
     private async Task WatchInboundSilenceAsync(CancellationTokenSource connectionCts, CancellationToken ct)
     {
@@ -265,109 +280,47 @@ public sealed class TunnelClient
     }
 
     /// <summary>
-    /// Feeds this connection from the store-and-forward buffer until the
-    /// tunnel tears down. FIFO order is preserved end to end - the server's
-    /// interface rate calculator needs per-interface samples in chronological
-    /// order - and nothing is lost on teardown: the in-hand message is
-    /// requeued here, and the caller recovers whatever reached the outbound
-    /// channel via <see cref="SalvageUnsentInto"/> AFTER this task completes
-    /// (channel leftovers are older than the in-hand message, and
-    /// RequeueFront slots them back in ahead of it).
+    /// Feeds this connection from the store-and-forward buffer until the tunnel
+    /// tears down. Frames are only PEEKED - each stays in the buffer until the
+    /// server acks it (<see cref="OnResultAck"/>), so a teardown mid-flush loses
+    /// nothing: every unacked frame replays on the next connection. FIFO order is
+    /// preserved end to end (the server's interface rate calculator needs
+    /// per-interface samples in chronological order): a fresh connection replays
+    /// from sequence 0, i.e. the oldest unacked frame.
     /// </summary>
     public async Task DrainResultsAsync(ResultBuffer buffer, CancellationToken ct)
     {
+        long sentThroughSeq = 0;
         while (!ct.IsCancellationRequested)
         {
-            AgentMessage? message = null;
-            try
-            {
-                message = await buffer.DequeueAsync(ct);
-                CoalesceBacklog(buffer, message);
-                while (_outbound.Reader.Count > OutboundHeadroomSlots)
-                    await Task.Delay(20, ct);
-                if (!await SendAsync(message, ct))
-                {
-                    buffer.RequeueFront([message]);
-                    return;
-                }
-                message = null;
-            }
-            catch (OperationCanceledException)
-            {
-                if (message != null)
-                    buffer.RequeueFront([message]);
-                return;
-            }
+            var frame = await buffer.TakeUnsentBatchAsync(sentThroughSeq, CoalesceMaxSamples, ct);
+
+            // Leave headroom so heartbeats and proxied console traffic still get
+            // through while a large backlog flushes.
+            while (_outbound.Reader.Count > OutboundHeadroomSlots)
+                await Task.Delay(20, ct);
+
+            // Tag the frame so the server can ack it; the buffer keeps the
+            // originals until that ack lands, so a black-holed write is not a loss.
+            frame.Message.Sequence = (ulong)frame.ThroughSeq;
+            if (!await SendAsync(frame.Message, ct))
+                return; // tunnel torn down; the buffer still holds every unacked frame
+            sentThroughSeq = frame.ThroughSeq;
+
+            // Against a server that can't ack (older build), no ResultAck will
+            // ever arrive, so trim on send to avoid an ever-growing buffer that
+            // re-flushes on every reconnect. Cumulative, so it also clears any
+            // frames sent before the hello revealed the server was ack-less.
+            if (_ackless)
+                buffer.MarkAcked(frame.ThroughSeq);
         }
     }
-
-    /// <summary>
-    /// Merges consecutive same-type result batches from the buffer into
-    /// <paramref name="message"/>, up to <see cref="CoalesceMaxSamples"/>
-    /// samples. Only a backlog coalesces - in live flow the buffer is empty and
-    /// each batch ships as produced.
-    /// </summary>
-    private static void CoalesceBacklog(ResultBuffer buffer, AgentMessage message)
-    {
-        if (message.PayloadCase == AgentMessage.PayloadOneofCase.ProbeResults)
-        {
-            while (message.ProbeResults.Results.Count < CoalesceMaxSamples
-                   && buffer.TryDequeueIf(
-                       m => m.PayloadCase == AgentMessage.PayloadOneofCase.ProbeResults, out var next))
-            {
-                message.ProbeResults.Results.AddRange(next.ProbeResults.Results);
-            }
-        }
-        else if (message.PayloadCase == AgentMessage.PayloadOneofCase.SnmpResults)
-        {
-            int Samples() => message.SnmpResults.Interfaces.Count
-                             + message.SnmpResults.Health.Count
-                             + message.SnmpResults.CustomOids.Count;
-            while (Samples() < CoalesceMaxSamples
-                   && buffer.TryDequeueIf(
-                       m => m.PayloadCase == AgentMessage.PayloadOneofCase.SnmpResults, out var next))
-            {
-                message.SnmpResults.Interfaces.AddRange(next.SnmpResults.Interfaces);
-                message.SnmpResults.Health.AddRange(next.SnmpResults.Health);
-                message.SnmpResults.CustomOids.AddRange(next.SnmpResults.CustomOids);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Recovers monitoring results still parked in the (now closed) outbound
-    /// channel back into the buffer, so a tunnel drop or failed connect loses
-    /// nothing. Call after <see cref="RunAsync"/> has returned AND the drain
-    /// task has completed - the drain requeues its own in-hand message first,
-    /// and these channel items are older, so inserting them at the front last
-    /// restores exact FIFO order. Request/response payloads (proxy frames, OID
-    /// test replies, speed-test results) are connection-scoped and discarded.
-    /// </summary>
-    public void SalvageUnsentInto(ResultBuffer buffer)
-    {
-        var leftovers = new List<AgentMessage>();
-        if (_pumpInFlight is { } inFlight && IsBufferable(inFlight))
-            leftovers.Add(inFlight);
-        _pumpInFlight = null;
-        while (_outbound.Reader.TryRead(out var message))
-        {
-            if (IsBufferable(message))
-                leftovers.Add(message);
-        }
-        buffer.RequeueFront(leftovers);
-    }
-
-    private static bool IsBufferable(AgentMessage message) =>
-        message.PayloadCase is AgentMessage.PayloadOneofCase.ProbeResults
-            or AgentMessage.PayloadOneofCase.SnmpResults;
 
     private async Task PumpOutboundAsync(IClientStreamWriter<AgentMessage> requestStream, CancellationToken ct)
     {
         await foreach (var message in _outbound.Reader.ReadAllAsync(ct))
         {
-            _pumpInFlight = message;
             await requestStream.WriteAsync(message, ct);
-            _pumpInFlight = null;
         }
     }
 
