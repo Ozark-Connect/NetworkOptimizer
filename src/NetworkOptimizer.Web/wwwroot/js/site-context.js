@@ -90,6 +90,27 @@
         link.href = stamp(link.href);
     }, true);
 
+    // Site-switch links (the header dropdown and the /sites cards). A plain left
+    // click switches this tab and makes the site the browser default; ctrl / cmd /
+    // shift / middle clicks fall through to the browser so the link's ?site= href
+    // opens in a new tab - pinning that tab without touching this one or the default.
+    // Handled here rather than with a Blazor @onclick so a modified click's native
+    // new-tab is never preventDefaulted, and so the switch stays a plain document
+    // navigation (window.open from a Blazor Server handler would be popup-blocked).
+    document.addEventListener('click', function (e) {
+        if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
+            return;
+        const link = e.target.closest && e.target.closest('a[data-site-switch]');
+        if (!link)
+            return;
+        e.preventDefault();
+        if (link.hasAttribute('data-site-current'))
+            return;
+        const target = link.getAttribute('data-site-switch');
+        document.cookie = 'no-site=' + target + '; path=/; max-age=31536000; SameSite=Lax';
+        window.location.assign(link.href);
+    }, false);
+
     const originalFetch = window.fetch;
     window.fetch = function (input, init) {
         try {

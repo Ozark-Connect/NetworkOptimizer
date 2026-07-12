@@ -17517,10 +17517,13 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-card {
+    display: block;
     padding: 1rem;
     cursor: pointer;
     border: 1px solid transparent;
     margin-bottom: 0;
+    color: var(--text-primary);
+    text-decoration: none;
     transition: background 0.15s, border-color 0.15s;
 }
 

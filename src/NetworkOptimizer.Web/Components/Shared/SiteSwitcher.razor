@@ -3,7 +3,6 @@
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
-@inject SiteSwitchService SiteSwitch
 @inject NavigationManager NavigationManager
 
 @if (_enabled && _sites.Count > 0)
@@ -23,13 +22,17 @@
             <div class="site-switcher-menu">
                 @foreach (var site in _sites)
                 {
-                    @* A real anchor so middle-click / ctrl+click opens the site in a new
-                       tab (the ?site= href pins that tab without touching this one or the
-                       browser default). A plain left click switches this tab and makes the
-                       site the browser default. *@
+                    @* A real anchor whose href is this page pinned to the site. The
+                       site-context.js click handler turns a plain left click into the
+                       switch (cookie write + full reload, same target as the href) and
+                       preventDefaults it, while ctrl / cmd / shift / middle clicks fall
+                       through to the browser and open the site in a new tab - pinning
+                       that tab without touching this one or the browser default. Handled
+                       in JS, not @@onclick, so those modified clicks stay native. *@
                     <a class="site-switcher-item @(site.Slug == SiteContext.Slug ? "active" : "")"
                        href="@GetSiteHref(site)"
-                       @onclick="() => SwitchToAsync(site)" @onclick:preventDefault @onclick:stopPropagation>
+                       data-site-switch="@site.Slug"
+                       data-site-current="@(site.Slug == SiteContext.Slug ? "" : null)">
                         <span class="site-switcher-item-name">
                             <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")"></span>
                             @site.Name
@@ -64,18 +67,10 @@
 
     private void CloseDropdown() => _open = false;
 
-    /// <summary>Current page pinned to the given site - the middle-click new-tab target.</summary>
+    /// <summary>This page pinned to the given site - the anchor href (plain-click switch
+    /// target and modified-click new-tab target); see site-context.js.</summary>
     private string GetSiteHref(Site site) =>
         SiteContextService.WithSiteParam(CurrentSwitchTarget(), site.Slug);
-
-    private async Task SwitchToAsync(Site site)
-    {
-        _open = false;
-        if (site.Slug == SiteContext.Slug)
-            return;
-
-        await SiteSwitch.SwitchToAsync(site.Slug, CurrentSwitchTarget());
-    }
 
     /// <summary>
     /// Where a site switch from the current page should land. The #fragment is kept
