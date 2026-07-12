@@ -31,6 +31,16 @@ public class AgentTunnelProxyService : IDisposable
     // 90s server watchdog drops the dead tunnel.
     private static readonly TimeSpan StaleTunnelThreshold = TimeSpan.FromSeconds(45);
 
+    // After an open to a site times out, fast-fail further opens for this long
+    // instead of each eating the full OpenTimeout. A page render (a site switch)
+    // fires a burst of console + SSH opens; in the first ~45s of an outage -
+    // before the liveness gate above can trip without false-failing a healthy
+    // tunnel - that burst would otherwise block OpenTimeout on every one, which
+    // read as a 15s+ hang on the switch. The breaker self-clears the instant the
+    // tunnel produces fresh inbound (recovery); see the LastMessageAt check below.
+    private static readonly TimeSpan OpenBreakerCooldown = TimeSpan.FromSeconds(15);
+    private readonly ConcurrentDictionary<string, (DateTime Until, DateTime OpenedAtLastMsg)> _openBreaker = new();
+
     private readonly AgentTunnelRegistry _registry;
     private readonly ILogger<AgentTunnelProxyService> _logger;
 
@@ -113,6 +123,21 @@ public class AgentTunnelProxyService : IDisposable
             return;
         }
 
+        // Circuit breaker: a recent open to this site timed out and no inbound has
+        // arrived since, so the tunnel is almost certainly still black-holed.
+        // Fast-fail the render's remaining opens rather than eat OpenTimeout on
+        // each. Fresh inbound (LastMessageAt past when the breaker tripped) means
+        // the tunnel recovered, clearing this without needing a probe.
+        if (_openBreaker.TryGetValue(listener.SiteSlug, out var breaker)
+            && DateTime.UtcNow < breaker.Until
+            && agent.LastMessageAt <= breaker.OpenedAtLastMsg)
+        {
+            _logger.LogDebug("Proxy connect to {Host}:{Port} fast-refused - open breaker tripped for agent {AgentId} (site {Slug})",
+                listener.TargetHost, listener.TargetPort, agent.AgentId, listener.SiteSlug);
+            client.Dispose();
+            return;
+        }
+
         var id = Interlocked.Increment(ref _nextConnectionId);
         var connection = new ProxyConnection(id, client, agent);
         _connections[id] = connection;
@@ -138,6 +163,9 @@ public class AgentTunnelProxyService : IDisposable
             catch (OperationCanceledException)
             {
                 openError = "open timed out";
+                // Trip the breaker so the opens queued behind this one fast-fail
+                // instead of each blocking the full OpenTimeout.
+                _openBreaker[listener.SiteSlug] = (DateTime.UtcNow + OpenBreakerCooldown, agent.LastMessageAt);
             }
             if (openError != null)
             {
@@ -146,6 +174,9 @@ public class AgentTunnelProxyService : IDisposable
                 CloseConnection(connection, notifyAgent: false);
                 return;
             }
+
+            // The tunnel answered, so clear any open breaker for this site.
+            _openBreaker.TryRemove(listener.SiteSlug, out _);
 
             // Local reads -> tunnel, with backpressure. The agent-to-local
             // direction is written by the tunnel read loop via OnProxyDataAsync.
