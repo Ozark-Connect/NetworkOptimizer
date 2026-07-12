@@ -1,19 +1,53 @@
 // Per-tab site context (multi-site). The server pins each Blazor circuit to the
 // site in the tab's ?site= query parameter; this file keeps that selector alive
 // on the browser side of the tab:
-//  - noSiteContext.ensureSiteParam(slug), called by SiteTabSync after every
-//    in-app navigation, re-stamps ?site= into the address bar via
-//    history.replaceState so refresh / duplicate-tab / reconnect reloads land
-//    back on this tab's site.
+//  - noSiteContext.ensureSiteParam(slug), called by SiteTabSync (multi-site only)
+//    after every in-app navigation, re-stamps ?site= into the address bar via
+//    history.replaceState and remembers the slug in per-tab sessionStorage so
+//    refresh / duplicate-tab / reconnect reloads stay on this tab's site.
 //  - a fetch wrapper and an anchor-click handler stamp the tab's site onto
 //    same-origin /api/ requests (charts, PDF downloads, logout) so API endpoints
-//    resolve the same site as the page issuing them. Requests that already carry
-//    an explicit site parameter are left untouched.
+//    resolve the same site as the page issuing them.
 //  - noSiteContext.stampUrl(url) is for scripts that trigger full-page
 //    navigations themselves (e.g. the LAN flow maps) so those keep the pin too.
-// Single-site instances never see a slug here, so every path below is a no-op.
+//  - a load-time backstop: if a navigation dropped ?site= (a spot that forgot to
+//    stamp it), restore this tab's remembered site with a one-shot redirect
+//    instead of silently falling back to the browser-default cookie.
+//
+// Single-site safety: sessionStorage is written ONLY by ensureSiteParam, which
+// only runs when multi-site is enabled. So on a single-site instance nothing is
+// ever remembered, the backstop never fires, and every path below (all guarded
+// on a truthy slug) is a no-op.
 (function () {
+    const STORAGE_KEY = 'no-site-tab';
+
+    function remembered() {
+        try { return sessionStorage.getItem(STORAGE_KEY) || ''; } catch (e) { return ''; }
+    }
+    function remember(s) {
+        try { if (s) sessionStorage.setItem(STORAGE_KEY, s); } catch (e) { }
+    }
+    function cookieSite() {
+        const m = document.cookie.match(/(?:^|; )no-site=([^;]*)/);
+        return m ? decodeURIComponent(m[1]) : (window.__noSiteDefault || '');
+    }
+
     let slug = new URLSearchParams(window.location.search).get('site');
+
+    // Backstop (see header). A navigation with no ?site= would resolve the
+    // browser-default cookie server-side; if this tab is pinned to a different
+    // site, restore it. Only fires when a site was remembered (so never on
+    // single-site) and it differs from the default, so default-site tabs never
+    // pay a reload; the redirect target carries ?site= so it can never loop.
+    if (!slug) {
+        const want = remembered();
+        if (want && want !== cookieSite()) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('site', want);
+            window.location.replace(url.href);
+            return;
+        }
+    }
 
     function stamp(rawUrl) {
         if (!slug)
@@ -34,6 +68,7 @@
     window.noSiteContext = {
         ensureSiteParam: function (s) {
             slug = s;
+            remember(s);
             const url = new URL(window.location.href);
             if (url.searchParams.get('site') === s)
                 return;
