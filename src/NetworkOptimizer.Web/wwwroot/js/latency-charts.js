@@ -278,7 +278,7 @@ function updateChartVisibility() {
 }
 
 // Mean loss (%) over the visible window at or above which a LAN fabric target is treated as
-// flaky enough to advise disabling. Deliberately low: any sustained loss to a LAN device is
+// flaky enough to advise pausing. Deliberately low: any sustained loss to a LAN device is
 // abnormal, so even a fraction of a percent is worth flagging as a poor measurement target.
 const LAN_FLAKY_LOSS_PCT = 0.5;
 
