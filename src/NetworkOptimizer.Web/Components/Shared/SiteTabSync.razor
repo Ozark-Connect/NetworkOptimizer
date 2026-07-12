@@ -1,0 +1,48 @@
+@* Keeps the tab's ?site= selector in the address bar (history.replaceState, no
+   reload) whenever multi-site is enabled, so refresh, duplicate-tab, and the
+   reconnect auto-reload all land back on this tab's site instead of the browser
+   default. Also feeds the fetch wrapper in site-context.js the slug it stamps
+   onto same-origin /api/ requests. Renders nothing. *@
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject SiteContextService SiteContext
+@inject SiteManagementService SiteManagement
+@inject IJSRuntime JS
+
+@code {
+    private bool _active;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        _active = await SiteManagement.IsMultiSiteEnabledAsync();
+        if (!_active)
+            return;
+
+        Navigation.LocationChanged += OnLocationChanged;
+        await EnsureSiteParamAsync();
+    }
+
+    private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+        => await EnsureSiteParamAsync();
+
+    private async Task EnsureSiteParamAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("noSiteContext.ensureSiteParam", SiteContext.Slug);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException)
+        {
+            // Circuit tearing down (navigation away, tab close) - nothing to sync.
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_active)
+            Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

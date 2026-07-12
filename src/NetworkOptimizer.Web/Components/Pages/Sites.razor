@@ -13,7 +13,6 @@
 @inject NetworkOptimizer.Storage.Services.SiteDbContextFactory SiteDb
 @inject NetworkOptimizer.Web.Services.Licensing.LicenseStateService LicenseState
 @inject NavigationManager NavigationManager
-@inject IJSRuntime JS
 
 <PageTitle>Sites - Network Optimizer</PageTitle>
 
@@ -53,7 +52,12 @@ else
         @foreach (var site in _sites)
         {
             var isCurrent = site.Slug == SiteContext.Slug;
-            <div class="card site-card @(isCurrent ? "site-card-current" : "")" @onclick="() => SwitchToAsync(site)">
+            @* Real anchor so ctrl / cmd / shift / middle click opens the site in a new
+               tab; site-context.js turns a plain left click into the switch. *@
+            <a class="card site-card @(isCurrent ? "site-card-current" : "")"
+               href="@SiteHref(site)"
+               data-site-switch="@site.Slug"
+               data-site-current="@(isCurrent ? "" : null)">
                 <div class="site-card-header">
                     <span class="status-dot @(SiteConnections.GetFor(site.Slug).IsConnected ? "online" : "offline")" data-tooltip="@(SiteConnections.GetFor(site.Slug).IsConnected ? "Console connected" : "Console not connected")"></span>
                     <h3 class="site-card-name">@site.Name</h3>
@@ -64,7 +68,7 @@ else
                 </div>
                 @if (ConsoleHost(site.Id) is { Length: > 0 } host)
                 {
-                    <div class="site-card-console" data-tooltip="UniFi Console this site connects to">@host</div>
+                    <div class="site-card-console">@host</div>
                 }
                 <div class="site-card-meta">
                     <span class="site-card-slug">@site.Slug</span>
@@ -87,7 +91,7 @@ else
                         <span class="site-card-agents">@OnlineAgentCount(site.Id)/@AgentCount(site.Id) agents online</span>
                     }
                 </div>
-            </div>
+            </a>
         }
 
         <div class="card site-card site-card-add" @onclick="@(() => NavigationManager.NavigateTo("/settings?tab=multisite"))">
@@ -207,15 +211,8 @@ else
             ? Math.Max(0, (int)Math.Ceiling((deadline - DateTime.UtcNow).TotalDays))
             : 0;
 
-    private async Task SwitchToAsync(Site site)
-    {
-        if (site.Slug == SiteContext.Slug)
-            return;
-
-        // Site context is cookie-based; a full reload re-resolves every scoped
-        // service against the selected site's database.
-        await JS.InvokeVoidAsync("eval",
-            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
-        NavigationManager.NavigateTo("/", forceLoad: true);
-    }
+    /// <summary>The new site's dashboard, pinned - the card's anchor href. A plain click
+    /// switches here (via site-context.js); ctrl / cmd / shift / middle opens a new tab.</summary>
+    private static string SiteHref(Site site) =>
+        SiteContextService.WithSiteParam("/", site.Slug);
 }

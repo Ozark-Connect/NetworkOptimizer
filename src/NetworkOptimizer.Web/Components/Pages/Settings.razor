@@ -33,6 +33,7 @@
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager NavigationManager
 @inject SiteManagementService SiteManagement
+@inject SiteSwitchService SiteSwitch
 @inject AgentEnrollmentService AgentEnrollment
 @inject AgentServerUrlProvider AgentServerUrl
 @inject AgentTunnelRegistry TunnelRegistry
@@ -2279,7 +2280,11 @@
     <!-- Threat Intelligence Configuration -->
     <div class="card settings-tab-security" id="threat-intelligence">
         <div class="card-header">
-            <h2 class="card-title">@(_multiSiteEnabled && SiteContext.IsDefault ? "Global Threat Intelligence" : "Threat Intelligence")</h2>
+            <h2 class="card-title">Threat Intelligence</h2>
+            @if (_multiSiteEnabled && SiteContext.IsDefault)
+            {
+                <span class="status-badge global-badge" data-tooltip="Applies to all sites (instance-wide)">Global</span>
+            }
         </div>
         <div class="card-body">
             <p class="section-description">
@@ -3292,22 +3297,14 @@
     }
 
     /// <summary>
-    /// Switch the active site to the given one. Site context is cookie-based, so a
-    /// full reload is required for every scoped service to resolve against the new
-    /// site's database (same mechanism as the header site switcher).
+    /// Switch the active site to the given one (same mechanism as the header site
+    /// switcher): make it the browser default and reload this tab pinned to it.
     /// </summary>
     private async Task SwitchToSiteAsync(Site site)
     {
         if (site.Slug == SiteContext.Slug)
             return;
-        await JS.InvokeVoidAsync("eval",
-            $"document.cookie = '{SiteContextService.CookieName}={site.Slug}; path=/; max-age=31536000; SameSite=Lax'");
-        // Drop any #fragment first: reloading the *same* URL with its fragment is a
-        // same-document navigation the browser won't actually reload, so the new site
-        // cookie would never take effect. The fragment is meaningless on another site anyway.
-        var target = NavigationManager.Uri;
-        var fragmentAt = target.IndexOf('#');
-        NavigationManager.NavigateTo(fragmentAt >= 0 ? target[..fragmentAt] : target, forceLoad: true);
+        await SiteSwitch.SwitchToAsync(site.Slug);
     }
 
     private async Task SiteNameEditKey(KeyboardEventArgs e, Site site)

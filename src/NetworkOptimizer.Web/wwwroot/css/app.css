@@ -353,6 +353,19 @@ a:hover {
     font-weight: 600;
     letter-spacing: -0.015em;
     margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.page-header-suffix {
+    margin-left: 0.75rem;
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+h1:focus {
+    outline: none;
 }
 
 .page-header-actions {
@@ -17517,10 +17530,13 @@ body.kiosk-mode .status-indicators {
 }
 
 .site-card {
+    display: block;
     padding: 1rem;
     cursor: pointer;
     border: 1px solid transparent;
     margin-bottom: 0;
+    color: var(--text-primary);
+    text-decoration: none;
     transition: background 0.15s, border-color 0.15s;
 }
 

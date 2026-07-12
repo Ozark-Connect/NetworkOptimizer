@@ -15,6 +15,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject IConfiguration Configuration
 @inject SiteContextService SiteContext
+@inject SiteSwitchService SiteSwitch
 @inject SiteSpeedTestTargetResolver SiteTarget
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
@@ -93,7 +94,7 @@
                     <strong>Device Offline</strong>
                     <span>This device is currently offline. Showing historical data. Live data will appear when it reconnects.</span>
                 </div>
-                <button class="btn btn-primary btn-sm" @onclick="() => NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true)">Retry</button>
+                <button class="btn btn-primary btn-sm" @onclick="ReloadPageAsync">Retry</button>
             </div>
         </div>
     }
@@ -143,7 +144,7 @@
         <div class="card empty-state">
             <h3>Device Not Found</h3>
             <p>Could not identify your device on the network. Make sure you're connected and the UniFi Console is reachable.</p>
-            <button class="btn btn-primary" @onclick="() => NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true)">Retry</button>
+            <button class="btn btn-primary" @onclick="ReloadPageAsync">Retry</button>
         </div>
     }
     else
@@ -1217,8 +1218,17 @@
         }
         catch { /* remembering is best-effort */ }
         Logger.LogDebug("Client identity (site {Site}): device picked manually ({Ip})", SiteContext.Slug, _pickerSelection);
-        NavigationManager.NavigateTo($"/client-dashboard?ip={Uri.EscapeDataString(_pickerSelection)}", forceLoad: true);
+        NavigationManager.NavigateTo(
+            await SiteSwitch.StampSiteAsync($"/client-dashboard?ip={Uri.EscapeDataString(_pickerSelection)}"),
+            forceLoad: true);
     }
+
+    /// <summary>
+    /// Full-page retry. The reload target is stamped with this tab's site so a tab
+    /// pinned to a non-default site doesn't fall back to the browser default.
+    /// </summary>
+    private async Task ReloadPageAsync() =>
+        NavigationManager.NavigateTo(await SiteSwitch.StampSiteAsync(NavigationManager.Uri), forceLoad: true);
 
     /// <summary>
     /// Lightweight 1s poll: only hits WiFiman for live signal/channel/band/rates.

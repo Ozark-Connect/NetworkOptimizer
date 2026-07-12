@@ -3099,7 +3099,8 @@ export class LanFlowMap {
         // Wi-Fi clients land on the Signal tab; wired clients have no signal data,
         // so they go to the default tab.
         const tab = node.kind === NODE_KIND.WifiClient ? '&tab=signal' : '';
-        window.location.href = `/client-dashboard?ip=${encodeURIComponent(ip)}${tab}`;
+        const url = `/client-dashboard?ip=${encodeURIComponent(ip)}${tab}`;
+        window.location.href = window.noSiteContext ? window.noSiteContext.stampUrl(url) : url;
     }
 
     _showHover(node) {

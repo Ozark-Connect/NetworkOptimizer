@@ -267,6 +267,7 @@ builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, 
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddScoped<SiteContextService>();
+builder.Services.AddScoped<SiteSwitchService>();
 // The alert pipeline pins its scope to an event's originating site through this seam.
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertSiteScope>(sp =>
     sp.GetRequiredService<SiteContextService>());
@@ -528,7 +529,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
 
                 context.HandleResponse();
-                context.Response.Redirect("/login");
+                // Carry the tab's ?site= pin through login (same as the auth middleware).
+                var challengeSite = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
+                context.Response.Redirect(string.IsNullOrEmpty(challengeSite)
+                    ? "/login"
+                    : $"/login?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(challengeSite)}");
                 return Task.CompletedTask;
             }
         };
@@ -1138,34 +1143,23 @@ app.Use(async (context, next) =>
             return;
         }
 
-        // Web pages redirect to login
-        context.Response.Redirect("/login");
+        // Web pages redirect to login. Carry the tab's ?site= pin through so the
+        // post-login redirect lands back on the site the tab was on.
+        var loginSite = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
+        context.Response.Redirect(string.IsNullOrEmpty(loginSite)
+            ? "/login"
+            : $"/login?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(loginSite)}");
         return;
     }
 
     await next();
 });
 
-// Site selection via ?site=<slug>: alert "View" links carry the originating site so a
-// notification lands on the right site. Persist a valid value to the site cookie (same
-// attributes as the in-app switcher) so the whole session follows the link; validation
-// runs through the scoped site context, which checks the slug and its provisioned DB.
-app.Use(async (context, next) =>
-{
-    var siteParam = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
-    if (!string.IsNullOrEmpty(siteParam)
-        && context.Request.Cookies[SiteContextService.CookieName] != siteParam
-        && context.RequestServices.GetRequiredService<SiteContextService>().IsSelectableSite(siteParam))
-    {
-        context.Response.Cookies.Append(SiteContextService.CookieName, siteParam, new CookieOptions
-        {
-            Path = "/",
-            MaxAge = TimeSpan.FromDays(365),
-            SameSite = SameSiteMode.Lax
-        });
-    }
-    await next();
-});
+// Site selection via ?site=<slug> is per browser tab: it wins over the site cookie on
+// every request (SiteContextService.Resolve), the circuit pins itself from the tab URL
+// (Routes.razor), and SiteTabSync keeps the selector in the address bar. It is never
+// persisted to the cookie - following an alert "View" link pins only that tab, and the
+// cookie remains the browser default written solely by an explicit switch in the UI.
 
 // Configure static files with custom MIME types for package downloads
 var contentTypeProvider = new FileExtensionContentTypeProvider();
@@ -1270,7 +1264,12 @@ app.MapGet("/api/auth/logout", (HttpContext context) =>
         Path = "/"
     });
 
-    return Results.Redirect("/login");
+    // Carry the tab's ?site= pin (stamped onto the logout link by site-context.js)
+    // through to the login page so logging back in returns to the same site.
+    var logoutSite = context.Request.Query[SiteContextService.SiteQueryParam].ToString();
+    return Results.Redirect(string.IsNullOrEmpty(logoutSite)
+        ? "/login"
+        : $"/login?{SiteContextService.SiteQueryParam}={Uri.EscapeDataString(logoutSite)}");
 });
 
 app.MapGet("/api/auth/check", async (HttpContext context, IJwtService jwt) =>

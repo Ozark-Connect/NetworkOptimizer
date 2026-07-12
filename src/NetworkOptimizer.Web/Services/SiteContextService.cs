@@ -5,7 +5,8 @@ using NetworkOptimizer.Storage.Services;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Scoped ambient site context. The current site is carried in a browser cookie
+/// Scoped ambient site context. The current site is carried in the URL's ?site=
+/// query parameter (per browser tab) with a cookie as the browser-wide default,
 /// so it is readable synchronously during prerender, in API endpoints, and when
 /// the scoped DbContext options are built - no site parameter threading anywhere.
 /// Scopes without an HTTP context (background jobs, startup) resolve to the
@@ -13,13 +14,19 @@ namespace NetworkOptimizer.Web.Services;
 /// </summary>
 public class SiteContextService : IAlertSiteScope
 {
-    /// <summary>Cookie carrying the selected site slug for this browser.</summary>
+    /// <summary>
+    /// Cookie carrying this browser's default site slug: the site used by any URL
+    /// that has no <see cref="SiteQueryParam"/> selector (new tabs, bare bookmarks).
+    /// Written only by an explicit switch in the UI, never by following a link.
+    /// </summary>
     public const string CookieName = "no-site";
 
     /// <summary>
-    /// Query-string parameter that selects a site for a single request (used by alert
-    /// "View" links so a notification lands on its originating site). A middleware
-    /// persists it to <see cref="CookieName"/> so the whole session follows the link.
+    /// Query-string parameter that pins a browser tab to a site. It wins over
+    /// <see cref="CookieName"/> on every request, the interactive circuit pins its
+    /// scope from it (<see cref="PinFromUri"/>), and the SiteTabSync component keeps
+    /// it in the address bar - so different tabs can work on different sites, and
+    /// alert "View" links land on their originating site without affecting other tabs.
     /// </summary>
     public const string SiteQueryParam = "site";
 
@@ -68,13 +75,91 @@ public class SiteContextService : IAlertSiteScope
         (slug == SiteManagementService.DefaultSiteSlug ||
          (StringUtilities.IsSlug(slug) && File.Exists(_dbPaths.GetSiteDbPath(slug, isDefault: false))));
 
+    /// <summary>
+    /// Pins this scope to the site carried in the given URL's ?site= parameter, if
+    /// present and selectable. Called by the interactive root component before any
+    /// other scoped service resolves the site, so a Blazor circuit follows its own
+    /// tab's URL rather than the shared browser cookie (the circuit's WebSocket
+    /// upgrade request carries only the cookie).
+    /// </summary>
+    public void PinFromUri(string uri)
+    {
+        var slug = GetSiteParam(uri);
+        if (slug != null && IsSelectableSite(slug))
+            _slug = slug;
+    }
+
+    /// <summary>
+    /// Returns the URL with its ?site= parameter set to the given slug (replacing any
+    /// existing value, preserving other query parameters). Full-page navigations must
+    /// stamp their target through this so a pinned tab keeps its site across the reload.
+    /// </summary>
+    public static string WithSiteParam(string url, string slug)
+    {
+        var fragment = "";
+        var fragmentAt = url.IndexOf('#');
+        if (fragmentAt >= 0)
+        {
+            fragment = url[fragmentAt..];
+            url = url[..fragmentAt];
+        }
+
+        var stripped = RemoveSiteParam(url);
+        var separator = stripped.Contains('?') ? '&' : '?';
+        return $"{stripped}{separator}{SiteQueryParam}={Uri.EscapeDataString(slug)}{fragment}";
+    }
+
+    /// <summary>Returns the URL with any ?site= parameter removed, other parameters and fragment intact.</summary>
+    public static string RemoveSiteParam(string url)
+    {
+        var fragment = "";
+        var fragmentAt = url.IndexOf('#');
+        if (fragmentAt >= 0)
+        {
+            fragment = url[fragmentAt..];
+            url = url[..fragmentAt];
+        }
+
+        var queryAt = url.IndexOf('?');
+        if (queryAt < 0)
+            return url + fragment;
+
+        var kept = url[(queryAt + 1)..]
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => !p.Equals(SiteQueryParam, StringComparison.OrdinalIgnoreCase)
+                     && !p.StartsWith(SiteQueryParam + "=", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var basePart = url[..queryAt];
+        return (kept.Count > 0 ? $"{basePart}?{string.Join('&', kept)}" : basePart) + fragment;
+    }
+
+    private static string? GetSiteParam(string uri)
+    {
+        var queryAt = uri.IndexOf('?');
+        if (queryAt < 0)
+            return null;
+
+        var query = uri[(queryAt + 1)..];
+        var fragmentAt = query.IndexOf('#');
+        if (fragmentAt >= 0)
+            query = query[..fragmentAt];
+
+        var value = query
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => p.StartsWith(SiteQueryParam + "=", StringComparison.OrdinalIgnoreCase))
+            .Select(p => Uri.UnescapeDataString(p[(SiteQueryParam.Length + 1)..]))
+            .FirstOrDefault();
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
     private string Resolve()
     {
         var request = _httpContextAccessor.HttpContext?.Request;
 
-        // A ?site= query param (an alert "View" link) wins over the cookie so the linked
-        // page renders the correct site on first paint, before the selection middleware's
-        // cookie takes effect on subsequent requests. An invalid value falls through.
+        // A ?site= query param (a tab pin or an alert "View" link) wins over the cookie
+        // so the page renders the correct site on first paint and API requests resolve
+        // the site of the tab that issued them. An invalid value falls through.
         var queryParam = request?.Query[SiteQueryParam].ToString();
         if (!string.IsNullOrEmpty(queryParam) && IsSelectableSite(queryParam))
             return queryParam;

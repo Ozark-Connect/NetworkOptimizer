@@ -1,4 +1,6 @@
 @rendermode InteractiveServer
+@inject NavigationManager Navigation
+@inject SiteContextService SiteContext
 
 <Router AppAssembly="typeof(Program).Assembly">
     <Found Context="routeData">
@@ -6,3 +8,15 @@
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
+<SiteTabSync />
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Pin this scope to the site in the tab's URL before the Router renders
+        // anything that could resolve the site context. The circuit's WebSocket
+        // upgrade request only carries the shared site cookie, so without this pin
+        // every tab of the browser would collapse onto the same site.
+        SiteContext.PinFromUri(Navigation.Uri);
+    }
+}

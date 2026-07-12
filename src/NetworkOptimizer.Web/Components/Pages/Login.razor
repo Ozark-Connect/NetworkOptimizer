@@ -5,6 +5,7 @@
 @inject NavigationManager Navigation
 @inject IAdminAuthService AdminAuth
 @inject IJwtService JwtService
+@inject SiteSwitchService SiteSwitch
 
 <PageTitle>Login - Network Optimizer</PageTitle>
 
@@ -104,12 +105,15 @@
                 isRedirecting = true;
                 StateHasChanged();
 
-                // Set cookie and redirect to home
+                // Set cookie and redirect to home, keeping the tab's ?site= pin (the
+                // auth middleware carries it onto /login) so re-auth lands on the
+                // same site the tab was on.
                 // Note: forceLoad navigation will throw TaskCanceledException as the circuit
                 // is destroyed during the page reload - this is expected behavior
+                var returnUrl = await SiteSwitch.StampSiteAsync("/");
                 try
                 {
-                    Navigation.NavigateTo($"/api/auth/set-cookie?token={Uri.EscapeDataString(token)}&returnUrl=/", forceLoad: true);
+                    Navigation.NavigateTo($"/api/auth/set-cookie?token={Uri.EscapeDataString(token)}&returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
                 }
                 catch (TaskCanceledException)
                 {
