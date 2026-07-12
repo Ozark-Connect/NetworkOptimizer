@@ -5,6 +5,7 @@
 @inject SiteContextService SiteCtx
 @inject NetworkOptimizer.Web.Services.Monitoring.ProbeExecutorFactory ExecutorFactory
 @inject NetworkOptimizer.Web.Services.Monitoring.AsnResolutionService AsnResolution
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 <div class="card">
     <div class="card-header card-header-collapsible" @onclick="ToggleCollapse">
@@ -57,7 +58,7 @@
                     @foreach (var t in Targets.OrderBy(t => t.TargetType).ThenBy(t => t.Name))
                     {
                         var latest = LiveStats.GetTargetStats(t.TargetId);
-                        <tr style="@(t.Enabled ? "" : "opacity: 0.55;")">
+                        <tr id="latency-target-@t.Id" style="@(t.Enabled ? "" : "opacity: 0.55;")">
                             <td>
                                 <span class="status-badge @TargetTypeBadgeClass(t.TargetType)">
                                     @t.TargetType.ToDisplayName()
@@ -260,6 +261,30 @@
     private string? _addTargetError;
 
     private void ToggleCollapse() => _collapsed = !_collapsed;
+
+    /// <summary>
+    /// Expands the card (it defaults collapsed) and scrolls to a specific target's row with a
+    /// brief highlight. Called from the LAN flaky-target advisory so "review in Latency Targets"
+    /// lands the user on the exact row. Mirrors the scroll+outline pattern used elsewhere on the
+    /// monitoring page (Monitoring.ScrollToFlakyTargetsAsync).
+    /// </summary>
+    public async Task ExpandAndHighlightAsync(int targetId)
+    {
+        _collapsed = false;
+        StateHasChanged();
+        // Let the expand animation start and the row render before scrolling to it.
+        await Task.Delay(350);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('latency-target-{targetId}');
+                if (el) {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                    el.style.transition = 'background-color 0.3s';
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.18)';
+                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 2000);
+                }}
+            }})();");
+    }
 
     private async Task ToggleTargetAsync(int targetId)
     {

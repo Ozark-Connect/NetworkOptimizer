@@ -109,6 +109,14 @@ public class MonitoringTarget
     [MaxLength(200)]
     public string? AutoLabel { get; set; }
 
+    /// <summary>
+    /// When the user dismissed the "flaky LAN target" advisory for this target (the hint shown
+    /// on the LAN latency chart for non-gateway/non-AP fabric devices whose loss is usually a
+    /// measurement artifact). Null = never dismissed, so the hint may still show. Set once and
+    /// left; it only suppresses an advisory, so there's no un-dismiss path.
+    /// </summary>
+    public DateTime? LanFlakyHintDismissedAt { get; set; }
+
     public DateTime? LastVerified { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
