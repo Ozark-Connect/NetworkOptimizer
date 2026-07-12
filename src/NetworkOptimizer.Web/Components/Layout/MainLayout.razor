@@ -354,6 +354,26 @@
     private bool sidebarOpen = false;
     private DotNetObjectReference<MainLayout>? _dotNetRef;
 
+    protected override void OnInitialized()
+    {
+        // Keep the header's Console Connected/Disconnected indicator live. On
+        // agent-proxied sites the console connects asynchronously after first paint
+        // (once the agent tunnel is up); without this subscription the header stays
+        // "Console Disconnected" until the next navigation.
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+    }
+
+    private async void OnConnectionChanged()
+    {
+        // Fires from a background thread (console (re)connect); marshal to the
+        // dispatcher and swallow exceptions so this async void can't crash the circuit.
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch { /* component may be disposed */ }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
