@@ -3176,6 +3176,20 @@ select.form-control {
 
 /* Responsive Design */
 @media (max-width: 1024px) {
+    /* Lock the viewport so only .main-content scrolls - iOS can otherwise scroll
+       the body (esp. on return from background), swallowing touch gestures.
+       Scoped to the app shell so the login page can still scroll. */
+    html:has(.app-container) {
+        overflow: hidden;
+    }
+
+    body:has(.app-container) {
+        overflow: hidden;
+        position: fixed;
+        width: 100%;
+        height: 100%;
+    }
+
     .content-grid {
         grid-template-columns: 1fr;
     }
