@@ -31,14 +31,18 @@ public class AgentTunnelProxyService : IDisposable
     // 90s server watchdog drops the dead tunnel.
     private static readonly TimeSpan StaleTunnelThreshold = TimeSpan.FromSeconds(45);
 
-    // After an open to a site times out, fast-fail further opens for this long
-    // instead of each eating the full OpenTimeout. A page render (a site switch)
-    // fires a burst of console + SSH opens; in the first ~45s of an outage -
-    // before the liveness gate above can trip without false-failing a healthy
-    // tunnel - that burst would otherwise block OpenTimeout on every one, which
-    // read as a 15s+ hang on the switch. The breaker self-clears the instant the
-    // tunnel produces fresh inbound (recovery); see the LastMessageAt check below.
-    private static readonly TimeSpan OpenBreakerCooldown = TimeSpan.FromSeconds(15);
+    // After an open to a site times out, fast-fail further opens instead of each
+    // eating the full OpenTimeout. A page render (a site switch) fires a burst of
+    // console + SSH opens; in the first ~45s of an outage - before the liveness
+    // gate above can trip without false-failing a healthy tunnel - that burst
+    // would otherwise block OpenTimeout on every one, a 15s+ hang on the switch.
+    // Hold past the 45s gate so the breaker never expires and re-probes
+    // mid-outage; a shorter hold let a fresh burst time out every ~15s, a ~10s
+    // stall on any switch landing in that window. It still clears the instant the
+    // tunnel produces fresh inbound (recovery) - see the LastMessageAt check
+    // below - so a healthy tunnel is never held this long: its next heartbeat
+    // (<=30s) advances LastMessageAt and lets the open through.
+    private static readonly TimeSpan OpenBreakerHold = TimeSpan.FromSeconds(60);
     private readonly ConcurrentDictionary<string, (DateTime Until, DateTime OpenedAtLastMsg)> _openBreaker = new();
 
     private readonly AgentTunnelRegistry _registry;
@@ -165,7 +169,7 @@ public class AgentTunnelProxyService : IDisposable
                 openError = "open timed out";
                 // Trip the breaker so the opens queued behind this one fast-fail
                 // instead of each blocking the full OpenTimeout.
-                _openBreaker[listener.SiteSlug] = (DateTime.UtcNow + OpenBreakerCooldown, agent.LastMessageAt);
+                _openBreaker[listener.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt);
             }
             if (openError != null)
             {
