@@ -444,20 +444,45 @@
         }
 
         // PWA / mobile resume recovery. When the app is backgrounded, iOS and
-        // Android suspend the tab and its Blazor WebSocket dies, but on resume
-        // Blazor often does NOT surface the reconnect modal (the socket looks
-        // open to it), so the page sits on its stale prerender with frozen
-        // loading spinners until a manual refresh - exactly what a user sees
-        // returning to a long-backgrounded dashboard. If the tab was hidden
-        // long enough that the circuit almost certainly dropped, reload on
-        // resume. The reconnect-modal observer above already covers the case
-        // where Blazor DOES detect the drop, so defer to it when it's showing
-        // to avoid a double reload. scrollRestoration.js and the site-context
-        // pin keep the reload on the same place and site.
+        // Android suspend the tab and its Blazor WebSocket can die, but on resume
+        // Blazor often does NOT surface the reconnect modal (the socket still
+        // looks open to it), so the page sits on its stale prerender with frozen
+        // loading spinners until a manual refresh. Rather than reload on a blind
+        // timer - which threw away scroll position and in-page state even when
+        // the circuit had actually survived the backgrounding - PROBE the circuit
+        // on resume and only reload when it's genuinely dead. A live circuit
+        // answers the round-trip in a few ms; a dead-but-open socket never
+        // replies, so the timeout tells us a reload is really needed. The
+        // reconnect-modal observer above covers the case where Blazor detects the
+        // drop itself, so defer to it when it's showing.
         (function () {
             const STALE_HIDDEN_MS = 30000;
+            const PROBE_TIMEOUT_MS = 2500;
             let hiddenAt = null;
-            document.addEventListener('visibilitychange', function () {
+
+            function blazorHandlingDrop() {
+                const m = document.getElementById('components-reconnect-modal');
+                return !!m && (
+                    m.classList.contains('components-reconnect-show') ||
+                    m.classList.contains('components-reconnect-failed') ||
+                    m.classList.contains('components-reconnect-rejected'));
+            }
+
+            async function circuitAlive() {
+                if (!window.DotNet) return false;
+                try {
+                    await Promise.race([
+                        DotNet.invokeMethodAsync('NetworkOptimizer.Web', 'Ping'),
+                        new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('probe timeout')), PROBE_TIMEOUT_MS))
+                    ]);
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+
+            document.addEventListener('visibilitychange', async function () {
                 if (document.visibilityState === 'hidden') {
                     hiddenAt = Date.now();
                     return;
@@ -465,12 +490,12 @@
                 if (hiddenAt === null) return;
                 const hiddenMs = Date.now() - hiddenAt;
                 hiddenAt = null;
-                const modal = document.getElementById('components-reconnect-modal');
-                const blazorHandlingDrop = modal && (
-                    modal.classList.contains('components-reconnect-show') ||
-                    modal.classList.contains('components-reconnect-failed') ||
-                    modal.classList.contains('components-reconnect-rejected'));
-                if (hiddenMs >= STALE_HIDDEN_MS && !blazorHandlingDrop) {
+                if (hiddenMs < STALE_HIDDEN_MS || blazorHandlingDrop()) return;
+
+                // Only reload when the circuit is genuinely dead; otherwise pick
+                // up exactly where we left off. Re-check the modal after the probe
+                // in case Blazor surfaced its own reconnect UI meanwhile.
+                if (!(await circuitAlive()) && !blazorHandlingDrop()) {
                     location.reload();
                 }
             });
