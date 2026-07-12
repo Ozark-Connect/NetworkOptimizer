@@ -152,6 +152,44 @@ public class StepChangeDetectorTests
     }
 
     [Fact]
+    public void Mid_window_shift_with_transition_median_outside_band_is_detected()
+    {
+        // Production shape (Cloudflare path, Jul 2026): the shift landed mid-window and a
+        // small dip just before it left the transition window's median slightly BELOW the
+        // old level. Requiring the transition median to sit strictly between the levels
+        // rejected the step-up entirely, while the matching step-down was only caught
+        // because its transition median landed 0.01 ms inside the band.
+        var dipStart = TestSeries.Start.AddHours(12);
+        var shiftAt = dipStart.AddMinutes(20);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 13.3, jitterMs: 0.3)
+            .WithSegment(dipStart, shiftAt, rttMs: 12.9, jitterMs: 0.3)
+            .WithSegment(shiftAt, TestSeries.Start + Day, rttMs: 17.5, jitterMs: 0.3);
+
+        var events = StepChangeDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().ContainSingle();
+        events[0].Direction.Should().Be(PathShiftDirection.Up);
+        events[0].BeforeMedianMs.Should().BeApproximately(13.3, 0.1);
+        events[0].AfterMedianMs.Should().BeApproximately(17.5, 0.1);
+        events[0].Time.Should().BeCloseTo(shiftAt, TimeSpan.FromMinutes(10));
+    }
+
+    [Fact]
+    public void Stable_plateau_outside_the_band_does_not_bridge_a_step()
+    {
+        // A full window resting at its own level outside the two step levels is a distinct
+        // plateau, not a transition - the skip-one-window comparison must still reject it.
+        var plateauStart = TestSeries.Start.AddHours(12);
+        var samples = TestSeries.Flat(TestSeries.Start, Day, rttMs: 20, jitterMs: 0.3)
+            .WithSegment(plateauStart, plateauStart.AddMinutes(30), rttMs: 10, jitterMs: 0.3)
+            .WithSegment(plateauStart.AddMinutes(30), TestSeries.Start + Day, rttMs: 17, jitterMs: 0.3);
+
+        var events = StepChangeDetector.DetectForSeries(TestSeries.Asn(64500, "TransitOne", samples), Options);
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Correlated_steps_across_targets_merge_into_one_event()
     {
         var stepAt = TestSeries.Start.AddHours(12);

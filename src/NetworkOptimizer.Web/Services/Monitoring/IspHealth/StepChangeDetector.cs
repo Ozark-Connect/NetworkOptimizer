@@ -44,7 +44,8 @@ public static class StepChangeDetector
             // A shift that lands mid-window leaves a transition window straddling both
             // levels, whose wide IQR overlaps the before-window and masks the step
             // (seen in real data). So also try comparing against the window after it,
-            // accepting the skipped window only when its median sits between the levels.
+            // rejecting the skipped window only when it is a stable level outside the
+            // two step levels (a genuine third level, not a transition).
             var detected = TryDetectStep(windows, i, afterIndex: i + 1, options)
                 ?? TryDetectStep(windows, i, afterIndex: i + 2, options);
             if (detected == null) continue;
@@ -92,11 +93,17 @@ public static class StepChangeDetector
         if (!IsStableLevel(before, options) || !IsStableLevel(after, options)) return null;
         if (afterIndex == beforeIndex + 2)
         {
-            var transition = windows[beforeIndex + 1].MedianMs;
-            var inBetween = delta > 0
-                ? transition > before.MedianMs && transition < after.MedianMs
-                : transition < before.MedianMs && transition > after.MedianMs;
-            if (!inBetween) return null;
+            // The skipped window mixes both levels, and which side its median lands on
+            // depends on where the crossing fell within it - noise can push it fractionally
+            // outside the [before, after] band (a real step-up was missed because a small
+            // pre-shift dip left the transition median 0.3 ms below the old level). Only a
+            // window that is itself a stable level outside the band disqualifies the skip:
+            // that is a distinct plateau (spike or dip), not a transition.
+            var transition = windows[beforeIndex + 1];
+            var lo = Math.Min(before.MedianMs, after.MedianMs);
+            var hi = Math.Max(before.MedianMs, after.MedianMs);
+            var inBetween = transition.MedianMs > lo && transition.MedianMs < hi;
+            if (!inBetween && IsStableLevel(transition, options)) return null;
         }
         if (!EstablishedAtOldLevel(windows, beforeIndex, delta, options)) return null;
         if (!PersistsAtNewLevel(windows, before.MedianMs, delta, afterIndex, options)) return null;
