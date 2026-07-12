@@ -25,8 +25,13 @@
 <div class="page-header">
     @* Site name next to the header (muted) when multi-site is enabled, including the
        main site, so each per-site tab is identifiable at a glance. *@
-    <h1>Dashboard@if (!string.IsNullOrEmpty(_siteName))
-        {<span class="page-header-suffix">@_siteName</span>}</h1>
+    <h1>
+        Dashboard
+        @if (!string.IsNullOrEmpty(_siteName))
+        {
+            <span class="page-header-suffix">@_siteName</span>
+        }
+    </h1>
     <div class="page-header-actions">
         @if (_editMode)
         {
