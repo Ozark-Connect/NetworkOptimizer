@@ -46,6 +46,13 @@ public class AgentProbeResultSink
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _consoleFetchGate = new();
     private static readonly TimeSpan ConsoleCacheTtl = TimeSpan.FromSeconds(60);
 
+    // Samples older than this skip the alert state machines. Agents replay
+    // their store-and-forward backlog after a tunnel outage; feeding an
+    // hours-old down→up sequence through the evaluators would fire and resolve
+    // alerts long after the fact. History still lands in Influx and the live
+    // caches (replay is chronological, so the caches end on the newest sample).
+    private static readonly TimeSpan AlertFreshness = TimeSpan.FromMinutes(10);
+
     // Per-site topology-boundary aggregator (fabric sums, AP backhaul, gateway WAN),
     // the same LanFabricAggregator the directly-monitored fast tier uses. Keyed by slug
     // because this sink is a singleton serving every agent site.
@@ -745,6 +752,9 @@ public class AgentProbeResultSink
             // Threshold evaluation through the site's own evaluator instance, same
             // state machine the local medium tier runs. The name cache captured on
             // config push gives the alert a device label instead of a bare MAC.
+            // Replayed backlog samples skip evaluation (see AlertFreshness).
+            if (DateTime.UtcNow - timestamp > AlertFreshness)
+                continue;
             try
             {
                 string? deviceName = null;
@@ -809,20 +819,28 @@ public class AgentProbeResultSink
             }
         }
 
-        var deviceFields = new Dictionary<string, Dictionary<string, object>>();
+        // Grouped per timestamp as well as per target: a live batch carries one
+        // poll's worth of results (all the same stamp, one point per target,
+        // same as before), but an agent replaying its store-and-forward backlog
+        // after a tunnel outage coalesces many polls into one batch, and each
+        // poll must land at its own sample time - not the flush time.
+        var deviceFields = new Dictionary<(string Mac, long Ts), Dictionary<string, object>>();
         var deviceTypes = new Dictionary<string, string>();
-        var interfaceFields = new Dictionary<(string Mac, string IfName), Dictionary<string, object>>();
+        var interfaceFields = new Dictionary<(string Mac, string IfName, long Ts), Dictionary<string, object>>();
 
         foreach (var r in results)
         {
             var mac = NormalizeMac(r.DeviceMac);
             var valueType = (CustomOidValueType)r.ValueType;
+            var ts = r.TimestampUnixMs > 0
+                ? r.TimestampUnixMs
+                : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (r.Scope == 0) // DeviceLevel
             {
                 if (string.IsNullOrEmpty(r.Value)) continue;
-                if (!deviceFields.TryGetValue(r.DeviceMac, out var fields))
+                if (!deviceFields.TryGetValue((r.DeviceMac, ts), out var fields))
                 {
-                    deviceFields[r.DeviceMac] = fields = new Dictionary<string, object>();
+                    deviceFields[(r.DeviceMac, ts)] = fields = new Dictionary<string, object>();
                     deviceTypes[r.DeviceMac] = deviceByMac.TryGetValue(mac, out var d)
                         ? d.DeviceType.ToString() : "unknown";
                 }
@@ -834,7 +852,7 @@ public class AgentProbeResultSink
                 foreach (var (ifIdx, raw) in r.InterfaceValues)
                 {
                     var ifName = idxMap != null && idxMap.TryGetValue(ifIdx, out var n) ? n : ifIdx;
-                    var key = (r.DeviceMac, ifName);
+                    var key = (r.DeviceMac, ifName, ts);
                     if (!interfaceFields.TryGetValue(key, out var fields))
                         interfaceFields[key] = fields = new Dictionary<string, object>();
                     fields[r.FieldName] = CustomOidValueParser.Parse(raw, valueType);
@@ -842,14 +860,15 @@ public class AgentProbeResultSink
             }
         }
 
-        var now = DateTime.UtcNow;
-        foreach (var (deviceMac, fields) in deviceFields)
+        foreach (var ((deviceMac, ts), fields) in deviceFields)
             await influx.WriteCustomFieldsAsync(
-                "device_health", deviceMac, fields, deviceTypes.GetValueOrDefault(deviceMac), null, null, now);
+                "device_health", deviceMac, fields, deviceTypes.GetValueOrDefault(deviceMac), null, null,
+                DateTimeOffset.FromUnixTimeMilliseconds(ts).UtcDateTime);
 
-        foreach (var ((deviceMac, ifName), fields) in interfaceFields)
+        foreach (var ((deviceMac, ifName, ts), fields) in interfaceFields)
             await influx.WriteCustomFieldsAsync(
-                "interface_counters", deviceMac, fields, null, ifName, null, now);
+                "interface_counters", deviceMac, fields, null, ifName, null,
+                DateTimeOffset.FromUnixTimeMilliseconds(ts).UtcDateTime);
     }
 
     /// <summary>Records a batch of probe results from an agent.</summary>
@@ -923,26 +942,30 @@ public class AgentProbeResultSink
             // State-change alerting through the site's own evaluator, exactly like
             // the local latency tier: up→down, down→up, sustained loss. The relayed
             // sample is rebuilt into the probe result shape the evaluator consumes.
-            try
+            // Replayed backlog samples skip evaluation (see AlertFreshness).
+            if (DateTime.UtcNow - timestamp <= AlertFreshness)
             {
-                var ping = new PingProbeResult
+                try
                 {
-                    Target = new ProbeTarget(target.Address, target.ProbeMode, target.Port),
-                    Vantage = new ProbeVantage(vantage, VantageKind.Server),
-                    Sent = result.Sent,
-                    Received = result.Received,
-                    Timestamp = timestamp,
-                    RttMinMs = result.HasRttMinMs ? result.RttMinMs : null,
-                    RttAvgMs = result.HasRttAvgMs ? result.RttAvgMs : null,
-                    RttMaxMs = result.HasRttMaxMs ? result.RttMaxMs : null,
-                    JitterMs = result.HasJitterMs ? result.JitterMs : null,
-                };
-                await _alertRegistry.GetFor(connection.SiteSlug).Targets.EvaluateAsync(target, ping, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Alert evaluator failed for relayed target {Target} (site {Slug})",
-                    target.TargetId, connection.SiteSlug);
+                    var ping = new PingProbeResult
+                    {
+                        Target = new ProbeTarget(target.Address, target.ProbeMode, target.Port),
+                        Vantage = new ProbeVantage(vantage, VantageKind.Server),
+                        Sent = result.Sent,
+                        Received = result.Received,
+                        Timestamp = timestamp,
+                        RttMinMs = result.HasRttMinMs ? result.RttMinMs : null,
+                        RttAvgMs = result.HasRttAvgMs ? result.RttAvgMs : null,
+                        RttMaxMs = result.HasRttMaxMs ? result.RttMaxMs : null,
+                        JitterMs = result.HasJitterMs ? result.JitterMs : null,
+                    };
+                    await _alertRegistry.GetFor(connection.SiteSlug).Targets.EvaluateAsync(target, ping, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Alert evaluator failed for relayed target {Target} (site {Slug})",
+                        target.TargetId, connection.SiteSlug);
+                }
             }
 
             if (result.Success)
