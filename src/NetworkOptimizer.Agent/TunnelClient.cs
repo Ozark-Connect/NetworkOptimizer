@@ -48,6 +48,12 @@ public sealed class TunnelClient
     private const long InboundSilenceTimeoutMs = 150_000;
     private long _lastInboundTicks;
 
+    // Bound the post-connect handshake: the inbound-silence watchdog only arms
+    // once the server hello arrives, so without this a link black-holed between
+    // connect and hello would hang the read on dead TCP for the full OS timeout
+    // (~15 min) before the reconnect loop could retry.
+    private static readonly TimeSpan HelloTimeout = TimeSpan.FromSeconds(20);
+
     /// <summary>Invoked whenever the server pushes a new probe configuration.</summary>
     public Action<ProbeConfig>? OnProbeConfig { get; set; }
 
@@ -138,16 +144,34 @@ public sealed class TunnelClient
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var call = client.Connect(cancellationToken: linked.Token);
 
-        await call.RequestStream.WriteAsync(new AgentMessage
+        // The connection is up but the server hello has not arrived yet, and the
+        // inbound-silence watchdog below only arms once it has. Bound the handshake
+        // so a link black-holed in this window fails fast into a retry instead of
+        // hanging the read on dead TCP for the full OS timeout.
+        TimeSpan heartbeatInterval;
+        string siteSlug;
+        try
         {
-            Hello = new AgentHello { AgentKey = agentKey, Version = version, LanIp = lanIp ?? "" }
-        }, linked.Token);
+            using var helloCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+            helloCts.CancelAfter(HelloTimeout);
 
-        if (!await call.ResponseStream.MoveNext(linked.Token) || call.ResponseStream.Current.Hello is not { } hello)
-            throw new IOException("Tunnel closed before server hello");
+            await call.RequestStream.WriteAsync(new AgentMessage
+            {
+                Hello = new AgentHello { AgentKey = agentKey, Version = version, LanIp = lanIp ?? "" }
+            }, helloCts.Token);
 
-        var heartbeatInterval = TimeSpan.FromSeconds(Math.Max(5, hello.HeartbeatIntervalSeconds));
-        Console.WriteLine($"Tunnel open for site '{hello.SiteSlug}' (heartbeat every {heartbeatInterval.TotalSeconds:0}s)");
+            if (!await call.ResponseStream.MoveNext(helloCts.Token) || call.ResponseStream.Current.Hello is not { } hello)
+                throw new IOException("Tunnel closed before server hello");
+
+            heartbeatInterval = TimeSpan.FromSeconds(Math.Max(5, hello.HeartbeatIntervalSeconds));
+            siteSlug = hello.SiteSlug;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IOException($"No server hello within {HelloTimeout.TotalSeconds:0}s of connecting; assuming dead link");
+        }
+
+        Console.WriteLine($"Tunnel open for site '{siteSlug}' (heartbeat every {heartbeatInterval.TotalSeconds:0}s)");
 
         Volatile.Write(ref _lastInboundTicks, Environment.TickCount64);
         var pumpTask = PumpOutboundAsync(call.RequestStream, linked.Token);
