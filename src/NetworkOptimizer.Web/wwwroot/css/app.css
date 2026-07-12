@@ -3178,16 +3178,12 @@ select.form-control {
 @media (max-width: 1024px) {
     /* Lock the viewport so only .main-content scrolls - iOS can otherwise scroll
        the body (esp. on return from background), swallowing touch gestures.
-       Scoped to the app shell so the login page can still scroll. */
-    html:has(.app-container) {
-        overflow: hidden;
-    }
-
+       overflow:hidden only (no position:fixed, which disturbs the dynamic-viewport
+       behavior the sticky top-bar hide rides on). Scoped to the app shell so the
+       login page can still scroll. */
+    html:has(.app-container),
     body:has(.app-container) {
         overflow: hidden;
-        position: fixed;
-        width: 100%;
-        height: 100%;
     }
 
     .content-grid {
