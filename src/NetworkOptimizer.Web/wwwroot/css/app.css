@@ -5,6 +5,8 @@
 
 /* CSS Variables for theming - Ozark Connect Brand Colors */
 :root {
+    color-scheme: dark;
+
     /* Typography - Two font families only */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
