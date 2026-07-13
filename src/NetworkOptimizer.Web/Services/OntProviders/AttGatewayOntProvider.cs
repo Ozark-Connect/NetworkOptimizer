@@ -91,12 +91,12 @@ public class AttGatewayOntProvider : IOntProvider
             using var client = CreateHttpClient();
             var baseUrl = await ResolveBaseUrlAsync(client, context, cancellationToken);
             if (baseUrl == null)
-                return (false, $"Could not reach {context.Host} via HTTP or HTTPS");
+                return (false, $"Could not reach {context.ConfiguredHost ?? context.Host} via HTTP or HTTPS");
 
             var url = $"{baseUrl}/cgi-bin/fiberstat.ha";
             using var response = await client.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
-                return (false, $"HTTP {(int)response.StatusCode} from {context.Host}");
+                return (false, $"HTTP {(int)response.StatusCode} from {context.ConfiguredHost ?? context.Host}");
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
             var scheme = baseUrl.StartsWith("https") ? "HTTPS" : "HTTP";

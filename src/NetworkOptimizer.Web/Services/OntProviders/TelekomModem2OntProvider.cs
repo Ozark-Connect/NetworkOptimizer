@@ -60,7 +60,7 @@ public sealed class TelekomModem2OntProvider : IOntProvider
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Telekom Modem 2 ONT {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling Telekom Modem 2 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }

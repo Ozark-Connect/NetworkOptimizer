@@ -80,7 +80,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling 8311 ONT {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling 8311 ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }
@@ -235,7 +235,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         }
         catch (JsonException ex)
         {
-            _logger.LogDebug(ex, "Failed to parse 8311 gpon_status JSON from {Host}", context.Host);
+            _logger.LogDebug(ex, "Failed to parse 8311 gpon_status JSON from {Host}", context.ConfiguredHost ?? context.Host);
         }
 
         return stats;

@@ -85,7 +85,7 @@ public sealed class QuantumQ1000kOntProvider : IOntProvider
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Quantum Q1000K ONT {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling Quantum Q1000K ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }

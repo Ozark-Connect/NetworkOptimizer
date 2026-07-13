@@ -47,7 +47,7 @@ public class GenericHttpOntProvider : IOntProvider
                 using var response = await client.GetAsync(primaryUrl, cancellationToken);
                 if (response.IsSuccessStatusCode)
                     return (true, $"{primaryScheme.ToUpperInvariant()} {(int)response.StatusCode} - device is reachable");
-                return (false, $"{primaryScheme.ToUpperInvariant()} {(int)response.StatusCode} from {context.Host}");
+                return (false, $"{primaryScheme.ToUpperInvariant()} {(int)response.StatusCode} from {context.ConfiguredHost ?? context.Host}");
             }
             catch (HttpRequestException)
             {
@@ -59,7 +59,7 @@ public class GenericHttpOntProvider : IOntProvider
             using var fb = await client.GetAsync(fallbackUrl, cancellationToken);
             if (fb.IsSuccessStatusCode)
                 return (true, $"{fallbackScheme.ToUpperInvariant()} {(int)fb.StatusCode} - device is reachable");
-            return (false, $"{fallbackScheme.ToUpperInvariant()} {(int)fb.StatusCode} from {context.Host}");
+            return (false, $"{fallbackScheme.ToUpperInvariant()} {(int)fb.StatusCode} from {context.ConfiguredHost ?? context.Host}");
         }
         catch (HttpRequestException ex)
         {

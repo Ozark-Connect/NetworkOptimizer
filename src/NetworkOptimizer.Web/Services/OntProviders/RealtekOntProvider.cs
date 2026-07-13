@@ -61,7 +61,7 @@ public sealed class RealtekOntProvider : IOntProvider
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling Realtek ONT {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }
@@ -138,7 +138,7 @@ public sealed class RealtekOntProvider : IOntProvider
         try
         {
             using var probe = await client2.GetAsync(fallbackUrl, ct);
-            _logger.LogInformation("Realtek ONT {Host} reachable via {Scheme}", context.Host, fallbackScheme.ToUpperInvariant());
+            _logger.LogInformation("Realtek ONT {Host} reachable via {Scheme}", context.ConfiguredHost ?? context.Host, fallbackScheme.ToUpperInvariant());
             return (fallbackUrl, client2, handler2);
         }
         catch
