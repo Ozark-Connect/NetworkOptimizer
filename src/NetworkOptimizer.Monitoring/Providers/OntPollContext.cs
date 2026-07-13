@@ -12,8 +12,11 @@ public sealed record OntPollContext
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 
-    /// <summary>Host or IP for the ONT device.</summary>
+    /// <summary>Host or IP for the ONT device. On agent-routed sites this is the tunnel-proxy loopback endpoint, not the device's own address.</summary>
     public required string Host { get; init; }
+
+    /// <summary>The configured device host before any tunnel-proxy rewrite; use for logs so failures name the real device.</summary>
+    public string? ConfiguredHost { get; init; }
 
     /// <summary>Port; 0 means provider default (typically 80 for HTTP, 22 for SSH).</summary>
     public int Port { get; init; }

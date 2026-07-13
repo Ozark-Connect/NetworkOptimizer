@@ -41,7 +41,7 @@ public class AttGatewayOntProvider : IOntProvider
             var baseUrl = await ResolveBaseUrlAsync(client, context, cancellationToken);
             if (baseUrl == null)
             {
-                _logger.LogWarning("Failed to reach AT&T gateway at {Host} via HTTP or HTTPS", context.Host);
+                _logger.LogWarning("Failed to reach AT&T gateway at {Host} via HTTP or HTTPS", context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
@@ -56,7 +56,7 @@ public class AttGatewayOntProvider : IOntProvider
             var fiberHtml = await FetchPageAsync(client, $"{baseUrl}/cgi-bin/fiberstat.ha", cancellationToken);
             if (fiberHtml == null)
             {
-                _logger.LogWarning("Failed to fetch fiberstat.ha from {Host}", context.Host);
+                _logger.LogWarning("Failed to fetch fiberstat.ha from {Host}", context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
@@ -78,7 +78,7 @@ public class AttGatewayOntProvider : IOntProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling AT&T gateway at {Host}", context.Host);
+            _logger.LogWarning(ex, "Error polling AT&T gateway at {Host}", context.ConfiguredHost ?? context.Host);
             return null;
         }
     }

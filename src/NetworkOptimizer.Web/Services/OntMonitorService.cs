@@ -332,6 +332,7 @@ public class OntMonitorService : IDisposable
             Id = config.Id,
             Name = config.Name,
             Host = host,
+            ConfiguredHost = config.Host,
             Port = port,
             Username = string.IsNullOrEmpty(config.Username) ? null : config.Username,
             Password = password,
