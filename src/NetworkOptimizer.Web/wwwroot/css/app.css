@@ -39,6 +39,7 @@
     --bg-elevated: #2c2c30;
     --bg-card: #161618;
     --bg-hover: #232326;
+    --bg-hover-subtle: #1c1c1f;
     --surface: #161618;
     --surface-secondary: #1c1c1f;
 
@@ -17876,7 +17877,7 @@ body.kiosk-mode .status-indicators {
 }
 
 .settings-table tr:not(.history-details-row):hover {
-    background: var(--bg-inset);
+    background: var(--bg-hover-subtle);
 }
 
 .site-name-cell {
