@@ -1229,11 +1229,15 @@
     /// </summary>
     private async Task ResolveSiteIdentityAsync()
     {
-        _awaitingSiteIdentity = false;
-
+        // Keep the loading skeleton up (via _awaitingSiteIdentity) through the whole
+        // attempt: clearing it early exposes a window where a poll-timer re-render would
+        // flash "Device Not Found" before the picker is ready. It is cleared only at a
+        // terminal state - here on success, or inside ShowClientPickerAsync when the
+        // picker becomes visible.
         // One immediate attempt - resolves instantly on a warm agent connection.
         if (await TryResolveSiteIdentityAsync())
         {
+            _awaitingSiteIdentity = false;
             StateHasChanged();
             return;
         }
@@ -1345,7 +1349,11 @@
                 _pickerSelection = remembered;
         }
         catch { /* no preselect without localStorage */ }
+        // Flip both flags together, with no await between, so a render can't catch a
+        // state where neither the skeleton nor the picker is showing (which would flash
+        // the "Device Not Found" card).
         _showClientPicker = true;
+        _awaitingSiteIdentity = false;
         _loading = false;
         StateHasChanged();
     }
