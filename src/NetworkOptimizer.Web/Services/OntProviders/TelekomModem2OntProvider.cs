@@ -44,7 +44,7 @@ public sealed class TelekomModem2OntProvider : IOntProvider
             var stats = new OntStats
             {
                 Timestamp = DateTime.UtcNow,
-                DeviceHost = context.Host,
+                DeviceHost = context.ConfiguredHost ?? context.Host,
                 DeviceName = context.Name,
                 DeviceModel = "Glasfaser-Modem 2",
             };

@@ -214,7 +214,7 @@ public sealed class RealtekOntProvider : IOntProvider
         var stats = new OntStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.Host,
+            DeviceHost = context.ConfiguredHost ?? context.Host,
             DeviceName = context.Name,
             DeviceModel = "Realtek ONT",
         };

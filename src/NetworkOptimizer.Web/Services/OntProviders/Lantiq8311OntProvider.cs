@@ -162,7 +162,7 @@ public sealed class Lantiq8311OntProvider : IOntProvider
         var stats = new OntStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.Host,
+            DeviceHost = context.ConfiguredHost ?? context.Host,
             DeviceName = context.Name,
             DeviceModel = "8311 ONT",
         };

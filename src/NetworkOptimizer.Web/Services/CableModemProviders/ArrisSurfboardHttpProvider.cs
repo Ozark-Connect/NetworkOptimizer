@@ -319,7 +319,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.Host,
+            DeviceHost = context.ConfiguredHost ?? context.Host,
             DeviceName = context.Name,
             DeviceModel = "ARRIS SB8200",
         };
@@ -350,7 +350,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         var stats = new CableModemStats
         {
             Timestamp = DateTime.UtcNow,
-            DeviceHost = context.Host,
+            DeviceHost = context.ConfiguredHost ?? context.Host,
             DeviceName = context.Name,
             DeviceModel = "ARRIS SB6183",
         };
