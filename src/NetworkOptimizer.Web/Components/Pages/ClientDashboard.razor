@@ -257,7 +257,6 @@
             <div class="identity-row-2">
                 @if (_client.IsVpn)
                 {
-                    <span class="identity-detail">@_client.Name</span>
                     <span class="identity-detail detail-dim">Remote client - limited data available</span>
                 }
                 else if (!_client.IsWired)
@@ -303,17 +302,17 @@
                 }
             </div>
             <div class="dashboard-controls">
-                <div class="tab-bar">
-                    <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
-                            @onclick='() => SetActiveTab("speed")'>Speed</button>
-                    @if (!_client.IsVpn)
-                    {
+                @if (!_client.IsVpn)
+                {
+                    <div class="tab-bar">
+                        <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
+                                @onclick='() => SetActiveTab("speed")'>Speed</button>
                         <button class="tab-btn @(_activeTab == "signal" ? "active" : "")"
                                 @onclick='() => SetActiveTab("signal")'>Signal</button>
                         <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
                                 @onclick='() => SetActiveTab("connection")'>Connection</button>
-                    }
-                </div>
+                    </div>
+                }
                 <div class="time-range-selector">
                     @foreach (var tf in _timeFilters)
                     {

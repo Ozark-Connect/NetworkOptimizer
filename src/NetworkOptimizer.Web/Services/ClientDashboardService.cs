@@ -223,9 +223,9 @@ public class ClientDashboardService
 
             var name = vpnType switch
             {
-                HopType.Tailscale => "Tailscale VPN",
-                HopType.Teleport => "Teleport VPN",
-                _ => "VPN"
+                HopType.Tailscale => "Tailscale Client",
+                HopType.Teleport => "Teleport Client",
+                _ => "VPN Client"
             };
 
             _logger.LogDebug("Identified VPN client {Ip} as {VpnType}", clientIp, vpnType);
