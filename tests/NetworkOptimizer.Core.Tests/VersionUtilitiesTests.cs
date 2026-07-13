@@ -46,4 +46,15 @@ public class VersionUtilitiesTests
     {
         VersionUtilities.IsOlderThan(candidate, required).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("2.0.1+ed2714ca72415f2d08512e643c", "2.0.1")]
+    [InlineData("2.0.0-beta.2.14+3449fbae", "2.0.0-beta.2.14")]
+    [InlineData("2.0.1", "2.0.1")]
+    [InlineData("", "")]
+    [InlineData(null, null)]
+    public void StripBuildMetadata_DropsPlusSuffixOnly(string? version, string? expected)
+    {
+        VersionUtilities.StripBuildMetadata(version).Should().Be(expected);
+    }
 }

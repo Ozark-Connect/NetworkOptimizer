@@ -49,6 +49,20 @@ public static class VersionUtilities
         return candPre.Length < reqPre.Length;
     }
 
+    /// <summary>
+    /// The version as shown to users: build metadata after '+' stripped
+    /// ("2.0.1+ed2714ca..." -> "2.0.1"), prerelease identifiers kept
+    /// ("2.0.0-beta.2+3449fbae" -> "2.0.0-beta.2"), matching the footer's
+    /// format. Null/blank and metadata-free inputs pass through unchanged.
+    /// </summary>
+    public static string? StripBuildMetadata(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            return version;
+        var plus = version.IndexOf('+');
+        return plus >= 0 ? version[..plus] : version;
+    }
+
     private static (Version? Core, string[] Prerelease) Split(string version)
     {
         var v = version.Trim().TrimStart('v', 'V');
