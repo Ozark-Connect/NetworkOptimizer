@@ -3184,7 +3184,7 @@ else
                     "  window.__monitoringRef = ref;" +
                     $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                     "  window.__lanFlowMap = m;" +
-                    "  await m.mount(canvasId);" +
+                    $"  await m.mount(canvasId, {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap")}' }});" +
                     "}");
                 await JS.InvokeVoidAsync("__mountLanFlowMap", "lan-flow-map-canvas", _mapDotNetRef);
             }
@@ -3206,7 +3206,7 @@ else
             try
             {
                 await JS.InvokeVoidAsync("eval",
-                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage'); }})();");
+                    $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); window.__lanFlowMap2d = m; await m.mount('lan-flow-map-2d-stage', {{ storagePrefix: '{SiteCtx.ScopeStorageKey("lanFlowMap2d")}' }}); }})();");
             }
             catch (Exception ex) { _map2dMounted = false; Logger.LogDebug(ex, "2D map mount failed; will retry on next render"); }
         }

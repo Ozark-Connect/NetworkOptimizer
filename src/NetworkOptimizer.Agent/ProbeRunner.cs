@@ -10,13 +10,16 @@ namespace NetworkOptimizer.Agent;
 /// The site's latency/loss probe engine. The server pushes the site's
 /// monitoring targets over the tunnel; this runner probes each on its own
 /// cadence (2 s scheduler tick, per-target intervals, bounded concurrency,
-/// mirroring the server's latency tier) and streams every result straight
-/// back. Created per tunnel connection: the server re-pushes config on every
-/// connect, and results have nowhere to go while the tunnel is down.
+/// mirroring the server's latency tier) and enqueues every result into the
+/// store-and-forward <see cref="ResultBuffer"/>. Runs for the life of the
+/// agent process: probing continues through tunnel outages - which is exactly
+/// when latency/loss data matters most - with the buffer holding the backlog
+/// and the last pushed target set staying in effect until the server
+/// re-pushes on reconnect.
 /// </summary>
 public sealed class ProbeRunner
 {
-    private readonly Func<AgentMessage, bool> _send;
+    private readonly Action<AgentMessage> _send;
     private readonly string? _defaultSourceIp;
     private readonly LocalProbeExecutor _executor = new(NullLogger<LocalProbeExecutor>.Instance);
     private readonly ConcurrentDictionary<string, DateTime> _lastProbed = new();
@@ -27,7 +30,7 @@ public sealed class ProbeRunner
     /// own. This is the probe-only multi-WAN deployment knob: the gateway
     /// policy-routes this source IP out a specific WAN.
     /// </param>
-    public ProbeRunner(Func<AgentMessage, bool> send, string? defaultSourceIp = null)
+    public ProbeRunner(Action<AgentMessage> send, string? defaultSourceIp = null)
     {
         _send = send;
         _defaultSourceIp = string.IsNullOrEmpty(defaultSourceIp) ? null : defaultSourceIp;
@@ -42,13 +45,13 @@ public sealed class ProbeRunner
     public async Task RunAsync(CancellationToken ct)
     {
         // Startup grace, mirroring the server latency tier's 20s initial delay
-        // (MonitoringCollectionAgent.RunTierAsync). A fresh ProbeRunner starts on every
-        // tunnel connect - the agent (re)starting, OR a NO-server restart that dropped
-        // and re-established the tunnel - and every target is "due" immediately. Probing
-        // the instant the process/link comes up catches the network still settling
-        // (routes, source-IP binds, the target device itself rebooting alongside) and
-        // records a false loss/latency spike right at the restart boundary. Wait for it
-        // to settle before the first tick, so no boundary sample is taken.
+        // (MonitoringCollectionAgent.RunTierAsync). At agent process start every target
+        // is "due" immediately, and probing the instant the process comes up catches
+        // the network still settling (routes, source-IP binds, the target device itself
+        // rebooting alongside) and records a false loss/latency spike right at the
+        // start boundary. Wait for it to settle before the first tick, so no boundary
+        // sample is taken. Tunnel reconnects no longer restart this runner, so no
+        // grace (or gap) applies there - probing runs continuously across outages.
         try { await Task.Delay(TimeSpan.FromSeconds(20), ct); }
         catch (OperationCanceledException) { return; }
 

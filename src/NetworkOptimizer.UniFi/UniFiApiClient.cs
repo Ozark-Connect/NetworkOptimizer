@@ -87,13 +87,25 @@ public class UniFiApiClient : IDisposable
         _site = site;
         _ignoreSSLErrors = ignoreSSLErrors;
 
-        // Configure retry policy for transient failures
+        // Configure retry policy for transient failures. A console reached through
+        // an agent tunnel is dialed via a loopback proxy (127.0.0.1); when that
+        // tunnel is black-holed the proxy fast-fails the open, but this retry sits
+        // ABOVE the proxy and would otherwise stack the full 2+4+8s (~14s)
+        // exponential backoff onto every request - which reads as a frozen site
+        // switch on that site for the whole ~90s before the watchdog flips the
+        // console to awaiting-agent. Retrying a dead tunnel can't help, so
+        // agent-proxied consoles get a single quick retry. Directly-connected
+        // consoles keep the full backoff - a real transient blip there is worth
+        // riding out.
+        var viaAgentProxy = _controllerUrl.Contains("127.0.0.1");
         _retryPolicy = Policy
             .Handle<HttpRequestException>()
             .Or<TaskCanceledException>()
             .WaitAndRetryAsync(
-                retryCount: 3,
-                sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                retryCount: viaAgentProxy ? 1 : 3,
+                sleepDurationProvider: retryAttempt => viaAgentProxy
+                    ? TimeSpan.FromMilliseconds(500)
+                    : TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
                 onRetry: (exception, timespan, retryCount, context) =>
                 {
                     _logger.LogWarning("Retry {RetryCount} after {Timespan}s due to {Exception}",

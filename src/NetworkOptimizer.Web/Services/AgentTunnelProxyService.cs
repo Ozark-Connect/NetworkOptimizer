@@ -18,9 +18,33 @@ namespace NetworkOptimizer.Web.Services;
 public class AgentTunnelProxyService : IDisposable
 {
     private const int FrameBytes = 32 * 1024;
-    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(10);
+
+    // A live agent answers a ProxyOpen in well under a second (it's a local dial
+    // on its side), so a tight timeout still never trips a healthy tunnel but
+    // bounds the per-connection stall when the tunnel is black-holed and the
+    // answer never comes.
+    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(3);
+
+    // Past AgentTunnelConnection.StaleThreshold of silence the tunnel is treated
+    // as black-holed and proxy opens are refused immediately instead of blocking
+    // - well before the 90s server watchdog drops the dead tunnel.
+
+    // After an open to a site times out, fast-fail further opens instead of each
+    // eating the full OpenTimeout. A page render (a site switch) fires a burst of
+    // console + SSH opens; in the first ~45s of an outage - before the liveness
+    // gate above can trip without false-failing a healthy tunnel - that burst
+    // would otherwise block OpenTimeout on every one, a 15s+ hang on the switch.
+    // Hold past the 45s gate so the breaker never expires and re-probes
+    // mid-outage; a shorter hold let a fresh burst time out every ~15s, a ~10s
+    // stall on any switch landing in that window. It still clears the instant the
+    // tunnel produces fresh inbound (recovery) - see the LastMessageAt check
+    // below - so a healthy tunnel is never held this long: its next heartbeat
+    // (<=30s) advances LastMessageAt and lets the open through.
+    private static readonly TimeSpan OpenBreakerHold = TimeSpan.FromSeconds(60);
+    private readonly ConcurrentDictionary<string, (DateTime Until, DateTime OpenedAtLastMsg)> _openBreaker = new();
 
     private readonly AgentTunnelRegistry _registry;
+    private readonly SiteConnectionRegistry _siteConnections;
     private readonly ILogger<AgentTunnelProxyService> _logger;
 
     private readonly ConcurrentDictionary<string, ProxyListener> _listeners = new();
@@ -28,9 +52,10 @@ public class AgentTunnelProxyService : IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private long _nextConnectionId;
 
-    public AgentTunnelProxyService(AgentTunnelRegistry registry, ILogger<AgentTunnelProxyService> logger)
+    public AgentTunnelProxyService(AgentTunnelRegistry registry, SiteConnectionRegistry siteConnections, ILogger<AgentTunnelProxyService> logger)
     {
         _registry = registry;
+        _siteConnections = siteConnections;
         _logger = logger;
     }
 
@@ -86,6 +111,41 @@ public class AgentTunnelProxyService : IDisposable
             return;
         }
 
+        // A black-holed tunnel stays registered (IsAgentOnline() true) until the
+        // 90s server watchdog drops it. Until then this dial would write into the
+        // dead socket and block the full OpenTimeout waiting for an answer that
+        // never comes - a multi-second freeze on every page load and site switch.
+        // If the tunnel has gone silent past the heartbeat window, treat it as
+        // down and refuse immediately so the console falls through to its
+        // error/awaiting-agent state instead of hanging the browser.
+        var silent = DateTime.UtcNow - agent.LastMessageAt;
+        if (silent > AgentTunnelConnection.StaleThreshold)
+        {
+            _logger.LogDebug("Proxy connect to {Host}:{Port} refused - agent {AgentId} silent for {Silent:n0}s (site {Slug})",
+                listener.TargetHost, listener.TargetPort, agent.AgentId, silent.TotalSeconds, listener.SiteSlug);
+            client.Dispose();
+            // Belt-and-braces with the watchdog's proactive flip: if a dial reaches
+            // a stale tunnel before the watchdog's next 15s tick has flipped the
+            // console, flip it now so this page's remaining calls short-circuit.
+            FlipConsoleAwaitingAgent(listener.SiteSlug);
+            return;
+        }
+
+        // Circuit breaker: a recent open to this site timed out and no inbound has
+        // arrived since, so the tunnel is almost certainly still black-holed.
+        // Fast-fail the render's remaining opens rather than eat OpenTimeout on
+        // each. Fresh inbound (LastMessageAt past when the breaker tripped) means
+        // the tunnel recovered, clearing this without needing a probe.
+        if (_openBreaker.TryGetValue(listener.SiteSlug, out var breaker)
+            && DateTime.UtcNow < breaker.Until
+            && agent.LastMessageAt <= breaker.OpenedAtLastMsg)
+        {
+            _logger.LogDebug("Proxy connect to {Host}:{Port} fast-refused - open breaker tripped for agent {AgentId} (site {Slug})",
+                listener.TargetHost, listener.TargetPort, agent.AgentId, listener.SiteSlug);
+            client.Dispose();
+            return;
+        }
+
         var id = Interlocked.Increment(ref _nextConnectionId);
         var connection = new ProxyConnection(id, client, agent);
         _connections[id] = connection;
@@ -111,6 +171,18 @@ public class AgentTunnelProxyService : IDisposable
             catch (OperationCanceledException)
             {
                 openError = "open timed out";
+                // Trip the breaker so the opens queued behind this one fast-fail
+                // instead of each blocking the full OpenTimeout.
+                var wasTripped = _openBreaker.TryGetValue(listener.SiteSlug, out var prev)
+                                 && DateTime.UtcNow < prev.Until;
+                _openBreaker[listener.SiteSlug] = (DateTime.UtcNow + OpenBreakerHold, agent.LastMessageAt);
+
+                // On the FIRST timeout of an outage, flip the site's console to
+                // awaiting-agent now (not at the 90s watchdog), so its page renders
+                // short-circuit console calls instead of each dialing the dead proxy
+                // and paying the retry backoff.
+                if (!wasTripped)
+                    FlipConsoleAwaitingAgent(listener.SiteSlug);
             }
             if (openError != null)
             {
@@ -119,6 +191,9 @@ public class AgentTunnelProxyService : IDisposable
                 CloseConnection(connection, notifyAgent: false);
                 return;
             }
+
+            // The tunnel answered, so clear any open breaker for this site.
+            _openBreaker.TryRemove(listener.SiteSlug, out _);
 
             // Local reads -> tunnel, with backpressure. The agent-to-local
             // direction is written by the tunnel read loop via OnProxyDataAsync.
@@ -183,6 +258,37 @@ public class AgentTunnelProxyService : IDisposable
     {
         foreach (var connection in _connections.Values.Where(c => ReferenceEquals(c.Agent, agent)))
             CloseConnection(connection, notifyAgent: false);
+    }
+
+    /// <summary>
+    /// Whether this site's tunnel path is currently suspect: no agent, an agent
+    /// silent past the stale threshold, or the open breaker tripped with no
+    /// fresh inbound since. Lets the console's connect-failure handling tell "the
+    /// tunnel is dead" (report awaiting-agent) apart from a genuine console-side
+    /// failure reached over a healthy tunnel (report the real error).
+    /// </summary>
+    public bool IsTunnelSuspect(string siteSlug)
+    {
+        var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
+        if (agent == null || agent.IsStale) return true;
+        return _openBreaker.TryGetValue(siteSlug, out var breaker)
+               && DateTime.UtcNow < breaker.Until
+               && agent.LastMessageAt <= breaker.OpenedAtLastMsg;
+    }
+
+    /// <summary>
+    /// Flips the site's console to awaiting-agent off the dial path (fire-and-
+    /// forget, idempotent) the moment a dead tunnel is proven - by an open
+    /// timeout or a stale-gate refusal - so page renders short-circuit console
+    /// calls instead of paying dial-and-retry per call until the 90s watchdog.
+    /// </summary>
+    private void FlipConsoleAwaitingAgent(string siteSlug)
+    {
+        _ = Task.Run(async () =>
+        {
+            try { await _siteConnections.GetFor(siteSlug).NoteTunnelUnreachableAsync(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Awaiting-agent flip failed for site {Slug}", siteSlug); }
+        });
     }
 
     private void CloseConnection(ProxyConnection connection, bool notifyAgent)

@@ -22,6 +22,16 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
     /// <summary>Heartbeat cadence handed to agents in the ServerHello.</summary>
     public const int HeartbeatIntervalSeconds = 30;
 
+    // A healthy agent is never silent longer than one heartbeat interval, so
+    // three missed heartbeats means the tunnel is dead even though TCP hasn't
+    // noticed (a WAN outage black-holes the connection rather than resetting
+    // it - the read loop would sit in MoveNext for the full TCP timeout,
+    // ~15 min). Dropping promptly matters beyond hygiene: the registry entry
+    // keeps IsAgentOnline() true, which blocks the console's awaiting-agent
+    // fail-fast flip - every page of the site (including a site switch) then
+    // hangs on proxy opens into the dead tunnel until they time out.
+    private static readonly TimeSpan LivenessTimeout = TimeSpan.FromSeconds(90);
+
     private readonly AgentEnrollmentService _enrollment;
     private readonly AgentTunnelRegistry _registry;
     private readonly AgentProbeResultSink _probeResultSink;
@@ -95,6 +105,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         ct = streamCts.Token;
         Task? pumpTask = null;
         Task? refreshTask = null;
+        Task? livenessTask = null;
         try
         {
             await responseStream.WriteAsync(new ServerMessage
@@ -104,6 +115,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                     SiteSlug = siteSlug,
                     AgentName = agent.Name,
                     HeartbeatIntervalSeconds = HeartbeatIntervalSeconds,
+                    SupportsResultAck = true,
                 }
             }, ct);
 
@@ -111,6 +123,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             // traffic funnels through the connection's channel and this pump.
             pumpTask = PumpOutboundAsync(connection, responseStream, streamCts.Token);
             refreshTask = RefreshProbeConfigLoopAsync(connection, streamCts.Token);
+            livenessTask = WatchLivenessAsync(connection, streamCts.Token);
 
             await _probeResultSink.OnAgentConnectedAsync(connection, ct);
 
@@ -125,6 +138,11 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.ProbeResults:
                         await _probeResultSink.RecordBatchAsync(connection, message.ProbeResults, ct);
+                        // Ack only after the batch is persisted, so the agent keeps it
+                        // buffered until we confirm it landed. Cumulative: sequence N
+                        // acks everything <= N. Sequence 0 = an older agent with no acking.
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.ProxyOpenResult:
                         _proxy.OnProxyOpenResult(message.ProxyOpenResult);
@@ -137,6 +155,8 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
                         break;
                     case AgentMessage.PayloadOneofCase.SnmpResults:
                         await _probeResultSink.RecordSnmpBatchAsync(connection, message.SnmpResults, ct);
+                        if (message.Sequence > 0)
+                            connection.TrySend(new ServerMessage { ResultAck = new ResultAck { Sequence = message.Sequence } });
                         break;
                     case AgentMessage.PayloadOneofCase.Iperf3Result:
                         _iperf3.OnResult(message.Iperf3Result);
@@ -176,6 +196,7 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
             streamCts.Cancel();
             await AwaitQuietlyAsync(pumpTask);
             await AwaitQuietlyAsync(refreshTask);
+            await AwaitQuietlyAsync(livenessTask);
             _logger.LogInformation("Agent {Name} (id {Id}) tunnel closed", agent.Name, agent.Id);
         }
     }
@@ -202,6 +223,42 @@ public class AgentTunnelService : AgentTunnel.AgentTunnelBase
         {
             await Task.Delay(TimeSpan.FromSeconds(60), ct);
             await _probeResultSink.OnAgentConnectedAsync(connection, ct);
+        }
+    }
+
+    /// <summary>
+    /// Drops the connection when the agent has been silent past
+    /// <see cref="LivenessTimeout"/>. Cancelling the drop token aborts the
+    /// read loop, which runs the normal teardown: unregister, proxy/console
+    /// awaiting-agent flip, and the agent's own reconnect gets a clean slate.
+    /// Before that, the moment silence crosses the stale threshold, the site's
+    /// console is flipped to awaiting-agent proactively - without this, a site
+    /// nobody dialed during the outage stayed stale-green until first contact,
+    /// and that first switch paid a dial-and-retry on every console call for
+    /// the rest of the 90s window.
+    /// </summary>
+    private async Task WatchLivenessAsync(AgentTunnelConnection connection, CancellationToken ct)
+    {
+        var flaggedStale = false;
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), ct);
+            var silent = DateTime.UtcNow - connection.LastMessageAt;
+            if (!flaggedStale && silent > AgentTunnelConnection.StaleThreshold)
+            {
+                flaggedStale = true;
+                _logger.LogInformation(
+                    "Agent {Name} (id {Id}, site {Slug}) silent for {Silent:0}s; treating the tunnel as black-holed",
+                    connection.AgentName, connection.AgentId, connection.SiteSlug, silent.TotalSeconds);
+                _probeResultSink.OnTunnelStale(connection);
+            }
+            if (silent <= LivenessTimeout) continue;
+            _logger.LogWarning(
+                "Agent {Name} (id {Id}, site {Slug}) silent for {Silent:0}s (heartbeat is {Interval}s); dropping dead tunnel",
+                connection.AgentName, connection.AgentId, connection.SiteSlug,
+                silent.TotalSeconds, HeartbeatIntervalSeconds);
+            connection.Drop();
+            return;
         }
     }
 

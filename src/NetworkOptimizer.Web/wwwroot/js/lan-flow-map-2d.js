@@ -781,11 +781,21 @@ class LanFlowMap2D {
         if(!this._root)return;
         this._calcBounds(true);
         const margin=10;
+        // On desktop the scrubber bar overlays the bottom of the stage (on mobile
+        // it's moved below the stage, so no overlap - no inset there). Reserve just
+        // the bar's height plus a few px so the bottom row sits right above it,
+        // without the wasteful gap a full extra margin would leave.
+        const overlays=this._scrubberEl&&this._scrubberEl.parentElement===this._el;
+        const topPad=margin;
+        const bottomPad=overlays?(this._scrubberEl.offsetHeight+4):margin;
+        const availH=Math.max(1,this._ch-topPad-bottomPad);
         const sx=(this._cw-margin*2)/this._bw;
-        const sy=(this._ch-margin*2)/this._bh;
+        const sy=availH/this._bh;
         this._scale=Math.min(sx,sy,2);
         this._ox=this._bx+this._bw/2;
-        this._oy=this._by+this._bh/2;
+        // Center within the [top .. just above the bar] band rather than the raw
+        // canvas, lifting the content clear of the scrubber bar.
+        this._oy=this._by+this._bh/2+(bottomPad-topPad)/(2*this._scale);
         this._isFitted=true;
         this._needsStaticRedraw=true;
     }

@@ -188,11 +188,22 @@
             </div>
 
             <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" @bind="ignoreControllerSSLErrors" />
-                    <span>Ignore SSL certificate errors</span>
-                </label>
-                <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
+                @if (_currentSiteConsoleViaAgent)
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked disabled />
+                        <span>Ignore SSL certificate errors</span>
+                    </label>
+                    <small class="form-help">Certificate validation isn't supported when connecting through the site's agent.</small>
+                }
+                else
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="ignoreControllerSSLErrors" />
+                        <span>Ignore SSL certificate errors</span>
+                    </label>
+                    <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
+                }
             </div>
 
             <div class="action-buttons">

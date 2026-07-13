@@ -436,10 +436,12 @@ h1:focus {
 
 .wan-live-chart-card {
     margin-bottom: 0;
+    overflow: visible;
 }
 .wan-live-chart-card > .card-body {
     padding: 0 0 0.3rem;
     margin-right: -0.75rem;
+    overflow: visible;
 }
 .wan-live-chart-card .apexcharts-canvas {
     min-height: 0;

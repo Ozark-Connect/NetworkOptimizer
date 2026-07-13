@@ -60,6 +60,16 @@ public class SiteContextService : IAlertSiteScope
     /// <summary>True when this scope operates on the default site (the main database).</summary>
     public bool IsDefault => Slug == SiteManagementService.DefaultSiteSlug;
 
+    /// <summary>
+    /// Scopes a browser-persistence key (localStorage) to the current site so
+    /// per-site view state - the 3D/2D LAN flow map camera, overlays, scrub
+    /// span - never collides across sites. The default site keeps the bare key
+    /// unchanged so existing saved state (and single-site installs) carry over;
+    /// other sites get a "{slug}:" prefix.
+    /// </summary>
+    public string ScopeStorageKey(string baseKey) =>
+        IsDefault ? baseKey : $"{Slug}:{baseKey}";
+
     /// <summary>SQLite database path for the current site.</summary>
     public string DbPath => _dbPaths.GetSiteDbPath(Slug, IsDefault);
 

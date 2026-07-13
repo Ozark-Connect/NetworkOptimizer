@@ -39,7 +39,7 @@
                     "window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true");
                 if (isStandalone) return;
 
-                var dismissed = await SettingsService.GetAsync(SystemSettingKeys.PwaBannerDismissed);
+                var dismissed = await SettingsService.GetGlobalAsync(SystemSettingKeys.PwaBannerDismissed);
                 if (string.IsNullOrEmpty(dismissed) || !dismissed.Equals("true", StringComparison.OrdinalIgnoreCase))
                 {
                     _visible = true;
@@ -58,7 +58,7 @@
         _visible = false;
         try
         {
-            await SettingsService.SetAsync(SystemSettingKeys.PwaBannerDismissed, "true");
+            await SettingsService.SetGlobalAsync(SystemSettingKeys.PwaBannerDismissed, "true");
         }
         catch
         {

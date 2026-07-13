@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using NetworkOptimizer.Agent;
+using NetworkOptimizer.AgentProtocol;
 
 // On-site agent skeleton: enrolls against the central Network Optimizer server
 // with a one-time token, persists its agent key and site slug, then heartbeats.
@@ -185,6 +186,26 @@ if (config.LanSpeedTest)
         speedTestServer is { } relayServer ? relayServer.PostIperf3ResultAsync : null, cts.Token);
 }
 
+// Monitoring collectors and their store-and-forward buffer live for the whole
+// process, not per tunnel connection: probing and SNMP polling continue on the
+// last pushed config while the tunnel is down - exactly when outage data
+// matters most - and the buffered backlog (12 h / 64 MB caps, oldest dropped
+// first) replays over the tunnel on reconnect. Only started when a tunnel is
+// configured; without one no config ever arrives and there is nothing to run.
+ResultBuffer? resultBuffer = null;
+ProbeRunner? probeRunner = null;
+SnmpRunner? snmpRunner = null;
+Task? probeTask = null;
+Task? snmpTask = null;
+if (!string.IsNullOrEmpty(config.TunnelUrl))
+{
+    resultBuffer = new ResultBuffer();
+    probeRunner = new ProbeRunner(resultBuffer.Enqueue, config.ProbeSourceIp);
+    snmpRunner = new SnmpRunner(resultBuffer.Enqueue);
+    probeTask = probeRunner.RunAsync(cts.Token);
+    snmpTask = snmpRunner.RunAsync(cts.Token);
+}
+
 // Prefer the persistent gRPC tunnel; REST heartbeats keep the agent visible as
 // Online whenever the tunnel is unavailable (tunnel disabled server-side, an
 // older server, or a network drop between reconnect attempts).
@@ -192,19 +213,14 @@ while (!cts.IsCancellationRequested)
 {
     if (!string.IsNullOrEmpty(config.TunnelUrl))
     {
-        // The probe runner lives and dies with its tunnel connection: the
-        // server re-pushes probe config on every connect, and results have
-        // nowhere to go while the tunnel is down.
         using var connectionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
         var tunnel = new TunnelClient();
-        var probeRunner = new ProbeRunner(tunnel.TrySend, config.ProbeSourceIp);
-        var snmpRunner = new SnmpRunner(tunnel);
         var proxyHandler = new ProxyHandler(tunnel, proxyPolicy);
         var iperf3ClientRunner = new Iperf3ClientRunner(tunnel);
         var uwnClientRunner = new UwnClientRunner(tunnel);
         var probeRequestRunner = new ProbeRequestRunner(tunnel);
-        tunnel.OnProbeConfig = probeRunner.UpdateConfig;
-        tunnel.OnSnmpConfig = snmpRunner.UpdateConfig;
+        tunnel.OnProbeConfig = probeRunner!.UpdateConfig;
+        tunnel.OnSnmpConfig = snmpRunner!.UpdateConfig;
         tunnel.OnWanSpeedTestConfig = wanConfig => speedTestServer?.UpdateWanServers(
             wanConfig.Servers.Select(s => new SpeedTestServer.WanServerEntry(s.ServerId, s.Url)).ToList(),
             wanConfig.DefaultServerId);
@@ -215,8 +231,17 @@ while (!cts.IsCancellationRequested)
         tunnel.OnIperf3Request = iperf3ClientRunner.HandleAsync;
         tunnel.OnUwnRequest = uwnClientRunner.HandleAsync;
         tunnel.OnProbeRequest = probeRequestRunner.HandleAsync;
-        var probeTask = probeRunner.RunAsync(connectionCts.Token);
-        var snmpTask = snmpRunner.RunAsync(connectionCts.Token);
+        // Server confirms persisted result frames; trim them from the buffer so
+        // only unacked data is retained for replay.
+        tunnel.OnResultAck = seq => resultBuffer!.MarkAcked(seq);
+        var backlog = resultBuffer!.Count;
+        if (backlog > 0)
+            Console.WriteLine($"Buffered backlog: {backlog} result message(s) (~{resultBuffer.ApproxBytes / 1024} KB) will flush once the tunnel connects");
+        var droppedOffline = resultBuffer.TakeDroppedCount();
+        if (droppedOffline > 0)
+            Console.Error.WriteLine($"Result buffer caps dropped the {droppedOffline} oldest message(s) while the tunnel was down");
+
+        var drainTask = tunnel.DrainResultsAsync(resultBuffer, connectionCts.Token);
         try
         {
             await tunnel.RunAsync(config.TunnelUrl, config.AgentKey!, version, lanIp, config.IgnoreSslErrors, cts.Token);
@@ -233,7 +258,9 @@ while (!cts.IsCancellationRequested)
         finally
         {
             connectionCts.Cancel();
-            try { await Task.WhenAll(probeTask, snmpTask); } catch (OperationCanceledException) { }
+            // Nothing to salvage: the drain only peeks, so every unacked frame is
+            // still in the buffer and replays on the next connection.
+            try { await drainTask; } catch (OperationCanceledException) { }
         }
     }
 
@@ -269,6 +296,14 @@ if (speedTestServer != null)
 if (iperf3Task != null)
 {
     try { await iperf3Task; } catch (OperationCanceledException) { }
+}
+if (probeTask != null)
+{
+    try { await probeTask; } catch (OperationCanceledException) { }
+}
+if (snmpTask != null)
+{
+    try { await snmpTask; } catch (OperationCanceledException) { }
 }
 
 Console.WriteLine("Agent stopped");

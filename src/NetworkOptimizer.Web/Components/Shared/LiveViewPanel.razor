@@ -39,6 +39,18 @@ else
         ? $"/monitoring?tab=devices&device={Uri.EscapeDataString(_gatewayMac)}"
         : "/monitoring?tab=devices";
     <div class="lv-panel">
+        @if (ShowConsoleDownBanner)
+        {
+            <div class="connection-banner">
+                <div class="banner-content">
+                    <span class="banner-icon">!</span>
+                    <div class="banner-text">
+                        <strong>@ConsoleDownTitle</strong>
+                        <span>@ConsoleDownMessage</span>
+                    </div>
+                </div>
+            </div>
+        }
         <div class="monitoring-stat-cards">
             @{ var wanRates = GetWanRates(); }
             <div class="monitoring-stat-card monitoring-stat-rate">
@@ -190,6 +202,7 @@ else
     [Parameter] public string MapMode { get; set; } = "2d";
 
     private bool _ready;
+    private bool _consoleUnreachable;
     private string? _gatewayMac;
     private List<string> _gatewayWanIfNames = new();
     private List<MonitoringTarget> _targets = new();
@@ -240,7 +253,7 @@ else
                         "window.__dashMountMap3d = async function(canvasId) {" +
                         $"  const m = await import('{VersionedJs("/js/lan-flow-map.js")}');" +
                         "  window.__dashLanFlowMap = m;" +
-                        "  await m.mount(canvasId,{storagePrefix:'dashLanFlowMap',signalHint:false});" +
+                        $"  await m.mount(canvasId,{{storagePrefix:'{SiteCtx.ScopeStorageKey("dashLanFlowMap")}',signalHint:false}});" +
                         "}");
                     await JS.InvokeVoidAsync("__dashMountMap3d", "dashboard-lan-flow-map-canvas");
                 }
@@ -249,7 +262,7 @@ else
                     await JS.InvokeVoidAsync("eval",
                         $"(async () => {{ const m = await import('{VersionedJs("/js/lan-flow-map-2d.js")}'); " +
                         "window.__dashLanFlowMap2d = m; m.startDataPolling(); " +
-                        "await m.mount('dashboard-lan-flow-map-2d-stage',{storagePrefix:'dashLanFlowMap2d',liveOnly:true}); })();");
+                        $"await m.mount('dashboard-lan-flow-map-2d-stage',{{storagePrefix:'{SiteCtx.ScopeStorageKey("dashLanFlowMap2d")}',liveOnly:true}}); }})();");
                 }
             }
             catch { _mapMounted = false; _mountedMode = null; }
@@ -314,13 +327,29 @@ else
 
             _targets = await db.MonitoringTargets.Where(t => t.Enabled).ToListAsync();
 
-            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
-            if (devices != null)
+            // The gateway identity is only a nice-to-have for deep links; fetch it
+            // from the console but DON'T let a down console (an agent-tunnel outage)
+            // fail the whole panel and show the "not configured" empty state -
+            // monitoring IS configured, the console is just unreachable. Live stats
+            // come from the buffers/Influx, not this call; the console-down banner
+            // explains any staleness instead.
+            try
             {
-                var gw = devices.FirstOrDefault(d =>
-                    d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
-                _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
-                _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
+                var devices = await ConnectionService.GetDiscoveredDevicesAsync();
+                if (devices != null)
+                {
+                    var gw = devices.FirstOrDefault(d =>
+                        d.Type == DeviceType.Gateway || d.HardwareType == DeviceType.Gateway);
+                    _gatewayMac = gw?.Mac?.Replace("-", ":").ToLowerInvariant();
+                    _gatewayWanIfNames = gw?.WanInterfaceNames ?? new();
+                }
+                _consoleUnreachable = false;
+            }
+            catch
+            {
+                // Console unreachable (agent tunnel down): keep prior gateway info
+                // and surface the banner rather than blanking the panel.
+                _consoleUnreachable = true;
             }
 
             _ready = true;
@@ -330,6 +359,21 @@ else
             _ready = false;
         }
     }
+
+    // Console-down banner: the console was unreachable this load, or the
+    // connection has flipped to awaiting-agent / disconnected.
+    private bool ShowConsoleDownBanner =>
+        _consoleUnreachable || (ConnectionService.IsInitialized && !ConnectionService.IsConnected);
+
+    private string ConsoleDownTitle =>
+        ConnectionService.IsAwaitingAgent ? "Agent offline"
+        : ConnectionService.IsConnected ? "Console not responding"
+        : "Console disconnected";
+
+    private string ConsoleDownMessage =>
+        !string.IsNullOrEmpty(ConnectionService.LastError)
+            ? ConnectionService.LastError!
+            : "The console isn't responding right now. Live data is paused until it reconnects.";
 
     private (double download, double upload) GetWanRates()
     {

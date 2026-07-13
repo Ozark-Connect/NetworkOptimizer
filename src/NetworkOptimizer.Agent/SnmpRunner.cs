@@ -8,14 +8,16 @@ namespace NetworkOptimizer.Agent;
 /// <summary>
 /// The site's SNMP poller. The server pushes the site's SNMP credentials and
 /// device list over the tunnel; this runner polls interface counters (fast
-/// cadence) and device health (medium cadence) locally and streams the raw
-/// samples back. Rate computation and storage happen server-side, mirroring
-/// the central collection agent's split. Lives and dies with its tunnel
-/// connection, like the probe runner.
+/// cadence) and device health (medium cadence) locally and enqueues the raw
+/// samples into the store-and-forward <see cref="ResultBuffer"/>. Rate
+/// computation and storage happen server-side, mirroring the central
+/// collection agent's split. Runs for the life of the agent process, like the
+/// probe runner: polling continues through tunnel outages on the last pushed
+/// config, and the buffered backlog replays on reconnect.
 /// </summary>
 public sealed class SnmpRunner
 {
-    private readonly TunnelClient _tunnel;
+    private readonly Action<AgentMessage> _send;
     private volatile SnmpConfig? _config;
     private SnmpPoller? _poller;
     private string _pollerKey = "";
@@ -25,9 +27,9 @@ public sealed class SnmpRunner
     // the agent either. Keyed by device MAC.
     private readonly SnmpFailureTracker _failures = new();
 
-    public SnmpRunner(TunnelClient tunnel)
+    public SnmpRunner(Action<AgentMessage> send)
     {
-        _tunnel = tunnel;
+        _send = send;
     }
 
     public void UpdateConfig(SnmpConfig config)
@@ -43,7 +45,9 @@ public sealed class SnmpRunner
 
     /// <summary>
     /// Handles the server's on-demand "Test OID" request: GET the single OID once against a
-    /// site-local device and return the raw value (correlated by request id).
+    /// site-local device and return the raw value (correlated by request id). The reply rides
+    /// the result buffer like everything else; if the tunnel drops first, the server has
+    /// already timed the request out and ignores the stale request id on replay.
     /// </summary>
     public async Task HandleOidQueryAsync(SnmpOidQuery query, CancellationToken ct)
     {
@@ -74,8 +78,7 @@ public sealed class SnmpRunner
         }
 
         Console.WriteLine($"OID test request {query.RequestId}: success={result.Success} value={result.Value} error={result.Error}");
-        try { await _tunnel.SendAsync(new AgentMessage { SnmpOidResult = result }, ct); }
-        catch (Exception ex) { Console.Error.WriteLine($"Failed to send OID test result {query.RequestId}: {ex.Message}"); }
+        _send(new AgentMessage { SnmpOidResult = result });
     }
 
     /// <summary>Interface counters on the fast cadence.</summary>
@@ -131,7 +134,7 @@ public sealed class SnmpRunner
                         });
                     }
                     if (batch.Interfaces.Count > 0)
-                        await _tunnel.SendAsync(new AgentMessage { SnmpResults = batch }, ct);
+                        _send(new AgentMessage { SnmpResults = batch });
                 }, ct);
             }
 
@@ -181,7 +184,7 @@ public sealed class SnmpRunner
                     await PollCustomOidsAsync(poller, ip, device, config, batch);
 
                     if (batch.Health.Count > 0 || batch.CustomOids.Count > 0)
-                        await _tunnel.SendAsync(new AgentMessage { SnmpResults = batch }, ct);
+                        _send(new AgentMessage { SnmpResults = batch });
                 }, ct);
             }
 

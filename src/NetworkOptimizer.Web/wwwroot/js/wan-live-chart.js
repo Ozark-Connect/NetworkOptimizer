@@ -11,6 +11,13 @@ const POLL_MS = 2500;
 // Window-scroll redraw cadence. At 250ms each step moves well under a pixel
 // on typical widths, so the chart slides instead of visibly ticking.
 const SCROLL_MS = 250;
+// Occasionally re-pull the whole history window and merge it back in, so gaps
+// that filled AFTER the live buffer scrolled past them appear without a manual
+// refresh: a monitoring outage whose buffered samples replayed into Influx on
+// reconnect, or the cold-start gap before data first flowed. Live mode +
+// foreground only, and the newest live samples are kept, so the smooth edge
+// never regresses.
+const BACKFILL_MS = 60000;
 const COLOR_DL   = '#3b82f6';
 const COLOR_UL   = '#10b981';
 const COLOR_LOSS = '#ef4444';
@@ -19,6 +26,7 @@ const COLOR_RTT  = '#d946ef';
 let chart = null;
 let pollTimer = null;
 let scrollTimer = null;
+let backfillTimer = null;
 let buffer = [];
 let elId = null;
 let visHandler = null;
@@ -294,6 +302,43 @@ async function pollLive() {
     } catch { }
 }
 
+// Re-pull the full history window and merge it back over the buffer so gaps that
+// filled in after the buffer scrolled past them (outage backlog replay, cold
+// start) show up. Live mode + foreground only. The newest live samples - which
+// can be ahead of Influx ingestion - are kept ahead of the re-pulled history so
+// the live edge never flickers back.
+async function backfillHistory() {
+    if (!chart || !pollTimer || document.hidden) return;
+    const gen = mountGen;
+    const to = new Date();
+    const from = new Date(to.getTime() - HISTORY_MINUTES * 60000);
+    let points;
+    try {
+        const resp = await fetch(
+            `/api/monitoring/wan-live-chart-data?from=${from.toISOString()}&to=${to.toISOString()}`,
+            { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        points = (data.points || []).map(p => ({
+            time: new Date(p.time).getTime(),
+            download: p.downloadBps,
+            upload: p.uploadBps,
+            rtt: p.rttMs,
+            loss: p.lossPercent ?? 0,
+        }));
+    } catch { return; }
+    // Bail if the mount changed or we left live mode while fetching.
+    if (gen !== mountGen || !pollTimer) return;
+    const newestHist = points.length ? points[points.length - 1].time : 0;
+    const liveTail = buffer.filter(p => p.time > newestHist);
+    const cutoff = Date.now() - HISTORY_MINUTES * 60000;
+    buffer = points.concat(liveTail).filter(p => p.time >= cutoff).sort((a, b) => a.time - b.time);
+    for (const p of buffer) {
+        if (p.time > lastSampleTime) lastSampleTime = p.time;
+    }
+    updateChart();
+}
+
 export async function mount(containerId, opts) {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
@@ -318,6 +363,7 @@ export async function mount(containerId, opts) {
 
     pollTimer = setInterval(pollLive, interval);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
+    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
 
     if (visHandler) document.removeEventListener('visibilitychange', visHandler);
     visHandler = async () => {
@@ -333,12 +379,14 @@ export function pause() {
     stopHistInterpolation();
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+    if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
 }
 
 export function resume() {
     if (!chart || pollTimer) return;
     pollTimer = setInterval(pollLive, POLL_MS);
     scrollTimer = setInterval(updateChart, SCROLL_MS);
+    backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
 }
 
 // Render the historic view at a given playhead time from the current buffer.
@@ -407,11 +455,13 @@ export async function seekTime(isoTimestamp) {
         updateChart();
         pollTimer = setInterval(pollLive, POLL_MS);
         scrollTimer = setInterval(updateChart, SCROLL_MS);
+        backfillTimer = setInterval(backfillHistory, BACKFILL_MS);
         return;
     }
     // Historic mode: stop polling, fetch window centered on timestamp
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+    if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
     const at = new Date(isoTimestamp).getTime();
     histAt = at;
     histWall = Date.now();
@@ -461,6 +511,7 @@ export function unmount() {
     stopHistInterpolation();
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+    if (backfillTimer) { clearInterval(backfillTimer); backfillTimer = null; }
     if (visHandler) { document.removeEventListener('visibilitychange', visHandler); visHandler = null; }
     if (chart) { chart.destroy(); chart = null; }
     buffer = [];
