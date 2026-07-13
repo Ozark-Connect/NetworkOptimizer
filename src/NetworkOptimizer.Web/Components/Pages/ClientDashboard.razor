@@ -1228,20 +1228,40 @@
     /// </summary>
     private async Task ResolveSiteIdentityAsync()
     {
+        // The on-site agent's tunnel may still be coming up when the page first loads,
+        // so the resolver reports no agent target yet. Poll for a bounded window so
+        // identity resolves automatically once the agent connects, instead of dropping
+        // to the picker and forcing the viewer to refresh. Keep the loading skeleton up
+        // (via _awaitingSiteIdentity) while we wait.
+        var deadline = DateTime.UtcNow.AddSeconds(20);
         string? ip = null;
         var probed = false;
-        try
+        while (true)
         {
-            var target = await SiteTarget.ResolveAsync();
-            if (target.UsesAgent && !string.IsNullOrEmpty(target.BaseUrl))
+            try
             {
-                probed = true;
-                ip = await JS.InvokeAsync<string?>("eval",
-                    $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
-                    ".then(r => r.json()).then(j => j.ip).catch(() => null)");
+                var target = await SiteTarget.ResolveAsync();
+                if (target.UsesAgent && !string.IsNullOrEmpty(target.BaseUrl))
+                {
+                    probed = true;
+                    ip = await JS.InvokeAsync<string?>("eval",
+                        $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
+                        ".then(r => r.json()).then(j => j.ip).catch(() => null)");
+                }
             }
+            catch { /* probe is best-effort; the picker below always works */ }
+
+            if (!string.IsNullOrEmpty(ip) && System.Net.IPAddress.TryParse(ip, out _))
+                break;
+
+            // Once the agent target is reachable, a null answer means the probe itself
+            // failed (e.g. certificate untrusted) - don't keep waiting, fall to the picker.
+            // Otherwise the agent isn't online yet: retry until the deadline.
+            if (probed || DateTime.UtcNow >= deadline)
+                break;
+
+            await Task.Delay(2000);
         }
-        catch { /* probe is best-effort; the picker below always works */ }
 
         _awaitingSiteIdentity = false;
 
