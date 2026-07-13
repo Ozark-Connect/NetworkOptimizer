@@ -188,11 +188,22 @@
             </div>
 
             <div class="form-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" @bind="ignoreControllerSSLErrors" />
-                    <span>Ignore SSL certificate errors</span>
-                </label>
-                <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
+                @if (_currentSiteConsoleViaAgent)
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked disabled />
+                        <span>Ignore SSL certificate errors</span>
+                    </label>
+                    <small class="form-help">Always on for consoles connected via the site's agent: the connection rides the agent tunnel, so the console's certificate can't be matched against the tunnel endpoint.</small>
+                }
+                else
+                {
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="ignoreControllerSSLErrors" />
+                        <span>Ignore SSL certificate errors</span>
+                    </label>
+                    <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
+                }
             </div>
 
             <div class="action-buttons">
