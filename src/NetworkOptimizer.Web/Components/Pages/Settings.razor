@@ -2856,7 +2856,7 @@
                                             @if (_editingSiteId == site.Id)
                                             {
                                                 <div class="site-name-edit">
-                                                    <input type="text" class="form-control" @bind="_editSiteName" @bind:event="oninput"
+                                                    <input type="text" class="form-control" @ref="_siteNameInput" @bind="_editSiteName" @bind:event="oninput"
                                                            @onkeydown="@(e => SiteNameEditKey(e, site))" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                                                     <button type="button" class="btn btn-primary btn-sm" @onclick="() => SaveSiteName(site)"
                                                             disabled="@string.IsNullOrWhiteSpace(_editSiteName)">Save</button>
@@ -3277,11 +3277,15 @@
     // Inline site rename (the slug/Site ID stays immutable).
     private int? _editingSiteId;
     private string _editSiteName = "";
+    private ElementReference _siteNameInput;
 
-    private void StartSiteNameEdit(Site site)
+    private async Task StartSiteNameEdit(Site site)
     {
         _editingSiteId = site.Id;
         _editSiteName = site.Name;
+        StateHasChanged();
+        await Task.Delay(1); // Allow render to complete
+        await _siteNameInput.FocusAsync();
     }
 
     private void CancelSiteNameEdit()
