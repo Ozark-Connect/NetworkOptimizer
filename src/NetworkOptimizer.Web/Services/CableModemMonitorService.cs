@@ -282,6 +282,7 @@ public sealed class CableModemMonitorService : IDisposable
             Id = config.Id,
             Name = config.Name,
             Host = host,
+            ConfiguredHost = config.Host,
             Port = port,
             Username = config.Username,
             Password = password,

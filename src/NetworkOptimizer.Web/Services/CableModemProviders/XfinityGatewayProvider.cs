@@ -52,7 +52,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
                 {
                     _logger.LogWarning(
                         "Xfinity Gateway at {Host} returned empty response (attempt {Attempt}/{Max})",
-                        context.Host, attempt, MaxRetries);
+                        context.ConfiguredHost ?? context.Host, attempt, MaxRetries);
                     if (attempt < MaxRetries)
                     {
                         await Task.Delay(RetryDelay, cancellationToken);
@@ -80,7 +80,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error polling Xfinity Gateway {Name} at {Host}", context.Name, context.Host);
+                _logger.LogWarning(ex, "Error polling Xfinity Gateway {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
                 return null;
             }
         }
@@ -161,7 +161,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         if (!loginResponse.IsSuccessStatusCode)
         {
             _logger.LogDebug("Xfinity Gateway login returned {Status} for {Host}",
-                loginResponse.StatusCode, context.Host);
+                loginResponse.StatusCode, context.ConfiguredHost ?? context.Host);
             return null;
         }
 
@@ -169,7 +169,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         if (!response.IsSuccessStatusCode)
         {
             _logger.LogDebug("Xfinity Gateway status page returned {Status} for {Host}",
-                response.StatusCode, context.Host);
+                response.StatusCode, context.ConfiguredHost ?? context.Host);
             return null;
         }
 
@@ -180,7 +180,7 @@ public sealed class XfinityGatewayProvider : ICableModemProvider
         if (IsLoginPage(html))
         {
             _logger.LogDebug("Xfinity Gateway at {Host}: login failed, got redirected back to login page",
-                context.Host);
+                context.ConfiguredHost ?? context.Host);
             return null;
         }
 

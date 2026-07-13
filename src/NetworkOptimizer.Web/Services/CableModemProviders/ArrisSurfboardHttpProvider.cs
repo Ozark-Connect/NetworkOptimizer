@@ -78,7 +78,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
             }
 
             _logger.LogWarning("ARRIS Surfboard {Name} at {Host}: both SB8200 and SB6183 fetch failed",
-                context.Name, context.Host);
+                context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
         catch (OperationCanceledException)
@@ -87,7 +87,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polling ARRIS Surfboard {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling ARRIS Surfboard {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }
@@ -229,14 +229,14 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogDebug("ARRIS SB8200 auth returned {Status} for {Host}",
-                    response.StatusCode, context.Host);
+                    response.StatusCode, context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
             var token = await response.Content.ReadAsStringAsync(cancellationToken);
             if (string.IsNullOrWhiteSpace(token))
             {
-                _logger.LogDebug("ARRIS SB8200 auth returned empty token for {Host}", context.Host);
+                _logger.LogDebug("ARRIS SB8200 auth returned empty token for {Host}", context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
@@ -244,7 +244,7 @@ public sealed class ArrisSurfboardHttpProvider : ICableModemProvider, IDisposabl
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogDebug(ex, "ARRIS SB8200 auth request failed for {Host}", context.Host);
+            _logger.LogDebug(ex, "ARRIS SB8200 auth request failed for {Host}", context.ConfiguredHost ?? context.Host);
             return null;
         }
     }

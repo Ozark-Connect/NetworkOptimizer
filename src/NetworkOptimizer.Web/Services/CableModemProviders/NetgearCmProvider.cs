@@ -132,7 +132,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
                 {
                     _logger.LogWarning(
                         "Netgear CM at {Host} returned empty response (attempt {Attempt}/{Max})",
-                        context.Host, attempt, MaxRetries);
+                        context.ConfiguredHost ?? context.Host, attempt, MaxRetries);
                     if (attempt < MaxRetries)
                     {
                         await Task.Delay(RetryDelay, cancellationToken);
@@ -160,7 +160,7 @@ public sealed class NetgearCmProvider : ICableModemProvider
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error polling Netgear CM {Name} at {Host}", context.Name, context.Host);
+                _logger.LogWarning(ex, "Error polling Netgear CM {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
                 return null;
             }
         }

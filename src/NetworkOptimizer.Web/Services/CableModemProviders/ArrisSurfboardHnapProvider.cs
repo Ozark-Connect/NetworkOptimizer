@@ -74,7 +74,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         catch (Exception ex)
         {
             _sessions.TryRemove(context.Id, out _);
-            _logger.LogWarning(ex, "Error polling ARRIS Surfboard HNAP {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling ARRIS Surfboard HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }
@@ -148,7 +148,7 @@ public sealed class ArrisSurfboardHnapProvider : ICableModemProvider, IDisposabl
         catch (Exception ex)
         {
             _sessions.TryRemove(context.Id, out _);
-            _logger.LogDebug(ex, "ARRIS Surfboard HNAP request failed for {Name} at {Host}", context.Name, context.Host);
+            _logger.LogDebug(ex, "ARRIS Surfboard HNAP request failed for {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }

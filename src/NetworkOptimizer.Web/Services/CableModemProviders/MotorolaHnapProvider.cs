@@ -96,7 +96,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             var sessionInfo = await EnsureSessionAsync(client, context, cancellationToken);
             if (sessionInfo == null)
             {
-                _logger.LogWarning("Motorola HNAP {Name} at {Host}: login failed", context.Name, context.Host);
+                _logger.LogWarning("Motorola HNAP {Name} at {Host}: login failed", context.Name, context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
@@ -113,7 +113,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
             if (response == null)
             {
                 _sessions.TryRemove(context.Id, out _);
-                _logger.LogWarning("Motorola HNAP {Name} at {Host}: GetMultipleHNAPs failed", context.Name, context.Host);
+                _logger.LogWarning("Motorola HNAP {Name} at {Host}: GetMultipleHNAPs failed", context.Name, context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
@@ -132,7 +132,7 @@ public sealed class MotorolaHnapProvider : ICableModemProvider, IDisposable
         catch (Exception ex)
         {
             _sessions.TryRemove(context.Id, out _);
-            _logger.LogWarning(ex, "Error polling Motorola HNAP {Name} at {Host}", context.Name, context.Host);
+            _logger.LogWarning(ex, "Error polling Motorola HNAP {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }
