@@ -17875,6 +17875,10 @@ body.kiosk-mode .status-indicators {
     padding: 0.35rem 0;
 }
 
+.settings-table tr:not(.history-details-row):hover {
+    background: var(--bg-inset);
+}
+
 .site-name-cell {
     display: inline-flex;
     align-items: center;
