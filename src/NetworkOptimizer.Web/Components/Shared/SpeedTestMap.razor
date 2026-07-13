@@ -542,7 +542,9 @@
             lastResultCount = currentCount;
             lastNewestResultId = newestId;
             lastFilteredCount = filteredCount;
-            await UpdateMarkers(fitBounds: false);
+            // Auto-fit so a freshly arrived result is brought into view, unless the user
+            // has manually panned/zoomed - same guard the slider and filter toggles use.
+            await UpdateMarkers(fitBounds: !userHasZoomed);
             await UpdateApMarkers(); // Rebuild popups with fresh device test data
             StateHasChanged();
         }
