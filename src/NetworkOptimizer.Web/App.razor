@@ -413,7 +413,56 @@
         const reconnectModal = document.getElementById('components-reconnect-modal');
         if (reconnectModal) {
             let disconnectedAt = null;
+            let reloading = false;
+            let stuckSpinnerTimer = null;
             const MIN_DISCONNECT_TIME_MS = 1500; // Only reload if disconnected > 1.5s
+            const STUCK_SPINNER_MS = 5000;       // Probe cadence while the spinner is up
+            const HEALTH_TIMEOUT_MS = 2000;      // Give the liveness probe this long to answer
+
+            // A reload tears down the page (circuit, Blazor's retries, our timers), so
+            // whichever recovery path fires first wins; the guard just stops a later
+            // tick from calling reload again after one is already in flight.
+            function safeReload() {
+                if (reloading) return;
+                reloading = true;
+                location.reload();
+            }
+
+            // Endless-spinner safety hatch. Blazor can sit in the "reconnecting" state
+            // indefinitely when the socket is wedged (dead but still open to it) or its
+            // retries stall - the page stays frozen behind the modal with no class
+            // transition for the observer to react to. While the spinner is up, probe
+            // the server every few seconds: if the SERVER answers, the circuit is wedged
+            // but the app is fine, so reload into a fresh page; if it doesn't answer it's
+            // a restart/outage, so do nothing and let Blazor keep retrying (reloading into
+            // a dead server would only strand us). The ?probe= marker distinguishes these
+            // from deploy health checks in the access logs.
+            async function serverAlive() {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), HEALTH_TIMEOUT_MS);
+                try {
+                    const resp = await fetch('/api/health?probe=reconnect', { signal: ctrl.signal, cache: 'no-store' });
+                    return resp.ok;
+                } catch {
+                    return false;
+                } finally {
+                    clearTimeout(t);
+                }
+            }
+
+            function startStuckSpinnerWatch() {
+                if (stuckSpinnerTimer) return;
+                stuckSpinnerTimer = setInterval(async function () {
+                    if (await serverAlive()) safeReload();
+                }, STUCK_SPINNER_MS);
+            }
+
+            function stopStuckSpinnerWatch() {
+                if (stuckSpinnerTimer) {
+                    clearInterval(stuckSpinnerTimer);
+                    stuckSpinnerTimer = null;
+                }
+            }
 
             const reconnectObserver = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
@@ -426,16 +475,19 @@
                         if (isShowing && !disconnectedAt) {
                             // Record when we started showing the reconnect modal
                             disconnectedAt = Date.now();
+                            startStuckSpinnerWatch();
                         } else if (!isShowing && !isFailed && disconnectedAt) {
                             // Successfully reconnected - only reload if we were disconnected long enough
                             const disconnectDuration = Date.now() - disconnectedAt;
                             disconnectedAt = null;
+                            stopStuckSpinnerWatch();
                             if (disconnectDuration >= MIN_DISCONNECT_TIME_MS) {
-                                location.reload();
+                                safeReload();
                             }
                         } else if (isFailed) {
                             disconnectedAt = null;
-                            location.reload();
+                            stopStuckSpinnerWatch();
+                            safeReload();
                         }
                     }
                 });
