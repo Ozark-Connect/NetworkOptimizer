@@ -63,7 +63,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             var json = await FetchModelJsonAsync(context, requireAuth: hasPassword, cancellationToken);
             if (json == null)
             {
-                _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, context.Host);
+                _logger.LogWarning("Netgear poll for {Name} ({Host}) returned no data", context.Name, context.ConfiguredHost ?? context.Host);
                 return null;
             }
 
@@ -72,7 +72,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, context.Host);
+            _logger.LogError(ex, "Error polling Netgear modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
             return null;
         }
     }
@@ -128,7 +128,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
         {
             _logger.LogInformation(
                 "Netgear session for {Host} expired (302 to /sess_cd_tmp), rebuilding",
-                context.Host);
+                context.ConfiguredHost ?? context.Host);
             InvalidateSession(context.Host);
 
             session = await GetOrCreateSessionAsync(context, requireAuth, cancellationToken);
@@ -217,7 +217,7 @@ public sealed class NetgearNighthawkHotspotProvider : ICellularModemProvider, ID
             var loggedIn = await LoginAsync(session, context.Host, context.Password!, cancellationToken);
             if (!loggedIn)
             {
-                _logger.LogWarning("Netgear login failed for {Host}", context.Host);
+                _logger.LogWarning("Netgear login failed for {Host}", context.ConfiguredHost ?? context.Host);
                 // Keep the anonymous session - polling can still return signal data
             }
             else

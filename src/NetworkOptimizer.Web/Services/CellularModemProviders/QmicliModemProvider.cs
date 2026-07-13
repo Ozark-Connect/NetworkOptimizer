@@ -37,7 +37,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Polling modem {Name} at {Host}", context.Name, context.Host);
+        _logger.LogInformation("Polling modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
 
         // Try uiwwand first - available on all modern UniFi cellular modems
         var stats = await TryPollViaUiwwandAsync(context);
@@ -110,7 +110,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider
         {
             var stats = new CellularModemStats
             {
-                ModemHost = context.Host,
+                ModemHost = context.ConfiguredHost ?? context.Host,
                 ModemName = context.Name,
                 ModemModel = context.ModemType,
                 Timestamp = DateTime.UtcNow,

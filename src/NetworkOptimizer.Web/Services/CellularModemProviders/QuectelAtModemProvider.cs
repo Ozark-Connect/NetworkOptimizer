@@ -38,7 +38,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
         ModemPollContext context,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Polling GL-iNet modem {Name} at {Host}", context.Name, context.Host);
+        _logger.LogInformation("Polling GL-iNet modem {Name} at {Host}", context.Name, context.ConfiguredHost ?? context.Host);
 
         var connection = ToConnectionInfo(context);
         if (!connection.HasCredentials)
@@ -58,7 +58,7 @@ public sealed class QuectelAtModemProvider : ICellularModemProvider
                 return null;
             }
 
-            var stats = QuectelAtParser.Parse(result.Output, context.Host, context.Name, context.ModemType);
+            var stats = QuectelAtParser.Parse(result.Output, context.ConfiguredHost ?? context.Host, context.Name, context.ModemType);
 
             if (stats != null)
             {

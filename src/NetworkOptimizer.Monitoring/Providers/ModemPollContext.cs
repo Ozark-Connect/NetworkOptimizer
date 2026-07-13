@@ -14,8 +14,11 @@ public sealed record ModemPollContext
     /// <summary>Friendly name for logs and UI.</summary>
     public required string Name { get; init; }
 
-    /// <summary>Host or IP for the modem.</summary>
+    /// <summary>Host or IP for the modem. On agent-routed sites (HTTP and per-modem-SSH providers) this is the tunnel-proxy loopback endpoint, not the device's own address.</summary>
     public required string Host { get; init; }
+
+    /// <summary>The configured device host before any tunnel-proxy rewrite; use for logs and stored stats so they name the real device.</summary>
+    public string? ConfiguredHost { get; init; }
 
     /// <summary>Port; 0 means provider default.</summary>
     public int Port { get; init; }

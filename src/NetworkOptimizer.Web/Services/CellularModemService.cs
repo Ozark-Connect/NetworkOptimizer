@@ -225,6 +225,7 @@ public class CellularModemService : ICellularModemService
             Id = modem.Id,
             Name = modem.Name,
             Host = host,
+            ConfiguredHost = modem.Host,
             Port = port,
             Username = string.IsNullOrEmpty(modem.Username) ? null : modem.Username,
             Password = password,
