@@ -52,6 +52,15 @@ public class ClientIdentity
     /// <summary>True when signal data was sourced from the WiFiman realtime endpoint</summary>
     public bool HasWiFiManData { get; set; }
 
+    /// <summary>
+    /// VPN hop type when this client connects through Tailscale, Teleport, or a UniFi
+    /// remote-user VPN. Set only for the simplified VPN dashboard view; null otherwise.
+    /// </summary>
+    public HopType? VpnType { get; set; }
+
+    /// <summary>True when this is a VPN-sourced client (renders the simplified dashboard view)</summary>
+    public bool IsVpn => VpnType != null;
+
     /// <summary>Best display name (Name > Hostname > MAC)</summary>
     public string DisplayName => !string.IsNullOrEmpty(Name) ? Name
         : !string.IsNullOrEmpty(Hostname) ? Hostname

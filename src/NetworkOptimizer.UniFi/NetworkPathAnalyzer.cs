@@ -69,6 +69,13 @@ public interface INetworkPathAnalyzer
     Task<(string? NetworkGroup, string? Name)> IdentifyWanConnectionAsync(
         string externalIp, double measuredDownloadMbps = 0, double measuredUploadMbps = 0,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Classifies a client IP as a VPN client type (Tailscale, Teleport, or a UniFi
+    /// remote-user VPN), or null when the IP is not VPN-sourced. Shares the same logic
+    /// used to prepend VPN hops to speed-test path traces.
+    /// </summary>
+    Task<HopType?> ClassifyVpnClientAsync(string clientIp, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -2331,63 +2338,49 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         // When only wanIp is provided, matches the specific WAN interface by IP.
         var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices, wanIp, resolvedWanGroup);
 
-        // Check for Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
-        if (clientIp.StartsWith("100."))
-        {
-            var parts = clientIp.Split('.');
-            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
-            {
-                if (secondOctet >= 64 && secondOctet <= 127)
-                {
-                    // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
-                    return new NetworkHop
-                    {
-                        Type = HopType.Tailscale,
-                        DeviceName = "Tailscale",
-                        DeviceIp = clientIp,
-                        IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
-                        EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
-                        IngressPortName = "WAN",
-                        EgressPortName = "WAN",
-                        Notes = wanUploadMbps > 0
-                            ? $"Tailscale VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
-                            : "Tailscale VPN mesh"
-                    };
-                }
-            }
-        }
-
-        // Check for Teleport: 192.168.x.x that's NOT in any known UniFi network
-        if (clientIp.StartsWith("192.168."))
-        {
-            // Check if this IP is in any known UniFi network
-            var isInKnownNetwork = topology.Networks.Any(n =>
-                !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
-
-            if (!isInKnownNetwork)
-            {
-                // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
-                return new NetworkHop
-                {
-                    Type = HopType.Teleport,
-                    DeviceName = "Teleport",
-                    DeviceIp = clientIp,
-                    IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
-                    EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
-                    IngressPortName = "WAN",
-                    EgressPortName = "WAN",
-                    Notes = wanUploadMbps > 0
-                        ? $"Teleport VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
-                        : "Teleport VPN gateway"
-                };
-            }
-        }
-
-        // Check for UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
+        // The network this IP falls inside, if any (used for both VPN and external classification).
         var matchingNetwork = topology.Networks.FirstOrDefault(n =>
             !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
-        if (matchingNetwork?.Purpose == "remote-user-vpn")
+        // Classify the VPN type (Tailscale / Teleport / remote-user VPN) via shared logic.
+        var vpnType = ClassifyVpnClient(clientIp, topology);
+        if (vpnType == HopType.Tailscale)
+        {
+            // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
+            return new NetworkHop
+            {
+                Type = HopType.Tailscale,
+                DeviceName = "Tailscale",
+                DeviceIp = clientIp,
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                Notes = wanUploadMbps > 0
+                    ? $"Tailscale VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : "Tailscale VPN mesh"
+            };
+        }
+
+        if (vpnType == HopType.Teleport)
+        {
+            // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
+            return new NetworkHop
+            {
+                Type = HopType.Teleport,
+                DeviceName = "Teleport",
+                DeviceIp = clientIp,
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                Notes = wanUploadMbps > 0
+                    ? $"Teleport VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : "Teleport VPN gateway"
+            };
+        }
+
+        if (vpnType == HopType.Vpn)
         {
             // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
             return new NetworkHop
@@ -2400,8 +2393,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
                 Notes = wanUploadMbps > 0
-                    ? $"VPN ({matchingNetwork.Name}, WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
-                    : $"VPN ({matchingNetwork.Name})"
+                    ? $"VPN ({matchingNetwork?.Name}, WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : $"VPN ({matchingNetwork?.Name})"
             };
         }
 
@@ -2458,6 +2451,66 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Classifies a client IP as a VPN client type (Tailscale, Teleport, or a UniFi
+    /// remote-user VPN), or null when the IP is not VPN-sourced. This is the single
+    /// source of truth shared by speed-test hop creation (<see cref="DetectAndCreateVpnHop"/>)
+    /// and the Client Dashboard's simplified VPN view.
+    /// </summary>
+    /// <remarks>
+    /// The Tailscale check is pure-IP (CGNAT 100.64.0.0/10) and works with a null
+    /// topology. Teleport and remote-user-VPN classification need the topology's
+    /// networks; when topology is null only Tailscale can be identified.
+    /// </remarks>
+    public static HopType? ClassifyVpnClient(string clientIp, NetworkTopology? topology)
+    {
+        if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
+            return null;
+
+        // Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
+        if (clientIp.StartsWith("100."))
+        {
+            var parts = clientIp.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet)
+                && secondOctet >= 64 && secondOctet <= 127)
+            {
+                return HopType.Tailscale;
+            }
+        }
+
+        if (topology == null)
+            return null;
+
+        // Teleport: 192.168.x.x that's NOT in any known UniFi network
+        if (clientIp.StartsWith("192.168."))
+        {
+            var isInKnownNetwork = topology.Networks.Any(n =>
+                !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
+
+            if (!isInKnownNetwork)
+                return HopType.Teleport;
+        }
+
+        // UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
+        var matchingNetwork = topology.Networks.FirstOrDefault(n =>
+            !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
+
+        if (matchingNetwork?.Purpose == "remote-user-vpn")
+            return HopType.Vpn;
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    public async Task<HopType?> ClassifyVpnClientAsync(string clientIp, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(clientIp))
+            return null;
+
+        var topology = await GetTopologyAsync(cancellationToken);
+        return ClassifyVpnClient(clientIp, topology);
     }
 
     /// <inheritdoc />

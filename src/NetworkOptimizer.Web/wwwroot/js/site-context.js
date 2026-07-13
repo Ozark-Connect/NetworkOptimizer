@@ -104,8 +104,24 @@
         if (!link)
             return;
         e.preventDefault();
-        if (link.hasAttribute('data-site-current'))
+        if (link.hasAttribute('data-site-current')) {
+            // Plain click on the already-active site. Two hosts carry these anchors:
+            //  - the header dropdown, where a backdrop is present: just close the
+            //    dropdown (don't reload). Clicking the backdrop keeps Blazor's open
+            //    state in sync (its @onclick runs CloseDropdown).
+            //  - the /sites page, where there's no dropdown: navigate to the card's
+            //    href (the site's dashboard) instead of dead-clicking.
+            // Reached only for plain left clicks - the modified-click guard above already
+            // returned, so ctrl / cmd / shift / middle clicks still open the site in a new
+            // tab untouched.
+            const backdrop = document.querySelector('.site-switcher-backdrop');
+            if (backdrop) {
+                backdrop.click();
+            } else {
+                window.location.assign(link.href);
+            }
             return;
+        }
         const target = link.getAttribute('data-site-switch');
         document.cookie = 'no-site=' + target + '; path=/; max-age=31536000; SameSite=Lax';
         window.location.assign(link.href);

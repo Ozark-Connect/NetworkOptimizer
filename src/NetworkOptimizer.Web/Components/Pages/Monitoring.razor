@@ -178,20 +178,7 @@ else
 
         @if (_flakyTargetCount > 0)
         {
-            <div class="alert alert-info" style="margin-bottom: 1rem;">
-                <div class="banner-content">
-                    <span class="banner-icon banner-icon-info">i</span>
-                    <div class="banner-text" style="flex: 1;">
-                        @(_flakyTargetCount == 1
-                            ? "1 monitoring target looks flaky"
-                            : $"{_flakyTargetCount} monitoring targets look flaky")
-                        - high packet loss versus their peers, usually ICMP deprioritization. Review and disable them so they don't skew ISP Health.
-                    </div>
-                    <div class="banner-actions">
-                        <button class="btn btn-sm btn-primary" @onclick="GoToFlakyTargets">Review flaky targets</button>
-                    </div>
-                </div>
-            </div>
+            @FlakyTargetsBanner
         }
 
         @if (_upstreamNeedsReview && !_upstreamReviewDismissed)
@@ -336,6 +323,12 @@ else
     @* ──────────────── Tab: ISP Health ──────────────── *@
     @if (_activeTab == "isp-health" && _monitoringReady)
     {
+        @* Flaky internet targets skew the score shown here, so surface the same advisory
+           (#849) above the panel - not only on Live View where it was first detected. *@
+        @if (_flakyTargetCount > 0)
+        {
+            @FlakyTargetsBanner
+        }
         <IspHealthPanel />
     }
 
@@ -2040,9 +2033,29 @@ else
         SetActiveTab("setup");
     }
 
-    // Flaky-target banner state (#849). Detected once when Live View first loads; never polled.
+    // Flaky-target banner state (#849). Detected once when Live View or ISP Health first loads,
+    // and re-checked when targets change so addressing the flagged ones clears the banner. Not polled.
     private int _flakyTargetCount;
     private bool _flakyChecked;
+
+    // Shared markup for the flaky internet-target advisory (#849) so Live View and ISP Health
+    // render the identical banner. AccessIsp/Transit/InternetService targets with loss well above
+    // their peers distort ISP Health scoring, so the warning belongs both where you watch live and
+    // where you read the score.
+    private RenderFragment FlakyTargetsBanner => @<div class="alert alert-info" style="margin-bottom: 1rem;">
+        <div class="banner-content">
+            <span class="banner-icon banner-icon-info">i</span>
+            <div class="banner-text" style="flex: 1;">
+                @(_flakyTargetCount == 1
+                    ? "1 monitoring target looks flaky"
+                    : $"{_flakyTargetCount} monitoring targets look flaky")
+                - high packet loss versus their peers, usually ICMP deprioritization. Review and disable them so they don't skew ISP Health.
+            </div>
+            <div class="banner-actions">
+                <button class="btn btn-sm btn-primary" @onclick="GoToFlakyTargets">Review flaky targets</button>
+            </div>
+        </div>
+    </div>;
 
     private void GoToFlakyTargets()
     {
@@ -2168,6 +2181,16 @@ else
         await LoadTargetsAsync();
         if (UpstreamTargetSignature() != before)
             LanFlowMapCache.Invalidate();
+
+        // Re-check flaky targets when the advisory is up so disabling/pausing the flagged ones
+        // clears the banner (they drop out of the enabled pool). Only when a banner is showing -
+        // no need to add the loss queries to unrelated target edits.
+        if (_flakyTargetCount > 0)
+        {
+            try { _flakyTargetCount = (await FlakyTargets.DetectAsync()).Count; }
+            catch (Exception ex) { Logger.LogDebug(ex, "Flaky-target re-check after target change failed"); }
+        }
+
         StateHasChanged();
     }
 
@@ -3160,8 +3183,9 @@ else
         // Mount/unmount charts based on active tab. Only mount when the container
         // div exists in the DOM (i.e., the tab is active). Unmount when switching away.
 
-        // Flaky-target banner (#849): detect once, on the first time Live View is shown. No polling.
-        if (_activeTab == "live" && _monitoringReady && !_flakyChecked)
+        // Flaky-target banner (#849): detect once, the first time Live View or ISP Health is shown
+        // (both surface the banner). No polling.
+        if ((_activeTab == "live" || _activeTab == "isp-health") && _monitoringReady && !_flakyChecked)
         {
             _flakyChecked = true;
             try

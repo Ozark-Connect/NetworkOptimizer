@@ -204,6 +204,48 @@ public class ClientDashboardService
     }
 
     /// <summary>
+    /// Identify a client that reaches the dashboard through a VPN (Tailscale, Teleport,
+    /// or a UniFi remote-user VPN). These clients never appear in the UniFi client list,
+    /// so <see cref="IdentifyClientAsync"/> returns null for them. Returns a synthetic
+    /// identity carrying the VPN type and IP for the simplified dashboard view, or null
+    /// when the IP is not VPN-sourced (or the console is unreachable).
+    /// </summary>
+    public async Task<ClientIdentity?> IdentifyVpnClientAsync(string clientIp)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+            return null;
+
+        try
+        {
+            var vpnType = await _pathAnalyzer.ClassifyVpnClientAsync(clientIp);
+            if (vpnType == null)
+                return null;
+
+            var name = vpnType switch
+            {
+                HopType.Tailscale => "Tailscale Client",
+                HopType.Teleport => "Teleport Client",
+                _ => "VPN Client"
+            };
+
+            _logger.LogDebug("Identified VPN client {Ip} as {VpnType}", clientIp, vpnType);
+            return new ClientIdentity
+            {
+                Mac = "",
+                Name = name,
+                Ip = clientIp,
+                IsWired = false,
+                VpnType = vpnType
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to classify VPN client {Ip}", clientIp);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Poll current signal quality for a client, run a trace, store the result, and return live data.
     /// </summary>
     public async Task<SignalPollResult?> PollSignalAsync(
@@ -468,6 +510,30 @@ public class ClientDashboardService
                        || r.Direction == SpeedTestDirection.ClientToServer
                        || r.Direction == SpeedTestDirection.BrowserToServer)
                       && r.ClientMac == mac
+                      && r.TestTime >= from
+                      && r.TestTime <= to)
+            .OrderByDescending(r => r.TestTime)
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Get speed test results for a client by its source host/IP, within a time range.
+    /// Used for VPN clients (Tailscale/Teleport/remote-user VPN), which have no UniFi MAC:
+    /// their browser/iperf3 results store <c>DeviceHost</c> = the VPN IP and a null MAC,
+    /// so the MAC-keyed <see cref="GetSpeedResultsAsync"/> can't find them.
+    /// </summary>
+    public async Task<List<Iperf3Result>> GetSpeedResultsByHostAsync(
+        string host, DateTime from, DateTime to)
+    {
+        await using var db = CreateSiteDb();
+
+        // Same LAN directions as the MAC-keyed query - the client's LAN throughput
+        // history, not its internet speed.
+        return await db.Iperf3Results
+            .Where(r => (r.Direction == SpeedTestDirection.ServerToDevice
+                       || r.Direction == SpeedTestDirection.ClientToServer
+                       || r.Direction == SpeedTestDirection.BrowserToServer)
+                      && r.DeviceHost == host
                       && r.TestTime >= from
                       && r.TestTime <= to)
             .OrderByDescending(r => r.TestTime)

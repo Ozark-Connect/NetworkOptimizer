@@ -169,6 +169,14 @@
     [Parameter]
     public int? TimeFilterHours { get; set; }
 
+    /// <summary>
+    /// Pre-select the External layer on first load. Used by the VPN client dashboard,
+    /// where every result is External - otherwise the map would render blank until the
+    /// user toggles the External filter on. The toggle still works normally afterward.
+    /// </summary>
+    [Parameter]
+    public bool ShowExternalByDefault { get; set; }
+
     /// <summary>Fires when the time slider changes, passing the number of hours (0 = all time)</summary>
     [Parameter]
     public EventCallback<int> OnTimeRangeChanged { get; set; }
@@ -486,6 +494,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // When all results are External (e.g. a VPN client dashboard), start with the
+        // External layer visible so markers show without an extra toggle.
+        if (ShowExternalByDefault)
+            ShowExternal = true;
+
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
     }
@@ -505,13 +518,17 @@
         if (TimeFilterHours.HasValue && TimeFilterHours != _lastExternalTimeFilter)
         {
             _lastExternalTimeFilter = TimeFilterHours;
+            // Treat an external time-filter change like a slider move: clear any manual
+            // pan/zoom so this filter change - and the new results that arrive under it -
+            // auto-fit the visible set back into view.
+            userHasZoomed = false;
             var targetIndex = FindClosestBreakpointIndex(TimeFilterHours.Value);
             if (targetIndex != sliderValue)
             {
                 sliderValue = targetIndex;
                 if (mapInitialized)
                 {
-                    await UpdateMarkers(fitBounds: !userHasZoomed);
+                    await UpdateMarkers(fitBounds: true);
                     StateHasChanged();
                     return; // Markers already updated, skip the count check below
                 }
@@ -529,7 +546,9 @@
             lastResultCount = currentCount;
             lastNewestResultId = newestId;
             lastFilteredCount = filteredCount;
-            await UpdateMarkers(fitBounds: false);
+            // Auto-fit so a freshly arrived result is brought into view, unless the user
+            // has manually panned/zoomed - same guard the slider and filter toggles use.
+            await UpdateMarkers(fitBounds: !userHasZoomed);
             await UpdateApMarkers(); // Rebuild popups with fresh device test data
             StateHasChanged();
         }

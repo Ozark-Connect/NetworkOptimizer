@@ -143,7 +143,22 @@
     {
         <div class="card empty-state">
             <h3>Device Not Found</h3>
-            <p>Could not identify your device on the network. Make sure you're connected and the UniFi Console is reachable.</p>
+            @if (!SiteContext.IsDefault)
+            {
+                <p>Could not identify your device on the network. Make sure you're connected and the UniFi Console is reachable.</p>
+            }
+            else if (!ConnectionService.IsConnected)
+            {
+                <p>The UniFi Console can't be reached right now, so your device can't be identified. Once the connection is restored, retry.</p>
+            }
+            else
+            {
+                <p>Your device isn't showing up in the UniFi Console's client list yet. If you just connected, give it a few seconds and retry.</p>
+                @if (!string.IsNullOrEmpty(_clientIp) && _clientIp != "unknown")
+                {
+                    <p class="empty-state-detail">Detected address: <code>@_clientIp</code></p>
+                }
+            }
             <button class="btn btn-primary" @onclick="ReloadPageAsync">Retry</button>
         </div>
     }
@@ -152,18 +167,33 @@
         @* Identity Bar *@
         <div class="card identity-bar">
             <div class="identity-row-1">
-                <div class="identity-info">
-                    <h2 class="identity-name">@_client.DisplayName</h2>
-                    <div class="identity-meta">
-                        <span>@_client.Mac</span>
-                        <span class="meta-sep">·</span>
-                        <span>@_client.Ip</span>
-                        @if (!string.IsNullOrEmpty(_client.Essid))
-                        {
+                <div class="identity-info @(_client.IsVpn ? "identity-info-vpn" : null)">
+                    @if (_client.IsVpn)
+                    {
+                        <span class="identity-vpn-icon @GetVpnTintClass(_client.VpnType)">
+                            <VpnIcon Type="_client.VpnType!.Value" Size="32" />
+                        </span>
+                        <div class="identity-text">
+                            <h2 class="identity-name">@_client.DisplayName</h2>
+                            <div class="identity-meta">
+                                <span>@_client.Ip</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <h2 class="identity-name">@_client.DisplayName</h2>
+                        <div class="identity-meta">
+                            <span>@_client.Mac</span>
                             <span class="meta-sep">·</span>
-                            <span data-tooltip="SSID">@_client.Essid</span>
-                        }
-                    </div>
+                            <span>@_client.Ip</span>
+                            @if (!string.IsNullOrEmpty(_client.Essid))
+                            {
+                                <span class="meta-sep">·</span>
+                                <span data-tooltip="SSID">@_client.Essid</span>
+                            }
+                        </div>
+                    }
                 </div>
                 <div class="identity-signal">
                     @if (!_client.IsWired && _client.SignalDbm.HasValue)
@@ -188,6 +218,8 @@
                             }
                         </div>
                     }
+                    @if (!_client.IsVpn)
+                    {
                     <div class="identity-live-group">
                         @if (_client.IsOffline)
                         {
@@ -219,10 +251,15 @@
                             </button>
                         }
                     </div>
+                    }
                 </div>
             </div>
             <div class="identity-row-2">
-                @if (!_client.IsWired)
+                @if (_client.IsVpn)
+                {
+                    <span class="identity-detail detail-dim">Remote client - limited data available</span>
+                }
+                else if (!_client.IsWired)
                 {
                     <span class="band-badge @GetBandClass(_client.Band)">@(_client.BandDisplay ?? "—")</span>
                     <span class="identity-detail">
@@ -254,7 +291,7 @@
                 {
                     <span class="identity-detail">Wired</span>
                 }
-                @if (!_isOwnDevice && _client is { IsWired: false, IsOffline: false })
+                @if (!_isOwnDevice && !_client.IsVpn && _client is { IsWired: false, IsOffline: false })
                 {
                     <button class="btn btn-sm @(_isLogging ? "btn-danger" : "btn-primary") logging-toggle logging-toggle-desktop"
                             @onclick="ToggleLogging"
@@ -265,14 +302,17 @@
                 }
             </div>
             <div class="dashboard-controls">
-                <div class="tab-bar">
-                    <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
-                            @onclick='() => SetActiveTab("speed")'>Speed</button>
-                    <button class="tab-btn @(_activeTab == "signal" ? "active" : "")"
-                            @onclick='() => SetActiveTab("signal")'>Signal</button>
-                    <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
-                            @onclick='() => SetActiveTab("connection")'>Connection</button>
-                </div>
+                @if (!_client.IsVpn)
+                {
+                    <div class="tab-bar">
+                        <button class="tab-btn @(_activeTab == "speed" ? "active" : "")"
+                                @onclick='() => SetActiveTab("speed")'>Speed</button>
+                        <button class="tab-btn @(_activeTab == "signal" ? "active" : "")"
+                                @onclick='() => SetActiveTab("signal")'>Signal</button>
+                        <button class="tab-btn @(_activeTab == "connection" ? "active" : "")"
+                                @onclick='() => SetActiveTab("connection")'>Connection</button>
+                    </div>
+                }
                 <div class="time-range-selector">
                     @foreach (var tf in _timeFilters)
                     {
@@ -430,7 +470,7 @@
                                             <th class="hide-mobile">From Device</th>
                                             <th class="hide-mobile">To Device</th>
                                             <th class="show-mobile">Result</th>
-                                            @if (!(_client?.IsWired == true))
+                                            @if (!HidesApRates)
                                             {
                                                 <th class="hide-mobile" data-tooltip="AP receive rate (from device)">RX Rate</th>
                                                 <th class="hide-mobile" data-tooltip="AP transmit rate (to device)">TX Rate</th>
@@ -451,7 +491,7 @@
                                                 <td class="hide-mobile"><span class="speed-down">@FormatSpeed(r.DownloadMbps, "F1")</span> Mbps</td>
                                                 <td class="hide-mobile"><span class="speed-up">@FormatSpeed(r.UploadMbps, "F1")</span> Mbps</td>
                                                 <td class="show-mobile"><span class="speed-down">@FormatSpeed(r.DownloadMbps, "F0")</span> / <span class="speed-up">@FormatSpeed(r.UploadMbps, "F0")</span></td>
-                                                @if (!(_client?.IsWired == true))
+                                                @if (!HidesApRates)
                                                 {
                                                     <td class="hide-mobile">@RenderRate(r.WifiRxRateKbps, "wifi-speed-rx")</td>
                                                     <td class="hide-mobile">@RenderRate(r.WifiTxRateKbps, "wifi-speed-tx")</td>
@@ -464,7 +504,7 @@
                                             @if (_expandedResultId == r.Id)
                                             {
                                                 <tr class="result-details-row">
-                                                    <td colspan="@(_client?.IsWired == true ? 6 : 8)">
+                                                    <td colspan="@(HidesApRates ? 6 : 8)">
                                                         <div class="result-details">
                                                             <SpeedTestDetails Result="r" HideDeviceName="true" HideClientDashboardLink="true" />
                                                         </div>
@@ -490,6 +530,7 @@
                     {
                         <SpeedTestMap Results="_speedResults" MapHeight="400px"
                                      ApMarkers="_apMapMarkers" AllowApEditing="false"
+                                     ShowExternalByDefault="_client?.IsVpn == true"
                                      TimeFilterHours="_selectedTimeFilter" />
                     }
                 </div>
@@ -993,6 +1034,30 @@
 
         // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
 
+        // VPN clients (Tailscale/Teleport/remote-user VPN) have no UniFi identity to poll
+        // and no L2 trace, so skip the signal/trace poll (it would fail and trip the
+        // connection banner). But new speed-test results should still appear live, so run
+        // a lightweight timer that just reloads the Speed tab data - no stat/sta, no trace.
+        if (_client?.IsVpn == true)
+        {
+            _activeTab = "speed";
+            _isLogging = false;
+
+            _pollTimer = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshVpnSpeedAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch { /* prevent timer death */ }
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+            return;
+        }
+
         // Start polling - 1s ticks when WiFiman is available.
         // Full poll (stat/sta + trace + storage) every 5th tick.
         // Lightweight WiFiman-only poll on other ticks for live signal updates.
@@ -1053,7 +1118,8 @@
         // Must be in OnAfterRenderAsync because JS interop isn't available during prerender
         _isInsecureContext = !await JS.InvokeAsync<bool>("eval", "window.isSecureContext");
         _isMobile = await JS.InvokeAsync<bool>("eval", "window.innerWidth <= 768");
-        _showGpsWarning = _isInsecureContext && _isOwnDevice;
+        // VPN clients have no GPS walk-test flow (no live polling), so never warn them.
+        _showGpsWarning = _isInsecureContext && _isOwnDevice && _client?.IsVpn != true;
 
         // Managed-site own-device identity needs JS (agent whoami probe / localStorage),
         // so it runs here rather than in OnInitializedAsync.
@@ -1077,6 +1143,11 @@
             // so we use JS interop to get the page URL and call the API
             _client = await GetClientIdentityAsync();
 
+            // VPN clients only get the Speed tab; force it before loading so a stale
+            // ?tab=signal/connection deep link doesn't load data they don't have.
+            if (_client?.IsVpn == true && _activeTab != "speed")
+                _activeTab = "speed";
+
             if (_client != null)
             {
                 await LoadTabDataAsync();
@@ -1094,6 +1165,7 @@
 
     private string? _clientIp;
     private bool _awaitingSiteIdentity;
+    private System.Threading.Timer? _identityRetryTimer;
     private bool _showClientPicker;
     private List<ClientDashboardService.SelectableClient> _pickerClients = new();
     private string? _pickerSelection;
@@ -1136,7 +1208,15 @@
         if (string.IsNullOrEmpty(_clientIp) || _clientIp == "unknown")
             return null;
 
-        return await DashboardService.IdentifyClientAsync(_clientIp);
+        var identity = await DashboardService.IdentifyClientAsync(_clientIp);
+
+        // A viewer reaching the dashboard over Tailscale/Teleport/remote-user VPN is never
+        // in the UniFi client list, so identity is null. Fall back to the simplified VPN
+        // view - default site only, so managed-site behavior (whoami/picker) is untouched.
+        if (identity == null && SiteContext.IsDefault)
+            identity = await DashboardService.IdentifyVpnClientAsync(_clientIp);
+
+        return identity;
     }
 
     /// <summary>
@@ -1149,44 +1229,113 @@
     /// </summary>
     private async Task ResolveSiteIdentityAsync()
     {
+        // Keep the loading skeleton up (via _awaitingSiteIdentity) through the whole
+        // attempt: clearing it early exposes a window where a poll-timer re-render would
+        // flash "Device Not Found" before the picker is ready. It is cleared only at a
+        // terminal state - here on success, or inside ShowClientPickerAsync when the
+        // picker becomes visible.
+        // One immediate attempt - resolves instantly on a warm agent connection.
+        if (await TryResolveSiteIdentityAsync())
+        {
+            _awaitingSiteIdentity = false;
+            StateHasChanged();
+            return;
+        }
+
+        // Cold connection: the on-site agent's tunnel or the UniFi console may still be
+        // coming up. Show the picker so the viewer can act right away, but keep probing
+        // in the background and auto-load once identity resolves - no manual refresh.
+        Logger.LogDebug("Client identity (site {Site}): not resolved yet, showing picker and retrying in the background", SiteContext.Slug);
+        await ShowClientPickerAsync();
+        StartSiteIdentityRetry();
+    }
+
+    /// <summary>
+    /// One identity-resolution attempt: ask the on-site agent's speed-test listener who
+    /// we are (it sees the viewer's LAN source address, where this central server only
+    /// sees the site's WAN IP), then identify that IP against the site's console.
+    /// Returns true and loads the dashboard when a client is resolved.
+    /// </summary>
+    private async Task<bool> TryResolveSiteIdentityAsync()
+    {
         string? ip = null;
-        var probed = false;
         try
         {
             var target = await SiteTarget.ResolveAsync();
             if (target.UsesAgent && !string.IsNullOrEmpty(target.BaseUrl))
             {
-                probed = true;
                 ip = await JS.InvokeAsync<string?>("eval",
                     $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
                     ".then(r => r.json()).then(j => j.ip).catch(() => null)");
             }
         }
-        catch { /* probe is best-effort; the picker below always works */ }
+        catch { return false; }
 
-        _awaitingSiteIdentity = false;
+        if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
+            return false;
 
-        if (!string.IsNullOrEmpty(ip) && System.Net.IPAddress.TryParse(ip, out _))
+        _clientIp = ip;
+        await IdentifyAndLoadAsync();
+        if (_client != null)
         {
             Logger.LogDebug("Client identity (site {Site}): agent whoami resolved {Ip}", SiteContext.Slug, ip);
-            _clientIp = ip;
-            await IdentifyAndLoadAsync();
-            if (_client != null)
-            {
-                StateHasChanged();
-                return;
-            }
-            // The agent answered but the address isn't a known client - pick manually.
-            Logger.LogDebug("Client identity (site {Site}): whoami address {Ip} not in the client list - showing picker", SiteContext.Slug, ip);
-            _clientIp = null;
-        }
-        else
-        {
-            Logger.LogDebug("Client identity (site {Site}): {Reason} - showing picker",
-                SiteContext.Slug, probed ? "agent whoami probe failed (offline or certificate untrusted)" : "no agent target to probe");
+            return true;
         }
 
-        await ShowClientPickerAsync();
+        // The agent answered but the console hasn't listed the client yet (still warming
+        // up on a cold connect) - clear so the next retry re-probes cleanly.
+        _clientIp = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Background retry for a cold agent/console connection. The agent's tunnel or the
+    /// UniFi console may still be coming up when the page first loads, so identity isn't
+    /// resolvable yet. Probe roughly once a second (up to 30s) so the dashboard fills in
+    /// snappily once the connection is live - the whoami endpoint is lightweight, so
+    /// hitting it a few times is cheap. Re-arms one-shot after each attempt completes so a
+    /// slow probe never overlaps the next. Stops early once the viewer picks manually.
+    /// </summary>
+    private void StartSiteIdentityRetry()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        _identityRetryTimer = new System.Threading.Timer(async _ =>
+        {
+            var done = false;
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    // Stop if the picker is gone (viewer picked a device) or we timed out.
+                    if (!_showClientPicker || DateTime.UtcNow >= deadline)
+                    {
+                        done = true;
+                        return;
+                    }
+
+                    if (await TryResolveSiteIdentityAsync())
+                    {
+                        _showClientPicker = false;
+                        done = true;
+                        StateHasChanged();
+                    }
+                });
+            }
+            catch { /* keep retrying across transient errors */ }
+
+            if (done)
+            {
+                _identityRetryTimer?.Dispose();
+                _identityRetryTimer = null;
+            }
+            else
+            {
+                // Re-arm a single tick ~1s out (one-shot period) so a slow whoami never
+                // overlaps the next probe.
+                try { _identityRetryTimer?.Change(TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan); }
+                catch { /* timer disposed - nothing to re-arm */ }
+            }
+        }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
     }
 
     private async Task ShowClientPickerAsync()
@@ -1200,7 +1349,11 @@
                 _pickerSelection = remembered;
         }
         catch { /* no preselect without localStorage */ }
+        // Flip both flags together, with no await between, so a render can't catch a
+        // state where neither the skeleton nor the picker is showing (which would flash
+        // the "Device Not Found" card).
         _showClientPicker = true;
+        _awaitingSiteIdentity = false;
         _loading = false;
         StateHasChanged();
     }
@@ -1451,9 +1604,31 @@
         }
     }
 
+    /// <summary>
+    /// Lightweight periodic refresh for VPN clients: reloads Speed tab results and charts
+    /// so new speed tests appear live, without the signal poll or L2 trace (neither of
+    /// which exists for VPN clients).
+    /// </summary>
+    private async Task RefreshVpnSpeedAsync()
+    {
+        if (_client == null) return;
+
+        // Don't disrupt a chart tooltip the user is hovering.
+        try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
+        catch { _isTooltipActive = false; }
+
+        var (from, to) = GetTimeRange();
+        await LoadSpeedDataAsync(from, to);
+        if (!_isTooltipActive)
+            await UpdateActiveChartsAsync();
+    }
+
     private async Task LoadSpeedDataAsync(DateTime from, DateTime to)
     {
-        _speedResults = await DashboardService.GetSpeedResultsAsync(_client!.Mac, from, to);
+        // VPN clients have no UniFi MAC; their results are keyed by source IP (DeviceHost).
+        _speedResults = _client!.IsVpn
+            ? await DashboardService.GetSpeedResultsByHostAsync(_client.Ip ?? "", from, to)
+            : await DashboardService.GetSpeedResultsAsync(_client.Mac, from, to);
         _latestSpeedResult = _speedResults.FirstOrDefault();
 
         // Build chart data (UTC timestamps - JS formatter converts to browser local time)
@@ -1948,6 +2123,9 @@
     // Speed results pagination
     private int SpeedTotalPages => Math.Max(1, (int)Math.Ceiling(_speedResults.Count / (double)SpeedPageSize));
 
+    // AP RX/TX rate columns only apply to Wi-Fi clients - hide for wired and VPN clients.
+    private bool HidesApRates => _client?.IsWired == true || _client?.IsVpn == true;
+
     private IEnumerable<Iperf3Result> GetPagedSpeedResults()
     {
         return _speedResults.Skip((_speedPage - 1) * SpeedPageSize).Take(SpeedPageSize);
@@ -2339,6 +2517,14 @@
         _ => ""
     };
 
+    // Tint for the VPN logo in the identity bar, matching the speed-test trace hop colors.
+    private static string GetVpnTintClass(HopType? vpnType) => vpnType switch
+    {
+        HopType.Tailscale => "vpn-tint-tailscale",
+        HopType.Teleport => "vpn-tint-teleport",
+        _ => ""
+    };
+
     // Map a UniFi radio code to the FloorPlanEditor propagation band ("2.4" / "5" / "6").
     // Returns null when unknown so the editor keeps its current band.
     private static string? ClientBandToPropagationBand(string? band) => band switch
@@ -2559,6 +2745,7 @@
     public async ValueTask DisposeAsync()
     {
         _pollTimer?.Dispose();
+        _identityRetryTimer?.Dispose();
 
         // Stop GPS watcher
         if (_gpsWatcherId.HasValue)
@@ -2611,7 +2798,36 @@
         gap: 12px;
         margin-bottom: 8px;
     }
+    .empty-state-detail {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+    }
+
     .identity-info {
+        min-width: 0;
+    }
+    .identity-info-vpn {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .identity-vpn-icon {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        color: var(--text-secondary);
+    }
+    .identity-vpn-icon.vpn-tint-tailscale {
+        color: var(--primary-light);
+    }
+    .identity-vpn-icon.vpn-tint-teleport {
+        color: var(--purple-light);
+    }
+    .identity-vpn-icon .vpn-shield-icon {
+        width: 32px;
+        height: 32px;
+    }
+    .identity-text {
         min-width: 0;
     }
     .identity-name {
