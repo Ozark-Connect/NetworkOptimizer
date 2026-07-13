@@ -255,6 +255,32 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Called after a connect attempt fails. When the console is agent-routed and
+    /// the tunnel itself is suspect (absent, stale, or open-breaker tripped), the
+    /// failure is a dead-tunnel symptom: the loopback proxy dial collapses
+    /// mid-TLS and parses as an "SSL certificate error" with advice the user
+    /// can't act on (proxied connections can't cert-match 127.0.0.1). Land in
+    /// awaiting-agent instead, so the banner tells the truth from the first
+    /// moment rather than flashing a bogus SSL error until the flip corrects it.
+    /// A genuine console-side failure over a HEALTHY tunnel keeps its real error.
+    /// </summary>
+    private async Task PreferAwaitingAgentOnDeadTunnelAsync()
+    {
+        try
+        {
+            if (!await IsConsoleViaAgentAsync()) return;
+            var proxy = _serviceProvider.GetService<AgentTunnelProxyService>();
+            if (proxy == null || !proxy.IsTunnelSuspect(SiteSlug)) return;
+            _awaitingAgent = true;
+            _lastError = AwaitingAgentMessage;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Dead-tunnel error remap failed for site {Slug}", SiteSlug);
+        }
+    }
+
+    /// <summary>
     /// When the site's console is reached through its agent tunnel, rewrites
     /// the controller URL to the loopback proxy endpoint that forwards over
     /// the tunnel. Callers must also force ignore-SSL for proxied connections:
@@ -582,6 +608,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _logger.LogWarning("Failed to authenticate with UniFi controller");
                 _client.Dispose();
                 _client = null;
+                await PreferAwaitingAgentOnDeadTunnelAsync();
                 return false;
             }
         }
@@ -591,6 +618,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _logger.LogError(ex, "Error connecting to UniFi controller");
             _client?.Dispose();
             _client = null;
+            await PreferAwaitingAgentOnDeadTunnelAsync();
             return false;
         }
     }
@@ -719,6 +747,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 _lastError = _client.LastLoginError ?? defaultError;
                 _client.Dispose();
                 _client = null;
+                await PreferAwaitingAgentOnDeadTunnelAsync();
                 return false;
             }
         }
@@ -728,6 +757,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _logger.LogWarning("Startup auto-connect timed out - console unreachable");
             _client?.Dispose();
             _client = null;
+            await PreferAwaitingAgentOnDeadTunnelAsync();
             return false;
         }
         catch (Exception ex)
@@ -736,6 +766,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             _logger.LogError(ex, "Error connecting to UniFi controller");
             _client?.Dispose();
             _client = null;
+            await PreferAwaitingAgentOnDeadTunnelAsync();
             return false;
         }
     }

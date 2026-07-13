@@ -261,6 +261,22 @@ public class AgentTunnelProxyService : IDisposable
     }
 
     /// <summary>
+    /// Whether this site's tunnel path is currently suspect: no agent, an agent
+    /// silent past the stale threshold, or the open breaker tripped with no
+    /// fresh inbound since. Lets the console's connect-failure handling tell "the
+    /// tunnel is dead" (report awaiting-agent) apart from a genuine console-side
+    /// failure reached over a healthy tunnel (report the real error).
+    /// </summary>
+    public bool IsTunnelSuspect(string siteSlug)
+    {
+        var agent = _registry.GetForSite(siteSlug).FirstOrDefault();
+        if (agent == null || agent.IsStale) return true;
+        return _openBreaker.TryGetValue(siteSlug, out var breaker)
+               && DateTime.UtcNow < breaker.Until
+               && agent.LastMessageAt <= breaker.OpenedAtLastMsg;
+    }
+
+    /// <summary>
     /// Flips the site's console to awaiting-agent off the dial path (fire-and-
     /// forget, idempotent) the moment a dead tunnel is proven - by an open
     /// timeout or a stale-gate refusal - so page renders short-circuit console
