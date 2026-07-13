@@ -1035,12 +1035,26 @@
         // Note: initial GPS request happens in OnAfterRenderAsync (needs JS interop)
 
         // VPN clients (Tailscale/Teleport/remote-user VPN) have no UniFi identity to poll
-        // and no L2 trace: every poll cycle would fail and trip the connection banner.
-        // They get a static simplified view (Speed tab only), so skip live polling entirely.
+        // and no L2 trace, so skip the signal/trace poll (it would fail and trip the
+        // connection banner). But new speed-test results should still appear live, so run
+        // a lightweight timer that just reloads the Speed tab data - no stat/sta, no trace.
         if (_client?.IsVpn == true)
         {
             _activeTab = "speed";
             _isLogging = false;
+
+            _pollTimer = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshVpnSpeedAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch { /* prevent timer death */ }
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
             return;
         }
 
@@ -1514,6 +1528,25 @@
                 await LoadConnectionDataAsync(from, to);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Lightweight periodic refresh for VPN clients: reloads Speed tab results and charts
+    /// so new speed tests appear live, without the signal poll or L2 trace (neither of
+    /// which exists for VPN clients).
+    /// </summary>
+    private async Task RefreshVpnSpeedAsync()
+    {
+        if (_client == null) return;
+
+        // Don't disrupt a chart tooltip the user is hovering.
+        try { _isTooltipActive = await JS.InvokeAsync<bool>("eval", "!!document.querySelector('.apexcharts-tooltip-active')"); }
+        catch { _isTooltipActive = false; }
+
+        var (from, to) = GetTimeRange();
+        await LoadSpeedDataAsync(from, to);
+        if (!_isTooltipActive)
+            await UpdateActiveChartsAsync();
     }
 
     private async Task LoadSpeedDataAsync(DateTime from, DateTime to)
