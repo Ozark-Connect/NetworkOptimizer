@@ -73,7 +73,7 @@ public sealed class QmicliModemProvider : ICellularModemProvider
                 return null;
             }
 
-            var stats = UiwwandParser.Parse(output, context.Host, context.Name, context.ModemType);
+            var stats = UiwwandParser.Parse(output, context.ConfiguredHost ?? context.Host, context.Name, context.ModemType);
 
             if (stats != null && stats.Lte == null && stats.Nr5g == null)
             {

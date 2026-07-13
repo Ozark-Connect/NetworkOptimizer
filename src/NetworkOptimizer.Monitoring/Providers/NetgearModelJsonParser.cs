@@ -32,7 +32,7 @@ public static class NetgearModelJsonParser
         var stats = new CellularModemStats
         {
             Timestamp = DateTime.UtcNow,
-            ModemHost = context.Host,
+            ModemHost = context.ConfiguredHost ?? context.Host,
             ModemName = context.Name,
             ModemModel = TryGetString(root, "general", "deviceName") ?? context.ModemType,
         };
