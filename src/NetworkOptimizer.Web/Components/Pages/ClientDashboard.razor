@@ -1165,6 +1165,7 @@
 
     private string? _clientIp;
     private bool _awaitingSiteIdentity;
+    private System.Threading.Timer? _identityRetryTimer;
     private bool _showClientPicker;
     private List<ClientDashboardService.SelectableClient> _pickerClients = new();
     private string? _pickerSelection;
@@ -1228,64 +1229,109 @@
     /// </summary>
     private async Task ResolveSiteIdentityAsync()
     {
-        // The on-site agent's tunnel may still be coming up when the page first loads,
-        // so the resolver reports no agent target yet. Poll for a bounded window so
-        // identity resolves automatically once the agent connects, instead of dropping
-        // to the picker and forcing the viewer to refresh. Keep the loading skeleton up
-        // (via _awaitingSiteIdentity) while we wait.
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        string? ip = null;
-        var probed = false;
-        while (true)
-        {
-            try
-            {
-                var target = await SiteTarget.ResolveAsync();
-                if (target.UsesAgent && !string.IsNullOrEmpty(target.BaseUrl))
-                {
-                    probed = true;
-                    ip = await JS.InvokeAsync<string?>("eval",
-                        $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
-                        ".then(r => r.json()).then(j => j.ip).catch(() => null)");
-                }
-            }
-            catch { /* probe is best-effort; the picker below always works */ }
-
-            if (!string.IsNullOrEmpty(ip) && System.Net.IPAddress.TryParse(ip, out _))
-                break;
-
-            // Once the agent target is reachable, a null answer means the probe itself
-            // failed (e.g. certificate untrusted) - don't keep waiting, fall to the picker.
-            // Otherwise the agent isn't online yet: retry until the deadline.
-            if (probed || DateTime.UtcNow >= deadline)
-                break;
-
-            await Task.Delay(2000);
-        }
-
         _awaitingSiteIdentity = false;
 
-        if (!string.IsNullOrEmpty(ip) && System.Net.IPAddress.TryParse(ip, out _))
+        // One immediate attempt - resolves instantly on a warm agent connection.
+        if (await TryResolveSiteIdentityAsync())
         {
-            Logger.LogDebug("Client identity (site {Site}): agent whoami resolved {Ip}", SiteContext.Slug, ip);
-            _clientIp = ip;
-            await IdentifyAndLoadAsync();
-            if (_client != null)
-            {
-                StateHasChanged();
-                return;
-            }
-            // The agent answered but the address isn't a known client - pick manually.
-            Logger.LogDebug("Client identity (site {Site}): whoami address {Ip} not in the client list - showing picker", SiteContext.Slug, ip);
-            _clientIp = null;
-        }
-        else
-        {
-            Logger.LogDebug("Client identity (site {Site}): {Reason} - showing picker",
-                SiteContext.Slug, probed ? "agent whoami probe failed (offline or certificate untrusted)" : "no agent target to probe");
+            StateHasChanged();
+            return;
         }
 
+        // Cold connection: the on-site agent's tunnel or the UniFi console may still be
+        // coming up. Show the picker so the viewer can act right away, but keep probing
+        // in the background and auto-load once identity resolves - no manual refresh.
+        Logger.LogDebug("Client identity (site {Site}): not resolved yet, showing picker and retrying in the background", SiteContext.Slug);
         await ShowClientPickerAsync();
+        StartSiteIdentityRetry();
+    }
+
+    /// <summary>
+    /// One identity-resolution attempt: ask the on-site agent's speed-test listener who
+    /// we are (it sees the viewer's LAN source address, where this central server only
+    /// sees the site's WAN IP), then identify that IP against the site's console.
+    /// Returns true and loads the dashboard when a client is resolved.
+    /// </summary>
+    private async Task<bool> TryResolveSiteIdentityAsync()
+    {
+        string? ip = null;
+        try
+        {
+            var target = await SiteTarget.ResolveAsync();
+            if (target.UsesAgent && !string.IsNullOrEmpty(target.BaseUrl))
+            {
+                ip = await JS.InvokeAsync<string?>("eval",
+                    $"fetch('{target.BaseUrl}/netopt/whoami', {{signal: AbortSignal.timeout(4000)}})" +
+                    ".then(r => r.json()).then(j => j.ip).catch(() => null)");
+            }
+        }
+        catch { return false; }
+
+        if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
+            return false;
+
+        _clientIp = ip;
+        await IdentifyAndLoadAsync();
+        if (_client != null)
+        {
+            Logger.LogDebug("Client identity (site {Site}): agent whoami resolved {Ip}", SiteContext.Slug, ip);
+            return true;
+        }
+
+        // The agent answered but the console hasn't listed the client yet (still warming
+        // up on a cold connect) - clear so the next retry re-probes cleanly.
+        _clientIp = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Background retry for a cold agent/console connection. The agent's tunnel or the
+    /// UniFi console may still be coming up when the page first loads, so identity isn't
+    /// resolvable yet. Probe roughly once a second (up to 30s) so the dashboard fills in
+    /// snappily once the connection is live - the whoami endpoint is lightweight, so
+    /// hitting it a few times is cheap. Re-arms one-shot after each attempt completes so a
+    /// slow probe never overlaps the next. Stops early once the viewer picks manually.
+    /// </summary>
+    private void StartSiteIdentityRetry()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        _identityRetryTimer = new System.Threading.Timer(async _ =>
+        {
+            var done = false;
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    // Stop if the picker is gone (viewer picked a device) or we timed out.
+                    if (!_showClientPicker || DateTime.UtcNow >= deadline)
+                    {
+                        done = true;
+                        return;
+                    }
+
+                    if (await TryResolveSiteIdentityAsync())
+                    {
+                        _showClientPicker = false;
+                        done = true;
+                        StateHasChanged();
+                    }
+                });
+            }
+            catch { /* keep retrying across transient errors */ }
+
+            if (done)
+            {
+                _identityRetryTimer?.Dispose();
+                _identityRetryTimer = null;
+            }
+            else
+            {
+                // Re-arm a single tick ~1s out (one-shot period) so a slow whoami never
+                // overlaps the next probe.
+                try { _identityRetryTimer?.Change(TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan); }
+                catch { /* timer disposed - nothing to re-arm */ }
+            }
+        }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
     }
 
     private async Task ShowClientPickerAsync()
@@ -2691,6 +2737,7 @@
     public async ValueTask DisposeAsync()
     {
         _pollTimer?.Dispose();
+        _identityRetryTimer?.Dispose();
 
         // Stop GPS watcher
         if (_gpsWatcherId.HasValue)

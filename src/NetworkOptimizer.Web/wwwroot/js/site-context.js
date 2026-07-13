@@ -104,8 +104,16 @@
         if (!link)
             return;
         e.preventDefault();
-        if (link.hasAttribute('data-site-current'))
+        if (link.hasAttribute('data-site-current')) {
+            // Plain click on the already-active site: don't reload, just close the
+            // dropdown. Click the switcher backdrop so Blazor's open state stays in
+            // sync (its @onclick runs CloseDropdown). Reached only for plain left
+            // clicks - the modified-click guard above already returned, so ctrl / cmd /
+            // shift / middle clicks still open the site in a new tab untouched.
+            const backdrop = document.querySelector('.site-switcher-backdrop');
+            if (backdrop) backdrop.click();
             return;
+        }
         const target = link.getAttribute('data-site-switch');
         document.cookie = 'no-site=' + target + '; path=/; max-age=31536000; SameSite=Lax';
         window.location.assign(link.href);
