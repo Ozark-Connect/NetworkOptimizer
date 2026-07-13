@@ -431,6 +431,40 @@ Considered and deliberately NOT implemented (rationale on record so it isn't re-
   pumps opaque bytes. Command safety lives server-side (parameterized command
   construction); the gateway-side option is `authorized_keys` forced commands.
 
+### Agent Tunnel Store-and-Forward: Robustness Follow-ups (#978 steady-state review)
+
+The ack-based result buffer shipped in #978 is sound in steady state; these are edge-case behaviors
+found in review, none blocking. (The review's top finding - agent clock skew silently disabling a
+site's alerting via the AlertFreshness gate - is fixed: `AgentProbeResultSink` now warns hourly per
+site when samples on a long-connected tunnel skip alert evaluation.)
+
+- [ ] **Poison frame becomes a reconnect-replay loop.** A frame that deterministically throws in
+  `RecordBatchAsync`/`RecordSnmpBatchAsync` (corrupt site DB, disk full, throwing Influx config)
+  tears down the tunnel read loop, never gets acked, and replays from the front of the buffer on
+  every reconnect - head-of-line blocking newer data until the 12 h age cap evicts it. Pre-#978 the
+  frame was simply lost on teardown, which "recovered". Fix shape: per-frame try/catch that acks
+  (or dead-letters with a log) after N failed attempts, so one bad frame can't wedge the site's
+  pipeline. Transient errors (DB lock, Influx blip) should still retry, so N > 1.
+- [ ] **Ack precedes durable persistence.** The server acks after `RecordBatchAsync` returns, but
+  Influx writes may still sit in the client's write buffer - a server crash in that window loses
+  data the agent has already trimmed. Narrow window, crash-only. Options: ack after an Influx
+  flush, or accept and document the window (probably fine for monitoring data).
+- [ ] **False-stale blip window.** `StaleThreshold` (45 s) over a 30 s heartbeat leaves 15 s of
+  margin. A healthy agent silent >45 s (host suspend, long GC pause, forward server clock step)
+  gets proxy opens refused and its console flipped to awaiting-agent; recovery is the next
+  heartbeat plus up to 60 s for the config-refresh loop to reconnect the console. The open breaker
+  already clears instantly on fresh inbound - consider un-flipping the console on fresh inbound
+  too, instead of waiting for the 60 s refresh tick.
+- [ ] **Buffered non-result frames are never directly acked.** `SnmpOidResult` (OID test replies)
+  ride the ResultBuffer, but the server only acks ProbeResults/SnmpResults frames - other frame
+  types are trimmed only cumulatively by a later result ack. On a quiet site (no monitoring flow)
+  one can linger and replay on every reconnect until the 12 h age cap. Harmless today (the server
+  ignores stale request ids), but acking every sequenced frame uniformly removes the class.
+- **Relevant code:** `AgentTunnelService` read loop (ack sites, `WatchLivenessAsync`),
+  `TunnelClient.DrainResultsAsync`, `ResultBuffer`, `AgentProbeResultSink` (`AlertFreshness`,
+  `NoteAlertEvaluationSkipped`), `AgentTunnelProxyService` (open breaker),
+  `UniFiConnectionService.NoteTunnelUnreachableAsync`.
+
 ### Credential Key: Hardening Follow-ups
 
 Self-hosted project, so keep this proportional. The at-rest credential key is a random
