@@ -231,7 +231,7 @@ public class UpstreamTracerService
             // keeps the scheduled run 1:1 with a user-initiated run.
             var preservedTech = State.AccessTechnology;
             if (preservedTech == AccessTechnology.Unknown)
-                preservedTech = await LoadPersistedAccessTechnologyAsync(ct);
+                preservedTech = await LoadPersistedAccessTechnologyAsync(State.WanInterface, ct);
             State = new UpstreamTracerState
             {
                 Step = TracerStep.DetectingPublicIp,
@@ -251,20 +251,39 @@ public class UpstreamTracerService
     public Task WaitForCompletionAsync() => _runningTask ?? Task.CompletedTask;
 
     /// <summary>
-    /// Reads the most-recently-discovered WAN's saved access technology from the DB.
-    /// Fallback for when a run starts (notably the background re-discovery scheduler)
-    /// without the UI having hydrated the in-memory state first. Returns Unknown when
-    /// nothing is persisted yet.
+    /// Reads the saved access technology from the DB. Fallback for when a run starts
+    /// (notably the background re-discovery scheduler) without the UI having hydrated
+    /// the in-memory state first. The technology is per-WAN, so the traced WAN's own
+    /// context row wins when <paramref name="wanInterface"/> is known; otherwise (and
+    /// when that row has nothing set) any row with a known technology is used,
+    /// recency-ordered - the old "most recent row, whatever it holds" pick returned
+    /// Unknown on multi-WAN installs whenever a different WAN's row was fresher, which
+    /// mislabeled the first-mile device (e.g. "cisco-access" instead of "cisco-olt" on
+    /// a saved-GPON install). Last resort is the legacy single-WAN
+    /// MonitoringSettings.AccessTechnology from installs that predate per-WAN contexts.
+    /// Returns Unknown when nothing is persisted anywhere.
     /// </summary>
-    private async Task<AccessTechnology> LoadPersistedAccessTechnologyAsync(CancellationToken ct)
+    private async Task<AccessTechnology> LoadPersistedAccessTechnologyAsync(string? wanInterface, CancellationToken ct)
     {
         try
         {
             await using var db = await CreateDbAsync(ct);
-            var ctx = await db.WanDiscoveryContexts
+            var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+
+            var own = contexts.FirstOrDefault(c =>
+                wanInterface != null &&
+                string.Equals(c.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase));
+            if (own != null && own.AccessTechnology != AccessTechnology.Unknown)
+                return own.AccessTechnology;
+
+            var known = contexts
+                .Where(c => c.AccessTechnology != AccessTechnology.Unknown)
                 .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
-                .FirstOrDefaultAsync(ct);
-            return ctx?.AccessTechnology ?? AccessTechnology.Unknown;
+                .FirstOrDefault();
+            if (known != null) return known.AccessTechnology;
+
+            var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            return settings?.AccessTechnology ?? AccessTechnology.Unknown;
         }
         catch (Exception ex)
         {
@@ -291,6 +310,11 @@ public class UpstreamTracerService
         try
         {
             if (!await DetectPublicIpAsync(ct)) return;
+            // The access technology is stored per-WAN; the pre-run load couldn't key on
+            // the WAN yet. Now that detection resolved which WAN we're tracing, retry
+            // against its own context row before any technology-driven labeling runs.
+            if (State.AccessTechnology == AccessTechnology.Unknown)
+                State.AccessTechnology = await LoadPersistedAccessTechnologyAsync(State.WanInterface, ct);
             if (!await DiscoverL2NeighborAsync(ct)) return;
             await TraceAccessIspAsync(ct);
             await TraceTransitAsnsAsync(ct);
@@ -1920,7 +1944,12 @@ public class UpstreamTracerService
         ctxRow.L2NeighborMac = State.WanNeighborMac;
         ctxRow.L2NeighborIp = State.WanNeighborIp;
         ctxRow.L2NeighborOui = State.WanNeighborOuiVendor;
-        ctxRow.AccessTechnology = State.AccessTechnology;
+        // Never write Unknown over a saved technology: the ISP Health selector writes
+        // to this row too, and a run that started without the tech hydrated would
+        // otherwise wipe the user's setting (discovery only ever proposes, per the
+        // SetAccessTechnologyAsync contract).
+        if (State.AccessTechnology != AccessTechnology.Unknown)
+            ctxRow.AccessTechnology = State.AccessTechnology;
         ctxRow.LastDiscoveryAt = DateTime.UtcNow;
         ctxRow.NeedsReview = false;
         ctxRow.UpdatedAt = DateTime.UtcNow;
