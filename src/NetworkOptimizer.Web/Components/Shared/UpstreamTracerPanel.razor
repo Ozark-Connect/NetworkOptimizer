@@ -107,6 +107,40 @@
 
             @if (_state.Step == TracerStep.ReviewingResults)
             {
+                @if (_state.IspChange != null)
+                {
+                    var change = _state.IspChange;
+                    <div class="alert alert-warning isp-change-review">
+                        <strong>Did you switch internet providers?</strong>
+                        <p>
+                            This discovery reached the internet through
+                            <code>AS@(change.NewAsnNumber)</code> <span class="text-muted">(@change.NewAsnName)</span>,
+                            but your upstream monitoring is set up for
+                            <code>AS@(change.OldAsnNumber)</code> <span class="text-muted">(@change.OldAsnName)</span>.
+                            Pick an answer below, then save.
+                        </p>
+                        <div class="isp-change-choices">
+                            <label class="isp-change-choice">
+                                <input type="radio" name="isp-change" checked="@(change.Confirmed == true)"
+                                       @onchange="() => change.Confirmed = true" />
+                                <span>
+                                    <strong>Yes, I switched providers - start fresh.</strong>
+                                    Saving pauses @(change.TargetCount == 1 ? "your 1 current upstream monitoring target" : $"all {change.TargetCount} current upstream monitoring targets")@(change.ManualCount > 0 ? $" (including {change.ManualCount} hand-added)" : "") for this connection
+                                    and the results below become your new baseline. Nothing is deleted.
+                                </span>
+                            </label>
+                            <label class="isp-change-choice">
+                                <input type="radio" name="isp-change" checked="@(change.Confirmed == false)"
+                                       @onchange="() => change.Confirmed = false" />
+                                <span>
+                                    <strong>No, keep monitoring my current targets.</strong>
+                                    Everything stays as it is, and we won't ask again about this network.
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                }
+
                 <div class="form-group">
                     <label class="form-label">Access network technology</label>
                     <select class="form-control" style="max-width: 250px;@(_state.AccessTechnology == AccessTechnology.Unknown ? " outline: 2px solid rgba(59, 130, 246, 0.5); outline-offset: 2px; border-radius: 6px;" : "")"
@@ -246,6 +280,67 @@
                     </div>
                 }
 
+                @if (_state.RemovedTransitAsns.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">No longer on your path</label>
+                        <p class="section-description">These transit networks were being monitored but haven't appeared in the last several discovery runs - your ISP no longer routes through them, so their targets would report false problems. They'll be paused when you save; re-check any you want to keep. Nothing is deleted.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 115px;">Keep Active</th>
+                                        <th>ASN</th>
+                                        <th>Targets to pause</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var removed in _state.RemovedTransitAsns)
+                                    {
+                                        <tr class="@(removed.Keep ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@removed.Keep"
+                                                       @onchange="e => removed.Keep = (bool)e.Value!" />
+                                            </td>
+                                            <td><code>AS@(removed.AsnNumber)</code> <span class="text-muted">@removed.AsnName</span></td>
+                                            <td>@(removed.TargetCount == 1 ? "1 target" : $"{removed.TargetCount} targets")@(removed.ManualCount > 0 ? $" ({removed.ManualCount} hand-added)" : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
+                @if (_state.PendingRemovalTransitAsns.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Tracking possible removals</label>
+                        <p class="section-description">These transit networks are no longer on your path this run. We're tracking them - after the remaining discovery runs shown below without them reappearing, we'll help you remove the affected targets. Nothing changes until then.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ASN</th>
+                                        <th>Status</th>
+                                        <th>Affected targets</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pending in _state.PendingRemovalTransitAsns)
+                                    {
+                                        <tr>
+                                            <td><code>AS@(pending.AsnNumber)</code> <span class="text-muted">@pending.AsnName</span></td>
+                                            <td>Absent @pending.MissCount of @(pending.MissCount + pending.RunsRemaining) runs - @(pending.RunsRemaining == 1 ? "1 more run" : $"{pending.RunsRemaining} more runs") to confirm</td>
+                                            <td>@(pending.TargetCount == 1 ? "1 target" : $"{pending.TargetCount} targets")@(pending.ManualCount > 0 ? $" ({pending.ManualCount} hand-added)" : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
                 @if (PathEndHosts.Count > 0)
                 {
                     <div class="form-group">
@@ -283,7 +378,8 @@
                     </div>
                 }
 
-                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0)
+                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0
+                     && _state.RemovedTransitAsns.Count == 0 && _state.PendingRemovalTransitAsns.Count == 0)
                 {
                     <div class="alert alert-info">
                         No upstream hops responded to either ICMP or UDP traceroute. Your
@@ -293,9 +389,13 @@
 
                 <div class="action-buttons">
                     <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
-                    @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled))
+                    @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled) || _state.RemovedTransitAsns.Count > 0)
                     {
-                        <button class="btn btn-primary" @onclick="CommitAsync">Save monitoring targets</button>
+                        <button class="btn btn-primary" @onclick="CommitAsync"
+                                disabled="@(_state.IspChange is { Confirmed: null })"
+                                data-tooltip="@(_state.IspChange is { Confirmed: null } ? "Answer the provider question above first" : null)">
+                            Save monitoring targets
+                        </button>
                     }
                 </div>
             }
@@ -525,4 +625,8 @@
 <style>
     .row-disabled { opacity: 0.45; }
     .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+    .isp-change-review { margin-bottom: 1rem; }
+    .isp-change-review p { margin: 0.5rem 0 0; }
+    .isp-change-choices { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+    .isp-change-choice { display: flex; align-items: baseline; gap: 0.5rem; cursor: pointer; }
 </style>

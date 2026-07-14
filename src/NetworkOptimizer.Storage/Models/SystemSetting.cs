@@ -85,6 +85,12 @@ public static class SystemSettingKeys
     // key is this prefix + WanInterface; the value is a JSON map of ASN identity -> miss count.
     public const string UpstreamAbsentAsnCountsPrefix = "upstream.absent_asn_counts.";
 
+    // Per-WAN "seen but declined" access-ISP change memory. The full key is this prefix +
+    // WanInterface; the value is the new access ASN the user said was NOT a provider switch,
+    // so the same detected change doesn't re-prompt on every discovery run. Cleared when a
+    // later ISP change is confirmed (fresh baseline).
+    public const string UpstreamDeclinedAccessAsnPrefix = "upstream.declined_access_asn.";
+
     // Map / Satellite settings
     public const string MapboxApiKey = "map.mapbox_token";
 
