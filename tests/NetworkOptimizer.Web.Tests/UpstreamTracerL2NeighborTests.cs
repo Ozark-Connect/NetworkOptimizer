@@ -13,6 +13,86 @@ namespace NetworkOptimizer.Web.Tests;
 public class UpstreamTracerL2NeighborTests
 {
     [Fact]
+    public void Routed_default_gateway_wins_over_higher_scoring_same_subnet_peer()
+    {
+        // Shared WAN subnet (metro Ethernet / two sites on one carrier segment): a peer
+        // host is REACHABLE and public while the true gateway is STALE - the heuristic
+        // scoring would pick the peer, the routed gateway must win.
+        const string output = """
+            203.0.113.7 lladdr aa:bb:cc:dd:ee:01 REACHABLE
+            203.0.113.1 lladdr aa:bb:cc:dd:ee:06 STALE
+            """;
+
+        var selected = UpstreamTracerService.SelectWanNeighbor(output, "203.0.113.5/24", "203.0.113.1");
+
+        selected!.Value.Ip.Should().Be("203.0.113.1");
+        selected.Value.Mac.Should().Be("aa:bb:cc:dd:ee:06");
+    }
+
+    [Fact]
+    public void Falls_back_to_scoring_when_routed_gateway_has_no_neighbor_entry()
+    {
+        const string output = """
+            192.168.1.254 lladdr aa:bb:cc:dd:ee:06 STALE
+            203.0.113.1 lladdr aa:bb:cc:dd:ee:06 REACHABLE
+            """;
+
+        UpstreamTracerService.SelectWanNeighbor(output, null, "198.51.100.99")!
+            .Value.Ip.Should().Be("203.0.113.1");
+    }
+
+    [Fact]
+    public void SelectWanDefaultGateway_finds_the_wan_table_default()
+    {
+        const string routes = """
+            default via 192.168.1.1 dev br0 table 205
+            default via 203.0.113.1 dev eth8 table 201
+            default via 198.51.100.1 dev eth9 table 202
+            """;
+
+        UpstreamTracerService.SelectWanDefaultGateway(routes, "eth8").Should().Be("203.0.113.1");
+        UpstreamTracerService.SelectWanDefaultGateway(routes, "eth9").Should().Be("198.51.100.1");
+    }
+
+    [Fact]
+    public void SelectWanDefaultGateway_matches_whole_iface_name_only()
+    {
+        // "eth8" must not match "eth8.35"'s line and vice versa.
+        const string routes = """
+            default via 203.0.113.1 dev eth8.35 table 201
+            """;
+
+        UpstreamTracerService.SelectWanDefaultGateway(routes, "eth8").Should().BeNull();
+        UpstreamTracerService.SelectWanDefaultGateway(routes, "eth8.35").Should().Be("203.0.113.1");
+    }
+
+    [Fact]
+    public void SelectWanDefaultGateway_ignores_onlink_ppp_default()
+    {
+        // PPPoE default has no "via" - no gateway address (and no MAC) to extract.
+        const string routes = """
+            default dev ppp0 scope link table 201
+            """;
+
+        UpstreamTracerService.SelectWanDefaultGateway(routes, "ppp0").Should().BeNull();
+    }
+
+    [Fact]
+    public void SelectWanDefaultGateway_handles_metric_and_proto_suffixes()
+    {
+        const string routes = "default via 203.0.113.1 dev eth8 proto static metric 220";
+
+        UpstreamTracerService.SelectWanDefaultGateway(routes, "eth8").Should().Be("203.0.113.1");
+    }
+
+    [Fact]
+    public void SelectWanDefaultGateway_returns_null_for_empty_input()
+    {
+        UpstreamTracerService.SelectWanDefaultGateway(null, "eth8").Should().BeNull();
+        UpstreamTracerService.SelectWanDefaultGateway("", "eth8").Should().BeNull();
+    }
+
+    [Fact]
     public void Prefers_public_reachable_over_private_stale_with_same_mac()
     {
         const string output = """

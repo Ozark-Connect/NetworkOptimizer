@@ -231,7 +231,7 @@ public class UpstreamTracerService
             // keeps the scheduled run 1:1 with a user-initiated run.
             var preservedTech = State.AccessTechnology;
             if (preservedTech == AccessTechnology.Unknown)
-                preservedTech = await LoadPersistedAccessTechnologyAsync(ct);
+                preservedTech = await LoadPersistedAccessTechnologyAsync(State.WanInterface, ct);
             State = new UpstreamTracerState
             {
                 Step = TracerStep.DetectingPublicIp,
@@ -251,20 +251,39 @@ public class UpstreamTracerService
     public Task WaitForCompletionAsync() => _runningTask ?? Task.CompletedTask;
 
     /// <summary>
-    /// Reads the most-recently-discovered WAN's saved access technology from the DB.
-    /// Fallback for when a run starts (notably the background re-discovery scheduler)
-    /// without the UI having hydrated the in-memory state first. Returns Unknown when
-    /// nothing is persisted yet.
+    /// Reads the saved access technology from the DB. Fallback for when a run starts
+    /// (notably the background re-discovery scheduler) without the UI having hydrated
+    /// the in-memory state first. The technology is per-WAN, so the traced WAN's own
+    /// context row wins when <paramref name="wanInterface"/> is known; otherwise (and
+    /// when that row has nothing set) any row with a known technology is used,
+    /// recency-ordered - the old "most recent row, whatever it holds" pick returned
+    /// Unknown on multi-WAN installs whenever a different WAN's row was fresher, which
+    /// mislabeled the first-mile device (e.g. "cisco-access" instead of "cisco-olt" on
+    /// a saved-GPON install). Last resort is the legacy single-WAN
+    /// MonitoringSettings.AccessTechnology from installs that predate per-WAN contexts.
+    /// Returns Unknown when nothing is persisted anywhere.
     /// </summary>
-    private async Task<AccessTechnology> LoadPersistedAccessTechnologyAsync(CancellationToken ct)
+    private async Task<AccessTechnology> LoadPersistedAccessTechnologyAsync(string? wanInterface, CancellationToken ct)
     {
         try
         {
             await using var db = await CreateDbAsync(ct);
-            var ctx = await db.WanDiscoveryContexts
+            var contexts = await db.WanDiscoveryContexts.AsNoTracking().ToListAsync(ct);
+
+            var own = contexts.FirstOrDefault(c =>
+                wanInterface != null &&
+                string.Equals(c.WanInterface, wanInterface, StringComparison.OrdinalIgnoreCase));
+            if (own != null && own.AccessTechnology != AccessTechnology.Unknown)
+                return own.AccessTechnology;
+
+            var known = contexts
+                .Where(c => c.AccessTechnology != AccessTechnology.Unknown)
                 .OrderByDescending(c => c.LastDiscoveryAt ?? c.UpdatedAt)
-                .FirstOrDefaultAsync(ct);
-            return ctx?.AccessTechnology ?? AccessTechnology.Unknown;
+                .FirstOrDefault();
+            if (known != null) return known.AccessTechnology;
+
+            var settings = await db.MonitoringSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            return settings?.AccessTechnology ?? AccessTechnology.Unknown;
         }
         catch (Exception ex)
         {
@@ -291,6 +310,11 @@ public class UpstreamTracerService
         try
         {
             if (!await DetectPublicIpAsync(ct)) return;
+            // The access technology is stored per-WAN; the pre-run load couldn't key on
+            // the WAN yet. Now that detection resolved which WAN we're tracing, retry
+            // against its own context row before any technology-driven labeling runs.
+            if (State.AccessTechnology == AccessTechnology.Unknown)
+                State.AccessTechnology = await LoadPersistedAccessTechnologyAsync(State.WanInterface, ct);
             if (!await DiscoverL2NeighborAsync(ct)) return;
             await TraceAccessIspAsync(ct);
             await TraceTransitAsnsAsync(ct);
@@ -544,8 +568,6 @@ public class UpstreamTracerService
         //  1) port_table.uplink_ifname - UniFi's kernel device name for
         //     the uplink, correct for VLAN-tagged sub-interfaces too.
         //  2) `ip -o -4 addr show` line owning the known WAN IP.
-        // No default-route lookup: UniFi gateways run policy routing with
-        // per-WAN tables, so the default isn't in the main table.
         var candidates = new List<string>();
         if (!string.IsNullOrEmpty(_wanUplinkIfName))
         {
@@ -571,6 +593,22 @@ public class UpstreamTracerService
             }
         }
 
+        // The WAN's default gateway from the routing tables. UniFi gateways run policy
+        // routing with per-WAN tables, so the default isn't in the main table - but
+        // `ip route show table all` surfaces every table's default route, and the line
+        // whose dev is our WAN interface names the true next hop. This is authoritative:
+        // on a shared WAN subnet (metro Ethernet, two sites on one carrier segment) the
+        // neighbor table also carries OTHER same-subnet hosts, and heuristic scoring can
+        // pick one of those peers over the actual gateway. We still read the gateway's
+        // MAC from `ip neigh` below - the routing table only supplies WHICH IP to pick.
+        string? routeShowAll = null;
+        {
+            var (routeOk, routeOut) = await _gatewaySsh.RunCommandAsync(
+                "ip route show table all 2>/dev/null | grep '^default' | head -20",
+                TimeSpan.FromSeconds(5), ct);
+            if (routeOk && !string.IsNullOrWhiteSpace(routeOut)) routeShowAll = routeOut;
+        }
+
         string? neighborMac = null;
         string? neighborIp = null;
         string? wanDevice = null;
@@ -582,7 +620,8 @@ public class UpstreamTracerService
             var (ok, output) = await _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(5), ct);
             if (!ok || string.IsNullOrWhiteSpace(output)) continue;
 
-            var selected = SelectWanNeighbor(output, wanCidr);
+            var defaultGatewayIp = SelectWanDefaultGateway(routeShowAll, ifaceCandidate);
+            var selected = SelectWanNeighbor(output, wanCidr, defaultGatewayIp);
             if (selected != null)
             {
                 neighborIp = selected.Value.Ip;
@@ -643,11 +682,33 @@ public class UpstreamTracerService
     }
 
     /// <summary>
+    /// Parses `ip route show table all` output for the default route egressing the given
+    /// WAN interface and returns its gateway ("via") address. UniFi gateways run policy
+    /// routing, so each WAN's default lives in its own table (`default via 203.0.113.1
+    /// dev eth8 table 201 ...`); matching on the dev finds ours regardless of table
+    /// number. Returns the first match (multiple tables for one WAN name the same next
+    /// hop). On-link defaults without a `via` (PPPoE's `default dev ppp0 scope link`)
+    /// yield null - there's no gateway address, and no MAC to look up either.
+    /// </summary>
+    internal static string? SelectWanDefaultGateway(string? routeShowAllOutput, string wanIface)
+    {
+        if (string.IsNullOrWhiteSpace(routeShowAllOutput) || string.IsNullOrEmpty(wanIface)) return null;
+        var m = Regex.Match(routeShowAllOutput,
+            @"^default\s+via\s+(?<gw>\d{1,3}(?:\.\d{1,3}){3})\s+dev\s+" + Regex.Escape(wanIface) + @"(\s|$)",
+            RegexOptions.Multiline);
+        return m.Success ? m.Groups["gw"].Value : null;
+    }
+
+    /// <summary>
     /// Picks the WAN-side L2 neighbor from `ip neigh show dev &lt;wan&gt;` output. A CPE
     /// bridged in front of the gateway (an ISP modem/router in passthrough) lists both
     /// its LAN-side RFC1918 address and the carrier-side address under the same MAC;
     /// the LAN-side entry often sorts first, and taking the first lladdr line mislabeled
-    /// a private CPE IP as an ISP hop. Preference order: in the WAN subnet (the real
+    /// a private CPE IP as an ISP hop. When the WAN's routed default gateway is known
+    /// (from <see cref="SelectWanDefaultGateway"/>) its entry wins outright - on a shared
+    /// WAN subnet the neighbor table also lists unrelated same-subnet hosts (another
+    /// site's gateway on the same carrier segment), and no heuristic can rank those below
+    /// the true next hop reliably. Otherwise preference order: in the WAN subnet (the real
     /// ISP-side gateway is by definition on-link with our WAN IP) &gt; address class
     /// (public &gt; CGNAT &gt; private) &gt; freshness (REACHABLE/DELAY/PROBE over STALE).
     /// FAILED and INCOMPLETE entries carry no lladdr and never match. IPv6 link-local
@@ -658,7 +719,9 @@ public class UpstreamTracerService
     /// <param name="ipNeighOutput">Raw `ip neigh show dev &lt;wan&gt;` output.</param>
     /// <param name="wanCidr">The gateway's WAN address in CIDR form (e.g. "203.0.113.5/24")
     /// used to recognize the on-link ISP gateway. Null/empty falls back to class+freshness.</param>
-    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput, string? wanCidr = null)
+    /// <param name="defaultGatewayIp">The WAN's routed default gateway, when known. Its
+    /// neighbor entry is returned outright, bypassing the heuristic scoring.</param>
+    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput, string? wanCidr = null, string? defaultGatewayIp = null)
     {
         if (string.IsNullOrWhiteSpace(ipNeighOutput)) return null;
 
@@ -670,6 +733,10 @@ public class UpstreamTracerService
             var ipText = m.Groups[1].Value;
             if (!System.Net.IPAddress.TryParse(ipText, out var ip)) continue;
             if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+
+            // The routed next hop IS the first-mile device; no scoring needed.
+            if (defaultGatewayIp != null && string.Equals(ipText, defaultGatewayIp, StringComparison.OrdinalIgnoreCase))
+                return (ipText, m.Groups[2].Value.ToLowerInvariant());
 
             // UniFi's default WAN SLA probe targets keep a neighbor entry on the WAN
             // interface but are public DNS resolvers, never the L2 next hop.
@@ -720,6 +787,18 @@ public class UpstreamTracerService
     // the reachability step can fall back to a curated endpoint even when none of the
     // access hops responded (the access pool can be empty/unreachable yet the ASN known).
     private int? _accessAsn;
+
+    // Cleaned display name for _accessAsn - from its hops' ASN attribution, or from the
+    // WAN IP lookup when the ASN was derived from the WAN address and no hop carries the
+    // name. Used by the curated-fallback injection for labeling.
+    private string? _accessAsnName;
+
+    // Destination (CDN endpoint) ASNs and org names from the rotation, resolved once per
+    // run during the access step (they gate the access-ISP pick) and reused by the transit
+    // step. Transit-probe endpoints are excluded on purpose - their ASN is allowed to
+    // surface as transit.
+    private readonly HashSet<int> _destinationAsns = new();
+    private readonly HashSet<string> _destinationOrgs = new(StringComparer.OrdinalIgnoreCase);
 
     // The 1st/2nd-degree non-access ASNs off each trace (union): the access ISP's
     // direct upstream and that upstream's upstream. A transit-probe ASN (Lumen, AT&T,
@@ -808,11 +887,26 @@ public class UpstreamTracerService
             .Where(h => !_gatewayIps.Contains(h.Address))
             .ToList();
 
-        // Identify the access ISP ASN: the first non-null ASN seen at the lowest hop
-        // numbers across the traces. Hops in private/CGNAT space (Asn == null) are
-        // skipped over; they don't have a public ASN.
-        var firstPublicHop = candidateHops.FirstOrDefault(h => h.Asn != null);
-        var accessAsn = firstPublicHop?.Asn?.Asn;
+        // Resolve the destination (CDN) ASNs up front: the access-ISP pick below must
+        // never crown a probe destination's own ASN, and the transit step reuses the sets.
+        await ResolveDestinationAsnsAsync(ct);
+
+        // The WAN IP's own ASN is the strongest access-ISP signal when the address is
+        // public: it's the ISP's customer allocation, independent of which routers
+        // answer traceroute. ResolveAsync returns null for CGNAT/private WAN addresses.
+        AsnLookup? wanIpAsn = null;
+        if (!string.IsNullOrEmpty(State.WanIpAddress))
+            wanIpAsn = await _asnResolution.ResolveAsync(State.WanIpAddress, ct);
+
+        // Identify the access ISP ASN. The old heuristic ("first hop with a resolvable
+        // ASN across the merged pool") broke on ISPs like Bell Canada (#984) whose entire
+        // first mile is RFC1918 plus public space deliberately NOT announced in BGP: the
+        // first attributable hop was the probed CDN's own edge, and the destination
+        // (Cloudflare) got crowned as the access ISP. DetermineAccessAsn combines the
+        // WAN IP's ASN with per-trace voting instead.
+        var asnByIp = BuildAsnByIpMap();
+        var traceSequences = BuildTraceSequences();
+        var accessAsn = DetermineAccessAsn(traceSequences, asnByIp, wanIpAsn?.Asn, _destinationAsns);
         // Remember it so the reachability step can reach for a curated fallback endpoint
         // even when the access pool ends up empty or entirely unreachable.
         _accessAsn = accessAsn;
@@ -833,6 +927,26 @@ public class UpstreamTracerService
             _accessHopsResolved = candidateHops
                 .TakeWhile(h => h.Asn == null)
                 .ToList();
+        }
+
+        // Unannounced first-mile hops: an ISP like Bell (#984) numbers its aggregation
+        // layer from public or CGNAT space that carries no BGP attribution (Asn == null),
+        // upstream of its announced routers. Any such hop appearing BEFORE the first
+        // access-ASN hop on its own trace sits on the customer side of the ISP's
+        // announced border - it is access infrastructure, positionally attributed.
+        // RFC1918 prefix hops stay excluded (a bridged CPE's LAN address or a double-NAT
+        // middlebox is not ISP infra); the reachability gate later disables any of these
+        // that don't answer ping.
+        if (accessAsn.HasValue)
+        {
+            var alreadyIncluded = new HashSet<string>(
+                _accessHopsResolved.Select(h => h.Address), StringComparer.OrdinalIgnoreCase);
+            var unannounced = CollectUnannouncedAccessAddresses(traceSequences, asnByIp, accessAsn.Value)
+                .Where(a => !alreadyIncluded.Contains(a) && !_gatewayIps.Contains(a) && byIp.ContainsKey(a))
+                .Select(a => byIp[a])
+                .OrderBy(h => h.HopNumber)
+                .ToList();
+            _accessHopsResolved = unannounced.Concat(_accessHopsResolved).ToList();
         }
 
         // Walk each individual trace to find border hops: an access-ASN hop
@@ -863,7 +977,12 @@ public class UpstreamTracerService
             }
         }
 
-        var orgName = CleanAsnName(firstPublicHop?.Asn?.Name);
+        // Access org display name: from an attributed access hop when one exists, else
+        // from the WAN IP lookup (a fully silent/unannounced first mile still labels).
+        var accessAsnRawName = _accessHopsResolved.FirstOrDefault(h => h.Asn != null)?.Asn?.Name
+                               ?? (accessAsn.HasValue && accessAsn.Value == wanIpAsn?.Asn ? wanIpAsn.Name : null);
+        var orgName = CleanAsnName(accessAsnRawName);
+        _accessAsnName = string.IsNullOrEmpty(orgName) ? null : orgName;
         State.AccessHops = _accessHopsResolved.Select(h => new AccessHopCandidate
         {
             TargetId = $"access-{NormalizeMacForId(h.Address)}",
@@ -960,6 +1079,7 @@ public class UpstreamTracerService
         var accessAsnNumbers = new HashSet<int>(_accessHopsResolved
             .Where(h => h.Asn != null)
             .Select(h => h.Asn!.Asn));
+        if (_accessAsn.HasValue) accessAsnNumbers.Add(_accessAsn.Value);
 
         // Also drop any ASN that's a CDN destination - the CDN's own edge routers
         // respond to traceroute from inside the CDN's ASN, so without this filter
@@ -973,16 +1093,8 @@ public class UpstreamTracerService
         // the same org get excluded (e.g. probing Microsoft 13.107.42.14 lives
         // in AS8068 but the trace traverses Microsoft's AS8075 backbone too -
         // both are Microsoft, neither belongs in the transit list).
-        var destinationAsns = new HashSet<int>();
-        var destinationOrgs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var endpoint in CdnRotation)
-        {
-            if (endpoint.IsTransitProbe) continue;
-            var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
-            if (destAsn == null) continue;
-            destinationAsns.Add(destAsn.Asn);
-            if (!string.IsNullOrWhiteSpace(destAsn.Name)) destinationOrgs.Add(destAsn.Name.Trim());
-        }
+        var destinationAsns = _destinationAsns;
+        var destinationOrgs = _destinationOrgs;
 
         // Also exclude the transit-probe endpoints themselves from the hop pool.
         // Their job is to force the path through a specific ASN so real transit
@@ -1014,16 +1126,8 @@ public class UpstreamTracerService
         // heterogeneous traces, so a multi-homed access ISP's other upstreams (or a
         // near probe endpoint) can occupy the global "first two" slots at a lower hop
         // number and crowd out a genuine direct upstream.
-        var asnByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var h in _mergedHops)
-            if (h.Asn != null) asnByIp.TryAdd(h.Address, h.Asn.Asn);
-        var traceSequences = _lastTraces
-            .Select(t => (IReadOnlyList<string>)t.Hops
-                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address))
-                .OrderBy(hp => hp.HopNumber)
-                .Select(hp => hp.Address!)
-                .ToList())
-            .ToList();
+        var asnByIp = BuildAsnByIpMap();
+        var traceSequences = BuildTraceSequences();
 
         _nearTransitAsns.Clear();
         _nearTransitAsns.UnionWith(
@@ -1543,8 +1647,7 @@ public class UpstreamTracerService
         // cleared the gate is always the better monitor than a city-PoP speedtest endpoint.
         if (State.AccessHops.Any(h => h.Enabled && !h.Unreachable)) return;
 
-        var orgName = CleanAsnName(_accessHopsResolved.FirstOrDefault()?.Asn?.Name);
-        if (string.IsNullOrEmpty(orgName)) orgName = $"AS{asn}";
+        var orgName = _accessAsnName ?? $"AS{asn}";
 
         // Resolve + ping each curated host; keep the reachable ones with their measured RTT.
         var probed = new List<AccessFallbackProbe>();
@@ -1841,7 +1944,12 @@ public class UpstreamTracerService
         ctxRow.L2NeighborMac = State.WanNeighborMac;
         ctxRow.L2NeighborIp = State.WanNeighborIp;
         ctxRow.L2NeighborOui = State.WanNeighborOuiVendor;
-        ctxRow.AccessTechnology = State.AccessTechnology;
+        // Never write Unknown over a saved technology: the ISP Health selector writes
+        // to this row too, and a run that started without the tech hydrated would
+        // otherwise wipe the user's setting (discovery only ever proposes, per the
+        // SetAccessTechnologyAsync contract).
+        if (State.AccessTechnology != AccessTechnology.Unknown)
+            ctxRow.AccessTechnology = State.AccessTechnology;
         ctxRow.LastDiscoveryAt = DateTime.UtcNow;
         ctxRow.NeedsReview = false;
         ctxRow.UpdatedAt = DateTime.UtcNow;
@@ -2109,6 +2217,136 @@ public class UpstreamTracerService
     /// </summary>
     internal static string CleanAsnName(string? name) =>
         NetworkOptimizer.Core.Helpers.NetworkFormatHelpers.CleanOrgName(name);
+
+    /// <summary>Hop address → ASN for every ASN-attributed hop in the last sweep.</summary>
+    private Dictionary<string, int> BuildAsnByIpMap()
+    {
+        var asnByIp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in _mergedHops)
+            if (h.Asn != null) asnByIp.TryAdd(h.Address, h.Asn.Asn);
+        return asnByIp;
+    }
+
+    /// <summary>Per-trace responding hop addresses in hop order, from the last sweep.</summary>
+    private List<IReadOnlyList<string>> BuildTraceSequences() =>
+        _lastTraces
+            .Select(t => (IReadOnlyList<string>)t.Hops
+                .Where(hp => hp.Responded && !string.IsNullOrEmpty(hp.Address))
+                .OrderBy(hp => hp.HopNumber)
+                .Select(hp => hp.Address!)
+                .ToList())
+            .ToList();
+
+    /// <summary>
+    /// Resolves the ASN + org name of every non-transit-probe endpoint in the rotation
+    /// into <see cref="_destinationAsns"/> / <see cref="_destinationOrgs"/>. Called once
+    /// per run from the access step; the transit step reuses the sets.
+    /// </summary>
+    private async Task ResolveDestinationAsnsAsync(CancellationToken ct)
+    {
+        _destinationAsns.Clear();
+        _destinationOrgs.Clear();
+        foreach (var endpoint in CdnRotation)
+        {
+            if (endpoint.IsTransitProbe) continue;
+            var destAsn = await _asnResolution.ResolveAsync(endpoint.Address, ct);
+            if (destAsn == null) continue;
+            _destinationAsns.Add(destAsn.Asn);
+            if (!string.IsNullOrWhiteSpace(destAsn.Name)) _destinationOrgs.Add(destAsn.Name.Trim());
+        }
+    }
+
+    /// <summary>
+    /// Picks the access ISP's ASN from the discovery sweep. The naive "first hop with a
+    /// resolvable ASN" heuristic fails when the ISP's entire first mile is unattributable:
+    /// Bell Canada (#984) runs its PPPoE aggregation on RFC1918 plus public /16s it
+    /// deliberately does not announce in BGP, so the first attributable hop was the probed
+    /// CDN's own edge and Cloudflare got crowned as the access ISP.
+    ///
+    /// Two signals replace it:
+    ///  1. The WAN IP's own ASN (the ISP's customer allocation) wins whenever it is
+    ///     resolvable AND corroborated - it appears on some hop, or no per-trace votes
+    ///     exist at all (fully silent first mile: keep it for labeling and the curated
+    ///     fallback endpoints).
+    ///  2. Otherwise per-trace voting: each trace nominates its first ASN-attributed hop,
+    ///     skipping destination ASNs - a destination's edge only appears on traces toward
+    ///     itself, while the true access ISP fronts essentially every trace. Most votes
+    ///     wins; ties break toward the ASN seen at the shallowest hop, then lowest ASN.
+    /// A destination ASN can still win via signal 1: an access ISP could legitimately be
+    /// one of the orgs we probe.
+    /// </summary>
+    internal static int? DetermineAccessAsn(
+        IEnumerable<IReadOnlyList<string>> traceAddressSequences,
+        IReadOnlyDictionary<string, int> asnByIp,
+        int? wanIpAsn,
+        IReadOnlySet<int> destinationAsns)
+    {
+        var votes = new Dictionary<int, (int Count, int BestDepth)>();
+        foreach (var trace in traceAddressSequences)
+        {
+            var depth = 0;
+            foreach (var address in trace)
+            {
+                depth++;
+                if (!asnByIp.TryGetValue(address, out var asn)) continue;
+                if (destinationAsns.Contains(asn) && asn != wanIpAsn) continue;
+                votes[asn] = votes.TryGetValue(asn, out var v)
+                    ? (v.Count + 1, Math.Min(v.BestDepth, depth))
+                    : (1, depth);
+                break;
+            }
+        }
+
+        if (wanIpAsn is int wan
+            && (votes.ContainsKey(wan) || votes.Count == 0 || asnByIp.Values.Contains(wan)))
+            return wan;
+
+        if (votes.Count == 0) return null;
+        return votes
+            .OrderByDescending(kv => kv.Value.Count)
+            .ThenBy(kv => kv.Value.BestDepth)
+            .ThenBy(kv => kv.Key)
+            .First().Key;
+    }
+
+    /// <summary>
+    /// Positional attribution for an ISP's unannounced first mile. Collects hop addresses
+    /// that appear BEFORE the first access-ASN hop on their own trace and carry no BGP
+    /// attribution but sit in public or shared/CGNAT (RFC 6598) space - Bell's 142.124.x
+    /// aggregation hops (#984). Being upstream of us and downstream of the ISP's announced
+    /// border makes them the ISP's access infrastructure even though no ASN maps to them.
+    /// RFC1918 hops are excluded: those can be a bridged CPE's LAN side or a double-NAT
+    /// middlebox. Traces whose first attributed hop is NOT the access ASN (e.g. a trace
+    /// that only ever surfaces the destination's edge) contribute nothing - we can't prove
+    /// their prefix hops sit below the access border. Dedupes across traces, preserves
+    /// first-seen order.
+    /// </summary>
+    internal static List<string> CollectUnannouncedAccessAddresses(
+        IEnumerable<IReadOnlyList<string>> traceAddressSequences,
+        IReadOnlyDictionary<string, int> asnByIp,
+        int accessAsn)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var trace in traceAddressSequences)
+        {
+            var prefix = new List<string>();
+            foreach (var address in trace)
+            {
+                if (asnByIp.TryGetValue(address, out var asn))
+                {
+                    if (asn == accessAsn)
+                        foreach (var p in prefix)
+                            if (seen.Add(p)) result.Add(p);
+                    break;
+                }
+                var cls = NetworkUtilities.ClassifyPublicAddress(address);
+                if (cls is PublicAddressClass.PublicIPv4 or PublicAddressClass.Cgnat)
+                    prefix.Add(address);
+            }
+        }
+        return result;
+    }
 
     /// <summary>
     /// Near-transit ASNs: every ASN that appears as the 1st or 2nd distinct non-access,

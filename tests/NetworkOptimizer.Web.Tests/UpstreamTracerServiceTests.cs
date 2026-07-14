@@ -1007,6 +1007,214 @@ public class ComputeExcludedTier1AsnsTests
     }
 }
 
+public class DetermineAccessAsnTests
+{
+    // Real ASNs because the logic keys on destination sets built from real endpoints;
+    // all hop IPs are RFC 5737 documentation addresses.
+    private const int Bell = 577;
+    private const int Cloudflare = 13335;
+    private const int Google = 15169;
+
+    private static IReadOnlySet<int> Dest => new HashSet<int> { Cloudflare, Google };
+    private static IReadOnlySet<int> NoDest => new HashSet<int>();
+
+    private static Dictionary<string, int> Map(params (string Ip, int Asn)[] e)
+        => e.ToDictionary(x => x.Ip, x => x.Asn, StringComparer.OrdinalIgnoreCase);
+
+    // The #984 shape: Bell's first mile is RFC1918 + unannounced public space (absent
+    // from the ASN map), so on the Cloudflare trace the first attributable hop is
+    // Cloudflare's own edge. Bell only appears on the Google trace, one hop deeper.
+    private static readonly IReadOnlyList<string>[] BellTraces =
+    {
+        new[] { "10.0.0.2", "203.0.113.10", "203.0.113.11", "198.51.100.7", "198.51.100.8" }, // -> 1.1.1.1: CF edge at depth 4
+        new[] { "10.0.0.2", "203.0.113.10", "203.0.113.12", "192.0.2.60", "198.51.100.9" },   // -> 8.8.8.8: Bell at depth 4
+    };
+
+    private static readonly Dictionary<string, int> BellMap = Map(
+        ("198.51.100.7", Cloudflare), ("198.51.100.8", Cloudflare),
+        ("192.0.2.60", Bell), ("198.51.100.9", Google));
+
+    [Fact]
+    public void Destination_edge_is_not_crowned_access_isp()
+    {
+        // Even with no WAN IP signal (CGNAT), voting skips destination ASNs: the
+        // Cloudflare trace contributes no vote, the Google trace votes Bell.
+        UpstreamTracerService.DetermineAccessAsn(BellTraces, BellMap, wanIpAsn: null, Dest)
+            .Should().Be(Bell);
+    }
+
+    [Fact]
+    public void Wan_ip_asn_wins_when_corroborated_by_a_hop()
+    {
+        UpstreamTracerService.DetermineAccessAsn(BellTraces, BellMap, wanIpAsn: Bell, Dest)
+            .Should().Be(Bell);
+    }
+
+    [Fact]
+    public void Wan_ip_asn_kept_when_no_hop_is_attributable_at_all()
+    {
+        // Fully silent/unannounced first mile and no announced ISP hop responded:
+        // keep the WAN allocation's ASN for labeling and curated fallbacks.
+        var traces = new[] { new[] { "10.0.0.2", "203.0.113.10" } };
+        UpstreamTracerService.DetermineAccessAsn(traces, new Dictionary<string, int>(), Bell, Dest)
+            .Should().Be(Bell);
+    }
+
+    [Fact]
+    public void Uncorroborated_wan_asn_defers_to_the_voted_winner()
+    {
+        // WAN allocation resolves to a sibling ASN that never appears on any hop;
+        // the ASN actually fronting the traces wins.
+        UpstreamTracerService.DetermineAccessAsn(BellTraces, BellMap, wanIpAsn: 64499, Dest)
+            .Should().Be(Bell);
+    }
+
+    [Fact]
+    public void Wan_asn_that_is_also_a_destination_can_win()
+    {
+        // An access ISP that is one of our probed orgs is legitimate when the WAN
+        // IP itself resolves to it - the destination skip only guards voting.
+        var traces = new IReadOnlyList<string>[] { new[] { "198.51.100.9" } };
+        var map = Map(("198.51.100.9", Google));
+        UpstreamTracerService.DetermineAccessAsn(traces, map, wanIpAsn: Google, Dest)
+            .Should().Be(Google);
+    }
+
+    [Fact]
+    public void Majority_vote_beats_a_single_shallower_sighting()
+    {
+        var traces = new IReadOnlyList<string>[]
+        {
+            new[] { "192.0.2.1" },                            // odd ASN out at depth 1
+            new[] { "203.0.113.1", "203.0.113.2", "192.0.2.10" },
+            new[] { "203.0.113.1", "203.0.113.3", "192.0.2.11" },
+            new[] { "203.0.113.1", "203.0.113.4", "192.0.2.12" },
+        };
+        var map = Map(("192.0.2.1", 64501),
+            ("192.0.2.10", 64502), ("192.0.2.11", 64502), ("192.0.2.12", 64502));
+        UpstreamTracerService.DetermineAccessAsn(traces, map, null, NoDest)
+            .Should().Be(64502);
+    }
+
+    [Fact]
+    public void Vote_tie_breaks_toward_the_shallowest_hop()
+    {
+        var traces = new IReadOnlyList<string>[]
+        {
+            new[] { "192.0.2.1" },                  // ASN 64510 at depth 1
+            new[] { "203.0.113.1", "192.0.2.2" },   // ASN 64505 at depth 2
+        };
+        var map = Map(("192.0.2.1", 64510), ("192.0.2.2", 64505));
+        UpstreamTracerService.DetermineAccessAsn(traces, map, null, NoDest)
+            .Should().Be(64510);
+    }
+
+    [Fact]
+    public void Simple_announced_first_hop_still_wins()
+    {
+        var traces = new IReadOnlyList<string>[] { new[] { "192.0.2.1", "198.51.100.7" } };
+        var map = Map(("192.0.2.1", 64500), ("198.51.100.7", Cloudflare));
+        UpstreamTracerService.DetermineAccessAsn(traces, map, null, Dest)
+            .Should().Be(64500);
+    }
+
+    [Fact]
+    public void No_data_yields_null()
+    {
+        UpstreamTracerService.DetermineAccessAsn(
+                Array.Empty<IReadOnlyList<string>>(), new Dictionary<string, int>(), null, NoDest)
+            .Should().BeNull();
+    }
+}
+
+public class CollectUnannouncedAccessAddressesTests
+{
+    private const int Bell = 577;
+    private const int Cloudflare = 13335;
+
+    private static Dictionary<string, int> Map(params (string Ip, int Asn)[] e)
+        => e.ToDictionary(x => x.Ip, x => x.Asn, StringComparer.OrdinalIgnoreCase);
+
+    [Fact]
+    public void Unannounced_public_hops_before_the_access_border_are_attributed()
+    {
+        // The #984 shape: RFC1918, then unannounced public space, then the announced
+        // access-ASN border. The public hops are kept; the RFC1918 hop is not.
+        var traces = new IReadOnlyList<string>[]
+        {
+            new[] { "10.0.0.2", "203.0.113.10", "203.0.113.11", "192.0.2.60" }
+        };
+        var map = Map(("192.0.2.60", Bell));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().Equal("203.0.113.10", "203.0.113.11");
+    }
+
+    [Fact]
+    public void Cgnat_prefix_hops_are_attributed()
+    {
+        var traces = new IReadOnlyList<string>[] { new[] { "100.64.0.5", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().Equal("100.64.0.5");
+    }
+
+    [Fact]
+    public void Rfc1918_hops_are_never_attributed()
+    {
+        var traces = new IReadOnlyList<string>[] { new[] { "10.0.0.2", "172.16.0.2", "192.168.1.2", "192.0.2.60" } };
+        var map = Map(("192.0.2.60", Bell));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Trace_whose_first_attributed_hop_is_not_the_access_asn_contributes_nothing()
+    {
+        // A trace that only ever surfaces the destination's edge can't prove its
+        // unattributed prefix sits below the access border.
+        var traces = new IReadOnlyList<string>[]
+        {
+            new[] { "203.0.113.10", "198.51.100.7" }
+        };
+        var map = Map(("198.51.100.7", Cloudflare));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Dedupes_across_traces_preserving_first_seen_order()
+    {
+        var traces = new IReadOnlyList<string>[]
+        {
+            new[] { "203.0.113.10", "192.0.2.60" },
+            new[] { "203.0.113.10", "203.0.113.12", "192.0.2.61" },
+        };
+        var map = Map(("192.0.2.60", Bell), ("192.0.2.61", Bell));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().Equal("203.0.113.10", "203.0.113.12");
+    }
+
+    [Fact]
+    public void Hops_after_the_access_border_are_not_attributed()
+    {
+        // Only the pre-border prefix counts: unattributed hops BETWEEN access and
+        // transit (e.g. an IXP LAN) must not be pulled into the access cloud.
+        var traces = new IReadOnlyList<string>[]
+        {
+            new[] { "192.0.2.60", "203.0.113.50", "198.51.100.7" }
+        };
+        var map = Map(("192.0.2.60", Bell), ("198.51.100.7", Cloudflare));
+
+        UpstreamTracerService.CollectUnannouncedAccessAddresses(traces, map, Bell)
+            .Should().BeEmpty();
+    }
+}
+
 public class AccessIspFallbackTests
 {
     [Fact]
