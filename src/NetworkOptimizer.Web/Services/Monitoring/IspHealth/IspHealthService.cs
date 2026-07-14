@@ -47,6 +47,9 @@ public class IspHealthService
     private Snapshot? _cached;
     private CustomWindowSnapshot? _customCache;
     private IspHealthStatus _status = IspHealthStatus.Computing;
+    // Set by Invalidate() to force the next read to recompute while KEEPING _cached, so the
+    // glanceable tiles keep serving the prior score instead of dropping to a setup prerequisite.
+    private bool _recomputePending;
     private volatile bool _computing;
     // Trailing window (hours) the last successful auto-compute used. Drops down the ladder when a
     // longer window exceeds the compute budget on this hardware; resets to 0 on process restart so the
@@ -199,7 +202,7 @@ public class IspHealthService
         // kicked off once the tile crosses DashboardScoreTtl (or on first populate); the ISP
         // Health tab uses the shorter CacheTtl (via GetReportAsync) for fresher detail.
         var report = _cached?.Report;
-        if (report != null && DateTime.UtcNow - report.ComputedAt < _options.DashboardScoreTtl)
+        if (report != null && !_recomputePending && DateTime.UtcNow - report.ComputedAt < _options.DashboardScoreTtl)
             return new IspHealthSnapshot(IspHealthStatus.Ready, report.OverallScore, report.ComputedAt);
 
         // Managed site whose console isn't up yet: serve any stale report, but don't kick a
@@ -226,12 +229,16 @@ public class IspHealthService
 
     public async Task<IspHealthReport?> GetReportAsync(bool forceRefresh = false, CancellationToken ct = default)
     {
+        // A pending invalidation forces a recompute like forceRefresh, but without the connection-
+        // cache clear below - the scored inputs changed (a target was toggled), not the console data.
+        var mustRecompute = forceRefresh || _recomputePending;
         var cached = _cached?.Report;
-        if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
+        if (!mustRecompute && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
             return cached;
 
         // Defer computing until the console connection is up (expected ISP speeds come from
         // it). Serve any existing report; otherwise publish AwaitingConnection for the funnels.
+        // Keep _recomputePending set so the recompute happens once the connection lands.
         if (!CanCompute)
         {
             if (cached == null)
@@ -243,7 +250,8 @@ public class IspHealthService
         try
         {
             cached = _cached?.Report;
-            if (!forceRefresh && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
+            mustRecompute = forceRefresh || _recomputePending;
+            if (!mustRecompute && cached != null && DateTime.UtcNow - cached.ComputedAt < _options.CacheTtl)
                 return cached;
 
             if (forceRefresh)
@@ -251,6 +259,8 @@ public class IspHealthService
 
             _computing = true;
             var (report, chartClusters) = await ComputeAsync(ct);
+            // One forced recompute consumed; future reads fall back to normal TTL rules.
+            _recomputePending = false;
             if (report != null)
                 _cached = new Snapshot(report, chartClusters);
             else if (forceRefresh)
@@ -269,15 +279,17 @@ public class IspHealthService
 
     /// <summary>Pipeline readiness, for the tab's prerequisite funnels.</summary>
     /// <summary>
-    /// Drop the cached reports - both the default window and any custom-window view - so the next
-    /// <see cref="GetReportAsync"/> / custom-window read recomputes from current data. Called when
-    /// Upstream Discovery is committed (so the "re-run discovery" banner clears on the next visit)
-    /// and when the scored target set changes (e.g. a flaky target is disabled), so the score
-    /// refreshes without a manual refresh.
+    /// Force the next <see cref="GetReportAsync"/> / custom-window read to recompute from current
+    /// data, without discarding the last score. Called when Upstream Discovery is committed (so the
+    /// "re-run discovery" banner clears on the next visit) and when the scored target set changes
+    /// (e.g. a flaky target is disabled), so the score refreshes without a manual refresh.
+    /// The cached report is KEPT so the glanceable Live-view tiles keep showing the prior score
+    /// (Ready) while the recompute runs, instead of dropping to a "set up ISP Health" prerequisite
+    /// state. The custom-window dedup cache is cleared (the detail tab renders its own loading state).
     /// </summary>
     public void Invalidate()
     {
-        _cached = null;
+        _recomputePending = true;
         _customCache = null;
     }
 
