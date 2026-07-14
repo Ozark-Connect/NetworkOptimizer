@@ -544,8 +544,6 @@ public class UpstreamTracerService
         //  1) port_table.uplink_ifname - UniFi's kernel device name for
         //     the uplink, correct for VLAN-tagged sub-interfaces too.
         //  2) `ip -o -4 addr show` line owning the known WAN IP.
-        // No default-route lookup: UniFi gateways run policy routing with
-        // per-WAN tables, so the default isn't in the main table.
         var candidates = new List<string>();
         if (!string.IsNullOrEmpty(_wanUplinkIfName))
         {
@@ -571,6 +569,22 @@ public class UpstreamTracerService
             }
         }
 
+        // The WAN's default gateway from the routing tables. UniFi gateways run policy
+        // routing with per-WAN tables, so the default isn't in the main table - but
+        // `ip route show table all` surfaces every table's default route, and the line
+        // whose dev is our WAN interface names the true next hop. This is authoritative:
+        // on a shared WAN subnet (metro Ethernet, two sites on one carrier segment) the
+        // neighbor table also carries OTHER same-subnet hosts, and heuristic scoring can
+        // pick one of those peers over the actual gateway. We still read the gateway's
+        // MAC from `ip neigh` below - the routing table only supplies WHICH IP to pick.
+        string? routeShowAll = null;
+        {
+            var (routeOk, routeOut) = await _gatewaySsh.RunCommandAsync(
+                "ip route show table all 2>/dev/null | grep '^default' | head -20",
+                TimeSpan.FromSeconds(5), ct);
+            if (routeOk && !string.IsNullOrWhiteSpace(routeOut)) routeShowAll = routeOut;
+        }
+
         string? neighborMac = null;
         string? neighborIp = null;
         string? wanDevice = null;
@@ -582,7 +596,8 @@ public class UpstreamTracerService
             var (ok, output) = await _gatewaySsh.RunCommandAsync(cmd, TimeSpan.FromSeconds(5), ct);
             if (!ok || string.IsNullOrWhiteSpace(output)) continue;
 
-            var selected = SelectWanNeighbor(output, wanCidr);
+            var defaultGatewayIp = SelectWanDefaultGateway(routeShowAll, ifaceCandidate);
+            var selected = SelectWanNeighbor(output, wanCidr, defaultGatewayIp);
             if (selected != null)
             {
                 neighborIp = selected.Value.Ip;
@@ -643,11 +658,33 @@ public class UpstreamTracerService
     }
 
     /// <summary>
+    /// Parses `ip route show table all` output for the default route egressing the given
+    /// WAN interface and returns its gateway ("via") address. UniFi gateways run policy
+    /// routing, so each WAN's default lives in its own table (`default via 203.0.113.1
+    /// dev eth8 table 201 ...`); matching on the dev finds ours regardless of table
+    /// number. Returns the first match (multiple tables for one WAN name the same next
+    /// hop). On-link defaults without a `via` (PPPoE's `default dev ppp0 scope link`)
+    /// yield null - there's no gateway address, and no MAC to look up either.
+    /// </summary>
+    internal static string? SelectWanDefaultGateway(string? routeShowAllOutput, string wanIface)
+    {
+        if (string.IsNullOrWhiteSpace(routeShowAllOutput) || string.IsNullOrEmpty(wanIface)) return null;
+        var m = Regex.Match(routeShowAllOutput,
+            @"^default\s+via\s+(?<gw>\d{1,3}(?:\.\d{1,3}){3})\s+dev\s+" + Regex.Escape(wanIface) + @"(\s|$)",
+            RegexOptions.Multiline);
+        return m.Success ? m.Groups["gw"].Value : null;
+    }
+
+    /// <summary>
     /// Picks the WAN-side L2 neighbor from `ip neigh show dev &lt;wan&gt;` output. A CPE
     /// bridged in front of the gateway (an ISP modem/router in passthrough) lists both
     /// its LAN-side RFC1918 address and the carrier-side address under the same MAC;
     /// the LAN-side entry often sorts first, and taking the first lladdr line mislabeled
-    /// a private CPE IP as an ISP hop. Preference order: in the WAN subnet (the real
+    /// a private CPE IP as an ISP hop. When the WAN's routed default gateway is known
+    /// (from <see cref="SelectWanDefaultGateway"/>) its entry wins outright - on a shared
+    /// WAN subnet the neighbor table also lists unrelated same-subnet hosts (another
+    /// site's gateway on the same carrier segment), and no heuristic can rank those below
+    /// the true next hop reliably. Otherwise preference order: in the WAN subnet (the real
     /// ISP-side gateway is by definition on-link with our WAN IP) &gt; address class
     /// (public &gt; CGNAT &gt; private) &gt; freshness (REACHABLE/DELAY/PROBE over STALE).
     /// FAILED and INCOMPLETE entries carry no lladdr and never match. IPv6 link-local
@@ -658,7 +695,9 @@ public class UpstreamTracerService
     /// <param name="ipNeighOutput">Raw `ip neigh show dev &lt;wan&gt;` output.</param>
     /// <param name="wanCidr">The gateway's WAN address in CIDR form (e.g. "203.0.113.5/24")
     /// used to recognize the on-link ISP gateway. Null/empty falls back to class+freshness.</param>
-    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput, string? wanCidr = null)
+    /// <param name="defaultGatewayIp">The WAN's routed default gateway, when known. Its
+    /// neighbor entry is returned outright, bypassing the heuristic scoring.</param>
+    public static (string Ip, string Mac)? SelectWanNeighbor(string? ipNeighOutput, string? wanCidr = null, string? defaultGatewayIp = null)
     {
         if (string.IsNullOrWhiteSpace(ipNeighOutput)) return null;
 
@@ -670,6 +709,10 @@ public class UpstreamTracerService
             var ipText = m.Groups[1].Value;
             if (!System.Net.IPAddress.TryParse(ipText, out var ip)) continue;
             if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+
+            // The routed next hop IS the first-mile device; no scoring needed.
+            if (defaultGatewayIp != null && string.Equals(ipText, defaultGatewayIp, StringComparison.OrdinalIgnoreCase))
+                return (ipText, m.Groups[2].Value.ToLowerInvariant());
 
             // UniFi's default WAN SLA probe targets keep a neighbor entry on the WAN
             // interface but are public DNS resolvers, never the L2 next hop.
