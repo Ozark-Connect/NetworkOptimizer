@@ -265,6 +265,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestReposit
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
+builder.Services.AddSingleton<SiteRegistryChangeNotifier>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();

@@ -3,7 +3,9 @@
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
+@inject SiteRegistryChangeNotifier ChangeNotifier
 @inject NavigationManager NavigationManager
+@implements IDisposable
 
 @if (_enabled && _sites.Count > 0)
 {
@@ -54,6 +56,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        await LoadSitesAsync();
+    }
+
+    private async Task LoadSitesAsync()
+    {
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (!_enabled)
             return;
@@ -63,6 +71,30 @@
         _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
         _currentSite = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)
             ?? _sites.FirstOrDefault(s => s.IsDefault);
+    }
+
+    // Raised from whichever circuit changed the registry (create, rename,
+    // enable/disable, remove, multi-site toggle) - rebuild this circuit's list.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await LoadSitesAsync();
+                _open = false;
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
     }
 
     private void ToggleDropdown() => _open = !_open;

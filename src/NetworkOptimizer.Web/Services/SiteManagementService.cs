@@ -23,6 +23,7 @@ public class SiteManagementService
     private readonly Licensing.LicenseActivationService _activation;
     private readonly SiteConnectionRegistry _siteConnections;
     private readonly MonitoringCollectionRegistry _collectionRegistry;
+    private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
 
     public SiteManagementService(
@@ -33,6 +34,7 @@ public class SiteManagementService
         Licensing.LicenseActivationService activation,
         SiteConnectionRegistry siteConnections,
         MonitoringCollectionRegistry collectionRegistry,
+        SiteRegistryChangeNotifier changeNotifier,
         ILogger<SiteManagementService> logger)
     {
         _siteRepository = siteRepository;
@@ -42,6 +44,7 @@ public class SiteManagementService
         _activation = activation;
         _siteConnections = siteConnections;
         _collectionRegistry = collectionRegistry;
+        _changeNotifier = changeNotifier;
         _logger = logger;
     }
 
@@ -90,6 +93,7 @@ public class SiteManagementService
         // when the license snapshot is unchanged (e.g. the main site was already covered),
         // so force subscribers to reload rather than relying on a snapshot diff.
         await _licenseState.RecomputeAsync(alwaysNotify: true);
+        _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
     }
 
@@ -126,7 +130,11 @@ public class SiteManagementService
     }
 
     /// <summary>Updates a site's mutable fields (name, enabled, sort order, notes).</summary>
-    public Task UpdateSiteAsync(Site site) => _siteRepository.UpdateAsync(site);
+    public async Task UpdateSiteAsync(Site site)
+    {
+        await _siteRepository.UpdateAsync(site);
+        _changeNotifier.NotifySitesChanged();
+    }
 
     /// <summary>
     /// Enables or disables a secondary site. Disabling stops its monitoring
@@ -150,6 +158,7 @@ public class SiteManagementService
         // pass picks the site up within its cadence, and the next page view or
         // agent connect re-establishes the console connection.
 
+        _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Site {Slug} {State}", site.Slug, enabled ? "enabled" : "disabled");
     }
 
@@ -194,6 +203,7 @@ public class SiteManagementService
 
         // Free the site's license seat.
         await _licenseState.RecomputeAsync();
+        _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
     }
 
@@ -230,6 +240,7 @@ public class SiteManagementService
         // Licensing card reflects the new site immediately (no manual license refresh needed).
         await _activation.AutoAssignAsync();
         await _licenseState.RecomputeAsync();
+        _changeNotifier.NotifySitesChanged();
         return site;
     }
 
