@@ -72,7 +72,7 @@
     {
         if (await SiteManagement.IsMultiSiteEnabledAsync())
         {
-            _sites = await SiteManagement.GetSitesAsync();
+            _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
             _agents = await AgentEnrollment.GetAllAgentsAsync();
 
             // Same 10s refresh as the Sites and Settings pages, so the Agents

@@ -29,6 +29,16 @@ public class SiteConnectionRegistry : IDisposable
     /// <summary>The default site's connection.</summary>
     public UniFiConnectionService GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
+    /// <summary>
+    /// Disposes and forgets a site's connection (site disabled or removed).
+    /// A later GetFor recreates it fresh - e.g. when the site is re-enabled.
+    /// </summary>
+    public void RemoveFor(string slug)
+    {
+        if (_connections.TryRemove(slug, out var connection))
+            connection.DisposeOwned();
+    }
+
     public void Dispose()
     {
         foreach (var connection in _connections.Values)

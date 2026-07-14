@@ -53,6 +53,17 @@ public class MonitoringCollectionRegistry : BackgroundService
     /// <summary>The default site's collection agent.</summary>
     public MonitoringCollectionAgent GetDefault() => GetFor(SiteManagementService.DefaultSiteSlug);
 
+    /// <summary>
+    /// Stops and forgets a site's collection instance immediately (site disabled or
+    /// removed) instead of waiting for the next reconcile pass - a removal deletes
+    /// the site's database files right after, so its loops must be down first.
+    /// </summary>
+    public async Task StopForSiteAsync(string slug, CancellationToken ct = default)
+    {
+        await StopInstanceAsync(slug, ct);
+        _instances.TryRemove(slug, out _);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // The default site collects from startup (pre-multi-site behavior) unless

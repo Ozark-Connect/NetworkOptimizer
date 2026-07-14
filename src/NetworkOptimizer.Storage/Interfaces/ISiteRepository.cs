@@ -22,4 +22,7 @@ public interface ISiteRepository
 
     /// <summary>Updates a site's mutable fields (name, enabled, sort order, notes). The slug is never changed.</summary>
     Task UpdateAsync(Site site, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes a site from the registry. Does not touch the site's database file.</summary>
+    Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 }

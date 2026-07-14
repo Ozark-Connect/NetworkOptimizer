@@ -70,10 +70,11 @@ public class AgentConnectionAlertMonitor : BackgroundService
 
         // Only agents that completed enrollment and have contacted us at least
         // once can go "offline" - a freshly enrolled agent that never connected
-        // is a setup in progress, not an outage.
+        // is a setup in progress, not an outage. Disabled sites are excluded:
+        // taking a paused site's agent down is intentional, not an outage.
         var agents = await db.SiteAgents.AsNoTracking()
             .Where(a => a.Enabled && a.EnrolledAt != null && a.LastSeenAt != null)
-            .Join(db.Sites.AsNoTracking(), a => a.SiteId, s => s.Id,
+            .Join(db.Sites.AsNoTracking().Where(s => s.Enabled), a => a.SiteId, s => s.Id,
                 (a, s) => new { Agent = a, s.Slug })
             .ToListAsync(ct);
 

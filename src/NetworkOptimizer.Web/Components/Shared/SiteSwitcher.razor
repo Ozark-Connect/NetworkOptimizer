@@ -58,7 +58,9 @@
         if (!_enabled)
             return;
 
-        _sites = await SiteManagement.GetSitesAsync();
+        // Disabled sites are managed (re-enabled/removed) from Settings - Multi-Site;
+        // they don't belong in the switcher.
+        _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
         _currentSite = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)
             ?? _sites.FirstOrDefault(s => s.IsDefault);
     }
