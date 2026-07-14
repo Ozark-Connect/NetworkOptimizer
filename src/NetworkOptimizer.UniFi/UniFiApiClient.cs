@@ -43,6 +43,8 @@ public class UniFiApiClient : IDisposable
     private DateTime _deviceResponseCacheTime = DateTime.MinValue;
     private static readonly TimeSpan DeviceResponseCacheTtl = TimeSpan.FromSeconds(15);
     private bool _isAuthenticated = false;
+    private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
+    private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -459,17 +461,22 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>
     /// Ensures we're authenticated, re-authenticating if necessary.
-    /// For API key auth, if we've already been marked as unauthenticated (e.g., 401 response),
-    /// re-login won't help since the key is either valid or not - return false immediately.
+    /// For API key auth a 401/403 usually means the Network application was restarting or
+    /// wedged (upgrades, provisioning), not that the key was revoked - the proxy returns
+    /// auth errors while the app is down. Re-validate the key, throttled so a genuinely
+    /// revoked key costs at most one probe per interval instead of one per API call.
     /// </summary>
     private async Task<bool> EnsureAuthenticatedAsync(CancellationToken cancellationToken = default)
     {
         if (_isAuthenticated)
             return true;
 
-        // API key auth is stateless - if we got a 401, re-sending the same key won't help
         if (UseApiKey)
-            return false;
+        {
+            if (DateTime.UtcNow - _lastApiKeyRevalidationAttempt < ApiKeyRevalidationInterval)
+                return false;
+            _lastApiKeyRevalidationAttempt = DateTime.UtcNow;
+        }
 
         return await LoginAsync(cancellationToken);
     }
