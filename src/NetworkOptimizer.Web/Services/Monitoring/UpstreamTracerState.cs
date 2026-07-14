@@ -52,6 +52,15 @@ public class UpstreamTracerState
     /// </summary>
     public List<string> DiscoveryAddedAsns { get; set; } = new();
 
+    /// <summary>
+    /// Staged when this run resolved a valid access ISP ASN that differs from every access ASN
+    /// committed for the WAN - a candidate provider change. Supersedes per-transit off-path
+    /// staging for the run (a switched provider replaces the whole path at once, not N transit
+    /// removals). Null when the access ASN is unchanged, unresolved this run, or the user
+    /// already declined this same new ASN. In-memory only, like the rest of the review state.
+    /// </summary>
+    public IspChangeCandidate? IspChange { get; set; }
+
     // Per-CDN trace summaries for the live progress UI.
     public List<TraceSummary> Traces { get; set; } = new();
 
@@ -164,6 +173,29 @@ public class PendingRemovalTransitAsn
     public int TargetCount { get; set; }
     /// <summary>How many of those are hand-added (UserProvided).</summary>
     public int ManualCount { get; set; }
+}
+
+/// <summary>
+/// A detected access-ISP change awaiting the user's answer in the review. Confirmed stays null
+/// until they pick; the commit button is gated on a decision. Confirming pauses every enabled
+/// upstream target for the connection - access, transit, and path-proxy tiers, auto-discovered
+/// and hand-added alike (manual targets pinned to a different WAN survive) - wipes the WAN's
+/// off-path miss counters, and lets this run's candidates repopulate as the new baseline.
+/// Declining leaves targets untouched and records the new ASN so the same change doesn't
+/// re-prompt every run. Paused targets are never deleted.
+/// </summary>
+public class IspChangeCandidate
+{
+    public int OldAsnNumber { get; set; }
+    public required string OldAsnName { get; set; }
+    public int NewAsnNumber { get; set; }
+    public required string NewAsnName { get; set; }
+    /// <summary>Enabled upstream targets across all tiers a confirm would pause.</summary>
+    public int TargetCount { get; set; }
+    /// <summary>How many of those are hand-added (UserProvided).</summary>
+    public int ManualCount { get; set; }
+    /// <summary>Null until the user decides; true = start fresh, false = keep monitoring.</summary>
+    public bool? Confirmed { get; set; }
 }
 
 /// <summary>One CDN traceroute summary for the live progress UI.</summary>

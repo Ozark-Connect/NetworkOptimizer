@@ -139,8 +139,9 @@ public class UpstreamRediscoveryService : BackgroundService
         // outcome here.
         var added = tracer.State.DiscoveryAddedAsns;
         var removedToPause = tracer.State.RemovedTransitAsns;
+        var ispChange = tracer.State.IspChange;
 
-        if (added.Count == 0 && removedToPause.Count == 0)
+        if (added.Count == 0 && removedToPause.Count == 0 && ispChange == null)
         {
             _logger.LogInformation("Re-discovery matched committed ASNs (no actionable change); rolling forward LastUpstreamDiscoveryAt");
             settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
@@ -151,8 +152,9 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("Re-discovery found upstream changes; flagging for review. Added: [{Added}] Off-path (to pause): [{Removed}]",
-            string.Join(", ", added), string.Join(", ", removedToPause.Select(r => $"AS{r.AsnNumber}")));
+        _logger.LogInformation("Re-discovery found upstream changes; flagging for review. Added: [{Added}] Off-path (to pause): [{Removed}] ISP change: {IspChange}",
+            string.Join(", ", added), string.Join(", ", removedToPause.Select(r => $"AS{r.AsnNumber}")),
+            ispChange == null ? "none" : $"AS{ispChange.OldAsnNumber} -> AS{ispChange.NewAsnNumber}");
 
         settings.UpstreamDiscoveryNeedsReview = true;
         settings.UpdatedAt = DateTime.UtcNow;
@@ -288,6 +290,22 @@ public class UpstreamRediscoveryService : BackgroundService
         var (monitoredAsns, removalEligibleAsns) = await BuildCommittedViewsAsync(db, wanInterface, ct);
         var candidate = BuildCandidateSignature(state);
 
+        // A changed access ISP supersedes per-transit off-path handling: the whole upstream path
+        // is replaced at once, so staging N individual transit removals alongside would be noise.
+        // Stage only the ISP-change question (plus the added keys for the scheduler's gate) and
+        // leave the miss counters frozen - a confirm wipes them wholesale, and a decline lets the
+        // next unchanged run resume advancing them normally. No multi-run miss-gate here: the
+        // access ASN is the stable first hop and the event is user-confirmed, so one run with a
+        // valid different ASN is enough to prompt.
+        state.IspChange = await DetectAccessIspChangeAsync(db, wanInterface, state, ct);
+        if (state.IspChange != null)
+        {
+            state.DiscoveryAddedAsns = candidate.Except(monitoredAsns).OrderBy(x => x).ToList();
+            state.RemovedTransitAsns = new();
+            state.PendingRemovalTransitAsns = new();
+            return;
+        }
+
         var priorMisses = await LoadMissCountsAsync(db, wanInterface, ct);
         var eval = EvaluateChange(monitoredAsns, removalEligibleAsns, candidate, priorMisses,
             DateTime.UtcNow, AbsentIncrementGate, RemovalConfirmRuns);
@@ -374,6 +392,145 @@ public class UpstreamRediscoveryService : BackgroundService
             .OrderBy(r => r.AsnNumber)
             .ToList();
     }
+
+    /// <summary>
+    /// Detects a candidate access-ISP change for the run: every access ASN this run resolved is
+    /// different from every access ASN committed for the WAN. Guards: a run that failed to
+    /// attribute any access ASN never triggers (null/unresolved is not a change); no committed
+    /// auto-discovered access ASN means there's no baseline to differ from (first run); any
+    /// overlap between the two sets means the provider is unchanged; and a new primary ASN the
+    /// user already declined is suppressed. Returns the staged candidate with the reset scope
+    /// pre-counted for the review, or null.
+    /// </summary>
+    internal static async Task<IspChangeCandidate?> DetectAccessIspChangeAsync(
+        NetworkOptimizerDbContext db, string wanInterface, UpstreamTracerState state, CancellationToken ct)
+    {
+        var newAsns = state.AccessHops
+            .Where(h => h.AsnNumber.HasValue)
+            .Select(h => h.AsnNumber!.Value)
+            .ToList();
+        if (newAsns.Count == 0) return null;
+
+        // The stored access ISP: auto-discovered AccessIsp rows on this WAN, enabled or not - a
+        // paused access target still records who the provider was. UserProvided rows are excluded
+        // since a hand-added access target carries no discovery evidence of the provider.
+        var oldRows = await db.MonitoringTargets
+            .Where(t => t.TargetType == MonitoringTargetType.AccessIsp
+                && t.WanInterface == wanInterface
+                && t.AsnNumber != null
+                && t.DiscoveryMethod != DiscoveryMethod.UserProvided)
+            .Select(t => new { t.AsnNumber, t.AsnName })
+            .ToListAsync(ct);
+        if (oldRows.Count == 0) return null;
+
+        var oldSet = oldRows.Select(r => r.AsnNumber!.Value).ToHashSet();
+        if (newAsns.Any(oldSet.Contains)) return null;
+
+        var newPrimary = newAsns
+            .GroupBy(a => a)
+            .OrderByDescending(g => g.Count()).ThenBy(g => newAsns.IndexOf(g.Key))
+            .First().Key;
+
+        var declinedRow = await db.SystemSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == DeclinedAccessAsnKey(wanInterface), ct);
+        if (int.TryParse(declinedRow?.Value, out var declinedAsn) && declinedAsn == newPrimary)
+            return null;
+
+        var oldPrimary = oldRows
+            .GroupBy(r => r.AsnNumber!.Value)
+            .OrderByDescending(g => g.Count()).ThenBy(g => g.Key)
+            .First().Key;
+        var oldName = oldRows.Where(r => r.AsnNumber == oldPrimary)
+            .Select(r => r.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? $"AS{oldPrimary}";
+        var newName = state.AccessHops
+            .Where(h => h.AsnNumber == newPrimary)
+            .Select(h => h.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? $"AS{newPrimary}";
+
+        var scope = await LoadIspResetScopeAsync(db, wanInterface, ct);
+        return new IspChangeCandidate
+        {
+            OldAsnNumber = oldPrimary,
+            OldAsnName = oldName,
+            NewAsnNumber = newPrimary,
+            NewAsnName = newName,
+            TargetCount = scope.Count,
+            ManualCount = scope.Count(t => t.DiscoveryMethod == DiscoveryMethod.UserProvided),
+        };
+    }
+
+    /// <summary>
+    /// The targets a confirmed ISP-change reset pauses: every enabled upstream monitoring target
+    /// for the connection across all three tiers (access, transit, path-proxy). Auto-discovered
+    /// rows are scoped to this WAN; UserProvided rows count when assigned to this WAN or to no
+    /// WAN (hand-added rows are often WAN-agnostic), so a reset on one WAN never touches manual
+    /// targets pinned to another.
+    /// </summary>
+    internal static Task<List<MonitoringTarget>> LoadIspResetScopeAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct) =>
+        db.MonitoringTargets
+            .Where(t => t.Enabled
+                && (t.TargetType == MonitoringTargetType.AccessIsp
+                    || t.TargetType == MonitoringTargetType.Transit
+                    || t.TargetType == MonitoringTargetType.InternetService)
+                && (t.DiscoveryMethod == DiscoveryMethod.UserProvided
+                    ? (t.WanInterface == wanInterface || t.WanInterface == null || t.WanInterface == "")
+                    : t.WanInterface == wanInterface))
+            .ToListAsync(ct);
+
+    /// <summary>
+    /// Applies a confirmed ISP change for the WAN: pauses (Enabled = false, never deletes) every
+    /// target in the reset scope, wipes the WAN's absent-ASN miss counters (they described the
+    /// old provider's path), and clears any recorded decline. The caller then commits the fresh
+    /// candidates as the new baseline. Does not SaveChanges; the caller's does. Returns how many
+    /// targets were paused.
+    /// </summary>
+    internal static async Task<int> ApplyIspChangeResetAsync(
+        NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
+    {
+        var stale = await LoadIspResetScopeAsync(db, wanInterface, ct);
+        foreach (var t in stale) t.Enabled = false;
+
+        await SaveMissCountsAsync(db, wanInterface, new(StringComparer.OrdinalIgnoreCase), ct);
+
+        var declined = await db.SystemSettings
+            .FirstOrDefaultAsync(s => s.Key == DeclinedAccessAsnKey(wanInterface), ct);
+        if (declined != null)
+        {
+            declined.Value = null;
+            declined.UpdatedAt = DateTime.UtcNow;
+        }
+        return stale.Count;
+    }
+
+    /// <summary>
+    /// Records a declined ISP change: the user said the new access ASN is not a provider switch,
+    /// so detection suppresses that ASN for the WAN instead of re-prompting every run. Does not
+    /// SaveChanges; the caller's does.
+    /// </summary>
+    internal static async Task RecordDeclinedIspChangeAsync(
+        NetworkOptimizerDbContext db, string wanInterface, int declinedNewAsn, CancellationToken ct)
+    {
+        var key = DeclinedAccessAsnKey(wanInterface);
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
+        if (row == null)
+        {
+            db.SystemSettings.Add(new SystemSetting
+            {
+                Key = key,
+                Value = declinedNewAsn.ToString(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+        }
+        else
+        {
+            row.Value = declinedNewAsn.ToString();
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    private static string DeclinedAccessAsnKey(string wanInterface) =>
+        SystemSettingKeys.UpstreamDeclinedAccessAsnPrefix + wanInterface;
 
     /// <summary>
     /// Removes the given identity keys from the WAN's absent-ASN miss counters. Called by commit

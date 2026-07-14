@@ -1749,6 +1749,25 @@ public class UpstreamTracerService
         // WanDiscoveryContexts per WAN.
         var wanInterface = State.WanInterface ?? "wan";
 
+        // A confirmed provider change resets the connection's upstream monitoring wholesale:
+        // pause every enabled access/transit/path target - auto-discovered and hand-added alike
+        // (manual rows pinned to another WAN survive) - and wipe the WAN's off-path evidence,
+        // so the freshly discovered candidates upserted below become the new baseline. Runs
+        // before the upserts so the fresh targets come back enabled. A decline records the new
+        // ASN so the same change doesn't re-prompt every run.
+        if (State.IspChange is { Confirmed: true } confirmedChange)
+        {
+            var paused = await UpstreamRediscoveryService.ApplyIspChangeResetAsync(db, wanInterface, ct);
+            _logger.LogInformation("Commit: ISP change AS{Old} -> AS{New} confirmed; paused {Count} upstream target(s) on {Wan} for a fresh baseline",
+                confirmedChange.OldAsnNumber, confirmedChange.NewAsnNumber, paused, wanInterface);
+        }
+        else if (State.IspChange is { Confirmed: false } declinedChange)
+        {
+            await UpstreamRediscoveryService.RecordDeclinedIspChangeAsync(db, wanInterface, declinedChange.NewAsnNumber, ct);
+            _logger.LogInformation("Commit: ISP change AS{Old} -> AS{New} declined; keeping existing targets",
+                declinedChange.OldAsnNumber, declinedChange.NewAsnNumber);
+        }
+
         foreach (var hop in State.AccessHops.Where(h => h.Enabled))
         {
             _logger.LogDebug("Commit access hop: id={TargetId} label='{Label}' addr={Address}", hop.TargetId, hop.Label, hop.Address);
