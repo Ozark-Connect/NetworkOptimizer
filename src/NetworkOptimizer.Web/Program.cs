@@ -418,6 +418,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertProcessingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.AlertProcessingService>());
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.DigestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.DigestService>());
+builder.Services.AddHostedService<AgentConnectionAlertMonitor>();
 // IDigestStateStore adapter: persists digest "last sent" timestamps via SystemSettings
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IDigestStateStore, DigestStateStoreAdapter>();
 // ISecretDecryptor adapter: bridges Alerts project's interface to existing credential protection
