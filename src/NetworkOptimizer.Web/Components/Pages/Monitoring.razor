@@ -2178,9 +2178,17 @@ else
         // cost a UniFi API call plus Influx queries, so this avoids needless hits. The banner
         // and stat cards re-query the DB live regardless.
         var before = UpstreamTargetSignature();
+        var beforeIspHealth = IspHealthInputSignature();
         await LoadTargetsAsync();
         if (UpstreamTargetSignature() != before)
             LanFlowMapCache.Invalidate();
+
+        // Pausing/disabling a scored WAN-path target (e.g. a flaky one skewing the score) changes
+        // the ISP Health inputs, so drop the cached report and let the next visit to the tab
+        // recompute. Gated on the scored set actually changing so unrelated edits (intervals,
+        // renames) don't force a CPU-bound recompute.
+        if (IspHealthInputSignature() != beforeIspHealth)
+            IspHealthService.Invalidate();
 
         // Re-check flaky targets when the advisory is up so disabling/pausing the flagged ones
         // clears the banner (they drop out of the enabled pool). Only when a banner is showing -
@@ -2200,6 +2208,18 @@ else
         string.Join("|", _targets
             .Where(t => t.Enabled
                 && t.TargetType is MonitoringTargetType.AccessIsp or MonitoringTargetType.Transit)
+            .OrderBy(t => t.Id)
+            .Select(t => t.Id));
+
+    // Enabled AccessIsp/Transit/InternetService target IDs - the set ISP Health scoring consumes.
+    // Used to detect when a target change should invalidate the cached ISP Health report so the
+    // score reflects the new set (e.g. a disabled flaky target no longer skewing it).
+    private string IspHealthInputSignature() =>
+        string.Join("|", _targets
+            .Where(t => t.Enabled
+                && t.TargetType is MonitoringTargetType.AccessIsp
+                    or MonitoringTargetType.Transit
+                    or MonitoringTargetType.InternetService)
             .OrderBy(t => t.Id)
             .Select(t => t.Id));
 
