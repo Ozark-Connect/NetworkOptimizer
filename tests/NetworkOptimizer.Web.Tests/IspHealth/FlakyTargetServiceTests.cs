@@ -194,12 +194,26 @@ public class FlakyTargetServiceTests
     }
 
     [Fact]
-    public void Mixed_outage_and_partial_loss_does_not_get_the_fast_path()
+    public void Outage_with_a_partial_boundary_bin_still_gets_the_fast_path()
     {
-        // One over-threshold bin at partial loss alongside the 100% bins: the episode isn't a
-        // clean binary outage, so the short streak must not clear it.
+        // Real recovery shape: the aggregate bin straddling the moment the hop came back
+        // averages to partial loss (observed 52.8%). The median over-threshold bin is still
+        // 100%, so the boundary bin must not disqualify the fast path.
         var (loss, meta) = Build(
-            ("mixed", Run(11, 100.0, 1, 20.0).Concat(Run(3, 0.0, 0, 0.0)).ToArray()),
+            ("boundary", Run(11, 100.0, 1, 52.8).Concat(Run(3, 0.0, 0, 0.0)).ToArray()),
+            ("clean-a", Run(15, 0.0, 0, 0.0)),
+            ("clean-b", Run(15, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Genuinely_mixed_partial_loss_episode_does_not_get_the_fast_path()
+    {
+        // Half the over-threshold bins are partial (deprioritization-style) loss: the median
+        // falls below the hard-down bar, so the short streak must not clear it.
+        var (loss, meta) = Build(
+            ("mixed", Run(6, 100.0, 6, 20.0).Concat(Run(3, 0.0, 0, 0.0)).ToArray()),
             ("clean-a", Run(15, 0.0, 0, 0.0)),
             ("clean-b", Run(15, 0.0, 0, 0.0)));
 
