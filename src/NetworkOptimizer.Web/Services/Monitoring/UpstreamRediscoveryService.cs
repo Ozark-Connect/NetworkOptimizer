@@ -19,14 +19,24 @@ public class UpstreamRediscoveryService : BackgroundService
     private static readonly TimeSpan TickInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan RediscoveryThreshold = TimeSpan.FromDays(7);
 
-    // An auto-discovered ASN must be absent from this many consecutive runs before it's a
-    // removal candidate - long enough (3 cycles) to ride out an incomplete/degraded run.
+    // An auto-discovered ASN must be absent from this many gated increments before it's a removal
+    // candidate. Combined with AbsentIncrementGate, that's a real-time floor (3 increments >= 6h
+    // apart => absence sustained >= ~12h), long enough to ride out maintenance windows and to keep
+    // a transit provider's brief drain from confirming.
     private const int RemovalConfirmRuns = 3;
 
+    // Per-ASN minimum time between miss-counter increments. A completed run that finds an ASN still
+    // absent but within this window of its last increment HOLDS the count instead of advancing, so
+    // rapid manual traces (or a tight recheck) can't stack the counter - absence has to persist
+    // across real time, not just across runs. Kept in step with PendingRecheckInterval so scheduled
+    // rechecks reliably clear the gate.
+    private static readonly TimeSpan AbsentIncrementGate = TimeSpan.FromHours(6);
+
     // While a removal counter is pending (some ASN currently absent), re-check on this shorter
-    // cadence instead of the full threshold, so a real removal confirms in ~3 days rather than
-    // ~3 weeks and a transient miss clears the next day.
-    private static readonly TimeSpan PendingRecheckInterval = TimeSpan.FromHours(24);
+    // cadence instead of the full threshold, so a real removal confirms in ~12-18h rather than
+    // ~3 weeks and a transient miss clears quickly. Matched to AbsentIncrementGate so each recheck
+    // lands just past the gate and actually advances the counter.
+    private static readonly TimeSpan PendingRecheckInterval = TimeSpan.FromHours(6);
 
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly NetworkOptimizer.Storage.Services.SiteDbContextFactory _siteDbFactory;
@@ -155,7 +165,15 @@ public class UpstreamRediscoveryService : BackgroundService
     internal sealed record ChangeEvaluation(
         List<string> Added,
         List<string> RemovalCandidates,
-        Dictionary<string, int> NewMissCounts);
+        Dictionary<string, MissRecord> NewMisses);
+
+    /// <summary>
+    /// A per-ASN absence counter: the consecutive-miss <paramref name="Count"/> plus
+    /// <paramref name="LastIncrementUtc"/>, the time it last advanced, so the increment can be
+    /// time-gated (at most once per <see cref="AbsentIncrementGate"/>). Legacy stored counters
+    /// (a bare int) load with <see cref="DateTime.MinValue"/>, i.e. immediately gate-eligible.
+    /// </summary>
+    internal readonly record struct MissRecord(int Count, DateTime LastIncrementUtc);
 
     /// <summary>
     /// Two committed views, both keyed on the stable ASN identity (see IdentityKey):
@@ -208,41 +226,60 @@ public class UpstreamRediscoveryService : BackgroundService
 
     /// <summary>
     /// Pure change-detection. Added = discovered ASNs not already monitored (flag now). Missing =
-    /// removal-eligible ASNs absent this run; each bumps a consecutive-miss counter and only
-    /// becomes a removal candidate once it reaches <paramref name="removalThreshold"/> runs. The
-    /// returned counter map holds only currently-absent ASNs, so reappeared ones reset by omission.
+    /// removal-eligible ASNs absent this run; each bumps a consecutive-miss counter, but only when
+    /// it's been at least <paramref name="incrementGate"/> since that ASN last incremented (a
+    /// too-soon miss holds the count and its timestamp, so absence must persist across real time,
+    /// not just across runs). An ASN becomes a removal candidate once its count reaches
+    /// <paramref name="removalThreshold"/> - a confirmed ASN that's gated this run stays a
+    /// candidate. The returned map holds only currently-absent ASNs, so reappeared ones reset by
+    /// omission. <paramref name="nowUtc"/> is passed in so this stays pure and deterministic.
     /// </summary>
     internal static ChangeEvaluation EvaluateChange(
         HashSet<string> monitoredAsns,
         HashSet<string> removalEligibleAsns,
         HashSet<string> candidate,
-        IReadOnlyDictionary<string, int> priorMissCounts,
+        IReadOnlyDictionary<string, MissRecord> priorMisses,
+        DateTime nowUtc,
+        TimeSpan incrementGate,
         int removalThreshold)
     {
         var added = candidate.Except(monitoredAsns).OrderBy(x => x).ToList();
 
-        var newCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var newMisses = new Dictionary<string, MissRecord>(StringComparer.OrdinalIgnoreCase);
         var removalCandidates = new List<string>();
         foreach (var key in removalEligibleAsns)
         {
             if (candidate.Contains(key)) continue; // present this run - counter resets (omitted)
-            var count = (priorMissCounts.TryGetValue(key, out var prev) ? prev : 0) + 1;
-            newCounts[key] = count;
+            var hadPrior = priorMisses.TryGetValue(key, out var prior);
+            int count;
+            DateTime lastIncrement;
+            if (hadPrior && nowUtc - prior.LastIncrementUtc < incrementGate)
+            {
+                // Gated: absent again, but too soon since the last increment - hold as-is.
+                count = prior.Count;
+                lastIncrement = prior.LastIncrementUtc;
+            }
+            else
+            {
+                count = (hadPrior ? prior.Count : 0) + 1;
+                lastIncrement = nowUtc;
+            }
+            newMisses[key] = new MissRecord(count, lastIncrement);
             if (count >= removalThreshold) removalCandidates.Add(key);
         }
         removalCandidates.Sort(StringComparer.OrdinalIgnoreCase);
-        return new ChangeEvaluation(added, removalCandidates, newCounts);
+        return new ChangeEvaluation(added, removalCandidates, newMisses);
     }
 
     /// <summary>
     /// Shared post-run change evaluation, called by the tracer whenever a discovery run settles
-    /// in ReviewingResults - scheduled AND manually-started runs alike, so the "absent for
-    /// RemovalConfirmRuns consecutive runs" evidence advances exactly once per completed run
-    /// regardless of who initiated it. Bumps the per-WAN consecutive-miss counters, prunes
-    /// confirmations with no pause action, persists the counters, and stages the added keys plus
-    /// the confirmed off-path transit ASNs on the tracer state for the review UI and the
-    /// scheduler's gate. Removed-detection stays persistence-gated: a single incomplete/degraded
-    /// run only bumps a counter that resets the moment the ASN reappears.
+    /// in ReviewingResults - scheduled AND manually-started runs alike, so removal evidence
+    /// accumulates the same regardless of who initiated the run. Bumps the per-WAN miss counters
+    /// (time-gated: at most one increment per ASN per AbsentIncrementGate, so rapid manual traces
+    /// can't stack them), prunes confirmations with no pause action, persists the counters, and
+    /// stages the added keys plus the confirmed off-path transit ASNs on the tracer state for the
+    /// review UI and the scheduler's gate. Removed-detection stays persistence-gated: a single
+    /// incomplete/degraded run only bumps a counter that resets the moment the ASN reappears.
     /// </summary>
     internal static async Task EvaluateCompletedRunAsync(
         NetworkOptimizerDbContext db, UpstreamTracerState state, CancellationToken ct)
@@ -251,32 +288,33 @@ public class UpstreamRediscoveryService : BackgroundService
         var (monitoredAsns, removalEligibleAsns) = await BuildCommittedViewsAsync(db, wanInterface, ct);
         var candidate = BuildCandidateSignature(state);
 
-        var priorMissCounts = await LoadMissCountsAsync(db, wanInterface, ct);
-        var eval = EvaluateChange(monitoredAsns, removalEligibleAsns, candidate, priorMissCounts, RemovalConfirmRuns);
+        var priorMisses = await LoadMissCountsAsync(db, wanInterface, ct);
+        var eval = EvaluateChange(monitoredAsns, removalEligibleAsns, candidate, priorMisses,
+            DateTime.UtcNow, AbsentIncrementGate, RemovalConfirmRuns);
 
         var removedToPause = await BuildRemovedTransitAsnsAsync(db, wanInterface, eval.RemovalCandidates, ct);
 
         // Confirmed keys with no pause action (access/path tiers, which this detector doesn't act
         // on) must not keep a counter pinned at the threshold: any non-null counter map holds
-        // pendingRecheck on, which would lock the site into daily re-discovery forever. Prune them
+        // pendingRecheck on, which would lock the site into the recheck cadence forever. Prune them
         // so the evidence re-accumulates instead.
         var actionable = new HashSet<string>(
             removedToPause.Select(r => "transit:as" + r.AsnNumber), StringComparer.OrdinalIgnoreCase);
         foreach (var key in eval.RemovalCandidates)
-            if (!actionable.Contains(key)) eval.NewMissCounts.Remove(key);
+            if (!actionable.Contains(key)) eval.NewMisses.Remove(key);
 
         // The map only holds currently-absent ASNs, so reappeared/removed ones prune by omission.
-        await SaveMissCountsAsync(db, wanInterface, eval.NewMissCounts, ct);
+        await SaveMissCountsAsync(db, wanInterface, eval.NewMisses, ct);
         await db.SaveChangesAsync(ct);
 
         // Transit ASNs absent this run but still below the confirm threshold: surface them read-only
         // in the review as "tracking toward removal" so the detection isn't invisible until it
         // suddenly confirms. Pending and confirmed are mutually exclusive (one count per key), and
         // an eligible ASN always has >=1 enabled target, so BuildRemovedTransitAsnsAsync resolves a
-        // target count for each. RunsRemaining is run-count based today; when the per-ASN time gate
-        // lands, revisit the copy to express remaining time rather than remaining runs.
-        var pendingKeys = eval.NewMissCounts
-            .Where(kv => kv.Value < RemovalConfirmRuns
+        // target count for each. RunsRemaining is remaining gated increments; each is >= the gate
+        // apart, so it's also a rough remaining-time floor.
+        var pendingKeys = eval.NewMisses
+            .Where(kv => kv.Value.Count < RemovalConfirmRuns
                 && kv.Key.StartsWith("transit:as", StringComparison.OrdinalIgnoreCase))
             .Select(kv => kv.Key)
             .ToList();
@@ -288,8 +326,8 @@ public class UpstreamRediscoveryService : BackgroundService
                 AsnName = r.AsnName,
                 TargetCount = r.TargetCount,
                 ManualCount = r.ManualCount,
-                MissCount = eval.NewMissCounts["transit:as" + r.AsnNumber],
-                RunsRemaining = RemovalConfirmRuns - eval.NewMissCounts["transit:as" + r.AsnNumber],
+                MissCount = eval.NewMisses["transit:as" + r.AsnNumber].Count,
+                RunsRemaining = RemovalConfirmRuns - eval.NewMisses["transit:as" + r.AsnNumber].Count,
             })
             .OrderBy(p => p.AsnNumber)
             .ToList();
@@ -346,41 +384,69 @@ public class UpstreamRediscoveryService : BackgroundService
     internal static async Task ClearMissCountKeysAsync(
         NetworkOptimizerDbContext db, string wanInterface, IEnumerable<string> keys, CancellationToken ct)
     {
-        var counts = await LoadMissCountsAsync(db, wanInterface, ct);
+        var misses = await LoadMissCountsAsync(db, wanInterface, ct);
         var removed = false;
         foreach (var key in keys)
-            removed |= counts.Remove(key);
+            removed |= misses.Remove(key);
         if (removed)
-            await SaveMissCountsAsync(db, wanInterface, counts, ct);
+            await SaveMissCountsAsync(db, wanInterface, misses, ct);
     }
 
     private static string MissCountsKey(string wanInterface) =>
         SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + wanInterface;
 
-    private static async Task<Dictionary<string, int>> LoadMissCountsAsync(
+    /// <summary>
+    /// Loads the per-WAN absent-ASN counters. The stored value is a JSON map of identity key to
+    /// <c>{"c":count,"t":lastIncrementUtc}</c>. Legacy values (a bare int per key, from before the
+    /// increment gate) parse with <see cref="DateTime.MinValue"/> so they're immediately
+    /// gate-eligible on the next run - no migration needed.
+    /// </summary>
+    private static async Task<Dictionary<string, MissRecord>> LoadMissCountsAsync(
         NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
+        var result = new Dictionary<string, MissRecord>(StringComparer.OrdinalIgnoreCase);
         var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == MissCountsKey(wanInterface), ct);
-        if (string.IsNullOrEmpty(row?.Value)) return new(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(row?.Value)) return result;
         try
         {
-            var map = JsonSerializer.Deserialize<Dictionary<string, int>>(row.Value);
-            return map == null ? new(StringComparer.OrdinalIgnoreCase) : new(map, StringComparer.OrdinalIgnoreCase);
+            using var doc = JsonDocument.Parse(row.Value);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Number)
+                {
+                    // Legacy {key:int}: no timestamp recorded, so treat as long-ago (not gated).
+                    var legacy = prop.Value.GetInt32();
+                    if (legacy > 0) result[prop.Name] = new MissRecord(legacy, DateTime.MinValue);
+                }
+                else if (prop.Value.ValueKind == JsonValueKind.Object)
+                {
+                    var count = prop.Value.TryGetProperty("c", out var c) ? c.GetInt32() : 0;
+                    var when = prop.Value.TryGetProperty("t", out var t) && t.TryGetDateTime(out var dt)
+                        ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                        : DateTime.MinValue;
+                    if (count > 0) result[prop.Name] = new MissRecord(count, when);
+                }
+            }
         }
         catch
         {
             return new(StringComparer.OrdinalIgnoreCase);
         }
+        return result;
     }
 
     /// <summary>Upserts the counter map into the SystemSetting row. Does not SaveChanges - the
     /// caller's SaveChanges persists it alongside the settings update.</summary>
     private static async Task SaveMissCountsAsync(
-        NetworkOptimizerDbContext db, string wanInterface, Dictionary<string, int> counts, CancellationToken ct)
+        NetworkOptimizerDbContext db, string wanInterface, Dictionary<string, MissRecord> misses, CancellationToken ct)
     {
         var key = MissCountsKey(wanInterface);
         var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.Key == key, ct);
-        var value = counts.Count == 0 ? null : JsonSerializer.Serialize(counts);
+        var value = misses.Count == 0
+            ? null
+            : JsonSerializer.Serialize(misses.ToDictionary(
+                kv => kv.Key,
+                kv => new { c = kv.Value.Count, t = kv.Value.LastIncrementUtc }));
         if (row == null)
         {
             if (value == null) return;

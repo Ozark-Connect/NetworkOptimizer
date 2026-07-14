@@ -177,7 +177,7 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         var monitored = Set($"transit:as{TransitAsnA}");
         var candidate = Set($"transit:as{TransitAsnA}", $"transit:as{TransitAsnB}");
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, Set(), candidate, Empty, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, Set(), candidate, Empty, Now, Gate, 3);
 
         eval.Added.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnB}" });
         eval.RemovalCandidates.Should().BeEmpty();
@@ -190,7 +190,7 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         var monitored = Set($"transit:as{UserAsn}");
         var candidate = Set($"transit:as{UserAsn}");
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, Set(), candidate, Empty, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, Set(), candidate, Empty, Now, Gate, 3);
 
         eval.Added.Should().BeEmpty();
     }
@@ -201,9 +201,10 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         var autoEnabled = Set($"transit:as{TransitAsnA}");
         var candidate = Set(); // A missing this run
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, Empty, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, Empty, Now, Gate, 3);
 
-        eval.NewMissCounts.Should().ContainKey($"transit:as{TransitAsnA}").WhoseValue.Should().Be(1);
+        eval.NewMisses.Should().ContainKey($"transit:as{TransitAsnA}").WhoseValue.Count.Should().Be(1);
+        eval.NewMisses[$"transit:as{TransitAsnA}"].LastIncrementUtc.Should().Be(Now);
         eval.RemovalCandidates.Should().BeEmpty();
     }
 
@@ -212,11 +213,11 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     {
         var autoEnabled = Set($"transit:as{TransitAsnA}");
         var candidate = Set();
-        var prior = new Dictionary<string, int> { [$"transit:as{TransitAsnA}"] = 2 };
+        var prior = Prior($"transit:as{TransitAsnA}", 2); // last increment well past the gate
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, Now, Gate, 3);
 
-        eval.NewMissCounts[$"transit:as{TransitAsnA}"].Should().Be(3);
+        eval.NewMisses[$"transit:as{TransitAsnA}"].Count.Should().Be(3);
         eval.RemovalCandidates.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
     }
 
@@ -225,12 +226,57 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     {
         var autoEnabled = Set($"transit:as{TransitAsnA}");
         var candidate = Set($"transit:as{TransitAsnA}"); // present again
-        var prior = new Dictionary<string, int> { [$"transit:as{TransitAsnA}"] = 2 };
+        var prior = Prior($"transit:as{TransitAsnA}", 2);
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, Now, Gate, 3);
 
-        eval.NewMissCounts.Should().NotContainKey($"transit:as{TransitAsnA}"); // pruned by omission
+        eval.NewMisses.Should().NotContainKey($"transit:as{TransitAsnA}"); // pruned by omission
         eval.RemovalCandidates.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Miss_within_gate_holds_count_and_timestamp_instead_of_incrementing()
+    {
+        // Absent again, but only 1h since the last increment (< 6h gate): count must NOT advance,
+        // and the timestamp must stay put so the next in-window miss is also held.
+        var autoEnabled = Set($"transit:as{TransitAsnA}");
+        var candidate = Set();
+        var lastInc = Now.AddHours(-1);
+        var prior = Prior($"transit:as{TransitAsnA}", 2, hoursAgo: 1);
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, Now, Gate, 3);
+
+        eval.NewMisses[$"transit:as{TransitAsnA}"].Count.Should().Be(2); // held, not 3
+        eval.NewMisses[$"transit:as{TransitAsnA}"].LastIncrementUtc.Should().Be(lastInc);
+        eval.RemovalCandidates.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Miss_after_gate_elapses_increments()
+    {
+        var autoEnabled = Set($"transit:as{TransitAsnA}");
+        var candidate = Set();
+        var prior = Prior($"transit:as{TransitAsnA}", 1, hoursAgo: 6); // exactly at the gate
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, Now, Gate, 3);
+
+        eval.NewMisses[$"transit:as{TransitAsnA}"].Count.Should().Be(2);
+        eval.NewMisses[$"transit:as{TransitAsnA}"].LastIncrementUtc.Should().Be(Now);
+    }
+
+    [Fact]
+    public void Confirmed_asn_gated_this_run_stays_a_removal_candidate()
+    {
+        // Already at threshold and absent again within the gate: it holds at 3 (doesn't climb) but
+        // must remain a removal candidate so a gated recheck can't un-confirm it.
+        var autoEnabled = Set($"transit:as{TransitAsnA}");
+        var candidate = Set();
+        var prior = Prior($"transit:as{TransitAsnA}", 3, hoursAgo: 1);
+
+        var eval = UpstreamRediscoveryService.EvaluateChange(Set(), autoEnabled, candidate, prior, Now, Gate, 3);
+
+        eval.NewMisses[$"transit:as{TransitAsnA}"].Count.Should().Be(3);
+        eval.RemovalCandidates.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
     }
 
     [Fact]
@@ -243,11 +289,11 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         var removalEligible = Set(); // fully disabled => not eligible for removed
         var candidate = Set($"transit:as{TransitAsnB}");
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, removalEligible, candidate, Empty, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, removalEligible, candidate, Empty, Now, Gate, 3);
 
         eval.Added.Should().BeEmpty();
         eval.RemovalCandidates.Should().BeEmpty();
-        eval.NewMissCounts.Should().BeEmpty();
+        eval.NewMisses.Should().BeEmpty();
     }
 
     // ---- BuildRemovedTransitAsns (pause entries) ----
@@ -323,8 +369,9 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     [Fact]
     public async Task CompletedRun_stages_pending_tracking_when_below_threshold()
     {
-        // Dangling-manual AS: auto evidence disabled, manual enabled, absent this run, prior count 1.
-        SeedDanglingManualAsn(TransitAsnA, priorCount: 1);
+        // Dangling-manual AS: auto evidence disabled, manual enabled, absent this run, prior count 1
+        // last incremented well past the gate so this run advances it.
+        SeedDanglingManualAsn(TransitAsnA, priorCount: 1, lastIncrementUtc: DateTime.UtcNow.AddHours(-24));
         var state = AbsentRunState(TransitAsnA);
 
         await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
@@ -341,8 +388,8 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     [Fact]
     public async Task CompletedRun_confirms_and_leaves_pending_empty_at_threshold()
     {
-        // Same dangling-manual AS, but prior count 2 -> this run hits the threshold of 3.
-        SeedDanglingManualAsn(TransitAsnA, priorCount: 2);
+        // Same dangling-manual AS, but prior count 2 (past the gate) -> this run hits threshold 3.
+        SeedDanglingManualAsn(TransitAsnA, priorCount: 2, lastIncrementUtc: DateTime.UtcNow.AddHours(-24));
         var state = AbsentRunState(TransitAsnA);
 
         await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
@@ -354,13 +401,76 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         r.ManualCount.Should().Be(1);
     }
 
+    [Fact]
+    public async Task CompletedRun_holds_count_when_within_gate()
+    {
+        // Prior increment 1h ago (< 6h gate): an absent run must NOT advance the count - it stays
+        // pending at 2 rather than confirming, so rapid re-traces can't rush a removal.
+        SeedDanglingManualAsn(TransitAsnA, priorCount: 2, lastIncrementUtc: DateTime.UtcNow.AddHours(-1));
+        var state = AbsentRunState(TransitAsnA);
+
+        await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
+
+        state.RemovedTransitAsns.Should().BeEmpty();
+        var p = state.PendingRemovalTransitAsns.Should().ContainSingle().Subject;
+        p.MissCount.Should().Be(2);
+        p.RunsRemaining.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CompletedRun_confirms_once_gate_has_elapsed()
+    {
+        // Same count, but the last increment was 7h ago (> 6h gate): this run advances 2 -> 3.
+        SeedDanglingManualAsn(TransitAsnA, priorCount: 2, lastIncrementUtc: DateTime.UtcNow.AddHours(-7));
+        var state = AbsentRunState(TransitAsnA);
+
+        await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
+
+        state.PendingRemovalTransitAsns.Should().BeEmpty();
+        state.RemovedTransitAsns.Should().ContainSingle().Which.AsnNumber.Should().Be(TransitAsnA);
+    }
+
+    [Fact]
+    public async Task CompletedRun_reads_legacy_intonly_counter_and_advances()
+    {
+        // Legacy stored format (a bare int, no timestamp) must load as immediately gate-eligible so
+        // an in-flight counter from before the gate keeps advancing after upgrade.
+        SeedLegacyDanglingManualAsn(TransitAsnA, priorCount: 2);
+        var state = AbsentRunState(TransitAsnA);
+
+        await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
+
+        state.PendingRemovalTransitAsns.Should().BeEmpty();
+        state.RemovedTransitAsns.Should().ContainSingle().Which.AsnNumber.Should().Be(TransitAsnA);
+    }
+
     // ---- helpers ----
 
-    private void SeedDanglingManualAsn(int asn, int priorCount)
+    private void SeedDanglingManualTargets(int asn)
     {
         _db.MonitoringTargets.AddRange(
             Target("198.51.100.1", MonitoringTargetType.Transit, asn, "wan", DiscoveryMethod.DirectRouter, enabled: false),
             Target("203.0.113.1", MonitoringTargetType.Transit, asn, "", DiscoveryMethod.UserProvided));
+    }
+
+    // Dangling-manual ASN with a current-format counter (count + last-increment timestamp).
+    private void SeedDanglingManualAsn(int asn, int priorCount, DateTime lastIncrementUtc)
+    {
+        SeedDanglingManualTargets(asn);
+        _db.SystemSettings.Add(new SystemSetting
+        {
+            Key = SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + "wan",
+            Value = $"{{\"transit:as{asn}\":{{\"c\":{priorCount},\"t\":\"{lastIncrementUtc:o}\"}}}}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        _db.SaveChanges();
+    }
+
+    // Dangling-manual ASN with a legacy counter (a bare int, no timestamp).
+    private void SeedLegacyDanglingManualAsn(int asn, int priorCount)
+    {
+        SeedDanglingManualTargets(asn);
         _db.SystemSettings.Add(new SystemSetting
         {
             Key = SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + "wan",
@@ -386,7 +496,21 @@ public class UpstreamRediscoverySignatureTests : IDisposable
 
     private static HashSet<string> Set(params string[] keys) => new(keys, StringComparer.OrdinalIgnoreCase);
 
-    private static readonly Dictionary<string, int> Empty = new(StringComparer.OrdinalIgnoreCase);
+    // Fixed evaluation clock + gate for the pure EvaluateChange tests.
+    private static readonly DateTime Now = new(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+    private static readonly TimeSpan Gate = TimeSpan.FromHours(6);
+
+    private static readonly Dictionary<string, UpstreamRediscoveryService.MissRecord> Empty =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // A prior-miss map with one entry whose last increment was `hoursAgo` before Now (default well
+    // past the gate, so the next miss increments).
+    private static Dictionary<string, UpstreamRediscoveryService.MissRecord> Prior(
+        string key, int count, double hoursAgo = 24) =>
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [key] = new UpstreamRediscoveryService.MissRecord(count, Now.AddHours(-hoursAgo)),
+        };
 
     private static AccessHopCandidate Hop(string address, int? asn, bool enabled = true, bool unreachable = false) => new()
     {
