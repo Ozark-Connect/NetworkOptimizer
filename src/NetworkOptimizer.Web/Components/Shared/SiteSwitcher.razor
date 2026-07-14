@@ -7,7 +7,7 @@
 
 @if (_enabled && _sites.Count > 0)
 {
-    <div class="site-switcher">
+    <div class="site-switcher" @onkeydown="HandleKeyDown">
         <button type="button" class="site-switcher-trigger" @onclick="ToggleDropdown" @onclick:stopPropagation="true">
             <img src="/icons/sites.png" alt="" class="site-switcher-icon" />
             <span class="site-switcher-name">@(_currentSite?.Name ?? "Site")</span>
@@ -66,6 +66,12 @@
     private void ToggleDropdown() => _open = !_open;
 
     private void CloseDropdown() => _open = false;
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _open = false;
+    }
 
     /// <summary>This page pinned to the given site - the anchor href (plain-click switch
     /// target and modified-click new-tab target); see site-context.js.</summary>
