@@ -150,6 +150,46 @@ public class UpstreamIspChangeResetTests : IDisposable
         change.Should().BeNull();
     }
 
+    // ---- Injected-fallback baseline (no reachable first-mile router) ----
+
+    [Fact]
+    public async Task Fallback_only_baseline_with_same_asn_does_not_false_positive()
+    {
+        // A user whose access-ISP routers are all ICMP-silent has no DirectRouter/L2Neighbor
+        // access target - only a ConfiguredFallback speedtest endpoint, stamped with _accessAsn.
+        // A fresh run resolving the same access ASN (via a fallback hop again) must NOT read as
+        // a provider change: detection keys on the ASN, which is identical on both sides.
+        _db.MonitoringTargets.Add(Target("203.0.113.9", MonitoringTargetType.AccessIsp, OldAccessAsn, "wan",
+            DiscoveryMethod.ConfiguredFallback));
+        await _db.SaveChangesAsync();
+        var state = new UpstreamTracerState
+        {
+            WanInterface = "wan",
+            AccessHops = { FallbackHop("203.0.113.9", OldAccessAsn) },
+        };
+
+        var change = await UpstreamRediscoveryService.DetectAccessIspChangeAsync(_db, "wan", state, CancellationToken.None);
+
+        change.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Fallback_only_baseline_counts_as_baseline_so_a_real_change_still_fires()
+    {
+        // The flip side: a fallback baseline is still a baseline (only UserProvided is excluded),
+        // so a genuinely different access ASN this run correctly triggers the change flow.
+        _db.MonitoringTargets.Add(Target("203.0.113.9", MonitoringTargetType.AccessIsp, OldAccessAsn, "wan",
+            DiscoveryMethod.ConfiguredFallback));
+        await _db.SaveChangesAsync();
+        var state = RunState(NewAccessAsn);
+
+        var change = await UpstreamRediscoveryService.DetectAccessIspChangeAsync(_db, "wan", state, CancellationToken.None);
+
+        change.Should().NotBeNull();
+        change!.OldAsnNumber.Should().Be(OldAccessAsn);
+        change.NewAsnNumber.Should().Be(NewAccessAsn);
+    }
+
     // ---- Reset scope ----
 
     [Fact]
@@ -320,17 +360,29 @@ public class UpstreamIspChangeResetTests : IDisposable
         Method = DiscoveryMethod.DirectRouter,
     };
 
-    private static MonitoringTarget Target(string address, MonitoringTargetType type, int? asn,
-        string wan, DiscoveryMethod? method, bool enabled = true, string? asnName = null) => new()
+    // An injected curated speedtest endpoint, adopted as the access target when no first-mile
+    // router answered ICMP. Carries _accessAsn just like a real access hop.
+    private static AccessHopCandidate FallbackHop(string address, int? asn, string? asnName = null) => new()
     {
-        TargetId = $"{type}-{address}",
-        Name = $"{type} {address}",
+        TargetId = $"access-fallback-{address}",
+        Label = $"Fallback {address}",
         Address = address,
-        TargetType = type,
         AsnNumber = asn,
         AsnName = asnName,
-        WanInterface = wan,
-        DiscoveryMethod = method,
-        Enabled = enabled,
+        Method = DiscoveryMethod.ConfiguredFallback,
     };
+
+    private static MonitoringTarget Target(string address, MonitoringTargetType type, int? asn,
+        string wan, DiscoveryMethod? method, bool enabled = true, string? asnName = null) => new()
+        {
+            TargetId = $"{type}-{address}",
+            Name = $"{type} {address}",
+            Address = address,
+            TargetType = type,
+            AsnNumber = asn,
+            AsnName = asnName,
+            WanInterface = wan,
+            DiscoveryMethod = method,
+            Enabled = enabled,
+        };
 }
