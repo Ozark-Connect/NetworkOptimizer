@@ -923,6 +923,18 @@ using (var scope = app.Services.CreateScope())
     // Seed default alert rules - insert any missing rules by EventTypePattern
     {
         var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
+
+        // On-Site Agent rules only make sense on the main site when the default site
+        // itself has an agent (secondary sites get theirs from the per-site seed above).
+        // Skipping them keeps a single-site install's Rules list free of agent entries;
+        // enrolling a default-site agent later seeds them at that point.
+        var defaultSiteId = db.Sites
+            .Where(s => s.Slug == SiteManagementService.DefaultSiteSlug)
+            .Select(s => (int?)s.Id)
+            .FirstOrDefault();
+        if (defaultSiteId == null || !db.SiteAgents.Any(a => a.SiteId == defaultSiteId))
+            defaults = defaults.Where(d => d.Source != "agent").ToList();
+
         var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
         var missing = defaults.Where(d => !existingPatterns.Contains(d.EventTypePattern)).ToList();
         if (missing.Count > 0)

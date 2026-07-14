@@ -145,6 +145,26 @@ public class AgentEnrollmentService
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
+        // The startup seed skips On-Site Agent alert rules while the default site has
+        // no agent; the first default-site enrollment is the moment they become relevant.
+        if (site.Slug == SiteManagementService.DefaultSiteSlug)
+        {
+            var agentRuleDefaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults()
+                .Where(r => r.Source == "agent")
+                .ToList();
+            var existingPatterns = await db.AlertRules
+                .Where(r => r.Source == "agent")
+                .Select(r => r.EventTypePattern)
+                .ToListAsync();
+            var missingRules = agentRuleDefaults.Where(d => !existingPatterns.Contains(d.EventTypePattern)).ToList();
+            if (missingRules.Count > 0)
+            {
+                db.AlertRules.AddRange(missingRules);
+                await db.SaveChangesAsync();
+                _logger.LogInformation("Seeded {Count} On-Site Agent alert rule(s) for the default site", missingRules.Count);
+            }
+        }
+
         _logger.LogInformation("Agent {Name} (id {Id}) enrolled for site {Slug}", agent.Name, agent.Id, site.Slug);
         return (true, key, site.Slug, null);
     }
