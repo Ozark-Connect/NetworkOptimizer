@@ -1,4 +1,6 @@
 using System.Text.Json;
+using NetworkOptimizer.Alerts.Events;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Interfaces;
 using NetworkOptimizer.Storage.Interfaces;
@@ -39,6 +41,18 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private bool _isConnected;
     private string? _lastError;
     private DateTime? _lastConnectedAt;
+
+    // Console connection alerting: armed after the first successful auth so setup-time
+    // failures never alert; fires once per outage after two consecutive failed auth
+    // probes spanning at least the minimum window (so second-scale cookie re-login
+    // bursts and single blips during provisioning restarts stay silent).
+    private IAlertEventBus? _alertBus;
+    private bool _consoleAlertArmed;
+    private bool _consoleAlertActive;
+    private int _consecutiveAuthFailures;
+    private DateTime _firstAuthFailureAt;
+    private readonly object _consoleAlertLock = new();
+    private static readonly TimeSpan ConsoleFailureMinWindow = TimeSpan.FromSeconds(50);
 
     // Cache to avoid repeated DB queries
     private DateTime _cacheTime = DateTime.MinValue;
@@ -95,6 +109,99 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         var scope = _serviceProvider.CreateScope();
         scope.ServiceProvider.GetRequiredService<SiteContextService>().OverrideSite(SiteSlug);
         return scope;
+    }
+
+    /// <summary>
+    /// Tracks auth probe outcomes from the API client (login attempts and the API-key
+    /// revalidation probes) and raises console connection alerts. Suppressed until the
+    /// first successful connection and while the site's agent tunnel is still coming up.
+    /// </summary>
+    private void HandleAuthProbe(bool success, string? error)
+    {
+        bool publishFailed = false, publishRestored = false;
+        lock (_consoleAlertLock)
+        {
+            if (success)
+            {
+                if (_consoleAlertActive)
+                {
+                    _consoleAlertActive = false;
+                    publishRestored = true;
+                }
+                _consoleAlertArmed = true;
+                _consecutiveAuthFailures = 0;
+            }
+            else
+            {
+                if (!_consoleAlertArmed || IsAwaitingAgent)
+                    return;
+
+                if (_consecutiveAuthFailures == 0)
+                    _firstAuthFailureAt = DateTime.UtcNow;
+                _consecutiveAuthFailures++;
+
+                if (!_consoleAlertActive
+                    && _consecutiveAuthFailures >= 2
+                    && DateTime.UtcNow - _firstAuthFailureAt >= ConsoleFailureMinWindow)
+                {
+                    _consoleAlertActive = true;
+                    publishFailed = true;
+                }
+            }
+        }
+
+        if (publishFailed)
+        {
+            PublishConsoleAlert("console.connection_failed", AlertSeverity.Warning,
+                "UniFi Console connection failed",
+                $"Repeated attempts to authenticate with the UniFi Console have failed. Features that read the console API (Wi-Fi Optimizer, Config Optimizer, Security Audit, Threat Intelligence) are unavailable until it recovers. Last error: {error ?? "unknown"}");
+        }
+        if (publishRestored)
+        {
+            PublishConsoleAlert("console.connection_restored", AlertSeverity.Info,
+                "UniFi Console connection restored",
+                "The connection to the UniFi Console has recovered.");
+        }
+    }
+
+    /// <summary>
+    /// Clears the consecutive-failure count on intentional teardown (manual disconnect,
+    /// agent tunnel drop) so failures from before the teardown can't pair with a failure
+    /// from a later reconnect attempt and fire a spurious alert. Keeps the active-alert
+    /// flag so a restore still pairs with an already-published failure.
+    /// </summary>
+    private void ResetConsoleFailureCount()
+    {
+        lock (_consoleAlertLock)
+        {
+            _consecutiveAuthFailures = 0;
+        }
+    }
+
+    private void PublishConsoleAlert(string eventType, AlertSeverity severity, string title, string message)
+    {
+        try
+        {
+            var bus = _alertBus ??= _serviceProvider.GetService<IAlertEventBus>();
+            if (bus == null)
+                return;
+
+            var evt = new AlertEvent
+            {
+                EventType = eventType,
+                Source = "console",
+                Severity = severity,
+                Title = title,
+                Message = message,
+                SiteSlug = SiteSlug == SiteManagementService.DefaultSiteSlug ? null : SiteSlug
+            };
+            _ = Task.Run(() => bus.PublishAsync(evt).AsTask());
+            _logger.LogInformation("Published {EventType} alert event for site {Site}", eventType, SiteSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to publish console connection alert event");
+        }
     }
 
     /// <summary>Per-site setting key: reach this site's console through its agent tunnel.</summary>
@@ -223,6 +330,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         _isConnected = false;
         _awaitingAgent = true;
         _lastError = AwaitingAgentMessage;
+        ResetConsoleFailureCount();
         OnConnectionChanged?.Invoke();
     }
 
@@ -251,6 +359,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         _isConnected = false;
         _awaitingAgent = true;
         _lastError = AwaitingAgentMessage;
+        ResetConsoleFailureCount();
         OnConnectionChanged?.Invoke();
     }
 
@@ -562,6 +671,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.IgnoreControllerSSLErrors || viaAgent,
                 config.ApiKey
             );
+            _client.AuthProbeCompleted += HandleAuthProbe;
 
             // Attempt to authenticate
             var success = await _client.LoginAsync();
@@ -690,6 +800,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.IgnoreControllerSSLErrors || viaAgent,
                 config.ApiKey
             );
+            _client.AuthProbeCompleted += HandleAuthProbe;
 
             var success = await _client.LoginAsync(cts.Token);
 
@@ -865,6 +976,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         }
 
         _isConnected = false;
+        ResetConsoleFailureCount();
         ClearCaches();
         _logger.LogInformation("Disconnected from UniFi controller");
         OnConnectionChanged?.Invoke();

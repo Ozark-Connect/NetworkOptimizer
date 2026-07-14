@@ -1591,6 +1591,13 @@
                     </div>
                 </div>
                 <div>
+                    <h4 class="event-type-group-header">UniFi Console</h4>
+                    <div class="event-type-key-list">
+                        <div @onclick='() => SelectEventType("console.connection_failed")'><code>console.connection_failed</code> <span>Console connection or authentication failing</span></div>
+                        <div @onclick='() => SelectEventType("console.connection_restored")'><code>console.connection_restored</code> <span>Console connection recovered</span></div>
+                    </div>
+                </div>
+                <div>
                     <h4 class="event-type-group-header">Monitoring</h4>
                     <div class="event-type-key-list">
                         <div @onclick='() => SelectEventType("monitoring.target_offline")'><code>monitoring.target_offline</code> <span>Probe target went offline</span></div>

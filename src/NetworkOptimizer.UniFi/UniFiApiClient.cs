@@ -72,6 +72,15 @@ public class UniFiApiClient : IDisposable
     /// </summary>
     public bool UseApiKey => !string.IsNullOrEmpty(_apiKey);
 
+    /// <summary>
+    /// Raised after every real login/validation attempt with the outcome and, on failure,
+    /// the login error. Lets the owning connection service track consecutive auth failures
+    /// (console restarting, upgrading, or unreachable) for alerting. Not raised for the
+    /// already-authenticated fast path. Handlers must be cheap and must not call back into
+    /// this client - the event fires while the auth lock is held.
+    /// </summary>
+    public event Action<bool, string?>? AuthProbeCompleted;
+
     public UniFiApiClient(
         ILogger<UniFiApiClient> logger,
         string controllerHost,
@@ -242,18 +251,21 @@ public class UniFiApiClient : IDisposable
                             ? "Invalid API key. Check that it was copied correctly and has not been revoked."
                             : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
                         _logger.LogWarning("API key validation failed: {StatusCode}", validateResponse.StatusCode);
+                        AuthProbeCompleted?.Invoke(false, _lastLoginError);
                         return false;
                     }
 
                     _isAuthenticated = true;
                     await DetectControllerTypeAsync(cancellationToken);
                     _logger.LogInformation("API key authentication validated (UniFi OS: {IsUniFiOs})", _isUniFiOs);
+                    AuthProbeCompleted?.Invoke(true, null);
                     return true;
                 }
                 catch (Exception ex)
                 {
                     _lastLoginError = ParseExceptionError(ex);
                     _logger.LogError(ex, "Exception validating API key");
+                    AuthProbeCompleted?.Invoke(false, _lastLoginError);
                     return false;
                 }
             }
@@ -300,6 +312,7 @@ public class UniFiApiClient : IDisposable
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
+                AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
 
@@ -334,12 +347,14 @@ public class UniFiApiClient : IDisposable
             // Detect controller type after successful authentication
             await DetectControllerTypeAsync(cancellationToken);
 
+            AuthProbeCompleted?.Invoke(true, null);
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during login");
             _lastLoginError = ParseExceptionError(ex);
+            AuthProbeCompleted?.Invoke(false, _lastLoginError);
             return false;
         }
         finally

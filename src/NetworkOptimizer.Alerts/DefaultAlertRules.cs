@@ -161,6 +161,26 @@ public static class DefaultAlertRules
             CooldownSeconds = 86400 // 24 hours
         },
 
+        // --- UniFi Console (enabled by default - a dead console connection silently blanks most features) ---
+        new AlertRule
+        {
+            Name = "UniFi Console: Connection Failed",
+            IsEnabled = true,
+            EventTypePattern = "console.connection_failed",
+            Source = "console",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the connection service fires once per outage
+        },
+        new AlertRule
+        {
+            Name = "UniFi Console: Connection Restored",
+            IsEnabled = true,
+            EventTypePattern = "console.connection_restored",
+            Source = "console",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - restores are paired with failure events
+        },
+
         // --- Monitoring (enabled by default - users opted into monitoring by configuring it) ---
         new AlertRule
         {
