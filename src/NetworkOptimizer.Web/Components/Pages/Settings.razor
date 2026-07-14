@@ -3306,10 +3306,9 @@
 
     private async Task ToggleSiteEnabled(Site site)
     {
-        var message = site.Enabled
-            ? $"Disable site \"{site.Name}\"? Monitoring stops and it disappears from the site switcher. All of its data is kept, and you can re-enable it here anytime."
-            : $"Enable site \"{site.Name}\"? Monitoring and its UniFi Console connection resume.";
-        if (!await JS.InvokeAsync<bool>("confirm", message))
+        // Disabling pauses a live site, so it confirms; re-enabling is harmless.
+        if (site.Enabled && !await JS.InvokeAsync<bool>("confirm",
+                $"Disable site \"{site.Name}\"? Monitoring stops and it disappears from the site switcher. All of its data is kept, and you can re-enable it here anytime."))
             return;
 
         try

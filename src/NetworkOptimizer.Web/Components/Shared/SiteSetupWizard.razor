@@ -294,6 +294,13 @@
 
     private async Task CreateSiteAsync()
     {
+        // A fast double-click queues both click events before the disabled state
+        // renders; the circuit runs them sequentially, so by the time the second
+        // arrives _busy is false again and it would create a duplicate site
+        // (name-2). _site stays set after success, so it swallows the straggler.
+        if (_busy || _site != null)
+            return;
+
         _busy = true;
         _message = "";
         StateHasChanged();
