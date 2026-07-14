@@ -155,6 +155,59 @@ public class FlakyTargetServiceTests
     }
 
     [Fact]
+    public void Hard_down_target_recovers_after_a_short_clean_streak()
+    {
+        // A total outage (100% bins) that ended: three clean bins (~30 min) clear it via the
+        // hard-down fast path, long before the outage bins dilute out of the recovery window.
+        var (loss, meta) = Build(
+            ("outage-over", Run(12, 100.0, 3, 0.0)),
+            ("clean-a", Run(15, 0.0, 0, 0.0)),
+            ("clean-b", Run(15, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Hard_down_target_still_down_stays_flagged()
+    {
+        var (loss, meta) = Build(
+            ("still-down", Run(15, 100.0, 0, 0.0)),
+            ("clean-a", Run(15, 0.0, 0, 0.0)),
+            ("clean-b", Run(15, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("still-down");
+    }
+
+    [Fact]
+    public void Partial_loss_target_does_not_get_the_hard_down_fast_path()
+    {
+        // Same shape as the outage case but with partial (deprioritization-style) loss: a short
+        // clean streak is NOT enough - it must satisfy the full recovery window instead.
+        var (loss, meta) = Build(
+            ("partial-loss", Run(12, 20.0, 3, 0.0)),
+            ("clean-a", Run(15, 0.0, 0, 0.0)),
+            ("clean-b", Run(15, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("partial-loss");
+    }
+
+    [Fact]
+    public void Mixed_outage_and_partial_loss_does_not_get_the_fast_path()
+    {
+        // One over-threshold bin at partial loss alongside the 100% bins: the episode isn't a
+        // clean binary outage, so the short streak must not clear it.
+        var (loss, meta) = Build(
+            ("mixed", Run(11, 100.0, 1, 20.0).Concat(Run(3, 0.0, 0, 0.0)).ToArray()),
+            ("clean-a", Run(15, 0.0, 0, 0.0)),
+            ("clean-b", Run(15, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("mixed");
+    }
+
+    [Fact]
     public void Target_flaky_again_after_a_clean_stretch_is_flagged()
     {
         // Clean history, then flaky through the trailing window - the recovery gate only clears

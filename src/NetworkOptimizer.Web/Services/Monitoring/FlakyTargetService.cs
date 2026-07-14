@@ -65,6 +65,18 @@ public class FlakyTargetService
     /// Fewer - the target went dark or barely reports - can't prove stability, so it stays flagged.
     /// </summary>
     private const int MinRecoveryBins = 6;
+    /// <summary>
+    /// A bin at or above this loss counts as hard-down (total outage) rather than the partial,
+    /// load-dependent loss that signals ICMP deprioritization.
+    /// </summary>
+    private const double HardDownLossPct = 95.0;
+    /// <summary>
+    /// Fast recovery for hard-down episodes: when every over-threshold bin was hard-down, the
+    /// episode was a binary outage, not flakiness - once the hop answers cleanly again there's
+    /// little ambiguity, so this many consecutive clean bins (~30 min) clear the flag instead of
+    /// waiting out the full recovery window.
+    /// </summary>
+    private const int HardDownRecoveryBins = 3;
 
     /// <summary>One flagged target plus the evidence behind the call.</summary>
     public record FlakyTarget(
@@ -155,7 +167,10 @@ public class FlakyTargetService
     /// back under the same threshold - a stable-flaky-stable excursion stops being presented as
     /// soon as recent evidence says it's fine, instead of nagging until the bad bins dilute out
     /// of the 48 h lookback. An always-flaky target keeps failing the recent slice and a target
-    /// that went dark has no recent bins to prove recovery with, so both stay flagged.
+    /// that went dark has no recent bins to prove recovery with, so both stay flagged. Hard-down
+    /// episodes (every over-threshold bin >= <see cref="HardDownLossPct"/>) recover faster: a
+    /// binary outage that ended needs only <see cref="HardDownRecoveryBins"/> consecutive clean
+    /// bins, since down-then-up carries none of partial loss's ambiguity.
     /// </summary>
     internal static IReadOnlyList<FlakyTarget> Analyze(
         Dictionary<string, Dictionary<DateTime, double>> lossByTarget,
@@ -206,6 +221,25 @@ public class FlakyTargetService
             var survivors = survivorPairs.Select(kv => kv.Value).ToList();
             var metric = TrimmedMean(survivors);
             if (metric < threshold) continue;
+
+            // Hard-down fast path: when every over-threshold bin was essentially total loss, the
+            // episode was a binary outage (reboot, maintenance, transient route change) rather
+            // than the partial-loss signature of ICMP deprioritization. Down-then-up is a state
+            // transition, so a short clean streak is enough evidence - no need to wait for the
+            // outage bins to dilute out of the full recovery window. Mixed episodes (any partial-
+            // loss bin over threshold) fall through to the standard gate below.
+            var overBins = survivorPairs.Where(kv => kv.Value >= threshold).ToList();
+            if (overBins.Count > 0 && overBins.All(kv => kv.Value >= HardDownLossPct))
+            {
+                var latest = survivorPairs.OrderByDescending(kv => kv.Key)
+                    .Take(HardDownRecoveryBins).Select(kv => kv.Value).ToList();
+                if (latest.Count >= HardDownRecoveryBins && latest.All(l => l < threshold))
+                {
+                    logger?.LogDebug("Flaky-target detect: {Target} was hard-down ({Metric:0.0}%) but its last {Bins} bins are clean; treating the outage as over",
+                        targetId, metric, HardDownRecoveryBins);
+                    continue;
+                }
+            }
 
             // Recovery gate: historically flaky, but its recent bins are clean by the same
             // threshold - stable again, so stop presenting it. Judged only with enough recent
