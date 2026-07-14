@@ -22,8 +22,10 @@ public class FlakyTargetServiceTests
         foreach (var (id, losses) in targets)
         {
             var bins = new Dictionary<DateTime, double>();
+            // A negative loss is a gap sentinel: no bin reported at that slot.
             for (var i = 0; i < losses.Length; i++)
-                bins[Base.AddMinutes(10 * i)] = losses[i];
+                if (losses[i] >= 0)
+                    bins[Base.AddMinutes(10 * i)] = losses[i];
             loss[id] = bins;
             meta[id] = new MonitoringTarget
             {
@@ -89,6 +91,81 @@ public class FlakyTargetServiceTests
             ("clean-b", new[] { 0.0, 0, 0, 0, 0, 0 }));
 
         FlakyTargetService.Analyze(loss, meta).Should().BeEmpty();
+    }
+
+    // ---- Recovery gate: stable -> flaky -> stable stops being presented ----
+
+    /// <summary>Losses: `head` copies of `headLoss` followed by `tail` copies of `tailLoss`.</summary>
+    private static double[] Run(int head, double headLoss, int tail, double tailLoss) =>
+        Enumerable.Repeat(headLoss, head).Concat(Enumerable.Repeat(tailLoss, tail)).ToArray();
+
+    [Fact]
+    public void Recovered_target_is_no_longer_flagged()
+    {
+        // Flaky for the first 2h, clean for the following 4h. The full-window trimmed mean
+        // (~6.5%) still says flaky, but the trailing 3h is clean - recovered, not presented.
+        var (loss, meta) = Build(
+            ("recovered", Run(12, 20.0, 24, 0.0)),
+            ("clean-a", Run(36, 0.0, 0, 0.0)),
+            ("clean-b", Run(36, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Always_flaky_target_with_long_history_stays_flagged()
+    {
+        // Flaky since it was added, including the trailing window - the recovery gate must not
+        // clear it.
+        var (loss, meta) = Build(
+            ("always-flaky", Run(36, 8.0, 0, 0.0)),
+            ("clean-a", Run(36, 0.0, 0, 0.0)),
+            ("clean-b", Run(36, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("always-flaky");
+    }
+
+    [Fact]
+    public void Target_that_went_dark_cannot_prove_recovery_and_stays_flagged()
+    {
+        // Flaky, then stopped reporting entirely while peers kept going: no recent bins means
+        // no evidence of stability, so it stays flagged.
+        var (loss, meta) = Build(
+            ("went-dark", Run(12, 20.0, 24, -1.0)),
+            ("clean-a", Run(36, 0.0, 0, 0.0)),
+            ("clean-b", Run(36, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("went-dark");
+    }
+
+    [Fact]
+    public void Too_few_recent_bins_do_not_clear_the_flag()
+    {
+        // Only 3 clean bins inside the recovery window (< MinRecoveryBins of 6): not enough
+        // evidence to call it stable again.
+        var (loss, meta) = Build(
+            ("barely-back", Run(12, 20.0, 21, -1.0).Concat(Run(3, 0.0, 0, 0.0)).ToArray()),
+            ("clean-a", Run(36, 0.0, 0, 0.0)),
+            ("clean-b", Run(36, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("barely-back");
+    }
+
+    [Fact]
+    public void Target_flaky_again_after_a_clean_stretch_is_flagged()
+    {
+        // Clean history, then flaky through the trailing window - the recovery gate only clears
+        // targets that are currently stable, never ones that are currently flaky.
+        var (loss, meta) = Build(
+            ("relapsed", Run(18, 0.0, 18, 8.0)),
+            ("clean-a", Run(36, 0.0, 0, 0.0)),
+            ("clean-b", Run(36, 0.0, 0, 0.0)));
+
+        FlakyTargetService.Analyze(loss, meta).Should().ContainSingle()
+            .Which.TargetId.Should().Be("relapsed");
     }
 
     [Fact]

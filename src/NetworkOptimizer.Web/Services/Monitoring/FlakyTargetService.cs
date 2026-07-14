@@ -52,6 +52,19 @@ public class FlakyTargetService
     private const double SharedLossHeavyPct = 5.0;
     /// <summary>Minimum surviving bins before we'll judge a target. 3 x 10 min = help from ~30 min in, not 6 h.</summary>
     private const int MinTargetBins = 3;
+    /// <summary>
+    /// Recovery window: a target whose full-window metric says flaky but whose surviving bins in
+    /// this trailing slice (anchored to the pool's newest surviving bin, not wall clock) are back
+    /// under the threshold is treated as recovered and not presented. Keeps a stable-flaky-stable
+    /// excursion from nagging for the rest of the 48 h lookback, while an always-flaky target
+    /// (ICMP deprioritization is persistent) keeps failing the recent slice and stays flagged.
+    /// </summary>
+    private const int RecoveryWindowHours = 3;
+    /// <summary>
+    /// Recovery needs at least this many surviving bins (>= ~1 h of evidence) inside the window.
+    /// Fewer - the target went dark or barely reports - can't prove stability, so it stays flagged.
+    /// </summary>
+    private const int MinRecoveryBins = 6;
 
     /// <summary>One flagged target plus the evidence behind the call.</summary>
     public record FlakyTarget(
@@ -136,6 +149,13 @@ public class FlakyTargetService
     /// (e.g. 2.86% -> 4.5%), the trimmed mean stays put (~4%). Bins where >= half the pool loses
     /// heavily are excluded first as path-wide events, and a target needs <see cref="MinTargetBins"/>
     /// surviving bins to be judged. The peer baseline still uses a plain median across the pool.
+    ///
+    /// Recovery gate: a target the full-window metric flags is dropped when its bins in the
+    /// trailing <see cref="RecoveryWindowHours"/> (>= <see cref="MinRecoveryBins"/> of them) are
+    /// back under the same threshold - a stable-flaky-stable excursion stops being presented as
+    /// soon as recent evidence says it's fine, instead of nagging until the bad bins dilute out
+    /// of the 48 h lookback. An always-flaky target keeps failing the recent slice and a target
+    /// that went dark has no recent bins to prove recovery with, so both stay flagged.
     /// </summary>
     internal static IReadOnlyList<FlakyTarget> Analyze(
         Dictionary<string, Dictionary<DateTime, double>> lossByTarget,
@@ -173,13 +193,30 @@ public class FlakyTargetService
         var baseline = Median(allLosses);
         var threshold = Math.Max(LossMultiplier * baseline, LossAbsoluteFloorPct);
 
+        // Anchor the recovery window to the pool's newest surviving bin rather than wall clock,
+        // so the analysis stays pure and a stale data set doesn't read as "everyone recovered".
+        var newestBin = allBins.Where(b => !excludedBins.Contains(b)).Max();
+        var recoveryCutoff = newestBin - TimeSpan.FromHours(RecoveryWindowHours);
+
         var flaky = new List<FlakyTarget>();
         foreach (var (targetId, bins) in lossByTarget)
         {
-            var survivors = bins.Where(kv => !excludedBins.Contains(kv.Key)).Select(kv => kv.Value).ToList();
-            if (survivors.Count < MinTargetBins) continue;
+            var survivorPairs = bins.Where(kv => !excludedBins.Contains(kv.Key)).ToList();
+            if (survivorPairs.Count < MinTargetBins) continue;
+            var survivors = survivorPairs.Select(kv => kv.Value).ToList();
             var metric = TrimmedMean(survivors);
             if (metric < threshold) continue;
+
+            // Recovery gate: historically flaky, but its recent bins are clean by the same
+            // threshold - stable again, so stop presenting it. Judged only with enough recent
+            // evidence; a target that went dark can't prove recovery and stays flagged.
+            var recent = survivorPairs.Where(kv => kv.Key > recoveryCutoff).Select(kv => kv.Value).ToList();
+            if (recent.Count >= MinRecoveryBins && TrimmedMean(recent) < threshold)
+            {
+                logger?.LogDebug("Flaky-target detect: {Target} historically flaky ({Metric:0.0}%) but stable over the last {Hours}h; treating as recovered",
+                    targetId, metric, RecoveryWindowHours);
+                continue;
+            }
 
             if (!byId.TryGetValue(targetId, out var t)) continue;
             var over = survivors.Count(l => l >= threshold);
