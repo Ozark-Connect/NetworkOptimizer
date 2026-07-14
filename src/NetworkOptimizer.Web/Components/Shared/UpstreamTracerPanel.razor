@@ -246,6 +246,38 @@
                     </div>
                 }
 
+                @if (_state.RemovedTransitAsns.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">No longer on your path</label>
+                        <p class="section-description">These transit networks were being monitored but haven't appeared in the last several discovery runs - your ISP no longer routes through them, so their targets would report false problems. They'll be paused when you save; re-check any you want to keep. Nothing is deleted.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;">Keep</th>
+                                        <th>ASN</th>
+                                        <th>Targets to pause</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var removed in _state.RemovedTransitAsns)
+                                    {
+                                        <tr class="@(removed.Keep ? "" : "row-disabled")">
+                                            <td>
+                                                <input type="checkbox" checked="@removed.Keep"
+                                                       @onchange="e => removed.Keep = (bool)e.Value!" />
+                                            </td>
+                                            <td><code>AS@(removed.AsnNumber)</code> <span class="text-muted">@removed.AsnName</span></td>
+                                            <td>@(removed.TargetCount == 1 ? "1 target" : $"{removed.TargetCount} targets")@(removed.ManualCount > 0 ? $" ({removed.ManualCount} hand-added)" : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
                 @if (PathEndHosts.Count > 0)
                 {
                     <div class="form-group">
@@ -283,7 +315,7 @@
                     </div>
                 }
 
-                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0)
+                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0 && _state.RemovedTransitAsns.Count == 0)
                 {
                     <div class="alert alert-info">
                         No upstream hops responded to either ICMP or UDP traceroute. Your
@@ -293,7 +325,7 @@
 
                 <div class="action-buttons">
                     <button class="btn btn-secondary" @onclick="StartAsync">Re-run discovery</button>
-                    @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled))
+                    @if (_state.AccessHops.Any(h => h.Enabled) || _state.TransitAsns.Any(a => a.Enabled) || _state.RemovedTransitAsns.Count > 0)
                     {
                         <button class="btn btn-primary" @onclick="CommitAsync">Save monitoring targets</button>
                     }

@@ -10,7 +10,8 @@ namespace NetworkOptimizer.Web.Tests;
 /// Change-detection for the scheduled upstream re-discovery. Keys on a stable upstream-ASN
 /// identity (ECMP-proof), flags ADDED ASNs immediately, and gates REMOVED behind a consecutive-
 /// miss counter so incomplete/degraded runs don't nag. UserProvided (hand-added) targets suppress
-/// "added" but are never eligible for "removed".
+/// "added" and never make an ASN removal-eligible on their own - but once an auto-discovered
+/// sibling proves the ASN was on the path, a confirmed removal pauses hand-added targets too.
 ///
 /// All ASNs are RFC 5398 documentation ASNs (64496-64511) and all IPs are RFC 5737 ranges.
 /// </summary>
@@ -134,21 +135,38 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     }
 
     [Fact]
-    public async Task AutoEnabled_view_is_enabled_auto_this_wan_only()
+    public async Task RemovalEligible_requires_auto_evidence_and_an_enabled_row()
     {
         _db.MonitoringTargets.AddRange(
+            // enabled auto - eligible
             Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
-            // disabled - excluded from removed-eligibility
+            // disabled auto with no enabled sibling - fully-disabled ASN, nothing to pause, not eligible
             Target("198.51.100.9", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false),
-            // UserProvided - excluded from removed-eligibility
+            // UserProvided only - no auto evidence the ASN was ever on the path, not eligible
             Target("203.0.113.1", MonitoringTargetType.Transit, UserAsn, "wan", DiscoveryMethod.UserProvided),
             // other WAN - excluded
             Target("198.51.100.10", MonitoringTargetType.Transit, PathAsn, "wan2", DiscoveryMethod.DirectRouter));
         await _db.SaveChangesAsync();
 
-        var (_, autoEnabled) = await UpstreamRediscoveryService.BuildCommittedViewsAsync(_db, "wan", CancellationToken.None);
+        var (_, removalEligible) = await UpstreamRediscoveryService.BuildCommittedViewsAsync(_db, "wan", CancellationToken.None);
 
-        autoEnabled.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
+        removalEligible.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
+    }
+
+    [Fact]
+    public async Task RemovalEligible_keeps_paused_auto_asn_with_enabled_manual_sibling()
+    {
+        // The dangling-manual case: the flaky auto target was paused, but a hand-added target in
+        // the same ASN is still enabled - the ASN must stay eligible so the sibling gets caught
+        // when the ASN goes dark. The manual row is WAN-agnostic (empty WanInterface).
+        _db.MonitoringTargets.AddRange(
+            Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter, enabled: false),
+            Target("203.0.113.1", MonitoringTargetType.Transit, TransitAsnA, "", DiscoveryMethod.UserProvided));
+        await _db.SaveChangesAsync();
+
+        var (_, removalEligible) = await UpstreamRediscoveryService.BuildCommittedViewsAsync(_db, "wan", CancellationToken.None);
+
+        removalEligible.Should().BeEquivalentTo(new[] { $"transit:as{TransitAsnA}" });
     }
 
     // ---- EvaluateChange ----
@@ -216,19 +234,88 @@ public class UpstreamRediscoverySignatureTests : IDisposable
     }
 
     [Fact]
-    public void Disabled_flaky_target_neither_added_nor_removed()
+    public void Fully_disabled_asn_neither_added_nor_removed()
     {
-        // Monitored (suppresses added) but NOT auto-enabled (not removal-eligible). Discovery still
-        // finds the ASN, so nothing flags - and nothing would get silently re-enabled by a commit.
+        // Monitored (suppresses added) but not removal-eligible (every target in the ASN is
+        // disabled - nothing to pause). Discovery still finds the ASN, so nothing flags - and
+        // nothing would get silently re-enabled by a commit.
         var monitored = Set($"transit:as{TransitAsnB}");
-        var autoEnabled = Set(); // disabled => not eligible for removed
+        var removalEligible = Set(); // fully disabled => not eligible for removed
         var candidate = Set($"transit:as{TransitAsnB}");
 
-        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, autoEnabled, candidate, Empty, 3);
+        var eval = UpstreamRediscoveryService.EvaluateChange(monitored, removalEligible, candidate, Empty, 3);
 
         eval.Added.Should().BeEmpty();
         eval.RemovalCandidates.Should().BeEmpty();
         eval.NewMissCounts.Should().BeEmpty();
+    }
+
+    // ---- BuildRemovedTransitAsns (pause entries) ----
+
+    [Fact]
+    public async Task RemovedTransitAsns_counts_enabled_auto_and_wan_agnostic_manual_targets()
+    {
+        _db.MonitoringTargets.AddRange(
+            Target("198.51.100.1", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter),
+            // hand-added, WAN-agnostic - counted and reported as manual
+            Target("203.0.113.1", MonitoringTargetType.Transit, TransitAsnA, "", DiscoveryMethod.UserProvided),
+            // disabled - already paused, not counted
+            Target("198.51.100.2", MonitoringTargetType.Transit, TransitAsnA, "wan", DiscoveryMethod.DirectRouter, enabled: false),
+            // other-WAN auto - not counted
+            Target("198.51.100.3", MonitoringTargetType.Transit, TransitAsnA, "wan2", DiscoveryMethod.DirectRouter),
+            // other ASN, not in the confirmed list - no entry
+            Target("198.51.100.4", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter));
+        await _db.SaveChangesAsync();
+
+        var result = await UpstreamRediscoveryService.BuildRemovedTransitAsnsAsync(
+            _db, "wan", new[] { $"transit:as{TransitAsnA}" }, CancellationToken.None);
+
+        var entry = result.Should().ContainSingle().Subject;
+        entry.AsnNumber.Should().Be(TransitAsnA);
+        entry.TargetCount.Should().Be(2);
+        entry.ManualCount.Should().Be(1);
+        entry.Keep.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RemovedTransitAsns_ignores_non_transit_keys_address_keys_and_fully_disabled_asns()
+    {
+        _db.MonitoringTargets.AddRange(
+            // fully disabled ASN - confirmed removed but nothing to pause -> no entry, no nag
+            Target("198.51.100.9", MonitoringTargetType.Transit, TransitAsnB, "wan", DiscoveryMethod.DirectRouter, enabled: false),
+            // enabled access target - access keys aren't handled by this detector
+            Target("192.0.2.1", MonitoringTargetType.AccessIsp, AccessAsn, "wan", DiscoveryMethod.DirectRouter));
+        await _db.SaveChangesAsync();
+
+        var result = await UpstreamRediscoveryService.BuildRemovedTransitAsnsAsync(
+            _db, "wan",
+            new[] { $"transit:as{TransitAsnB}", $"access:as{AccessAsn}", "transit:198.51.100.77", $"path:as{PathAsn}" },
+            CancellationToken.None);
+
+        result.Should().BeEmpty();
+    }
+
+    // ---- Miss-counter clearing on commit ----
+
+    [Fact]
+    public async Task ClearMissCountKeys_removes_only_the_given_keys()
+    {
+        _db.SystemSettings.Add(new SystemSetting
+        {
+            Key = SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + "wan",
+            Value = $"{{\"transit:as{TransitAsnA}\":3,\"access:as{AccessAsn}\":2}}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
+
+        await UpstreamRediscoveryService.ClearMissCountKeysAsync(
+            _db, "wan", new[] { $"transit:as{TransitAsnA}" }, CancellationToken.None);
+        await _db.SaveChangesAsync();
+
+        var row = await _db.SystemSettings.SingleAsync(
+            s => s.Key == SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + "wan");
+        row.Value.Should().Contain($"access:as{AccessAsn}").And.NotContain($"transit:as{TransitAsnA}");
     }
 
     // ---- helpers ----

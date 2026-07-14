@@ -29,6 +29,21 @@ public class UpstreamTracerState
     public List<AccessHopCandidate> AccessHops { get; set; } = new();
     public List<TransitAsnCandidate> TransitAsns { get; set; } = new();
 
+    /// <summary>
+    /// Transit ASNs the scheduled re-discovery confirmed are no longer on our path (absent from
+    /// several consecutive runs). Surfaced in the review pre-unchecked; committing with an entry
+    /// left unchecked pauses every enabled Transit target in that ASN. In-memory only (like the
+    /// rest of the review state): a restart during the review window loses the list, but the
+    /// persisted miss counters re-populate it on the next background recheck.
+    /// </summary>
+    public List<RemovedTransitAsn> RemovedTransitAsns { get; set; } = new();
+
+    /// <summary>
+    /// Identity keys this run discovered that the committed target set doesn't cover yet.
+    /// Staged by the shared post-run evaluation for the re-discovery scheduler's review gate.
+    /// </summary>
+    public List<string> DiscoveryAddedAsns { get; set; } = new();
+
     // Per-CDN trace summaries for the live progress UI.
     public List<TraceSummary> Traces { get; set; } = new();
 
@@ -103,6 +118,24 @@ public class TransitAsnCandidate
     /// stored choices.
     /// </summary>
     public bool PreservedFromExisting { get; set; }
+}
+
+/// <summary>
+/// A transit ASN that auto-discovery confirmed is no longer on our path (absent from several
+/// consecutive re-discovery runs). Surfaced in the review pre-unchecked; committing with it
+/// left unchecked pauses every enabled Transit target in the ASN - auto-discovered and hand-
+/// added alike - since if the ISP no longer routes through the ASN, all its targets are false.
+/// </summary>
+public class RemovedTransitAsn
+{
+    public int AsnNumber { get; set; }
+    public required string AsnName { get; set; }
+    /// <summary>Enabled Transit targets in this ASN that would be paused (auto + manual).</summary>
+    public int TargetCount { get; set; }
+    /// <summary>How many of those are hand-added (UserProvided), for the review note.</summary>
+    public int ManualCount { get; set; }
+    /// <summary>Checkbox state. Default false = pause on commit; user re-checks to keep monitoring.</summary>
+    public bool Keep { get; set; }
 }
 
 /// <summary>One CDN traceroute summary for the live progress UI.</summary>

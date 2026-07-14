@@ -295,6 +295,22 @@ public class UpstreamTracerService
             await TraceAccessIspAsync(ct);
             await TraceTransitAsnsAsync(ct);
             await VerifyReachabilityAsync(ct);
+
+            // Shared post-run change evaluation - manual and scheduled runs alike advance the
+            // per-WAN absence counters exactly once per completed run, and both stage any
+            // confirmed off-path transit ASNs for the review. A failure here only skips the
+            // counters for this run; the review of the discovered candidates still proceeds.
+            try
+            {
+                await using var evalDb = await CreateDbAsync(ct);
+                await UpstreamRediscoveryService.EvaluateCompletedRunAsync(evalDb, State, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Post-run off-path evaluation failed; absence counters not advanced this run");
+            }
+
             State.Step = TracerStep.ReviewingResults;
             State.CurrentActivity = "Review the discovered upstream path. Confirm to commit.";
             State.CompletedAt = DateTime.UtcNow;
@@ -1765,6 +1781,32 @@ public class UpstreamTracerService
                 existing.Name = transit.Label ?? transit.AsnName;
                 if (!string.IsNullOrEmpty(transit.AsnName)) existing.AsnName = transit.AsnName;
             }
+        }
+
+        // Confirmed off-path transit ASNs the user didn't re-check: pause every enabled Transit
+        // target in the ASN - auto-discovered AND hand-added - since the ISP no longer routes
+        // through it, so they're false targets skewing ISP Health. Paused (Enabled=false), never
+        // deleted. Auto targets are scoped to this WAN; UserProvided ones are WAN-agnostic.
+        if (State.RemovedTransitAsns.Count > 0)
+        {
+            foreach (var removed in State.RemovedTransitAsns.Where(r => !r.Keep))
+            {
+                var stale = await db.MonitoringTargets
+                    .Where(t => t.TargetType == MonitoringTargetType.Transit && t.Enabled
+                        && t.AsnNumber == removed.AsnNumber
+                        && (t.DiscoveryMethod == DiscoveryMethod.UserProvided || t.WanInterface == wanInterface))
+                    .ToListAsync(ct);
+                foreach (var t in stale) t.Enabled = false;
+                if (stale.Count > 0)
+                    _logger.LogInformation("Commit: paused {Count} off-path transit target(s) for AS{Asn} ({Name})",
+                        stale.Count, removed.AsnNumber, removed.AsnName);
+            }
+
+            // Clear the surfaced ASNs' miss counters - kept AND paused. A kept ASN would otherwise
+            // still sit at the confirm threshold and re-flag review on the next daily recheck;
+            // clearing makes its off-path evidence re-accumulate from zero instead.
+            await UpstreamRediscoveryService.ClearMissCountKeysAsync(db, wanInterface,
+                State.RemovedTransitAsns.Select(r => "transit:as" + r.AsnNumber), ct);
         }
 
         // Per-WAN tracer state. WanDiscoveryContexts is the new source of truth;

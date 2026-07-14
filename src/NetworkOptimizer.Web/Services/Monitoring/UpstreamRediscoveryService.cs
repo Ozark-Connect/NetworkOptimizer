@@ -123,28 +123,16 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
-        // Compare on a stable upstream-ASN identity scoped to the WAN this run discovered.
-        // A run never writes MonitoringTargets (commit only happens on user review), so the
-        // committed views are read here, where State.WanInterface is known.
-        var wanInterface = tracer.State.WanInterface ?? "wan";
-        var (monitoredAsns, autoEnabledAsns) = await BuildCommittedViewsAsync(db, wanInterface, ct);
-        var candidate = BuildCandidateSignature(tracer.State);
+        // The tracer already ran the shared post-run evaluation when the run settled in
+        // ReviewingResults - it does the same for manually-started runs, so the absence counters
+        // advance exactly once per completed run regardless of who initiated it. Read the staged
+        // outcome here.
+        var added = tracer.State.DiscoveryAddedAsns;
+        var removedToPause = tracer.State.RemovedTransitAsns;
 
-        var priorMissCounts = await LoadMissCountsAsync(db, wanInterface, ct);
-        var eval = EvaluateChange(monitoredAsns, autoEnabledAsns, candidate, priorMissCounts, RemovalConfirmRuns);
-
-        // Removed-detection is persistence-gated: an ASN must be absent from RemovalConfirmRuns
-        // runs in a row before it's confirmed removed, so a single incomplete/degraded run only
-        // bumps a counter that resets the moment the ASN reappears.
-        var confirmedRemoved = eval.RemovalCandidates;
-
-        // Persist the updated counters (upserted into the same SaveChanges below). The map only
-        // holds currently-absent ASNs, so reappeared/removed ones are pruned by omission.
-        await SaveMissCountsAsync(db, wanInterface, eval.NewMissCounts, ct);
-
-        if (eval.Added.Count == 0 && confirmedRemoved.Count == 0)
+        if (added.Count == 0 && removedToPause.Count == 0)
         {
-            _logger.LogInformation("Re-discovery matched committed ASNs (no change); rolling forward LastUpstreamDiscoveryAt");
+            _logger.LogInformation("Re-discovery matched committed ASNs (no actionable change); rolling forward LastUpstreamDiscoveryAt");
             settings.LastUpstreamDiscoveryAt = DateTime.UtcNow;
             settings.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -153,8 +141,8 @@ public class UpstreamRediscoveryService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("Re-discovery found upstream changes; flagging for review. Added: [{Added}] Removed: [{Removed}]",
-            string.Join(", ", eval.Added), string.Join(", ", confirmedRemoved));
+        _logger.LogInformation("Re-discovery found upstream changes; flagging for review. Added: [{Added}] Off-path (to pause): [{Removed}]",
+            string.Join(", ", added), string.Join(", ", removedToPause.Select(r => $"AS{r.AsnNumber}")));
 
         settings.UpstreamDiscoveryNeedsReview = true;
         settings.UpdatedAt = DateTime.UtcNow;
@@ -176,13 +164,17 @@ public class UpstreamRediscoveryService : BackgroundService
     /// auto-discovered (DirectRouter/PathProxy/L2Neighbor) on this WAN, plus all UserProvided
     /// (WAN-agnostic, since a hand-added Cogent may carry an empty/other WanInterface). Discovery
     /// finding one of these is not "added".</item>
-    /// <item><b>AutoEnabled</b> (removed-eligibility): enabled, auto-discovered ASNs on this WAN.
-    /// Only these are eligible to be flagged "removed" - UserProvided and disabled targets are
-    /// excluded so a curated or intentionally-off target never nags.</item>
+    /// <item><b>RemovalEligible</b> (removed-eligibility): ASNs auto-discovered
+    /// (DirectRouter/PathProxy/L2Neighbor) on this WAN at some point - enabled OR NOT, since a
+    /// flaky auto target the user paused must stay eligible so its dangling hand-added siblings
+    /// get caught when the ASN goes dark - that still have at least one enabled target row
+    /// (auto on this WAN or UserProvided on any WAN). A fully-disabled ASN has nothing to pause,
+    /// so counting it would only pin the recheck cadence; a manual-only ASN carries no auto
+    /// evidence, so we can't conclude it's off-path.</item>
     /// </list>
     /// Both are reachability-independent (no relation to whether a hop answered ping this run).
     /// </summary>
-    internal static async Task<(HashSet<string> Monitored, HashSet<string> AutoEnabled)> BuildCommittedViewsAsync(
+    internal static async Task<(HashSet<string> Monitored, HashSet<string> RemovalEligible)> BuildCommittedViewsAsync(
         NetworkOptimizerDbContext db, string wanInterface, CancellationToken ct)
     {
         var rows = await db.MonitoringTargets
@@ -195,18 +187,23 @@ public class UpstreamRediscoveryService : BackgroundService
             .ToListAsync(ct);
 
         var monitored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var autoEnabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var autoEvidence = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hasEnabledRow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in rows)
         {
             var key = IdentityKey(t.TargetType, t.AsnNumber, t.Address);
             monitored.Add(key);
-            if (t.Enabled && t.WanInterface == wanInterface
+            if (t.WanInterface == wanInterface
                 && (t.DiscoveryMethod == DiscoveryMethod.DirectRouter
                     || t.DiscoveryMethod == DiscoveryMethod.PathProxy
                     || t.DiscoveryMethod == DiscoveryMethod.L2Neighbor))
-                autoEnabled.Add(key);
+                autoEvidence.Add(key);
+            if (t.Enabled)
+                hasEnabledRow.Add(key);
         }
-        return (monitored, autoEnabled);
+        var removalEligible = new HashSet<string>(autoEvidence, StringComparer.OrdinalIgnoreCase);
+        removalEligible.IntersectWith(hasEnabledRow);
+        return (monitored, removalEligible);
     }
 
     /// <summary>
@@ -217,7 +214,7 @@ public class UpstreamRediscoveryService : BackgroundService
     /// </summary>
     internal static ChangeEvaluation EvaluateChange(
         HashSet<string> monitoredAsns,
-        HashSet<string> autoEnabledAsns,
+        HashSet<string> removalEligibleAsns,
         HashSet<string> candidate,
         IReadOnlyDictionary<string, int> priorMissCounts,
         int removalThreshold)
@@ -226,7 +223,7 @@ public class UpstreamRediscoveryService : BackgroundService
 
         var newCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var removalCandidates = new List<string>();
-        foreach (var key in autoEnabledAsns)
+        foreach (var key in removalEligibleAsns)
         {
             if (candidate.Contains(key)) continue; // present this run - counter resets (omitted)
             var count = (priorMissCounts.TryGetValue(key, out var prev) ? prev : 0) + 1;
@@ -235,6 +232,100 @@ public class UpstreamRediscoveryService : BackgroundService
         }
         removalCandidates.Sort(StringComparer.OrdinalIgnoreCase);
         return new ChangeEvaluation(added, removalCandidates, newCounts);
+    }
+
+    /// <summary>
+    /// Shared post-run change evaluation, called by the tracer whenever a discovery run settles
+    /// in ReviewingResults - scheduled AND manually-started runs alike, so the "absent for
+    /// RemovalConfirmRuns consecutive runs" evidence advances exactly once per completed run
+    /// regardless of who initiated it. Bumps the per-WAN consecutive-miss counters, prunes
+    /// confirmations with no pause action, persists the counters, and stages the added keys plus
+    /// the confirmed off-path transit ASNs on the tracer state for the review UI and the
+    /// scheduler's gate. Removed-detection stays persistence-gated: a single incomplete/degraded
+    /// run only bumps a counter that resets the moment the ASN reappears.
+    /// </summary>
+    internal static async Task EvaluateCompletedRunAsync(
+        NetworkOptimizerDbContext db, UpstreamTracerState state, CancellationToken ct)
+    {
+        var wanInterface = state.WanInterface ?? "wan";
+        var (monitoredAsns, removalEligibleAsns) = await BuildCommittedViewsAsync(db, wanInterface, ct);
+        var candidate = BuildCandidateSignature(state);
+
+        var priorMissCounts = await LoadMissCountsAsync(db, wanInterface, ct);
+        var eval = EvaluateChange(monitoredAsns, removalEligibleAsns, candidate, priorMissCounts, RemovalConfirmRuns);
+
+        var removedToPause = await BuildRemovedTransitAsnsAsync(db, wanInterface, eval.RemovalCandidates, ct);
+
+        // Confirmed keys with no pause action (access/path tiers, which this detector doesn't act
+        // on) must not keep a counter pinned at the threshold: any non-null counter map holds
+        // pendingRecheck on, which would lock the site into daily re-discovery forever. Prune them
+        // so the evidence re-accumulates instead.
+        var actionable = new HashSet<string>(
+            removedToPause.Select(r => "transit:as" + r.AsnNumber), StringComparer.OrdinalIgnoreCase);
+        foreach (var key in eval.RemovalCandidates)
+            if (!actionable.Contains(key)) eval.NewMissCounts.Remove(key);
+
+        // The map only holds currently-absent ASNs, so reappeared/removed ones prune by omission.
+        await SaveMissCountsAsync(db, wanInterface, eval.NewMissCounts, ct);
+        await db.SaveChangesAsync(ct);
+
+        state.DiscoveryAddedAsns = eval.Added;
+        state.RemovedTransitAsns = removedToPause;
+    }
+
+    /// <summary>
+    /// Maps confirmed-removed identity keys to review entries: <c>transit:as{n}</c> keys only,
+    /// resolved to the enabled Transit targets that would be paused - auto targets scoped to this
+    /// WAN, UserProvided targets matched by ASN regardless of WAN (hand-added rows are
+    /// WAN-agnostic). An ASN with nothing enabled yields no entry (nothing to do, no nag).
+    /// </summary>
+    internal static async Task<List<RemovedTransitAsn>> BuildRemovedTransitAsnsAsync(
+        NetworkOptimizerDbContext db, string wanInterface, IReadOnlyList<string> confirmedRemoved, CancellationToken ct)
+    {
+        var asns = new List<int>();
+        foreach (var key in confirmedRemoved)
+        {
+            if (!key.StartsWith("transit:as", StringComparison.OrdinalIgnoreCase)) continue;
+            if (int.TryParse(key.AsSpan("transit:as".Length), out var asn)) asns.Add(asn);
+        }
+        if (asns.Count == 0) return new();
+
+        var targets = await db.MonitoringTargets
+            .Where(t => t.TargetType == MonitoringTargetType.Transit && t.Enabled
+                && t.AsnNumber != null && asns.Contains(t.AsnNumber.Value)
+                && (t.DiscoveryMethod == DiscoveryMethod.UserProvided || t.WanInterface == wanInterface))
+            .Select(t => new { t.AsnNumber, t.AsnName, t.DiscoveryMethod })
+            .ToListAsync(ct);
+
+        return targets
+            .GroupBy(t => t.AsnNumber!.Value)
+            .Select(g => new RemovedTransitAsn
+            {
+                AsnNumber = g.Key,
+                AsnName = g.Select(x => x.AsnName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? $"AS{g.Key}",
+                TargetCount = g.Count(),
+                ManualCount = g.Count(x => x.DiscoveryMethod == DiscoveryMethod.UserProvided),
+                Keep = false,
+            })
+            .OrderBy(r => r.AsnNumber)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Removes the given identity keys from the WAN's absent-ASN miss counters. Called by commit
+    /// for the surfaced off-path ASNs: a kept ASN would otherwise still sit at the confirm
+    /// threshold and re-flag review on the very next daily recheck - clearing it makes the
+    /// evidence re-accumulate from zero instead. Does not SaveChanges; the caller's does.
+    /// </summary>
+    internal static async Task ClearMissCountKeysAsync(
+        NetworkOptimizerDbContext db, string wanInterface, IEnumerable<string> keys, CancellationToken ct)
+    {
+        var counts = await LoadMissCountsAsync(db, wanInterface, ct);
+        var removed = false;
+        foreach (var key in keys)
+            removed |= counts.Remove(key);
+        if (removed)
+            await SaveMissCountsAsync(db, wanInterface, counts, ct);
     }
 
     private static string MissCountsKey(string wanInterface) =>
