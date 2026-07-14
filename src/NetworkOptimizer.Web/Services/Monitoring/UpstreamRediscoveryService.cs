@@ -269,8 +269,34 @@ public class UpstreamRediscoveryService : BackgroundService
         await SaveMissCountsAsync(db, wanInterface, eval.NewMissCounts, ct);
         await db.SaveChangesAsync(ct);
 
+        // Transit ASNs absent this run but still below the confirm threshold: surface them read-only
+        // in the review as "tracking toward removal" so the detection isn't invisible until it
+        // suddenly confirms. Pending and confirmed are mutually exclusive (one count per key), and
+        // an eligible ASN always has >=1 enabled target, so BuildRemovedTransitAsnsAsync resolves a
+        // target count for each. RunsRemaining is run-count based today; when the per-ASN time gate
+        // lands, revisit the copy to express remaining time rather than remaining runs.
+        var pendingKeys = eval.NewMissCounts
+            .Where(kv => kv.Value < RemovalConfirmRuns
+                && kv.Key.StartsWith("transit:as", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key)
+            .ToList();
+        var pendingInfo = await BuildRemovedTransitAsnsAsync(db, wanInterface, pendingKeys, ct);
+        var pending = pendingInfo
+            .Select(r => new PendingRemovalTransitAsn
+            {
+                AsnNumber = r.AsnNumber,
+                AsnName = r.AsnName,
+                TargetCount = r.TargetCount,
+                ManualCount = r.ManualCount,
+                MissCount = eval.NewMissCounts["transit:as" + r.AsnNumber],
+                RunsRemaining = RemovalConfirmRuns - eval.NewMissCounts["transit:as" + r.AsnNumber],
+            })
+            .OrderBy(p => p.AsnNumber)
+            .ToList();
+
         state.DiscoveryAddedAsns = eval.Added;
         state.RemovedTransitAsns = removedToPause;
+        state.PendingRemovalTransitAsns = pending;
     }
 
     /// <summary>

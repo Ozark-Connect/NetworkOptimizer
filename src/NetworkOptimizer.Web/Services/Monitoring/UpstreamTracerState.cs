@@ -39,6 +39,14 @@ public class UpstreamTracerState
     public List<RemovedTransitAsn> RemovedTransitAsns { get; set; } = new();
 
     /// <summary>
+    /// Transit ASNs currently absent from discovery but not yet confirmed removed (consecutive-miss
+    /// count below the threshold). Informational only - surfaced read-only in the review so the user
+    /// knows we noticed the ASN went off-path and are tracking it toward removal. Populated on every
+    /// completed run (manual and scheduled) from the same evaluation, so the count stays accurate.
+    /// </summary>
+    public List<PendingRemovalTransitAsn> PendingRemovalTransitAsns { get; set; } = new();
+
+    /// <summary>
     /// Identity keys this run discovered that the committed target set doesn't cover yet.
     /// Staged by the shared post-run evaluation for the re-discovery scheduler's review gate.
     /// </summary>
@@ -136,6 +144,26 @@ public class RemovedTransitAsn
     public int ManualCount { get; set; }
     /// <summary>Checkbox state. Default false = pause on commit; user re-checks to keep monitoring.</summary>
     public bool Keep { get; set; }
+}
+
+/// <summary>
+/// A transit ASN that has gone absent from discovery but hasn't yet hit the consecutive-miss
+/// threshold for removal. Surfaced read-only in the review ("we're tracking this; N more runs
+/// without it and we'll help you remove its targets"). No checkbox, no commit action - purely a
+/// heads-up so the off-path detection isn't invisible until it suddenly confirms.
+/// </summary>
+public class PendingRemovalTransitAsn
+{
+    public int AsnNumber { get; set; }
+    public required string AsnName { get; set; }
+    /// <summary>Consecutive runs this ASN has been absent so far.</summary>
+    public int MissCount { get; set; }
+    /// <summary>Runs still needed without it present before it's confirmed for removal.</summary>
+    public int RunsRemaining { get; set; }
+    /// <summary>Enabled Transit targets that would be paused once confirmed (auto + manual).</summary>
+    public int TargetCount { get; set; }
+    /// <summary>How many of those are hand-added (UserProvided).</summary>
+    public int ManualCount { get; set; }
 }
 
 /// <summary>One CDN traceroute summary for the live progress UI.</summary>

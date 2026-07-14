@@ -278,6 +278,35 @@
                     </div>
                 }
 
+                @if (_state.PendingRemovalTransitAsns.Count > 0)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Tracking possible removals</label>
+                        <p class="section-description">These transit networks are no longer on your path this run. We're tracking them - after the remaining discovery runs shown below without them reappearing, we'll help you remove the affected targets. Nothing changes until then.</p>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>ASN</th>
+                                        <th>Status</th>
+                                        <th>Affected targets</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pending in _state.PendingRemovalTransitAsns)
+                                    {
+                                        <tr>
+                                            <td><code>AS@(pending.AsnNumber)</code> <span class="text-muted">@pending.AsnName</span></td>
+                                            <td>Absent @pending.MissCount of @(pending.MissCount + pending.RunsRemaining) runs - @(pending.RunsRemaining == 1 ? "1 more run" : $"{pending.RunsRemaining} more runs") to confirm</td>
+                                            <td>@(pending.TargetCount == 1 ? "1 target" : $"{pending.TargetCount} targets")@(pending.ManualCount > 0 ? $" ({pending.ManualCount} hand-added)" : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+
                 @if (PathEndHosts.Count > 0)
                 {
                     <div class="form-group">
@@ -315,7 +344,8 @@
                     </div>
                 }
 
-                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0 && _state.RemovedTransitAsns.Count == 0)
+                @if (_state.AccessHops.Count == 0 && _state.TransitAsns.Count == 0
+                     && _state.RemovedTransitAsns.Count == 0 && _state.PendingRemovalTransitAsns.Count == 0)
                 {
                     <div class="alert alert-info">
                         No upstream hops responded to either ICMP or UDP traceroute. Your

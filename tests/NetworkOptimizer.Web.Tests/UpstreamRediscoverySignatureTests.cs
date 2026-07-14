@@ -318,7 +318,71 @@ public class UpstreamRediscoverySignatureTests : IDisposable
         row.Value.Should().Contain($"access:as{AccessAsn}").And.NotContain($"transit:as{TransitAsnA}");
     }
 
+    // ---- EvaluateCompletedRunAsync (pending vs confirmed staging) ----
+
+    [Fact]
+    public async Task CompletedRun_stages_pending_tracking_when_below_threshold()
+    {
+        // Dangling-manual AS: auto evidence disabled, manual enabled, absent this run, prior count 1.
+        SeedDanglingManualAsn(TransitAsnA, priorCount: 1);
+        var state = AbsentRunState(TransitAsnA);
+
+        await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
+
+        state.RemovedTransitAsns.Should().BeEmpty();
+        var p = state.PendingRemovalTransitAsns.Should().ContainSingle().Subject;
+        p.AsnNumber.Should().Be(TransitAsnA);
+        p.MissCount.Should().Be(2);       // 1 -> 2
+        p.RunsRemaining.Should().Be(1);   // threshold 3 - 2
+        p.TargetCount.Should().Be(1);     // only the enabled manual row would pause
+        p.ManualCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CompletedRun_confirms_and_leaves_pending_empty_at_threshold()
+    {
+        // Same dangling-manual AS, but prior count 2 -> this run hits the threshold of 3.
+        SeedDanglingManualAsn(TransitAsnA, priorCount: 2);
+        var state = AbsentRunState(TransitAsnA);
+
+        await UpstreamRediscoveryService.EvaluateCompletedRunAsync(_db, state, CancellationToken.None);
+
+        state.PendingRemovalTransitAsns.Should().BeEmpty();
+        var r = state.RemovedTransitAsns.Should().ContainSingle().Subject;
+        r.AsnNumber.Should().Be(TransitAsnA);
+        r.TargetCount.Should().Be(1);
+        r.ManualCount.Should().Be(1);
+    }
+
     // ---- helpers ----
+
+    private void SeedDanglingManualAsn(int asn, int priorCount)
+    {
+        _db.MonitoringTargets.AddRange(
+            Target("198.51.100.1", MonitoringTargetType.Transit, asn, "wan", DiscoveryMethod.DirectRouter, enabled: false),
+            Target("203.0.113.1", MonitoringTargetType.Transit, asn, "", DiscoveryMethod.UserProvided));
+        _db.SystemSettings.Add(new SystemSetting
+        {
+            Key = SystemSettingKeys.UpstreamAbsentAsnCountsPrefix + "wan",
+            Value = $"{{\"transit:as{asn}\":{priorCount}}}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        });
+        _db.SaveChanges();
+    }
+
+    // Run state whose candidate signature excludes `absentAsn` (an unrelated ASN is present so the
+    // signature isn't empty), i.e. the given ASN went off-path this run.
+    private static UpstreamTracerState AbsentRunState(int absentAsn)
+    {
+        var other = absentAsn == TransitAsnB ? TransitAsnA : TransitAsnB;
+        return new UpstreamTracerState
+        {
+            WanInterface = "wan",
+            TransitAsns = { Transit("198.51.100.9", other, DiscoveryMethod.DirectRouter) },
+        };
+    }
+
 
     private static HashSet<string> Set(params string[] keys) => new(keys, StringComparer.OrdinalIgnoreCase);
 
