@@ -15,7 +15,7 @@ namespace NetworkOptimizer.UniFi;
 /// Handles all quirks of the unofficial UniFi API including:
 /// - Cookie-based session management (like browser)
 /// - CSRF token handling
-/// - Automatic re-authentication on 401/403
+/// - Automatic re-authentication on 401/403 and on transient 502/503/504 from a reverse proxy
 /// - Retry logic with Polly
 /// - Self-signed certificate handling
 /// - UniFi OS (UDM/UCG) vs standalone controller path detection
@@ -249,7 +249,9 @@ public class UniFiApiClient : IDisposable
                     {
                         _lastLoginError = validateResponse.StatusCode == HttpStatusCode.Unauthorized || validateResponse.StatusCode == HttpStatusCode.Forbidden
                             ? "Invalid API key. Check that it was copied correctly and has not been revoked."
-                            : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
+                            : IsConsoleUnavailable(validateResponse.StatusCode)
+                                ? ConsoleUnavailableMessage
+                                : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
                         _logger.LogWarning("API key validation failed: {StatusCode}", validateResponse.StatusCode);
                         AuthProbeCompleted?.Invoke(false, _lastLoginError);
                         return false;
@@ -409,7 +411,7 @@ public class UniFiApiClient : IDisposable
             HttpStatusCode.Unauthorized => "Invalid username or password",
             HttpStatusCode.Forbidden => "Access denied. Check user permissions.",
             HttpStatusCode.TooManyRequests => "Too many login attempts against UniFi Console. Wait a few minutes before trying again.",
-            HttpStatusCode.ServiceUnavailable => "Console is unavailable. Check if it's running.",
+            HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout => ConsoleUnavailableMessage,
             _ => $"Authentication failed (HTTP {(int)statusCode})"
         };
     }
@@ -473,6 +475,33 @@ public class UniFiApiClient : IDisposable
         // Generic fallback
         return ex.Message;
     }
+
+    /// <summary>Shown when the console's reverse proxy reports the backend down (502/503/504).</summary>
+    private const string ConsoleUnavailableMessage =
+        "The UniFi Console is temporarily unavailable (it may be restarting or upgrading, or its reverse proxy can't reach it). Retrying automatically.";
+
+    /// <summary>
+    /// A reverse proxy in front of a self-hosted UniFi OS Server / Network application returns
+    /// 502/503/504 while the backend is restarting, upgrading, or reprovisioning - the console
+    /// is momentarily unreachable, not misconfigured. Callers treat these like a stale session:
+    /// transient, self-healing, and worth surfacing as "temporarily unavailable" rather than a
+    /// hard failure.
+    /// </summary>
+    private static bool IsConsoleUnavailable(HttpStatusCode status) =>
+        status is HttpStatusCode.BadGateway
+            or HttpStatusCode.ServiceUnavailable
+            or HttpStatusCode.GatewayTimeout;
+
+    /// <summary>
+    /// Status codes that should trigger a re-authenticate-and-retry rather than failing the call
+    /// outright: 401/403 (a stale or rejected session) and the gateway-unavailable family
+    /// (<see cref="IsConsoleUnavailable"/>). Resetting the auth state on these feeds the connection
+    /// service's recovery and connection alerting the same way a 401/403 does, instead of leaving
+    /// the client wedged "connected" while every console call fails with 502.
+    /// </summary>
+    private static bool IsRecoverableAuthFailure(HttpStatusCode status) =>
+        status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+            || IsConsoleUnavailable(status);
 
     /// <summary>
     /// Ensures we're authenticated, re-authenticating if necessary.
@@ -642,7 +671,8 @@ public class UniFiApiClient : IDisposable
     public bool IsStandaloneNetworkController => _useStandaloneLogin;
 
     /// <summary>
-    /// Executes an API call with automatic re-authentication on 401/403
+    /// Executes an API call with automatic re-authentication on 401/403 and on a
+    /// reverse proxy's 502/503/504 while the console backend is restarting (<see cref="IsRecoverableAuthFailure"/>)
     /// </summary>
     private async Task<T?> ExecuteApiCallAsync<T>(
         Func<Task<HttpResponseMessage>> apiCall,
@@ -672,8 +702,7 @@ public class UniFiApiClient : IDisposable
             }
 
             // Handle authentication failures
-            if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                response.StatusCode == HttpStatusCode.Forbidden)
+            if (IsRecoverableAuthFailure(response.StatusCode))
             {
                 _logger.LogWarning("Got {StatusCode}, re-authenticating...", response.StatusCode);
                 _isAuthenticated = false;
@@ -773,8 +802,7 @@ public class UniFiApiClient : IDisposable
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/device"), cancellationToken);
 
             // Handle authentication failures (session expired)
-            if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                response.StatusCode == HttpStatusCode.Forbidden)
+            if (IsRecoverableAuthFailure(response.StatusCode))
             {
                 _logger.LogWarning("Got {StatusCode} fetching raw device JSON, re-authenticating...", response.StatusCode);
                 _isAuthenticated = false;
@@ -1139,8 +1167,7 @@ public class UniFiApiClient : IDisposable
             var response = await _httpClient!.GetAsync(BuildApiPath("rest/firewallrule"), cancellationToken);
 
             // Handle authentication failures (session expired)
-            if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                response.StatusCode == HttpStatusCode.Forbidden)
+            if (IsRecoverableAuthFailure(response.StatusCode))
             {
                 _logger.LogWarning("Got {StatusCode} fetching legacy firewall rules, re-authenticating...", response.StatusCode);
                 _isAuthenticated = false;
@@ -1474,8 +1501,7 @@ public class UniFiApiClient : IDisposable
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/health"), cancellationToken);
 
             // Handle authentication failures (session expired)
-            if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                response.StatusCode == HttpStatusCode.Forbidden)
+            if (IsRecoverableAuthFailure(response.StatusCode))
             {
                 _logger.LogWarning("Got {StatusCode} fetching site health, re-authenticating...", response.StatusCode);
                 _isAuthenticated = false;
@@ -1669,8 +1695,7 @@ public class UniFiApiClient : IDisposable
             var response = await _httpClient!.GetAsync(BuildApiPath("rest/setting"), cancellationToken);
 
             // Handle authentication failures (session expired)
-            if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                response.StatusCode == HttpStatusCode.Forbidden)
+            if (IsRecoverableAuthFailure(response.StatusCode))
             {
                 _logger.LogWarning("Got {StatusCode} fetching settings, re-authenticating...", response.StatusCode);
                 _isAuthenticated = false;
@@ -1714,8 +1739,7 @@ public class UniFiApiClient : IDisposable
             var response = await _httpClient!.GetAsync(BuildApiPath("stat/current-channel"), cancellationToken);
 
             // Handle authentication failures (session expired)
-            if (response.StatusCode == HttpStatusCode.Unauthorized ||
-                response.StatusCode == HttpStatusCode.Forbidden)
+            if (IsRecoverableAuthFailure(response.StatusCode))
             {
                 _logger.LogWarning("Got {StatusCode} fetching current channel data, re-authenticating...", response.StatusCode);
                 _isAuthenticated = false;
@@ -2057,6 +2081,11 @@ public class UniFiApiClient : IDisposable
             // Make a minimal site-specific call to verify the site exists
             var url = BuildApiPath("stat/sysinfo");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (IsConsoleUnavailable(response.StatusCode))
+            {
+                return (false, ConsoleUnavailableMessage);
+            }
 
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
             {
