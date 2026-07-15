@@ -1766,13 +1766,17 @@ public class MonitoringCollectionAgent : BackgroundService
 
     private async Task<List<UniFiDeviceResponse>> GetMonitorableDevicesAsync(CancellationToken ct)
     {
-        // On an agent site the console reaches the controller through the tunnel and can
-        // read disconnected between operations; reconnect it (as the SNMP push does) so
-        // every tier that enumerates devices - fabric targets, interface name map, device
-        // stats - can. Throttled so a genuinely offline console isn't hammered every tick.
-        if (!_isDefault && !_connectionService.IsConnected
-            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(30)
-            && await _connectionService.IsConsoleViaAgentAsync())
+        // The console can read disconnected between operations: an agent site's tunnel drops,
+        // and a directly-connected self-hosted console returns 502/503 while its backend restarts,
+        // upgrades, or reprovisions - including right when the optimizer starts up, which fails the
+        // one-shot startup connect and, for the default site, previously left it dark until a
+        // schedule ran or the process restarted. Reconnect it (throttled) so every tier that
+        // enumerates devices - fabric targets, interface name map, device stats - recovers on its
+        // own. Skipped while an agent tunnel is still coming up; OnAgentConnectedAsync reconnects
+        // that case when the tunnel opens.
+        if (!_connectionService.IsConnected
+            && !_connectionService.IsAwaitingAgent
+            && DateTime.UtcNow - _lastConsoleEnsureAt > TimeSpan.FromSeconds(30))
         {
             _lastConsoleEnsureAt = DateTime.UtcNow;
             try { await _connectionService.ReconnectAsync(); }
