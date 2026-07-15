@@ -3164,6 +3164,7 @@
         ["map"] = "application",
         ["data-management"] = "application",
         ["multi-site"] = "multisite",
+        ["site-agent-setup"] = "multisite",
     };
 
     private static string ResolveTab(string? param) =>
@@ -3223,6 +3224,10 @@
                     el.style.outlineOffset = '4px';
                     el.style.borderRadius = '12px';
                     setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+                if ('" + anchor + @"' === 'site-agent-setup') {
+                    var inp = document.getElementById('site-name-input');
+                    if (inp) inp.focus({ preventScroll: true });
                 }
             })();");
     }

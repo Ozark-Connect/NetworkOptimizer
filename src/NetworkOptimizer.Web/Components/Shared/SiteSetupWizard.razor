@@ -64,7 +64,7 @@
         {
             <div class="form-group">
                 <div class="input-with-button">
-                    <input type="text" class="form-control" @bind="_name" @bind:event="oninput"
+                    <input type="text" id="site-name-input" class="form-control" @bind="_name" @bind:event="oninput"
                            placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
                             disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
