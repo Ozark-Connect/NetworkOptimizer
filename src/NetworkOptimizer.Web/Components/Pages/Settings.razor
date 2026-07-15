@@ -2883,6 +2883,10 @@
                                             {
                                                 <span class="status-badge">Default</span>
                                             }
+                                            else if (!site.Enabled)
+                                            {
+                                                <span class="status-badge">Disabled</span>
+                                            }
                                             else
                                             {
                                                 var agentStatus = SiteAgentStatus(site.Id);
@@ -3040,6 +3044,32 @@
                                                                 </small>
                                                             </div>
                                                         </div>
+
+                                                        <div class="site-config-section">
+                                                            <div class="site-config-section-title">Disable / Remove Site</div>
+                                                            @if (site.Slug == SiteContext.Slug)
+                                                            {
+                                                                <p class="site-config-empty">
+                                                                    You're currently viewing this site. Switch to another site to disable or remove it.
+                                                                </p>
+                                                            }
+                                                            else
+                                                            {
+                                                                <p class="form-help">
+                                                                    Disabling stops monitoring and hides the site from the site switcher; all of its
+                                                                    data is kept and it can be re-enabled here anytime. Removing is permanent: the
+                                                                    site, its database, and its agent enrollments are deleted.
+                                                                </p>
+                                                                <div class="site-agent-actions">
+                                                                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => ToggleSiteEnabled(site)">
+                                                                        @(site.Enabled ? "Disable Site" : "Enable Site")
+                                                                    </button>
+                                                                    <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveSite(site)">
+                                                                        Remove Site
+                                                                    </button>
+                                                                </div>
+                                                            }
+                                                        </div>
                                                     }
                                                 </div>
                                             </td>
@@ -3134,6 +3164,7 @@
         ["map"] = "application",
         ["data-management"] = "application",
         ["multi-site"] = "multisite",
+        ["site-agent-setup"] = "multisite",
     };
 
     private static string ResolveTab(string? param) =>
@@ -3193,6 +3224,10 @@
                     el.style.outlineOffset = '4px';
                     el.style.borderRadius = '12px';
                     setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2000);
+                }
+                if ('" + anchor + @"' === 'site-agent-setup') {
+                    var inp = document.getElementById('site-name-input');
+                    if (inp) inp.focus({ preventScroll: true });
                 }
             })();");
     }
@@ -3272,6 +3307,51 @@
         _sites = await SiteManagement.GetSitesAsync();
         await LoadAgentsAsync();
         StateHasChanged();
+    }
+
+    private async Task ToggleSiteEnabled(Site site)
+    {
+        // Disabling pauses a live site, so it confirms; re-enabling is harmless.
+        if (site.Enabled && !await JS.InvokeAsync<bool>("confirm",
+                $"Disable site \"{site.Name}\"? Monitoring stops and it disappears from the site switcher. All of its data is kept, and you can re-enable it here anytime."))
+            return;
+
+        try
+        {
+            await SiteManagement.SetSiteEnabledAsync(site, !site.Enabled);
+        }
+        catch (Exception ex)
+        {
+            _multiSiteMessage = ex.Message;
+            _multiSiteMessageClass = "danger";
+            return;
+        }
+        await RefreshSites();
+    }
+
+    private async Task RemoveSite(Site site)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm",
+                $"Remove site \"{site.Name}\" permanently? This deletes the site, its database (monitoring history, speed test results, settings), and its agent enrollments. Its InfluxDB buckets are not removed - delete those in InfluxDB if you no longer want them."))
+            return;
+        if (!await JS.InvokeAsync<bool>("confirm",
+                $"Last check: \"{site.Name}\" and all of its data will be gone for good. This cannot be undone. Remove it?"))
+            return;
+
+        try
+        {
+            await SiteManagement.DeleteSiteAsync(site);
+        }
+        catch (Exception ex)
+        {
+            _multiSiteMessage = ex.Message;
+            _multiSiteMessageClass = "danger";
+            return;
+        }
+        _expandedSiteId = null;
+        _multiSiteMessage = $"Site \"{site.Name}\" was removed.";
+        _multiSiteMessageClass = "success";
+        await RefreshSites();
     }
 
     // Inline site rename (the slug/Site ID stays immutable).

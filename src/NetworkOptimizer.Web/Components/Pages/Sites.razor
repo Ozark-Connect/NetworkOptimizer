@@ -94,7 +94,7 @@ else
             </a>
         }
 
-        <div class="card site-card site-card-add" @onclick="@(() => NavigationManager.NavigateTo("/settings?tab=multisite"))">
+        <div class="card site-card site-card-add" @onclick="@(() => NavigationManager.NavigateTo("/settings?tab=multisite#site-agent-setup"))">
             <span class="site-card-add-plus">+</span>
             <span>Add Site</span>
         </div>
@@ -115,7 +115,7 @@ else
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (_enabled)
         {
-            _sites = await SiteManagement.GetSitesAsync();
+            _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
             _agents = await AgentEnrollment.GetAllAgentsAsync();
             await LoadConsoleHostsAsync();
 

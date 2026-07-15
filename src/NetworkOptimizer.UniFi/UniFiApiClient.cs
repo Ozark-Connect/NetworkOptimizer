@@ -43,6 +43,8 @@ public class UniFiApiClient : IDisposable
     private DateTime _deviceResponseCacheTime = DateTime.MinValue;
     private static readonly TimeSpan DeviceResponseCacheTtl = TimeSpan.FromSeconds(15);
     private bool _isAuthenticated = false;
+    private DateTime _lastApiKeyRevalidationAttempt = DateTime.MinValue;
+    private static readonly TimeSpan ApiKeyRevalidationInterval = TimeSpan.FromSeconds(60);
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
     private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
@@ -69,6 +71,15 @@ public class UniFiApiClient : IDisposable
     /// Whether this client uses API key authentication instead of username/password
     /// </summary>
     public bool UseApiKey => !string.IsNullOrEmpty(_apiKey);
+
+    /// <summary>
+    /// Raised after every real login/validation attempt with the outcome and, on failure,
+    /// the login error. Lets the owning connection service track consecutive auth failures
+    /// (console restarting, upgrading, or unreachable) for alerting. Not raised for the
+    /// already-authenticated fast path. Handlers must be cheap and must not call back into
+    /// this client - the event fires while the auth lock is held.
+    /// </summary>
+    public event Action<bool, string?>? AuthProbeCompleted;
 
     public UniFiApiClient(
         ILogger<UniFiApiClient> logger,
@@ -240,18 +251,21 @@ public class UniFiApiClient : IDisposable
                             ? "Invalid API key. Check that it was copied correctly and has not been revoked."
                             : $"API key validation failed with status {(int)validateResponse.StatusCode}.";
                         _logger.LogWarning("API key validation failed: {StatusCode}", validateResponse.StatusCode);
+                        AuthProbeCompleted?.Invoke(false, _lastLoginError);
                         return false;
                     }
 
                     _isAuthenticated = true;
                     await DetectControllerTypeAsync(cancellationToken);
                     _logger.LogInformation("API key authentication validated (UniFi OS: {IsUniFiOs})", _isUniFiOs);
+                    AuthProbeCompleted?.Invoke(true, null);
                     return true;
                 }
                 catch (Exception ex)
                 {
                     _lastLoginError = ParseExceptionError(ex);
                     _logger.LogError(ex, "Exception validating API key");
+                    AuthProbeCompleted?.Invoke(false, _lastLoginError);
                     return false;
                 }
             }
@@ -298,6 +312,7 @@ public class UniFiApiClient : IDisposable
 
                 // Parse error response for user-friendly message
                 _lastLoginError = ParseLoginError(response.StatusCode, errorBody);
+                AuthProbeCompleted?.Invoke(false, _lastLoginError);
                 return false;
             }
 
@@ -332,12 +347,14 @@ public class UniFiApiClient : IDisposable
             // Detect controller type after successful authentication
             await DetectControllerTypeAsync(cancellationToken);
 
+            AuthProbeCompleted?.Invoke(true, null);
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during login");
             _lastLoginError = ParseExceptionError(ex);
+            AuthProbeCompleted?.Invoke(false, _lastLoginError);
             return false;
         }
         finally
@@ -459,17 +476,22 @@ public class UniFiApiClient : IDisposable
 
     /// <summary>
     /// Ensures we're authenticated, re-authenticating if necessary.
-    /// For API key auth, if we've already been marked as unauthenticated (e.g., 401 response),
-    /// re-login won't help since the key is either valid or not - return false immediately.
+    /// For API key auth a 401/403 usually means the Network application was restarting or
+    /// wedged (upgrades, provisioning), not that the key was revoked - the proxy returns
+    /// auth errors while the app is down. Re-validate the key, throttled so a genuinely
+    /// revoked key costs at most one probe per interval instead of one per API call.
     /// </summary>
     private async Task<bool> EnsureAuthenticatedAsync(CancellationToken cancellationToken = default)
     {
         if (_isAuthenticated)
             return true;
 
-        // API key auth is stateless - if we got a 401, re-sending the same key won't help
         if (UseApiKey)
-            return false;
+        {
+            if (DateTime.UtcNow - _lastApiKeyRevalidationAttempt < ApiKeyRevalidationInterval)
+                return false;
+            _lastApiKeyRevalidationAttempt = DateTime.UtcNow;
+        }
 
         return await LoginAsync(cancellationToken);
     }

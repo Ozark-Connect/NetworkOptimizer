@@ -71,4 +71,16 @@ public class SiteRepository : ISiteRepository
         existing.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var existing = await context.Sites.FindAsync(new object[] { id }, cancellationToken);
+        if (existing == null)
+            return;
+
+        context.Sites.Remove(existing);
+        await context.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Deleted site {Slug} (id {Id}) from the registry", existing.Slug, id);
+    }
 }

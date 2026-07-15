@@ -265,6 +265,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestReposit
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IAlertRepository, NetworkOptimizer.Storage.Repositories.AlertRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
+builder.Services.AddSingleton<SiteRegistryChangeNotifier>();
 builder.Services.AddScoped<SiteManagementService>();
 builder.Services.AddScoped<SiteContextService>();
 builder.Services.AddScoped<SiteSwitchService>();
@@ -418,6 +419,7 @@ builder.Services.AddSingleton<NetworkOptimizer.Alerts.AlertProcessingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.AlertProcessingService>());
 builder.Services.AddSingleton<NetworkOptimizer.Alerts.DigestService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NetworkOptimizer.Alerts.DigestService>());
+builder.Services.AddHostedService<AgentConnectionAlertMonitor>();
 // IDigestStateStore adapter: persists digest "last sent" timestamps via SystemSettings
 builder.Services.AddScoped<NetworkOptimizer.Alerts.Interfaces.IDigestStateStore, DigestStateStoreAdapter>();
 // ISecretDecryptor adapter: bridges Alerts project's interface to existing credential protection
@@ -922,6 +924,18 @@ using (var scope = app.Services.CreateScope())
     // Seed default alert rules - insert any missing rules by EventTypePattern
     {
         var defaults = NetworkOptimizer.Alerts.DefaultAlertRules.GetDefaults();
+
+        // On-Site Agent rules only make sense on the main site when the default site
+        // itself has an agent (secondary sites get theirs from the per-site seed above).
+        // Skipping them keeps a single-site install's Rules list free of agent entries;
+        // enrolling a default-site agent later seeds them at that point.
+        var defaultSiteId = db.Sites
+            .Where(s => s.Slug == SiteManagementService.DefaultSiteSlug)
+            .Select(s => (int?)s.Id)
+            .FirstOrDefault();
+        if (defaultSiteId == null || !db.SiteAgents.Any(a => a.SiteId == defaultSiteId))
+            defaults = defaults.Where(d => d.Source != "agent").ToList();
+
         var existingPatterns = db.AlertRules.Select(r => r.EventTypePattern).ToHashSet();
         var missing = defaults.Where(d => !existingPatterns.Contains(d.EventTypePattern)).ToList();
         if (missing.Count > 0)

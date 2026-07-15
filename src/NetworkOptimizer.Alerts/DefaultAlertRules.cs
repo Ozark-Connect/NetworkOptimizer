@@ -161,6 +161,46 @@ public static class DefaultAlertRules
             CooldownSeconds = 86400 // 24 hours
         },
 
+        // --- UniFi Console (enabled by default - a dead console connection silently blanks most features) ---
+        new AlertRule
+        {
+            Name = "UniFi Console: Connection Failed",
+            IsEnabled = true,
+            EventTypePattern = "console.connection_failed",
+            Source = "console",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the connection service fires once per outage
+        },
+        new AlertRule
+        {
+            Name = "UniFi Console: Connection Restored",
+            IsEnabled = true,
+            EventTypePattern = "console.connection_restored",
+            Source = "console",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - restores are paired with failure events
+        },
+
+        // --- On-Site Agent (enabled by default - an offline agent takes its whole site dark) ---
+        new AlertRule
+        {
+            Name = "On-Site Agent: Offline",
+            IsEnabled = true,
+            EventTypePattern = "agent.offline",
+            Source = "agent",
+            MinSeverity = AlertSeverity.Warning,
+            CooldownSeconds = 1800 // 30 minutes - the monitor fires once per outage
+        },
+        new AlertRule
+        {
+            Name = "On-Site Agent: Reconnected",
+            IsEnabled = true,
+            EventTypePattern = "agent.reconnected",
+            Source = "agent",
+            MinSeverity = AlertSeverity.Info,
+            CooldownSeconds = 60 // 1 minute - reconnects are paired with offline events
+        },
+
         // --- Monitoring (enabled by default - users opted into monitoring by configuring it) ---
         new AlertRule
         {

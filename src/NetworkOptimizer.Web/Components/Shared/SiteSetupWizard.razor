@@ -64,7 +64,7 @@
         {
             <div class="form-group">
                 <div class="input-with-button">
-                    <input type="text" class="form-control" @bind="_name" @bind:event="oninput"
+                    <input type="text" id="site-name-input" class="form-control" @bind="_name" @bind:event="oninput"
                            placeholder="Site name (e.g. Lake House)" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <button type="button" class="btn btn-primary btn-sm" @onclick="CreateSiteAsync"
                             disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">
@@ -294,9 +294,20 @@
 
     private async Task CreateSiteAsync()
     {
+        // A fast double-click queues both click events before the disabled state
+        // renders; the circuit runs them sequentially, so by the time the second
+        // arrives _busy is false again and it would create a duplicate site
+        // (name-2). _site stays set after success, so it swallows the straggler.
+        if (_busy || _site != null)
+            return;
+
         _busy = true;
         _message = "";
         StateHasChanged();
+        // SQLite completes EF's async calls synchronously, so provisioning never
+        // yields and the queued spinner render would only flush after it finishes.
+        // Yield once so the disabled+spinner state reaches the browser first.
+        await Task.Yield();
 
         try
         {

@@ -21,6 +21,9 @@ public class SiteManagementService
     private readonly SiteDatabasePaths _dbPaths;
     private readonly Licensing.LicenseStateService _licenseState;
     private readonly Licensing.LicenseActivationService _activation;
+    private readonly SiteConnectionRegistry _siteConnections;
+    private readonly MonitoringCollectionRegistry _collectionRegistry;
+    private readonly SiteRegistryChangeNotifier _changeNotifier;
     private readonly ILogger<SiteManagementService> _logger;
 
     public SiteManagementService(
@@ -29,6 +32,9 @@ public class SiteManagementService
         SiteDatabasePaths dbPaths,
         Licensing.LicenseStateService licenseState,
         Licensing.LicenseActivationService activation,
+        SiteConnectionRegistry siteConnections,
+        MonitoringCollectionRegistry collectionRegistry,
+        SiteRegistryChangeNotifier changeNotifier,
         ILogger<SiteManagementService> logger)
     {
         _siteRepository = siteRepository;
@@ -36,6 +42,9 @@ public class SiteManagementService
         _dbPaths = dbPaths;
         _licenseState = licenseState;
         _activation = activation;
+        _siteConnections = siteConnections;
+        _collectionRegistry = collectionRegistry;
+        _changeNotifier = changeNotifier;
         _logger = logger;
     }
 
@@ -84,6 +93,7 @@ public class SiteManagementService
         // when the license snapshot is unchanged (e.g. the main site was already covered),
         // so force subscribers to reload rather than relying on a snapshot diff.
         await _licenseState.RecomputeAsync(alwaysNotify: true);
+        _changeNotifier.NotifySitesChanged();
         _logger.LogInformation("Multi-site management {State}", enabled ? "enabled" : "disabled");
     }
 
@@ -120,7 +130,82 @@ public class SiteManagementService
     }
 
     /// <summary>Updates a site's mutable fields (name, enabled, sort order, notes).</summary>
-    public Task UpdateSiteAsync(Site site) => _siteRepository.UpdateAsync(site);
+    public async Task UpdateSiteAsync(Site site)
+    {
+        await _siteRepository.UpdateAsync(site);
+        _changeNotifier.NotifySitesChanged();
+    }
+
+    /// <summary>
+    /// Enables or disables a secondary site. Disabling stops its monitoring
+    /// collection and drops its console connection immediately and hides it from
+    /// the site switcher; all of its data is kept and re-enabling restores it.
+    /// </summary>
+    public async Task SetSiteEnabledAsync(Site site, bool enabled)
+    {
+        if (site.IsDefault)
+            throw new InvalidOperationException("The default site cannot be disabled.");
+
+        site.Enabled = enabled;
+        await _siteRepository.UpdateAsync(site);
+
+        if (!enabled)
+        {
+            await _collectionRegistry.StopForSiteAsync(site.Slug);
+            _siteConnections.RemoveFor(site.Slug);
+        }
+        // Re-enable needs no explicit start: the collection registry's reconcile
+        // pass picks the site up within its cadence, and the next page view or
+        // agent connect re-establishes the console connection.
+
+        _changeNotifier.NotifySitesChanged();
+        _logger.LogInformation("Site {Slug} {State}", site.Slug, enabled ? "enabled" : "disabled");
+    }
+
+    /// <summary>
+    /// Permanently removes a secondary site: stops its monitoring collection,
+    /// drops its console connection, deletes its agents and registry row, and
+    /// deletes its database directory. Irreversible.
+    /// </summary>
+    public async Task DeleteSiteAsync(Site site)
+    {
+        if (site.IsDefault)
+            throw new InvalidOperationException("The default site cannot be removed.");
+
+        // Disable first so the reconcile pass can't restart collection between
+        // the stop below and the registry row disappearing.
+        site.Enabled = false;
+        await _siteRepository.UpdateAsync(site);
+        await _collectionRegistry.StopForSiteAsync(site.Slug);
+        _siteConnections.RemoveFor(site.Slug);
+
+        await using (var db = await _mainDbFactory.CreateDbContextAsync())
+        {
+            await db.SiteAgents.Where(a => a.SiteId == site.Id).ExecuteDeleteAsync();
+        }
+        await _siteRepository.DeleteAsync(site.Id);
+
+        // SQLite connection pooling keeps file handles open after the contexts are
+        // disposed; clear the pools so the directory delete doesn't hit locked files.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        try
+        {
+            var dir = _dbPaths.GetSiteDataDir(site.Slug);
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Site {Slug} was removed but its data directory could not be deleted; remove sites/{Slug} manually",
+                site.Slug, site.Slug);
+        }
+
+        // Free the site's license seat.
+        await _licenseState.RecomputeAsync();
+        _changeNotifier.NotifySitesChanged();
+        _logger.LogInformation("Removed site {Slug} (id {Id}) and its data", site.Slug, site.Id);
+    }
 
     /// <summary>
     /// Previews the slug that would be generated for a site name, including
@@ -155,6 +240,7 @@ public class SiteManagementService
         // Licensing card reflects the new site immediately (no manual license refresh needed).
         await _activation.AutoAssignAsync();
         await _licenseState.RecomputeAsync();
+        _changeNotifier.NotifySitesChanged();
         return site;
     }
 

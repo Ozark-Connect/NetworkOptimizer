@@ -3,11 +3,13 @@
 @inject SiteManagementService SiteManagement
 @inject SiteContextService SiteContext
 @inject SiteConnectionRegistry SiteConnections
+@inject SiteRegistryChangeNotifier ChangeNotifier
 @inject NavigationManager NavigationManager
+@implements IDisposable
 
 @if (_enabled && _sites.Count > 0)
 {
-    <div class="site-switcher">
+    <div class="site-switcher" @onkeydown="HandleKeyDown">
         <button type="button" class="site-switcher-trigger" @onclick="ToggleDropdown" @onclick:stopPropagation="true">
             <img src="/icons/sites.png" alt="" class="site-switcher-icon" />
             <span class="site-switcher-name">@(_currentSite?.Name ?? "Site")</span>
@@ -54,18 +56,56 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ChangeNotifier.SitesChanged += OnSitesChanged;
+        await LoadSitesAsync();
+    }
+
+    private async Task LoadSitesAsync()
+    {
         _enabled = await SiteManagement.IsMultiSiteEnabledAsync();
         if (!_enabled)
             return;
 
-        _sites = await SiteManagement.GetSitesAsync();
+        // Disabled sites are managed (re-enabled/removed) from Settings - Multi-Site;
+        // they don't belong in the switcher.
+        _sites = (await SiteManagement.GetSitesAsync()).Where(s => s.Enabled).ToList();
         _currentSite = _sites.FirstOrDefault(s => s.Slug == SiteContext.Slug)
             ?? _sites.FirstOrDefault(s => s.IsDefault);
+    }
+
+    // Raised from whichever circuit changed the registry (create, rename,
+    // enable/disable, remove, multi-site toggle) - rebuild this circuit's list.
+    private void OnSitesChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await LoadSitesAsync();
+                _open = false;
+                StateHasChanged();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Circuit torn down between the event and the dispatch - nothing to update.
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ChangeNotifier.SitesChanged -= OnSitesChanged;
     }
 
     private void ToggleDropdown() => _open = !_open;
 
     private void CloseDropdown() => _open = false;
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _open = false;
+    }
 
     /// <summary>This page pinned to the given site - the anchor href (plain-click switch
     /// target and modified-click new-tab target); see site-context.js.</summary>

@@ -127,6 +127,35 @@
         window.location.assign(link.href);
     }, false);
 
+    // Keyboard navigation for the header site switcher menu: Down/Up move focus
+    // through the items (Down from the trigger enters the list), Enter activates
+    // natively (anchor click lands in the site-switch handler above), and Space
+    // activates too per the ARIA menu pattern - menu items respond to both keys
+    // even though bare links are Enter-only. Escape close lives in the Blazor
+    // component, which owns the open state.
+    document.addEventListener('keydown', function (e) {
+        const host = e.target.closest && e.target.closest('.site-switcher');
+        if (!host)
+            return;
+        const menu = host.querySelector('.site-switcher-menu');
+        if (!menu)
+            return;
+        const items = Array.from(menu.querySelectorAll('a[href]'));
+        if (items.length === 0)
+            return;
+        const idx = items.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const next = e.key === 'ArrowDown'
+                ? (idx + 1) % items.length
+                : (idx <= 0 ? items.length - 1 : idx - 1);
+            items[next].focus();
+        } else if (e.key === ' ' && idx >= 0) {
+            e.preventDefault();
+            items[idx].click();
+        }
+    }, false);
+
     const originalFetch = window.fetch;
     window.fetch = function (input, init) {
         try {
