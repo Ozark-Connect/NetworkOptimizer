@@ -92,7 +92,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
                 {
                     await PublishAsync("agent.reconnected", AlertSeverity.Info,
                         "On-Site Agent reconnected",
-                        $"Agent \"{agent.Name}\" is back online.",
+                        $"{AgentLabel(agent.Name)} is back online.",
                         agent, entry.Slug, ct);
                 }
                 continue;
@@ -112,7 +112,7 @@ public class AgentConnectionAlertMonitor : BackgroundService
                     : "";
                 await PublishAsync("agent.offline", AlertSeverity.Warning,
                     "On-Site Agent offline",
-                    $"Agent \"{agent.Name}\" has been offline for over {(int)OfflineThreshold.TotalMinutes} minutes. Its site's monitoring, speed tests, and console connection are unavailable until it reconnects. {lastSeen}",
+                    $"{AgentLabel(agent.Name)} has been offline for over {(int)OfflineThreshold.TotalMinutes} minutes. Its site's monitoring, speed tests, and console connection are unavailable until it reconnects. {lastSeen}",
                     agent, entry.Slug, ct);
             }
         }
@@ -120,6 +120,19 @@ public class AgentConnectionAlertMonitor : BackgroundService
         // Forget agents that were deleted or disabled mid-outage.
         foreach (var staleId in _states.Keys.Where(id => !seen.Contains(id)).ToList())
             _states.Remove(staleId);
+    }
+
+    /// <summary>
+    /// Subject phrase for an agent in alert copy. An agent with no distinctive name (the
+    /// literal default "agent", or nothing at all) would otherwise render the redundant
+    /// Agent "Agent" - fall back to a plain reference. A named agent keeps its quoted name.
+    /// </summary>
+    internal static string AgentLabel(string? name)
+    {
+        var trimmed = name?.Trim();
+        return string.IsNullOrEmpty(trimmed) || string.Equals(trimmed, "agent", StringComparison.OrdinalIgnoreCase)
+            ? "The On-Site Agent"
+            : $"Agent \"{trimmed}\"";
     }
 
     private async Task PublishAsync(
