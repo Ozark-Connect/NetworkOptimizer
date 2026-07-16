@@ -104,8 +104,9 @@ public class MonitoringInterfaceDeploymentService
     /// macvlan's hardware address so the L2 identity survives gateway reboots and redeploys.
     /// Without a pinned address, <c>ip link add ... type macvlan</c> gets a fresh RANDOM MAC on
     /// every create - so each gateway reboot presents a NEW CPE MAC to the modem/ONT, forcing it
-    /// to relearn its single downstream CPE and, on carrier gear that pins to one CPE (such as
-    /// DOCSIS cable modems), transiently wedging its management stack. Applies to aliased and plain
+    /// to relearn its single downstream CPE and, on carrier gear that pins to one CPE (DOCSIS
+    /// cable modems, a Starlink in Bypass Mode), transiently wedging its management stack. Applies
+    /// to aliased and plain
     /// interfaces alike, so (unlike <see cref="AliasMark"/>) it has no id-range limit; any id,
     /// including 0 for a not-yet-persisted row, yields a valid deterministic address.
     /// First octet 0x02: bit 1 set marks it locally administered (never collides with a real
@@ -817,9 +818,9 @@ fi
 # 1. macvlan on the WAN parent (physical port, or VLAN subinterface), pinned to a stable,
 # locally-administered MAC. Without a pinned address the kernel assigns a fresh RANDOM MAC on
 # every create - so each gateway reboot presents a NEW CPE MAC to the modem/ONT, forcing it to
-# relearn its single downstream CPE and, on carrier gear that pins to one CPE (such as DOCSIS
-# cable modems), transiently wedging its management stack. A stable per-row MAC keeps the same
-# L2 identity across reboots and redeploys.
+# relearn its single downstream CPE and, on carrier gear that pins to one CPE (DOCSIS cable
+# modems, a Starlink in Bypass Mode), transiently wedging its management stack. A stable per-row
+# MAC keeps the same L2 identity across reboots and redeploys.
 if ! ip link show ""$IFACE"" >/dev/null 2>&1; then
     ip link add ""$IFACE"" link ""$PARENT"" address ""$MAC"" type macvlan mode bridge && changed=1 || fail=1
 fi
