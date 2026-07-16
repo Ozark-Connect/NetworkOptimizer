@@ -128,6 +128,12 @@ public static class UniFiProductDatabase
         // =====================================================================
         // GATEWAYS / SECURITY GATEWAYS
         // =====================================================================
+        // NOTE: Gateways default to NO integrated Wi-Fi. We can't trust the UniFi API's
+        // radio_table to tell us which gateways have Wi-Fi - some firmware reports phantom
+        // radios for Wi-Fi-less gateways (issue #994) - so the Wi-Fi ones are a curated
+        // allow-list. If a gateway you add below has built-in Wi-Fi (rare - the Dream/Express
+        // line + UCG-Industrial), also add its friendly name to WifiCapableGateways in
+        // UniFiDiscovery.cs, or it won't appear in the Wi-Fi Optimizer.
 
         // ----- UniFi Dream Machine family -----
         { "UDM", "UDM" },
