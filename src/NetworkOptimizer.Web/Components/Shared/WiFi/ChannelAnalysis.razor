@@ -133,7 +133,7 @@
                     <div class="alert-info scan-gap-banner">
                         <div class="scan-gap-text">
                             <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio needs" : "radios need") a scan.</strong>
-                            Their channels are estimated from nearby networks, not measured. @ScanDisruptionNote()
+                            Their channel congestion is estimated from nearby networks, not measured. @ScanDisruptionNote()
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
                                 data-tooltip="Runs a quick RF scan to measure the real airtime and noise floor on these channels, so the recommendations reflect what's actually on the air instead of a guess.">
