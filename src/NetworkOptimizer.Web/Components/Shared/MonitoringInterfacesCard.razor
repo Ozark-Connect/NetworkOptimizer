@@ -592,11 +592,41 @@
 
     private async Task SaveOnly()
     {
+        // Same pre-edit capture as SaveAndDeploy: without a teardown here, an edit that
+        // changes gateway-affecting fields leaves the old artifacts behind, and for an
+        // aliased row the stale mangle/DNAT rules (same mark, old alias/target text) make
+        // the next per-row Deploy's mark-range preflight misclassify them as FOREIGN and
+        // block the deploy with no path forward short of Remove-then-Deploy.
+        var original = _editingOriginal;
+
         if (!await ValidateAndSaveAsync())
             return;
-        _message = "Saved. It won't take effect until you deploy.";
-        _messageSuccess = true;
+
+        var tornDown = false;
+        var teardownFailed = false;
+        if (original != null && NeedsOldTeardown(original, _editing))
+        {
+            tornDown = true;
+            try
+            {
+                var (removed, _) = await Deploy.RemoveAsync(original);
+                teardownFailed = !removed;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to tear down previous monitoring interface config after save");
+                teardownFailed = true;
+            }
+        }
+
         CancelEdit();
+        // After CancelEdit - it clears _message.
+        _message = teardownFailed
+            ? "Saved, but removing the previous gateway config failed - use Remove, then Deploy, once the gateway is reachable."
+            : tornDown
+                ? "Saved and previous gateway config removed. The new config won't take effect until you deploy."
+                : "Saved. It won't take effect until you deploy.";
+        _messageSuccess = !teardownFailed;
         await LoadAsync();
     }
 
