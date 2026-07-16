@@ -202,9 +202,16 @@ public class UniFiDiscovery
     /// Discovers all devices with wireless radios for WiFi Optimizer.
     /// Includes traditional APs (type=uap), UDM/UX mesh APs, and gateway-class devices
     /// (UDR, UX, UDM) that have integrated wireless radios broadcasting Wi-Fi.
-    /// Excludes gateway-only consoles (UDM-Pro, UDM-SE, UDM-Pro-Max, EFG) that report
-    /// radio_table entries in the API but don't actually have Wi-Fi radios.
-    /// SmartPower devices (USP-Strip, USP-Plug) are excluded via DeviceType classification.
+    ///
+    /// Our basic "is this an AP" signal for a gateway is "does it report a non-empty
+    /// radio_table". That works for every device we've ever captured EXCEPT that certain
+    /// UniFi Network firmware hands back GARBAGE radio data: it populates radio_table for
+    /// Wi-Fi-less gateways that have no radios at all (a UXG-Fiber on firmware 5.0.16 -
+    /// see issue #994). Those phantom entries false-positive the radio_table check and the
+    /// gateway shows up as an AP with zero clients ("Significant Load Imbalance"). We can't
+    /// trust the API's radio data for gateways, so <see cref="IsGatewayOnlyConsole"/> makes
+    /// the final call by model. SmartPower devices (USP-Strip, USP-Plug) are excluded via
+    /// DeviceType classification.
     /// </summary>
     public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
@@ -216,11 +223,15 @@ public class UniFiDiscovery
 
     /// <summary>
     /// The handful of gateway-class consoles that DO have integrated Wi-Fi radios, keyed by
-    /// FriendlyModelName (the UI display name). Gateways are overwhelmingly Wi-Fi-less, so this
-    /// is an allow-list: any gateway not listed here is treated as gateway-only, regardless of
-    /// what radio_table the API reports (some Wi-Fi-less gateways, e.g. UXG-Fiber on certain
-    /// firmware, emit phantom radio entries). Exact match cleanly separates the original "UDM"
-    /// (has Wi-Fi) from "UDM-Pro"/"UDM-SE"/"UDM-Pro-Max" (Wi-Fi-less).
+    /// FriendlyModelName (the UI display name).
+    ///
+    /// This is an allow-list ONLY because the UniFi Network API can't be trusted to report a
+    /// gateway's radio capability honestly: on some firmware it emits phantom radio_table
+    /// entries for gateways that physically have no Wi-Fi (issue #994). We would much rather
+    /// key off the reported radios, but that data is garbage for this class of device, so we
+    /// fall back to a curated model list. Gateways are overwhelmingly Wi-Fi-less, so anything
+    /// not listed here is treated as gateway-only. Exact match cleanly separates the original
+    /// "UDM" (has Wi-Fi) from "UDM-Pro"/"UDM-SE"/"UDM-Pro-Max" (Wi-Fi-less).
     ///
     /// If UniFi ships a NEW gateway with built-in Wi-Fi (rare), add its FriendlyModelName here,
     /// or it won't appear in the Wi-Fi Optimizer. See the matching note in UniFiProductDatabase.
@@ -239,11 +250,12 @@ public class UniFiDiscovery
 
     /// <summary>
     /// Returns true for gateway-class consoles that do NOT have integrated Wi-Fi radios.
-    /// The UniFi API sometimes reports radio_table entries for these devices even though
-    /// they have no wireless capability, so we decide by model rather than trusting API radio
-    /// data: any gateway whose FriendlyModelName is not in <see cref="WifiCapableGateways"/> is
-    /// treated as gateway-only. Excludes: UXG-*, UCG-Max/Fiber/Ultra, UDM-Pro/SE/Max, EFG,
-    /// EF-Core, USG-*. Allows: UDM, UDR(7)/UDR-5G-Max, UX(7), UDW, UCG-Industrial.
+    /// Decides by model, NOT by the API's reported radio_table, because that data is
+    /// unreliable for gateways: some UniFi Network firmware reports phantom radio entries for
+    /// Wi-Fi-less gateways (issue #994), so trusting it false-positives them as APs. Any
+    /// gateway whose FriendlyModelName is not in <see cref="WifiCapableGateways"/> is treated
+    /// as gateway-only. Excludes: UXG-*, UCG-Max/Fiber/Ultra, UDM-Pro/SE/Max, EFG, EF-Core,
+    /// USG-*. Allows: UDM, UDR(7)/UDR-5G-Max, UX(7), UDW, UCG-Industrial.
     /// </summary>
     internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
         => IsGatewayOnlyConsole(device.FriendlyModelName);
