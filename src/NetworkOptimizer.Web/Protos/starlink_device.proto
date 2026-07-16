@@ -1,0 +1,295 @@
+// Trimmed subset of the Starlink user terminal gRPC API (SpaceX.API.Device),
+// reconstructed from the dish's own gRPC reflection (apiVersion 42).
+// Field numbers MUST match the dish's descriptors; names are cosmetic.
+// Only read-only requests used for monitoring are included - unknown fields
+// in responses are skipped by protobuf, so newer/richer firmware payloads
+// parse fine. No control RPCs (reboot, stow, config) are declared.
+syntax = "proto3";
+
+package SpaceX.API.Device;
+
+option csharp_namespace = "NetworkOptimizer.Web.Services.StarlinkProviders.Proto";
+
+service Device {
+  rpc Handle(Request) returns (Response);
+}
+
+message Request {
+  oneof request {
+    GetStatusRequest get_status = 1004;
+    GetHistoryRequest get_history = 1007;
+    GetDeviceInfoRequest get_device_info = 1008;
+    DishGetObstructionMapRequest dish_get_obstruction_map = 2008;
+    GetDiagnosticsRequest get_diagnostics = 6000;
+  }
+}
+
+message Response {
+  uint64 id = 1;
+  uint64 api_version = 3;
+  oneof response {
+    GetDeviceInfoResponse get_device_info = 1004;
+    DishGetStatusResponse dish_get_status = 2004;
+    DishGetHistoryResponse dish_get_history = 2006;
+    DishGetObstructionMapResponse dish_get_obstruction_map = 2008;
+    DishGetDiagnosticsResponse dish_get_diagnostics = 6001;
+  }
+}
+
+message GetStatusRequest {
+}
+
+message GetHistoryRequest {
+}
+
+message GetDeviceInfoRequest {
+}
+
+message DishGetObstructionMapRequest {
+}
+
+message GetDiagnosticsRequest {
+}
+
+message GetDeviceInfoResponse {
+  DeviceInfo device_info = 1;
+}
+
+message DeviceInfo {
+  string id = 1;
+  string hardware_version = 2;
+  string software_version = 3;
+  string country_code = 4;
+  int32 utc_offset_s = 5;
+  int32 bootcount = 8;
+  int64 generation_number = 12;
+  string build_id = 15;
+}
+
+message DeviceState {
+  uint64 uptime_s = 1;
+}
+
+message DishGetStatusResponse {
+  DeviceInfo device_info = 1;
+  DeviceState device_state = 2;
+  float pop_ping_drop_rate = 1003;
+  DishObstructionStats obstruction_stats = 1004;
+  DishAlerts alerts = 1005;
+  float boresight_azimuth_deg = 1011;
+  float boresight_elevation_deg = 1012;
+  DishGpsStats gps_stats = 1015;
+  int32 eth_speed_mbps = 1016;
+  UserMobilityClass mobility_class = 1017;
+  bool is_snr_above_noise_floor = 1018;
+  UserClassOfService class_of_service = 1020;
+  SoftwareUpdateState software_update_state = 1021;
+  bool is_snr_persistently_low = 1022;
+  UtDisablementCode disablement_code = 1024;
+  SoftwareUpdateStats software_update_stats = 1026;
+  AlignmentStats alignment_stats = 1027;
+  bool swupdate_reboot_ready = 1030;
+  int32 seconds_until_swupdate_reboot_possible = 1031;
+  RateLimitReason dl_bandwidth_restricted_reason = 1044;
+  RateLimitReason ul_bandwidth_restricted_reason = 1045;
+  bool treat_as_metered = 1056;
+}
+
+message DishObstructionStats {
+  float fraction_obstructed = 1;
+  float valid_s = 4;
+  bool currently_obstructed = 5;
+  float avg_prolonged_obstruction_duration_s = 6;
+  float avg_prolonged_obstruction_interval_s = 7;
+  bool avg_prolonged_obstruction_valid = 8;
+  float time_obstructed = 9;
+  uint32 patches_valid = 10;
+}
+
+message DishAlerts {
+  bool motors_stuck = 1;
+  bool thermal_shutdown = 2;
+  bool thermal_throttle = 3;
+  bool unexpected_location = 4;
+  bool mast_not_near_vertical = 5;
+  bool slow_ethernet_speeds = 6;
+  bool roaming = 7;
+  bool install_pending = 8;
+  bool is_heating = 9;
+  bool power_supply_thermal_throttle = 10;
+  bool is_power_save_idle = 11;
+  bool dbf_telem_stale = 14;
+  bool low_motor_current = 16;
+  bool lower_signal_than_predicted = 17;
+  bool slow_ethernet_speeds_100 = 18;
+  bool obstruction_map_reset = 19;
+  bool dish_water_detected = 20;
+  bool router_water_detected = 21;
+  bool upsu_router_port_slow = 22;
+  bool no_ethernet_link = 23;
+}
+
+message DishGpsStats {
+  bool gps_valid = 1;
+  uint32 gps_sats = 2;
+  AttitudeEstimationState pnt_filter_convergence_state = 5;
+}
+
+message AlignmentStats {
+  float tilt_angle_deg = 3;
+  float boresight_azimuth_deg = 4;
+  float boresight_elevation_deg = 5;
+  AttitudeEstimationState attitude_estimation_state = 6;
+  float attitude_uncertainty_deg = 7;
+  float desired_boresight_azimuth_deg = 8;
+  float desired_boresight_elevation_deg = 9;
+}
+
+message SoftwareUpdateStats {
+  SoftwareUpdateState software_update_state = 1;
+  float software_update_progress = 2;
+  bool update_requires_reboot = 3;
+  int64 reboot_scheduled_utc_time = 4;
+}
+
+message DishGetHistoryResponse {
+  uint64 current = 1;
+  repeated float pop_ping_drop_rate = 1001;
+  repeated DishOutage outages = 1009;
+  repeated float power_in = 1010;
+}
+
+message DishOutage {
+  enum Cause {
+    UNKNOWN = 0;
+    BOOTING = 1;
+    STOWED = 2;
+    THERMAL_SHUTDOWN = 3;
+    NO_SCHEDULE = 4;
+    NO_SATS = 5;
+    OBSTRUCTED = 6;
+    NO_DOWNLINK = 7;
+    NO_PINGS = 8;
+    ACTUATOR_ACTIVITY = 9;
+    CABLE_TEST = 10;
+    SLEEPING = 11;
+    SKY_SEARCH = 13;
+    INHIBIT_RF = 14;
+  }
+  Cause cause = 1;
+  int64 start_timestamp_ns = 2;
+  uint64 duration_ns = 3;
+  bool did_switch = 4;
+}
+
+message DishGetObstructionMapResponse {
+  uint32 num_rows = 1;
+  uint32 num_cols = 2;
+  repeated float snr = 3;
+  float max_theta_deg = 5;
+  ObstructionMapReferenceFrame map_reference_frame = 6;
+}
+
+message DishGetDiagnosticsResponse {
+  enum TestResult {
+    NO_RESULT = 0;
+    PASSED = 1;
+    FAILED = 2;
+  }
+  enum TestResultCode {
+    GENERAL = 0;
+    BOOT_UP = 1;
+    CPU_VOLTAGE = 2;
+    DBF_AAP_CS = 3;
+    DBF_NUM_FEMS = 4;
+    DBF_READ_ERRORS = 5;
+    DBF_T_DIE_0 = 6;
+    DBF_T_DIE_1 = 7;
+    DBF_T_DIE_0_VALID = 8;
+    DBF_T_DIE_1_VALID = 9;
+    ETH_PRIME = 10;
+    EIRP = 11;
+    FEM_CUT = 12;
+    FUSE_AVS = 13;
+    GPS = 14;
+    IMU = 15;
+    PHY = 16;
+    SCP_ERROR = 17;
+    TEMPERATURE = 18;
+    VTSENS = 19;
+  }
+  string id = 1;
+  string hardware_version = 2;
+  string software_version = 3;
+  TestResult hardware_self_test = 7;
+  repeated TestResultCode hardware_self_test_codes = 11;
+}
+
+enum UserMobilityClass {
+  STATIONARY = 0;
+  NOMADIC = 1;
+  MOBILE = 2;
+}
+
+enum UserClassOfService {
+  UNKNOWN_USER_CLASS_OF_SERVICE = 0;
+  CONSUMER = 1;
+  BUSINESS = 2;
+  BUSINESS_PLUS = 3;
+  COMMERCIAL_AVIATION = 4;
+}
+
+enum SoftwareUpdateState {
+  SOFTWARE_UPDATE_STATE_UNKNOWN = 0;
+  IDLE = 1;
+  FETCHING = 2;
+  PRE_CHECK = 3;
+  WRITING = 4;
+  POST_CHECK = 5;
+  REBOOT_REQUIRED = 6;
+  DISABLED = 7;
+  FAULTED = 8;
+}
+
+enum AttitudeEstimationState {
+  FILTER_RESET = 0;
+  FILTER_UNCONVERGED = 1;
+  FILTER_CONVERGED = 2;
+  FILTER_FAULTED = 3;
+  FILTER_INVALID = 4;
+}
+
+enum UtDisablementCode {
+  UNKNOWN_STATE = 0;
+  OKAY = 1;
+  NO_ACTIVE_ACCOUNT = 2;
+  TOO_FAR_FROM_SERVICE_ADDRESS = 3;
+  IN_OCEAN = 4;
+  BLOCKED_COUNTRY = 6;
+  DATA_OVERAGE_SANDBOX_POLICY = 7;
+  CELL_IS_DISABLED = 8;
+  ROAM_RESTRICTED = 10;
+  UNKNOWN_LOCATION = 11;
+  ACCOUNT_DISABLED = 12;
+  UNSUPPORTED_VERSION = 13;
+  MOVING_TOO_FAST_FOR_POLICY = 14;
+  UNDER_AVIATION_FLYOVER_LIMITS = 15;
+  BLOCKED_AREA = 16;
+}
+
+// Lives in SpaceX.API.Telemetron.Public.Integrations upstream; enums are
+// varint on the wire, so redeclaring it in this package is wire-compatible.
+enum RateLimitReason {
+  UNKNOWN = 0;
+  NO_LIMIT = 1;
+  POLICY_LIMIT = 2;
+  USER_CUSTOM_LIMIT = 3;
+  OVERAGE_LIMIT = 5;
+  LOW_SPEED_POLICY_LIMIT = 6;
+}
+
+enum ObstructionMapReferenceFrame {
+  FRAME_UNKNOWN = 0;
+  FRAME_EARTH = 1;
+  FRAME_UT = 2;
+}

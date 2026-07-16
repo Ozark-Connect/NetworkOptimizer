@@ -23,7 +23,8 @@ public class ModemMonitorRegistry : BackgroundService
     public sealed record SiteModemMonitors(
         CableModemMonitorService CableModem,
         OntMonitorService Ont,
-        CellularModemService Cellular);
+        CellularModemService Cellular,
+        StarlinkMonitorService Starlink);
 
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(30);
 
@@ -61,11 +62,20 @@ public class ModemMonitorRegistry : BackgroundService
                 ActivatorUtilities.CreateInstance<NetgearNighthawkHotspotProvider>(_serviceProvider),
                 ActivatorUtilities.CreateInstance<QuectelAtModemProvider>(_serviceProvider),
             };
+            // Starlink providers are also per site: the gRPC provider keeps
+            // per-config history-counter state keyed by configuration ID, which
+            // must not collide across site databases.
+            var starlinkProviders = new List<IStarlinkProvider>
+            {
+                ActivatorUtilities.CreateInstance<StarlinkProviders.StarlinkGrpcProvider>(_serviceProvider),
+            };
             return new SiteModemMonitors(
                 ActivatorUtilities.CreateInstance<CableModemMonitorService>(_serviceProvider, s),
                 ActivatorUtilities.CreateInstance<OntMonitorService>(_serviceProvider, s),
                 ActivatorUtilities.CreateInstance<CellularModemService>(
-                    _serviceProvider, s, siteSsh, (IEnumerable<ICellularModemProvider>)cellularProviders));
+                    _serviceProvider, s, siteSsh, (IEnumerable<ICellularModemProvider>)cellularProviders),
+                ActivatorUtilities.CreateInstance<StarlinkMonitorService>(
+                    _serviceProvider, s, (IEnumerable<IStarlinkProvider>)starlinkProviders));
         });
 
     /// <summary>The default site's modem monitors.</summary>
@@ -101,6 +111,7 @@ public class ModemMonitorRegistry : BackgroundService
             bundle.CableModem.DisposeOwned();
             bundle.Ont.DisposeOwned();
             bundle.Cellular.DisposeOwned();
+            bundle.Starlink.DisposeOwned();
         }
     }
 
@@ -153,6 +164,11 @@ public class ModemMonitorRegistry : BackgroundService
         {
             bundle.Cellular.Active = active;
             _logger.LogInformation("Cellular modem monitoring {State} for a site", active ? "activated" : "deactivated");
+        }
+        if (bundle.Starlink.Active != active)
+        {
+            bundle.Starlink.Active = active;
+            _logger.LogInformation("Starlink monitoring {State} for a site", active ? "activated" : "deactivated");
         }
     }
 }

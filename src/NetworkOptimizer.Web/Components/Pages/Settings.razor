@@ -42,6 +42,7 @@
 @inject MonitoringInfluxClient InfluxClient
 @inject CableModemMonitorService CmMonitorService
 @inject OntMonitorService OntMonitorService
+@inject StarlinkMonitorService StarlinkMonitor
 @inject Microsoft.EntityFrameworkCore.IDbContextFactory<NetworkOptimizer.Storage.Models.NetworkOptimizerDbContext> DbFactory
 @using NetworkOptimizer.Alerts.Models
 @using NetworkOptimizer.Web.Components.Shared
@@ -1588,6 +1589,156 @@
                     {
                         <div class="mi-funnel">
                             Can't reach it? <a href="@MonitoringInterfaceLink(_ontTestedHost, "ont")">Set up a monitoring interface →</a>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Starlink Monitoring -->
+    <div class="card settings-tab-monitoring" id="starlink">
+        <div class="card-header">
+            <h2 class="card-title">Starlink Monitoring</h2>
+            <span class="status-badge status-@_starlinkStatus.ToLower()">@_starlinkStatus</span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Monitor Starlink terminals over the dish's local gRPC API for power draw, obstruction, outages, and alignment.
+            </p>
+
+            @if (_starlinkConfigs.Count > 0)
+            {
+                <div class="table-responsive">
+                <table class="data-table settings-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Host</th>
+                            <th>Provider</th>
+                            <th>Enabled</th>
+                            <th>Last Polled</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var terminal in _starlinkConfigs)
+                        {
+                            <tr>
+                                <td>@terminal.Name</td>
+                                <td><code>@terminal.Host</code></td>
+                                <td>@GetStarlinkProviderDisplayName(terminal.Provider)</td>
+                                <td>
+                                    @if (terminal.Enabled)
+                                    {
+                                        <span class="status-badge status-connected">Enabled</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected">Disabled</span>
+                                    }
+                                </td>
+                                <td>@(terminal.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                                <td>
+                                    <div class="btn-group-wrap">
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditStarlink(terminal)">Edit</button>
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => TestStarlink(terminal)" disabled="@(_starlinkTestingId == terminal.Id)">
+                                            @if (_starlinkTestingId == terminal.Id)
+                                            {
+                                                <span class="spinner"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>Test</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteStarlink(terminal.Id)">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+            else
+            {
+                <p class="empty-state">No Starlink terminals configured. Add one below to start monitoring dish health.</p>
+            }
+
+            <details class="add-form" open="@_starlinkFormVisible">
+                <summary @onclick="() => _starlinkFormVisible = !_starlinkFormVisible">@(_editingStarlink.Id > 0 ? "Edit Starlink Terminal" : "Add Starlink Terminal")</summary>
+                <div class="add-form-content add-form-content-spaced">
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_editingStarlink.Name" placeholder="Starlink Roof" required />
+                        </div>
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Provider</label>
+                            <select class="form-control" @bind="_editingStarlink.Provider">
+                                <option value="starlink-grpc">Starlink (local gRPC)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Host / IP</label>
+                            <input type="text" class="form-control" @bind="_editingStarlink.Host" placeholder="192.168.100.1" required />
+                            <small class="form-help">
+                                Behind your WAN and unreachable for polling?
+                                <a href="@MonitoringInterfaceLink(_editingStarlink.Host, "starlink")">Set up a monitoring interface →</a>
+                            </small>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" @bind="_editingStarlink.Port" min="1" max="65535" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Polling Interval (sec)</label>
+                            <input type="number" class="form-control" @bind="_editingStarlink.PollingIntervalSeconds" min="30" max="3600" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_editingStarlink.Enabled" />
+                            <span>Enable polling</span>
+                        </label>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveStarlink" disabled="@_savingStarlink">
+                            @if (_savingStarlink)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>@(_editingStarlink.Id > 0 ? "Update Starlink Terminal" : "Add Starlink Terminal")</span>
+                            }
+                        </button>
+                        @if (_editingStarlink.Id > 0)
+                        {
+                            <button class="btn btn-secondary" @onclick="CancelEditStarlink">Cancel</button>
+                        }
+                    </div>
+                </div>
+            </details>
+
+            @if (!string.IsNullOrEmpty(_starlinkTestResult))
+            {
+                <div class="alert alert-@_starlinkTestResultClass" style="margin-top: 1rem;">
+                    @_starlinkTestResult
+                    @if (LooksUnreachable(_starlinkTestResult) && !string.IsNullOrWhiteSpace(_starlinkTestedHost))
+                    {
+                        <div class="mi-funnel">
+                            Can't reach it? <a href="@MonitoringInterfaceLink(_starlinkTestedHost, "starlink")">Set up a monitoring interface →</a>
                         </div>
                     }
                 </div>
@@ -3150,6 +3301,7 @@
         ["cellular-modem"] = "monitoring",
         ["cable-modem"] = "monitoring",
         ["ont-monitoring"] = "monitoring",
+        ["starlink"] = "monitoring",
         ["speed-test-settings"] = "speedtests",
         ["external-speedtest-settings"] = "speedtests",
         ["security-audit"] = "security",
@@ -3739,6 +3891,17 @@
     private int? _ontTestingId;
     private string _ontStatus = "Inactive";
 
+    // Starlink Monitoring
+    private List<StarlinkConfiguration> _starlinkConfigs = new();
+    private StarlinkConfiguration _editingStarlink = new();
+    private bool _starlinkFormVisible;
+    private bool _savingStarlink;
+    private string? _starlinkTestResult;
+    private string _starlinkTestResultClass = "info";
+    private int? _starlinkTestingId;
+    private string? _starlinkTestedHost;
+    private string _starlinkStatus = "Inactive";
+
     // Gateway SSH
     private GatewaySshSettings? gatewaySettings;
     private string gatewayHost = "";
@@ -3985,6 +4148,7 @@
         await LoadModemConfigs();
         await LoadCmSettings();
         await LoadOntSettings();
+        await LoadStarlinkSettings();
         await LoadDiscoveredModems();
         await LoadIperf3Settings();
         await LoadExtServers();
@@ -5599,6 +5763,142 @@
         "quantum-q1000k" => "Quantum Fiber Q1000K (HTTP)",
         "telekom-modem2" => "Telekom Glasfaser-Modem 2 (HTTP)",
         "generic-http-ont" => "Generic HTTP ONT",
+        _ => provider,
+    };
+
+    // --- Starlink Monitoring ---
+
+    private async Task LoadStarlinkSettings()
+    {
+        try
+        {
+            _starlinkConfigs = await StarlinkMonitor.GetConfigsAsync();
+            if (_starlinkConfigs.Any(c => !string.IsNullOrEmpty(c.LastError)))
+                _starlinkStatus = "Error";
+            else if (_starlinkConfigs.Any(c => c.Enabled))
+                _starlinkStatus = "Active";
+            else
+                _starlinkStatus = "Inactive";
+        }
+        catch (Exception ex)
+        {
+            _starlinkStatus = "Error";
+            _starlinkTestResult = $"Error loading Starlink configs: {ex.Message}";
+            _starlinkTestResultClass = "danger";
+        }
+    }
+
+    private async Task SaveStarlink()
+    {
+        if (string.IsNullOrWhiteSpace(_editingStarlink.Name) || string.IsNullOrWhiteSpace(_editingStarlink.Host))
+        {
+            _starlinkTestResult = "Name and Host are required.";
+            _starlinkTestResultClass = "danger";
+            return;
+        }
+
+        _savingStarlink = true;
+        _starlinkTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var isNew = _editingStarlink.Id == 0;
+            _editingStarlink.UpdatedAt = DateTime.UtcNow;
+            if (isNew)
+                _editingStarlink.CreatedAt = DateTime.UtcNow;
+
+            await StarlinkMonitor.SaveStarlinkAsync(_editingStarlink);
+            _starlinkTestResult = isNew ? "Starlink terminal added successfully" : "Starlink terminal updated successfully";
+            _starlinkTestResultClass = "success";
+
+            await LoadStarlinkSettings();
+            CancelEditStarlink();
+        }
+        catch (Exception ex)
+        {
+            _starlinkTestResult = $"Error saving Starlink terminal: {ex.Message}";
+            _starlinkTestResultClass = "danger";
+        }
+        finally
+        {
+            _savingStarlink = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteStarlink(int id)
+    {
+        try
+        {
+            await StarlinkMonitor.DeleteStarlinkAsync(id);
+            _starlinkTestResult = "Starlink terminal deleted.";
+            _starlinkTestResultClass = "success";
+            await LoadStarlinkSettings();
+        }
+        catch (Exception ex)
+        {
+            _starlinkTestResult = $"Error deleting Starlink terminal: {ex.Message}";
+            _starlinkTestResultClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task TestStarlink(StarlinkConfiguration config)
+    {
+        _starlinkTestingId = config.Id;
+        _starlinkTestedHost = config.Host;
+        _starlinkTestResult = $"Testing {config.Name}...";
+        _starlinkTestResultClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await StarlinkMonitor.ProbeAsync(config);
+            _starlinkTestResult = message;
+            _starlinkTestResultClass = success ? "success" : "danger";
+            if (success)
+                await LoadStarlinkSettings();
+        }
+        catch (Exception ex)
+        {
+            _starlinkTestResult = $"Error: {ex.Message}";
+            _starlinkTestResultClass = "danger";
+        }
+        finally
+        {
+            _starlinkTestingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private void EditStarlink(StarlinkConfiguration config)
+    {
+        _editingStarlink = new StarlinkConfiguration
+        {
+            Id = config.Id,
+            Name = config.Name,
+            Provider = config.Provider,
+            Host = config.Host,
+            Port = config.Port,
+            PollingIntervalSeconds = config.PollingIntervalSeconds,
+            Enabled = config.Enabled,
+            LastPolled = config.LastPolled,
+            LastError = config.LastError,
+            CreatedAt = config.CreatedAt,
+        };
+        _starlinkFormVisible = true;
+    }
+
+    private void CancelEditStarlink()
+    {
+        _editingStarlink = new StarlinkConfiguration();
+        _starlinkFormVisible = false;
+    }
+
+    private static string GetStarlinkProviderDisplayName(string provider) => provider switch
+    {
+        "starlink-grpc" => "Starlink (local gRPC)",
         _ => provider,
     };
 

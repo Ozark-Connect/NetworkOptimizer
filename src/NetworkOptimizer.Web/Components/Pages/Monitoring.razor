@@ -30,6 +30,7 @@
 @inject CableModemMonitorService CmMonitorService
 @inject OntMonitorService OntMonitorService
 @inject CellularModemService CellularModemService
+@inject StarlinkMonitorService StarlinkMonitor
 @inject MonitoringCollectionAgent CollectionAgent
 @inject IspHealthService IspHealthService
 @inject NetworkOptimizer.Web.Services.Monitoring.FlakyTargetService FlakyTargets
@@ -137,6 +138,11 @@ else
                     @onclick="@(() => SetActiveTab("cellular"))"
                     disabled="@(!_monitoringReady)">
                 Cellular Stats
+            </button>
+            <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
+                    @onclick="@(() => SetActiveTab("starlink"))"
+                    disabled="@(!_monitoringReady)">
+                Starlink Stats
             </button>
             <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
                 Data Usage
@@ -1084,6 +1090,115 @@ else
         }
     }
 
+    @* ──────────────── Tab: Starlink Stats ──────────────── *@
+    @if (_activeTab == "starlink" && _monitoringReady)
+    {
+        @if (_influxReachable == false)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>InfluxDB: @ShortInfluxStatus()</strong> - Starlink chart data is unavailable. Check the <a href="javascript:void(0)" @onclick='() => SetActiveTab("setup")' @onclick:preventDefault>Setup</a> tab to review connection status.
+                @if (!string.IsNullOrEmpty(_influxError))
+                {
+                    <div style="margin-top: 0.25rem; font-size: 0.85rem; opacity: 0.8;">@_influxError</div>
+                }
+            </div>
+        }
+        else if (_influxReachable != true)
+        {
+            <div class="loading-container" style="padding: 3rem;">
+                <div class="spinner"></div>
+            </div>
+        }
+        @if (_influxReachable == true)
+        {
+        @if (!_starlinkHasDevices)
+        {
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-header monitoring-chart-header">
+                    <h2 class="card-title">Starlink Terminal History</h2>
+                    <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
+                </div>
+                <div class="card-body" style="text-align: center; padding: 2rem;">
+                    <p class="page-description">No Starlink terminals configured. Add one in <a href="/settings#starlink">Settings</a> to start monitoring.</p>
+                </div>
+            </div>
+        }
+        else
+        {
+        <div class="card" style="margin-top: 1.5rem;" id="starlink-charts-container">
+            <div class="card-header monitoring-chart-header">
+                <h2 class="card-title">Starlink Terminal History</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button class="time-btn" data-shift="back" data-tooltip="Shift window back">&#x25C0;</button>
+                    <div class="time-range-selector" style="position: relative;">
+                        <button class="time-btn" data-range="0">15m</button>
+                        <button class="time-btn" data-range="1">1h</button>
+                        <button class="time-btn" data-range="6">6h</button>
+                        <button class="time-btn active" data-range="24">24h</button>
+                        <button class="time-btn" data-range="168">7d</button>
+                        <button class="time-btn" data-range="720">30d</button>
+                        <button class="time-btn custom-range-btn" data-action="custom-range" data-tooltip="Custom date range" data-tooltip-hover-only>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        </button>
+                        <div class="custom-range-popover" data-popover="custom-range">
+                            <div class="custom-range-form">
+                                <div class="custom-range-title">Custom Range</div>
+                                <div class="custom-range-field">
+                                    <label>From</label>
+                                    <input type="datetime-local" data-input="from" class="custom-range-input" />
+                                </div>
+                                <div class="custom-range-field">
+                                    <label>To</label>
+                                    <input type="datetime-local" data-input="to" class="custom-range-input" />
+                                </div>
+                                <div class="custom-range-actions">
+                                    <button class="btn btn-sm btn-secondary" data-action="cancel-custom">Cancel</button>
+                                    <button class="btn btn-sm btn-primary" data-action="apply-custom">Apply</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="time-btn" data-shift="forward" data-tooltip="Shift window forward">&#x25B6;</button>
+                    <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
+                        <img src="/images/gear.svg" alt="" style="width:16px;height:16px;" />
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="starlink-filter-badges wan-filter-badges"></div>
+                <div class="chart-card">
+                    <div class="chart-header"><h3 class="chart-title">Power Draw (W)</h3></div>
+                    <div class="starlink-power-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Dish Ping Drop Rate (%)</h3></div>
+                    <div class="starlink-drop-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Sky Obstruction (%)</h3></div>
+                    <div class="starlink-obstruction-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Outage Seconds</h3></div>
+                    <div class="starlink-outage-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">GPS Satellites</h3></div>
+                    <div class="starlink-gps-chart"></div>
+                </div>
+                <div class="chart-card" style="margin-top: 1rem;">
+                    <div class="chart-header"><h3 class="chart-title">Alignment Offset (deg)</h3></div>
+                    <div class="starlink-alignment-chart"></div>
+                </div>
+                <div class="starlink-stats-table"></div>
+            </div>
+        </div>
+        }
+        }
+    }
+
     @* ──────────────── Tab: Setup ──────────────── *@
     @if (_activeTab == "setup")
     {
@@ -1375,6 +1490,9 @@ else
     [SupplyParameterFromQuery(Name = "ont")]
     public string? OntParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "starlink")]
+    public string? StarlinkParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "mifip")]
     public string? MiTargetParam { get; set; }
 
@@ -1385,6 +1503,7 @@ else
     private string? _soloCellularModemId;
     private string? _soloCmId;
     private string? _soloOntId;
+    private string? _soloStarlinkId;
 
     private bool _upstreamDiscoveryPendingSave =>
         UpstreamTracer.State.Step == NetworkOptimizer.Web.Services.Monitoring.TracerStep.ReviewingResults;
@@ -1422,6 +1541,7 @@ else
     private bool _cmHasDevices;
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
+    private bool _starlinkHasDevices;
     private bool _forceExpandUpstream;
 
     // "Results ready" banner for the scheduled upstream re-discovery, surfaced on the
@@ -1447,6 +1567,7 @@ else
     private bool _healthChartsMounted;
     private bool _sfpChartsMounted;
     private bool _cellularChartsMounted;
+    private bool _starlinkChartsMounted;
     private bool _cmChartsMounted;
     private bool _ontChartsMounted;
 
@@ -1476,7 +1597,7 @@ else
 
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "live", "isp-health", "performance", "devices", "sfp", "cm", "ont", "cellular", "setup"
+        "live", "isp-health", "performance", "devices", "sfp", "cm", "ont", "cellular", "starlink", "setup"
     };
 
     private string ResolveDefaultTab()
@@ -1570,6 +1691,11 @@ else
             _soloOntId = OntParam;
         }
 
+        if (!string.IsNullOrEmpty(StarlinkParam) && _activeTab == "starlink")
+        {
+            _soloStarlinkId = StarlinkParam;
+        }
+
         // Expand on any funnel deep-link from the monitor forms. Those links always carry
         // mitype (cm/wmodem/ont), even when the Host field was empty so mifip is blank, so
         // mitype is the reliable "set up a monitoring interface" signal.
@@ -1606,6 +1732,8 @@ else
         _ontHasDevices = ontConfigs.Count > 0;
         var cellConfigs = await CellularModemService.GetModemsAsync();
         _cellularHasDevices = cellConfigs.Count > 0;
+        var starlinkConfigs = await StarlinkMonitor.GetConfigsAsync();
+        _starlinkHasDevices = starlinkConfigs.Count > 0;
 
         _mapOrder2dFirst = await SystemSettings.GetGlobalAsync(SystemSettingKeys.MonitoringLiveMapOrder) == "2d-first";
         var dashLayout = await DashboardLayout.GetLayoutAsync();
@@ -3137,11 +3265,11 @@ else
         {
             if (_mapMounted || _map2dMounted || _wanLiveChartMounted || _portStatsMounted
                 || _latencyChartsMounted || _healthChartsMounted || _sfpChartsMounted
-                || _cellularChartsMounted || _cmChartsMounted || _ontChartsMounted)
+                || _cellularChartsMounted || _starlinkChartsMounted || _cmChartsMounted || _ontChartsMounted)
             {
                 _mapMounted = _map2dMounted = _wanLiveChartMounted = _portStatsMounted = false;
                 _latencyChartsMounted = _healthChartsMounted = _sfpChartsMounted = false;
-                _cellularChartsMounted = _cmChartsMounted = _ontChartsMounted = false;
+                _cellularChartsMounted = _starlinkChartsMounted = _cmChartsMounted = _ontChartsMounted = false;
                 try
                 {
                     await JS.InvokeVoidAsync("eval",
@@ -3149,6 +3277,7 @@ else
                         "window.__wanLiveChart?.unmount(); window.__portStatsTable?.unmount();" +
                         "window.__latencyCharts?.unmount(); window.__healthCharts?.unmount();" +
                         "window.__sfpCharts?.unmount(); window.__cellularCharts?.unmount();" +
+                        "window.__starlinkCharts?.unmount();" +
                         "window.__cmCharts?.unmount(); window.__ontCharts?.unmount();");
                 }
                 catch { }
@@ -3443,6 +3572,29 @@ else
             catch { }
         }
 
+        // Starlink charts - Starlink tab only (wait for InfluxDB like the cellular charts)
+        if (_activeTab == "starlink" && _monitoringReady && _influxReachable == true && !_starlinkChartsMounted)
+        {
+            _starlinkChartsMounted = true;
+            try
+            {
+                var starlinkUrl = VersionedJs("/js/starlink-charts.js");
+                var soloJs = !string.IsNullOrEmpty(_soloStarlinkId)
+                    ? $"m.soloDevice('{System.Text.Encodings.Web.JavaScriptEncoder.Default.Encode(_soloStarlinkId)}');"
+                    : "";
+                await JS.InvokeVoidAsync("eval",
+                    $"(async () => {{ const m = await import('{starlinkUrl}'); window.__starlinkCharts = m; await m.mount('starlink-charts-container'); {soloJs} }})();");
+                _soloStarlinkId = null;
+            }
+            catch (Exception ex) { _starlinkChartsMounted = false; Logger.LogDebug(ex, "Starlink charts mount failed; will retry on next render"); }
+        }
+        else if ((_activeTab != "starlink" || _influxReachable != true) && _starlinkChartsMounted)
+        {
+            _starlinkChartsMounted = false;
+            try { await JS.InvokeVoidAsync("eval", "window.__starlinkCharts?.unmount();"); }
+            catch { }
+        }
+
         // CM charts
         if (_activeTab == "cm" && _monitoringReady && _influxReachable == true && !_cmChartsMounted)
         {
@@ -3518,6 +3670,11 @@ else
         if (_cellularChartsMounted)
         {
             try { _ = JS.InvokeVoidAsync("eval", "window.__cellularCharts?.unmount();").AsTask(); }
+            catch { }
+        }
+        if (_starlinkChartsMounted)
+        {
+            try { _ = JS.InvokeVoidAsync("eval", "window.__starlinkCharts?.unmount();").AsTask(); }
             catch { }
         }
         if (_cmChartsMounted)
