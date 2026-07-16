@@ -505,14 +505,11 @@
         if (stats.SoftwareUpdateState is not null and not "Idle" and not "SoftwareUpdateStateUnknown" and not "Unknown")
             notices.Add($"Software update: {HumanizeToken(stats.SoftwareUpdateState)}");
 
-        var dlLimited = IsLimited(stats.DownlinkRestrictedReason);
-        var ulLimited = IsLimited(stats.UplinkRestrictedReason);
-        if (dlLimited && ulLimited)
-            notices.Add("Speeds are limited by the service plan");
-        else if (dlLimited)
-            notices.Add($"Download limited: {HumanizeToken(stats.DownlinkRestrictedReason!)}");
-        else if (ulLimited)
-            notices.Add($"Upload limited: {HumanizeToken(stats.UplinkRestrictedReason!)}");
+        // Restriction reasons are noisy: PolicyLimit/LowSpeedPolicyLimit is ordinary
+        // plan shaping on virtually every Starlink plan. Only an overage cap is
+        // actionable, so that's the only one surfaced.
+        if (stats.DownlinkRestrictedReason == "OverageLimit" || stats.UplinkRestrictedReason == "OverageLimit")
+            notices.Add("Speeds reduced: the plan's data allowance has been used up");
 
         // Hardware self-test is deliberately NOT surfaced: healthy dishes routinely
         // report FAILED with codes like DBF_NUM_FEMS (a few dead front-end modules
@@ -521,9 +518,6 @@
 
         return notices;
     }
-
-    private static bool IsLimited(string? reason) =>
-        reason is not null and not "NoLimit" and not "Unknown";
 
     /// <summary>"thermal_throttle" or "ThermalThrottle" -> "Thermal throttle".</summary>
     private static string HumanizeToken(string token)
