@@ -206,6 +206,16 @@ public class ChannelRecommendationService
     private const double CorroborationMinExternalWeight = 1.0;
 
     /// <summary>
+    /// How old a spectrum scan must be before a re-scan is worth SUGGESTING (never before it's also
+    /// material - see <see cref="ApChannelRecommendation.ScanRescanRecommended"/>). Deliberately in
+    /// days, not hours: a fixed interferer's noise floor and the neighbor-network picture are stable
+    /// over hours, so re-scanning a same-day reading rarely changes anything and just churns clients on
+    /// APs without a dedicated scan radio. The materiality gate does the real filtering; this is only a
+    /// coarse "enough time has passed that the RF picture plausibly moved." Tunable.
+    /// </summary>
+    private static readonly TimeSpan SpectrumScanStaleAfter = TimeSpan.FromHours(72);
+
+    /// <summary>
     /// Converts a measured channel occupancy percentage (0-100) to the per-AP score scale used by
     /// the absolute gates, for the measured-congestion floor (#2). Anchored to those gates rather
     /// than to the (over-stated) external proxy: ~40% airtime lands near <see cref="MinApScoreToMove"/>
@@ -1393,11 +1403,11 @@ public class ChannelRecommendationService
         // Log final recommendation summary
         LogRecommendationSummary(plan, currentAssignment, bestAssignment);
 
-        // Diagnostics: how stale each AP's scan is, and whether that staleness could matter - the scan
-        // term was decisive for the recommendation, or a measured-worse hold is resting on it, plus
-        // whether the neighbor scan still corroborates it. Lets us see on live sites how often "old"
-        // coincides with "material" before designing a staleness-driven re-scan prompt.
-        LogScanMateriality(graph, band, finalAssignment, measuredWorseHolds);
+        // Record per-AP scan staleness/materiality onto the plan (drives the re-scan prompt) and, when
+        // debug is on, log the full breakdown: how stale each AP's scan is, whether that staleness is
+        // load-bearing (a measured-worse hold rests on it, or the scan term was decisive), and whether
+        // the fresher neighbor scan still corroborates it.
+        RecordAndLogScanMateriality(plan, graph, band, finalAssignment, measuredWorseHolds);
 
         return plan;
     }
@@ -3230,30 +3240,36 @@ public class ChannelRecommendationService
     }
 
     /// <summary>
-    /// Diagnostics for the scan-staleness question: for each AP, log how old its spectrum scan is and
-    /// whether that age could MATTER - either the guard held it off a channel using scan data
-    /// (strongest signal), or the scan term was decisive in picking its recommended channel - together
-    /// with whether the fresher neighbor scan still corroborates the reading. Debug-gated so the extra
-    /// scoring never runs in production with debug off. This is instrumentation to gather real
-    /// materiality data before we design a staleness-driven re-scan prompt; it changes no decisions.
+    /// Records per-AP scan staleness/materiality onto the plan and, when debug is on, logs the full
+    /// breakdown. For each AP: how old its spectrum scan is; whether that age is load-bearing (the
+    /// measured-worse guard held it on its noise-floor arm, or the scan term was decisive in the pick);
+    /// and whether the fresher neighbor scan still corroborates the reading. Sets
+    /// <see cref="ApChannelRecommendation.ScanRescanRecommended"/> when the scan is stale AND material
+    /// AND uncorroborated - the only case where a re-scan could change the answer. The expensive
+    /// decisive check only runs for stale APs (the only ones that can be prompt-material) unless debug
+    /// is on and wants the full diagnostic. Changes no recommendation.
     /// </summary>
-    private void LogScanMateriality(
+    private void RecordAndLogScanMateriality(
+        ChannelPlan plan,
         InterferenceGraph graph,
         RadioBand band,
         (int Channel, int Width)[] finalAssignment,
         IReadOnlyDictionary<int, (int RejectedChannel, MeasuredWorseReason Reason)> measuredWorseHolds)
     {
-        if (!_logger.IsEnabled(LogLevel.Debug)) return;
         var n = graph.Nodes.Count;
         if (n == 0) return;
 
         var now = DateTimeOffset.UtcNow;
-        var sb = new StringBuilder();
-        sb.AppendLine($"[ChannelRec] === SCAN MATERIALITY ({band}) ===");
+        var debug = _logger.IsEnabled(LogLevel.Debug);
+        StringBuilder? sb = debug ? new StringBuilder() : null;
+        sb?.AppendLine($"[ChannelRec] === SCAN MATERIALITY ({band}) ===");
 
         for (int i = 0; i < n; i++)
         {
             var node = graph.Nodes[i];
+            var rec = plan.Recommendations[i];
+            rec.SpectrumScanTime = node.SpectrumScanTime;
+            var stale = node.SpectrumScanTime is { } t && (now - t) > SpectrumScanStaleAfter;
             var age = FormatScanAge(node.SpectrumScanTime, now);
 
             // Held-by-guard case: the scan (or measured interference) is directly load-bearing.
@@ -3261,15 +3277,32 @@ public class ChannelRecommendationService
             {
                 var (rejectedCh, reason) = hold;
                 var ext = ExternalNeighborWeightOn(graph, band, i, rejectedCh, node.CurrentWidth);
-                var corroborated = ext >= CorroborationMinExternalWeight ? "CORROBORATED" : "UNCORROBORATED";
-                sb.AppendLine(
+                var corroborated = ext >= CorroborationMinExternalWeight;
+
+                // A re-scan can only change a NOISE-FLOOR-arm hold on a STALE, UNCORROBORATED channel:
+                // an interference-arm hold reads measured history (a spectrum re-scan won't refresh it),
+                // and a corroborated floor is confirmed by the fresher neighbor scan.
+                if (reason.NoiseFloorArm && stale && !corroborated)
+                {
+                    rec.ScanRescanRecommended = true;
+                    rec.ScanRescanReason =
+                        $"held off ch{rejectedCh} by a {age} spectrum reading the neighbor scan no longer corroborates";
+                }
+
+                sb?.AppendLine(
                     $"  {node.Name} (scan {age}): HELD off ch{rejectedCh} by measured-worse guard " +
-                    $"[{DescribeMeasuredWorseArms(reason)}]; ch{rejectedCh} floor {corroborated} by neighbors (ext={ext:F2})");
+                    $"[{DescribeMeasuredWorseArms(reason)}]; ch{rejectedCh} floor " +
+                    $"{(corroborated ? "CORROBORATED" : "UNCORROBORATED")} by neighbors (ext={ext:F2})" +
+                    $"{(rec.ScanRescanRecommended ? " -> RE-SCAN RECOMMENDED" : "")}");
                 continue;
             }
 
-            // General case: is the scan term what tips this AP's recommended channel over its best
-            // alternative? Strip the scan term from both and see whether the ranking flips.
+            // General case: only stale APs can be prompt-material, so skip the decisive check's cost
+            // for fresh scans unless debug wants the full breakdown.
+            if (!stale && !debug) continue;
+
+            // Is the scan term what tips this AP's recommended channel over its best alternative? Strip
+            // the scan term from both and see whether the ranking flips.
             var recCh = finalAssignment[i].Channel;
             var recWidth = finalAssignment[i].Width;
             var recTotal = ScoreAp(graph, finalAssignment, i, band);
@@ -3283,26 +3316,38 @@ public class ChannelRecommendationService
                 var trial = ((int Channel, int Width)[])finalAssignment.Clone();
                 trial[i] = (ch, recWidth);
                 ApplyMeshConstraints(graph, trial);
-                var t = ScoreAp(graph, trial, i, band);
-                if (t < altTotal) { altTotal = t; altCh = ch; altScan = ComputeScanScore(graph, band, i, ch, recWidth); }
+                var t2 = ScoreAp(graph, trial, i, band);
+                if (t2 < altTotal) { altTotal = t2; altCh = ch; altScan = ComputeScanScore(graph, band, i, ch, recWidth); }
             }
 
             var ago = ExternalNeighborWeightOn(graph, band, i, recCh, recWidth);
-            if (altCh < 0)
+            // Decisive = rec currently wins, but with the scan term removed the alternative would.
+            var decisive = altCh >= 0 && recTotal <= altTotal && (recTotal - recScan) > (altTotal - altScan);
+            var recCorroborated = ago >= CorroborationMinExternalWeight;
+
+            if (decisive && stale && !recCorroborated)
             {
-                sb.AppendLine($"  {node.Name} (scan {age}): rec ch{recCh}, no alternative channel");
-                continue;
+                rec.ScanRescanRecommended = true;
+                rec.ScanRescanReason =
+                    $"a {age} spectrum reading the neighbor scan no longer corroborates is deciding ch{recCh}";
             }
 
-            // Decisive = rec currently wins, but with the scan term removed the alternative would.
-            var decisive = recTotal <= altTotal && (recTotal - recScan) > (altTotal - altScan);
-            var verdict = decisive
-                ? $"scan term DECISIVE over alt ch{altCh} (ch{recCh} {recTotal:F2} vs ch{altCh} {altTotal:F2}; without scan the alt wins)"
-                : $"scan term not decisive (best alt ch{altCh})";
-            sb.AppendLine($"  {node.Name} (scan {age}): rec ch{recCh}, {verdict}; ch{recCh} ext={ago:F2}");
+            if (sb != null)
+            {
+                if (altCh < 0)
+                    sb.AppendLine($"  {node.Name} (scan {age}): rec ch{recCh}, no alternative channel");
+                else
+                {
+                    var verdict = decisive
+                        ? $"scan term DECISIVE over alt ch{altCh} (ch{recCh} {recTotal:F2} vs ch{altCh} {altTotal:F2}; without scan the alt wins)"
+                        : $"scan term not decisive (best alt ch{altCh})";
+                    sb.AppendLine($"  {node.Name} (scan {age}): rec ch{recCh}, {verdict}; ch{recCh} ext={ago:F2}" +
+                        $"{(rec.ScanRescanRecommended ? " -> RE-SCAN RECOMMENDED" : "")}");
+                }
+            }
         }
 
-        _logger.LogDebug("{ScanMateriality}", sb.ToString());
+        if (sb != null) _logger.LogDebug("{ScanMateriality}", sb.ToString());
     }
 
     /// <summary>Short human label for which measured-worse arm(s) tripped, with the compared values.</summary>

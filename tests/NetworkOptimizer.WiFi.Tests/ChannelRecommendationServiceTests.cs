@@ -1311,6 +1311,83 @@ public class ChannelRecommendationServiceTests
             .And.Contain("old", "Downstairs' scan age (3h) must be rendered, not 'age unknown'");
     }
 
+    /// <summary>
+    /// The reported topology with a noise-floor trap on ch11, parameterized so tests can vary ch11's
+    /// corroborating external weight and the spectrum-scan age to exercise the re-scan gate.
+    /// </summary>
+    private InterferenceGraph BuildNoiseFloorHoldGraph(
+        double downstairsCh11Ext, DateTimeOffset scanTime, RegulatoryChannelData reg, RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        graph.ExternalLoad[0] = new() { { 1, 0.2 }, { 6, 30.0 }, { 11, 10.0 } }; // Living Room stays ch1
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 18.0 }, { 6, 30.0 }, { 11, downstairsCh11Ext } }; // proxy wants ch11
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+        graph.ScanChannelData[1] = new()
+        {
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (25, (int?)(-37)) } // loud interferer on the "cleaner" channel
+        };
+        graph.Nodes[1].SpectrumScanTime = scanTime;
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_StaleUncorroboratedNoiseFloorHold_FlagsRescanRecommended()
+    {
+        // The re-scan-worthy case: the guard holds Downstairs off ch11 on a -37 dBm floor, that floor
+        // is 5 days old, and the neighbor scan no longer corroborates it (ch11 ext 0.3). A fresh scan
+        // could clear it, so the recommendation is flagged for a re-scan prompt.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildNoiseFloorHoldGraph(0.3, DateTimeOffset.UtcNow.AddDays(-5), reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6, "the guard still holds it off the loud ch11");
+        downstairs.ScanRescanRecommended.Should().BeTrue(
+            "the hold rests on a 5-day-old noise-floor reading the neighbor scan no longer corroborates");
+    }
+
+    [Fact]
+    public void Optimize_StaleButCorroboratedNoiseFloorHold_DoesNotFlagRescan()
+    {
+        // Same stale floor, but ch11 carries heavy neighbor weight (ext 15) - the fresher neighbor scan
+        // confirms it's really loud, so a re-scan wouldn't change the answer. No prompt.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildNoiseFloorHoldGraph(15.0, DateTimeOffset.UtcNow.AddDays(-5), reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6);
+        downstairs.ScanRescanRecommended.Should().BeFalse("neighbors corroborate the loud floor, so a re-scan can't change it");
+    }
+
+    [Fact]
+    public void Optimize_FreshUncorroboratedNoiseFloorHold_DoesNotFlagRescan()
+    {
+        // Same uncorroborated hold, but the scan is fresh (1h) - nothing to re-scan yet.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildNoiseFloorHoldGraph(0.3, DateTimeOffset.UtcNow.AddHours(-1), reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6);
+        downstairs.ScanRescanRecommended.Should().BeFalse("a 1h-old scan is not stale, so no re-scan is suggested");
+    }
+
     /// <summary>Captures formatted log messages and reports debug as enabled, for asserting diagnostics.</summary>
     private sealed class ListLogger<T> : ILogger<T>
     {

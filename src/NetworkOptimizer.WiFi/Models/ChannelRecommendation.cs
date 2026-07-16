@@ -52,6 +52,27 @@ public class ApChannelRecommendation
 
     /// <summary>True when soak suppression narrowed this AP's candidate channels.</summary>
     public bool IsSoaking => SoakSuppressedChannels.Count > 0;
+
+    /// <summary>
+    /// When this AP's per-channel spectrum scan for this band was taken (UniFi
+    /// <c>spectrum_table_time</c>), or null when unknown. Drives the "how stale is the scan" display
+    /// and the <see cref="ScanRescanRecommended"/> gate.
+    /// </summary>
+    public DateTimeOffset? SpectrumScanTime { get; set; }
+
+    /// <summary>
+    /// True when the recommendation is being driven or held by a STALE, uncorroborated spectrum-scan
+    /// reading, so a fresh quick-scan could actually change the answer: the scan is older than the
+    /// staleness threshold, its noise-floor/utilization term is load-bearing (the measured-worse guard
+    /// held this AP on its noise-floor arm, or the scan term was decisive for the pick), and the
+    /// fresher neighbor scan no longer corroborates it. Deliberately NOT set for corroborated or
+    /// interference-arm holds - a re-scan wouldn't change those, so we don't nag. Distinct from a scan
+    /// GAP (no data at all); see <c>WiFiOptimizerService.GetStaleScanTargetsAsync</c>.
+    /// </summary>
+    public bool ScanRescanRecommended { get; set; }
+
+    /// <summary>Short human explanation for <see cref="ScanRescanRecommended"/>, for a UI tooltip.</summary>
+    public string? ScanRescanReason { get; set; }
 }
 
 /// <summary>
