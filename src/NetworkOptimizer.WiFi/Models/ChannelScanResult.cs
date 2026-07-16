@@ -14,8 +14,19 @@ public class ChannelScanResult
     /// <summary>Radio band scanned</summary>
     public RadioBand Band { get; set; }
 
-    /// <summary>When the scan was performed</summary>
+    /// <summary>When we FETCHED this scan (not when the radio measured it).</summary>
     public DateTimeOffset ScanTime { get; set; }
+
+    /// <summary>
+    /// When the AP's per-channel spectrum scan was actually TAKEN, from UniFi's
+    /// <c>spectrum_table_time</c>. This is the true age of the measured airtime/noise-floor data in
+    /// <see cref="Channels"/> - distinct from <see cref="ScanTime"/> (our fetch moment), which stays
+    /// "now" even when the underlying scan is hours old. Null when the controller reported no
+    /// timestamp or the band was never scanned. Diagnostics only today (how stale the scan feeding a
+    /// recommendation is); the neighbor (rogue) sighting recency lives on
+    /// <see cref="NeighborNetwork.LastSeen"/> instead.
+    /// </summary>
+    public DateTimeOffset? SpectrumTableTime { get; set; }
 
     /// <summary>Per-channel scan data</summary>
     public List<ChannelInfo> Channels { get; set; } = new();

@@ -807,6 +807,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 // spectrum-scan endpoint (the populated source); fall back to scan_radio_table.
                 var scanRadio = spectrumScan?.Scans?.FirstOrDefault(sr => sr.Radio == bandCode)
                     ?? ap.ScanRadioTable?.FirstOrDefault(sr => sr.Radio == bandCode);
+
+                // True age of the scan (when the radio measured it), distinct from our fetch time.
+                if (scanRadio?.SpectrumTableTime is long stt && stt > 0)
+                    result.SpectrumTableTime = DateTimeOffset.FromUnixTimeSeconds(stt);
+
                 if (scanRadio?.SpectrumTable != null)
                 {
                     foreach (var spectrum in scanRadio.SpectrumTable)

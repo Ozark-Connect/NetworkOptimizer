@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.WiFi.Data;
@@ -48,6 +49,89 @@ public class ChannelRecommendationServiceTests
             }
         }
         };
+
+    [Fact]
+    public void Optimize_LargeSite_GuardHoldsAtScaleWithoutBlockingLegitimateSpread()
+    {
+        // A 25-AP 2.4 GHz site is past the exhaustive-search cap (3^25), so this exercises the greedy
+        // path with the measured-worse guard applied to its result. It confirms, at scale: the optimizer
+        // completes quickly and emits only valid 1/6/11 assignments; a genuine co-channel collision is
+        // still spread apart (the guard doesn't blanket-suppress and the plan isn't globally reverted);
+        // and isolated APs in a measured-worse trap are held off the loud channel the proxy prefers.
+        //
+        // The site is kept UNcrowded (most APs quiet and content) so the 2.4 GHz whole-site guardrails
+        // (crowding friction, the 8% band-improvement bar) stay out of the way and each behaviour is
+        // observable on its own rather than masked by a blanket revert.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        const int n = 25;
+        var cluster = new[] { 0, 1, 2 };       // co-channel on ch1, mutually heard -> must spread
+        var trapped = new[] { 9, 12, 16 };     // isolated, measured-worse trap on ch11 -> must hold (none start on ch11)
+
+        var aps = new List<AccessPointSnapshot>();
+        for (int i = 0; i < n; i++)
+        {
+            var ch = cluster.Contains(i) ? 1 : new[] { 1, 6, 11 }[i % 3];
+            aps.Add(CreateAp($"aa:bb:cc:00:00:{i:x2}", $"AP-{i}", RadioBand.Band2_4GHz, ch, width: 20));
+        }
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+
+        // Baseline: every AP quiet on every channel and isolated (BuildInterferenceGraph seeds a default
+        // weight for every pair, so zero the whole matrix first). Nobody has a reason to move.
+        for (int a = 0; a < n; a++)
+        {
+            for (int b = 0; b < n; b++)
+            {
+                graph.InternalWeights[a, b] = 0;
+                graph.DirectionalWeights[a, b] = 0;
+            }
+            graph.ExternalLoad[a] = new() { { 1, 1.0 }, { 6, 1.0 }, { 11, 1.0 } };
+            graph.DirectlyObservedChannels[a] = new() { 1, 6, 11 };
+        }
+
+        // The cluster: three APs that all hear each other on ch1. Splitting them across 1/6/11 is a big
+        // internal win that dominates the (otherwise quiet) site, so it clears the 8% bar on its own -
+        // the guard holding the trapped APs can't sink it.
+        foreach (var a in cluster)
+            foreach (var b in cluster)
+                if (a != b) { graph.InternalWeights[a, b] = 1.0; graph.DirectionalWeights[a, b] = 1.0; }
+
+        // The trap: isolated APs whose proxy makes ch11 look cleanest, but whose own spectrum scan shows
+        // a -37 dBm interferer there. With no own-AP co-channel relief to gain, the guard's
+        // internal-benefit escape can't fire, so it must hold each on its current channel. (When such
+        // relief IS available the guard yields by design - covered by the 2-AP tests, not this one.)
+        foreach (var t in trapped)
+        {
+            graph.ExternalLoad[t] = new() { { 1, 3.0 }, { 6, 3.0 }, { 11, 0.5 } }; // ch11 looks best
+            graph.ScanChannelData[t] = new()
+            {
+                { (graph.Nodes[t].CurrentChannel, 20), (25, (int?)(-58)) },
+                { (11, 20), (25, (int?)(-37)) }
+            };
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+        sw.Stop();
+
+        plan.Recommendations.Should().HaveCount(n);
+        plan.Recommendations.Should().OnlyContain(r => r.RecommendedChannel == 1 || r.RecommendedChannel == 6 || r.RecommendedChannel == 11,
+            "every 2.4 GHz recommendation must land on a non-overlapping channel");
+
+        sw.ElapsedMilliseconds.Should().BeLessThan(5000,
+            "a 25-AP greedy optimization (guard included) must stay well within interactive time");
+
+        // Legitimate moves still surface: the co-channel cluster is spread across >1 channel, which also
+        // proves the plan wasn't globally reverted - so the trapped holds below are the guard's doing.
+        cluster.Select(i => plan.Recommendations[i].RecommendedChannel).Distinct().Count()
+            .Should().BeGreaterThan(1, "clustered APs must still be spread despite the guard");
+
+        // Trapped APs must NOT be moved onto the measured-loud ch11.
+        trapped.Count(t =>
+            plan.Recommendations[t].RecommendedChannel == 11 &&
+            graph.Nodes[t].CurrentChannel != 11)
+            .Should().Be(0, "the guard must hold every trapped AP off the -37 dBm ch11 at scale too");
+    }
 
     // --- Graph Building ---
 
@@ -1100,6 +1184,224 @@ public class ChannelRecommendationServiceTests
         subject.RecommendedChannel.Should().Be(52,
             "the radio measures ch52 as externally quiet, so it must not be churned off it on the neighbor scan alone");
         subject.IsChanged.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Builds the reported ch6-vs-ch11 topology: Living Room parked on a clean ch1, Downstairs on ch6,
+    /// the two hearing each other. The neighbor-scan proxy makes ch6 look busiest and ch11 cleanest for
+    /// Downstairs (the trap), so the optimizer wants to move it onto ch11. Callers layer the ground-truth
+    /// measurement (scan noise floor and/or measured interference) that reveals ch11 is actually worse.
+    /// </summary>
+    private InterferenceGraph BuildCh6VsCh11Graph(RegulatoryChannelData reg, RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        // Neighbor-scan proxy: Living Room best on ch1; Downstairs sees ch6 busiest, ch11 cleanest.
+        graph.ExternalLoad[0] = new() { { 1, 5.0 }, { 6, 30.0 }, { 11, 20.0 } };
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 18.0 }, { 6, 30.0 }, { 11, 15.0 } };
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoLouderNoiseFloor_KeepsApOnCurrentChannel()
+    {
+        // The reported ch6->ch11 nonsense (Mac site). The neighbor scan counts fewer beaconing BSSIDs
+        // on ch11 (proxy 15) than ch6 (proxy 30), so the optimizer wants to move Downstairs onto ch11 -
+        // but ch11 carries a -37 dBm noise floor (two strong neighbor APs) vs ch6's -58 dBm. The AP's own
+        // spectrum scan is ground truth the proxy ignores; the measured-worse guard must hold it on ch6.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) },
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (25, (int?)(-37)) } // loud interferer sitting on the "cleaner" channel
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6,
+            "ch11 measures far louder (-37 dBm vs -58) at this AP, so the neighbor-scan proxy must not move it there");
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01").RecommendedChannel.Should().Be(1);
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoHigherMeasuredInterference_KeepsApOnCurrentChannel()
+    {
+        // Interference arm (no spectrum-scan noise floor to lean on): the AP's own measured 1d/7d
+        // external interference records ch11 at 34% vs ch6 at 28% - worse, and above the comfortable
+        // bar - so the proxy-driven move to ch11 is held even though ch6 itself isn't "comfortable".
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.Nodes[1].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 6, (36.0, 28.0, 15.0) },
+            { 11, (41.0, 34.0, 21.0) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(6,
+            "the AP's own measurement puts ch11 (34%) above ch6 (28%), so it must not be moved to the worse channel");
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoMeasuredCleanerChannel_StillLeavesCongestedChannel()
+    {
+        // Control: same proxy trap, but this time ch11 genuinely IS cleaner - low noise floor and no
+        // elevated interference. The guard must stay inert (absolute badness gates unmet) and let the
+        // congested AP escape ch6, proving the guard suppresses only measurably-worse moves.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) },
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (20, (int?)(-85)) } // quiet destination
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(11,
+            "ch11 measures clean here, so the guard stays out of the way and the congested AP moves off ch6");
+    }
+
+    [Fact]
+    public void Optimize_ScanMaterialityLog_ReportsGuardHoldWithAgeArmAndCorroboration()
+    {
+        // The scan-materiality diagnostics are debug-gated, so exercise them with a real (capturing)
+        // logger: a guard hold on the -37 dBm ch11 must be reported with the scan age, the arm that
+        // tripped, and whether the neighbor scan still corroborates the loud floor.
+        var logger = new ListLogger<ChannelRecommendationService>();
+        var loader = new AntennaPatternLoader(NullLogger<AntennaPatternLoader>.Instance);
+        var prop = new PropagationService(loader, NullLogger<PropagationService>.Instance);
+        var svc = new ChannelRecommendationService(prop, logger);
+
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) },
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (25, (int?)(-37)) }
+        };
+        graph.Nodes[1].SpectrumScanTime = DateTimeOffset.UtcNow.AddHours(-3);
+
+        svc.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var materiality = logger.Messages.FirstOrDefault(m => m.Contains("SCAN MATERIALITY"));
+        materiality.Should().NotBeNull("the diagnostics block must be logged when debug is enabled");
+        materiality.Should()
+            .Contain("HELD off ch11")
+            .And.Contain("noise-floor -37dBm vs -58dBm")
+            .And.Contain("CORROBORATED", "ch11 carries substantial external neighbor weight here")
+            .And.Contain("old", "Downstairs' scan age (3h) must be rendered, not 'age unknown'");
+    }
+
+    /// <summary>
+    /// The reported topology with a noise-floor trap on ch11, parameterized so tests can vary ch11's
+    /// corroborating external weight and the spectrum-scan age to exercise the re-scan gate.
+    /// </summary>
+    private InterferenceGraph BuildNoiseFloorHoldGraph(
+        double downstairsCh11Ext, DateTimeOffset scanTime, RegulatoryChannelData reg, RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        graph.ExternalLoad[0] = new() { { 1, 0.2 }, { 6, 30.0 }, { 11, 10.0 } }; // Living Room stays ch1
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 18.0 }, { 6, 30.0 }, { 11, downstairsCh11Ext } }; // proxy wants ch11
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+        graph.ScanChannelData[1] = new()
+        {
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (25, (int?)(-37)) } // loud interferer on the "cleaner" channel
+        };
+        graph.Nodes[1].SpectrumScanTime = scanTime;
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_StaleUncorroboratedNoiseFloorHold_FlagsRescanRecommended()
+    {
+        // The re-scan-worthy case: the guard holds Downstairs off ch11 on a -37 dBm floor, that floor
+        // is 5 days old, and the neighbor scan no longer corroborates it (ch11 ext 0.3). A fresh scan
+        // could clear it, so the recommendation is flagged for a re-scan prompt.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildNoiseFloorHoldGraph(0.3, DateTimeOffset.UtcNow.AddDays(-5), reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6, "the guard still holds it off the loud ch11");
+        downstairs.ScanRescanRecommended.Should().BeTrue(
+            "the hold rests on a 5-day-old noise-floor reading the neighbor scan no longer corroborates");
+    }
+
+    [Fact]
+    public void Optimize_StaleButCorroboratedNoiseFloorHold_DoesNotFlagRescan()
+    {
+        // Same stale floor, but ch11 carries heavy neighbor weight (ext 15) - the fresher neighbor scan
+        // confirms it's really loud, so a re-scan wouldn't change the answer. No prompt.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildNoiseFloorHoldGraph(15.0, DateTimeOffset.UtcNow.AddDays(-5), reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6);
+        downstairs.ScanRescanRecommended.Should().BeFalse("neighbors corroborate the loud floor, so a re-scan can't change it");
+    }
+
+    [Fact]
+    public void Optimize_FreshUncorroboratedNoiseFloorHold_DoesNotFlagRescan()
+    {
+        // Same uncorroborated hold, but the scan is fresh (1h) - nothing to re-scan yet.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildNoiseFloorHoldGraph(0.3, DateTimeOffset.UtcNow.AddHours(-1), reg, options);
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6);
+        downstairs.ScanRescanRecommended.Should().BeFalse("a 1h-old scan is not stale, so no re-scan is suggested");
+    }
+
+    /// <summary>Captures formatted log messages and reports debug as enabled, for asserting diagnostics.</summary>
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public readonly List<string> Messages = new();
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 
     [Fact]

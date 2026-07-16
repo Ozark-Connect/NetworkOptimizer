@@ -663,6 +663,44 @@ public class WiFiOptimizerService
             .ToList();
     }
 
+    /// <summary>
+    /// (AP, band) pairs whose recommendation is being driven or held by a STALE, uncorroborated
+    /// spectrum-scan reading (see <see cref="ApChannelRecommendation.ScanRescanRecommended"/>), so a
+    /// fresh quick-scan could actually change the answer. Distinct from
+    /// <see cref="GetSpectrumScanGapsAsync"/>, which surfaces (AP, band) with NO scan data at all; this
+    /// is present-but-aging-AND-material. Derived from an already-computed plan set, so it only costs
+    /// one AP fetch for the scan-hardware enrichment, not a second recommendation pass. Mesh children
+    /// are excluded - they can't quick-scan without dropping their uplink.
+    /// </summary>
+    public async Task<List<SpectrumScanGap>> GetStaleScanTargetsAsync(
+        IReadOnlyDictionary<RadioBand, ChannelPlan> plans)
+    {
+        var flagged = plans.Values
+            .SelectMany(p => p.Recommendations)
+            .Where(r => r.ScanRescanRecommended)
+            .ToList();
+        if (flagged.Count == 0) return new();
+
+        var provider = CreateProvider();
+        var aps = await provider.GetAccessPointsAsync();
+        var apByMac = aps.ToDictionary(a => a.Mac, StringComparer.OrdinalIgnoreCase);
+        var meshChildMacs = aps.Where(a => a.IsMeshChild)
+            .Select(a => a.Mac)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return flagged
+            .Where(r => !meshChildMacs.Contains(r.ApMac))
+            .Select(r =>
+            {
+                apByMac.TryGetValue(r.ApMac, out var ap);
+                var hasScanRadio = ap?.HasDedicatedScanRadio ?? false;
+                var isMeshParent = (ap?.MeshChildren.Count ?? 0) > 0;
+                return new SpectrumScanGap(
+                    r.ApMac, r.ApName, r.Band, r.Band.ToUniFiCode(), hasScanRadio, isMeshParent);
+            })
+            .ToList();
+    }
+
     private const int QuickScanPollIntervalSeconds = 3;
     private const int QuickScanPerBandTimeoutSeconds = 150;
 
@@ -855,6 +893,7 @@ public class WiFiOptimizerService
                     ApName = scan.ApName,
                     Band = scan.Band,
                     ScanTime = scan.ScanTime,
+                    SpectrumTableTime = scan.SpectrumTableTime,
                     Channels = scan.Channels,
                     Neighbors = neighbors
                 });

@@ -133,9 +133,9 @@
                     <div class="alert-info scan-gap-banner">
                         <div class="scan-gap-text">
                             <strong>@_scanGaps.Count @(_scanGaps.Count == 1 ? "radio needs" : "radios need") a scan.</strong>
-                            Their channel congestion is estimated from nearby networks, not measured. @ScanDisruptionNote()
+                            Their channel congestion is estimated from nearby networks, not measured. @ScanDisruptionNote(_scanGaps)
                         </div>
-                        <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@_scanningGaps"
+                        <button class="btn btn-primary btn-sm" @onclick="RunGapScans" disabled="@(_scanningGaps || _scanningStale)"
                                 data-tooltip="Runs a quick RF scan to measure the real airtime and noise floor on these channels, so the recommendations reflect what's actually on the air instead of a guess.">
                             @if (_scanningGaps)
                             {
@@ -151,6 +151,35 @@
                     @if (_scanError is not null)
                     {
                         <div class="alert-danger scan-error-banner">@_scanError</div>
+                    }
+                }
+
+                @* Present-but-stale-AND-material: a re-scan could actually change a recommendation
+                   (a stale, uncorroborated spectrum reading is holding or deciding a channel). Kept
+                   separate from the missing-data gap banner above so that flow is unchanged. *@
+                @if (_staleScanTargets.Count > 0)
+                {
+                    <div class="alert-info scan-gap-banner">
+                        <div class="scan-gap-text">
+                            <strong>@_staleScanTargets.Count @(_staleScanTargets.Count == 1 ? "radio has" : "radios have") stale scan data.</strong>
+                            Their recommendation is based on an old reading that may no longer reflect what's on the air. @ScanDisruptionNote(_staleScanTargets)
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="RunStaleScans" disabled="@(_scanningGaps || _scanningStale)"
+                                data-tooltip="Re-measures the real airtime and noise floor on these channels. The current recommendation is resting on an older scan that nearby networks no longer corroborate, so a fresh one may change the advice.">
+                            @if (_scanningStale)
+                            {
+                                <span class="spinner spinner-sm"></span>
+                                <span>@ScanProgressLabel()</span>
+                            }
+                            else
+                            {
+                                <span>Re-scan</span>
+                            }
+                        </button>
+                    </div>
+                    @if (_staleScanError is not null)
+                    {
+                        <div class="alert-danger scan-error-banner">@_staleScanError</div>
                     }
                 }
 
@@ -929,6 +958,7 @@
             _showRecommendations = _channelPlans.Count > 0;
             AutoSelectBandWithRecommendations();
             await LoadScanGapsAsync();
+            await LoadStaleScanTargetsAsync();
         }
         finally
         {
@@ -941,6 +971,11 @@
     // per-channel spectrum measurement. A quick-scan fills them.
     private List<SpectrumScanGap> _scanGaps = new();
     private bool _scanningGaps;
+    // (AP, band) pairs that DO have scan data, but it's stale AND load-bearing on the recommendation
+    // (an uncorroborated reading is holding/deciding a channel), so a re-scan could change the advice.
+    private List<SpectrumScanGap> _staleScanTargets = new();
+    private bool _scanningStale;
+    private string? _staleScanError;
     // Progress for the running gap scan: bands started so far, and the total to scan. Drives the
     // "Scanning… X/N bands" label so a multi-minute serial scan reads as working, not hung.
     private int _scanCompletedBands;
@@ -953,14 +988,14 @@
             ? $"Scanning… {Math.Clamp(_scanCompletedBands, 1, _scanTotalBands)}/{_scanTotalBands} bands"
             : "Scanning…";
 
-    // Disruption note tailored to the gapped APs' scan hardware: an AP with a dedicated scan radio
+    // Disruption note tailored to the targets' scan hardware: an AP with a dedicated scan radio
     // measures without touching its serving radios (no client impact); without one, scanning briefly
     // steps the serving radio off-channel and a mesh parent can drop the devices meshed through it.
-    private string ScanDisruptionNote()
+    private static string ScanDisruptionNote(List<SpectrumScanGap> targets)
     {
-        var clean = _scanGaps.Count(g => g.HasDedicatedScanRadio);
-        var disruptive = _scanGaps.Count - clean;
-        var meshNote = _scanGaps.Any(g => g.IsMeshParent && !g.HasDedicatedScanRadio)
+        var clean = targets.Count(g => g.HasDedicatedScanRadio);
+        var disruptive = targets.Count - clean;
+        var meshNote = targets.Any(g => g.IsMeshParent && !g.HasDedicatedScanRadio)
             ? " (and devices meshed through an AP)" : "";
 
         if (disruptive == 0)
@@ -977,6 +1012,20 @@
         catch
         {
             _scanGaps = new();
+        }
+    }
+
+    // Stale-and-material targets are derived from the already-computed plan, so this is called right
+    // after each recommendation load (never blocks or alters the gap flow above).
+    private async Task LoadStaleScanTargetsAsync()
+    {
+        try
+        {
+            _staleScanTargets = await WiFiService.GetStaleScanTargetsAsync(_channelPlans);
+        }
+        catch
+        {
+            _staleScanTargets = new();
         }
     }
 
@@ -1005,6 +1054,7 @@
             var options = new RecommendationOptions { DfsPreference = _dfsPreference };
             _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
             await LoadScanGapsAsync();
+            await LoadStaleScanTargetsAsync();
         }
         catch (ScanPermissionException ex)
         {
@@ -1013,6 +1063,42 @@
         finally
         {
             _scanningGaps = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunStaleScans()
+    {
+        if (_scanningGaps || _scanningStale || _staleScanTargets.Count == 0) return;
+
+        _scanningStale = true;
+        _staleScanError = null;
+        _scanCompletedBands = 0;
+        _scanTotalBands = _staleScanTargets.Count; // one band scan per stale (AP, band)
+        StateHasChanged();
+        try
+        {
+            var targets = _staleScanTargets.Select(g => (g.ApMac, g.BandCode)).ToList();
+            var progress = new Progress<int>(n =>
+            {
+                _scanCompletedBands = Math.Max(_scanCompletedBands, n);
+                InvokeAsync(StateHasChanged);
+            });
+            await WiFiService.RunQuickScansAsync(targets, progress);
+
+            // Re-run recommendations on the fresh spectrum data, then re-evaluate both banners.
+            var options = new RecommendationOptions { DfsPreference = _dfsPreference };
+            _channelPlans = await WiFiService.GetAllChannelRecommendationsAsync(options);
+            await LoadScanGapsAsync();
+            await LoadStaleScanTargetsAsync();
+        }
+        catch (ScanPermissionException ex)
+        {
+            _staleScanError = ex.Message;
+        }
+        finally
+        {
+            _scanningStale = false;
             StateHasChanged();
         }
     }
