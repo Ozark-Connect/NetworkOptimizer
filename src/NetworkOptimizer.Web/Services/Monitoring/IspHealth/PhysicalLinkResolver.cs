@@ -27,6 +27,7 @@ public class PhysicalLinkResolver
     private readonly CableModemMonitorService _cmMonitor;
     private readonly OntMonitorService _ontMonitor;
     private readonly CellularModemService _cellularMonitor;
+    private readonly StarlinkMonitorService _starlinkMonitor;
     private readonly ILogger<PhysicalLinkResolver> _logger;
     private readonly string _siteSlug;
     private readonly bool _isDefault;
@@ -48,6 +49,7 @@ public class PhysicalLinkResolver
         _cmMonitor = monitors.CableModem;
         _ontMonitor = monitors.Ont;
         _cellularMonitor = monitors.Cellular;
+        _starlinkMonitor = monitors.Starlink;
         _logger = logger;
     }
 
@@ -120,6 +122,9 @@ public class PhysicalLinkResolver
             case AccessTechnology.Cellular:
                 return await CellularCandidatesAsync(db, ct);
 
+            case AccessTechnology.Satellite:
+                return await StarlinkCandidatesAsync(db, ct);
+
             case AccessTechnology.PppoE:
                 // Carve-out: PPPoE often rides PON. If exactly one PON source is monitored,
                 // it is safe to assume it is the user's WAN; otherwise stay out of it.
@@ -179,6 +184,14 @@ public class PhysicalLinkResolver
             .ToList();
     }
 
+    private async Task<List<Cand>> StarlinkCandidatesAsync(NetworkOptimizerDbContext db, CancellationToken ct)
+    {
+        return (await db.StarlinkConfigurations.AsNoTracking().Where(s => s.Enabled).ToListAsync(ct))
+            .Where(s => IsFresh(s.LastPolled, s.PollingIntervalSeconds))
+            .Select(s => new Cand($"starlink:{s.Id}", s.Name, PhysicalMedium.Satellite, s.Id, null, null))
+            .ToList();
+    }
+
     /// <summary>A configured device counts as a candidate only if it polled recently (3x its interval, min 15 min).</summary>
     private static bool IsFresh(DateTime? lastPolled, int intervalSeconds) =>
         lastPolled.HasValue && DateTime.UtcNow - lastPolled.Value <= TimeSpan.FromSeconds(Math.Max(900, intervalSeconds * 3));
@@ -197,6 +210,7 @@ public class PhysicalLinkResolver
             PhysicalMedium.ActiveEthernet => await AssembleSfpAsync(c, PhysicalMedium.ActiveEthernet, false, windowStart, windowEnd, aggregate, ct),
             PhysicalMedium.Docsis when c.ConfigId is int cmId => await AssembleCableModemAsync(c, cmId, windowStart, windowEnd, aggregate, ct),
             PhysicalMedium.Cellular when c.ConfigId is int modemId => await AssembleCellularAsync(c, modemId, windowStart, windowEnd, aggregate, ct),
+            PhysicalMedium.Satellite when c.ConfigId is int starlinkId => await AssembleStarlinkAsync(c, starlinkId, windowStart, windowEnd, aggregate, ct),
             _ => null
         };
     }
@@ -376,6 +390,50 @@ public class PhysicalLinkResolver
             NetworkMode = latestMode,
             NetworkModeDowngraded = downgraded,
             Is5gCapable = had5g,
+            WindowDays = (windowEnd - windowStart).TotalDays
+        };
+    }
+
+    private async Task<PhysicalLinkInput?> AssembleStarlinkAsync(
+        Cand c, int starlinkId, DateTime windowStart, DateTime windowEnd, TimeSpan aggregate, CancellationToken ct)
+    {
+        var dict = await _influx.QueryStarlinkAsync(windowStart, windowEnd, starlinkId.ToString(), aggregate, ct);
+        var pts = (dict.Values.FirstOrDefault() ?? new()).OrderBy(p => p.Time).ToList();
+        var live = _starlinkMonitor.GetCachedStats(starlinkId);
+
+        // outage_seconds/count are per-poll deltas summed per aggregate bucket, so summing
+        // buckets recovers the window total. Drop-rate avg is per-poll means; the median of
+        // those is robust to a lone weather burst, while the max keeps the worst second.
+        var outageSeconds = pts.Any(p => p.OutageSecondsDelta.HasValue)
+            ? pts.Where(p => p.OutageSecondsDelta.HasValue).Sum(p => p.OutageSecondsDelta!.Value)
+            : (double?)null;
+        var outageCount = pts.Any(p => p.OutageCountDelta.HasValue)
+            ? pts.Where(p => p.OutageCountDelta.HasValue).Sum(p => p.OutageCountDelta!.Value)
+            : (long?)null;
+
+        var obstruction = Median(pts.Where(p => p.FractionObstructed.HasValue).Select(p => p.FractionObstructed!.Value).ToList())
+                          ?? live?.FractionObstructed;
+        var dropAvg = Median(pts.Where(p => p.PingDropRateAvg.HasValue).Select(p => p.PingDropRateAvg!.Value).ToList())
+                      ?? live?.PingDropRateAvg;
+        var dropMax = pts.Where(p => p.PingDropRateMax.HasValue).Select(p => p.PingDropRateMax!.Value)
+            .DefaultIfEmpty().Max();
+
+        _logger.LogDebug("ISP Health physical: Starlink {Key} - {N} samples, obstructed={Obs}, dropAvg={Drop}, outage={OutS}s/{OutN}",
+            c.Key, pts.Count, obstruction, dropAvg, outageSeconds, outageCount);
+
+        return new PhysicalLinkInput
+        {
+            Medium = PhysicalMedium.Satellite,
+            SourceName = c.Label,
+            ObstructionFraction = obstruction,
+            CurrentlyObstructed = live?.CurrentlyObstructed,
+            DishDropRateAvg = dropAvg,
+            DishDropRateMax = dropMax > 0 ? dropMax : null,
+            OutageSecondsTotal = outageSeconds,
+            OutageCountTotal = outageCount,
+            SnrPersistentlyLow = live?.IsSnrPersistentlyLow,
+            DishAlerts = live?.ActiveAlerts,
+            EthSpeedMbps = live?.EthSpeedMbps,
             WindowDays = (windowEnd - windowStart).TotalDays
         };
     }

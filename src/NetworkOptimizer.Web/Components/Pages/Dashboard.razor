@@ -225,6 +225,7 @@
     private bool _editMode;
     private OntStatsPanel? _ontPanel;
     private CellularStatsPanel? _cellularPanel;
+    private StarlinkStatsPanel? _starlinkPanel;
     private CmStatsPanel? _cmPanel;
     private DashboardLayout? _layout;
     private int deviceCount = 0;
@@ -276,6 +277,7 @@
         DashboardCards.SqmStatus => RenderSqmStatus,
         DashboardCards.ThreatTrends => RenderThreatTrends,
         DashboardCards.CellularStats => RenderCellularStats,
+        DashboardCards.StarlinkStats => RenderStarlinkStats,
         DashboardCards.CmStats => RenderCmStats,
         DashboardCards.OntStats => RenderOntStats,
         DashboardCards.SpeedTests => RenderSpeedTests,
@@ -585,6 +587,18 @@
             </div>
             <div class="card-body">
                 <OntStatsPanel @ref="_ontPanel" OnDataLoaded="StateHasChanged" />
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderStarlinkStats => __builder =>
+    {
+        <div class="card clickable-card" @onclick="NavigateToStarlinkChart">
+            <div class="card-header">
+                <h2 class="card-title">Starlink Stats</h2>
+            </div>
+            <div class="card-body">
+                <StarlinkStatsPanel @ref="_starlinkPanel" />
             </div>
         </div>
     };
@@ -1249,6 +1263,15 @@
         var url = modemId != null
             ? $"/monitoring?tab=cellular&modem={Uri.EscapeDataString(modemId)}"
             : "/monitoring?tab=cellular";
+        NavigationManager.NavigateTo(url);
+    }
+
+    private void NavigateToStarlinkChart()
+    {
+        var starlinkId = _starlinkPanel?.CurrentStarlinkId;
+        var url = starlinkId != null
+            ? $"/monitoring?tab=starlink&starlink={Uri.EscapeDataString(starlinkId)}"
+            : "/monitoring?tab=starlink";
         NavigationManager.NavigateTo(url);
     }
 

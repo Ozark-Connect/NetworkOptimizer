@@ -59,6 +59,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<OuiVendor> OuiVendors { get; set; }
     public DbSet<CmConfiguration> CmConfigurations { get; set; }
     public DbSet<OntConfiguration> OntConfigurations { get; set; }
+    public DbSet<StarlinkConfiguration> StarlinkConfigurations { get; set; }
     public DbSet<MonitoringInterface> MonitoringInterfaces { get; set; }
     public DbSet<CustomOidConfiguration> CustomOidConfigurations { get; set; }
     public DbSet<ApChannelOutcome> ApChannelOutcomes { get; set; }
@@ -159,6 +160,14 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<OntConfiguration>(entity =>
         {
             entity.ToTable("OntConfigurations");
+            entity.HasIndex(e => e.Host);
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // StarlinkConfiguration configuration
+        modelBuilder.Entity<StarlinkConfiguration>(entity =>
+        {
+            entity.ToTable("StarlinkConfigurations");
             entity.HasIndex(e => e.Host);
             entity.HasIndex(e => e.Enabled);
         });

@@ -15,6 +15,7 @@ public static class DashboardCards
     public const string CellularStats = "cellular-stats";
     public const string CmStats = "cm-stats";
     public const string OntStats = "ont-stats";
+    public const string StarlinkStats = "starlink-stats";
     public const string SpeedTests = "speed-tests";
     public const string WiFiOptimizer = "wifi-optimizer";
     public const string RecentAlerts = "recent-alerts";
@@ -25,7 +26,7 @@ public static class DashboardCards
     public static readonly string[] All =
     [
         StatsRow, SecurityPosture, SqmStatus, ThreatTrends, CellularStats, CmStats, OntStats,
-        SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus, LiveView
+        StarlinkStats, SpeedTests, WiFiOptimizer, RecentAlerts, DeviceStatus, LiveView
     ];
 
     /// <summary>Default full-width cards</summary>
@@ -44,6 +45,7 @@ public static class DashboardCards
         CellularStats => "Cellular Stats",
         CmStats => "Cable Modem Stats",
         OntStats => "ONT Stats",
+        StarlinkStats => "Starlink Stats",
         SpeedTests => "Speed Tests",
         WiFiOptimizer => "Wi-Fi Optimizer",
         RecentAlerts => "Recent Security Findings",

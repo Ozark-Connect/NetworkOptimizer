@@ -897,6 +897,79 @@ from(bucket: ""{_longtermBucket}"")
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Write Starlink terminal health metrics for time-series charting.
+    /// Link latency/throughput are intentionally absent (the monitoring
+    /// pipeline measures those); these are dish-only signals.
+    /// </summary>
+    public Task WriteStarlinkAsync(
+        string starlinkId,
+        string starlinkName,
+        double? powerInW,
+        double? powerInAvgW,
+        double? powerInMaxW,
+        double? pingDropRateAvg,
+        double? pingDropRateMax,
+        double? fractionObstructed,
+        bool? currentlyObstructed,
+        int? ethSpeedMbps,
+        long? uptimeS,
+        int? gpsSats,
+        bool? gpsValid,
+        double? tiltAngleDeg,
+        double? alignmentOffsetDeg,
+        double? attitudeUncertaintyDeg,
+        int outageCountDelta,
+        double outageSecondsDelta,
+        int alertCount,
+        string? alerts,
+        bool? snrPersistentlyLow,
+        string? softwareUpdateState,
+        string? disablementCode,
+        string? dlRestrictedReason,
+        string? ulRestrictedReason,
+        string? hardwareSelfTest,
+        string? classOfService,
+        string? mobilityClass,
+        DateTime timestamp)
+    {
+        if (!IsConfigured) return Task.CompletedTask;
+        var point = PointData.Measurement("starlink")
+            .Tag("starlink_id", starlinkId)
+            .Tag("starlink_name", starlinkName)
+            .Timestamp(timestamp.ToUniversalTime(), WritePrecision.Ns);
+
+        if (powerInW.HasValue) point = point.Field("power_in_w", powerInW.Value);
+        if (powerInAvgW.HasValue) point = point.Field("power_in_avg_w", powerInAvgW.Value);
+        if (powerInMaxW.HasValue) point = point.Field("power_in_max_w", powerInMaxW.Value);
+        if (pingDropRateAvg.HasValue) point = point.Field("ping_drop_rate_avg", pingDropRateAvg.Value);
+        if (pingDropRateMax.HasValue) point = point.Field("ping_drop_rate_max", pingDropRateMax.Value);
+        if (fractionObstructed.HasValue) point = point.Field("fraction_obstructed", fractionObstructed.Value);
+        if (currentlyObstructed.HasValue) point = point.Field("currently_obstructed", currentlyObstructed.Value);
+        if (ethSpeedMbps.HasValue) point = point.Field("eth_speed_mbps", ethSpeedMbps.Value);
+        if (uptimeS.HasValue) point = point.Field("uptime_s", uptimeS.Value);
+        if (gpsSats.HasValue) point = point.Field("gps_sats", gpsSats.Value);
+        if (gpsValid.HasValue) point = point.Field("gps_valid", gpsValid.Value);
+        if (tiltAngleDeg.HasValue) point = point.Field("tilt_angle_deg", tiltAngleDeg.Value);
+        if (alignmentOffsetDeg.HasValue) point = point.Field("alignment_offset_deg", alignmentOffsetDeg.Value);
+        if (attitudeUncertaintyDeg.HasValue) point = point.Field("attitude_uncertainty_deg", attitudeUncertaintyDeg.Value);
+        point = point.Field("outage_count_delta", outageCountDelta);
+        point = point.Field("outage_seconds_delta", outageSecondsDelta);
+        point = point.Field("alert_count", alertCount);
+        if (!string.IsNullOrEmpty(alerts)) point = point.Field("alerts", alerts);
+        if (snrPersistentlyLow.HasValue) point = point.Field("snr_persistently_low", snrPersistentlyLow.Value);
+        if (!string.IsNullOrEmpty(softwareUpdateState)) point = point.Field("software_update_state", softwareUpdateState);
+        if (!string.IsNullOrEmpty(disablementCode)) point = point.Field("disablement_code", disablementCode);
+        if (!string.IsNullOrEmpty(dlRestrictedReason)) point = point.Field("dl_restricted_reason", dlRestrictedReason);
+        if (!string.IsNullOrEmpty(ulRestrictedReason)) point = point.Field("ul_restricted_reason", ulRestrictedReason);
+        if (!string.IsNullOrEmpty(hardwareSelfTest)) point = point.Field("hardware_self_test", hardwareSelfTest);
+        if (!string.IsNullOrEmpty(classOfService)) point = point.Field("class_of_service", classOfService);
+        if (!string.IsNullOrEmpty(mobilityClass)) point = point.Field("mobility_class", mobilityClass);
+
+        Enqueue(point, longterm: true);
+        return Task.CompletedTask;
+    }
+
     public Task WriteEventAsync(
         string deviceMac,
         string eventType,
@@ -1837,6 +1910,80 @@ union(tables: [gauges, deltas])
     }
 
     /// <summary>
+    /// Query Starlink terminal metrics over a time range.
+    /// Returns dict keyed by starlink_id.
+    /// </summary>
+    public async Task<Dictionary<string, List<StarlinkPoint>>> QueryStarlinkAsync(
+        DateTime from,
+        DateTime to,
+        string? starlinkId = null,
+        TimeSpan? aggregateWindow = null,
+        CancellationToken ct = default)
+    {
+        if (!IsConfigured) await ReconfigureAsync(ct);
+        if (!IsConfigured) return new Dictionary<string, List<StarlinkPoint>>();
+        var window = aggregateWindow ?? PickAggregateWindow(to - from);
+
+        var idFilter = !string.IsNullOrEmpty(starlinkId)
+            ? $@"|> filter(fn: (r) => r.starlink_id == ""{SanitizeFluxString(starlinkId)}"")"
+            : "";
+
+        var winDur = ToFluxDuration(window);
+        var flux = $@"
+gauges = from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""starlink"")
+  {idFilter}
+  |> filter(fn: (r) => r._field == ""power_in_avg_w"" or r._field == ""ping_drop_rate_avg"" or r._field == ""fraction_obstructed"" or r._field == ""eth_speed_mbps"" or r._field == ""uptime_s"" or r._field == ""gps_sats"" or r._field == ""alignment_offset_deg"" or r._field == ""alert_count"")
+  |> aggregateWindow(every: {winDur}, fn: last, createEmpty: false)
+
+peaks = from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""starlink"")
+  {idFilter}
+  |> filter(fn: (r) => r._field == ""power_in_max_w"" or r._field == ""ping_drop_rate_max"")
+  |> aggregateWindow(every: {winDur}, fn: max, createEmpty: false)
+
+deltas = from(bucket: ""{_longtermBucket}"")
+  |> range(start: {ToFluxInstant(from)}, stop: {ToFluxInstant(to)})
+  |> filter(fn: (r) => r._measurement == ""starlink"")
+  {idFilter}
+  |> filter(fn: (r) => r._field == ""outage_count_delta"" or r._field == ""outage_seconds_delta"")
+  |> aggregateWindow(every: {winDur}, fn: sum, createEmpty: false)
+
+union(tables: [gauges, peaks, deltas])
+  |> pivot(rowKey:[""_time""], columnKey: [""_field""], valueColumn: ""_value"")
+";
+        var results = new Dictionary<string, List<StarlinkPoint>>();
+        await foreach (var record in QueryFluxAsync(flux, ct))
+        {
+            var key = record.GetValueByKey("starlink_id") as string ?? "unknown";
+            if (!results.TryGetValue(key, out var list))
+            {
+                list = new List<StarlinkPoint>();
+                results[key] = list;
+            }
+            list.Add(new StarlinkPoint
+            {
+                Time = ToUtc(record.GetTimeInDateTime() ?? DateTime.UtcNow),
+                PowerInAvgW = AsDoubleOrNull(record.GetValueByKey("power_in_avg_w")),
+                PowerInMaxW = AsDoubleOrNull(record.GetValueByKey("power_in_max_w")),
+                PingDropRateAvg = AsDoubleOrNull(record.GetValueByKey("ping_drop_rate_avg")),
+                PingDropRateMax = AsDoubleOrNull(record.GetValueByKey("ping_drop_rate_max")),
+                FractionObstructed = AsDoubleOrNull(record.GetValueByKey("fraction_obstructed")),
+                EthSpeedMbps = AsIntOrNull(record.GetValueByKey("eth_speed_mbps")),
+                UptimeS = AsLongOrNull(record.GetValueByKey("uptime_s")),
+                GpsSats = AsIntOrNull(record.GetValueByKey("gps_sats")),
+                AlignmentOffsetDeg = AsDoubleOrNull(record.GetValueByKey("alignment_offset_deg")),
+                OutageCountDelta = AsLongOrNull(record.GetValueByKey("outage_count_delta")),
+                OutageSecondsDelta = AsDoubleOrNull(record.GetValueByKey("outage_seconds_delta")),
+                AlertCount = AsIntOrNull(record.GetValueByKey("alert_count")),
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
     /// Query external ONT metrics over a time range.
     /// Returns dict keyed by ont_id.
     /// </summary>
@@ -2615,6 +2762,23 @@ from(bucket: ""{_longtermBucket}"")
         public int? LockedUsChannels { get; init; }
         public long? CorrDelta { get; init; }
         public long? UncorrDelta { get; init; }
+    }
+
+    public record StarlinkPoint
+    {
+        public required DateTime Time { get; init; }
+        public double? PowerInAvgW { get; init; }
+        public double? PowerInMaxW { get; init; }
+        public double? PingDropRateAvg { get; init; }
+        public double? PingDropRateMax { get; init; }
+        public double? FractionObstructed { get; init; }
+        public int? EthSpeedMbps { get; init; }
+        public long? UptimeS { get; init; }
+        public int? GpsSats { get; init; }
+        public double? AlignmentOffsetDeg { get; init; }
+        public long? OutageCountDelta { get; init; }
+        public double? OutageSecondsDelta { get; init; }
+        public int? AlertCount { get; init; }
     }
 
     public record OntPoint

@@ -49,6 +49,7 @@ public static class PhysicalLinkScorer
             PhysicalMedium.ActiveEthernet => ScoreOptical(input, factorWeight, isPon: false, logger),
             PhysicalMedium.Docsis => ScoreDocsis(input, expectedUploadMbps, factorWeight),
             PhysicalMedium.Cellular => ScoreCellular(input, factorWeight),
+            PhysicalMedium.Satellite => ScoreSatellite(input, factorWeight),
             _ => new PhysicalLinkResult(NullFactor(factorWeight, "no usable physical-link data"), new())
         };
     }
@@ -497,6 +498,164 @@ public static class PhysicalLinkScorer
         return new PhysicalLinkResult(
             Factor(factorWeight, (int)Math.Round(score), $"Signal {quality}/100{modeBit}", desc),
             issues);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Satellite (Starlink)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>Dish alerts that cap the score when raised (live snapshot): name -> (cap, severity, copy).</summary>
+    private static readonly (string Alert, int Cap, IspIssueSeverity Severity, string Title, string Recommendation)[] SatelliteCapAlerts =
+    {
+        ("thermal_shutdown", 10, IspIssueSeverity.Critical, "Starlink: dish in thermal shutdown",
+            "The dish has shut down its radio from heat. Shade the dish or improve airflow; service is down until it cools."),
+        ("thermal_throttle", 50, IspIssueSeverity.Warning, "Starlink: dish thermally throttled",
+            "The dish is reducing performance from heat. Shade the dish or improve airflow."),
+        ("power_supply_thermal_throttle", 50, IspIssueSeverity.Warning, "Starlink: power supply thermally throttled",
+            "The power supply is overheating; move it somewhere cooler or improve airflow."),
+        ("mast_not_near_vertical", 70, IspIssueSeverity.Warning, "Starlink: mast is not vertical",
+            "A tilted mount degrades tracking. Level the mount so the dish can align properly."),
+        ("dish_water_detected", 60, IspIssueSeverity.Warning, "Starlink: water detected in the dish",
+            "The dish is reporting water intrusion; inspect the unit and its cable connections."),
+        ("lower_signal_than_predicted", 75, IspIssueSeverity.Warning, "Starlink: signal lower than predicted",
+            "The dish sees weaker signal than its ephemeris predicts, which usually means partial blockage or misalignment."),
+    };
+
+    private static PhysicalLinkResult ScoreSatellite(PhysicalLinkInput input, double factorWeight)
+    {
+        var issues = new List<IspHealthIssue>();
+        var parts = new List<(double Score, double Weight)>();
+        var valueBits = new List<string>();
+        var detailBits = new List<string>();
+        var transientAnomaly = false;
+
+        // Sky obstruction: the defining Starlink plant metric. Fraction of sky
+        // time obstructed, graded on the dish's own reporting conventions.
+        if (input.ObstructionFraction is double obstructed)
+        {
+            var obstructionScore = ScoreCurve.Interpolate(obstructed,
+                (0, 100),
+                (StarlinkHealthThresholds.ObstructionFractionGood, 92),
+                (StarlinkHealthThresholds.ObstructionFractionPoor, 40),
+                (StarlinkHealthThresholds.ObstructionFractionCritical, 0));
+            parts.Add((obstructionScore, 0.40));
+            valueBits.Add($"{(obstructed * 100).ToString("0.##", CultureInfo.InvariantCulture)}% obstructed");
+
+            if (obstructed >= StarlinkHealthThresholds.ObstructionFractionPoor)
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = IspIssueSeverity.Warning,
+                    Title = "Starlink: sky obstruction",
+                    Description = $"{input.SourceName} is obstructed {(obstructed * 100).ToString("0.#", CultureInfo.InvariantCulture)}% of the time - enough to cause regular interruptions.",
+                    Recommendation = "Check the obstruction map for the blocked direction and relocate the dish or clear the obstruction (trees are the usual cause)."
+                });
+        }
+
+        // Dish-to-ground loss from the dish's own 1 Hz ping history - loss the
+        // dish sees on the satellite path itself, upstream of anything local.
+        if (input.DishDropRateAvg is double drop)
+        {
+            var dropScore = ScoreCurve.Interpolate(drop,
+                (0, 100),
+                (StarlinkHealthThresholds.DropRateGood, 90),
+                (0.01, 60),
+                (StarlinkHealthThresholds.DropRatePoor, 20),
+                (0.10, 0));
+            parts.Add((dropScore, 0.35));
+            valueBits.Add($"{(drop * 100).ToString("0.##", CultureInfo.InvariantCulture)}% loss");
+
+            if (drop >= StarlinkHealthThresholds.DropRatePoor)
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = IspIssueSeverity.Warning,
+                    Title = "Starlink: high dish-side packet loss",
+                    Description = $"{input.SourceName} is dropping {(drop * 100).ToString("0.#", CultureInfo.InvariantCulture)}% of its own pings to the ground station.",
+                    Recommendation = "Sustained dish-side loss points to obstruction, weather, or cell congestion rather than anything on your LAN."
+                });
+        }
+
+        // Outage burden from the dish outage log, normalized to seconds/day.
+        if (input.OutageSecondsTotal is double outageS && input.WindowDays > 0)
+        {
+            var perDay = outageS / input.WindowDays;
+            var outageScore = ScoreCurve.Interpolate(perDay,
+                (0, 100),
+                (StarlinkHealthThresholds.OutageSecondsPerDayGood, 90),
+                (60, 60),
+                (StarlinkHealthThresholds.OutageSecondsPerDayPoor, 25),
+                (StarlinkHealthThresholds.OutageSecondsPerDayPoor * 4, 0));
+            parts.Add((outageScore, 0.25));
+            if (perDay > 0)
+            {
+                detailBits.Add($"~{perDay.ToString("0", CultureInfo.InvariantCulture)} s/day outage"
+                               + (input.OutageCountTotal is long oc and > 0 ? $" across {oc} event{(oc == 1 ? "" : "s")}" : ""));
+                transientAnomaly = true;
+            }
+
+            if (perDay >= StarlinkHealthThresholds.OutageSecondsPerDayPoor)
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = IspIssueSeverity.Warning,
+                    Title = "Starlink: frequent outages",
+                    Description = $"{input.SourceName} logged ~{perDay.ToString("0", CultureInfo.InvariantCulture)} seconds of outage per day over this window.",
+                    Recommendation = "Check the outage causes on the Starlink Stats tab - obstruction outages need a clearer sky view; NO_SATS/NO_DOWNLINK bursts are usually constellation or weather."
+                });
+        }
+
+        if (parts.Count == 0)
+            return new PhysicalLinkResult(NullFactor(factorWeight, "Starlink terminal not reporting health data yet"), issues);
+
+        var totalWeight = parts.Sum(p => p.Weight);
+        var score = parts.Sum(p => p.Score * p.Weight) / totalWeight;
+
+        // Persistently low SNR is the dish's own "signal is degraded" verdict.
+        if (input.SnrPersistentlyLow == true)
+        {
+            score = Math.Min(score, 40);
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Warning,
+                Title = "Starlink: persistently low SNR",
+                Description = $"{input.SourceName} reports its signal-to-noise ratio has been persistently low.",
+                Recommendation = "Check for partial obstructions or snow/debris on the dish."
+            });
+        }
+
+        // Alert-driven caps (thermal, tilt, water, low signal).
+        if (input.DishAlerts is { Count: > 0 } alerts)
+        {
+            foreach (var (alert, cap, severity, title, recommendation) in SatelliteCapAlerts)
+            {
+                if (!alerts.Contains(alert, StringComparer.OrdinalIgnoreCase)) continue;
+                score = Math.Min(score, cap);
+                issues.Add(new IspHealthIssue
+                {
+                    Severity = severity,
+                    Title = title,
+                    Description = $"{input.SourceName} is raising the {alert.Replace('_', ' ')} alert.",
+                    Recommendation = recommendation
+                });
+            }
+        }
+
+        // Slow negotiated Ethernet is LAN-side, not the ISP - advisory only, no cap,
+        // but it silently bottlenecks every measurement downstream of the dish.
+        if (input.EthSpeedMbps is int eth and > 0 and < 1000)
+            issues.Add(new IspHealthIssue
+            {
+                Severity = IspIssueSeverity.Info,
+                Title = "Starlink: Ethernet negotiated below 1 Gbps",
+                Description = $"{input.SourceName} negotiated {eth} Mbps to the router, which caps throughput below what the dish can deliver.",
+                Recommendation = "Check the cable and connectors between the dish/power supply and the router; a damaged run commonly negotiates 100 Mbps."
+            });
+
+        var finalScore = (int)Math.Round(score);
+        var desc = "Starlink dish health scored on sky obstruction, dish-to-ground loss, and outage burden"
+                   + (detailBits.Count > 0 ? $" ({string.Join(", ", detailBits)})." : ".")
+                   + (transientAnomaly ? AnomalyNote : "");
+        var valueText = valueBits.Count > 0 ? string.Join(", ", valueBits) : "dish reporting";
+        return new PhysicalLinkResult(
+            Factor(factorWeight, finalScore, valueText, desc), issues);
     }
 
     // ---------------------------------------------------------------------------

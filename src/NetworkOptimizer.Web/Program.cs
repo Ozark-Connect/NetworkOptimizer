@@ -260,6 +260,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IUniFiRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository, NetworkOptimizer.Storage.Repositories.ModemRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ICmRepository, NetworkOptimizer.Storage.Repositories.CmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IOntRepository, NetworkOptimizer.Storage.Repositories.OntRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IStarlinkRepository, NetworkOptimizer.Storage.Repositories.StarlinkRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IMonitoringInterfaceRepository, NetworkOptimizer.Storage.Repositories.MonitoringInterfaceRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
@@ -353,6 +354,13 @@ builder.Services.AddSingleton<IOntProvider, GenericHttpOntProvider>();
 builder.Services.AddSingleton<IOntProvider, TelekomModem2OntProvider>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
     .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Ont);
+
+// Starlink terminal monitoring is per site through ModemMonitorRegistry, which
+// builds each site's provider set (the gRPC provider keeps per-config history
+// state, so instances are per site like the cellular providers). Scoped
+// resolution forwards to the current site's monitor.
+builder.Services.AddScoped(sp => sp.GetRequiredService<ModemMonitorRegistry>()
+    .GetFor(sp.GetRequiredService<SiteContextService>().Slug).Starlink);
 
 // LAN iperf3 speed test per site (registry-owned): devices, credentials, and
 // results live in that site's database; tests run against that site's devices.
@@ -1984,6 +1992,7 @@ SfpChartEndpoints.Map(app);
 CellularChartEndpoints.Map(app);
 CmChartEndpoints.Map(app);
 OntChartEndpoints.Map(app);
+StarlinkChartEndpoints.Map(app);
 SnmpEndpoints.Map(app);
 
 app.Run();

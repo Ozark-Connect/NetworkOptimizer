@@ -1,0 +1,545 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Monitoring.Models
+@inject StarlinkMonitorService StarlinkService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="starlink-stats-panel">
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <span class="spinner"></span>
+            <span>Loading Starlink stats...</span>
+        </div>
+    }
+    else if (!hasConfiguredTerminals)
+    {
+        <div class="sqm-unavailable">
+            <div class="sqm-status">
+                <span class="status-indicator status-disconnected"></span>
+                <span class="status-label">No Data</span>
+            </div>
+            <p class="status-message">No Starlink terminal configured.</p>
+            <div class="sqm-actions">
+                <a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Configure Starlink</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="sqm-header">
+            <div class="sqm-status">
+                <span class="status-indicator status-@GetStatusClass()"></span>
+                <span class="status-label">@configuredTerminals[currentIndex].Name</span>
+            </div>
+            <div class="starlink-header-right">
+                @if (configuredTerminals.Count > 1)
+                {
+                    <div class="modem-nav">
+                        <button class="nav-btn" @onclick="PreviousTerminal" @onclick:stopPropagation disabled="@(currentIndex == 0)">&#x2039;</button>
+                        <span class="modem-counter">@(currentIndex + 1)/@configuredTerminals.Count</span>
+                        <button class="nav-btn" @onclick="NextTerminal" @onclick:stopPropagation disabled="@(currentIndex >= configuredTerminals.Count - 1)">&#x203A;</button>
+                    </div>
+                }
+                @if (stats != null)
+                {
+                    <div class="tc-timestamp">
+                        <small>Updated: @stats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="starlink-layout">
+            <div class="starlink-sky">
+                <canvas @ref="mapCanvas" width="246" height="246" class="starlink-sky-canvas"></canvas>
+                @if (obstructionMap == null)
+                {
+                    <div class="starlink-sky-placeholder">
+                        <span class="spinner-sm"></span>
+                        <span>Mapping sky...</span>
+                    </div>
+                }
+                <div class="starlink-sky-caption">Sky view from dish - obstructions in red</div>
+            </div>
+
+            <div class="starlink-metrics">
+                @if (stats == null)
+                {
+                    <p class="status-message">Waiting for first poll...</p>
+                }
+                else
+                {
+                    <div class="starlink-metric-row">
+                        <span class="starlink-metric-label">Obstructed</span>
+                        <span class="starlink-metric-value @GetObstructionClass()">
+                            @(stats.FractionObstructed.HasValue ? (stats.FractionObstructed.Value * 100).ToString("0.##") + "%" : "-")
+                            @if (stats.CurrentlyObstructed == true)
+                            {
+                                <span class="starlink-badge starlink-badge-danger">now</span>
+                            }
+                        </span>
+                    </div>
+                    <div class="starlink-metric-row">
+                        <span class="starlink-metric-label">Dish loss</span>
+                        <span class="starlink-metric-value @GetDropRateClass()">@FormatDropRate()</span>
+                    </div>
+                    <div class="starlink-metric-row">
+                        <span class="starlink-metric-label">Power</span>
+                        <span class="starlink-metric-value">@FormatPower()</span>
+                    </div>
+                    <div class="starlink-metric-row">
+                        <span class="starlink-metric-label">Ethernet</span>
+                        <span class="starlink-metric-value @(stats.EthSpeedMbps < 1000 ? "fair" : "")">
+                            @(stats.EthSpeedMbps.HasValue ? $"{stats.EthSpeedMbps} Mbps" : "-")
+                        </span>
+                    </div>
+                    <div class="starlink-metric-row">
+                        <span class="starlink-metric-label">Uptime</span>
+                        <span class="starlink-metric-value">@FormatUptime()</span>
+                    </div>
+                    <div class="starlink-metric-row">
+                        <span class="starlink-metric-label">GPS</span>
+                        <span class="starlink-metric-value @(stats.GpsValid == false ? "poor" : "")">
+                            @(stats.GpsSatellites.HasValue ? $"{stats.GpsSatellites} sats" : "-")
+                        </span>
+                    </div>
+                    @if (stats.LastOutageAt.HasValue)
+                    {
+                        <div class="starlink-metric-row">
+                            <span class="starlink-metric-label">Last outage</span>
+                            <span class="starlink-metric-value">@FormatLastOutage()</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        @if (stats != null)
+        {
+            @if (stats.ActiveAlerts.Count > 0)
+            {
+                <div class="starlink-alerts">
+                    @foreach (var alert in stats.ActiveAlerts)
+                    {
+                        <span class="starlink-badge starlink-badge-warning">@HumanizeToken(alert)</span>
+                    }
+                </div>
+            }
+            @foreach (var notice in GetNotices())
+            {
+                <div class="starlink-notice">@notice</div>
+            }
+        }
+
+        <div class="sqm-actions">
+            <button class="btn btn-secondary" @onclick="RefreshStats" @onclick:stopPropagation disabled="@isRefreshing">
+                @if (isRefreshing)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+            <a href="/settings#starlink" class="btn btn-primary" @onclick:stopPropagation>Starlink Settings</a>
+        </div>
+    }
+</div>
+
+<style>
+    .starlink-stats-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .starlink-header-right {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .starlink-layout {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .starlink-sky {
+        position: relative;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .starlink-sky-canvas {
+        width: 164px;
+        height: 164px;
+        border-radius: 50%;
+        background: var(--bg-tertiary);
+        box-shadow: 0 0 18px rgba(43, 168, 154, 0.12), inset 0 0 12px rgba(0, 0, 0, 0.4);
+    }
+
+    .starlink-sky-placeholder {
+        position: absolute;
+        top: 0;
+        width: 164px;
+        height: 164px;
+        border-radius: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        color: var(--text-muted, #888);
+    }
+
+    .starlink-sky-caption {
+        font-size: 0.7rem;
+        color: var(--text-muted, #888);
+    }
+
+    .starlink-metrics {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        min-width: 0;
+    }
+
+    .starlink-metric-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .starlink-metric-label {
+        color: var(--text-muted, #888);
+        flex-shrink: 0;
+    }
+
+    .starlink-metric-value {
+        font-family: monospace;
+        color: var(--text-primary);
+        text-align: right;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .starlink-metric-value.good { color: var(--success-color, #22c55e); }
+    .starlink-metric-value.fair { color: var(--warning-color, #f59e0b); }
+    .starlink-metric-value.poor { color: var(--danger-color, #ef4444); }
+
+    .starlink-alerts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .starlink-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+
+    .starlink-badge-warning {
+        background: rgba(231, 150, 19, 0.18);
+        color: var(--warning-color, #e79613);
+    }
+
+    .starlink-badge-danger {
+        background: rgba(238, 99, 104, 0.18);
+        color: var(--danger-color, #ee6368);
+    }
+
+    .starlink-notice {
+        font-size: 0.75rem;
+        color: var(--text-secondary, #a0a0a8);
+        font-style: italic;
+    }
+
+    @@media (max-width: 768px) {
+        .starlink-layout {
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .starlink-metrics {
+            width: 100%;
+        }
+    }
+</style>
+
+@code {
+    private StarlinkStats? stats;
+    private StarlinkObstructionMap? obstructionMap;
+    private bool isLoading = true;
+    private bool isRefreshing = false;
+    private bool hasConfiguredTerminals = false;
+    private List<NetworkOptimizer.Storage.Models.StarlinkConfiguration> configuredTerminals = new();
+    private int currentIndex = 0;
+    private System.Threading.Timer? _refreshTimer;
+
+    private ElementReference mapCanvas;
+    private IJSObjectReference? _mapModule;
+    private string? _renderedMapStamp;
+
+    /// <summary>
+    /// The terminal ID currently displayed, for deep-linking to charts.
+    /// </summary>
+    public string? CurrentStarlinkId => configuredTerminals.Count > 0 && currentIndex < configuredTerminals.Count
+        ? configuredTerminals[currentIndex].Id.ToString()
+        : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStats();
+
+        // Pick up cached stats from background polling
+        _refreshTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(() =>
+            {
+                if (!isRefreshing && !isLoading && configuredTerminals.Count > 0 && currentIndex < configuredTerminals.Count)
+                {
+                    var terminal = configuredTerminals[currentIndex];
+                    var newStats = StarlinkService.GetCachedStats(terminal.Id);
+                    if (newStats != null)
+                    {
+                        stats = newStats;
+                        obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+                        StateHasChanged();
+                    }
+                }
+            }),
+            null,
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(15));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (obstructionMap == null) return;
+
+        var stamp = $"{CurrentStarlinkId}:{obstructionMap.Timestamp:O}";
+        if (stamp == _renderedMapStamp) return;
+
+        try
+        {
+            _mapModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "/js/starlink-obstruction-map.js?v=1");
+            await _mapModule.InvokeVoidAsync("render", mapCanvas, new
+            {
+                rows = obstructionMap.NumRows,
+                cols = obstructionMap.NumCols,
+                snr = obstructionMap.Snr,
+            });
+            _renderedMapStamp = stamp;
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit gone; nothing to render
+        }
+    }
+
+    private async Task LoadStats()
+    {
+        isLoading = true;
+        try
+        {
+            configuredTerminals = await StarlinkService.GetConfigsAsync();
+            hasConfiguredTerminals = configuredTerminals.Any();
+
+            if (hasConfiguredTerminals)
+            {
+                var enabledIndex = configuredTerminals.FindIndex(t => t.Enabled);
+                currentIndex = enabledIndex >= 0 ? enabledIndex : 0;
+                await ShowStatsForCurrentTerminal(pollIfEmpty: true);
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        isRefreshing = true;
+        StateHasChanged();
+
+        try
+        {
+            if (configuredTerminals.Count > 0 && currentIndex < configuredTerminals.Count)
+            {
+                var terminal = configuredTerminals[currentIndex];
+                await StarlinkService.PollStarlinkAsync(terminal.Id);
+                stats = StarlinkService.GetCachedStats(terminal.Id);
+                obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+            }
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PreviousTerminal()
+    {
+        if (currentIndex > 0)
+        {
+            currentIndex--;
+            await ShowStatsForCurrentTerminal(pollIfEmpty: true);
+        }
+    }
+
+    private async Task NextTerminal()
+    {
+        if (currentIndex < configuredTerminals.Count - 1)
+        {
+            currentIndex++;
+            await ShowStatsForCurrentTerminal(pollIfEmpty: true);
+        }
+    }
+
+    private async Task ShowStatsForCurrentTerminal(bool pollIfEmpty)
+    {
+        if (configuredTerminals.Count == 0 || currentIndex >= configuredTerminals.Count) return;
+
+        var terminal = configuredTerminals[currentIndex];
+        stats = StarlinkService.GetCachedStats(terminal.Id);
+        obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+        StateHasChanged();
+
+        if (stats == null && pollIfEmpty)
+        {
+            await StarlinkService.PollStarlinkAsync(terminal.Id);
+            stats = StarlinkService.GetCachedStats(terminal.Id);
+            obstructionMap = StarlinkService.GetCachedObstructionMap(terminal.Id);
+            StateHasChanged();
+        }
+    }
+
+    private string GetStatusClass()
+    {
+        if (stats == null) return "disconnected";
+        if (stats.DisablementCode is not null && stats.DisablementCode != "Okay") return "disconnected";
+        if (stats.ActiveAlerts.Count > 0 || stats.CurrentlyObstructed == true) return "warning";
+        return "active";
+    }
+
+    private string GetObstructionClass()
+    {
+        if (stats?.FractionObstructed is not double f) return "";
+        if (f < 0.002) return "good";
+        if (f < 0.01) return "fair";
+        return "poor";
+    }
+
+    private string GetDropRateClass()
+    {
+        if (stats?.PingDropRateAvg is not double d) return "";
+        if (d < 0.005) return "good";
+        if (d < 0.02) return "fair";
+        return "poor";
+    }
+
+    private string FormatDropRate()
+    {
+        if (stats?.PingDropRateAvg is not double avg) return "-";
+        var s = (avg * 100).ToString("0.##") + "%";
+        if (stats.PingDropRateMax is double max && max > avg)
+            s += $" (peak {(max * 100).ToString("0.#")}%)";
+        return s;
+    }
+
+    private string FormatPower()
+    {
+        if (stats?.PowerInWatts is not double w) return "-";
+        var s = w.ToString("0") + " W";
+        if (stats.PowerInMaxWatts is double max && max > w)
+            s += $" (peak {max:0} W)";
+        return s;
+    }
+
+    private string FormatUptime()
+    {
+        if (stats?.UptimeSeconds is not long s) return "-";
+        var t = TimeSpan.FromSeconds(s);
+        if (t.TotalDays >= 1) return $"{(int)t.TotalDays}d {t.Hours}h";
+        if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h {t.Minutes}m";
+        return $"{t.Minutes}m";
+    }
+
+    private string FormatLastOutage()
+    {
+        if (stats?.LastOutageAt is not DateTime at) return "-";
+        var ago = DateTime.UtcNow - at;
+        string agoText = ago.TotalDays >= 1 ? $"{(int)ago.TotalDays}d ago"
+            : ago.TotalHours >= 1 ? $"{(int)ago.TotalHours}h ago"
+            : $"{Math.Max(0, (int)ago.TotalMinutes)}m ago";
+        var cause = stats.LastOutageCause != null ? HumanizeToken(stats.LastOutageCause) : "Outage";
+        return $"{cause}, {agoText}";
+    }
+
+    /// <summary>
+    /// Notable service states worth a line under the metrics; healthy values
+    /// (Okay, Idle, NoLimit) stay silent.
+    /// </summary>
+    private List<string> GetNotices()
+    {
+        var notices = new List<string>();
+        if (stats == null) return notices;
+
+        if (stats.DisablementCode is not null and not "Okay" and not "UnknownState")
+            notices.Add($"Service disabled: {HumanizeToken(stats.DisablementCode)}");
+
+        if (stats.SoftwareUpdateState is not null and not "Idle" and not "SoftwareUpdateStateUnknown" and not "Unknown")
+            notices.Add($"Software update: {HumanizeToken(stats.SoftwareUpdateState)}");
+
+        // Restriction reasons, filtered for signal: plain PolicyLimit is ordinary
+        // shaping on virtually every plan (silent). OverageLimit means the data
+        // allowance ran out; LowSpeedPolicyLimit means the plan itself is a
+        // reduced-speed tier (Standby and similar) - both explain a slow speed
+        // test without pointing at the network.
+        if (stats.DownlinkRestrictedReason == "OverageLimit" || stats.UplinkRestrictedReason == "OverageLimit")
+            notices.Add("Speeds reduced: the plan's data allowance has been used up");
+        else if (stats.DownlinkRestrictedReason == "LowSpeedPolicyLimit" || stats.UplinkRestrictedReason == "LowSpeedPolicyLimit")
+            notices.Add("Speeds are capped by a reduced-speed plan tier (such as Standby)");
+
+        // Hardware self-test is deliberately NOT surfaced: healthy dishes routinely
+        // report FAILED with codes like DBF_NUM_FEMS (a few dead front-end modules
+        // is normal attrition), so it reads as a false alarm. Still stored in the
+        // time series for fleet-level analysis.
+
+        return notices;
+    }
+
+    /// <summary>"thermal_throttle" or "ThermalThrottle" -> "Thermal throttle".</summary>
+    private static string HumanizeToken(string token)
+    {
+        if (string.IsNullOrEmpty(token)) return token;
+        var words = System.Text.RegularExpressions.Regex
+            .Replace(token.Replace('_', ' '), "(?<=[a-z0-9])(?=[A-Z])", " ")
+            .ToLowerInvariant();
+        return char.ToUpperInvariant(words[0]) + words[1..];
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _refreshTimer?.Dispose();
+        if (_mapModule != null)
+        {
+            try { await _mapModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+}
