@@ -514,13 +514,10 @@
         else if (ulLimited)
             notices.Add($"Upload limited: {HumanizeToken(stats.UplinkRestrictedReason!)}");
 
-        if (stats.HardwareSelfTest == "Failed")
-        {
-            var codes = stats.HardwareSelfTestCodes.Count > 0
-                ? $" ({string.Join(", ", stats.HardwareSelfTestCodes)})"
-                : "";
-            notices.Add($"Hardware self-test failed{codes}");
-        }
+        // Hardware self-test is deliberately NOT surfaced: healthy dishes routinely
+        // report FAILED with codes like DBF_NUM_FEMS (a few dead front-end modules
+        // is normal attrition), so it reads as a false alarm. Still stored in the
+        // time series for fleet-level analysis.
 
         return notices;
     }

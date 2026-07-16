@@ -12,7 +12,9 @@ public enum PhysicalMedium
     /// <summary>DOCSIS cable modem.</summary>
     Docsis,
     /// <summary>Cellular (LTE / 5G) modem.</summary>
-    Cellular
+    Cellular,
+    /// <summary>Satellite (Starlink) terminal.</summary>
+    Satellite
 }
 
 /// <summary>
@@ -113,6 +115,35 @@ public class PhysicalLinkInput
 
     /// <summary>True when the modem is 5G-capable (so a downgrade is meaningful).</summary>
     public bool Is5gCapable { get; init; }
+
+    // --- Satellite (Starlink) ---
+
+    /// <summary>Median fraction of sky time obstructed over the window (0..1).</summary>
+    public double? ObstructionFraction { get; init; }
+
+    /// <summary>Whether the dish reported itself obstructed on the latest poll.</summary>
+    public bool? CurrentlyObstructed { get; init; }
+
+    /// <summary>Mean dish-to-ground ping drop rate over the window (0..1), from the dish's own 1 Hz history.</summary>
+    public double? DishDropRateAvg { get; init; }
+
+    /// <summary>Worst 1-second dish drop rate seen in the window (0..1).</summary>
+    public double? DishDropRateMax { get; init; }
+
+    /// <summary>Dish-logged outage seconds over the window, normalized per day via <see cref="WindowDays"/>.</summary>
+    public double? OutageSecondsTotal { get; init; }
+
+    /// <summary>Dish-logged outage count over the window.</summary>
+    public long? OutageCountTotal { get; init; }
+
+    /// <summary>True when the dish reports persistently low SNR (live snapshot).</summary>
+    public bool? SnrPersistentlyLow { get; init; }
+
+    /// <summary>Alert names currently raised by the dish (live snapshot), e.g. "thermal_throttle".</summary>
+    public IReadOnlyList<string>? DishAlerts { get; init; }
+
+    /// <summary>Negotiated dish-to-router Ethernet speed (live snapshot), for the slow-link advisory.</summary>
+    public int? EthSpeedMbps { get; init; }
 }
 
 /// <summary>The Physical Link factor plus any issues it raised.</summary>
