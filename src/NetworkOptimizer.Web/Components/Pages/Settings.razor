@@ -1478,10 +1478,6 @@
                 Monitor ONT devices (fiber optic terminals) for signal levels, temperature, and link state.
             </p>
 
-            <div class="alert alert-info">
-                Using an SFP ONT with DDM support? Use <strong>Set ONT</strong> on the <a href="/monitoring?tab=sfp&expand=optical">SFP Stats</a> tab to read its optical levels off the port. External polling below is for ONTs monitored over the network instead.
-            </div>
-
             @if (_monitoringSettings != null)
             {
                 <div class="form-group">
@@ -1651,6 +1647,10 @@
                     }
                 </div>
             }
+
+            <div class="alert alert-info">
+                Using an SFP ONT with DDM support? Use <strong>Set ONT</strong> on the <a href="/monitoring?tab=sfp&expand=optical">SFP Stats</a> tab to read its optical levels off the port. The external polling here is for ONTs monitored over the network instead.
+            </div>
         </div>
     </div>
 
