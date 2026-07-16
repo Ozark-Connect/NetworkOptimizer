@@ -161,8 +161,8 @@
                 {
                     <div class="alert-info scan-gap-banner">
                         <div class="scan-gap-text">
-                            <strong>@_staleScanTargets.Count @(_staleScanTargets.Count == 1 ? "radio's scan is" : "radios' scans are") aging and affecting a recommendation.</strong>
-                            A stale spectrum reading the neighbor scan no longer backs is steering a channel choice; a fresh scan may change it. @ScanDisruptionNote(_staleScanTargets)
+                            <strong>@_staleScanTargets.Count @(_staleScanTargets.Count == 1 ? "radio has" : "radios have") stale scan data.</strong>
+                            Their recommendation is based on an old reading that may no longer reflect what's on the air. @ScanDisruptionNote(_staleScanTargets)
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="RunStaleScans" disabled="@(_scanningGaps || _scanningStale)"
                                 data-tooltip="Re-measures the real airtime and noise floor on these channels. The current recommendation is resting on an older scan that nearby networks no longer corroborate, so a fresh one may change the advice.">
