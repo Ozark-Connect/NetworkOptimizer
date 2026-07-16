@@ -174,22 +174,42 @@ else
     [Parameter]
     public EventCallback OnSfpChanged { get; set; }
 
+    /// <summary>When set (via a deep link), start expanded regardless of the saved
+    /// collapse preference. Applied once so the user can still collapse it after.</summary>
+    [Parameter]
+    public bool ForceExpand { get; set; }
+
     private bool _collapsed = false;
     private bool _stateLoaded = false;
+    private bool _forceExpandApplied = false;
     private int _page = 0;
     private const int PageSize = 10;
     private const string CollapseKey = "sfp-modules-collapsed";
+
+    protected override void OnParametersSet()
+    {
+        // Honor a deep link's expand request once; the user can still collapse after.
+        if (ForceExpand && !_forceExpandApplied)
+        {
+            _collapsed = false;
+            _forceExpandApplied = true;
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            try
+            // Skip the saved collapse preference when a deep link asked to expand.
+            if (!ForceExpand)
             {
-                var val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey);
-                if (val == "true") _collapsed = true;
+                try
+                {
+                    var val = await JS.InvokeAsync<string>("localStorage.getItem", CollapseKey);
+                    if (val == "true") _collapsed = true;
+                }
+                catch { }
             }
-            catch { }
             _stateLoaded = true;
             StateHasChanged();
         }

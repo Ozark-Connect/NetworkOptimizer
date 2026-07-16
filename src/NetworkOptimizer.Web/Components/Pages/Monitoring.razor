@@ -24,6 +24,7 @@
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
+@inject PersistentComponentState PersistState
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
@@ -125,9 +126,11 @@ else
                 SFP Stats
             </button>
             @* Optional per-hardware tabs, hidden from the nav when the matching
-               Settings toggle is off. ResolveDefaultTab redirects a pinned ?tab=
-               off a hidden tab, so the active tab is never one of these when hidden. *@
-            @if (_showCmTab)
+               Settings toggle is off. Gated on _tabVisibilityLoaded so they don't
+               flash in at their default before per-site settings load.
+               ResolveDefaultTab redirects a pinned ?tab= off a hidden tab, so the
+               active tab is never one of these when hidden. *@
+            @if (_tabVisibilityLoaded && _showCmTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("cm"))"
@@ -135,7 +138,7 @@ else
                     CM Stats
                 </button>
             }
-            @if (_showOntTab)
+            @if (_tabVisibilityLoaded && _showOntTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("ont"))"
@@ -143,7 +146,7 @@ else
                     ONT Stats
                 </button>
             }
-            @if (_showCellularTab)
+            @if (_tabVisibilityLoaded && _showCellularTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("cellular"))"
@@ -151,7 +154,7 @@ else
                     Cellular Stats
                 </button>
             }
-            @if (_showStarlinkTab)
+            @if (_tabVisibilityLoaded && _showStarlinkTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("starlink"))"
@@ -646,7 +649,8 @@ else
                 }
             </div>
         }
-        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged" />
+        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged"
+                        ForceExpand="@(string.Equals(ExpandParam, "optical", StringComparison.OrdinalIgnoreCase))" />
 
         @if (_monitoredSfps.Count > 0)
         {
@@ -1508,6 +1512,9 @@ else
     [SupplyParameterFromQuery(Name = "starlink")]
     public string? StarlinkParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "expand")]
+    public string? ExpandParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "mifip")]
     public string? MiTargetParam { get; set; }
 
@@ -1562,6 +1569,11 @@ else
     private bool _showOntTab = true;
     private bool _showCellularTab = true;
     private bool _showStarlinkTab = true;
+    // Gate the optional tabs until visibility is known, and carry it from prerender
+    // to the interactive circuit so the hideable tabs don't flash in before load.
+    private bool _tabVisibilityLoaded;
+    private PersistingComponentStateSubscription _tabVisPersistSub;
+    private const string TabVisStateKey = "monitoring-tab-visibility";
     private bool _forceExpandUpstream;
 
     // "Results ready" banner for the scheduled upstream re-discovery, surfaced on the
@@ -1756,6 +1768,23 @@ else
     {
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
+        // Restore tab visibility persisted from prerender so the interactive render
+        // shows the correct tabs immediately instead of flashing the default (all shown).
+        _tabVisPersistSub = PersistState.RegisterOnPersisting(() =>
+        {
+            PersistState.PersistAsJson(TabVisStateKey,
+                new[] { _showCmTab, _showOntTab, _showCellularTab, _showStarlinkTab });
+            return Task.CompletedTask;
+        });
+        if (PersistState.TryTakeFromJson<bool[]>(TabVisStateKey, out var tabVis) && tabVis is { Length: 4 })
+        {
+            _showCmTab = tabVis[0];
+            _showOntTab = tabVis[1];
+            _showCellularTab = tabVis[2];
+            _showStarlinkTab = tabVis[3];
+            _tabVisibilityLoaded = true;
+        }
+
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
         await RefreshInfluxStateAsync(settings);
@@ -1765,6 +1794,7 @@ else
         _showOntTab = settings.ShowOntTab;
         _showCellularTab = settings.ShowCellularTab;
         _showStarlinkTab = settings.ShowStarlinkTab;
+        _tabVisibilityLoaded = true;
         LoadSfpThresholdInputs(settings);
         await LoadTargetsAsync();
 
@@ -3688,6 +3718,7 @@ else
     public void Dispose()
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        _tabVisPersistSub.Dispose();
         _liveRefreshTimer?.Dispose();
         _dataRefreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
