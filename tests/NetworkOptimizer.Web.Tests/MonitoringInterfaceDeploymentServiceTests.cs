@@ -72,7 +72,7 @@ public class MonitoringInterfaceDeploymentServiceTests
         // The subinterface is created from the physical port + VLAN id, and the macvlan
         // rides the resolved parent ($PARENT) rather than the bare port.
         script.Should().Contain("type vlan id \"$VLAN_ID\"");
-        script.Should().Contain("link \"$PARENT\" type macvlan");
+        script.Should().Contain("link \"$PARENT\" address \"$MAC\" type macvlan");
     }
 
     private static MonitoringInterface ValidAliased(int id = 1) => new()
@@ -228,6 +228,64 @@ public class MonitoringInterfaceDeploymentServiceTests
             if (line.TrimStart().StartsWith("iptables ") && !line.Contains("-w 5"))
                 Assert.Fail($"iptables call missing -w 5 lock-wait: {line}");
         }
+    }
+
+    [Fact]
+    public void BootScript_Macvlan_PinsStableMac()
+    {
+        // Without a pinned address, `ip link add ... type macvlan` gets a fresh RANDOM MAC on
+        // every create - so each gateway reboot presents a new CPE MAC to the modem/ONT and
+        // forces a CPE relearn that can transiently wedge fussy carrier gear. The create must
+        // pin the stable per-row MAC, and the template must carry its value.
+        var mi = Valid();
+        mi.Id = 7;
+        var script = MonitoringInterfaceDeploymentService.GenerateBootScript(mi);
+
+        script.Should().Contain($"MAC=\"{MonitoringInterfaceDeploymentService.StableMac(7)}\"");
+        script.Should().Contain("ip link add \"$IFACE\" link \"$PARENT\" address \"$MAC\" type macvlan mode bridge && changed=1 || fail=1");
+    }
+
+    [Fact]
+    public void BootScript_MigratesInterfaceWithWrongMacToStable()
+    {
+        // An interface created before MAC pinning (random MAC) must be migrated onto the stable
+        // MAC on the next watchdog run - but only when it actually differs, so the "log only
+        // when changed" guard stays honest and we don't force a needless CPE relearn each tick.
+        // Changing a MAC needs the link down, so the migrate path flaps it.
+        var script = MonitoringInterfaceDeploymentService.GenerateBootScript(Valid());
+
+        script.Should().Contain("cur_mac=$(cat /sys/class/net/\"$IFACE\"/address 2>/dev/null)");
+        script.Should().Contain("if [ -n \"$MAC\" ] && [ \"$cur_mac\" != \"$MAC\" ]; then");
+        script.Should().Contain("ip link set \"$IFACE\" address \"$MAC\" && changed=1 || fail=1");
+    }
+
+    [Fact]
+    public void StableMac_IsDeterministic_LocallyAdministeredUnicast()
+    {
+        // Same id -> same MAC (stable across redeploys/reboots). First octet 0x02: bit 1 set
+        // (locally administered, won't collide with a real vendor OUI), bit 0 clear (unicast).
+        // Lowercase to match /sys/class/net/*/address for the boot script's compare.
+        var mac = MonitoringInterfaceDeploymentService.StableMac(7);
+
+        mac.Should().Be(MonitoringInterfaceDeploymentService.StableMac(7));
+        mac.Should().MatchRegex("^02(:[0-9a-f]{2}){5}$");
+    }
+
+    [Fact]
+    public void StableMac_DifferentIds_ProduceDifferentMacs()
+    {
+        var macs = Enumerable.Range(0, 50)
+            .Select(MonitoringInterfaceDeploymentService.StableMac)
+            .ToList();
+        macs.Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void StableMac_UnsavedRowIdZero_StillValid()
+    {
+        // Id 0 (row not yet persisted) must still yield a valid deterministic address - unlike
+        // AliasMark, StableMac has no id-range limit.
+        MonitoringInterfaceDeploymentService.StableMac(0).Should().MatchRegex("^02(:[0-9a-f]{2}){5}$");
     }
 
     [Fact]

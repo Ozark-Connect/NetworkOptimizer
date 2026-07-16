@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Security.Cryptography;
+using System.Text;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -94,6 +96,26 @@ public class MonitoringInterfaceDeploymentService
             throw new ArgumentOutOfRangeException(nameof(id), id,
                 $"Alias id must be between 1 and {MaxAliasableId} (see {nameof(MaxAliasableId)}) to stay inside the masked byte.");
         return ((uint)id << 24).ToString();
+    }
+
+    /// <summary>
+    /// Stable, locally-administered unicast MAC for this interface's macvlan, derived from its
+    /// Id (the same stable key as <see cref="AliasMark"/>). The boot script pins it as the
+    /// macvlan's hardware address so the L2 identity survives gateway reboots and redeploys.
+    /// Without a pinned address, <c>ip link add ... type macvlan</c> gets a fresh RANDOM MAC on
+    /// every create - so each gateway reboot presents a NEW CPE MAC to the modem/ONT, forcing it
+    /// to relearn its single downstream CPE and, on fussy carrier gear (DOCSIS modems, Starlink
+    /// bypass dishes), transiently wedging its management stack. Applies to aliased and plain
+    /// interfaces alike, so (unlike <see cref="AliasMark"/>) it has no id-range limit; any id,
+    /// including 0 for a not-yet-persisted row, yields a valid deterministic address.
+    /// First octet 0x02: bit 1 set marks it locally administered (never collides with a real
+    /// vendor OUI), bit 0 clear keeps it unicast; the low 5 octets are hash bytes. Lowercase to
+    /// match <c>/sys/class/net/*/address</c> for the boot script's migrate-if-different check.
+    /// </summary>
+    public static string StableMac(int id)
+    {
+        var h = SHA256.HashData(Encoding.ASCII.GetBytes($"netopt-moniface-mac-{id}"));
+        return $"02:{h[1]:x2}:{h[2]:x2}:{h[3]:x2}:{h[4]:x2}:{h[5]:x2}";
     }
 
     /// <summary>
@@ -665,7 +687,7 @@ public class MonitoringInterfaceDeploymentService
             : "";
         var probe =
             ensureVlan +
-            $"ip link show {mi.Name} >/dev/null 2>&1 || ip link add {mi.Name} link {parent} type macvlan mode bridge; " +
+            $"ip link show {mi.Name} >/dev/null 2>&1 || ip link add {mi.Name} link {parent} address {StableMac(mi.Id)} type macvlan mode bridge; " +
             $"ip link set {mi.Name} up 2>/dev/null; " +
             $"if ! ip link show {mi.Name} >/dev/null 2>&1; then echo RESULT:NOIFACE; " +
             $"elif ! command -v arping >/dev/null 2>&1; then echo RESULT:SKIP; " +
@@ -713,6 +735,7 @@ public class MonitoringInterfaceDeploymentService
         return BootScriptTemplate
             .Replace("\r\n", "\n")
             .Replace("__IFACE__", mi.Name)
+            .Replace("__MAC__", StableMac(mi.Id))
             .Replace("__WAN_IF__", mi.WanIfName)
             .Replace("__VLAN_ID__", mi.WanVlanId?.ToString() ?? "")
             .Replace("__LOCAL_IP__", mi.GatewayLocalIp)
@@ -739,6 +762,7 @@ public class MonitoringInterfaceDeploymentService
 # Managed by Network Optimizer - manual edits are overwritten on redeploy.
 
 IFACE=""__IFACE__""
+MAC=""__MAC__""
 WAN_IF=""__WAN_IF__""
 VLAN_ID=""__VLAN_ID__""
 LOCAL_IP=""__LOCAL_IP__""
@@ -790,9 +814,24 @@ if [ -n ""$VLAN_ID"" ]; then
     ip link set ""$PARENT"" up 2>/dev/null
 fi
 
-# 1. macvlan on the WAN parent (physical port, or VLAN subinterface)
+# 1. macvlan on the WAN parent (physical port, or VLAN subinterface), pinned to a stable,
+# locally-administered MAC. Without a pinned address the kernel assigns a fresh RANDOM MAC on
+# every create - so each gateway reboot presents a NEW CPE MAC to the modem/ONT, forcing it to
+# relearn its single downstream CPE and, on fussy carrier gear (DOCSIS modems, Starlink bypass
+# dishes), transiently wedging its management stack. A stable per-row MAC keeps the same L2
+# identity across reboots and redeploys.
 if ! ip link show ""$IFACE"" >/dev/null 2>&1; then
-    ip link add ""$IFACE"" link ""$PARENT"" type macvlan mode bridge && changed=1 || fail=1
+    ip link add ""$IFACE"" link ""$PARENT"" address ""$MAC"" type macvlan mode bridge && changed=1 || fail=1
+fi
+# Migrate an interface created before MAC pinning (or with a stray random MAC) onto the stable
+# MAC. /sys reports lowercase and $MAC is generated lowercase, so the compare is exact. A MAC
+# can only be changed with the link down, so flap it - but only when it actually differs, to
+# keep the ""log only when changed"" eMMC guard honest and avoid a needless CPE relearn each tick.
+cur_mac=$(cat /sys/class/net/""$IFACE""/address 2>/dev/null)
+if [ -n ""$MAC"" ] && [ ""$cur_mac"" != ""$MAC"" ]; then
+    ip link set ""$IFACE"" down 2>/dev/null
+    ip link set ""$IFACE"" address ""$MAC"" && changed=1 || fail=1
+    ip link set ""$IFACE"" up 2>/dev/null
 fi
 ip link set ""$IFACE"" up 2>/dev/null
 
