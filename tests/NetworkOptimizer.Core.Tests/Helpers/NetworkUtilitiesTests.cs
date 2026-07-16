@@ -625,7 +625,7 @@ public class NetworkUtilitiesTests
     [Theory]
     [InlineData("10.20.30.40")]          // plain IPv4 - unchanged
     [InlineData("192.168.1.1")]
-    [InlineData("2601:1234:5678::1")]   // real IPv6 GUA - must NOT be altered
+    [InlineData("2001:db8:abcd::1")]    // real IPv6 (RFC 3849 doc range) - must NOT be altered
     [InlineData("fd00::1")]             // real IPv6 ULA
     [InlineData("fe80::1")]             // real IPv6 link-local
     [InlineData("2001:db8::ffff:1")]    // real IPv6 that merely contains 'ffff'
