@@ -566,12 +566,16 @@
 
     private RenderFragment RenderCellularStats => __builder =>
     {
-        <div class="card clickable-card" @onclick="NavigateToCellularChart">
+        // Only a whole-card link when there's a modem to view; otherwise the card
+        // shows its own configure affordance and clicking it would just bounce to an
+        // empty tab.
+        var hasDevice = _cellularPanel?.CurrentModemId != null;
+        <div class="card @(hasDevice ? "clickable-card" : "")" @onclick="NavigateToCellularChart">
             <div class="card-header">
                 <h2 class="card-title">Cellular Stats (5G / LTE)</h2>
             </div>
             <div class="card-body">
-                <CellularStatsPanel @ref="_cellularPanel" />
+                <CellularStatsPanel @ref="_cellularPanel" OnDataLoaded="StateHasChanged" />
             </div>
         </div>
     };
@@ -581,7 +585,8 @@
         // The panel renders its own empty-state when no monitored ONT exists, so the
         // card stays on the dashboard but tells the user how to enable it. Mirrors the
         // CellularStats card's "configure" affordance.
-        <div class="card clickable-card" @onclick="NavigateToOntChart">
+        var hasDevice = _ontPanel?.HasContent == true;
+        <div class="card @(hasDevice ? "clickable-card" : "")" @onclick="NavigateToOntChart">
             <div class="card-header">
                 <h2 class="card-title">@(_ontPanel?.HasAnyAe == true ? "Fiber Stats" : "ONT Stats (GPON / XGS-PON)")</h2>
             </div>
@@ -593,24 +598,26 @@
 
     private RenderFragment RenderStarlinkStats => __builder =>
     {
-        <div class="card clickable-card" @onclick="NavigateToStarlinkChart">
+        var hasDevice = _starlinkPanel?.CurrentStarlinkId != null;
+        <div class="card @(hasDevice ? "clickable-card" : "")" @onclick="NavigateToStarlinkChart">
             <div class="card-header">
                 <h2 class="card-title">Starlink Stats</h2>
             </div>
             <div class="card-body">
-                <StarlinkStatsPanel @ref="_starlinkPanel" />
+                <StarlinkStatsPanel @ref="_starlinkPanel" OnDataLoaded="StateHasChanged" />
             </div>
         </div>
     };
 
     private RenderFragment RenderCmStats => __builder =>
     {
-        <div class="card clickable-card" @onclick="NavigateToCmChart">
+        var hasDevice = _cmPanel?.CurrentCmId != null;
+        <div class="card @(hasDevice ? "clickable-card" : "")" @onclick="NavigateToCmChart">
             <div class="card-header">
                 <h2 class="card-title">Cable Modem Stats (DOCSIS)</h2>
             </div>
             <div class="card-body">
-                <CmStatsPanel @ref="_cmPanel" />
+                <CmStatsPanel @ref="_cmPanel" OnDataLoaded="StateHasChanged" />
             </div>
         </div>
     };
@@ -1241,6 +1248,7 @@
 
     private void NavigateToOntChart()
     {
+        if (_ontPanel?.HasContent != true) return;
         if (_ontPanel?.IsCurrentExternal == true)
         {
             var ontId = _ontPanel.CurrentExternalOntId;
@@ -1260,28 +1268,22 @@
     private void NavigateToCellularChart()
     {
         var modemId = _cellularPanel?.CurrentModemId;
-        var url = modemId != null
-            ? $"/monitoring?tab=cellular&modem={Uri.EscapeDataString(modemId)}"
-            : "/monitoring?tab=cellular";
-        NavigationManager.NavigateTo(url);
+        if (modemId == null) return;
+        NavigationManager.NavigateTo($"/monitoring?tab=cellular&modem={Uri.EscapeDataString(modemId)}");
     }
 
     private void NavigateToStarlinkChart()
     {
         var starlinkId = _starlinkPanel?.CurrentStarlinkId;
-        var url = starlinkId != null
-            ? $"/monitoring?tab=starlink&starlink={Uri.EscapeDataString(starlinkId)}"
-            : "/monitoring?tab=starlink";
-        NavigationManager.NavigateTo(url);
+        if (starlinkId == null) return;
+        NavigationManager.NavigateTo($"/monitoring?tab=starlink&starlink={Uri.EscapeDataString(starlinkId)}");
     }
 
     private void NavigateToCmChart()
     {
         var cmId = _cmPanel?.CurrentCmId;
-        var url = cmId != null
-            ? $"/monitoring?tab=cm&cm={Uri.EscapeDataString(cmId)}"
-            : "/monitoring?tab=cm";
-        NavigationManager.NavigateTo(url);
+        if (cmId == null) return;
+        NavigationManager.NavigateTo($"/monitoring?tab=cm&cm={Uri.EscapeDataString(cmId)}");
     }
 
 }

@@ -491,8 +491,8 @@ h1:focus {
 
     .monitoring-chart-header:has(.time-range-selector):has(.settings-link) .settings-link {
         position: absolute;
-        top: 16px;
-        right: 16px;
+        top: 4px;
+        right: 0;
         margin: 0;
     }
 }

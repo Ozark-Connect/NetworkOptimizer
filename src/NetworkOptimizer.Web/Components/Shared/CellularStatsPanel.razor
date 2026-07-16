@@ -441,9 +441,14 @@
         ? configuredModems[currentModemIndex].Id.ToString()
         : null;
 
+    /// <summary>Raised after the initial load so the dashboard card can re-evaluate
+    /// whether there is a device to link to.</summary>
+    [Parameter] public EventCallback OnDataLoaded { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadStats();
+        await OnDataLoaded.InvokeAsync();
 
         // Start auto-refresh timer (every 30 seconds) to pick up cached stats from background polling
         _refreshTimer = new System.Threading.Timer(

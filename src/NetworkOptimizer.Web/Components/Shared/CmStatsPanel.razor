@@ -171,10 +171,15 @@
     private bool _isRefreshing;
     private System.Threading.Timer? _refreshTimer;
 
+    /// <summary>Raised after the initial load so the dashboard card can re-evaluate
+    /// whether there is a device to link to.</summary>
+    [Parameter] public EventCallback OnDataLoaded { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
         _isLoading = false;
+        await OnDataLoaded.InvokeAsync();
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
             try { await InvokeAsync(async () => { await LoadStatsAsync(); StateHasChanged(); }); }
