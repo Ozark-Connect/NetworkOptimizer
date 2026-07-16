@@ -124,26 +124,42 @@ else
                     disabled="@(!_monitoringReady)">
                 SFP Stats
             </button>
-            <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("cm"))"
-                    disabled="@(!_monitoringReady)">
-                CM Stats
-            </button>
-            <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("ont"))"
-                    disabled="@(!_monitoringReady)">
-                ONT Stats
-            </button>
-            <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("cellular"))"
-                    disabled="@(!_monitoringReady)">
-                Cellular Stats
-            </button>
-            <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("starlink"))"
-                    disabled="@(!_monitoringReady)">
-                Starlink Stats
-            </button>
+            @* Optional per-hardware tabs: hidden from the nav when the matching
+               Settings toggle is off, but still shown while it is the active tab
+               so a direct link (e.g. a dashboard card) never lands on a tab with
+               no button. *@
+            @if (_showCmTab || _activeTab == "cm")
+            {
+                <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("cm"))"
+                        disabled="@(!_monitoringReady)">
+                    CM Stats
+                </button>
+            }
+            @if (_showOntTab || _activeTab == "ont")
+            {
+                <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("ont"))"
+                        disabled="@(!_monitoringReady)">
+                    ONT Stats
+                </button>
+            }
+            @if (_showCellularTab || _activeTab == "cellular")
+            {
+                <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("cellular"))"
+                        disabled="@(!_monitoringReady)">
+                    Cellular Stats
+                </button>
+            }
+            @if (_showStarlinkTab || _activeTab == "starlink")
+            {
+                <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("starlink"))"
+                        disabled="@(!_monitoringReady)">
+                    Starlink Stats
+                </button>
+            }
             <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
                 Data Usage
             </button>
@@ -804,7 +820,7 @@ else
         {
         @if (!_cmHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cable Modem Signal History</h2>
                     <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
@@ -818,7 +834,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="cm-charts-container">
+        <div class="card" id="cm-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -905,7 +921,7 @@ else
         {
         @if (!_ontHasDevices && _monitoredSfps.Any(s => s.Category == SfpCategory.Pon))
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
                     <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
@@ -919,7 +935,7 @@ else
         }
         else if (!_ontHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
                     <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
@@ -933,7 +949,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="ont-charts-container">
+        <div class="card" id="ont-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">ONT Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1012,7 +1028,7 @@ else
         {
         @if (!_cellularHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cellular Signal History</h2>
                     <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
@@ -1026,7 +1042,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
+        <div class="card" id="cellular-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cellular Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1113,7 +1129,7 @@ else
         {
         @if (!_starlinkHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Starlink Terminal History</h2>
                     <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
@@ -1127,7 +1143,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="starlink-charts-container">
+        <div class="card" id="starlink-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Starlink Terminal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1542,6 +1558,11 @@ else
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
     private bool _starlinkHasDevices;
+    // Per-site Monitoring tab visibility (from MonitoringSettings; default shown).
+    private bool _showCmTab = true;
+    private bool _showOntTab = true;
+    private bool _showCellularTab = true;
+    private bool _showStarlinkTab = true;
     private bool _forceExpandUpstream;
 
     // "Results ready" banner for the scheduled upstream re-discovery, surfaced on the
@@ -1723,6 +1744,10 @@ else
         await RefreshInfluxStateAsync(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
+        _showCmTab = settings.ShowCmTab;
+        _showOntTab = settings.ShowOntTab;
+        _showCellularTab = settings.ShowCellularTab;
+        _showStarlinkTab = settings.ShowStarlinkTab;
         LoadSfpThresholdInputs(settings);
         await LoadTargetsAsync();
 

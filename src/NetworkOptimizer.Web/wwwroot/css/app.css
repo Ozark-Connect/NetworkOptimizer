@@ -477,6 +477,22 @@ h1:focus {
     min-height: 59px;
     flex-wrap: wrap;
     gap: 0.75rem;
+    position: relative;
+}
+
+@media (max-width: 768px) {
+    .monitoring-chart-header {
+        padding-right: 2.75rem;
+    }
+
+    .monitoring-chart-header .settings-link {
+        position: absolute;
+        top: 12px;
+        right: 16px;
+        height: 1.6875rem;
+        display: flex;
+        align-items: center;
+    }
 }
 
 .card-header-collapsible {

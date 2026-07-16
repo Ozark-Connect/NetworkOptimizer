@@ -136,6 +136,16 @@ public class MonitoringSettings
     /// </summary>
     public int IspHealthScoreWindowHours { get; set; } = 48;
 
+    // Per-site visibility of the optional per-hardware Monitoring stat tabs.
+    // Default true (shown), preserving the historical always-visible behavior;
+    // a user not running that hardware can hide its tab from the Monitoring nav
+    // via the matching Settings section. Only the tab button is affected - the
+    // underlying monitoring/polling is unchanged.
+    public bool ShowCmTab { get; set; } = true;
+    public bool ShowOntTab { get; set; } = true;
+    public bool ShowCellularTab { get; set; } = true;
+    public bool ShowStarlinkTab { get; set; } = true;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
