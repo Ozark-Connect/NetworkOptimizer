@@ -481,7 +481,7 @@ h1:focus {
 }
 
 @media (max-width: 768px) {
-    .monitoring-chart-header {
+    .monitoring-chart-header:has(.settings-link) {
         padding-right: 2.75rem;
     }
 
