@@ -216,6 +216,20 @@ public class UniFiDiscovery
     public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default, bool useCache = true)
     {
         var devices = await DiscoverDevicesAsync(cancellationToken, useCache);
+
+        // Breadcrumb: a gateway that reports radios but is excluded by the model allow-list.
+        // Normally this is the intended behavior (phantom radios on a Wi-Fi-less gateway, #994),
+        // but if a genuinely Wi-Fi-capable gateway we haven't listed shows up here, this log is
+        // how we'd catch it instead of it silently vanishing from the Wi-Fi Optimizer.
+        foreach (var d in devices.Where(d =>
+                     d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && IsGatewayOnlyConsole(d)))
+        {
+            _logger.LogDebug(
+                "Excluding gateway {Name} ({Model}) from AP list: reports {RadioCount} radio(s) but is not in " +
+                "the Wi-Fi-capable gateway allow-list. If this model has integrated Wi-Fi, add it to WifiCapableGateways.",
+                d.Name, d.FriendlyModelName, d.RadioTable!.Count);
+        }
+
         return devices.Where(d =>
             d.Type == DeviceType.AccessPoint ||
             (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 } && !IsGatewayOnlyConsole(d))).ToList();
