@@ -169,6 +169,34 @@ public class ChannelRecommendationService
     private const double ComfortableInterferencePct = 20.0;
 
     /// <summary>
+    /// Measured-worse guard: minimum dB by which a candidate channel's spectrum-scan noise floor must
+    /// exceed (be louder than) the AP's current channel's before the channel counts as measurably
+    /// worse on the noise-floor signal. A margin, not a hair-trigger - small floor wobble between two
+    /// otherwise-fine channels shouldn't hold an AP put. Noise floor is ambient RF (not the AP's own
+    /// traffic), so the AP's own read of both channels is directly comparable. Tunable.
+    /// </summary>
+    private const double MeasurablyWorseNoiseFloorMarginDb = 6.0;
+
+    /// <summary>
+    /// Measured-worse guard: a candidate channel's noise floor only counts as "worse" when it is at
+    /// least this loud in absolute terms - i.e. a real interferer is present, not two quiet floors a
+    /// few dB apart. Keeps the guard from blocking a move between two clean channels (common on 5/6
+    /// GHz), where floors sit far below this. -70 dBm is well above a clean floor (~-90) yet only
+    /// reached when a genuine emitter occupies the channel. Tunable.
+    /// </summary>
+    private const double ElevatedNoiseFloorDbm = -70.0;
+
+    /// <summary>
+    /// Measured-worse guard: minimum percentage-point margin by which a candidate channel's measured
+    /// external interference must exceed the AP's current channel's to count as measurably worse on the
+    /// interference signal. Paired with an absolute floor of <see cref="ComfortableInterferencePct"/>
+    /// on the candidate, so the destination must be both meaningfully worse AND genuinely
+    /// not-comfortable - never trips on the low-single-digit interference typical of clean 5/6 GHz
+    /// bands. Tunable.
+    /// </summary>
+    private const double MeasurablyWorseInterferencePct = 5.0;
+
+    /// <summary>
     /// Converts a measured channel occupancy percentage (0-100) to the per-AP score scale used by
     /// the absolute gates, for the measured-congestion floor (#2). Anchored to those gates rather
     /// than to the (over-stated) external proxy: ~40% airtime lands near <see cref="MinApScoreToMove"/>
@@ -1224,6 +1252,64 @@ public class ChannelRecommendationService
             }
         } while (comfortReverted);
 
+        // Measured "don't move onto a worse channel" guard. The external neighbor-scan proxy dominates
+        // the score (~15-30) over every measured signal (~1-2), so it can steer an AP onto a channel
+        // the AP's OWN radio measures as worse: fewer beaconing BSSIDs there, yet a louder noise floor
+        // and/or more external-network airtime (the exact ch6->ch11 case where a -37 dBm interferer sat
+        // on the "quieter" channel). Reject such a move when it buys no co-channel relief for our own
+        // APs. Ground-truth only, at the AP's own vantage - spectrum-scan noise floor (ambient RF, not
+        // the AP's own traffic) and time-averaged external interference - and only ever HOLDS an AP
+        // put, so it can never create new churn. It complements the comfort anchor above: that fires
+        // only when the CURRENT channel is already quiet (< ComfortableInterferencePct); this fires
+        // whenever the DESTINATION measures worse, even from a middling current channel. Absolute
+        // badness gates (see the guard constants) keep it inert on clean bands, where 5/6 GHz moves
+        // between two quiet channels are the norm - it engages only when a real interferer or genuinely
+        // high airtime sits on the destination, where suppressing the move is correct on any band.
+        bool worseReverted;
+        do
+        {
+            worseReverted = false;
+            for (int i = 0; i < n; i++)
+            {
+                var node = graph.Nodes[i];
+                var rec = plan.Recommendations[i];
+                if (rec.RecommendedChannel == node.CurrentChannel && rec.RecommendedWidth == node.CurrentWidth)
+                    continue;
+                if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
+                if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
+                if (!IsRecommendedChannelMeasurablyWorse(graph, band, i, rec.RecommendedChannel, rec.RecommendedWidth))
+                    continue;
+
+                // Same internal-benefit escape as the comfort anchor: a move that genuinely unsticks a
+                // co-channel pair among our OWN always-on APs still goes through despite the louder
+                // ambient reading - resolving our own permanent collision can outweigh a strong neighbor.
+                var revertTrial = ((int Channel, int Width)[])finalAssignment.Clone();
+                revertTrial[i] = (node.CurrentChannel, node.CurrentWidth);
+                ApplyMeshConstraints(graph, revertTrial);
+
+                double othersWithMove = 0, othersReverted = 0;
+                for (int j = 0; j < n; j++)
+                {
+                    if (j == i) continue;
+                    othersWithMove += ScoreAp(graph, finalAssignment, j, band);
+                    othersReverted += ScoreAp(graph, revertTrial, j, band);
+                }
+                if (othersReverted - othersWithMove >= MinApAbsoluteImprovement) continue;
+
+                _logger.LogDebug(
+                    "[ChannelRec] Measured-worse guard: keeping {ApName} on ch{Cur} (proposed ch{Rec} " +
+                    "measures worse at this AP - louder noise floor or more external airtime - and " +
+                    "didn't reduce co-channel interference to our own APs)",
+                    node.Name, node.CurrentChannel, rec.RecommendedChannel);
+
+                rec.RecommendedChannel = node.CurrentChannel;
+                rec.RecommendedWidth = node.CurrentWidth;
+                finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
+                ApplyMeshConstraints(graph, finalAssignment);
+                worseReverted = true;
+            }
+        } while (worseReverted);
+
         // Sync mesh children to their leader's final channel. The leader may have moved or
         // been reverted during reconciliation; the child must mirror wherever it landed so the
         // displayed plan is physically valid (a backhaul pair shares one channel) and the
@@ -1547,6 +1633,80 @@ public class ChannelRecommendationService
             if (ChannelSpanHelper.SpansOverlap(currentSpan, histSpan))
                 return stress.Interference < ComfortableInterferencePct;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a proposed channel measures WORSE than the AP's current channel at the AP's own
+    /// location, on ground-truth signals the dominant neighbor-scan proxy ignores. Two independent
+    /// arms, either of which trips the guard:
+    /// <list type="bullet">
+    /// <item>Spectrum-scan noise floor: the candidate's floor is at least
+    /// <see cref="MeasurablyWorseNoiseFloorMarginDb"/> dB louder than the current channel's AND itself
+    /// above <see cref="ElevatedNoiseFloorDbm"/> (a real interferer present, not two quiet floors).
+    /// Noise floor is ambient RF, not the AP's own traffic, so the AP's own read of BOTH channels is
+    /// directly comparable.</item>
+    /// <item>Measured external interference (time-averaged, from measured history or, failing that, the
+    /// neighbor-propagated estimate the scorer already uses): the candidate exceeds the current channel
+    /// by at least <see cref="MeasurablyWorseInterferencePct"/> points AND is itself at or above
+    /// <see cref="ComfortableInterferencePct"/> (the destination is genuinely not comfortable).</item>
+    /// </list>
+    /// The absolute gates keep the guard from blocking a move between two clean channels - the common
+    /// 5/6 GHz case, where floors sit far below the elevated threshold and interference in the low
+    /// single digits. Returns false when neither channel has the needed measurement (nothing to
+    /// compare - let the move stand).
+    /// </summary>
+    private bool IsRecommendedChannelMeasurablyWorse(
+        InterferenceGraph graph, RadioBand band, int apIndex, int recChannel, int recWidth)
+    {
+        var node = graph.Nodes[apIndex];
+
+        // Noise-floor arm: the AP's OWN scan of each channel (ambient, uncontaminated by own traffic).
+        // Higher (less negative) dBm = louder = worse.
+        var curNf = ScanOverSpan(graph, band, apIndex, node.CurrentChannel, node.CurrentWidth)?.NoiseFloor;
+        var recNf = ScanOverSpan(graph, band, apIndex, recChannel, recWidth)?.NoiseFloor;
+        if (curNf is int cnf && recNf is int rnf &&
+            rnf >= ElevatedNoiseFloorDbm &&
+            rnf - cnf >= MeasurablyWorseNoiseFloorMarginDb)
+            return true;
+
+        // Interference arm: measured external-network airtime, current vs candidate.
+        if (TryGetMeasuredInterference(node, band, node.CurrentChannel, out var curInt) &&
+            TryGetMeasuredInterference(node, band, recChannel, out var recInt) &&
+            recInt >= ComfortableInterferencePct &&
+            recInt - curInt >= MeasurablyWorseInterferencePct)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Measured external interference (%) for a channel at this AP, preferring ground-truth measured
+    /// history and falling back to the neighbor-propagated estimate (the same effective source
+    /// <see cref="ComputeStressPenalty"/> scores) for a channel the AP never occupied. Returns false
+    /// when neither has an overlapping entry.
+    /// </summary>
+    private static bool TryGetMeasuredInterference(ApNode node, RadioBand band, int channel, out double interferencePct)
+    {
+        interferencePct = 0;
+        var span = ChannelSpanHelper.GetChannelSpan(band, channel, node.CurrentWidth);
+
+        if (node.HistoricalStress != null)
+            foreach (var (ch, stress) in node.HistoricalStress)
+                if (ChannelSpanHelper.SpansOverlap(span, ChannelSpanHelper.GetChannelSpan(band, ch, node.CurrentWidth)))
+                {
+                    interferencePct = stress.Interference;
+                    return true;
+                }
+
+        if (node.PropagatedStress != null)
+            foreach (var (ch, stress) in node.PropagatedStress)
+                if (ChannelSpanHelper.SpansOverlap(span, ChannelSpanHelper.GetChannelSpan(band, ch, node.CurrentWidth)))
+                {
+                    interferencePct = stress.Interference;
+                    return true;
+                }
+
         return false;
     }
 

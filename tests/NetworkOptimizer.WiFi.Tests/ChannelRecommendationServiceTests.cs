@@ -1102,6 +1102,98 @@ public class ChannelRecommendationServiceTests
         subject.IsChanged.Should().BeFalse();
     }
 
+    /// <summary>
+    /// Builds the reported ch6-vs-ch11 topology: Living Room parked on a clean ch1, Downstairs on ch6,
+    /// the two hearing each other. The neighbor-scan proxy makes ch6 look busiest and ch11 cleanest for
+    /// Downstairs (the trap), so the optimizer wants to move it onto ch11. Callers layer the ground-truth
+    /// measurement (scan noise floor and/or measured interference) that reveals ch11 is actually worse.
+    /// </summary>
+    private InterferenceGraph BuildCh6VsCh11Graph(RegulatoryChannelData reg, RecommendationOptions options)
+    {
+        var aps = new List<AccessPointSnapshot>
+        {
+            CreateAp("aa:bb:cc:dd:ee:01", "Living Room", RadioBand.Band2_4GHz, 1, width: 20),
+            CreateAp("aa:bb:cc:dd:ee:02", "Downstairs", RadioBand.Band2_4GHz, 6, width: 20)
+        };
+        var graph = _service.BuildInterferenceGraph(aps, RadioBand.Band2_4GHz, null, null, reg, options);
+        graph.InternalWeights[0, 1] = graph.InternalWeights[1, 0] = 1.0;
+        graph.DirectionalWeights[0, 1] = graph.DirectionalWeights[1, 0] = 1.0;
+        // Neighbor-scan proxy: Living Room best on ch1; Downstairs sees ch6 busiest, ch11 cleanest.
+        graph.ExternalLoad[0] = new() { { 1, 5.0 }, { 6, 30.0 }, { 11, 20.0 } };
+        graph.DirectlyObservedChannels[0] = new() { 1, 6, 11 };
+        graph.ExternalLoad[1] = new() { { 1, 18.0 }, { 6, 30.0 }, { 11, 15.0 } };
+        graph.DirectlyObservedChannels[1] = new() { 1, 6, 11 };
+        return graph;
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoLouderNoiseFloor_KeepsApOnCurrentChannel()
+    {
+        // The reported ch6->ch11 nonsense (Mac site). The neighbor scan counts fewer beaconing BSSIDs
+        // on ch11 (proxy 15) than ch6 (proxy 30), so the optimizer wants to move Downstairs onto ch11 -
+        // but ch11 carries a -37 dBm noise floor (two strong HUMAX boxes) vs ch6's -58 dBm. The AP's own
+        // spectrum scan is ground truth the proxy ignores; the measured-worse guard must hold it on ch6.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) },
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (25, (int?)(-37)) } // loud interferer sitting on the "cleaner" channel
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var downstairs = plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02");
+        downstairs.RecommendedChannel.Should().Be(6,
+            "ch11 measures far louder (-37 dBm vs -58) at this AP, so the neighbor-scan proxy must not move it there");
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:01").RecommendedChannel.Should().Be(1);
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoHigherMeasuredInterference_KeepsApOnCurrentChannel()
+    {
+        // Interference arm (no spectrum-scan noise floor to lean on): the AP's own measured 1d/7d
+        // external interference records ch11 at 34% vs ch6 at 28% - worse, and above the comfortable
+        // bar - so the proxy-driven move to ch11 is held even though ch6 itself isn't "comfortable".
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.Nodes[1].HistoricalStress = new Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>
+        {
+            { 6, (36.0, 28.0, 15.0) },
+            { 11, (41.0, 34.0, 21.0) }
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(6,
+            "the AP's own measurement puts ch11 (34%) above ch6 (28%), so it must not be moved to the worse channel");
+    }
+
+    [Fact]
+    public void Optimize_MoveOntoMeasuredCleanerChannel_StillLeavesCongestedChannel()
+    {
+        // Control: same proxy trap, but this time ch11 genuinely IS cleaner - low noise floor and no
+        // elevated interference. The guard must stay inert (absolute badness gates unmet) and let the
+        // congested AP escape ch6, proving the guard suppresses only measurably-worse moves.
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) },
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (20, (int?)(-85)) } // quiet destination
+        };
+
+        var plan = _service.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(11,
+            "ch11 measures clean here, so the guard stays out of the way and the congested AP moves off ch6");
+    }
+
     [Fact]
     public void Optimize_PinnedAp_ChannelUnchanged()
     {
