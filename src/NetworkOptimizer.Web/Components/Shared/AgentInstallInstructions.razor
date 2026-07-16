@@ -79,6 +79,21 @@ else
     </p>
     <pre><code>@NativeOneLiner()</code></pre>
 
+    <h4 class="agent-flavor-title">On a UniFi gateway</h4>
+    <p class="form-hint">
+        Run the agent on the gateway itself (UCG-Fiber, UXG-Fiber, UDM, EFG) instead of a separate box.
+        Monitoring-only - it installs to <code>/data</code> with a memory-fenced service. UniFi gateways
+        SSH in as root, so run it there directly:
+    </p>
+    <pre><code>@GatewayOneLiner()</code></pre>
+    @if (LanSpeedTest)
+    {
+        <p class="form-hint">
+            LAN speed testing isn't hosted on the gateway - use the Docker or bare-metal command above on a
+            separate box for that.
+        </p>
+    }
+
     <p class="form-hint">
         Full options and troubleshooting are in the
         <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/src/NetworkOptimizer.Agent/README.md" target="_blank" rel="noopener">agent deployment guide</a>.
@@ -138,6 +153,17 @@ else
         sb.Append($"  --token \"{Token}\"");
         if (LanSpeedTest)
             sb.Append(" \\\n  --lan-speed-test");
+        return sb.ToString();
+    }
+
+    // Monitoring-only gateway installer: no --lan-speed-test (the router must not
+    // host a speed-test server), and no sudo (UniFi gateways SSH in as root).
+    private string GatewayOneLiner()
+    {
+        var sb = new StringBuilder();
+        sb.Append("curl -fsSL https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/agent/install-agent-gateway.sh | bash -s -- \\\n");
+        sb.Append($"  --server \"{ServerValue}\" \\\n");
+        sb.Append($"  --token \"{Token}\"");
         return sb.ToString();
     }
 }
