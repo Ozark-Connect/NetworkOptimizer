@@ -124,11 +124,10 @@ else
                     disabled="@(!_monitoringReady)">
                 SFP Stats
             </button>
-            @* Optional per-hardware tabs: hidden from the nav when the matching
-               Settings toggle is off, but still shown while it is the active tab
-               so a direct link (e.g. a dashboard card) never lands on a tab with
-               no button. *@
-            @if (_showCmTab || _activeTab == "cm")
+            @* Optional per-hardware tabs, hidden from the nav when the matching
+               Settings toggle is off. ResolveDefaultTab redirects a pinned ?tab=
+               off a hidden tab, so the active tab is never one of these when hidden. *@
+            @if (_showCmTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("cm"))"
@@ -136,7 +135,7 @@ else
                     CM Stats
                 </button>
             }
-            @if (_showOntTab || _activeTab == "ont")
+            @if (_showOntTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("ont"))"
@@ -144,7 +143,7 @@ else
                     ONT Stats
                 </button>
             }
-            @if (_showCellularTab || _activeTab == "cellular")
+            @if (_showCellularTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("cellular"))"
@@ -152,7 +151,7 @@ else
                     Cellular Stats
                 </button>
             }
-            @if (_showStarlinkTab || _activeTab == "starlink")
+            @if (_showStarlinkTab)
             {
                 <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
                         @onclick="@(() => SetActiveTab("starlink"))"
@@ -1621,6 +1620,21 @@ else
         "live", "isp-health", "performance", "devices", "sfp", "cm", "ont", "cellular", "starlink", "setup"
     };
 
+    /// <summary>
+    /// True when <paramref name="tab"/> is one of the optional per-hardware stat tabs
+    /// that this site has hidden. Used so a pinned ?tab= (e.g. after switching to a
+    /// site that doesn't show that tab) falls back to the default instead of landing
+    /// on a hidden tab.
+    /// </summary>
+    private bool IsHardwareTabHidden(string tab) => tab switch
+    {
+        "cm" => !_showCmTab,
+        "ont" => !_showOntTab,
+        "cellular" => !_showCellularTab,
+        "starlink" => !_showStarlinkTab,
+        _ => false
+    };
+
     private string ResolveDefaultTab()
     {
         // Every tab except Setup is gated on _monitoringReady and renders blank when
@@ -1628,7 +1642,10 @@ else
         // explicit ?tab= so a deep-link (e.g. a Device Status dashboard click ->
         // ?tab=devices) into an unconfigured site lands on Setup, not a blank tab.
         if (!_monitoringReady) return "setup";
-        if (TabParam != null && ValidTabs.Contains(TabParam))
+        // A pinned ?tab= for a hardware stat tab hidden on this site (common after a
+        // site switch, where the tab is carried in the URL) falls through to the
+        // default rather than opening a tab the site chose to hide.
+        if (TabParam != null && ValidTabs.Contains(TabParam) && !IsHardwareTabHidden(TabParam.ToLowerInvariant()))
             return TabParam.ToLowerInvariant();
         if (_influxReachable == false || _snmpState == SnmpDetectionState.PollFailing)
             return "setup";
