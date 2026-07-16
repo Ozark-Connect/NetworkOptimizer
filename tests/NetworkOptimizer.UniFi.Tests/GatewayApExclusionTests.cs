@@ -81,21 +81,36 @@ public class GatewayApExclusionTests
     }
 
     [Theory]
-    [InlineData("UXGPRO", "UXGPRO")]     // Gateway Pro
-    [InlineData("UXGENT", "UXGENT")]      // Gateway Enterprise
-    [InlineData("UDMA6A8", "UCGF")]       // Cloud Gateway Fiber
-    [InlineData("UDRULT", "UDRULT")]      // UCG-Ultra
-    [InlineData("UXGB", "UXGB")]          // Gateway Max
-    public void OtherGatewayOnly_NotMatchedButNoRadios(string model, string shortname)
+    [InlineData("UXGPRO", "UXGPRO", "UXG-Pro")]        // Gateway Pro
+    [InlineData("UXGENT", "UXGENT", "UXG-Enterprise")]  // Gateway Enterprise
+    [InlineData("UXGA6AA", "UXGF", "UXG-Fiber")]        // UXG-Fiber (issue #994)
+    [InlineData("UXG", "UXG", "UXG-Lite")]              // Gateway Lite
+    [InlineData("UXGB", "UXGB", "UXG-Max")]             // Gateway Max
+    [InlineData("UDMA6A8", "UCGF", "UCG-Fiber")]        // Cloud Gateway Fiber
+    [InlineData("UCGMAX", "UCGMAX", "UCG-Max")]         // Cloud Gateway Max
+    [InlineData("UDRULT", "UDRULT", "UCG-Ultra")]       // Cloud Gateway Ultra
+    public void OtherGatewayOnly_ExcludedEvenWithPhantomRadios(string model, string shortname, string expectedFriendlyName)
     {
-        // These don't start with "UDM-" or "EFG" but also have no Wi-Fi.
-        // They're not caught by IsGatewayOnlyConsole, but they also won't
-        // have radio_table entries in the real API, so the RadioTable check
-        // in DiscoverAccessPointsAsync filters them out.
-        var device = CreateGatewayDevice(model, shortname, radioCount: 0);
+        // These Wi-Fi-less gateways aren't in the WifiCapableGateways allow-list, so they must be
+        // excluded even when the API reports phantom radio_table entries (UXG-Fiber on firmware
+        // 5.0.16 does exactly this - issue #994). We no longer rely on the API omitting radios.
+        var device = CreateGatewayDevice(model, shortname, radioCount: 2);
 
-        // No radio_table → filtered by the Count > 0 check, not by IsGatewayOnlyConsole
-        device.RadioTable.Should().BeNull();
+        device.FriendlyModelName.Should().Be(expectedFriendlyName,
+            $"model={model} shortname={shortname} should resolve to {expectedFriendlyName}");
+        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeTrue(
+            $"{expectedFriendlyName} has no integrated Wi-Fi");
+    }
+
+    [Fact]
+    public void UcgIndustrial_Allowed()
+    {
+        // The one UCG with integrated Wi-Fi.
+        var device = CreateGatewayDevice("UDMA6AD", "UCG-Industrial", radioCount: 2);
+
+        device.FriendlyModelName.Should().Be("UCG-Industrial");
+        UniFiDiscovery.IsGatewayOnlyConsole(device).Should().BeFalse(
+            "UCG-Industrial has integrated Wi-Fi");
     }
 
     // ---------------------------------------------------------------

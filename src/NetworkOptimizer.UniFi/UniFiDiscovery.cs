@@ -215,13 +215,35 @@ public class UniFiDiscovery
     }
 
     /// <summary>
+    /// The handful of gateway-class consoles that DO have integrated Wi-Fi radios, keyed by
+    /// FriendlyModelName (the UI display name). Gateways are overwhelmingly Wi-Fi-less, so this
+    /// is an allow-list: any gateway not listed here is treated as gateway-only, regardless of
+    /// what radio_table the API reports (some Wi-Fi-less gateways, e.g. UXG-Fiber on certain
+    /// firmware, emit phantom radio entries). Exact match cleanly separates the original "UDM"
+    /// (has Wi-Fi) from "UDM-Pro"/"UDM-SE"/"UDM-Pro-Max" (Wi-Fi-less).
+    ///
+    /// If UniFi ships a NEW gateway with built-in Wi-Fi (rare), add its FriendlyModelName here,
+    /// or it won't appear in the Wi-Fi Optimizer. See the matching note in UniFiProductDatabase.
+    /// </summary>
+    private static readonly HashSet<string> WifiCapableGateways = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "UDM",            // original Dream Machine
+        "UDW",            // Dream Wall
+        "UDR",            // Dream Router
+        "UDR7",           // Dream Router 7
+        "UDR-5G-Max",     // Dream Router 5G Max
+        "UX",             // Express
+        "UX7",            // Express 7
+        "UCG-Industrial", // only UCG with integrated Wi-Fi
+    };
+
+    /// <summary>
     /// Returns true for gateway-class consoles that do NOT have integrated Wi-Fi radios.
     /// The UniFi API sometimes reports radio_table entries for these devices even though
-    /// they have no wireless capability. Uses FriendlyModelName (the UI display name)
-    /// as the source of truth rather than trusting API radio data.
-    /// Excludes: UDM-Pro, UDM-SE, UDM-Pro-Max (start with "UDM-"), EFG (Enterprise Fortress
-    /// Gateway, starts with "EFG"), and EF-Core (Enterprise Firewall Core).
-    /// Allows: UDM (original Dream Machine), UDR, UX, etc. which have real Wi-Fi.
+    /// they have no wireless capability, so we decide by model rather than trusting API radio
+    /// data: any gateway whose FriendlyModelName is not in <see cref="WifiCapableGateways"/> is
+    /// treated as gateway-only. Excludes: UXG-*, UCG-Max/Fiber/Ultra, UDM-Pro/SE/Max, EFG,
+    /// EF-Core, USG-*. Allows: UDM, UDR(7)/UDR-5G-Max, UX(7), UDW, UCG-Industrial.
     /// </summary>
     internal static bool IsGatewayOnlyConsole(DiscoveredDevice device)
         => IsGatewayOnlyConsole(device.FriendlyModelName);
@@ -230,11 +252,7 @@ public class UniFiDiscovery
         => IsGatewayOnlyConsole(device.FriendlyModelName);
 
     private static bool IsGatewayOnlyConsole(string friendlyModelName)
-    {
-        return friendlyModelName.StartsWith("UDM-", StringComparison.OrdinalIgnoreCase) ||
-               friendlyModelName.StartsWith("EFG", StringComparison.OrdinalIgnoreCase) ||
-               friendlyModelName.StartsWith("EF-Core", StringComparison.OrdinalIgnoreCase);
-    }
+        => !WifiCapableGateways.Contains(friendlyModelName);
 
     /// <summary>
     /// Gets the gateway IP from the default LAN network configuration.
