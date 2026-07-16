@@ -21,7 +21,7 @@ public static class AppVersionInfo
     /// are not flagged. The Multi-Site agent list shows an "Update agent"
     /// callout for enrolled agents reporting an older version than this.
     /// </summary>
-    public const string LatestAgentVersion = "2.0.1";
+    public const string LatestAgentVersion = "2.1.0";
 
     /// <summary>Full informational version (e.g. "1.4.2" or "0.0.0-alpha.0.12").</summary>
     public static string Informational { get; }
