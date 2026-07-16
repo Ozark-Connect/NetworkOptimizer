@@ -170,6 +170,12 @@ public sealed class StarlinkMonitorService : IDisposable
     private async Task PollAllAsync()
     {
         if (!Active) return;
+        // While an agent-routed site's tunnel is down, every poll fails and stamps a
+        // misleading device error, so the Settings card reads "Error" for a device
+        // that's actually fine and recovers as soon as the agent returns. Skip polling
+        // until the agent is back (the last known state and any real error are kept).
+        if (await _tunnelRouting.IsViaAgentAsync(_siteSlug) && !_tunnelRouting.IsAgentOnline(_siteSlug))
+            return;
         if (_isPolling)
         {
             _logger.LogDebug("Starlink PollAllAsync skipped - already polling");
