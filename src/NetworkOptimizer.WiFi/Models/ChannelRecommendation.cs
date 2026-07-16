@@ -221,6 +221,14 @@ public class ApNode
     /// </summary>
     public Dictionary<int, (double Utilization, double Interference, double TxRetryPct)>? PropagatedStress { get; set; }
 
+    /// <summary>
+    /// When this AP's per-channel spectrum scan for this band was actually taken (UniFi
+    /// <c>spectrum_table_time</c>), or null when unknown. Diagnostics only: lets the engine log how
+    /// stale the measured airtime/noise-floor data feeding a recommendation (or a measured-worse
+    /// hold) is. Never read by scoring.
+    /// </summary>
+    public DateTimeOffset? SpectrumScanTime { get; set; }
+
     /// <summary>Index of this AP's mesh group leader, or -1 if not in a mesh group</summary>
     public int MeshGroupLeader { get; set; } = -1;
 

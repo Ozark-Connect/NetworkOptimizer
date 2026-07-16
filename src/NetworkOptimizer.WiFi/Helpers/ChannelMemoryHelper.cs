@@ -309,6 +309,7 @@ public static class ChannelMemoryHelper
                 ApName = scan.ApName,
                 Band = scan.Band,
                 ScanTime = scan.ScanTime,
+                SpectrumTableTime = scan.SpectrumTableTime,
                 Channels = scan.Channels,
                 Neighbors = scan.Neighbors.Concat(added).ToList()
             });

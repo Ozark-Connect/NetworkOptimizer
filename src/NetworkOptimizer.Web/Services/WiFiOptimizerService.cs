@@ -855,6 +855,7 @@ public class WiFiOptimizerService
                     ApName = scan.ApName,
                     Band = scan.Band,
                     ScanTime = scan.ScanTime,
+                    SpectrumTableTime = scan.SpectrumTableTime,
                     Channels = scan.Channels,
                     Neighbors = neighbors
                 });

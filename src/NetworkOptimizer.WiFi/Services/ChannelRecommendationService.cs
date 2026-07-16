@@ -197,6 +197,15 @@ public class ChannelRecommendationService
     private const double MeasurablyWorseInterferencePct = 5.0;
 
     /// <summary>
+    /// Scan-materiality diagnostics: minimum pooled external-neighbor weight on a channel for its
+    /// elevated noise floor to count as "corroborated" by the (fresher) neighbor scan. Below this, a
+    /// loud floor with no Wi-Fi neighbors to explain it is EITHER a stale spectrum reading OR genuine
+    /// non-Wi-Fi energy (radar, microwave) - the log flags it "uncorroborated" so we can tell the two
+    /// apart on live sites. Diagnostic threshold only; never gates a recommendation.
+    /// </summary>
+    private const double CorroborationMinExternalWeight = 1.0;
+
+    /// <summary>
     /// Converts a measured channel occupancy percentage (0-100) to the per-AP score scale used by
     /// the absolute gates, for the measured-congestion floor (#2). Anchored to those gates rather
     /// than to the (over-stated) external proxy: ~40% airtime lands near <see cref="MinApScoreToMove"/>
@@ -1265,6 +1274,10 @@ public class ChannelRecommendationService
         // badness gates (see the guard constants) keep it inert on clean bands, where 5/6 GHz moves
         // between two quiet channels are the norm - it engages only when a real interferer or genuinely
         // high airtime sits on the destination, where suppressing the move is correct on any band.
+        // Records each AP the guard held and why (rejected channel + which arm tripped), for the
+        // scan-materiality diagnostics logged at the end - a guard hold is the strongest signal that
+        // a possibly-stale scan is load-bearing in the plan.
+        var measuredWorseHolds = new Dictionary<int, (int RejectedChannel, MeasuredWorseReason Reason)>();
         bool worseReverted;
         do
         {
@@ -1277,7 +1290,7 @@ public class ChannelRecommendationService
                     continue;
                 if (node.MeshGroupLeader >= 0 && node.MeshGroupLeader != i) continue;
                 if (!node.ValidChannels.Contains(node.CurrentChannel)) continue;
-                if (!IsRecommendedChannelMeasurablyWorse(graph, band, i, rec.RecommendedChannel, rec.RecommendedWidth))
+                if (EvaluateMeasuredWorse(graph, band, i, rec.RecommendedChannel, rec.RecommendedWidth) is not { } worse)
                     continue;
 
                 // Same internal-benefit escape as the comfort anchor: a move that genuinely unsticks a
@@ -1296,12 +1309,14 @@ public class ChannelRecommendationService
                 }
                 if (othersReverted - othersWithMove >= MinApAbsoluteImprovement) continue;
 
+                var rejectedChannel = rec.RecommendedChannel;
                 _logger.LogDebug(
                     "[ChannelRec] Measured-worse guard: keeping {ApName} on ch{Cur} (proposed ch{Rec} " +
-                    "measures worse at this AP - louder noise floor or more external airtime - and " +
-                    "didn't reduce co-channel interference to our own APs)",
-                    node.Name, node.CurrentChannel, rec.RecommendedChannel);
+                    "measures worse at this AP [{Arms}] - and didn't reduce co-channel interference to " +
+                    "our own APs)",
+                    node.Name, node.CurrentChannel, rejectedChannel, DescribeMeasuredWorseArms(worse));
 
+                measuredWorseHolds[i] = (rejectedChannel, worse);
                 rec.RecommendedChannel = node.CurrentChannel;
                 rec.RecommendedWidth = node.CurrentWidth;
                 finalAssignment[i] = (node.CurrentChannel, node.CurrentWidth);
@@ -1377,6 +1392,12 @@ public class ChannelRecommendationService
 
         // Log final recommendation summary
         LogRecommendationSummary(plan, currentAssignment, bestAssignment);
+
+        // Diagnostics: how stale each AP's scan is, and whether that staleness could matter - the scan
+        // term was decisive for the recommendation, or a measured-worse hold is resting on it, plus
+        // whether the neighbor scan still corroborates it. Lets us see on live sites how often "old"
+        // coincides with "material" before designing a staleness-driven re-scan prompt.
+        LogScanMateriality(graph, band, finalAssignment, measuredWorseHolds);
 
         return plan;
     }
@@ -1653,10 +1674,11 @@ public class ChannelRecommendationService
     /// </list>
     /// The absolute gates keep the guard from blocking a move between two clean channels - the common
     /// 5/6 GHz case, where floors sit far below the elevated threshold and interference in the low
-    /// single digits. Returns false when neither channel has the needed measurement (nothing to
-    /// compare - let the move stand).
+    /// single digits. Returns null when neither arm trips (nothing measurably worse - let the move
+    /// stand); otherwise a <see cref="MeasuredWorseReason"/> naming the arm(s) and the compared values,
+    /// so the caller can both act on it and log why (feeding the scan-materiality diagnostics).
     /// </summary>
-    private bool IsRecommendedChannelMeasurablyWorse(
+    private MeasuredWorseReason? EvaluateMeasuredWorse(
         InterferenceGraph graph, RadioBand band, int apIndex, int recChannel, int recWidth)
     {
         var node = graph.Nodes[apIndex];
@@ -1665,20 +1687,33 @@ public class ChannelRecommendationService
         // Higher (less negative) dBm = louder = worse.
         var curNf = ScanOverSpan(graph, band, apIndex, node.CurrentChannel, node.CurrentWidth)?.NoiseFloor;
         var recNf = ScanOverSpan(graph, band, apIndex, recChannel, recWidth)?.NoiseFloor;
-        if (curNf is int cnf && recNf is int rnf &&
+        var noiseFloorArm = curNf is int cnf && recNf is int rnf &&
             rnf >= ElevatedNoiseFloorDbm &&
-            rnf - cnf >= MeasurablyWorseNoiseFloorMarginDb)
-            return true;
+            rnf - cnf >= MeasurablyWorseNoiseFloorMarginDb;
 
         // Interference arm: measured external-network airtime, current vs candidate.
-        if (TryGetMeasuredInterference(node, band, node.CurrentChannel, out var curInt) &&
-            TryGetMeasuredInterference(node, band, recChannel, out var recInt) &&
-            recInt >= ComfortableInterferencePct &&
-            recInt - curInt >= MeasurablyWorseInterferencePct)
-            return true;
+        double? curInt = TryGetMeasuredInterference(node, band, node.CurrentChannel, out var ci) ? ci : null;
+        double? recInt = TryGetMeasuredInterference(node, band, recChannel, out var ri) ? ri : null;
+        var interferenceArm = curInt is double c && recInt is double r &&
+            r >= ComfortableInterferencePct &&
+            r - c >= MeasurablyWorseInterferencePct;
 
-        return false;
+        if (!noiseFloorArm && !interferenceArm) return null;
+        return new MeasuredWorseReason(noiseFloorArm, interferenceArm, curNf, recNf, curInt, recInt);
     }
+
+    /// <summary>
+    /// Why the measured-worse guard considers a candidate channel worse than the AP's current one:
+    /// which arm(s) tripped, and the values compared. Carried out of <see cref="EvaluateMeasuredWorse"/>
+    /// so the hold can be logged with its rationale (scan-materiality diagnostics).
+    /// </summary>
+    private readonly record struct MeasuredWorseReason(
+        bool NoiseFloorArm,
+        bool InterferenceArm,
+        int? CurrentNoiseFloor,
+        int? RecommendedNoiseFloor,
+        double? CurrentInterferencePct,
+        double? RecommendedInterferencePct);
 
     /// <summary>
     /// Measured external interference (%) for a channel at this AP, preferring ground-truth measured
@@ -2462,6 +2497,11 @@ public class ChannelRecommendationService
             if (!macToIndex.TryGetValue(scan.ApMac, out var apIndex))
                 continue;
 
+            // Record the scan's true age for diagnostics (keep the freshest if several map here).
+            if (scan.SpectrumTableTime is { } stt &&
+                (graph.Nodes[apIndex].SpectrumScanTime is not { } existing || stt > existing))
+                graph.Nodes[apIndex].SpectrumScanTime = stt;
+
             foreach (var chInfo in scan.Channels)
             {
                 if (chInfo.Utilization.HasValue || chInfo.NoiseFloor.HasValue)
@@ -3054,19 +3094,21 @@ public class ChannelRecommendationService
             sb.AppendLine($"    {graph.Nodes[i].Name}: {string.Join(", ", loads)}");
         }
 
-        // Scan channel data per AP
+        // Scan channel data per AP (with the scan's true age, so a stale reading is visible here).
+        var scanNow = DateTimeOffset.UtcNow;
         sb.AppendLine("  Scan channel metrics (utilization / noise floor):");
         for (int i = 0; i < n; i++)
         {
+            var scanAge = FormatScanAge(graph.Nodes[i].SpectrumScanTime, scanNow);
             if (graph.ScanChannelData[i].Count == 0)
             {
-                sb.AppendLine($"    {graph.Nodes[i].Name}: (no scan channel data)");
+                sb.AppendLine($"    {graph.Nodes[i].Name} ({scanAge}): (no scan channel data)");
                 continue;
             }
             var metrics = graph.ScanChannelData[i]
                 .OrderBy(kv => kv.Key.Channel).ThenBy(kv => kv.Key.Width)
                 .Select(kv => $"ch{kv.Key.Channel}/{kv.Key.Width}=util:{kv.Value.Utilization}%/nf:{(kv.Value.NoiseFloor.HasValue ? kv.Value.NoiseFloor + "dBm" : "n/a")}");
-            sb.AppendLine($"    {graph.Nodes[i].Name}: {string.Join(", ", metrics)}");
+            sb.AppendLine($"    {graph.Nodes[i].Name} ({scanAge}): {string.Join(", ", metrics)}");
         }
 
         // Mesh constraints
@@ -3185,5 +3227,124 @@ public class ChannelRecommendationService
         }
 
         _logger.LogDebug("{RecommendationSummary}", sb.ToString());
+    }
+
+    /// <summary>
+    /// Diagnostics for the scan-staleness question: for each AP, log how old its spectrum scan is and
+    /// whether that age could MATTER - either the guard held it off a channel using scan data
+    /// (strongest signal), or the scan term was decisive in picking its recommended channel - together
+    /// with whether the fresher neighbor scan still corroborates the reading. Debug-gated so the extra
+    /// scoring never runs in production with debug off. This is instrumentation to gather real
+    /// materiality data before we design a staleness-driven re-scan prompt; it changes no decisions.
+    /// </summary>
+    private void LogScanMateriality(
+        InterferenceGraph graph,
+        RadioBand band,
+        (int Channel, int Width)[] finalAssignment,
+        IReadOnlyDictionary<int, (int RejectedChannel, MeasuredWorseReason Reason)> measuredWorseHolds)
+    {
+        if (!_logger.IsEnabled(LogLevel.Debug)) return;
+        var n = graph.Nodes.Count;
+        if (n == 0) return;
+
+        var now = DateTimeOffset.UtcNow;
+        var sb = new StringBuilder();
+        sb.AppendLine($"[ChannelRec] === SCAN MATERIALITY ({band}) ===");
+
+        for (int i = 0; i < n; i++)
+        {
+            var node = graph.Nodes[i];
+            var age = FormatScanAge(node.SpectrumScanTime, now);
+
+            // Held-by-guard case: the scan (or measured interference) is directly load-bearing.
+            if (measuredWorseHolds.TryGetValue(i, out var hold))
+            {
+                var (rejectedCh, reason) = hold;
+                var ext = ExternalNeighborWeightOn(graph, band, i, rejectedCh, node.CurrentWidth);
+                var corroborated = ext >= CorroborationMinExternalWeight ? "CORROBORATED" : "UNCORROBORATED";
+                sb.AppendLine(
+                    $"  {node.Name} (scan {age}): HELD off ch{rejectedCh} by measured-worse guard " +
+                    $"[{DescribeMeasuredWorseArms(reason)}]; ch{rejectedCh} floor {corroborated} by neighbors (ext={ext:F2})");
+                continue;
+            }
+
+            // General case: is the scan term what tips this AP's recommended channel over its best
+            // alternative? Strip the scan term from both and see whether the ranking flips.
+            var recCh = finalAssignment[i].Channel;
+            var recWidth = finalAssignment[i].Width;
+            var recTotal = ScoreAp(graph, finalAssignment, i, band);
+            var recScan = ComputeScanScore(graph, band, i, recCh, recWidth);
+
+            int altCh = -1;
+            double altTotal = double.MaxValue, altScan = 0;
+            foreach (var ch in node.ValidChannels)
+            {
+                if (ch == recCh) continue;
+                var trial = ((int Channel, int Width)[])finalAssignment.Clone();
+                trial[i] = (ch, recWidth);
+                ApplyMeshConstraints(graph, trial);
+                var t = ScoreAp(graph, trial, i, band);
+                if (t < altTotal) { altTotal = t; altCh = ch; altScan = ComputeScanScore(graph, band, i, ch, recWidth); }
+            }
+
+            var ago = ExternalNeighborWeightOn(graph, band, i, recCh, recWidth);
+            if (altCh < 0)
+            {
+                sb.AppendLine($"  {node.Name} (scan {age}): rec ch{recCh}, no alternative channel");
+                continue;
+            }
+
+            // Decisive = rec currently wins, but with the scan term removed the alternative would.
+            var decisive = recTotal <= altTotal && (recTotal - recScan) > (altTotal - altScan);
+            var verdict = decisive
+                ? $"scan term DECISIVE over alt ch{altCh} (ch{recCh} {recTotal:F2} vs ch{altCh} {altTotal:F2}; without scan the alt wins)"
+                : $"scan term not decisive (best alt ch{altCh})";
+            sb.AppendLine($"  {node.Name} (scan {age}): rec ch{recCh}, {verdict}; ch{recCh} ext={ago:F2}");
+        }
+
+        _logger.LogDebug("{ScanMateriality}", sb.ToString());
+    }
+
+    /// <summary>Short human label for which measured-worse arm(s) tripped, with the compared values.</summary>
+    private static string DescribeMeasuredWorseArms(MeasuredWorseReason r)
+    {
+        var parts = new List<string>(2);
+        if (r.NoiseFloorArm)
+            parts.Add($"noise-floor {r.RecommendedNoiseFloor}dBm vs {r.CurrentNoiseFloor}dBm");
+        if (r.InterferenceArm)
+            parts.Add($"interference {r.RecommendedInterferencePct:F0}% vs {r.CurrentInterferencePct:F0}%");
+        return parts.Count > 0 ? string.Join("; ", parts) : "no arm";
+    }
+
+    /// <summary>The scan-derived score term (utilization + noise floor, band-weighted) an AP would carry
+    /// on a channel - the same computation <see cref="ScoreAp"/> adds, isolated so materiality can strip it.</summary>
+    private double ComputeScanScore(InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        var bandStress = GetBandStressMultiplier(band);
+        if (ScanReadingForScoring(graph, band, apIndex, channel, width) is { } s)
+            return s.Utilization * ScanUtilizationWeight * bandStress + ScanNoiseFloorPenalty(s.NoiseFloor) * bandStress;
+        return 0;
+    }
+
+    /// <summary>Total pooled external-neighbor weight overlapping a channel span, for corroboration checks.</summary>
+    private double ExternalNeighborWeightOn(InterferenceGraph graph, RadioBand band, int apIndex, int channel, int width)
+    {
+        var span = ChannelSpanHelper.GetChannelSpan(band, channel, width);
+        double w = 0;
+        foreach (var (extSpan, extWeight) in ExternalContributors(graph, band, apIndex))
+            if (ChannelSpanHelper.SpansOverlap(span, extSpan))
+                w += extWeight;
+        return w;
+    }
+
+    /// <summary>Human-readable age of a scan timestamp relative to now, for debug logs.</summary>
+    private static string FormatScanAge(DateTimeOffset? scanTime, DateTimeOffset now)
+    {
+        if (scanTime is not { } t) return "age unknown";
+        var age = now - t;
+        if (age < TimeSpan.Zero) return "just now";
+        if (age.TotalMinutes < 90) return $"{age.TotalMinutes:F0}m old";
+        if (age.TotalHours < 48) return $"{age.TotalHours:F1}h old";
+        return $"{age.TotalDays:F1}d old";
     }
 }

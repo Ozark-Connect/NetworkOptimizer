@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.WiFi.Data;
@@ -1275,6 +1276,55 @@ public class ChannelRecommendationServiceTests
 
         plan.Recommendations.First(r => r.ApMac == "aa:bb:cc:dd:ee:02").RecommendedChannel.Should().Be(11,
             "ch11 measures clean here, so the guard stays out of the way and the congested AP moves off ch6");
+    }
+
+    [Fact]
+    public void Optimize_ScanMaterialityLog_ReportsGuardHoldWithAgeArmAndCorroboration()
+    {
+        // The scan-materiality diagnostics are debug-gated, so exercise them with a real (capturing)
+        // logger: a guard hold on the -37 dBm ch11 must be reported with the scan age, the arm that
+        // tripped, and whether the neighbor scan still corroborates the loud floor.
+        var logger = new ListLogger<ChannelRecommendationService>();
+        var loader = new AntennaPatternLoader(NullLogger<AntennaPatternLoader>.Instance);
+        var prop = new PropagationService(loader, NullLogger<PropagationService>.Instance);
+        var svc = new ChannelRecommendationService(prop, logger);
+
+        var reg = StdUsRegulatory();
+        var options = new RecommendationOptions { DfsPreference = DfsPreference.IncludeWithPenalty };
+        var graph = BuildCh6VsCh11Graph(reg, options);
+        graph.ScanChannelData[1] = new()
+        {
+            { (1, 20), (42, (int?)(-55)) },
+            { (6, 20), (26, (int?)(-58)) },
+            { (11, 20), (25, (int?)(-37)) }
+        };
+        graph.Nodes[1].SpectrumScanTime = DateTimeOffset.UtcNow.AddHours(-3);
+
+        svc.Optimize(graph, RadioBand.Band2_4GHz, reg, options);
+
+        var materiality = logger.Messages.FirstOrDefault(m => m.Contains("SCAN MATERIALITY"));
+        materiality.Should().NotBeNull("the diagnostics block must be logged when debug is enabled");
+        materiality.Should()
+            .Contain("HELD off ch11")
+            .And.Contain("noise-floor -37dBm vs -58dBm")
+            .And.Contain("CORROBORATED", "ch11 carries substantial external neighbor weight here")
+            .And.Contain("old", "Downstairs' scan age (3h) must be rendered, not 'age unknown'");
+    }
+
+    /// <summary>Captures formatted log messages and reports debug as enabled, for asserting diagnostics.</summary>
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public readonly List<string> Messages = new();
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 
     [Fact]
