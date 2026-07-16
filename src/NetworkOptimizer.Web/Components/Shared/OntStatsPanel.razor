@@ -338,6 +338,9 @@ else
 
     public bool HasAnyAe => _monitoredOnts.Any(s => s.IsActiveEthernet);
 
+    /// <summary>Whether there's any monitored SFP module or configured external ONT to show.</summary>
+    public bool HasContent => _monitoredOnts.Count > 0 || _externalOnts.Count > 0;
+
     /// <summary>Whether the current item is an external ONT (for navigation routing)</summary>
     public bool IsCurrentExternal => IsShowingExternal;
 

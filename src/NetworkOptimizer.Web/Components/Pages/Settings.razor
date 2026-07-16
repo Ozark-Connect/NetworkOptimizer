@@ -952,7 +952,15 @@
     <!-- 6. Cellular Modem -->
     <div class="card settings-tab-monitoring" id="cellular-modem">
         <div class="card-header">
-            <h2 class="card-title">Cellular Modem (5G/LTE)</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Cellular Modem (5G/LTE)</h2>
+                @if (_monitoringSettings?.ShowCellularTab == true)
+                {
+                    <a href="/monitoring?tab=cellular" class="settings-title-link" data-tooltip="Open Cellular Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@modemStatus.ToLower()">@modemStatus</span>
         </div>
         <div class="card-body">
@@ -961,6 +969,16 @@
                 for signal strength and cell info. Stats are polled every 5 minutes.
                 SSH credentials are required for Ubiquiti and GL-iNet modems.
             </p>
+
+            @if (_monitoringSettings != null)
+            {
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_monitoringSettings.ShowCellularTab" @bind:after="SaveTabVisibilityAsync" />
+                        <span>Show the Cellular Stats tab in Monitoring</span>
+                    </label>
+                </div>
+            }
 
             @if (sshSettings?.HasCredentials != true &&
                  modemConfigs.Any(m => string.IsNullOrWhiteSpace(m.Provider) || m.Provider == "qmicli"))
@@ -1253,13 +1271,31 @@
     <!-- Cable Modem Monitoring -->
     <div class="card settings-tab-monitoring" id="cable-modem">
         <div class="card-header">
-            <h2 class="card-title">Cable Modem Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Cable Modem Monitoring</h2>
+                @if (_monitoringSettings?.ShowCmTab == true)
+                {
+                    <a href="/monitoring?tab=cm" class="settings-title-link" data-tooltip="Open CM Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@_cmStatus.ToLower()">@_cmStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
                 Monitor external cable modems (DOCSIS) for signal quality, SNR, and error rates.
             </p>
+
+            @if (_monitoringSettings != null)
+            {
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_monitoringSettings.ShowCmTab" @bind:after="SaveTabVisibilityAsync" />
+                        <span>Show the CM Stats tab in Monitoring</span>
+                    </label>
+                </div>
+            }
 
             @if (_cmConfigs.Count > 0)
             {
@@ -1426,13 +1462,31 @@
     <!-- ONT Device Monitoring -->
     <div class="card settings-tab-monitoring" id="ont-monitoring">
         <div class="card-header">
-            <h2 class="card-title">ONT Device Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">ONT Device Monitoring</h2>
+                @if (_monitoringSettings?.ShowOntTab == true)
+                {
+                    <a href="/monitoring?tab=ont" class="settings-title-link" data-tooltip="Open ONT Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@_ontStatus.ToLower()">@_ontStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
                 Monitor ONT devices (fiber optic terminals) for signal levels, temperature, and link state.
             </p>
+
+            @if (_monitoringSettings != null)
+            {
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_monitoringSettings.ShowOntTab" @bind:after="SaveTabVisibilityAsync" />
+                        <span>Show the ONT Stats tab in Monitoring</span>
+                    </label>
+                </div>
+            }
 
             @if (_ontConfigs.Count > 0)
             {
@@ -1593,19 +1647,41 @@
                     }
                 </div>
             }
+
+            <div class="alert alert-info">
+                Using an SFP ONT with DDM support? Use <strong>Set ONT</strong> on the <a href="/monitoring?tab=sfp&expand=optical">SFP Stats</a> tab to read its optical levels off the port. The external polling here is for ONTs monitored over the network instead.
+            </div>
         </div>
     </div>
 
     <!-- Starlink Monitoring -->
     <div class="card settings-tab-monitoring" id="starlink">
         <div class="card-header">
-            <h2 class="card-title">Starlink Monitoring</h2>
+            <div class="card-header-left">
+                <h2 class="card-title">Starlink Monitoring</h2>
+                @if (_monitoringSettings?.ShowStarlinkTab == true)
+                {
+                    <a href="/monitoring?tab=starlink" class="settings-title-link" data-tooltip="Open Starlink Stats">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+                    </a>
+                }
+            </div>
             <span class="status-badge status-@_starlinkStatus.ToLower()">@_starlinkStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
                 Monitor Starlink terminals over the dish's local gRPC API for power draw, obstruction, outages, and alignment.
             </p>
+
+            @if (_monitoringSettings != null)
+            {
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_monitoringSettings.ShowStarlinkTab" @bind:after="SaveTabVisibilityAsync" />
+                        <span>Show the Starlink Stats tab in Monitoring</span>
+                    </label>
+                </div>
+            }
 
             @if (_starlinkConfigs.Count > 0)
             {
@@ -7135,6 +7211,32 @@
         catch
         {
             _monitoringSettings = null;
+        }
+    }
+
+    /// <summary>
+    /// Persist the per-site Monitoring stat-tab visibility toggles. The settings row
+    /// returned by GetOrCreateSettingsAsync is detached, so the change is written
+    /// through a fresh site-scoped context (matching the temp-threshold save path).
+    /// </summary>
+    private async Task SaveTabVisibilityAsync()
+    {
+        if (_monitoringSettings == null) return;
+        try
+        {
+            await using var db = SiteDb.CreateForSite(SiteContext.Slug, SiteContext.IsDefault);
+            var settings = await db.MonitoringSettings.FirstOrDefaultAsync() ?? new MonitoringSettings();
+            if (settings.Id == 0) db.MonitoringSettings.Add(settings);
+            settings.ShowCmTab = _monitoringSettings.ShowCmTab;
+            settings.ShowOntTab = _monitoringSettings.ShowOntTab;
+            settings.ShowCellularTab = _monitoringSettings.ShowCellularTab;
+            settings.ShowStarlinkTab = _monitoringSettings.ShowStarlinkTab;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch
+        {
+            // Best-effort persistence; the toggle keeps its in-memory state either way.
         }
     }
 

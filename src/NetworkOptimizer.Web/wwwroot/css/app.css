@@ -479,6 +479,24 @@ h1:focus {
     gap: 0.75rem;
 }
 
+@media (max-width: 768px) {
+    .monitoring-chart-header:has(.time-range-selector):has(.settings-link) {
+        position: relative;
+        padding-right: 2.75rem;
+    }
+
+    .monitoring-chart-header:has(.time-range-selector):has(.settings-link) .card-title {
+        line-height: 24px;
+    }
+
+    .monitoring-chart-header:has(.time-range-selector):has(.settings-link) .settings-link {
+        position: absolute;
+        top: 4px;
+        right: 0;
+        margin: 0;
+    }
+}
+
 .card-header-collapsible {
     cursor: pointer;
     user-select: none;
@@ -493,6 +511,17 @@ h1:focus {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+}
+
+.settings-title-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    transition: color 0.15s ease;
+}
+
+.settings-title-link:hover {
+    color: var(--primary-color);
 }
 
 .card-header-right {

@@ -24,6 +24,7 @@
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 @inject NavigationManager NavigationManager
+@inject PersistentComponentState PersistState
 @inject NetworkOptimizer.Web.Services.Monitoring.UpstreamTracerService UpstreamTracer
 @inject ISystemSettingsService SystemSettings
 @inject DashboardLayoutService DashboardLayout
@@ -124,26 +125,43 @@ else
                     disabled="@(!_monitoringReady)">
                 SFP Stats
             </button>
-            <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("cm"))"
-                    disabled="@(!_monitoringReady)">
-                CM Stats
-            </button>
-            <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("ont"))"
-                    disabled="@(!_monitoringReady)">
-                ONT Stats
-            </button>
-            <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("cellular"))"
-                    disabled="@(!_monitoringReady)">
-                Cellular Stats
-            </button>
-            <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
-                    @onclick="@(() => SetActiveTab("starlink"))"
-                    disabled="@(!_monitoringReady)">
-                Starlink Stats
-            </button>
+            @* Optional per-hardware tabs, hidden from the nav when the matching
+               Settings toggle is off. Gated on _tabVisibilityLoaded so they don't
+               flash in at their default before per-site settings load.
+               ResolveDefaultTab redirects a pinned ?tab= off a hidden tab, so the
+               active tab is never one of these when hidden. *@
+            @if (_tabVisibilityLoaded && _showCmTab)
+            {
+                <button class="wifi-view-tab @(_activeTab == "cm" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("cm"))"
+                        disabled="@(!_monitoringReady)">
+                    CM Stats
+                </button>
+            }
+            @if (_tabVisibilityLoaded && _showOntTab)
+            {
+                <button class="wifi-view-tab @(_activeTab == "ont" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("ont"))"
+                        disabled="@(!_monitoringReady)">
+                    ONT Stats
+                </button>
+            }
+            @if (_tabVisibilityLoaded && _showCellularTab)
+            {
+                <button class="wifi-view-tab @(_activeTab == "cellular" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("cellular"))"
+                        disabled="@(!_monitoringReady)">
+                    Cellular Stats
+                </button>
+            }
+            @if (_tabVisibilityLoaded && _showStarlinkTab)
+            {
+                <button class="wifi-view-tab @(_activeTab == "starlink" ? "active" : "")"
+                        @onclick="@(() => SetActiveTab("starlink"))"
+                        disabled="@(!_monitoringReady)">
+                    Starlink Stats
+                </button>
+            }
             <button class="wifi-view-tab" @onclick='() => NavigationManager.NavigateTo("/alerts?tab=data-usage")'>
                 Data Usage
             </button>
@@ -631,7 +649,8 @@ else
                 }
             </div>
         }
-        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged" />
+        <SfpModulesCard AllSfps="_allSfps" Targets="_targets" DeviceIpByMac="_deviceIpByMac" OnSfpChanged="OnSfpChanged"
+                        ForceExpand="@(string.Equals(ExpandParam, "optical", StringComparison.OrdinalIgnoreCase))" />
 
         @if (_monitoredSfps.Count > 0)
         {
@@ -804,7 +823,7 @@ else
         {
         @if (!_cmHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cable Modem Signal History</h2>
                     <a href="/settings#cable-modem" class="tooltip-icon settings-link" data-tooltip="Cable Modem settings">
@@ -818,7 +837,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="cm-charts-container">
+        <div class="card" id="cm-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cable Modem Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -905,7 +924,7 @@ else
         {
         @if (!_ontHasDevices && _monitoredSfps.Any(s => s.Category == SfpCategory.Pon))
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
                     <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
@@ -919,7 +938,7 @@ else
         }
         else if (!_ontHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">ONT Signal History</h2>
                     <a href="/settings#ont-monitoring" class="tooltip-icon settings-link" data-tooltip="ONT monitoring settings">
@@ -933,7 +952,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="ont-charts-container">
+        <div class="card" id="ont-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">ONT Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1012,7 +1031,7 @@ else
         {
         @if (!_cellularHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Cellular Signal History</h2>
                     <a href="/settings#cellular-modem" class="tooltip-icon settings-link" data-tooltip="Cellular Modem settings">
@@ -1026,7 +1045,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="cellular-charts-container">
+        <div class="card" id="cellular-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Cellular Signal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1113,7 +1132,7 @@ else
         {
         @if (!_starlinkHasDevices)
         {
-            <div class="card" style="margin-top: 1.5rem;">
+            <div class="card">
                 <div class="card-header monitoring-chart-header">
                     <h2 class="card-title">Starlink Terminal History</h2>
                     <a href="/settings#starlink" class="tooltip-icon settings-link" data-tooltip="Starlink settings">
@@ -1127,7 +1146,7 @@ else
         }
         else
         {
-        <div class="card" style="margin-top: 1.5rem;" id="starlink-charts-container">
+        <div class="card" id="starlink-charts-container">
             <div class="card-header monitoring-chart-header">
                 <h2 class="card-title">Starlink Terminal History</h2>
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1493,6 +1512,9 @@ else
     [SupplyParameterFromQuery(Name = "starlink")]
     public string? StarlinkParam { get; set; }
 
+    [SupplyParameterFromQuery(Name = "expand")]
+    public string? ExpandParam { get; set; }
+
     [SupplyParameterFromQuery(Name = "mifip")]
     public string? MiTargetParam { get; set; }
 
@@ -1542,6 +1564,16 @@ else
     private bool _ontHasDevices;
     private bool _cellularHasDevices;
     private bool _starlinkHasDevices;
+    // Per-site Monitoring tab visibility (from MonitoringSettings; default shown).
+    private bool _showCmTab = true;
+    private bool _showOntTab = true;
+    private bool _showCellularTab = true;
+    private bool _showStarlinkTab = true;
+    // Gate the optional tabs until visibility is known, and carry it from prerender
+    // to the interactive circuit so the hideable tabs don't flash in before load.
+    private bool _tabVisibilityLoaded;
+    private PersistingComponentStateSubscription _tabVisPersistSub;
+    private const string TabVisStateKey = "monitoring-tab-visibility";
     private bool _forceExpandUpstream;
 
     // "Results ready" banner for the scheduled upstream re-discovery, surfaced on the
@@ -1600,6 +1632,21 @@ else
         "live", "isp-health", "performance", "devices", "sfp", "cm", "ont", "cellular", "starlink", "setup"
     };
 
+    /// <summary>
+    /// True when <paramref name="tab"/> is one of the optional per-hardware stat tabs
+    /// that this site has hidden. Used so a pinned ?tab= (e.g. after switching to a
+    /// site that doesn't show that tab) falls back to the default instead of landing
+    /// on a hidden tab.
+    /// </summary>
+    private bool IsHardwareTabHidden(string tab) => tab switch
+    {
+        "cm" => !_showCmTab,
+        "ont" => !_showOntTab,
+        "cellular" => !_showCellularTab,
+        "starlink" => !_showStarlinkTab,
+        _ => false
+    };
+
     private string ResolveDefaultTab()
     {
         // Every tab except Setup is gated on _monitoringReady and renders blank when
@@ -1607,7 +1654,10 @@ else
         // explicit ?tab= so a deep-link (e.g. a Device Status dashboard click ->
         // ?tab=devices) into an unconfigured site lands on Setup, not a blank tab.
         if (!_monitoringReady) return "setup";
-        if (TabParam != null && ValidTabs.Contains(TabParam))
+        // A pinned ?tab= for a hardware stat tab hidden on this site (common after a
+        // site switch, where the tab is carried in the URL) falls through to the
+        // default rather than opening a tab the site chose to hide.
+        if (TabParam != null && ValidTabs.Contains(TabParam) && !IsHardwareTabHidden(TabParam.ToLowerInvariant()))
             return TabParam.ToLowerInvariant();
         if (_influxReachable == false || _snmpState == SnmpDetectionState.PollFailing)
             return "setup";
@@ -1718,11 +1768,33 @@ else
     {
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
+        // Restore tab visibility persisted from prerender so the interactive render
+        // shows the correct tabs immediately instead of flashing the default (all shown).
+        _tabVisPersistSub = PersistState.RegisterOnPersisting(() =>
+        {
+            PersistState.PersistAsJson(TabVisStateKey,
+                new[] { _showCmTab, _showOntTab, _showCellularTab, _showStarlinkTab });
+            return Task.CompletedTask;
+        });
+        if (PersistState.TryTakeFromJson<bool[]>(TabVisStateKey, out var tabVis) && tabVis is { Length: 4 })
+        {
+            _showCmTab = tabVis[0];
+            _showOntTab = tabVis[1];
+            _showCellularTab = tabVis[2];
+            _showStarlinkTab = tabVis[3];
+            _tabVisibilityLoaded = true;
+        }
+
         var settings = await SnmpDetection.GetOrCreateSettingsAsync();
         _snmpState = settings.SnmpDetectionState;
         await RefreshInfluxStateAsync(settings);
         _switchTempThresholdInput = settings.SwitchTempHighC;
         _gatewayTempThresholdInput = settings.GatewayTempHighC;
+        _showCmTab = settings.ShowCmTab;
+        _showOntTab = settings.ShowOntTab;
+        _showCellularTab = settings.ShowCellularTab;
+        _showStarlinkTab = settings.ShowStarlinkTab;
+        _tabVisibilityLoaded = true;
         LoadSfpThresholdInputs(settings);
         await LoadTargetsAsync();
 
@@ -3646,6 +3718,7 @@ else
     public void Dispose()
     {
         ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+        _tabVisPersistSub.Dispose();
         _liveRefreshTimer?.Dispose();
         _dataRefreshTimer?.Dispose();
         _testFeedbackTimer?.Dispose();
