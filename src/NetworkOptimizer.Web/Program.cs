@@ -865,7 +865,7 @@ using (var scope = app.Services.CreateScope())
                 .UseSqlite($"Data Source={siteDbPath}")
                 .Options;
             using var siteDb = new NetworkOptimizerDbContext(siteOptions);
-            siteDb.Database.Migrate();
+            NetworkOptimizer.Storage.MigrationSafety.MigrateWithFriendlyErrors(siteDb);
 
             // Seed the Alerts & Schedule defaults into each site's DB too, so secondary
             // sites match the main site instead of showing blank lists. The main-DB seed

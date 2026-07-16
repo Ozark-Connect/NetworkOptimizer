@@ -11,8 +11,9 @@ namespace NetworkOptimizer.Storage.Tests;
 /// <summary>
 /// Exercises the real EF Core migration pipeline against a file-backed SQLite database (no
 /// EnsureCreated, no EF InMemory provider). Covers the AddMonitoringInterfaceAlias migration that
-/// tightens the WanIfName+Name unique index down to Name alone, and the MigrationSafety wrapper that
-/// turns the resulting raw SQLite constraint error into an actionable message.
+/// tightens the WanIfName+Name unique index down to Name alone (auto-suffixing colliding names so
+/// existing installs keep starting), and the MigrationSafety wrapper that turns the remaining raw
+/// SQLite constraint errors into actionable messages.
 /// </summary>
 public class MonitoringInterfaceMigrationTests : IDisposable
 {
@@ -61,11 +62,15 @@ public class MonitoringInterfaceMigrationTests : IDisposable
     }
 
     [Fact]
-    public void MigrateWithFriendlyErrors_WhenExistingRowsShareNameAcrossWans_ThrowsHelpfulError()
+    public void MigrateWithFriendlyErrors_WhenExistingRowsShareNameAcrossWans_AutoSuffixesInsteadOfBlocking()
     {
         // Simulate an existing database from before the tightening: migrate up to (but not
         // including) AddMonitoringInterfaceAlias, then seed two rows that share a Name on
         // different WANs - legal under the old WanIfName+Name index but not the new Name index.
+        // Such rows were already broken on the gateway (same boot-script file, same macvlan
+        // name), so the migration renames every colliding row except the oldest to
+        // "<name>-<id>" rather than blocking startup. The 15-char pair proves the truncation
+        // keeps the suffixed name inside the validated shape.
         using (var context = CreateContext())
         {
             var migrator = context.GetService<IMigrator>();
@@ -74,10 +79,45 @@ public class MonitoringInterfaceMigrationTests : IDisposable
             context.Database.ExecuteSqlRaw(
                 """
                 INSERT INTO MonitoringInterfaces
-                    (Name, WanIfName, TargetIp, SubnetPrefix, GatewayLocalIp, SnatEnabled, WatchdogIntervalMinutes, IsManuallyDeployed, CreatedAt, UpdatedAt)
+                    (Id, Name, WanIfName, TargetIp, SubnetPrefix, GatewayLocalIp, SnatEnabled, WatchdogIntervalMinutes, IsManuallyDeployed, CreatedAt, UpdatedAt)
                 VALUES
-                    ('modem0', 'eth4', '192.168.100.1', 24, '192.168.100.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00'),
-                    ('modem0', 'eth2', '192.168.200.1', 24, '192.168.200.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00');
+                    (1, 'modem0', 'eth4', '192.168.100.1', 24, '192.168.100.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00'),
+                    (2, 'modem0', 'eth2', '192.168.200.1', 24, '192.168.200.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00'),
+                    (3, 'abcdefghijklmno', 'eth5', '192.168.150.1', 24, '192.168.150.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00'),
+                    (4, 'abcdefghijklmno', 'eth6', '192.168.160.1', 24, '192.168.160.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00');
+                """);
+        }
+
+        using (var context = CreateContext())
+        {
+            var act = () => MigrationSafety.MigrateWithFriendlyErrors(context);
+
+            act.Should().NotThrow();
+            var names = context.MonitoringInterfaces.OrderBy(m => m.Id).Select(m => m.Name).ToList();
+            names.Should().Equal("modem0", "modem0-2", "abcdefghijklmno", "abcdefghijklm-4");
+            names.Should().OnlyContain(n => n.Length <= 15);
+        }
+    }
+
+    [Fact]
+    public void MigrateWithFriendlyErrors_WhenAutoSuffixedNameCollidesWithExistingRow_ThrowsHelpfulError()
+    {
+        // Pathological: a pre-existing row already holds exactly the name the fixup would
+        // assign ("modem0-2"). The rename then collides, the unique index fails, and the
+        // friendly Name error surfaces instead of a raw SQLite exception.
+        using (var context = CreateContext())
+        {
+            var migrator = context.GetService<IMigrator>();
+            migrator.Migrate(PreAliasMigration);
+
+            context.Database.ExecuteSqlRaw(
+                """
+                INSERT INTO MonitoringInterfaces
+                    (Id, Name, WanIfName, TargetIp, SubnetPrefix, GatewayLocalIp, SnatEnabled, WatchdogIntervalMinutes, IsManuallyDeployed, CreatedAt, UpdatedAt)
+                VALUES
+                    (1, 'modem0', 'eth4', '192.168.100.1', 24, '192.168.100.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00'),
+                    (2, 'modem0', 'eth2', '192.168.200.1', 24, '192.168.200.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00'),
+                    (3, 'modem0-2', 'eth5', '192.168.150.1', 24, '192.168.150.2', 1, 5, 0, '2026-01-01T00:00:00', '2026-01-01T00:00:00');
                 """);
         }
 

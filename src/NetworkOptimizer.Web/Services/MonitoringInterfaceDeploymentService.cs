@@ -219,6 +219,31 @@ public class MonitoringInterfaceDeploymentService
         return null;
     }
 
+    /// <summary>
+    /// Defense-in-depth guard for the methods that interpolate row values into root SSH
+    /// commands without running the full <see cref="Validate"/> (remove/status). Shape-only -
+    /// none of Validate's business rules (id range, SNAT requirement, subnet relations) - so
+    /// rows that can no longer pass full validation (e.g. an aliased row whose id outgrew the
+    /// mark range) can still be cleaned up and inspected, while a row whose strings wouldn't
+    /// survive shell interpolation (a hand-edited database) is rejected before reaching SSH.
+    /// The only current write path (the card's ValidateAndSaveAsync) always runs Validate
+    /// first, so this should never fire in normal operation.
+    /// </summary>
+    private static void EnsureShellSafeStrings(MonitoringInterface mi)
+    {
+        static bool IsIpv4(string? s) => (s ?? "").Split('.').Length == 4 &&
+            IPAddress.TryParse(s, out var a) && a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(mi.Name ?? "", @"\A[a-z][a-z0-9-]{0,14}\z") ||
+            !System.Text.RegularExpressions.Regex.IsMatch(mi.WanIfName ?? "", @"\A[a-zA-Z0-9._-]{1,20}\z") ||
+            !IsIpv4(mi.TargetIp) || !IsIpv4(mi.GatewayLocalIp) ||
+            (mi.AliasIp != null && !IsIpv4(mi.AliasIp)))
+        {
+            throw new InvalidOperationException(
+                $"Monitoring interface {mi.Id} contains values that fail shell-safety validation; refusing to build SSH commands from it.");
+        }
+    }
+
     /// <summary>Reason a deploy preflight blocked, or <see cref="None"/> when clear to deploy.</summary>
     public enum PreflightBlock
     {
@@ -392,7 +417,8 @@ public class MonitoringInterfaceDeploymentService
             {
                 return new DeployResult(false, PreflightBlock.MarkRangeConflict,
                     $"Table {table} (derived from this interface's own id) is already used by something else on the gateway. " +
-                    "This should not happen under normal operation - report it rather than deploying.", steps);
+                    "If you recently edited this interface's alias or target IP, these are likely its own stale rules - " +
+                    "click Remove, then Deploy, to clear and recreate them. Otherwise report it rather than deploying.", steps);
             }
             // Honest about the residual risk: unlike the boot script's other idempotent
             // checks, its cleanup_marked_rules() sweep for THIS range would happily flush or
@@ -436,6 +462,7 @@ public class MonitoringInterfaceDeploymentService
     /// </summary>
     public async Task<(bool success, List<string> steps)> RemoveAsync(MonitoringInterface mi)
     {
+        EnsureShellSafeStrings(mi);
         var steps = new List<string>();
         var path = ScriptPath(mi);
         var success = true;
@@ -565,6 +592,7 @@ public class MonitoringInterfaceDeploymentService
     /// </summary>
     public async Task<InterfaceStatus> CheckStatusAsync(MonitoringInterface mi)
     {
+        EnsureShellSafeStrings(mi);
         var status = new InterfaceStatus();
         var path = ScriptPath(mi);
 
@@ -679,7 +707,11 @@ public class MonitoringInterfaceDeploymentService
     public static string GenerateBootScript(MonitoringInterface mi)
     {
         var aliased = mi.AliasIp != null;
+        // The verbatim template inherits this source file's checked-out line endings
+        // (CRLF on Windows with autocrlf) - normalize here so the generated script is
+        // LF-only everywhere it's consumed, not just after DeployAsync's upload scrub.
         return BootScriptTemplate
+            .Replace("\r\n", "\n")
             .Replace("__IFACE__", mi.Name)
             .Replace("__WAN_IF__", mi.WanIfName)
             .Replace("__VLAN_ID__", mi.WanVlanId?.ToString() ?? "")
